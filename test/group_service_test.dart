@@ -19,6 +19,7 @@ import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/domain/space_lifecycle.dart';
+import 'package:xveil/domain/space_join_request.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_rules.dart';
@@ -2906,6 +2907,167 @@ void main() {
         GroupRole.member,
       );
       expect(await bobService.pendingSpaceInvites(), isEmpty);
+    },
+  );
+
+  test(
+    'public Space join link admits a non-contact only after signed approval',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final requesterStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await requesterStorage.open(password: 'requester', createIfMissing: true);
+      late GroupService ownerService;
+      late GroupService requesterService;
+      ownerService = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        sendSpaceJoinDecision: (peer, requestId, json) async {
+          expect(peer, bob);
+          if (!await requesterService.receiveSpaceJoinDecision(owner, json)) {
+            throw StateError('requester rejected a valid decision');
+          }
+        },
+        send: (peer, spaceId, json) async {
+          if (peer == bob &&
+              !await requesterService.ingestGroupEntryFromStranger(
+                owner,
+                json,
+              )) {
+            throw StateError('requester rejected approved Space snapshot');
+          }
+        },
+      );
+      requesterService = GroupService(
+        requesterStorage,
+        _FakeSigner(bob),
+        sendSpaceJoinRequest: (peer, requestId, json) async {
+          expect(peer, owner);
+          if (!await ownerService.receiveSpaceJoinRequest(bob, json)) {
+            throw StateError('approver rejected a valid join request');
+          }
+        },
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(requesterService.dispose);
+
+      final groupChat = await ownerService.createGroup('Team chat');
+      expect(
+        await ownerService.createSpaceJoinCode(groupChat),
+        isNull,
+        reason: 'group chats remain chats and never become public Spaces',
+      );
+      final privateSpace = await ownerService.createSpace('Private lab');
+      expect(await ownerService.createSpaceJoinCode(privateSpace), isNull);
+      final spaceId = await ownerService.createSpace(
+        'Public lab',
+        visibility: SpaceVisibility.public,
+      );
+      final code = await ownerService.createSpaceJoinCode(spaceId);
+      expect(code, startsWith('xveil://space/v1#'));
+      expect(
+        (await ownerService.currentSpaceJoinCode(spaceId)),
+        code,
+        reason: 'copying the same active link must not rotate its capability',
+      );
+
+      final unsolicited = ownerService.snapshotJson(
+        (await ownerService.load(spaceId))!,
+        recipient: bob,
+      );
+      expect(
+        await requesterService.ingestGroupEntryFromStranger(owner, unsolicited),
+        isFalse,
+      );
+      expect(await requesterService.load(spaceId), isNull);
+
+      expect(await requesterService.requestToJoinSpace(code!), isTrue);
+      expect(
+        await ownerService.pendingSpaceJoinRequests(spaceId),
+        hasLength(1),
+      );
+      final outgoing = await requesterService.outgoingSpaceJoinRequests();
+      expect(outgoing, hasLength(1));
+      expect(outgoing.single.ticket.spaceName, 'Public lab');
+      expect(
+        outgoing.single.request.ticketHash,
+        spaceJoinTicketHash(outgoing.single.ticket),
+      );
+
+      // A second request for the same Space reuses the durable id instead of
+      // creating a spam row or a second membership ceremony.
+      expect(await requesterService.requestToJoinSpace(code), isTrue);
+      expect(
+        await ownerService.pendingSpaceJoinRequests(spaceId),
+        hasLength(1),
+      );
+
+      final requestId = outgoing.single.request.requestId;
+      expect(
+        await ownerService.decideSpaceJoinRequest(requestId, accept: true),
+        isTrue,
+      );
+      await pump();
+      expect(
+        (await ownerService.stateOf(spaceId))!.roleOf(bob),
+        GroupRole.member,
+      );
+      expect(
+        (await requesterService.stateOf(spaceId))!.roleOf(bob),
+        GroupRole.member,
+      );
+      expect(await requesterService.outgoingSpaceJoinRequests(), isEmpty);
+      expect(await ownerService.pendingSpaceJoinRequests(spaceId), isEmpty);
+    },
+  );
+
+  test(
+    'revoked public Space join link receives no durable acceptance',
+    () async {
+      final storage = FakeHvContainer().storage();
+      final requesterStorage = FakeHvContainer().storage();
+      await storage.open(password: 'owner', createIfMissing: true);
+      await requesterStorage.open(password: 'requester', createIfMissing: true);
+      late GroupService ownerService;
+      ownerService = GroupService(storage, _FakeSigner(owner));
+      final requesterService = GroupService(
+        requesterStorage,
+        _FakeSigner(bob),
+        sendSpaceJoinRequest: (peer, requestId, json) async {
+          if (!await ownerService.receiveSpaceJoinRequest(bob, json)) {
+            throw StateError('revoked ticket rejected');
+          }
+        },
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(requesterService.dispose);
+      final spaceId = await ownerService.createSpace(
+        'Revocation lab',
+        visibility: SpaceVisibility.public,
+      );
+      final code = (await ownerService.createSpaceJoinCode(spaceId))!;
+      final ticket = SpaceJoinCode.parse(code);
+      final tampered = SpaceJoinRequest(
+        requestId: 'ef' * 32,
+        ticketId: ticket.ticketId,
+        ticketHash: '00' * 32,
+        spaceId: spaceId,
+        requester: bob,
+        approver: owner,
+        createdAtMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      expect(
+        await ownerService.receiveSpaceJoinRequest(
+          bob,
+          jsonEncode(tampered.toJson()),
+        ),
+        isFalse,
+        reason: 'the request must be bound to the exact bearer ticket',
+      );
+      expect(await ownerService.revokeSpaceJoinCode(spaceId), isTrue);
+      expect(await requesterService.requestToJoinSpace(code), isFalse);
+      expect(await ownerService.pendingSpaceJoinRequests(spaceId), isEmpty);
+      expect((await ownerService.stateOf(spaceId))!.isMember(bob), isFalse);
     },
   );
 

@@ -24,7 +24,9 @@ extension _MessagingInboundDispatch on MessagingService {
         env.kind == WireKind.cloudDocument ||
         env.kind == WireKind.cloudDocumentChunk ||
         env.kind == WireKind.spaceInvite ||
-        env.kind == WireKind.spaceInviteDecision;
+        env.kind == WireKind.spaceInviteDecision ||
+        env.kind == WireKind.spaceJoinRequest ||
+        env.kind == WireKind.spaceJoinDecision;
     final deferredGroupCallAck = env.kind == WireKind.groupCallSignal;
     if (fid != null && deferredGroupCallAck && _outbox.hasSeen(fid)) {
       // This exact frame passed membership+AEAD+signature once already. A
@@ -149,9 +151,12 @@ extension _MessagingInboundDispatch on MessagingService {
         // peer we already accepted (we send messages — hence acks — only to them).
         // The peer confirms delivery of our message [env.id] — stop re-sending.
         final ackId = env.id;
-        if (existing?.status != ContactStatus.accepted &&
-            (ackId == null || !await _authorizedGroupCallAck(m.src, ackId))) {
-          return;
+        if (existing?.status != ContactStatus.accepted) {
+          if (ackId == null ||
+              (!await _authorizedGroupCallAck(m.src, ackId) &&
+                  !await _authorizedSpaceJoinAck(m.src, ackId))) {
+            return;
+          }
         }
         if (ackId != null) {
           // Retire a durable control frame the peer just confirmed (sign, edit,
@@ -393,6 +398,42 @@ extension _MessagingInboundDispatch on MessagingService {
         if (fid != null) {
           await _ackFrame(m, fid);
           _outbox.remember(fid);
+        }
+        return;
+      case WireKind.spaceJoinRequest:
+        // The opaque ticket capability replaces contact consent for this one
+        // narrow frame. Persist+policy validation happens before ACK; invalid,
+        // revoked, rate-limited and blocked requests receive no response.
+        if (fid != null && _outbox.hasSeen(fid)) {
+          await _ackFrame(m, fid);
+          return;
+        }
+        final joinRequestHandler = onSpaceJoinRequest;
+        if (joinRequestHandler == null ||
+            !await joinRequestHandler(m.src, env.body)) {
+          return;
+        }
+        if (fid != null) {
+          _outbox.remember(fid);
+          await _ackFrame(m, fid);
+        }
+        return;
+      case WireKind.spaceJoinDecision:
+        // The requester already holds the exact outgoing request+ticket. The
+        // decision is status only; a signed addMember snapshot remains the
+        // sole authority for materialization.
+        if (fid != null && _outbox.hasSeen(fid)) {
+          await _ackFrame(m, fid);
+          return;
+        }
+        final joinDecisionHandler = onSpaceJoinDecision;
+        if (joinDecisionHandler == null ||
+            !await joinDecisionHandler(m.src, env.body)) {
+          return;
+        }
+        if (fid != null) {
+          _outbox.remember(fid);
+          await _ackFrame(m, fid);
         }
         return;
       case WireKind.reaction:

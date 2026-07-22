@@ -452,6 +452,72 @@ class AppL10nRu extends AppL10n {
   String get spaceInviteJoining => 'Принято · ожидается проверенное членство';
 
   @override
+  String get spaceJoinAction => 'Вступить по ссылке';
+
+  @override
+  String get spaceJoinDialogTitle => 'Запросить вступление в сообщество';
+
+  @override
+  String get spaceJoinCodeHint => 'Вставьте ссылку xveil://space';
+
+  @override
+  String get spaceJoinSafetyHint =>
+      'Ссылка отправляет только заявку. Каналы, участники и ключи останутся недоступны, пока администратор не подтвердит вступление подписанной записью.';
+
+  @override
+  String get spaceJoinRequestSent =>
+      'Заявка отправлена. Сообщество появится после подписанного подтверждения.';
+
+  @override
+  String get spaceJoinRequestsTitle => 'Заявки на вступление';
+
+  @override
+  String spaceJoinRequestFrom(String peer) {
+    return 'Заявка от $peer';
+  }
+
+  @override
+  String get spaceJoinRequestPending => 'Ожидает подтверждения';
+
+  @override
+  String get spaceJoinRequestApproved =>
+      'Одобрено · получаем проверенное членство';
+
+  @override
+  String get spaceJoinRequestDeclined => 'Отклонено';
+
+  @override
+  String get spaceJoinDismiss => 'Скрыть';
+
+  @override
+  String get spaceJoinApprove => 'Одобрить';
+
+  @override
+  String get spaceJoinDecline => 'Отклонить';
+
+  @override
+  String get spaceJoinLinkTitle => 'Публичная ссылка для вступления';
+
+  @override
+  String get spaceJoinLinkHint =>
+      'Любой, у кого есть эта отзывная ссылка, сможет отправить заявку. Сама ссылка никогда не предоставляет доступ.';
+
+  @override
+  String get spaceJoinLinkCreate => 'Создать ссылку';
+
+  @override
+  String get spaceJoinLinkCopy => 'Копировать ссылку';
+
+  @override
+  String get spaceJoinLinkRevoke => 'Отозвать ссылку';
+
+  @override
+  String get spaceJoinLinkCopied => 'Ссылка для вступления скопирована';
+
+  @override
+  String get spaceJoinLinkRevoked => 'Ссылка для вступления отозвана';
+
+  @override
   String get spaceRoleLabel => 'Роль в сообществе';
 
   @override

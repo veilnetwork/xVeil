@@ -889,6 +889,126 @@ abstract class AppL10n {
   /// **'Accepted · waiting for verified membership'**
   String get spaceInviteJoining;
 
+  /// No description provided for @spaceJoinAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Join with link'**
+  String get spaceJoinAction;
+
+  /// No description provided for @spaceJoinDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Request to join a community'**
+  String get spaceJoinDialogTitle;
+
+  /// No description provided for @spaceJoinCodeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste an xveil://space link'**
+  String get spaceJoinCodeHint;
+
+  /// No description provided for @spaceJoinSafetyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The link sends only a membership request. Channels, members and keys stay unavailable until an administrator approves it with a signed grant.'**
+  String get spaceJoinSafetyHint;
+
+  /// No description provided for @spaceJoinRequestSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Request sent. The community will appear after signed approval.'**
+  String get spaceJoinRequestSent;
+
+  /// No description provided for @spaceJoinRequestsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Join requests'**
+  String get spaceJoinRequestsTitle;
+
+  /// No description provided for @spaceJoinRequestFrom.
+  ///
+  /// In en, this message translates to:
+  /// **'Request from {peer}'**
+  String spaceJoinRequestFrom(String peer);
+
+  /// No description provided for @spaceJoinRequestPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for approval'**
+  String get spaceJoinRequestPending;
+
+  /// No description provided for @spaceJoinRequestApproved.
+  ///
+  /// In en, this message translates to:
+  /// **'Approved · receiving verified membership'**
+  String get spaceJoinRequestApproved;
+
+  /// No description provided for @spaceJoinRequestDeclined.
+  ///
+  /// In en, this message translates to:
+  /// **'Declined'**
+  String get spaceJoinRequestDeclined;
+
+  /// No description provided for @spaceJoinDismiss.
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss'**
+  String get spaceJoinDismiss;
+
+  /// No description provided for @spaceJoinApprove.
+  ///
+  /// In en, this message translates to:
+  /// **'Approve'**
+  String get spaceJoinApprove;
+
+  /// No description provided for @spaceJoinDecline.
+  ///
+  /// In en, this message translates to:
+  /// **'Decline'**
+  String get spaceJoinDecline;
+
+  /// No description provided for @spaceJoinLinkTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Public join link'**
+  String get spaceJoinLinkTitle;
+
+  /// No description provided for @spaceJoinLinkHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Anyone with this revocable link may request membership. The link never grants access by itself.'**
+  String get spaceJoinLinkHint;
+
+  /// No description provided for @spaceJoinLinkCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Create link'**
+  String get spaceJoinLinkCreate;
+
+  /// No description provided for @spaceJoinLinkCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy link'**
+  String get spaceJoinLinkCopy;
+
+  /// No description provided for @spaceJoinLinkRevoke.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke link'**
+  String get spaceJoinLinkRevoke;
+
+  /// No description provided for @spaceJoinLinkCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Join link copied'**
+  String get spaceJoinLinkCopied;
+
+  /// No description provided for @spaceJoinLinkRevoked.
+  ///
+  /// In en, this message translates to:
+  /// **'Join link revoked'**
+  String get spaceJoinLinkRevoked;
+
   /// No description provided for @spaceRoleLabel.
   ///
   /// In en, this message translates to:

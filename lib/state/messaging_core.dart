@@ -213,6 +213,12 @@ class MessagingService {
   Future<void> Function(NodeId peer, String decisionJson)?
   onSpaceInviteDecision;
 
+  /// Capability-bound public Space join frames may cross the contact boundary.
+  /// The callbacks return true only after the Space layer has validated and
+  /// durably persisted the exact ticket/request, which is the ACK gate.
+  Future<bool> Function(NodeId peer, String requestJson)? onSpaceJoinRequest;
+  Future<bool> Function(NodeId peer, String decisionJson)? onSpaceJoinDecision;
+
   /// Attached by shared-document replication. Both whole and reassembled
   /// frames reach this callback only from accepted contacts; the document
   /// layer then verifies root/control signatures and membership epochs. True
@@ -402,6 +408,26 @@ class MessagingService {
     dst,
     'space-invite-decision:$inviteId',
     WireEnvelope.spaceInviteDecision(decisionJson),
+  );
+
+  Future<void> sendSpaceJoinRequest(
+    NodeId dst,
+    String requestId,
+    String requestJson,
+  ) => sendDurable(
+    dst,
+    'space-join-request:$requestId',
+    WireEnvelope.spaceJoinRequest(requestJson),
+  );
+
+  Future<void> sendSpaceJoinDecision(
+    NodeId dst,
+    String requestId,
+    String decisionJson,
+  ) => sendDurable(
+    dst,
+    'space-join-decision:$requestId',
+    WireEnvelope.spaceJoinDecision(decisionJson),
   );
 
   /// Ship a shared-document invite/snapshot/delta durably.
@@ -914,6 +940,9 @@ class MessagingService {
   /// messages or frames belonging to another peer/group.
   Future<bool> _authorizedGroupCallAck(NodeId peer, String frameId) =>
       _outbox.authorizedGroupCallAck(peer, frameId);
+
+  Future<bool> _authorizedSpaceJoinAck(NodeId peer, String frameId) =>
+      _outbox.authorizedSpaceJoinAck(peer, frameId);
 
   /// Locally retire a durable frame (acked, or moot): stop re-driving and
   /// re-stashing it, and drop it from the persistent outbox. [ackOutboxFrame]

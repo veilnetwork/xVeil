@@ -13,6 +13,7 @@ import '../domain/media_file_name.dart';
 import '../domain/group_policy.dart';
 import '../domain/group_reaction.dart';
 import '../domain/space_channel.dart';
+import '../domain/space_join_request.dart';
 import '../domain/space_lifecycle.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
@@ -607,6 +608,97 @@ final class GroupApiAdapter {
       await _groups.decideSpaceInvite(inviteId, accept: accept)
       ? null
       : 'space invitation decision rejected';
+
+  Future<Map<String, dynamic>> joinRequests(String? spaceHex) async {
+    final List<SpaceJoinOutboxEntry> outgoing = await _groups
+        .outgoingSpaceJoinRequests();
+    final result = <String, dynamic>{
+      'outgoing': [
+        for (final entry in outgoing)
+          {
+            'requestId': entry.request.requestId,
+            'spaceId': entry.request.spaceId.hex,
+            'name': entry.ticket.spaceName,
+            'approver': entry.request.approver.hex,
+            'createdAt': entry.request.createdAtMs,
+            'expiresAt': entry.ticket.expiresAtMs,
+            'status': entry.approved
+                ? 'approved'
+                : entry.declined
+                ? 'declined'
+                : 'pending',
+          },
+      ],
+    };
+    if (spaceHex == null) return result;
+    final visible = await _visible(spaceHex);
+    if (visible == null) return {...result, 'error': 'space not found'};
+    final pending = await _groups.pendingSpaceJoinRequests(visible.$1);
+    result['spaceId'] = visible.$1.hex;
+    result['joinCode'] = await _groups.currentSpaceJoinCode(visible.$1);
+    result['incoming'] = [
+      for (final entry in pending)
+        {
+          'requestId': entry.request.requestId,
+          'requester': entry.request.requester.hex,
+          'createdAt': entry.request.createdAtMs,
+          'receivedAt': entry.receivedAtMs,
+        },
+    ];
+    return result;
+  }
+
+  Future<({String? error, String? code})> joinRequestAction(
+    String action,
+    String? spaceHex,
+    String? requestId,
+    String? code,
+  ) async {
+    switch (action) {
+      case 'request':
+        if (code == null || code.isEmpty) {
+          return (error: 'join code required', code: null);
+        }
+        return await _groups.requestToJoinSpace(code)
+            ? (error: null, code: null)
+            : (error: 'Space join request failed', code: null);
+      case 'dismiss':
+        if (requestId == null || requestId.isEmpty) {
+          return (error: 'requestId required', code: null);
+        }
+        return await _groups.dismissSpaceJoinRequest(requestId)
+            ? (error: null, code: null)
+            : (error: 'Space join request not found', code: null);
+      case 'approve':
+      case 'decline':
+        if (requestId == null || requestId.isEmpty) {
+          return (error: 'requestId required', code: null);
+        }
+        return await _groups.decideSpaceJoinRequest(
+              requestId,
+              accept: action == 'approve',
+            )
+            ? (error: null, code: null)
+            : (error: 'Space join decision failed', code: null);
+      case 'create_link':
+      case 'revoke_link':
+        final spaceId = spaceHex == null ? null : _parseId(spaceHex);
+        if (spaceId == null) {
+          return (error: 'valid space required', code: null);
+        }
+        if (action == 'revoke_link') {
+          return await _groups.revokeSpaceJoinCode(spaceId)
+              ? (error: null, code: null)
+              : (error: 'Space join link not found', code: null);
+        }
+        final created = await _groups.createSpaceJoinCode(spaceId);
+        return created == null
+            ? (error: 'Space join link creation failed', code: null)
+            : (error: null, code: created);
+      default:
+        return (error: 'invalid join request action', code: null);
+    }
+  }
 
   Future<List<Map<String, dynamic>>?> messages(
     String groupHex,

@@ -145,6 +145,16 @@ enum WireKind {
   /// membership grant: the inviter must still append an authorized signed
   /// `addMember` entry and send the normal Space snapshot.
   spaceInviteDecision,
+
+  /// Capability-bound request to join an active public Space. Unlike an
+  /// invitation it may arrive from a non-contact, but contains only ticket and
+  /// routing ids; the Space layer rate-limits and validates the locally issued
+  /// bearer ticket before acknowledging it.
+  spaceJoinRequest,
+
+  /// Approver response to [spaceJoinRequest]. Acceptance is only progress UI;
+  /// authority still comes exclusively from the signed membership snapshot.
+  spaceJoinDecision,
   unknown,
 }
 
@@ -343,6 +353,12 @@ class WireEnvelope {
 
   const WireEnvelope.spaceInviteDecision(String bodyJson)
     : this(WireKind.spaceInviteDecision, bodyJson);
+
+  const WireEnvelope.spaceJoinRequest(String bodyJson)
+    : this(WireKind.spaceJoinRequest, bodyJson);
+
+  const WireEnvelope.spaceJoinDecision(String bodyJson)
+    : this(WireKind.spaceJoinDecision, bodyJson);
 
   /// The decode-only sentinel for a structured (v:2) frame whose kind this build
   /// does not know — the dispatcher drops it (RULE WC).
