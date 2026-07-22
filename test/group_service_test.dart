@@ -1469,6 +1469,16 @@ void main() {
       await ownerSvc.setGroupMuted(gid, true);
       expect(await ownerSvc.isGroupMuted(gid), isTrue);
       expect((await ownerSvc.listGroups()).single.muted, isTrue);
+      await ownerSvc.setGroupNotificationPolicy(
+        gid,
+        NotificationMuteMode.mentionsOnly,
+        DateTime.now().add(const Duration(hours: 8)),
+      );
+      final mentionPolicy = await ownerSvc.groupNotificationPolicy(gid);
+      expect(
+        mentionPolicy.effectiveAt(DateTime.now()),
+        NotificationMuteMode.mentionsOnly,
+      );
       await ownerSvc.setGroupMuted(gid, false);
       expect(await ownerSvc.isGroupMuted(gid), isFalse);
     },
@@ -4194,6 +4204,19 @@ void main() {
       expect(await service.referencedContentIds(spaceId), contains('c' * 64));
       expect(
         (await service.spacePostCommentsOf(spaceId, second.postId)).single.body,
+        'Second-root comment',
+      );
+      final aggregate = await service.spacePostsAndCommentsOf(spaceId);
+      expect(aggregate.posts.map((post) => post.postId), [
+        first.postId,
+        second.postId,
+      ]);
+      expect(
+        aggregate.commentsByPost[first.postId]?.map((comment) => comment.body),
+        ['Corrected first comment', 'Reply', ''],
+      );
+      expect(
+        aggregate.commentsByPost[second.postId]?.single.body,
         'Second-root comment',
       );
       expect(await service.messagesOf(spaceId), isEmpty);

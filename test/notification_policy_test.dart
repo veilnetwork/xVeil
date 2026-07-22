@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/state/notifications.dart';
 
@@ -111,6 +112,49 @@ void main() {
     });
   });
 
+  group('notification mute levels', () {
+    test('mentions-only passes only a canonical self mention', () {
+      expect(
+        notificationModeAllows(
+          NotificationMuteMode.mentionsOnly,
+          isMention: true,
+        ),
+        isTrue,
+      );
+      expect(
+        notificationModeAllows(
+          NotificationMuteMode.mentionsOnly,
+          isMention: false,
+        ),
+        isFalse,
+      );
+    });
+
+    test('all and none remain unconditional', () {
+      expect(
+        notificationModeAllows(NotificationMuteMode.all, isMention: false),
+        isTrue,
+      );
+      expect(
+        notificationModeAllows(NotificationMuteMode.none, isMention: true),
+        isFalse,
+      );
+    });
+
+    test('timed policy expires without a cleanup write', () {
+      final now = DateTime.utc(2026, 7, 22, 12);
+      final active = NotificationMutePolicy(
+        mode: NotificationMuteMode.mentionsOnly,
+        until: now.add(const Duration(hours: 8)),
+      );
+      expect(active.effectiveAt(now), NotificationMuteMode.mentionsOnly);
+      expect(
+        active.effectiveAt(now.add(const Duration(hours: 9))),
+        NotificationMuteMode.all,
+      );
+    });
+  });
+
   group('notification payload routes', () {
     test('community publications open the Space publication surface', () {
       expect(notificationRouteForPayload('space:abc'), '/space/abc/posts');
@@ -135,6 +179,14 @@ void main() {
       expect(notificationPayloadSupportsReply('group:def'), isTrue);
       expect(notificationPayloadSupportsReply('fedcba'), isTrue);
       expect(notificationRouteForPayload(''), isNull);
+    });
+
+    test('mention payload keeps an exact internal destination', () {
+      const route = '/group/abc?msg=def%3A7';
+      final payload = notificationMentionPayload(route);
+      expect(notificationRouteForPayload(payload), route);
+      expect(notificationPayloadSupportsReply(payload), isFalse);
+      expect(notificationRouteForPayload('mention:not-base64'), isNull);
     });
   });
 

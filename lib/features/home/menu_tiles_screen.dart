@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../chat/chats_screen.dart';
+import 'home_section_scaffold.dart';
 
 /// A compact home for app-level actions that do not belong to a conversation.
 ///
@@ -17,8 +18,8 @@ class MenuTilesScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
-    return Scaffold(
-      appBar: AppBar(title: Text(l.navMenuTiles)),
+    return HomeSectionScaffold(
+      title: l.navMenuTiles,
       body: GridView.extent(
         maxCrossAxisExtent: 220,
         childAspectRatio: 1.45,

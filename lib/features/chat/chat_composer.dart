@@ -27,8 +27,9 @@ class MessageComposer extends ConsumerStatefulWidget {
     this.onVideoNote,
     this.onSticker,
     this.allowStickerPackShare = true,
+    this.mentionTargets = const [],
   });
-  final TextEditingController controller;
+  final CustomEmojiEditingController controller;
   final FocusNode focusNode;
   final String hint;
   final VoidCallback onSend;
@@ -50,13 +51,14 @@ class MessageComposer extends ConsumerStatefulWidget {
   /// its store item id here to send.
   final void Function(String itemId)? onSticker;
   final bool allowStickerPackShare;
+  final Iterable<NodeId> mentionTargets;
 
   @override
   ConsumerState<MessageComposer> createState() => _MessageComposerState();
 }
 
 class _MessageComposerState extends ConsumerState<MessageComposer> {
-  TextEditingController get controller => widget.controller;
+  CustomEmojiEditingController get controller => widget.controller;
   FocusNode get focusNode => widget.focusNode;
   VoidCallback get onSend => widget.onSend;
 
@@ -134,16 +136,14 @@ class _MessageComposerState extends ConsumerState<MessageComposer> {
           if (picked.value != null) _insertText(picked.value!);
         case ComposerExpressionKind.customEmoji:
           final itemId = picked.value;
-          if (itemId == null || controller is! CustomEmojiEditingController) {
-            return;
-          }
+          if (itemId == null) return;
           final bytes = await ref
               .read(stickerControllerProvider.notifier)
               .bytesFor(itemId);
           if (bytes == null) return;
           final emoji = await normalizeCustomEmojiBytes(bytes);
           if (emoji == null || !mounted) return;
-          (controller as CustomEmojiEditingController).insertCustomEmoji(emoji);
+          controller.insertCustomEmoji(emoji);
           focusNode.requestFocus();
         case ComposerExpressionKind.sticker:
           if (picked.value != null) widget.onSticker?.call(picked.value!);
@@ -344,50 +344,55 @@ class _MessageComposerState extends ConsumerState<MessageComposer> {
         ),
       ),
     );
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-        child: Row(
-          children: [
-            if (widget.onAttachmentAction != null ||
-                widget.onVoice != null ||
-                widget.onVideoNote != null)
-              _attachmentButton(l),
-            Expanded(child: field),
-            const SizedBox(width: 4),
-            // Empty field → explicit video-note + voice controls. Any text
-            // replaces BOTH with one send button, identically on touch/desktop.
-            if (widget.onVoice != null)
-              ValueListenableBuilder<TextEditingValue>(
-                valueListenable: controller,
-                builder: (_, value, child) => value.text.trim().isEmpty
-                    ? Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (widget.onVideoNote != null)
-                            IconButton.filledTonal(
-                              key: const ValueKey('composer-video-note'),
-                              tooltip: l.chatVnoteTooltip,
-                              onPressed: _startVnoteRecording,
-                              icon: const Icon(Icons.videocam_outlined),
-                            ),
-                          _micButton(context),
-                        ],
-                      )
-                    : IconButton.filled(
-                        tooltip: l.chatSend,
-                        onPressed: onSend,
-                        icon: const Icon(Icons.send),
-                      ),
-              )
-            else
-              IconButton.filled(
-                tooltip: l.chatSend,
-                onPressed: onSend,
-                icon: const Icon(Icons.send),
-              ),
-          ],
+    return MentionComposerRegion(
+      controller: controller,
+      focusNode: focusNode,
+      targets: widget.mentionTargets,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+          child: Row(
+            children: [
+              if (widget.onAttachmentAction != null ||
+                  widget.onVoice != null ||
+                  widget.onVideoNote != null)
+                _attachmentButton(l),
+              Expanded(child: field),
+              const SizedBox(width: 4),
+              // Empty field → explicit video-note + voice controls. Any text
+              // replaces BOTH with one send button, identically on touch/desktop.
+              if (widget.onVoice != null)
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: controller,
+                  builder: (_, value, child) => value.text.trim().isEmpty
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (widget.onVideoNote != null)
+                              IconButton.filledTonal(
+                                key: const ValueKey('composer-video-note'),
+                                tooltip: l.chatVnoteTooltip,
+                                onPressed: _startVnoteRecording,
+                                icon: const Icon(Icons.videocam_outlined),
+                              ),
+                            _micButton(context),
+                          ],
+                        )
+                      : IconButton.filled(
+                          tooltip: l.chatSend,
+                          onPressed: onSend,
+                          icon: const Icon(Icons.send),
+                        ),
+                )
+              else
+                IconButton.filled(
+                  tooltip: l.chatSend,
+                  onPressed: onSend,
+                  icon: const Icon(Icons.send),
+                ),
+            ],
+          ),
         ),
       ),
     );

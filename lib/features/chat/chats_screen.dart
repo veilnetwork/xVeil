@@ -16,6 +16,7 @@ import '../../state/messaging.dart';
 import '../../state/nickname_peers.dart';
 import 'chat_actions.dart';
 import 'chat_search.dart';
+import 'message_markdown.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/folder_panel_controller.dart';
 import '../../state/vnote_message.dart';
@@ -23,7 +24,7 @@ import '../../state/voice_message.dart';
 import '../../state/providers.dart';
 import '../contacts/invite_exchange_sheet.dart';
 import '../groups/group_tile.dart';
-import '../network/security_center_sheet.dart';
+import '../home/home_section_scaffold.dart';
 
 /// The chat-list folder filter: null = "All", else a [ChatFolder.id]. A plain
 /// StateProvider so switching folders survives list rebuilds. Reset to All if
@@ -188,10 +189,6 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final convos = ref.watch(conversationsProvider);
-    // Rebuild on identity switch; the active identity's anonymity then shows in
-    // the app bar so the user can SEE they're on an anonymous (onion) identity.
-    ref.watch(appControllerProvider.select((s) => s.activeIdentity));
-    final anon = ref.read(appControllerProvider.notifier).activeIsAnonymous;
     final scheme = Theme.of(context).colorScheme;
     // Folder state lives at Scaffold level so the drawer variants can render
     // it independently of the conversation list's async state.
@@ -205,7 +202,7 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
     final folder = selectedFolder == null
         ? null
         : folders.firstWhere((f) => f.id == selectedFolder);
-    final folderDrawer = _FolderDrawer(
+    final folderDrawer = HomeNavigationDrawer(
       folders: folders,
       selected: selectedFolder,
       // The drawer is disposed as soon as it closes. Keep the dialog command
@@ -217,95 +214,40 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
         onCreated: () => ref.read(selectedFolderProvider.notifier).state = null,
       ),
     );
-    return Scaffold(
+    final hasHomeNavigation = HomeNavigationScope.maybeOf(context) != null;
+    return HomeSectionScaffold(
       // With a drawer placement the panel is collapsible: Scaffold puts the
       // hamburger in the app bar (leading for left, trailing for right).
       drawer: panelPos == FolderPanelPosition.left ? folderDrawer : null,
       endDrawer: panelPos == FolderPanelPosition.right ? folderDrawer : null,
-      appBar: AppBar(
-        leading: _searching
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: _exitSearch,
-              )
-            : null,
-        title: _searching
-            ? TextField(
-                controller: _searchCtl,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: l.searchHint,
-                  border: InputBorder.none,
-                ),
-                onChanged: _onQueryChanged,
-              )
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // When filtered through a drawer (no always-visible chips),
-                  // the title is the only place that shows WHICH folder is
-                  // active.
-                  Text(folder == null ? l.navChats : folder.name),
-                  if (anon) ...[
-                    const SizedBox(width: 8),
-                    Icon(Icons.shield_moon, size: 20, color: scheme.primary),
-                  ],
-                ],
-              ),
-        bottom: anon
-            ? PreferredSize(
-                preferredSize: const Size.fromHeight(22),
-                child: Container(
-                  width: double.infinity,
-                  color: scheme.primaryContainer,
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Text(
-                    l.settingsAnonymousRouting,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: scheme.onPrimaryContainer,
-                    ),
-                  ),
-                ),
-              )
-            : null,
-        actions: [
-          if (!_searching)
-            IconButton(
-              icon: const Icon(Icons.search),
-              tooltip: l.searchHint,
-              onPressed: _enterSearch,
+      title: folder == null ? l.navChats : folder.name,
+      searching: _searching,
+      searchController: _searchCtl,
+      searchHint: l.searchHint,
+      onSearchStart: _enterSearch,
+      onSearchClose: _exitSearch,
+      onSearchChanged: _onQueryChanged,
+      contextActions: [
+        IconButton(
+          key: const ValueKey('mentions-open'),
+          icon: const Icon(Icons.alternate_email),
+          tooltip: l.mentionsOpenTooltip,
+          onPressed: () => context.push('/mentions'),
+        ),
+        // With the right-side placement the AppBar only auto-adds an
+        // endDrawer toggle when it has NO other actions — so in debug builds
+        // the panel used to be unopenable. Always provide the button.
+        if (!hasHomeNavigation &&
+            !_searching &&
+            panelPos == FolderPanelPosition.right)
+          Builder(
+            builder: (ctx) => IconButton(
+              icon: const Icon(Icons.folder_open_outlined),
+              tooltip: l.chatMenuFolders,
+              onPressed: () => Scaffold.of(ctx).openEndDrawer(),
             ),
-          if (!_searching)
-            IconButton(
-              icon: Consumer(
-                builder: (context, ref, _) {
-                  final peers =
-                      ref.watch(sessionCountProvider).asData?.value ?? 0;
-                  return Badge(
-                    isLabelVisible: peers > 0,
-                    label: Text('$peers'),
-                    child: const Icon(Icons.shield_outlined),
-                  );
-                },
-              ),
-              tooltip: l.securityCenterTooltip,
-              onPressed: () => showSecurityCenterSheet(context, ref),
-            ),
-          // With the right-side placement the AppBar only auto-adds an
-          // endDrawer toggle when it has NO other actions — so in debug builds
-          // the panel used to be unopenable. Always provide the button.
-          if (!_searching && panelPos == FolderPanelPosition.right)
-            Builder(
-              builder: (ctx) => IconButton(
-                icon: const Icon(Icons.folder_open_outlined),
-                tooltip: l.chatMenuFolders,
-                onPressed: () => Scaffold.of(ctx).openEndDrawer(),
-              ),
-            ),
-        ],
-      ),
+          ),
+      ],
       floatingActionButton: _searching
           ? null
           : FloatingActionButton(
@@ -505,8 +447,9 @@ Future<void> showAddContactSheet(BuildContext context, WidgetRef ref) async {
 /// folder; long-press / right-click a folder for rename/delete), then the
 /// app MENU (add contact / network / settings). Selecting a folder closes
 /// the drawer — the app-bar title then names the active folder.
-class _FolderDrawer extends ConsumerWidget {
-  const _FolderDrawer({
+class HomeNavigationDrawer extends ConsumerWidget {
+  const HomeNavigationDrawer({
+    super.key,
     required this.folders,
     required this.selected,
     required this.onCreateGroup,
@@ -905,6 +848,9 @@ class _ConversationTile extends ConsumerWidget {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final last = conversation.lastMessage;
+    final recommendation = last == null
+        ? null
+        : parseSpaceRecommendationMessage(last.body);
     final status = conversation.peer.status;
     // Saved Messages = the conversation with our own node id.
     final myHex = ref.watch(appControllerProvider).identity?.nodeId.hex;
@@ -963,23 +909,30 @@ class _ConversationTile extends ConsumerWidget {
             ? Text(hint, style: TextStyle(color: hintColor))
             : (last == null
                   ? null
-                  : Text(
-                      // Voice/video notes are sent under opaque uuid filenames —
-                      // the preview line shows the human kind instead; a
-                      // chatDeleted farewell marker shows its system notice.
-                      isVnoteFileName(last.fileName)
-                          ? l.chatVnoteTooltip
-                          : (isVoiceFileName(last.fileName)
-                                ? l.chatVoiceTooltip
-                                : (isChatDeletedMarker(last.body)
-                                      ? l.chatDeletedByPeer
-                                      : (parseSpaceRecommendationMessage(
-                                              last.body,
-                                            )?.name ??
-                                            last.body))),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    )),
+                  : (isVnoteFileName(last.fileName) ||
+                            isVoiceFileName(last.fileName) ||
+                            isChatDeletedMarker(last.body) ||
+                            recommendation != null
+                        ? Text(
+                            // Voice/video notes are sent under opaque uuid filenames —
+                            // the preview line shows the human kind instead; a
+                            // chatDeleted farewell marker shows its system notice.
+                            isVnoteFileName(last.fileName)
+                                ? l.chatVnoteTooltip
+                                : (isVoiceFileName(last.fileName)
+                                      ? l.chatVoiceTooltip
+                                      : (isChatDeletedMarker(last.body)
+                                            ? l.chatDeletedByPeer
+                                            : (recommendation?.name ??
+                                                  last.body))),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          )
+                        : FormattedText(
+                            last.body,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ))),
         trailing: (!isSaved && status == ContactStatus.pendingIncoming)
             ? Icon(Icons.fiber_new, color: scheme.primary)
             : (conversation.unread > 0

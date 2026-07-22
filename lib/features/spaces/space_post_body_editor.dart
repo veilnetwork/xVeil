@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../chat/custom_emoji_controller.dart';
+import '../chat/mention_composer.dart';
 import '../chat/message_markdown.dart';
+import '../../core/ids.dart';
 import 'space_post_body.dart';
 
 enum SpacePostBlockStyle {
@@ -90,13 +93,15 @@ class SpacePostBodyEditor extends StatefulWidget {
     required this.hintText,
     this.onChanged,
     this.autofocus = false,
+    this.mentionTargets = const [],
   });
 
-  final TextEditingController controller;
+  final CustomEmojiEditingController controller;
   final int maxLength;
   final String hintText;
   final ValueChanged<String>? onChanged;
   final bool autofocus;
+  final Iterable<NodeId> mentionTargets;
 
   @override
   State<SpacePostBodyEditor> createState() => _SpacePostBodyEditorState();
@@ -105,6 +110,8 @@ class SpacePostBodyEditor extends StatefulWidget {
 class _SpacePostBodyEditorState extends State<SpacePostBodyEditor> {
   final FocusNode _focusNode = FocusNode();
   bool _preview = false;
+
+  String get _wireBody => widget.controller.toWireValue().body;
 
   @override
   void dispose() {
@@ -119,7 +126,7 @@ class _SpacePostBodyEditorState extends State<SpacePostBodyEditor> {
       selection: result.selection,
       composing: TextRange.empty,
     );
-    widget.onChanged?.call(result.text);
+    widget.onChanged?.call(_wireBody);
     _focusNode.requestFocus();
     setState(() {});
   }
@@ -233,27 +240,33 @@ class _SpacePostBodyEditorState extends State<SpacePostBodyEditor> {
               borderRadius: BorderRadius.circular(10),
             ),
             alignment: Alignment.topLeft,
-            child: widget.controller.text.trim().isEmpty
+            child: _wireBody.isEmpty
                 ? Text(
                     widget.hintText,
                     style: TextStyle(color: colors.onSurfaceVariant),
                   )
-                : SpacePostBody(widget.controller.text),
+                : SpacePostBody(_wireBody),
           )
         else
-          TextField(
-            key: const ValueKey('space-post-body-field'),
+          MentionComposerRegion(
             controller: widget.controller,
             focusNode: _focusNode,
-            autofocus: widget.autofocus,
-            minLines: 5,
-            maxLines: 12,
-            maxLength: widget.maxLength,
-            onChanged: widget.onChanged,
-            decoration: InputDecoration(
-              hintText: widget.hintText,
-              counterText: '',
-              border: const OutlineInputBorder(),
+            targets: widget.mentionTargets,
+            onChanged: () => widget.onChanged?.call(_wireBody),
+            child: TextField(
+              key: const ValueKey('space-post-body-field'),
+              controller: widget.controller,
+              focusNode: _focusNode,
+              autofocus: widget.autofocus,
+              minLines: 5,
+              maxLines: 12,
+              maxLength: widget.maxLength,
+              onChanged: (_) => widget.onChanged?.call(_wireBody),
+              decoration: InputDecoration(
+                hintText: widget.hintText,
+                counterText: '',
+                border: const OutlineInputBorder(),
+              ),
             ),
           ),
       ],

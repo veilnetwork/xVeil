@@ -1771,6 +1771,12 @@ abstract class AppL10n {
   /// **'New message'**
   String get notificationNewMessage;
 
+  /// No description provided for @notificationMention.
+  ///
+  /// In en, this message translates to:
+  /// **'You were mentioned'**
+  String get notificationMention;
+
   /// No description provided for @notificationReply.
   ///
   /// In en, this message translates to:
@@ -1812,6 +1818,36 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Full (sender and text)'**
   String get notificationsPreviewFull;
+
+  /// No description provided for @mentionsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Mentions'**
+  String get mentionsTitle;
+
+  /// No description provided for @mentionsOpenTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'All mentions'**
+  String get mentionsOpenTooltip;
+
+  /// No description provided for @mentionsEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No mentions yet'**
+  String get mentionsEmpty;
+
+  /// No description provided for @mentionsEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Messages, community posts and comments that mention you will appear here.'**
+  String get mentionsEmptyHint;
+
+  /// No description provided for @mentionsLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load mentions'**
+  String get mentionsLoadFailed;
 
   /// No description provided for @chatRequestSent.
   ///
@@ -3168,6 +3204,48 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Unmute notifications'**
   String get chatMenuUnmute;
+
+  /// No description provided for @notificationMuteModeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'What should still notify you?'**
+  String get notificationMuteModeTitle;
+
+  /// No description provided for @notificationMuteMentionsOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Mentions only'**
+  String get notificationMuteMentionsOnly;
+
+  /// No description provided for @notificationMuteMentionsOnlyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Silence new-message alerts, but notify when you are mentioned'**
+  String get notificationMuteMentionsOnlyHint;
+
+  /// No description provided for @notificationMuteNone.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing'**
+  String get notificationMuteNone;
+
+  /// No description provided for @notificationMuteNoneHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Silence all alerts, including mentions'**
+  String get notificationMuteNoneHint;
+
+  /// No description provided for @notificationMuteCurrentMentionsOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Mentions only until {until}'**
+  String notificationMuteCurrentMentionsOnly(String until);
+
+  /// No description provided for @notificationMuteCurrentNone.
+  ///
+  /// In en, this message translates to:
+  /// **'Muted until {until}'**
+  String notificationMuteCurrentNone(String until);
 
   /// No description provided for @chatMenuMarkRead.
   ///

@@ -2,11 +2,16 @@ import 'dart:convert';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/ids.dart';
 import '../../l10n/app_localizations.dart';
 import '../../domain/inline_custom_emoji.dart';
+import '../../state/mention_identity.dart';
+import 'message_mentions.dart';
 
 /// Inline formatting a message run can carry. Non-nested in v1: the content of
 /// a styled span is literal (no formatting inside `code`, and styles don't
@@ -506,17 +511,21 @@ List<CodeToken> highlightCode(String code) {
 /// Renders a message body with the [parseFormatted] subset. Bold / italic /
 /// underline / strikethrough / inline `code` / ``` code blocks / ||spoiler|| /
 /// `>` block quotes. Spoilers are tap-to-reveal.
-class FormattedText extends StatefulWidget {
+class FormattedText extends ConsumerStatefulWidget {
   const FormattedText(
     this.body, {
     super.key,
     this.style,
     this.highlight,
     this.customEmoji = const [],
+    this.maxLines,
+    this.overflow,
   });
   final String body;
   final TextStyle? style;
   final List<InlineCustomEmoji> customEmoji;
+  final int? maxLines;
+  final TextOverflow? overflow;
 
   /// When set (an active search query), case-insensitive occurrences of it get
   /// a highlight background. Applied to text runs only — not links (keeps the
@@ -524,10 +533,10 @@ class FormattedText extends StatefulWidget {
   final String? highlight;
 
   @override
-  State<FormattedText> createState() => _FormattedTextState();
+  ConsumerState<FormattedText> createState() => _FormattedTextState();
 }
 
-class _FormattedTextState extends State<FormattedText> {
+class _FormattedTextState extends ConsumerState<FormattedText> {
   // Indices of spoiler tokens the user has revealed (by tap).
   final _revealed = <int>{};
   // Tap recognizers for link spans — rebuilt each build, disposed here.
@@ -574,13 +583,19 @@ class _FormattedTextState extends State<FormattedText> {
     GestureRecognizer? recognizer,
     bool hideImages = false,
   }) {
-    if (images.isEmpty) {
+    final mentions = recognizer == null
+        ? parseMessageMentions(text)
+        : const <MessageMentionToken>[];
+    if (images.isEmpty && mentions.isEmpty) {
       if (recognizer != null) {
         return [TextSpan(text: text, style: style, recognizer: recognizer)];
       }
       return highlightSpans(text, style, highlight, hlColor);
     }
     final out = <InlineSpan>[];
+    final mentionByOffset = {
+      for (final mention in mentions) mention.start: mention,
+    };
     final plain = StringBuffer();
     void flush() {
       if (plain.isEmpty) return;
@@ -593,10 +608,48 @@ class _FormattedTextState extends State<FormattedText> {
       }
     }
 
-    for (final code in text.codeUnits) {
+    var offset = 0;
+    while (offset < text.length) {
+      final mention = mentionByOffset[offset];
+      if (mention != null) {
+        flush();
+        final resolved = ref
+            .watch(
+              mentionIdentityProvider(
+                MentionIdentityKey(
+                  mention.nodeId.hex,
+                  dhtHint: mention.dhtName,
+                ),
+              ),
+            )
+            .valueOrNull;
+        final label = resolved?.label ?? mention.nodeId.short;
+        final mentionStyle = hideImages
+            ? style
+            : style.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.w600,
+              );
+        final mentionRecognizer = hideImages
+            ? null
+            : (TapGestureRecognizer()
+                ..onTap = () => _onTapMention(mention.nodeId, label));
+        if (mentionRecognizer != null) _recognizers.add(mentionRecognizer);
+        out.add(
+          TextSpan(
+            text: '@$label',
+            style: mentionStyle,
+            recognizer: mentionRecognizer,
+          ),
+        );
+        offset = mention.end;
+        continue;
+      }
+      final code = text.codeUnitAt(offset);
       final image = images[code];
       if (image == null) {
         plain.writeCharCode(code);
+        offset++;
         continue;
       }
       flush();
@@ -620,6 +673,7 @@ class _FormattedTextState extends State<FormattedText> {
           ),
         ),
       );
+      offset++;
     }
     flush();
     return out;
@@ -697,6 +751,37 @@ class _FormattedTextState extends State<FormattedText> {
           duration: const Duration(seconds: 2),
         ),
       );
+    }
+  }
+
+  Future<void> _onTapMention(NodeId nodeId, String label) async {
+    final l = AppL10n.of(context);
+    final action = await showDialog<String>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text('@$label'),
+        content: SelectableText(nodeId.hex),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(),
+            child: Text(l.actionCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop('copy'),
+            child: Text(l.linkCopy),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialog).pop('open'),
+            child: Text(l.linkOpen),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (action == 'copy') {
+      await Clipboard.setData(ClipboardData(text: nodeId.hex));
+    } else if (action == 'open') {
+      context.push('/chat/${nodeId.hex}');
     }
   }
 
@@ -831,7 +916,11 @@ class _FormattedTextState extends State<FormattedText> {
         hlColor,
         prepared.images,
       );
-      return Text.rich(TextSpan(children: spans));
+      return Text.rich(
+        TextSpan(children: spans),
+        maxLines: widget.maxLines,
+        overflow: widget.overflow ?? TextOverflow.clip,
+      );
     }
 
     var indexBase = 0;

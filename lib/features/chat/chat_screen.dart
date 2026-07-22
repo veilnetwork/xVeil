@@ -20,6 +20,7 @@ import '../../core/log.dart';
 import 'chat_actions.dart';
 import 'chat_search.dart';
 import 'message_markdown.dart';
+import 'mention_composer.dart';
 import '../../domain/call_signal.dart';
 import '../../domain/chat.dart';
 import '../../domain/file_download_policy.dart';
@@ -2314,6 +2315,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             focusNode: _inputFocus,
             hint: l.savedNoteHint,
             onSend: () => _submit(status),
+            mentionTargets: [_peer],
             // File notes: the paperclip stores the pick LOCALLY (saveFileNote
             // — never the wire). Voice/vnote/sticker notes are a later polish.
             onAttachmentAction: _pickAttachment,
@@ -2348,6 +2350,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               focusNode: _inputFocus,
               hint: l.chatNewMessageHint,
               onSend: () => _submit(status),
+              mentionTargets: [_peer],
               onAttachmentAction: _pickAttachment,
               onVoice: _sendVoiceClip,
               onVideoNote: _sendVnoteClip,
@@ -2361,6 +2364,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           focusNode: _inputFocus,
           hint: l.chatRequestHint,
           onSend: () => _submit(status),
+          mentionTargets: [_peer],
         );
     }
   }

@@ -21,6 +21,7 @@ class _MessagingConversationAdmin {
         name: (trimmed == null || trimmed.isEmpty) ? null : trimmed,
         status: existing.status,
         mutedUntil: existing.mutedUntil,
+        notificationMuteMode: existing.notificationMuteMode,
         pinned: existing.pinned,
         archived: existing.archived,
         retentionDays: existing.retentionDays,
@@ -31,10 +32,16 @@ class _MessagingConversationAdmin {
     _owner._signal();
   }
 
-  Future<void> setContactMutedUntil(NodeId peer, DateTime? until) async {
+  Future<void> setContactMutedUntil(
+    NodeId peer,
+    DateTime? until, {
+    NotificationMuteMode mode = NotificationMuteMode.none,
+  }) async {
     final existing = await _owner._storage.getContact(peer);
     if (existing == null) return;
-    await _owner._putContactPrefs(existing.copyWith(mutedUntil: until));
+    await _owner._putContactPrefs(
+      existing.copyWith(mutedUntil: until, notificationMuteMode: mode),
+    );
     _owner._signal();
   }
 
@@ -79,6 +86,7 @@ class _MessagingConversationAdmin {
         name: existing.name,
         status: existing.status,
         mutedUntil: existing.mutedUntil,
+        notificationMuteMode: existing.notificationMuteMode,
         pinned: existing.pinned,
         archived: existing.archived,
         retentionDays: window,

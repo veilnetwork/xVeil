@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,6 +7,7 @@ import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/notifications/notification_service.dart';
 import '../domain/space_post.dart';
+import '../domain/chat.dart' show NotificationMuteMode;
 import '../routing/router.dart';
 import 'group_service_providers.dart' show groupServiceProvider;
 import 'messaging.dart';
@@ -39,6 +41,15 @@ bool shouldAlertOnMinimize({
   required bool isActive,
 }) => enabled && unread > 0 && !muted && !isActive;
 
+bool notificationModeAllows(
+  NotificationMuteMode mode, {
+  required bool isMention,
+}) => switch (mode) {
+  NotificationMuteMode.all => true,
+  NotificationMuteMode.mentionsOnly => isMention,
+  NotificationMuteMode.none => false,
+};
+
 /// Whether an accepted Space discussion entry matches the device-local mode.
 /// The focused mode includes direct replies and comments below our own post.
 bool shouldNotifySpaceComment({
@@ -63,6 +74,19 @@ int notificationIdForIncomingMessage(String _) => 0x78564d53; // "xVMS"
 /// community publication surface, never `/group/...` or a direct chat.
 String? notificationRouteForPayload(String? payload) {
   if (payload == null || payload.isEmpty) return null;
+  if (payload.startsWith('mention:')) {
+    try {
+      final encoded = payload.substring('mention:'.length);
+      final route = utf8.decode(base64Url.decode(base64Url.normalize(encoded)));
+      return route.startsWith('/chat/') ||
+              route.startsWith('/group/') ||
+              route.startsWith('/space/')
+          ? route
+          : null;
+    } catch (_) {
+      return null;
+    }
+  }
   if (payload.startsWith('space-comment:')) {
     final value = payload.substring('space-comment:'.length);
     final separator = value.indexOf(':');
@@ -82,10 +106,15 @@ String? notificationRouteForPayload(String? payload) {
   return '/chat/$payload';
 }
 
+String notificationMentionPayload(String route) =>
+    'mention:${base64Url.encode(utf8.encode(route)).replaceAll('=', '')}';
+
 /// Publications have no message composer, so the OS must not expose an inline
 /// reply action for their payload even when full previews are enabled.
 bool notificationPayloadSupportsReply(String payload) =>
-    !payload.startsWith('space:') && !payload.startsWith('space-comment:');
+    !payload.startsWith('space:') &&
+    !payload.startsWith('space-comment:') &&
+    !payload.startsWith('mention:');
 
 /// Select the newest candidate without relying on storage/list sort order.
 /// Pinned chats, groups, and restored logs can all have different ordering.

@@ -100,6 +100,24 @@ void main() {
   });
 
   test(
+    'timed mentions-only notification policy round-trips encrypted',
+    () async {
+      final until = DateTime.utc(2026, 7, 23, 8);
+      await storage.upsertContact(
+        Contact(
+          nodeId: _id(4),
+          mutedUntil: until,
+          notificationMuteMode: NotificationMuteMode.mentionsOnly,
+        ),
+      );
+
+      final restored = (await storage.getContact(_id(4)))!;
+      expect(restored.mutedUntil?.isAtSameMomentAs(until), isTrue);
+      expect(restored.notificationMuteMode, NotificationMuteMode.mentionsOnly);
+    },
+  );
+
+  test(
     'clearMessages erases history but KEEPS the contact and chat-list entry',
     () async {
       await storage.upsertContact(

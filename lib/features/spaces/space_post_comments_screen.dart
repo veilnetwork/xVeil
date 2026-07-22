@@ -12,6 +12,10 @@ import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/notifications.dart' show activeConversationProvider;
+import '../chat/custom_emoji_controller.dart';
+import '../chat/mention_composer.dart';
+import '../chat/message_markdown.dart';
+import '../chat/message_mentions.dart';
 import 'space_post_body.dart';
 import 'space_post_media.dart';
 
@@ -23,11 +27,13 @@ class SpacePostCommentsScreen extends ConsumerStatefulWidget {
     super.key,
     required this.spaceIdHex,
     required this.postId,
+    this.initialCommentRef,
     this.mediaPicker,
   });
 
   final String spaceIdHex;
   final String postId;
+  final String? initialCommentRef;
   final Future<SpacePostMediaPickResult> Function(int remaining)? mediaPicker;
 
   @override
@@ -37,9 +43,13 @@ class SpacePostCommentsScreen extends ConsumerStatefulWidget {
 
 class _SpacePostCommentsScreenState
     extends ConsumerState<SpacePostCommentsScreen> {
-  final TextEditingController _composer = TextEditingController();
+  final CustomEmojiEditingController _composer = CustomEmojiEditingController();
   final FocusNode _composerFocus = FocusNode();
   final ScrollController _scroll = ScrollController();
+  final GlobalKey _initialCommentKey = GlobalKey();
+  Timer? _highlightTimer;
+  bool _initialJumpScheduled = false;
+  String? _highlightCommentRef;
 
   GroupService? _boundService;
   NodeId? _boundSpaceId;
@@ -62,6 +72,7 @@ class _SpacePostCommentsScreenState
   @override
   void initState() {
     super.initState();
+    _followAfterLoad = widget.initialCommentRef == null;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _activeConversation = ref.read(activeConversationProvider.notifier);
@@ -92,6 +103,7 @@ class _SpacePostCommentsScreenState
     _composer.dispose();
     _composerFocus.dispose();
     _scroll.dispose();
+    _highlightTimer?.cancel();
     super.dispose();
   }
 
@@ -106,7 +118,7 @@ class _SpacePostCommentsScreenState
     service.changes.addListener(_onServiceChanged);
     _projection = _load(service, spaceId);
     _renderedCommentCount = -1;
-    _followAfterLoad = true;
+    _followAfterLoad = widget.initialCommentRef == null;
   }
 
   Future<_CommentsProjection> _load(
@@ -132,6 +144,36 @@ class _SpacePostCommentsScreenState
       !_scroll.hasClients ||
       _scroll.position.maxScrollExtent - _scroll.position.pixels < 160;
 
+  void _scheduleInitialComment(List<SpacePostCommentView> comments) {
+    final target = widget.initialCommentRef;
+    if (_initialJumpScheduled || target == null) return;
+    final index = comments.indexWhere((comment) => comment.ref == target);
+    if (index < 0) return;
+    _initialJumpScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final fraction = comments.length <= 1 ? 1.0 : index / comments.length;
+      _scroll.jumpTo(_scroll.position.maxScrollExtent * fraction);
+      Future<void>.delayed(const Duration(milliseconds: 80), () async {
+        if (!mounted) return;
+        final targetContext = _initialCommentKey.currentContext;
+        if (targetContext != null && targetContext.mounted) {
+          await Scrollable.ensureVisible(
+            targetContext,
+            alignment: 0.45,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+          );
+        }
+        if (!mounted) return;
+        setState(() => _highlightCommentRef = target);
+        _highlightTimer = Timer(const Duration(milliseconds: 1800), () {
+          if (mounted) setState(() => _highlightCommentRef = null);
+        });
+      });
+    });
+  }
+
   void _onServiceChanged() {
     final service = _boundService;
     final spaceId = _boundSpaceId;
@@ -154,16 +196,17 @@ class _SpacePostCommentsScreenState
     await next;
   }
 
+  String get _composerWireBody => _composer.toWireValue().body;
+
   bool get _tooLong =>
-      utf8.encode(_composer.text.trim()).length > kSpacePostCommentMaxBytes;
+      utf8.encode(_composerWireBody).length > kSpacePostCommentMaxBytes;
 
   bool get _canSend =>
       !_sending &&
       (_editing == null
-          ? _composer.text.trim().isNotEmpty || _media != null
-          : (_composer.text.trim().isNotEmpty ||
-                    _editing!.attachment != null) &&
-                _composer.text.trim() != _editing!.body) &&
+          ? _composerWireBody.isNotEmpty || _media != null
+          : (_composerWireBody.isNotEmpty || _editing!.attachment != null) &&
+                _composerWireBody != _editing!.body) &&
       !_tooLong;
 
   Future<void> _pickMedia() async {
@@ -195,7 +238,7 @@ class _SpacePostCommentsScreenState
   Future<void> _send() async {
     final service = _boundService;
     final spaceId = _boundSpaceId;
-    final body = _composer.text.trim();
+    final body = _composerWireBody;
     if (service == null || spaceId == null || !_canSend) return;
     setState(() => _sending = true);
     final editing = _editing;
@@ -216,7 +259,7 @@ class _SpacePostCommentsScreenState
     if (!mounted) return;
     if (sent) {
       if (editing == null) {
-        _composer.clear();
+        _composer.clearWithCustomEmoji();
         _replyTo = null;
         _media = null;
       } else {
@@ -250,17 +293,14 @@ class _SpacePostCommentsScreenState
   void _edit(SpacePostCommentView comment) {
     setState(() {
       if (_editing == null) {
-        _composerBeforeEdit = _composer.text;
+        _composerBeforeEdit = _composerWireBody;
         _replyBeforeEdit = _replyTo;
         _mediaBeforeEdit = _media;
       }
       _replyTo = null;
       _media = null;
       _editing = comment;
-      _composer.text = comment.body;
-      _composer.selection = TextSelection.collapsed(
-        offset: _composer.text.length,
-      );
+      _composer.loadWireValue(comment.body, const []);
     });
     _composerFocus.requestFocus();
   }
@@ -271,10 +311,7 @@ class _SpacePostCommentsScreenState
 
   void _restoreComposerAfterEdit() {
     _editing = null;
-    _composer.text = _composerBeforeEdit ?? '';
-    _composer.selection = TextSelection.collapsed(
-      offset: _composer.text.length,
-    );
+    _composer.loadWireValue(_composerBeforeEdit ?? '', const []);
     _replyTo = _replyBeforeEdit;
     _media = _mediaBeforeEdit;
     _composerBeforeEdit = null;
@@ -294,6 +331,7 @@ class _SpacePostCommentsScreenState
     final firstProjection = _renderedCommentCount < 0;
     final grew = commentCount > _renderedCommentCount;
     _renderedCommentCount = commentCount;
+    if (firstProjection && widget.initialCommentRef != null) return;
     if (!firstProjection && !(grew && _followAfterLoad)) return;
     _followAfterLoad = false;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -342,6 +380,7 @@ class _SpacePostCommentsScreenState
             return Center(child: Text(l.spaceOperationFailed));
           }
           final comments = projection.comments;
+          _scheduleInitialComment(comments);
           _scheduleTail(comments.length);
           final byRef = {for (final comment in comments) comment.ref: comment};
           final canWrite = SpaceAcl(
@@ -397,16 +436,30 @@ class _SpacePostCommentsScreenState
                             );
                           }
                           final comment = comments[index - 1];
-                          return _CommentBubble(
-                            key: ValueKey('space-post-comment-${comment.ref}'),
-                            spaceId: spaceId,
-                            comment: comment,
-                            repliedComment: byRef[comment.replyTo],
-                            isSelf: comment.author == service.selfId,
-                            onReply: canWrite ? () => _reply(comment) : null,
-                            onEdit: canWrite && comment.author == service.selfId
-                                ? () => _edit(comment)
+                          return AnimatedContainer(
+                            key: comment.ref == widget.initialCommentRef
+                                ? _initialCommentKey
                                 : null,
+                            duration: const Duration(milliseconds: 400),
+                            color: comment.ref == _highlightCommentRef
+                                ? Theme.of(
+                                    context,
+                                  ).colorScheme.primary.withValues(alpha: 0.14)
+                                : Colors.transparent,
+                            child: _CommentBubble(
+                              key: ValueKey(
+                                'space-post-comment-${comment.ref}',
+                              ),
+                              spaceId: spaceId,
+                              comment: comment,
+                              repliedComment: byRef[comment.replyTo],
+                              isSelf: comment.author == service.selfId,
+                              onReply: canWrite ? () => _reply(comment) : null,
+                              onEdit:
+                                  canWrite && comment.author == service.selfId
+                                  ? () => _edit(comment)
+                                  : null,
+                            ),
                           );
                         },
                       ),
@@ -422,6 +475,9 @@ class _SpacePostCommentsScreenState
                       sending: _sending,
                       canSend: _canSend,
                       tooLong: _tooLong,
+                      mentionTargets: state.members.values
+                          .map((member) => member.nodeId)
+                          .toList(growable: false),
                       onChanged: () => setState(() {}),
                       onCancelReply: () => setState(() => _replyTo = null),
                       onCancelEdit: _cancelEdit,
@@ -538,7 +594,7 @@ class _CommentBubble extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final author = isSelf ? l.chatYou : comment.author.short;
     final semanticBody = comment.body.isNotEmpty
-        ? comment.body
+        ? messageMentionsFallbackText(comment.body)
         : comment.attachment?.name ?? comment.attachment?.kind ?? '';
     return Semantics(
       label: '$author, $semanticBody',
@@ -604,7 +660,7 @@ class _CommentBubble extends StatelessWidget {
               ],
               if (comment.body.isNotEmpty) ...[
                 const SizedBox(height: 5),
-                SelectionArea(child: Text(comment.body)),
+                SelectionArea(child: FormattedText(comment.body)),
               ],
               if (comment.attachment != null)
                 MediaObjectList(
@@ -664,6 +720,7 @@ class _Composer extends StatelessWidget {
     required this.sending,
     required this.canSend,
     required this.tooLong,
+    required this.mentionTargets,
     required this.onChanged,
     required this.onCancelReply,
     required this.onCancelEdit,
@@ -672,7 +729,7 @@ class _Composer extends StatelessWidget {
     required this.onSend,
   });
 
-  final TextEditingController controller;
+  final CustomEmojiEditingController controller;
   final FocusNode focusNode;
   final SpacePostCommentView? replyTo;
   final SpacePostCommentView? editing;
@@ -680,6 +737,7 @@ class _Composer extends StatelessWidget {
   final bool sending;
   final bool canSend;
   final bool tooLong;
+  final Iterable<NodeId> mentionTargets;
   final VoidCallback onChanged;
   final VoidCallback onCancelReply;
   final VoidCallback onCancelEdit;
@@ -766,20 +824,26 @@ class _Composer extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                   Expanded(
-                    child: TextField(
-                      key: const ValueKey('space-post-comment-composer'),
+                    child: MentionComposerRegion(
                       controller: controller,
                       focusNode: focusNode,
-                      minLines: 1,
-                      maxLines: 6,
-                      maxLength: kSpacePostCommentMaxBytes,
-                      onChanged: (_) => onChanged(),
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: InputDecoration(
-                        hintText: l.spacePostCommentHint,
-                        errorText: tooLong ? l.spacePostCommentTooLong : null,
-                        counterText: '',
-                        border: const OutlineInputBorder(),
+                      targets: mentionTargets,
+                      onChanged: onChanged,
+                      child: TextField(
+                        key: const ValueKey('space-post-comment-composer'),
+                        controller: controller,
+                        focusNode: focusNode,
+                        minLines: 1,
+                        maxLines: 6,
+                        maxLength: kSpacePostCommentMaxBytes,
+                        onChanged: (_) => onChanged(),
+                        textCapitalization: TextCapitalization.sentences,
+                        decoration: InputDecoration(
+                          hintText: l.spacePostCommentHint,
+                          errorText: tooLong ? l.spacePostCommentTooLong : null,
+                          counterText: '',
+                          border: const OutlineInputBorder(),
+                        ),
                       ),
                     ),
                   ),
@@ -815,7 +879,7 @@ String _preview(String value) {
 }
 
 String _commentPreview(SpacePostCommentView comment) {
-  final body = _preview(comment.body);
+  final body = _preview(messageMentionsFallbackText(comment.body));
   if (body.isNotEmpty) return body;
   return comment.attachment?.name ?? comment.attachment?.kind ?? '';
 }

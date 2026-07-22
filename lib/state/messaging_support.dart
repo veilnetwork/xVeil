@@ -256,10 +256,12 @@ class IncomingNotice {
     required this.from,
     required this.preview,
     required this.isFile,
+    this.messageId,
   });
   final NodeId from;
   final String preview;
   final bool isFile;
+  final String? messageId;
 }
 
 /// An author-side prompt: [peer] asked us to attest authorship of message

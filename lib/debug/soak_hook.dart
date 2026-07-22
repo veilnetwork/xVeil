@@ -2662,6 +2662,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'archived': c.archived,
       'muted': c.muted,
       'mutedUntilMs': c.mutedUntil?.millisecondsSinceEpoch,
+      'notificationMuteMode': c.notificationMuteMode.name,
       'retentionDays': c.retentionDays,
       'allowPeerDelete': c.allowPeerDelete,
       'p2pOverride': c.p2pOverride.name,

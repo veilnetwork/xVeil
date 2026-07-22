@@ -146,7 +146,7 @@ extension _MessagingInboundDispatch on MessagingService {
           // → storage allocates locally (no cross-device convergence for them).
           seq: env.seq,
         );
-        _emitIncoming(m.src, body, isFile: false);
+        _emitIncoming(m.src, body, isFile: false, messageId: id);
         if (id != null) {
           await _ackTo(m, id);
         }
