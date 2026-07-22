@@ -104,6 +104,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // carrying a stale embedded status could otherwise un-block a peer that my
   // other device just blocked.
   messaging.onContactStatusChanged = (peer, status) {
+    svc.notifyContactAccessChanged(peer);
     unawaited(() async {
       if (peer == svc.selfId || await svc.isMyDevice(peer)) return;
       await svc.postDeviceEvent(
@@ -266,7 +267,11 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
           }
           if (status == null) return; // newer vocabulary — skip, don't guess
           unawaited(() async {
-            await messaging.applyMirroredContactStatus(peer, status!);
+            final changed = await messaging.applyMirroredContactStatus(
+              peer,
+              status!,
+            );
+            if (changed) svc.notifyContactAccessChanged(peer);
             // A pref event that arrived while this peer was still unknown was
             // skipped (prefs never CREATE a record — they carry no status).
             // Now that the record exists, replay the newest folded pref for

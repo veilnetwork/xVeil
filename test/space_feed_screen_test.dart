@@ -290,6 +290,63 @@ void main() {
     expect(find.text('Long read'), findsOneWidget);
   });
 
+  testWidgets('Feed drops its rendered snapshot immediately after leaving', (
+    tester,
+  ) async {
+    final ownerStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'pw', createIfMissing: true);
+    final ownerService = GroupService(ownerStorage, _Signer(_id(1)));
+    final bob = _id(2);
+    final spaceId = await ownerService.createSpace(
+      'Private timeline',
+      visibility: SpaceVisibility.public,
+    );
+    expect(
+      await ownerService.addControlOp(
+        spaceId,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    expect(
+      await ownerService.publishSpacePost(
+        spaceId,
+        title: 'Must disappear now',
+        body: 'No stale frame after leave',
+        broadcast: false,
+      ),
+      isNotNull,
+    );
+
+    final bobStorage = FakeHvContainer().storage();
+    await bobStorage.open(password: 'pw', createIfMissing: true);
+    final bobService = GroupService(bobStorage, _Signer(bob));
+    expect(
+      await bobService.ingestSnapshot(
+        ownerService.snapshotJson(
+          (await ownerService.load(spaceId))!,
+          recipient: bob,
+        ),
+      ),
+      isTrue,
+    );
+    await tester.pumpWidget(_host(bobService, const SpaceFeedScreen()));
+    await tester.pumpAndSettle();
+    expect(find.text('Must disappear now'), findsOneWidget);
+
+    expect(await bobService.leaveGroup(spaceId), isTrue);
+    await tester.pump();
+    expect(
+      find.text('Must disappear now'),
+      findsNothing,
+      reason: 'the old snapshot must be discarded before async reload ends',
+    );
+    await tester.pumpAndSettle();
+    expect(await bobService.spaceFeed(), isEmpty);
+  });
+
   testWidgets('Space publications screen composes and publishes through ACL', (
     tester,
   ) async {

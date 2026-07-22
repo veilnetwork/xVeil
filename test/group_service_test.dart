@@ -4329,6 +4329,142 @@ void main() {
   );
 
   test(
+    'merged Feed suppresses blocked authors and refreshes contact access',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerService = GroupService(ownerStorage, _FakeSigner(owner));
+      final spaceId = await ownerService.createSpace(
+        'Block-aware feed',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final bobService = GroupService(bobStorage, _FakeSigner(bob));
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      final post = await bobService.publishSpacePost(
+        spaceId,
+        body: 'hidden after a relationship block',
+        broadcast: false,
+      );
+      expect(post, isNotNull);
+      expect(
+        await ownerService.ingestSnapshot(
+          bobService.snapshotJson(
+            (await bobService.load(spaceId))!,
+            recipient: owner,
+          ),
+        ),
+        isTrue,
+      );
+      expect(await ownerService.spaceFeed(), hasLength(1));
+      expect(await ownerService.unreadSpacePosts(spaceId), 1);
+
+      await ownerStorage.upsertContact(
+        Contact(nodeId: bob, status: ContactStatus.blocked),
+      );
+      final accessBefore = ownerService.feedAccessChanges.value;
+      final changesBefore = ownerService.changes.value;
+      ownerService.notifyContactAccessChanged(bob);
+      expect(ownerService.feedAccessChanges.value, accessBefore + 1);
+      expect(ownerService.changes.value, changesBefore + 1);
+      expect(await ownerService.spaceFeed(), isEmpty);
+      expect(await ownerService.unreadSpacePosts(spaceId), 0);
+      expect(
+        await ownerService.postsOf(spaceId),
+        hasLength(1),
+        reason: 'blocking hides the author from the merged Feed, not history',
+      );
+
+      await ownerStorage.upsertContact(
+        Contact(nodeId: bob, status: ContactStatus.accepted),
+      );
+      ownerService.notifyContactAccessChanged(bob);
+      expect((await ownerService.spaceFeed()).single.post.postId, post!.postId);
+    },
+  );
+
+  test(
+    'remote Space ban invalidates feed access before recalculation',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerService = GroupService(ownerStorage, _FakeSigner(owner));
+      final spaceId = await ownerService.createSpace(
+        'Revoked feed',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerService.publishSpacePost(
+          spaceId,
+          body: 'visible before ban',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final bobService = GroupService(bobStorage, _FakeSigner(bob));
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      expect(await bobService.spaceFeed(), hasLength(1));
+      final accessBefore = bobService.feedAccessChanges.value;
+
+      expect(
+        await ownerService.addControlOp(spaceId, ControlOp.ban, target: bob),
+        isTrue,
+      );
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      expect(bobService.feedAccessChanges.value, accessBefore + 1);
+      expect(await bobService.spaceFeed(), isEmpty);
+      expect(await bobService.postsOf(spaceId), isEmpty);
+    },
+  );
+
+  test(
     'Space post comments converge member-to-member without chat notifications',
     () async {
       final ownerStorage = FakeHvContainer().storage();
