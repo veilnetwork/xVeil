@@ -2492,6 +2492,46 @@ class GroupService {
     GroupReaction reaction,
   ) async {
     if (!reaction.isEncrypted) return reaction;
+    if (reaction.isChannelEncrypted) {
+      final channelId = reaction.channelId!;
+      final epoch = reaction.channelEpoch!;
+      final key = bundle.localChannelEpochKeys[_channelKeyId(channelId, epoch)];
+      if (key == null ||
+          !_validLocalChannelEpochKey(
+            bundle.manifest,
+            bundle.control,
+            channelId,
+            epoch,
+            key,
+          )) {
+        return null;
+      }
+      Uint8List? clear;
+      try {
+        clear = await decryptSpaceChannelReactionPayload(
+          spaceId: bundle.manifest.groupId,
+          channelId: channelId,
+          channelEpoch: epoch,
+          author: reaction.author,
+          seq: reaction.seq,
+          reactionVersion: reaction.version,
+          lifecycleGeneration: reaction.lifecycleGeneration ?? '',
+          createdAtMs: reaction.createdAtMs,
+          payload: reaction.encryptedPayload!,
+          channelKey: key,
+        );
+        final decoded = GroupReactionCleartext.decode(clear);
+        return decoded == null ||
+                decoded.schemaVersion != 2 ||
+                decoded.targetKind != ReactionTargetKind.message
+            ? null
+            : reaction.withDecryptedContent(decoded);
+      } catch (_) {
+        return null;
+      } finally {
+        clear?.fillRange(0, clear.length, 0);
+      }
+    }
     final epoch = reaction.membershipEpoch!;
     final key = bundle.localEpochKeys[epoch];
     if (key == null ||
@@ -6570,6 +6610,33 @@ class GroupService {
     ...reaction.signature,
   ]).toString();
 
+  String _reactionLifecycleScopeHash(GroupReaction reaction) => crypto.sha256
+      .convert(
+        utf8.encode(
+          reaction.isChannelEncrypted
+              ? 'xveil.space-reaction-lifecycle-scope.v1|channel|'
+                    '${reaction.channelId!.hex}|${reaction.channelEpoch}'
+              : reaction.isMembershipEncrypted
+              ? 'xveil.space-reaction-lifecycle-scope.v1|membership|'
+                    '${reaction.membershipEpoch}'
+              : 'xveil.space-reaction-lifecycle-scope.v1|clear|'
+                    '${reaction.targetKind.name}',
+        ),
+      )
+      .toString();
+
+  bool _reactionHeadMatches(
+    SpaceReactionLifecycleHead head,
+    GroupReaction reaction,
+  ) =>
+      head.generationHash == _reactionGeneration(reaction) &&
+      head.author == reaction.author &&
+      (head.scopeHash == null ||
+          head.scopeHash == _reactionLifecycleScopeHash(reaction));
+
+  String _reactionSyncScope(GroupReaction reaction) =>
+      '${reaction.channelId!.hex}|channelEpoch:${reaction.channelEpoch}';
+
   String _legacyReactionGeneration(NodeId spaceId) => crypto.sha256
       .convert(
         utf8.encode('xveil.space-reaction-lifecycle.genesis.v1|${spaceId.hex}'),
@@ -6837,7 +6904,8 @@ class GroupService {
     for (final reaction in bundle.reactions) {
       if (!_validReactionFor(bundle.manifest.groupId, reaction)) continue;
       final generation = _reactionGeneration(reaction);
-      final identity = '$generation|${reaction.author.hex}';
+      final scope = _reactionLifecycleScopeHash(reaction);
+      final identity = '$generation|$scope|${reaction.author.hex}';
       final current = terminals[identity];
       if (current == null || reaction.seq > current.seq) {
         terminals[identity] = reaction;
@@ -6849,6 +6917,7 @@ class GroupService {
       for (final entry in entries)
         SpaceReactionLifecycleHead(
           generationHash: _reactionGeneration(entry.value),
+          scopeHash: _reactionLifecycleScopeHash(entry.value),
           author: entry.value.author,
           seq: entry.value.seq,
           hash: _reactionHash(entry.value),
@@ -6952,10 +7021,9 @@ class GroupService {
   ) {
     final transition = state.lifecycleTransition;
     if (transition == null) return true;
-    final generation = _reactionGeneration(reaction);
     SpaceReactionLifecycleHead? boundary;
     for (final head in transition.reactionHeads) {
-      if (head.generationHash == generation && head.author == reaction.author) {
+      if (_reactionHeadMatches(head, reaction)) {
         boundary = head;
         break;
       }
@@ -6982,8 +7050,7 @@ class GroupService {
     for (final head in transition.reactionHeads) {
       if (valid.any(
         (reaction) =>
-            _reactionGeneration(reaction) == head.generationHash &&
-            reaction.author == head.author &&
+            _reactionHeadMatches(head, reaction) &&
             reaction.seq == head.seq &&
             _reactionHash(reaction) == head.hash,
       )) {
@@ -6993,11 +7060,9 @@ class GroupService {
     return [
       for (final reaction in valid)
         if (() {
-          final generation = _reactionGeneration(reaction);
           SpaceReactionLifecycleHead? boundary;
           for (final head in transition.reactionHeads) {
-            if (head.generationHash == generation &&
-                head.author == reaction.author) {
+            if (_reactionHeadMatches(head, reaction)) {
               boundary = head;
               break;
             }
@@ -8160,6 +8225,23 @@ class GroupService {
       return result;
     }
 
+    Map<String, Object> channelReactionVector() {
+      final result = <String, Object>{};
+      final byScope = <String, List<GroupReaction>>{};
+      for (final reaction in acceptedReactions) {
+        if (!reaction.isChannelEncrypted) continue;
+        byScope
+            .putIfAbsent(_reactionSyncScope(reaction), () => <GroupReaction>[])
+            .add(reaction);
+      }
+      for (final entry in byScope.entries) {
+        result[entry.key] = vector(
+          entry.value.map((reaction) => (reaction.author, reaction.seq)),
+        );
+      }
+      return result;
+    }
+
     return {
       'sreq': 1,
       'gid': groupId.hex,
@@ -8180,8 +8262,15 @@ class GroupService {
       // instead of declaring two different heads "in sync".
       'c': controlVector(),
       // Reactions ride the same per-author high-water scheme (each author's
-      // reaction seq is monotonic). An older responder just ignores the key.
-      'r': vector(acceptedReactions.map((r) => (r.author, r.seq))),
+      // reaction seq is monotonic). Protected reactions have an independent
+      // per-channel vector: a higher public reaction seq must not hide a lower
+      // missing channel row, and vice versa.
+      'r': vector(
+        acceptedReactions
+            .where((reaction) => !reaction.isChannelEncrypted)
+            .map((reaction) => (reaction.author, reaction.seq)),
+      ),
+      if (b.manifest.isSpace) 'cr': channelReactionVector(),
       if (b.manifest.isSpace) 'p': postVector(),
       if (b.manifest.isSpace) 'pg': postGenerationVector(),
       if (b.localEpochKeys.isNotEmpty)
@@ -8302,6 +8391,12 @@ class GroupService {
       return req['g'];
     }
 
+    Object? reactionVectorFor(GroupReaction reaction) {
+      if (!reaction.isChannelEncrypted) return req['r'];
+      final channels = req['cr'];
+      return channels is Map ? channels[_reactionSyncScope(reaction)] : null;
+    }
+
     bool peerNeedsMessage(GroupMessage message) {
       if (!_validMessageFor(gid, message)) return false;
       final messageVector = messageVectorFor(message);
@@ -8362,10 +8457,17 @@ class GroupService {
     final missingRx = [
       for (final r in _acceptedReactionsWithinLifecycle(b, state))
         if (_validReactionFor(gid, r) &&
-            r.seq > seen(req['r'], r.author) &&
-            (!_encryptionEstablished(b.manifest, b.control) ||
-                (r.isEncrypted &&
-                    _peerCanDecryptEpoch(b, peer, r.membershipEpoch!))))
+            r.seq > seen(reactionVectorFor(r), r.author) &&
+            (r.isChannelEncrypted
+                ? _peerCanDecryptChannelEpoch(
+                    b,
+                    peer,
+                    r.channelId!,
+                    r.channelEpoch!,
+                  )
+                : !_encryptionEstablished(b.manifest, b.control) ||
+                      (r.isMembershipEncrypted &&
+                          _peerCanDecryptEpoch(b, peer, r.membershipEpoch!))))
           r,
     ];
     final missingPosts = [
@@ -9042,14 +9144,15 @@ class GroupService {
       return false;
     }
     if (utf8.encode(emoji).length > 64) return false;
-    if (targetKind == ReactionTargetKind.message &&
-        !(await messagesOf(groupId)).any(
-          (message) => message.ref == target && !message.isChannelEncrypted,
-        )) {
-      // Reactions still use the Space epoch and would reveal the hidden
-      // message reference to every Space member. Unknown and protected-channel
-      // targets are therefore rejected.
-      return false;
+    GroupMessage? targetMessage;
+    if (targetKind == ReactionTargetKind.message) {
+      for (final message in await messagesOf(groupId)) {
+        if (message.ref == target) {
+          targetMessage = message;
+          break;
+        }
+      }
+      if (targetMessage == null) return false;
     }
     if (targetKind == ReactionTargetKind.spacePost &&
         (!b.manifest.isSpace ||
@@ -9107,7 +9210,66 @@ class GroupService {
         ? state.lifecycleTransitionHash
         : null;
     late final GroupReaction unsigned;
-    if (descriptor != null && key != null) {
+    if (targetMessage?.isChannelEncrypted == true) {
+      final channelId = targetMessage!.channelId!;
+      final protected = state.protectedChannels[channelId.hex];
+      if (!b.manifest.isSpace || protected == null) {
+        return false;
+      }
+      final channel = await _materializeProtectedChannel(b, state, protected);
+      if (channel == null || !channel.recipients.contains(_signer.selfId)) {
+        return false;
+      }
+      final channelEpoch = protected.channelEpoch;
+      final channelKey =
+          b.localChannelEpochKeys[_channelKeyId(channelId, channelEpoch)];
+      if (channelKey == null ||
+          !_validLocalChannelEpochKey(
+            b.manifest,
+            b.control,
+            channelId,
+            channelEpoch,
+            channelKey,
+          )) {
+        return false;
+      }
+      final clear = GroupReactionCleartext(
+        target: target,
+        emoji: next,
+        targetKind: ReactionTargetKind.message,
+        schemaVersion: 2,
+      ).encode();
+      try {
+        final encrypted = await encryptSpaceChannelReactionPayload(
+          spaceId: groupId,
+          channelId: channelId,
+          channelEpoch: channelEpoch,
+          author: _signer.selfId,
+          seq: mySeq,
+          reactionVersion: lifecycleGeneration == null ? 7 : 8,
+          lifecycleGeneration: lifecycleGeneration ?? '',
+          createdAtMs: createdAt,
+          clearText: clear,
+          channelKey: channelKey,
+        );
+        unsigned = GroupReaction(
+          groupId: groupId,
+          author: _signer.selfId,
+          seq: mySeq,
+          target: '',
+          emoji: '',
+          version: lifecycleGeneration == null ? 7 : 8,
+          channelId: channelId,
+          channelEpoch: channelEpoch,
+          encryptedPayload: encrypted,
+          lifecycleGeneration: lifecycleGeneration,
+          createdAtMs: createdAt,
+          signature: Uint8List(0),
+        );
+      } finally {
+        clear.fillRange(0, clear.length, 0);
+      }
+    } else if (descriptor != null && key != null) {
       final clear = GroupReactionCleartext(
         target: target,
         emoji: next,
@@ -9172,9 +9334,20 @@ class GroupService {
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     if (b.manifest.isSpace && state.isDeleted) return const {};
+    final protectedChannels = b.manifest.isSpace
+        ? await _protectedChannelsOf(b, state)
+        : const <String, SpaceChannelControlCleartext>{};
+    final visibleMessages = {
+      for (final message in await messagesOf(groupId)) message.ref: message,
+    };
     final materialized = <GroupReaction>[];
     for (final reaction in b.reactions) {
       if (!_validReactionFor(groupId, reaction) ||
+          (reaction.isChannelEncrypted &&
+              !(protectedChannels[reaction.channelId!.hex]?.recipients.contains(
+                    reaction.author,
+                  ) ??
+                  false)) ||
           !SpaceAcl(state).allows(
             reaction.author,
             SpacePermission.publishMessages,
@@ -9183,7 +9356,16 @@ class GroupService {
         continue;
       }
       final visible = await _materializeEncryptedReaction(b, reaction);
-      if (visible != null) materialized.add(visible);
+      if (visible == null) continue;
+      final target = visibleMessages[visible.target];
+      if (target == null ||
+          (reaction.isChannelEncrypted
+              ? !target.isChannelEncrypted ||
+                    target.channelId != reaction.channelId
+              : target.isChannelEncrypted)) {
+        continue;
+      }
+      materialized.add(visible);
     }
     return foldGroupReactions(materialized, _signer.verifyReaction);
   }
@@ -9874,9 +10056,17 @@ class GroupService {
           .where(
             (reaction) =>
                 distributesContent &&
-                (!encryptionEstablished
+                (reaction.isChannelEncrypted
+                    ? recipient != null &&
+                          _peerCanDecryptChannelEpoch(
+                            b,
+                            recipient,
+                            reaction.channelId!,
+                            reaction.channelEpoch!,
+                          )
+                    : !encryptionEstablished
                     ? true
-                    : reaction.isEncrypted &&
+                    : reaction.isMembershipEncrypted &&
                           recipient != null &&
                           _peerCanDecryptEpoch(
                             b,
@@ -10277,13 +10467,23 @@ class GroupService {
     final visiblePostIds = man.isSpace
         ? {for (final post in await _postsOfBundle(targetBundle)) post.postId}
         : const <String>{};
-    final acceptedMessageRefs = {
-      for (final message in _acceptedMessagesWithinLifecycle(
-        targetBundle,
-        mergedState,
-      ))
+    final acceptedMessages = _acceptedMessagesWithinLifecycle(
+      targetBundle,
+      mergedState,
+    );
+    final acceptedOpenMessageRefs = {
+      for (final message in acceptedMessages)
         if (!message.isChannelEncrypted) message.ref,
     };
+    final acceptedProtectedMessages = <String, GroupMessage>{};
+    for (final message in acceptedMessages) {
+      if (!message.isChannelEncrypted ||
+          protectedChannels[message.channelId!.hex] == null) {
+        continue;
+      }
+      final visible = await _materializeEncryptedMessage(targetBundle, message);
+      if (visible != null) acceptedProtectedMessages[message.ref] = visible;
+    }
     for (final r in inReactions) {
       if (!_validReactionFor(manifest.groupId, r) ||
           !_reactionWithinLifecycleBoundary(mergedState, r) ||
@@ -10295,7 +10495,25 @@ class GroupService {
         continue;
       }
       GroupReaction? visibleReaction;
-      if (r.isEncrypted) {
+      if (r.isChannelEncrypted) {
+        final channelId = r.channelId!;
+        final protected = protectedChannels[channelId.hex];
+        final key =
+            channelMaterial.keys[_channelKeyId(channelId, r.channelEpoch!)];
+        if (protected == null ||
+            !protected.recipients.contains(r.author) ||
+            key == null ||
+            !_validLocalChannelEpochKey(
+              man,
+              control,
+              channelId,
+              r.channelEpoch!,
+              key,
+            )) {
+          continue;
+        }
+        visibleReaction = await _materializeEncryptedReaction(targetBundle, r);
+      } else if (r.isMembershipEncrypted) {
         final epoch = r.membershipEpoch!;
         final key = material.keys[epoch];
         if (key == null || !_validLocalEpochKey(man, control, epoch, key)) {
@@ -10309,9 +10527,11 @@ class GroupService {
       }
       if (visibleReaction == null) continue;
       final targetExists = switch (visibleReaction.targetKind) {
-        ReactionTargetKind.message => acceptedMessageRefs.contains(
-          visibleReaction.target,
-        ),
+        ReactionTargetKind.message =>
+          r.isChannelEncrypted
+              ? acceptedProtectedMessages[visibleReaction.target]?.channelId ==
+                    r.channelId
+              : acceptedOpenMessageRefs.contains(visibleReaction.target),
         ReactionTargetKind.spacePost =>
           man.isSpace && visiblePostIds.contains(visibleReaction.target),
       };
@@ -11408,13 +11628,20 @@ class GroupService {
       final peerReactions = [
         for (final reaction in reactions)
           if (_reactionWithinLifecycleBoundary(state, reaction) &&
-              (!encryptionEstablished ||
-                  (reaction.isEncrypted &&
-                      _peerCanDecryptEpoch(
-                        b,
-                        peer,
-                        reaction.membershipEpoch!,
-                      ))))
+              (reaction.isChannelEncrypted
+                  ? _peerCanDecryptChannelEpoch(
+                      b,
+                      peer,
+                      reaction.channelId!,
+                      reaction.channelEpoch!,
+                    )
+                  : !encryptionEstablished ||
+                        (reaction.isMembershipEncrypted &&
+                            _peerCanDecryptEpoch(
+                              b,
+                              peer,
+                              reaction.membershipEpoch!,
+                            ))))
             reaction,
       ];
       final peerPosts = [

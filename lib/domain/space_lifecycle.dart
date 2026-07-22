@@ -132,22 +132,28 @@ class SpaceReactionLifecycleHead {
     required this.author,
     required this.seq,
     required this.hash,
+    this.scopeHash,
   });
 
   final String generationHash;
+  final String? scopeHash;
   final NodeId author;
   final int seq;
   final String hash;
 
-  String get identity => '$generationHash|${author.hex}';
+  String get identity => scopeHash == null
+      ? '$generationHash|${author.hex}'
+      : '$generationHash|$scopeHash|${author.hex}';
 
   bool get isStructurallyValid =>
       RegExp(r'^[0-9a-f]{64}$').hasMatch(generationHash) &&
+      (scopeHash == null || RegExp(r'^[0-9a-f]{64}$').hasMatch(scopeHash!)) &&
       seq >= 0 &&
       RegExp(r'^[0-9a-f]{64}$').hasMatch(hash);
 
   Map<String, dynamic> toJson() => {
     'generation': generationHash,
+    if (scopeHash != null) 'scope': scopeHash,
     'author': author.hex,
     'seq': seq,
     'hash': hash,
@@ -156,6 +162,7 @@ class SpaceReactionLifecycleHead {
   static SpaceReactionLifecycleHead? fromJson(Object? value) {
     if (value is! Map ||
         value['generation'] is! String ||
+        (value.containsKey('scope') && value['scope'] is! String) ||
         value['author'] is! String ||
         value['seq'] is! int ||
         value['hash'] is! String) {
@@ -164,6 +171,7 @@ class SpaceReactionLifecycleHead {
     try {
       final head = SpaceReactionLifecycleHead(
         generationHash: value['generation'] as String,
+        scopeHash: value['scope'] as String?,
         author: NodeId.fromHex(value['author'] as String),
         seq: value['seq'] as int,
         hash: value['hash'] as String,

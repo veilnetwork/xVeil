@@ -165,6 +165,15 @@ membership-epoch ciphertext, а версия V4 связана с AEAD AAD. Ре
 tombstone прекращает её выдачу и запрещает новые toggle, сохраняя signed rows
 как локальное audit/fork evidence.
 
+Restricted channel использует отдельные ciphertext-only реакции V7/V8:
+снаружи остаются только `channelId` и `channelEpoch`, а target, emoji и
+namespace входят в channel-epoch AEAD. V7 обслуживает активную исходную
+lifecycle generation, V8 дополнительно связывает ciphertext с восстановленной
+generation. Snapshot, live delta и отдельный channel reaction gap-vector
+выдают строку только текущему получателю ACL с соответствующим историческим
+ключом. Lifecycle terminal head хеширует visibility scope, поэтому невидимая
+restricted-реакция одного автора не может поглотить его видимый public prefix.
+
 ### Правила
 
 Правила сообщества — последовательные неизменяемые `SpaceRulesVersion` внутри
@@ -270,8 +279,9 @@ channel-scoped content request. Request связан с `channelId` и теку�
 получателю расшифрованного ACL, а requester рассылает request только
 таким recipients. Legacy unscoped request не может открыть CID, который
 ссылается только из channel-encrypted row, а ротация ACL сразу гасит
-старый epoch. Reactions и live voice всё ещё используют space-wide
-primitives и потому fail-closed до появления channel-scoped wire.
+старый epoch. Reactions используют отдельный channel-epoch wire и также
+отзываются ротацией ACL. Live voice всё ещё использует space-wide call
+primitive и потому fail-closed до появления channel-scoped call wire.
 
 Скрытость и конфиденциальность различаются, но серверный режим из исходного
 промпта к veil неприменим.
@@ -543,7 +553,7 @@ heads; следующий шаг масштабирования — proof-based 
 а не увеличение каждой публикации. Channel-scoped ACL/epochs для restricted
 text и базовая signed moderation уже реализованы; следующими слоями остаются
 настоящий indistinguishable secret scope, protected-scope
-moderation/media/reactions/voice, appeal transport и retention.
+moderation/voice, appeal transport и retention.
 
 Архивирование Space также не должно появляться как локальный UI-флаг. Текущий
 `GroupMessage` не подписывает causal cut состояния Space, поэтому без нового

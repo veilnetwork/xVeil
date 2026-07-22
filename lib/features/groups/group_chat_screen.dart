@@ -289,8 +289,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   /// bar honors the "show reactions" display preference.
   Future<void> _showMessageMenu(GroupService svc, GroupMessage m) async {
     final l = AppL10n.of(context);
-    final showReactions =
-        !m.isChannelEncrypted && ref.read(showReactionsProvider);
+    final showReactions = ref.read(showReactionsProvider);
     final state = await svc.stateOf(_gid);
     final bundle = await svc.load(_gid);
     final myRole = state?.roleOf(svc.selfId);
@@ -1469,9 +1468,8 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                                   : byRef[m.replyTo],
                               reactions: reacts[m.ref],
                               onLongPress: () => _showMessageMenu(svc, m),
-                              onToggleReaction: m.isChannelEncrypted
-                                  ? null
-                                  : (e) => svc.react(_gid, m.ref, e),
+                              onToggleReaction: (e) =>
+                                  svc.react(_gid, m.ref, e),
                               onShowReactors: () {
                                 final r = reacts[m.ref];
                                 if (r != null && r.isNotEmpty) {
