@@ -43,6 +43,12 @@ cleanup() {
   set +e
   rm -f "$OVERRIDE"
   (cd "$ROOT" && flutter pub get >/dev/null) || cleanup_status=$?
+  # `flutter pub get` regenerates every desktop plugin link as it removes the
+  # simulator-only scanner override. CocoaPods then invalidates/removes the
+  # macOS sandbox manifest too; leaving it absent makes the next macOS build
+  # fail with "sandbox is not in sync" until a manual `pod install`. Restore
+  # both Apple platform sandboxes while the production graph is active.
+  (cd "$ROOT/macos" && pod install >/dev/null) || cleanup_status=$?
   # Restore the production CocoaPods graph as well. `flutter pub get` updates
   # Dart plugins but does not replace the stub Pod targets/materialized lock.
   (cd "$ROOT/ios" && pod install >/dev/null) || cleanup_status=$?
