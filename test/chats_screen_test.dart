@@ -3,10 +3,17 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/group.dart';
+import 'package:xveil/domain/group_call.dart';
+import 'package:xveil/domain/group_content.dart';
+import 'package:xveil/domain/group_message.dart';
+import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_lifecycle.dart';
+import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/features/chat/chats_screen.dart';
 import 'package:xveil/features/spaces/space_list_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
@@ -14,7 +21,77 @@ import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/providers.dart';
 
+import 'support/fake_hv_container.dart';
+
 NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
+
+class _Signer implements GroupSigner {
+  const _Signer(this.selfId);
+
+  @override
+  final NodeId selfId;
+
+  @override
+  Uint8List get selfPubKey => selfId.bytes;
+
+  @override
+  SpaceManifest signSpaceManifest(SpaceManifest value) =>
+      value.withSignature(Uint8List(64));
+
+  @override
+  ControlEntry signControl(ControlEntry value) =>
+      value.withSignature(Uint8List(64), value.author.bytes);
+
+  @override
+  GroupMessage signMessage(GroupMessage value) =>
+      value.withSignature(Uint8List(64), value.author.bytes);
+
+  @override
+  GroupReaction signReaction(GroupReaction value) =>
+      value.withSignature(Uint8List(64), value.author.bytes);
+
+  @override
+  SpacePost signPost(SpacePost value) =>
+      value.withSignature(Uint8List(64), value.author.bytes);
+
+  @override
+  GroupContentRequest signContentRequest(GroupContentRequest value) =>
+      value.withSignature(Uint8List(64), value.requester.bytes);
+
+  @override
+  GroupCallSignal signCallSignal(GroupCallSignal value) =>
+      value.withSignature(Uint8List(64), value.author.bytes);
+
+  @override
+  bool verifyControl(ControlEntry value) => true;
+
+  @override
+  bool verifyMessage(GroupMessage value) => true;
+
+  @override
+  bool verifyReaction(GroupReaction value) => true;
+
+  @override
+  bool verifyPost(SpacePost value) => true;
+
+  @override
+  bool verifyContentRequest(GroupContentRequest value) => true;
+
+  @override
+  bool verifyCallSignal(GroupCallSignal value) => true;
+
+  @override
+  bool verifySpaceManifest(SpaceManifest value) => value.signature.length == 64;
+
+  @override
+  bool verifySovereign({
+    required String algorithm,
+    required NodeId nodeId,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+  }) => true;
+}
 
 Conversation _conv(
   int seed,
@@ -133,6 +210,74 @@ void main() {
     expect(find.text('Alice'), findsOneWidget);
     expect(find.text('Veil Community'), findsNothing);
     expect(find.text('community channel message'), findsNothing);
+  });
+
+  testWidgets('drawer creates a group through the mounted Chats owner', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _Signer(_id(9)));
+    final router = GoRouter(
+      routes: [
+        GoRoute(path: '/', builder: (_, _) => const ChatsScreen()),
+        GoRoute(
+          path: '/group/:id',
+          builder: (_, state) => Text('opened:${state.pathParameters['id']}'),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          storageProvider.overrideWithValue(storage),
+          groupServiceProvider.overrideWithValue(service),
+          conversationsProvider.overrideWith((ref) => Stream.value(const [])),
+          nodeStatusProvider.overrideWith(
+            (ref) => Stream.value(
+              const NodeStatus(phase: NodePhase.starting, peerCount: 0),
+            ),
+          ),
+          sessionCountProvider.overrideWith((ref) => Stream.value(0)),
+        ],
+        child: MaterialApp.router(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    final l = AppL10n.of(tester.element(find.byType(ChatsScreen)));
+
+    tester.state<ScaffoldState>(find.byType(Scaffold).first).openDrawer();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text(l.groupCreateTitle));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.enterText(find.byType(TextField), 'test');
+    await tester.tap(find.text(l.groupCreateAction));
+    for (var attempt = 0; attempt < 20; attempt++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      if (find.textContaining('opened:').evaluate().isNotEmpty) break;
+    }
+
+    final groups = await service.listGroups();
+    expect(groups, hasLength(1));
+    expect(groups.single.name, 'test');
+    expect(find.text('opened:${groups.single.groupId.hex}'), findsOneWidget);
+    router.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('test'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    router.dispose();
+    await service.dispose();
+    await storage.close();
   });
 
   testWidgets('communities replace the old empty channels surface', (

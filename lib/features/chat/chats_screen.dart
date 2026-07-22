@@ -205,6 +205,14 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
     final folderDrawer = _FolderDrawer(
       folders: folders,
       selected: selectedFolder,
+      // The drawer is disposed as soon as it closes. Keep the dialog command
+      // owned by ChatsScreen so its BuildContext and provider ref stay alive
+      // while the user enters a name and the async create completes.
+      onCreateGroup: () => showCreateGroupDialog(
+        context,
+        ref.read(groupServiceProvider),
+        onCreated: () => ref.read(selectedFolderProvider.notifier).state = null,
+      ),
     );
     return Scaffold(
       // With a drawer placement the panel is collapsible: Scaffold puts the
@@ -495,9 +503,14 @@ Future<void> showAddContactSheet(BuildContext context, WidgetRef ref) async {
 /// app MENU (add contact / network / settings). Selecting a folder closes
 /// the drawer — the app-bar title then names the active folder.
 class _FolderDrawer extends ConsumerWidget {
-  const _FolderDrawer({required this.folders, required this.selected});
+  const _FolderDrawer({
+    required this.folders,
+    required this.selected,
+    required this.onCreateGroup,
+  });
   final List<ChatFolder> folders;
   final String? selected;
+  final Future<void> Function() onCreateGroup;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -622,11 +635,10 @@ class _FolderDrawer extends ConsumerWidget {
               title: Text(l.groupCreateTitle),
               onTap: () {
                 Navigator.of(context).pop();
-                showCreateGroupDialog(
-                  context,
-                  ref,
-                  onCreated: () =>
-                      ref.read(selectedFolderProvider.notifier).state = null,
+                // Let the drawer finish its pop before presenting the dialog
+                // from the still-mounted ChatsScreen owner.
+                WidgetsBinding.instance.addPostFrameCallback(
+                  (_) => unawaited(onCreateGroup()),
                 );
               },
             ),

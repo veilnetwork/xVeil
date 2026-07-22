@@ -99,20 +99,26 @@ class GroupTile extends ConsumerWidget {
 /// Creates a group chat and opens its group-wide conversation.
 Future<void> showCreateGroupDialog(
   BuildContext context,
-  WidgetRef ref, {
+  GroupService? service, {
   VoidCallback? onCreated,
 }) async {
   final l = AppL10n.of(context);
-  final controller = TextEditingController();
+  if (service == null) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(l.groupOperationFailed)));
+    return;
+  }
+  var draft = '';
   final name = await showDialog<String>(
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: Text(l.groupCreateTitle),
       content: TextField(
-        controller: controller,
         autofocus: true,
         maxLength: 64,
         decoration: InputDecoration(hintText: l.groupNameHint),
+        onChanged: (value) => draft = value,
         onSubmitted: (value) => Navigator.of(dialogContext).pop(value.trim()),
       ),
       actions: [
@@ -121,17 +127,13 @@ Future<void> showCreateGroupDialog(
           child: Text(l.actionCancel),
         ),
         FilledButton(
-          onPressed: () =>
-              Navigator.of(dialogContext).pop(controller.text.trim()),
+          onPressed: () => Navigator.of(dialogContext).pop(draft.trim()),
           child: Text(l.groupCreateAction),
         ),
       ],
     ),
   );
-  controller.dispose();
   if (name == null || name.isEmpty) return;
-  final service = ref.read(groupServiceProvider);
-  if (service == null) return;
   try {
     final groupId = await service.createGroup(name);
     onCreated?.call();
