@@ -11,6 +11,7 @@ import '../../domain/group.dart';
 import '../../domain/group_policy.dart';
 import '../../domain/space_retention.dart';
 import '../../domain/space_join_request.dart';
+import '../../domain/space_recommendation.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/messaging.dart' show conversationsProvider;
@@ -274,6 +275,55 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     });
   }
 
+  Future<void> _createRecommendationCampaign(
+    GroupService service,
+    NodeId spaceId,
+  ) async {
+    final l = AppL10n.of(context);
+    var draft = '';
+    final text = await showDialog<String>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(l.spaceRecommendationCreate),
+        content: TextField(
+          key: const ValueKey('space-recommendation-text'),
+          autofocus: true,
+          minLines: 2,
+          maxLines: 5,
+          maxLength: 1000,
+          decoration: InputDecoration(hintText: l.spaceRecommendationTextHint),
+          onChanged: (value) => draft = value,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            key: const ValueKey('space-recommendation-create-confirm'),
+            onPressed: () => Navigator.of(dialog).pop(draft),
+            child: Text(l.spaceRecommendationCreate),
+          ),
+        ],
+      ),
+    );
+    if (text == null || text.trim().isEmpty) return;
+    if (await service.createSpaceRecommendationCampaign(spaceId, text) ==
+        null) {
+      _failure();
+    }
+  }
+
+  Future<void> _revokeRecommendationCampaign(
+    GroupService service,
+    NodeId spaceId,
+    String campaignId,
+  ) async {
+    if (!await service.revokeSpaceRecommendationCampaign(spaceId, campaignId)) {
+      _failure();
+    }
+  }
+
   Future<void> _decideJoinRequest(
     GroupService service,
     SpaceJoinInboxEntry entry, {
@@ -531,6 +581,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
           service.localSpaceRetentionDays(spaceId),
           service.currentSpaceJoinCode(spaceId),
           service.pendingSpaceJoinRequests(spaceId),
+          service.spaceRecommendationCampaigns(spaceId),
         ]),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
@@ -547,6 +598,8 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
           final localRetentionDays = snapshot.data![3] as int?;
           final joinCode = snapshot.data![4] as String?;
           final joinRequests = snapshot.data![5] as List<SpaceJoinInboxEntry>;
+          final recommendationCampaigns =
+              snapshot.data![6] as List<SpaceRecommendationCampaign>;
           final myRole = state.roleOf(service.selfId)!;
           final canRename =
               state.isActive &&
@@ -564,6 +617,11 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
           final canManageRetention = SpaceAcl(
             state,
           ).allows(service.selfId, SpacePermission.manageStorage);
+          final canManageRecommendations =
+              bundle?.manifest.visibility == SpaceVisibility.public &&
+              SpaceAcl(
+                state,
+              ).allows(service.selfId, SpacePermission.manageRecommendations);
           final globalRetentionDays = _retentionDays(
             state.effectiveRetentionPolicy(),
           );
@@ -775,6 +833,80 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                       ),
                                     );
                                   },
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                      ],
+                      if (canManageRecommendations) ...[
+                        Card(
+                          child: Column(
+                            children: [
+                              ListTile(
+                                key: const ValueKey(
+                                  'space-recommendations-tile',
+                                ),
+                                leading: const Icon(Icons.share_outlined),
+                                title: Text(l.spaceRecommendationsTitle),
+                                subtitle: Text(l.spaceRecommendationsHint),
+                                trailing: FilledButton.tonal(
+                                  key: const ValueKey(
+                                    'space-recommendation-create',
+                                  ),
+                                  onPressed: () =>
+                                      _createRecommendationCampaign(
+                                        service,
+                                        spaceId,
+                                      ),
+                                  child: Text(l.spaceRecommendationCreate),
+                                ),
+                              ),
+                              if (recommendationCampaigns.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    0,
+                                    16,
+                                    16,
+                                  ),
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      l.spaceRecommendationEmpty,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                  ),
+                                ),
+                              for (final campaign
+                                  in recommendationCampaigns) ...[
+                                const Divider(height: 1, indent: 56),
+                                ListTile(
+                                  key: ValueKey(
+                                    'space-recommendation-${campaign.campaignId}',
+                                  ),
+                                  leading: const Icon(Icons.campaign_outlined),
+                                  title: Text(
+                                    campaign.text,
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: Text(
+                                    _date(context, campaign.createdAtMs),
+                                  ),
+                                  trailing: IconButton(
+                                    tooltip: l.spaceRecommendationRevoke,
+                                    onPressed: () =>
+                                        _revokeRecommendationCampaign(
+                                          service,
+                                          spaceId,
+                                          campaign.campaignId,
+                                        ),
+                                    icon: const Icon(Icons.campaign_outlined),
+                                  ),
                                 ),
                               ],
                             ],

@@ -857,6 +857,84 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
       },
+      '/spaces/recommendations': {
+        'get': {
+          'summary': 'List signed community recommendation campaigns',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+            {
+              'name': 'includeRevoked',
+              'in': 'query',
+              'schema': {'type': 'boolean'},
+            },
+          ],
+          'responses': ok({'type': obj}),
+        },
+        'post': {
+          'summary': 'Create an admin-signed public recommendation campaign',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space', 'text'],
+                  'properties': {
+                    'space': {'type': 'string'},
+                    'text': {'type': 'string', 'maxLength': 1000},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+        'delete': {
+          'summary': 'Revoke a signed recommendation campaign',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+            {
+              'name': 'campaignId',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/spaces/recommendations/share': {
+        'post': {
+          'summary': 'Explicitly share one campaign with one accepted contact',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space', 'campaignId', 'recipient'],
+                  'properties': {
+                    'space': {'type': 'string'},
+                    'campaignId': {'type': 'string'},
+                    'recipient': {'type': 'string'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
       '/spaces/subscription': {
         'post': {
           'summary': 'Enable or disable one community in the local feed',
@@ -1998,6 +2076,10 @@ class ApiHandler {
     this.deleteSpacePost,
     this.setSpacePostPinned,
     this.reactToSpacePost,
+    this.spaceRecommendationCampaigns,
+    this.createSpaceRecommendationCampaign,
+    this.revokeSpaceRecommendationCampaign,
+    this.shareSpaceRecommendation,
     this.spaceFeed,
     this.spaceFeedTypeFilter,
     this.setSpaceFeedTypeFilter,
@@ -2150,6 +2232,24 @@ class ApiHandler {
   setSpacePostPinned;
   final Future<String?> Function(String spaceHex, String postId, String emoji)?
   reactToSpacePost;
+  final Future<Map<String, dynamic>?> Function(
+    String spaceHex,
+    bool includeRevoked,
+  )?
+  spaceRecommendationCampaigns;
+  final Future<({String? error, Map<String, dynamic>? campaign})> Function(
+    String spaceHex,
+    String text,
+  )?
+  createSpaceRecommendationCampaign;
+  final Future<String?> Function(String spaceHex, String campaignId)?
+  revokeSpaceRecommendationCampaign;
+  final Future<String?> Function(
+    String spaceHex,
+    String campaignId,
+    String recipientHex,
+  )?
+  shareSpaceRecommendation;
   final Future<Map<String, dynamic>> Function(
     int limit,
     String? before,
@@ -2823,6 +2923,89 @@ class ApiHandler {
         });
       }
       return _spaceMutationResponse(await handler(space, postId, emoji));
+    }
+    if (method == 'GET' && path == '/v1/spaces/recommendations') {
+      final handler = spaceRecommendationCampaigns;
+      final space = uri.queryParameters['space'];
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space recommendations unavailable',
+        });
+      }
+      if (space == null || space.isEmpty) {
+        return const ApiResponse(400, {'error': 'space required'});
+      }
+      final result = await handler(
+        space,
+        uri.queryParameters['includeRevoked'] == 'true',
+      );
+      return result == null
+          ? const ApiResponse(404, {'error': 'space not found'})
+          : ApiResponse(200, result);
+    }
+    if (method == 'POST' && path == '/v1/spaces/recommendations') {
+      final handler = createSpaceRecommendationCampaign;
+      final space = body?['space'];
+      final text = body?['text'];
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space recommendations unavailable',
+        });
+      }
+      if (space is! String ||
+          space.isEmpty ||
+          text is! String ||
+          text.trim().isEmpty ||
+          text.trim().length > 1000) {
+        return const ApiResponse(400, {'error': 'valid space + text required'});
+      }
+      final result = await handler(space, text.trim());
+      return result.error == null
+          ? ApiResponse(200, {'ok': true, 'campaign': result.campaign})
+          : ApiResponse(400, {'error': result.error});
+    }
+    if (method == 'DELETE' && path == '/v1/spaces/recommendations') {
+      final handler = revokeSpaceRecommendationCampaign;
+      final space = uri.queryParameters['space'];
+      final campaignId = uri.queryParameters['campaignId'];
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space recommendations unavailable',
+        });
+      }
+      if (space == null ||
+          space.isEmpty ||
+          campaignId == null ||
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(campaignId)) {
+        return const ApiResponse(400, {
+          'error': 'valid space + campaignId required',
+        });
+      }
+      return _spaceMutationResponse(await handler(space, campaignId));
+    }
+    if (method == 'POST' && path == '/v1/spaces/recommendations/share') {
+      final handler = shareSpaceRecommendation;
+      final space = body?['space'];
+      final campaignId = body?['campaignId'];
+      final recipient = body?['recipient'];
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space recommendations unavailable',
+        });
+      }
+      if (space is! String ||
+          space.isEmpty ||
+          campaignId is! String ||
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(campaignId) ||
+          recipient is! String ||
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(recipient)) {
+        return const ApiResponse(400, {
+          'error': 'valid space + campaignId + recipient required',
+        });
+      }
+      return _spaceMutationResponse(
+        await handler(space, campaignId, recipient),
+      );
     }
     if (method == 'POST' && path == '/v1/spaces/subscription') {
       final handler = setSpaceFeedEnabled;

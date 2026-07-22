@@ -18,6 +18,7 @@ import '../domain/space_lifecycle.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
 import '../domain/space_retention.dart';
+import '../domain/space_recommendation.dart';
 import '../domain/space_rules.dart';
 import '../state/group_service.dart';
 
@@ -573,6 +574,83 @@ final class GroupApiAdapter {
     return await _groups.reactToSpacePost(visible.$1, postId, emoji)
         ? null
         : 'post reaction rejected';
+  }
+
+  static Map<String, dynamic> recommendationCampaignJson(
+    SpaceRecommendationCampaign campaign,
+  ) => {
+    'campaignId': campaign.campaignId,
+    'spaceId': campaign.spaceId.hex,
+    'createdBy': campaign.createdBy.hex,
+    'text': campaign.text,
+    'createdAt': campaign.createdAtMs,
+    'changedAt': campaign.changedAtMs,
+    'active': campaign.active,
+  };
+
+  Future<Map<String, dynamic>?> recommendationCampaigns(
+    String spaceHex, {
+    bool includeRevoked = false,
+  }) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return null;
+    final campaigns = await _groups.spaceRecommendationCampaigns(
+      visible.$1,
+      includeRevoked: includeRevoked,
+    );
+    return {
+      'campaigns': [
+        for (final campaign in campaigns) recommendationCampaignJson(campaign),
+      ],
+    };
+  }
+
+  Future<({String? error, Map<String, dynamic>? campaign})>
+  createRecommendationCampaign(String spaceHex, String text) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return (error: 'space not found', campaign: null);
+    final campaign = await _groups.createSpaceRecommendationCampaign(
+      visible.$1,
+      text,
+    );
+    return campaign == null
+        ? (error: 'recommendation campaign rejected', campaign: null)
+        : (error: null, campaign: recommendationCampaignJson(campaign));
+  }
+
+  Future<String?> revokeRecommendationCampaign(
+    String spaceHex,
+    String campaignId,
+  ) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    return await _groups.revokeSpaceRecommendationCampaign(
+          visible.$1,
+          campaignId,
+        )
+        ? null
+        : 'recommendation campaign revoke rejected';
+  }
+
+  Future<String?> shareRecommendation(
+    String spaceHex,
+    String campaignId,
+    String recipientHex,
+  ) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    final NodeId recipient;
+    try {
+      recipient = NodeId.fromHex(recipientHex);
+    } catch (_) {
+      return 'invalid recipient';
+    }
+    final result = await _groups.shareSpaceRecommendation(
+      visible.$1,
+      campaignId,
+      recipient,
+    );
+    return result == SpaceRecommendationShareResult.sent ? null : result.name;
   }
 
   Future<Map<String, dynamic>> feed(

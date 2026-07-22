@@ -18,6 +18,7 @@ void main() {
   final spacePostDeletes = <(String, String)>[];
   final spacePostPins = <(String, String, bool)>[];
   final spacePostReactions = <(String, String, String)>[];
+  final spaceRecommendationShares = <(String, String, String)>[];
   final subscriptions = <(String, bool)>[];
   final feedPostPreferences = <(String, String, bool)>[];
   final feedTypePreferences = <List<String>>[];
@@ -53,6 +54,7 @@ void main() {
     spacePostDeletes.clear();
     spacePostPins.clear();
     spacePostReactions.clear();
+    spaceRecommendationShares.clear();
     subscriptions.clear();
     feedPostPreferences.clear();
     feedTypePreferences.clear();
@@ -258,6 +260,36 @@ void main() {
       reactToSpacePost: (space, postId, emoji) async {
         if (space == 'denied') return 'post reaction rejected';
         spacePostReactions.add((space, postId, emoji));
+        return null;
+      },
+      spaceRecommendationCampaigns: (space, includeRevoked) async =>
+          space == 'missing'
+          ? null
+          : {
+              'campaigns': [
+                {
+                  'campaignId': 'ab' * 32,
+                  'spaceId': space,
+                  'text': 'Share this community',
+                  'active': true,
+                },
+              ],
+            },
+      createSpaceRecommendationCampaign: (space, text) async => (
+        error: space == 'denied' ? 'recommendation campaign rejected' : null,
+        campaign: space == 'denied'
+            ? null
+            : <String, dynamic>{
+                'campaignId': 'ab' * 32,
+                'spaceId': space,
+                'text': text,
+              },
+      ),
+      revokeSpaceRecommendationCampaign: (space, campaignId) async =>
+          space == 'denied' ? 'recommendation campaign revoke rejected' : null,
+      shareSpaceRecommendation: (space, campaignId, recipient) async {
+        if (space == 'denied') return 'rateLimited';
+        spaceRecommendationShares.add((space, campaignId, recipient));
         return null;
       },
       spaceFeed: (limit, before, pinned) async => {
@@ -1561,6 +1593,61 @@ void main() {
           u('/v1/feed/hidden'),
           auth,
           body: {'space': 'aa', 'postId': 'bad', 'hidden': true},
+        )).status,
+        400,
+      );
+    },
+  );
+
+  test(
+    'Space recommendation routes validate and dispatch explicit share',
+    () async {
+      final h = make();
+      const auth = 'Bearer secret-token';
+      final campaignId = 'ab' * 32;
+      final recipient = 'cd' * 32;
+      final listed = await h.handle(
+        'GET',
+        u('/v1/spaces/recommendations?space=aa'),
+        auth,
+      );
+      expect(listed.status, 200);
+      expect(((listed.body as Map)['campaigns'] as List), hasLength(1));
+      final created = await h.handle(
+        'POST',
+        u('/v1/spaces/recommendations'),
+        auth,
+        body: {'space': 'aa', 'text': 'Share this community'},
+      );
+      expect(created.status, 200);
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/recommendations/share'),
+          auth,
+          body: {
+            'space': 'aa',
+            'campaignId': campaignId,
+            'recipient': recipient,
+          },
+        )).status,
+        200,
+      );
+      expect(spaceRecommendationShares.single, ('aa', campaignId, recipient));
+      expect(
+        (await h.handle(
+          'DELETE',
+          u('/v1/spaces/recommendations?space=aa&campaignId=$campaignId'),
+          auth,
+        )).status,
+        200,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/recommendations/share'),
+          auth,
+          body: {'space': 'aa', 'campaignId': 'bad', 'recipient': recipient},
         )).status,
         400,
       );
