@@ -262,6 +262,19 @@ class HeadlessRuntime {
         spaceFeed: groupApi.feed,
         spaceFeedTypeFilter: groupApi.feedTypeFilter,
         setSpaceFeedTypeFilter: groupApi.setFeedTypeFilter,
+        spaceSubscription: groupApi.subscription,
+        updateSpaceSubscription:
+            (
+              space, {
+              feedEnabled,
+              notificationsEnabled,
+              hiddenFromRecommendations,
+            }) => groupApi.updateSubscription(
+              space,
+              feedEnabled: feedEnabled,
+              notificationsEnabled: notificationsEnabled,
+              hiddenFromRecommendations: hiddenFromRecommendations,
+            ),
         setSpaceFeedEnabled: groupApi.setFeedEnabled,
         setSpaceFeedPostHidden: groupApi.setFeedPostHidden,
         spaceInvites: groupApi.invites,

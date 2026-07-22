@@ -45,6 +45,27 @@ bool shouldAlertOnMinimize({
 /// latest conversation payload for tap/reply actions.
 int notificationIdForIncomingMessage(String _) => 0x78564d53; // "xVMS"
 
+/// Maps the opaque notification payload to its in-app destination. Spaces are
+/// deliberately distinct from group chats: a publication alert opens the
+/// community publication surface, never `/group/...` or a direct chat.
+String? notificationRouteForPayload(String? payload) {
+  if (payload == null || payload.isEmpty) return null;
+  if (payload.startsWith('space:')) {
+    final space = payload.substring(6);
+    return space.isEmpty ? null : '/space/$space/posts';
+  }
+  if (payload.startsWith('group:')) {
+    final group = payload.substring(6);
+    return group.isEmpty ? null : '/group/$group';
+  }
+  return '/chat/$payload';
+}
+
+/// Publications have no message composer, so the OS must not expose an inline
+/// reply action for their payload even when full previews are enabled.
+bool notificationPayloadSupportsReply(String payload) =>
+    !payload.startsWith('space:');
+
 /// Select the newest candidate without relying on storage/list sort order.
 /// Pinned chats, groups, and restored logs can all have different ordering.
 T? newestByTimestamp<T>(
@@ -143,14 +164,12 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
   // Fire-and-forget init; show() is a no-op until it completes.
   svc.init(
     onTap: (payload) {
-      if (payload != null && payload.isNotEmpty) {
+      final route = notificationRouteForPayload(payload);
+      if (route != null) {
         // go() alone REPLACES the stack: the chat would open with no back
         // button (user-reported on desktop). Root the stack at home first,
         // then push — back leads to the chat list, like a normal open.
         // A `group:<hex>` payload opens the group chat instead of a 1:1.
-        final route = payload.startsWith('group:')
-            ? '/group/${payload.substring(6)}'
-            : '/chat/$payload';
         ref.read(routerProvider)
           ..go('/home')
           ..push(route);
@@ -164,6 +183,15 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
       // single-identity case; a reply from a since-switched identity would go
       // from the wrong one).
       try {
+        if (!notificationPayloadSupportsReply(payload)) {
+          final route = notificationRouteForPayload(payload);
+          if (route != null) {
+            ref.read(routerProvider)
+              ..go('/home')
+              ..push(route);
+          }
+          return;
+        }
         if (payload.startsWith('group:')) {
           final gidHex = payload.substring(6);
           final svc = ref.read(groupServiceProvider);

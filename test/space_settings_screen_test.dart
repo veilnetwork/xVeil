@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/storage/fake_kv_log_store.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_call.dart';
@@ -82,7 +85,47 @@ class _Signer implements GroupSigner {
   }) => true;
 }
 
+class _DelayedSettingsStorage extends HiddenVolumeStorage {
+  _DelayedSettingsStorage()
+    : super(({required password, required create}) => FakeKvLogStore());
+
+  bool delayReads = false;
+
+  @override
+  Future<String?> getSetting(String key) async {
+    if (delayReads) {
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+    }
+    return super.getSetting(key);
+  }
+}
+
 void main() {
+  testWidgets('Space settings retain an asynchronous snapshot', (tester) async {
+    final storage = _DelayedSettingsStorage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _Signer(_id(10)));
+    addTearDown(service.dispose);
+    final spaceId = await service.createSpace('Async community');
+    storage.delayReads = true;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [groupServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+        ),
+      ),
+    );
+    service.changes.value++;
+    await tester.pumpAndSettle();
+
+    expect(find.text('Async community'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
   testWidgets('Space creation captures description and honest visibility', (
     tester,
   ) async {
@@ -343,6 +386,32 @@ void main() {
     expect(find.text('Protocol lab'), findsOneWidget);
     expect(find.text(l.spaceOwnerLeaveHint), findsOneWidget);
 
+    await tester.tap(find.byKey(const ValueKey('space-subscription-settings')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('space-feed-setting')),
+    );
+    await tester.tap(find.byKey(const ValueKey('space-feed-setting')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('space-notifications-setting')),
+    );
+    await tester.tap(find.byKey(const ValueKey('space-notifications-setting')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('space-hide-recommendations-setting')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('space-hide-recommendations-setting')),
+    );
+    await tester.pumpAndSettle();
+    final subscription = await service.spaceSubscription(spaceId);
+    expect(subscription.feedEnabled, isFalse);
+    expect(subscription.notificationsEnabled, isFalse);
+    expect(subscription.hiddenFromRecommendations, isTrue);
+
+    await tester.ensureVisible(find.byKey(const ValueKey('space-add-member')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('space-add-member')));
     await tester.pumpAndSettle();
     expect(find.textContaining('Alice'), findsOneWidget);

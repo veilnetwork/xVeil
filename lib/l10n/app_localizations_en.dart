@@ -398,6 +398,31 @@ class AppL10nEn extends AppL10n {
   String get spaceFeedDisable => 'Hide this community from Feed';
 
   @override
+  String get spaceSubscriptionSettings => 'Feed and notifications';
+
+  @override
+  String get spaceFeedSetting => 'Publications in the main Feed';
+
+  @override
+  String get spaceFeedSettingHint =>
+      'This changes only your combined Feed; you remain a community member.';
+
+  @override
+  String get spaceNotificationsSetting => 'Publication notifications';
+
+  @override
+  String get spaceNotificationsSettingHint =>
+      'Alert on this device when a new community publication arrives.';
+
+  @override
+  String get spaceHideRecommendationsSetting =>
+      'Do not recommend this community to me';
+
+  @override
+  String get spaceHideRecommendationsSettingHint =>
+      'Keep this community out of recommendation surfaces on this device.';
+
+  @override
   String get spaceSettingsTitle => 'Members and settings';
 
   @override

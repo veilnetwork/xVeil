@@ -399,6 +399,31 @@ class AppL10nRu extends AppL10n {
   String get spaceFeedDisable => 'Скрыть сообщество из ленты';
 
   @override
+  String get spaceSubscriptionSettings => 'Лента и уведомления';
+
+  @override
+  String get spaceFeedSetting => 'Публикации в общей ленте';
+
+  @override
+  String get spaceFeedSettingHint =>
+      'Меняется только ваша общая лента — вы остаётесь участником сообщества.';
+
+  @override
+  String get spaceNotificationsSetting => 'Уведомления о публикациях';
+
+  @override
+  String get spaceNotificationsSettingHint =>
+      'Уведомлять на этом устройстве о новых публикациях сообщества.';
+
+  @override
+  String get spaceHideRecommendationsSetting =>
+      'Не рекомендовать мне это сообщество';
+
+  @override
+  String get spaceHideRecommendationsSettingHint =>
+      'Не показывать это сообщество в рекомендациях на этом устройстве.';
+
+  @override
   String get spaceSettingsTitle => 'Участники и настройки';
 
   @override

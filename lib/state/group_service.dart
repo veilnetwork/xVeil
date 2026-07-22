@@ -3221,6 +3221,13 @@ class GroupService {
             0;
         final msgs = await messagesOf(gid);
         final last = msgs.isEmpty ? null : msgs.last;
+        final spacePosts = spaces
+            ? await postsOf(gid)
+            : const <SpacePostView>[];
+        final lastPost = spacePosts.isEmpty ? null : spacePosts.last;
+        final postIsLatest =
+            lastPost != null &&
+            (last == null || lastPost.publishedAtMs >= last.createdAtMs);
         out.add((
           groupId: gid,
           name: state.name,
@@ -3233,12 +3240,20 @@ class GroupService {
               .length,
           postUnread: await unreadSpacePosts(gid),
           muted: await isGroupMuted(gid),
-          preview: last == null ? '' : previewOf(last),
+          preview: postIsLatest
+              ? (lastPost.title.trim().isNotEmpty
+                    ? lastPost.title
+                    : lastPost.body)
+              : last == null
+              ? ''
+              : previewOf(last),
           // A brand-new chat has no message timestamp yet, but it must still
           // participate in the shared Chats recency ordering. Using zero sent
           // it below every established direct/group conversation, which made
           // successful creation look as if the chat had disappeared.
-          lastTs: last?.createdAtMs ?? b.manifest.createdAtMs,
+          lastTs: postIsLatest
+              ? lastPost.publishedAtMs
+              : last?.createdAtMs ?? b.manifest.createdAtMs,
         ));
       } catch (_) {}
     }
@@ -6859,47 +6874,66 @@ class GroupService {
         jsonEncode(subscription.toJson()),
       );
 
-  Future<void> setSpaceFeedEnabled(NodeId spaceId, bool enabled) async {
+  /// Atomically updates the device-local subscription preferences for one
+  /// Space. The three switches share one encrypted record, so every
+  /// read-modify-write must use the same queue or concurrent UI/API writes can
+  /// silently restore an older sibling field.
+  Future<SpaceSubscription> updateSpaceSubscription(
+    NodeId spaceId, {
+    bool? feedEnabled,
+    bool? notificationsEnabled,
+    bool? hiddenFromRecommendations,
+  }) => _serializeSpaceFeedPreferences(() async {
     final bundle = await load(spaceId);
     if (bundle == null || !bundle.manifest.isSpace) {
       throw ArgumentError.value(spaceId.hex, 'spaceId', 'unknown Space');
     }
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    if (!state.isMember(_signer.selfId)) {
+      throw StateError('Space subscription requires active membership');
+    }
     final current = await spaceSubscription(spaceId);
-    await _saveSpaceSubscription(
-      current.copyWith(feedEnabled: enabled, updatedAtMs: _now()),
+    final next = current.copyWith(
+      feedEnabled: feedEnabled,
+      notificationsEnabled: notificationsEnabled,
+      hiddenFromRecommendations: hiddenFromRecommendations,
+      updatedAtMs: _now(),
     );
+    final changed =
+        current.feedEnabled != next.feedEnabled ||
+        current.notificationsEnabled != next.notificationsEnabled ||
+        current.hiddenFromRecommendations != next.hiddenFromRecommendations;
+    // Retire the one-field legacy preference even when this write is a no-op,
+    // otherwise a later recovery from a damaged v1 record could resurrect it.
     await _storage.putSetting(_spaceFeedEnabledKey(spaceId), '');
+    if (!changed) return current;
+    await _saveSpaceSubscription(next);
     changes.value++;
+    return next;
+  });
+
+  Future<void> setSpaceFeedEnabled(NodeId spaceId, bool enabled) async {
+    await updateSpaceSubscription(spaceId, feedEnabled: enabled);
   }
 
   Future<void> setSpaceNotificationsEnabled(
     NodeId spaceId,
     bool enabled,
   ) async {
-    final bundle = await load(spaceId);
-    if (bundle == null || !bundle.manifest.isSpace) {
-      throw ArgumentError.value(spaceId.hex, 'spaceId', 'unknown Space');
-    }
-    final current = await spaceSubscription(spaceId);
-    await _saveSpaceSubscription(
-      current.copyWith(notificationsEnabled: enabled, updatedAtMs: _now()),
-    );
-    changes.value++;
+    await updateSpaceSubscription(spaceId, notificationsEnabled: enabled);
   }
 
   Future<void> setSpaceHiddenFromRecommendations(
     NodeId spaceId,
     bool hidden,
   ) async {
-    final bundle = await load(spaceId);
-    if (bundle == null || !bundle.manifest.isSpace) {
-      throw ArgumentError.value(spaceId.hex, 'spaceId', 'unknown Space');
-    }
-    final current = await spaceSubscription(spaceId);
-    await _saveSpaceSubscription(
-      current.copyWith(hiddenFromRecommendations: hidden, updatedAtMs: _now()),
-    );
-    changes.value++;
+    await updateSpaceSubscription(spaceId, hiddenFromRecommendations: hidden);
   }
 
   /// Merge subscribed Space logs in descending chronological order. The
@@ -6979,7 +7013,6 @@ class GroupService {
   }
 
   Future<int> unreadSpacePosts(NodeId spaceId) async {
-    if (!await isSpaceFeedEnabled(spaceId)) return 0;
     final hidden = await _hiddenSpaceFeedPosts();
     final seen = SpaceFeedCursor.decode(
       await _storage.getSetting(_spaceFeedSeenKey(spaceId)),
@@ -8782,6 +8815,9 @@ class GroupService {
         ? manifest
         : _mergeManifest(existing.manifest, manifest);
     if (man == null) return false;
+    final acceptedPostIdsBefore = !man.isSpace || existing == null
+        ? <String>{}
+        : {for (final post in await _postsOfBundle(existing)) post.postId};
     final control = [...(existing?.control ?? const <ControlEntry>[])];
     final messages = [...(existing?.messages ?? const <GroupMessage>[])];
     final acceptedMessageHashesBefore = existing == null
@@ -9075,6 +9111,15 @@ class GroupService {
       sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
     );
     await _save(saved);
+    final freshPosts = !man.isSpace
+        ? const <SpacePostView>[]
+        : (await _postsOfBundle(saved))
+              .where(
+                (post) =>
+                    post.author != _signer.selfId &&
+                    !acceptedPostIdsBefore.contains(post.postId),
+              )
+              .toList();
     if (deletionTombstone != null) {
       await _clearDeletedSpaceTombstone(man.groupId);
     }
@@ -9129,6 +9174,9 @@ class GroupService {
           _incomingCtl.add((groupId: man.groupId, message: materialized));
         }
       }
+      for (final post in freshPosts) {
+        _incomingPostCtl.add((spaceId: man.groupId, post: post));
+      }
     }
     return true;
   }
@@ -9146,6 +9194,15 @@ class GroupService {
   _incomingCtl = StreamController.broadcast();
   Stream<({NodeId groupId, GroupMessage message})> get incoming =>
       _incomingCtl.stream;
+
+  /// Newly accepted publication roots after validation, ACL checks,
+  /// decryption and chain folding. Edits keep the root id and therefore do not
+  /// generate another alert; fork evidence and tombstoned rows never enter the
+  /// stream.
+  final StreamController<({NodeId spaceId, SpacePostView post})>
+  _incomingPostCtl = StreamController.broadcast();
+  Stream<({NodeId spaceId, SpacePostView post})> get incomingPosts =>
+      _incomingPostCtl.stream;
 
   /// Attached by the multi-device bridge: a LOCAL group-seen advance (never
   /// fired from [applyMirroredGroupSeen]) — my other devices clear the badge.
@@ -10123,6 +10180,7 @@ class GroupService {
     await _groupCallIncomingCtl.close();
     await _deviceIncomingCtl.close();
     await _incomingCtl.close();
+    await _incomingPostCtl.close();
   }
 }
 

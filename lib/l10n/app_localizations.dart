@@ -829,6 +829,48 @@ abstract class AppL10n {
   /// **'Hide this community from Feed'**
   String get spaceFeedDisable;
 
+  /// No description provided for @spaceSubscriptionSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Feed and notifications'**
+  String get spaceSubscriptionSettings;
+
+  /// No description provided for @spaceFeedSetting.
+  ///
+  /// In en, this message translates to:
+  /// **'Publications in the main Feed'**
+  String get spaceFeedSetting;
+
+  /// No description provided for @spaceFeedSettingHint.
+  ///
+  /// In en, this message translates to:
+  /// **'This changes only your combined Feed; you remain a community member.'**
+  String get spaceFeedSettingHint;
+
+  /// No description provided for @spaceNotificationsSetting.
+  ///
+  /// In en, this message translates to:
+  /// **'Publication notifications'**
+  String get spaceNotificationsSetting;
+
+  /// No description provided for @spaceNotificationsSettingHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Alert on this device when a new community publication arrives.'**
+  String get spaceNotificationsSettingHint;
+
+  /// No description provided for @spaceHideRecommendationsSetting.
+  ///
+  /// In en, this message translates to:
+  /// **'Do not recommend this community to me'**
+  String get spaceHideRecommendationsSetting;
+
+  /// No description provided for @spaceHideRecommendationsSettingHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep this community out of recommendation surfaces on this device.'**
+  String get spaceHideRecommendationsSettingHint;
+
   /// No description provided for @spaceSettingsTitle.
   ///
   /// In en, this message translates to:
