@@ -377,8 +377,9 @@ class SpacePostCleartext {
 /// V1/V2 are legacy public/encrypted rows authorized against current state.
 /// V3/V4 add a signed causal control frontier for public/encrypted content.
 /// V5/V6 replace that repeated list with one signed control-checkpoint hash.
-/// V7/V8 add public/encrypted typed edit and delete rows. Moderation remains a
-/// future distinct operation; author edits never rewrite signed history.
+/// V7/V8 add public/encrypted typed edit and delete rows. V9/V10 add an exact
+/// lifecycle generation so a stale offline suffix authored during archive can
+/// never join the post-restore chain.
 class SpacePost {
   SpacePost({
     required this.spaceId,
@@ -401,6 +402,7 @@ class SpacePost {
     this.controlCheckpointHash,
     this.operation = SpacePostOperation.publish,
     this.targetSeq,
+    this.lifecycleGeneration,
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
@@ -423,16 +425,22 @@ class SpacePost {
   final String? controlCheckpointHash;
   final SpacePostOperation operation;
   final int? targetSeq;
+  final String? lifecycleGeneration;
   final Uint8List signature;
   final Uint8List authorPubKey;
 
   String get postId => '${author.hex}:$seq';
   bool get isEncrypted =>
-      (version == 2 || version == 4 || version == 6 || version == 8) &&
+      (version == 2 ||
+          version == 4 ||
+          version == 6 ||
+          version == 8 ||
+          version == 10) &&
       membershipEpoch != null &&
       encryptedPayload != null;
-  bool get isCausal => version >= 3 && version <= 8;
-  bool get isCheckpointed => version >= 5 && version <= 8;
+  bool get isCausal => version >= 3 && version <= 10;
+  bool get isCheckpointed => version >= 5 && version <= 10;
+  bool get isLifecycleScoped => version == 9 || version == 10;
   bool get isMutation => operation != SpacePostOperation.publish;
 
   bool get isStructurallyValid {
@@ -448,11 +456,20 @@ class SpacePost {
       return false;
     }
     if (isCausal &&
+        !isLifecycleScoped &&
         (seq == 0
             ? prevHash.isNotEmpty
             : !RegExp(r'^[0-9a-f]{64}$').hasMatch(prevHash))) {
       return false;
     }
+    if (isLifecycleScoped &&
+        (lifecycleGeneration == null ||
+            !RegExp(r'^[0-9a-f]{64}$').hasMatch(lifecycleGeneration!) ||
+            (prevHash.isNotEmpty &&
+                !RegExp(r'^[0-9a-f]{64}$').hasMatch(prevHash)))) {
+      return false;
+    }
+    if (!isLifecycleScoped && lifecycleGeneration != null) return false;
     final checkpointValid =
         controlCheckpointHash != null &&
         RegExp(r'^[0-9a-f]{64}$').hasMatch(controlCheckpointHash!);
@@ -462,7 +479,11 @@ class SpacePost {
               ? targetSeq == null
               : targetSeq != null && targetSeq! >= 0 && targetSeq! < seq);
     if (!operationValid) return false;
-    if (version == 1 || version == 3 || version == 5 || version == 7) {
+    if (version == 1 ||
+        version == 3 ||
+        version == 5 ||
+        version == 7 ||
+        version == 9) {
       final contentValid = operation == SpacePostOperation.delete
           ? title.isEmpty && body.isEmpty && media.isEmpty
           : SpacePostCleartext(
@@ -481,7 +502,11 @@ class SpacePost {
               : controlFrontier == null && checkpointValid) &&
           contentValid;
     }
-    return (version == 2 || version == 4 || version == 6 || version == 8) &&
+    return (version == 2 ||
+            version == 4 ||
+            version == 6 ||
+            version == 8 ||
+            version == 10) &&
         visibility == SpacePostVisibility.members &&
         (version == 2
             ? controlFrontier == null && controlCheckpointHash == null
@@ -512,11 +537,16 @@ class SpacePost {
         'visibility': visibility.name,
         if (version == 3 || version == 4) 'frontier': controlFrontier?.toJson(),
         if (isCheckpointed) 'checkpoint': controlCheckpointHash,
+        if (isLifecycleScoped) 'lifecycle': lifecycleGeneration,
         if (version >= 7) ...{
           'op': operation.name,
           if (targetSeq != null) 'target': targetSeq,
         },
-        if (version == 1 || version == 3 || version == 5 || version == 7) ...{
+        if (version == 1 ||
+            version == 3 ||
+            version == 5 ||
+            version == 7 ||
+            version == 9) ...{
           'title': title,
           'body': body,
           if (media.isNotEmpty)
@@ -552,6 +582,7 @@ class SpacePost {
     controlCheckpointHash: controlCheckpointHash,
     operation: operation,
     targetSeq: targetSeq,
+    lifecycleGeneration: lifecycleGeneration,
     signature: value,
     authorPubKey: publicKey,
   );
@@ -576,6 +607,7 @@ class SpacePost {
     controlCheckpointHash: controlCheckpointHash,
     operation: operation,
     targetSeq: targetSeq,
+    lifecycleGeneration: lifecycleGeneration,
     signature: signature,
     authorPubKey: authorPubKey,
   );
@@ -590,11 +622,16 @@ class SpacePost {
     'visibility': visibility.name,
     if (version == 3 || version == 4) 'frontier': controlFrontier?.toJson(),
     if (isCheckpointed) 'checkpoint': controlCheckpointHash,
+    if (isLifecycleScoped) 'lifecycle': lifecycleGeneration,
     if (version >= 7) ...{
       'op': operation.name,
       if (targetSeq != null) 'target': targetSeq,
     },
-    if (version == 1 || version == 3 || version == 5 || version == 7) ...{
+    if (version == 1 ||
+        version == 3 ||
+        version == 5 ||
+        version == 7 ||
+        version == 9) ...{
       'title': title,
       'body': body,
       if (media.isNotEmpty)
@@ -624,7 +661,9 @@ class SpacePost {
             version != 5 &&
             version != 6 &&
             version != 7 &&
-            version != 8) ||
+            version != 8 &&
+            version != 9 &&
+            version != 10) ||
         value['sid'] is! String ||
         value['author'] is! String ||
         value['seq'] is! int ||
@@ -640,9 +679,17 @@ class SpacePost {
     try {
       final rawMedia = value['media'];
       final isPublic =
-          version == 1 || version == 3 || version == 5 || version == 7;
+          version == 1 ||
+          version == 3 ||
+          version == 5 ||
+          version == 7 ||
+          version == 9;
       final isEncrypted =
-          version == 2 || version == 4 || version == 6 || version == 8;
+          version == 2 ||
+          version == 4 ||
+          version == 6 ||
+          version == 8 ||
+          version == 10;
       final operation = version >= 7
           ? SpacePostOperation.fromName(value['op'] as String?)
           : SpacePostOperation.publish;
@@ -698,14 +745,15 @@ class SpacePost {
         controlFrontier: version == 3 || version == 4
             ? SpaceControlFrontier.fromJson(value['frontier'])
             : null,
-        controlCheckpointHash: version == 5 || version == 6
-            ? value['checkpoint'] as String?
-            : version == 7 || version == 8
+        controlCheckpointHash: version >= 5 && version <= 10
             ? value['checkpoint'] as String?
             : null,
         operation: operation,
         targetSeq: version >= 7 && value['target'] is int
             ? value['target'] as int
+            : null,
+        lifecycleGeneration: version == 9 || version == 10
+            ? value['lifecycle'] as String?
             : null,
         signature: Uint8List.fromList(base64Decode(value['sig'] as String)),
         authorPubKey: value['apk'] is String

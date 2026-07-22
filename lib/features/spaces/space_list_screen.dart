@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../domain/group.dart';
 import '../../domain/space_invite.dart';
+import '../../domain/space_lifecycle.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 
@@ -194,11 +195,25 @@ class SpaceListScreen extends ConsumerWidget {
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          trailing: space.unread == 0 && space.postUnread == 0
+                          trailing:
+                              space.unread == 0 &&
+                                  space.postUnread == 0 &&
+                                  space.lifecycleState ==
+                                      SpaceLifecycleState.active
                               ? null
                               : Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    if (space.lifecycleState ==
+                                        SpaceLifecycleState.archived) ...[
+                                      const Icon(
+                                        Icons.archive_outlined,
+                                        size: 18,
+                                      ),
+                                      if (space.unread > 0 ||
+                                          space.postUnread > 0)
+                                        const SizedBox(width: 10),
+                                    ],
                                     if (space.unread > 0) ...[
                                       const Icon(
                                         Icons.chat_bubble_outline,

@@ -727,6 +727,66 @@ abstract class AppL10n {
   /// **'Only hides local history; it never deletes content for other members.'**
   String get spaceRetentionLocalHint;
 
+  /// No description provided for @spaceActiveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Community is active'**
+  String get spaceActiveTitle;
+
+  /// No description provided for @spaceActiveHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Members can publish, write in channels, and join voice rooms.'**
+  String get spaceActiveHint;
+
+  /// No description provided for @spaceArchivedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Community is archived'**
+  String get spaceArchivedTitle;
+
+  /// No description provided for @spaceArchivedHint.
+  ///
+  /// In en, this message translates to:
+  /// **'History remains readable, but messages, posts, reactions, voice rooms, and settings are read-only.'**
+  String get spaceArchivedHint;
+
+  /// No description provided for @spaceArchiveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive community?'**
+  String get spaceArchiveTitle;
+
+  /// No description provided for @spaceArchiveConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'This creates an owner-signed boundary and makes the community read-only on every device. You can restore it later.'**
+  String get spaceArchiveConfirm;
+
+  /// No description provided for @spaceArchiveAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive'**
+  String get spaceArchiveAction;
+
+  /// No description provided for @spaceRestoreTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore community?'**
+  String get spaceRestoreTitle;
+
+  /// No description provided for @spaceRestoreConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'New content will start in a fresh signed lifecycle epoch. Archived history remains available.'**
+  String get spaceRestoreConfirm;
+
+  /// No description provided for @spaceRestoreAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore'**
+  String get spaceRestoreAction;
+
   /// No description provided for @spaceMembers.
   ///
   /// In en, this message translates to:

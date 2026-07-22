@@ -150,6 +150,7 @@ class GroupMessage {
     this.attachment,
     this.replyTo,
     this.customEmoji = const [],
+    this.lifecycleGeneration,
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
@@ -165,6 +166,7 @@ class GroupMessage {
   final NodeId? channelId;
   final int policyVersion; // the policy version the author wrote against
   final int createdAtMs;
+  final String? lifecycleGeneration;
   final Uint8List signature;
   final GroupAttachment? attachment; // optional inline media
   final List<InlineCustomEmoji> customEmoji;
@@ -179,12 +181,16 @@ class GroupMessage {
   String get ref => '${author.hex}:$seq';
 
   bool get isEncrypted =>
-      ((version == 2 && membershipEpoch != null && channelEpoch == null) ||
-          (version == 3 && membershipEpoch == null && channelEpoch != null)) &&
+      (((version == 2 || version == 5) &&
+              membershipEpoch != null &&
+              channelEpoch == null) ||
+          ((version == 3 || version == 6) &&
+              membershipEpoch == null &&
+              channelEpoch != null)) &&
       encryptedPayload != null;
 
   bool get isChannelEncrypted =>
-      version == 3 &&
+      (version == 3 || version == 6) &&
       channelId != null &&
       membershipEpoch == null &&
       channelEpoch != null &&
@@ -194,9 +200,9 @@ class GroupMessage {
   /// 'att'/'rt' keys are emitted ONLY when present, so a plain text message
   /// signs byte-identically to before these fields existed.
   Uint8List canonicalBytes() {
-    final map = version == 3
+    final map = version == 3 || version == 6
         ? {
-            'v': 3,
+            'v': version,
             'gid': groupId.hex,
             'channel': channelId?.hex,
             'author': author.hex,
@@ -204,12 +210,13 @@ class GroupMessage {
             'prev': prevHash,
             'cepoch': channelEpoch,
             'enc': encryptedPayload?.toJson(),
+            if (version == 6) 'lifecycle': lifecycleGeneration,
             'pv': policyVersion,
             'ts': createdAtMs,
           }
-        : version == 2
+        : version == 2 || version == 5
         ? {
-            'v': 2,
+            'v': version,
             'gid': groupId.hex,
             if (channelId != null) 'channel': channelId!.hex,
             'author': author.hex,
@@ -217,10 +224,12 @@ class GroupMessage {
             'prev': prevHash,
             'epoch': membershipEpoch,
             'enc': encryptedPayload?.toJson(),
+            if (version == 5) 'lifecycle': lifecycleGeneration,
             'pv': policyVersion,
             'ts': createdAtMs,
           }
         : {
+            if (version == 4) 'v': 4,
             'gid': groupId.hex,
             if (channelId != null) 'channel': channelId!.hex,
             'author': author.hex,
@@ -233,6 +242,7 @@ class GroupMessage {
             if (replyTo != null) 'rt': replyTo,
             if (customEmoji.isNotEmpty)
               'ce': encodeInlineCustomEmoji(customEmoji),
+            if (version == 4) 'lifecycle': lifecycleGeneration,
           };
     return Uint8List.fromList(utf8.encode(jsonEncode(map)));
   }
@@ -254,6 +264,7 @@ class GroupMessage {
     attachment: attachment,
     replyTo: replyTo,
     customEmoji: customEmoji,
+    lifecycleGeneration: lifecycleGeneration,
     authorPubKey: pubKey,
   );
 
@@ -275,13 +286,14 @@ class GroupMessage {
         attachment: cleartext.attachment,
         replyTo: cleartext.replyTo,
         customEmoji: cleartext.customEmoji,
+        lifecycleGeneration: lifecycleGeneration,
         authorPubKey: authorPubKey,
       );
 
   Map<String, dynamic> toJson() {
-    if (version == 3) {
+    if (version == 3 || version == 6) {
       return {
-        'v': 3,
+        'v': version,
         'gid': groupId.hex,
         'channel': channelId?.hex,
         'author': author.hex,
@@ -289,15 +301,16 @@ class GroupMessage {
         'prev': prevHash,
         'cepoch': channelEpoch,
         'enc': encryptedPayload?.toJson(),
+        if (version == 6) 'lifecycle': lifecycleGeneration,
         'pv': policyVersion,
         'ts': createdAtMs,
         'sig': base64Encode(signature),
         if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
       };
     }
-    if (version == 2) {
+    if (version == 2 || version == 5) {
       return {
-        'v': 2,
+        'v': version,
         'gid': groupId.hex,
         if (channelId != null) 'channel': channelId!.hex,
         'author': author.hex,
@@ -305,6 +318,7 @@ class GroupMessage {
         'prev': prevHash,
         'epoch': membershipEpoch,
         'enc': encryptedPayload?.toJson(),
+        if (version == 5) 'lifecycle': lifecycleGeneration,
         'pv': policyVersion,
         'ts': createdAtMs,
         'sig': base64Encode(signature),
@@ -312,6 +326,7 @@ class GroupMessage {
       };
     }
     return {
+      if (version == 4) 'v': 4,
       'gid': groupId.hex,
       if (channelId != null) 'channel': channelId!.hex,
       'author': author.hex,
@@ -323,6 +338,7 @@ class GroupMessage {
       if (attachment != null) 'att': attachment!.toJson(),
       if (replyTo != null) 'rt': replyTo,
       if (customEmoji.isNotEmpty) 'ce': encodeInlineCustomEmoji(customEmoji),
+      if (version == 4) 'lifecycle': lifecycleGeneration,
       'sig': base64Encode(signature),
       if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
     };
@@ -331,7 +347,7 @@ class GroupMessage {
   static GroupMessage? fromJson(Object? j) {
     if (j is! Map) return null;
     final version = j['v'] is int ? j['v'] as int : 1;
-    if (version != 1 && version != 2 && version != 3) return null;
+    if (version < 1 || version > 6) return null;
     final gid = j['gid'], author = j['author'], seq = j['seq'];
     final prev = j['prev'], body = j['body'], pv = j['pv'], ts = j['ts'];
     final sig = j['sig'];
@@ -345,13 +361,23 @@ class GroupMessage {
         seq < 0) {
       return null;
     }
-    final encryptedPayload = version >= 2
+    final encryptedPayload = const {2, 3, 5, 6}.contains(version)
         ? GroupEncryptedPayload.fromJson(j['enc'])
         : null;
-    final membershipEpoch = version == 2 ? j['epoch'] : null;
-    final channelEpoch = version == 3 ? j['cepoch'] : null;
-    if ((version == 1 && body is! String) ||
-        (version == 2 &&
+    final membershipEpoch = version == 2 || version == 5 ? j['epoch'] : null;
+    final channelEpoch = version == 3 || version == 6 ? j['cepoch'] : null;
+    final lifecycleScoped = version >= 4;
+    final lifecycle = lifecycleScoped ? j['lifecycle'] : null;
+    if ((lifecycleScoped &&
+            (lifecycle is! String ||
+                !RegExp(r'^[0-9a-f]{64}$').hasMatch(lifecycle))) ||
+        (!lifecycleScoped && j.containsKey('lifecycle')) ||
+        ((version == 1 || version == 4) &&
+            (body is! String ||
+                j.containsKey('epoch') ||
+                j.containsKey('cepoch') ||
+                j.containsKey('enc'))) ||
+        ((version == 2 || version == 5) &&
             (membershipEpoch is! int ||
                 membershipEpoch < 0 ||
                 encryptedPayload == null ||
@@ -359,7 +385,7 @@ class GroupMessage {
                 j.containsKey('att') ||
                 j.containsKey('rt') ||
                 j.containsKey('ce'))) ||
-        (version == 3 &&
+        ((version == 3 || version == 6) &&
             (channelEpoch is! int ||
                 channelEpoch <= 0 ||
                 channelEpoch > 0xffffffff ||
@@ -381,7 +407,7 @@ class GroupMessage {
         author: NodeId.fromHex(author),
         seq: seq,
         prevHash: prev,
-        body: version == 1 ? body as String : '',
+        body: version == 1 || version == 4 ? body as String : '',
         version: version,
         membershipEpoch: membershipEpoch as int?,
         channelEpoch: channelEpoch as int?,
@@ -389,11 +415,16 @@ class GroupMessage {
         policyVersion: pv,
         createdAtMs: ts,
         signature: Uint8List.fromList(base64Decode(sig)),
-        attachment: version == 1 ? GroupAttachment.fromJson(j['att']) : null,
-        replyTo: version == 1 && j['rt'] is String ? j['rt'] as String : null,
-        customEmoji: version == 1
+        attachment: version == 1 || version == 4
+            ? GroupAttachment.fromJson(j['att'])
+            : null,
+        replyTo: (version == 1 || version == 4) && j['rt'] is String
+            ? j['rt'] as String
+            : null,
+        customEmoji: version == 1 || version == 4
             ? parseInlineCustomEmoji(body as String, j['ce'])
             : const [],
+        lifecycleGeneration: lifecycle as String?,
         authorPubKey: j['apk'] is String
             ? Uint8List.fromList(base64Decode(j['apk'] as String))
             : null,

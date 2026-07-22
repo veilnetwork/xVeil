@@ -90,6 +90,7 @@ class GroupReaction {
     this.targetKind = ReactionTargetKind.message,
     this.membershipEpoch,
     this.encryptedPayload,
+    this.lifecycleGeneration,
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
@@ -102,24 +103,34 @@ class GroupReaction {
   final ReactionTargetKind targetKind;
   final int? membershipEpoch;
   final GroupEncryptedPayload? encryptedPayload;
+  final String? lifecycleGeneration;
   final int createdAtMs;
   final Uint8List signature;
   final Uint8List authorPubKey; // bound via node_id == BLAKE3(pk)
 
   bool get isEncrypted =>
-      (version == 2 || version == 4) &&
+      (version == 2 || version == 4 || version == 6) &&
       membershipEpoch != null &&
       encryptedPayload != null;
 
   bool get isStructurallyValid {
-    if (seq < 0 || createdAtMs < 0 || version < 1 || version > 4) return false;
-    if (version == 1 || version == 3) {
+    if (seq < 0 || createdAtMs < 0 || version < 1 || version > 6) return false;
+    final lifecycleScoped = version == 5 || version == 6;
+    if ((lifecycleScoped &&
+            (lifecycleGeneration == null ||
+                !RegExp(r'^[0-9a-f]{64}$').hasMatch(lifecycleGeneration!))) ||
+        (!lifecycleScoped && lifecycleGeneration != null)) {
+      return false;
+    }
+    if (version == 1 || version == 3 || version == 5) {
       return membershipEpoch == null &&
           encryptedPayload == null &&
           target.isNotEmpty &&
           utf8.encode(target).length <= 160 &&
           utf8.encode(emoji).length <= 64 &&
-          (version == 3 || targetKind == ReactionTargetKind.message);
+          (version == 3 ||
+              version == 5 ||
+              targetKind == ReactionTargetKind.message);
     }
     return membershipEpoch != null &&
         membershipEpoch! >= 0 &&
@@ -130,7 +141,7 @@ class GroupReaction {
   Uint8List canonicalBytes() => Uint8List.fromList(
     utf8.encode(
       jsonEncode(
-        version == 2 || version == 4
+        version == 2 || version == 4 || version == 6
             ? {
                 'v': version,
                 'gid': groupId.hex,
@@ -138,17 +149,19 @@ class GroupReaction {
                 'seq': seq,
                 'epoch': membershipEpoch,
                 'enc': encryptedPayload?.toJson(),
+                if (version == 6) 'lifecycle': lifecycleGeneration,
                 'ts': createdAtMs,
               }
-            : version == 3
+            : version == 3 || version == 5
             ? {
-                'v': 3,
+                'v': version,
                 'gid': groupId.hex,
                 'author': author.hex,
                 'seq': seq,
                 'kind': targetKind.name,
                 'tgt': target,
                 'emoji': emoji,
+                if (version == 5) 'lifecycle': lifecycleGeneration,
                 'ts': createdAtMs,
               }
             : {
@@ -173,6 +186,7 @@ class GroupReaction {
     targetKind: targetKind,
     membershipEpoch: membershipEpoch,
     encryptedPayload: encryptedPayload,
+    lifecycleGeneration: lifecycleGeneration,
     createdAtMs: createdAtMs,
     signature: sig,
     authorPubKey: pubKey,
@@ -189,12 +203,13 @@ class GroupReaction {
         targetKind: cleartext.targetKind,
         membershipEpoch: membershipEpoch,
         encryptedPayload: encryptedPayload,
+        lifecycleGeneration: lifecycleGeneration,
         createdAtMs: createdAtMs,
         signature: signature,
         authorPubKey: authorPubKey,
       );
 
-  Map<String, dynamic> toJson() => version == 2 || version == 4
+  Map<String, dynamic> toJson() => version == 2 || version == 4 || version == 6
       ? {
           'v': version,
           'gid': groupId.hex,
@@ -202,19 +217,21 @@ class GroupReaction {
           'seq': seq,
           'epoch': membershipEpoch,
           'enc': encryptedPayload?.toJson(),
+          if (version == 6) 'lifecycle': lifecycleGeneration,
           'ts': createdAtMs,
           'sig': base64Encode(signature),
           if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
         }
-      : version == 3
+      : version == 3 || version == 5
       ? {
-          'v': 3,
+          'v': version,
           'gid': groupId.hex,
           'author': author.hex,
           'seq': seq,
           'kind': targetKind.name,
           'tgt': target,
           'emoji': emoji,
+          if (version == 5) 'lifecycle': lifecycleGeneration,
           'ts': createdAtMs,
           'sig': base64Encode(signature),
           if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
@@ -233,11 +250,13 @@ class GroupReaction {
   static GroupReaction? fromJson(Object? j) {
     if (j is! Map) return null;
     final version = j['v'] is int ? j['v'] as int : 1;
-    if (version < 1 || version > 4) return null;
+    if (version < 1 || version > 6) return null;
     final gid = j['gid'], author = j['author'], seq = j['seq'];
     final tgt = j['tgt'], emoji = j['emoji'], ts = j['ts'], sig = j['sig'];
-    final encrypted = version == 2 || version == 4;
-    final typed = version == 3;
+    final encrypted = version == 2 || version == 4 || version == 6;
+    final typed = version == 3 || version == 5;
+    final lifecycleScoped = version == 5 || version == 6;
+    final lifecycle = lifecycleScoped ? j['lifecycle'] : null;
     final encryptedPayload = encrypted
         ? GroupEncryptedPayload.fromJson(j['enc'])
         : null;
@@ -254,6 +273,10 @@ class GroupReaction {
         sig is! String ||
         seq < 0 ||
         kind == null ||
+        (lifecycleScoped &&
+            (lifecycle is! String ||
+                !RegExp(r'^[0-9a-f]{64}$').hasMatch(lifecycle))) ||
+        (!lifecycleScoped && j.containsKey('lifecycle')) ||
         (!encrypted && (tgt is! String || emoji is! String)) ||
         (version == 1 && j.containsKey('kind')) ||
         (!encrypted && (j.containsKey('epoch') || j.containsKey('enc'))) ||
@@ -277,6 +300,7 @@ class GroupReaction {
         targetKind: kind,
         membershipEpoch: membershipEpoch as int?,
         encryptedPayload: encryptedPayload,
+        lifecycleGeneration: lifecycle as String?,
         createdAtMs: ts,
         signature: Uint8List.fromList(base64Decode(sig)),
         authorPubKey: j['apk'] is String

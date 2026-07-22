@@ -485,6 +485,42 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
       },
+      '/spaces/lifecycle': {
+        'get': {
+          'summary': 'Read the owner-signed community lifecycle state',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': ok({'type': obj}),
+        },
+        'post': {
+          'summary': 'Archive or restore a community as its owner',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space', 'action'],
+                  'properties': {
+                    'space': {'type': 'string'},
+                    'action': {
+                      'type': 'string',
+                      'enum': ['archive', 'restore'],
+                    },
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
       '/spaces/retention': {
         'get': {
           'summary': 'Read signed community and local-device retention',
@@ -1823,6 +1859,8 @@ class ApiHandler {
     this.decideSpaceInvite,
     this.spaceProfile,
     this.updateSpaceDescription,
+    this.spaceLifecycle,
+    this.setSpaceLifecycle,
     this.spaceRetention,
     this.setSpaceRetention,
     this.spaceRules,
@@ -1970,6 +2008,9 @@ class ApiHandler {
   final Future<Map<String, dynamic>?> Function(String spaceHex)? spaceProfile;
   final Future<String?> Function(String spaceHex, String description)?
   updateSpaceDescription;
+  final Future<Map<String, dynamic>?> Function(String spaceHex)? spaceLifecycle;
+  final Future<String?> Function(String spaceHex, String action)?
+  setSpaceLifecycle;
   final Future<Map<String, dynamic>?> Function(String spaceHex)? spaceRetention;
   final Future<String?> Function(String spaceHex, int? days, bool localDevice)?
   setSpaceRetention;
@@ -2252,6 +2293,36 @@ class ApiHandler {
         });
       }
       return _spaceMutationResponse(await handler(space, description.trim()));
+    }
+    if (method == 'GET' && path == '/v1/spaces/lifecycle') {
+      final handler = spaceLifecycle;
+      if (handler == null) {
+        return const ApiResponse(501, {'error': 'Space lifecycle unavailable'});
+      }
+      final space = uri.queryParameters['space'];
+      if (space == null || space.isEmpty) {
+        return const ApiResponse(400, {'error': 'space required'});
+      }
+      final lifecycle = await handler(space);
+      return lifecycle == null
+          ? const ApiResponse(404, {'error': 'space not found'})
+          : ApiResponse(200, lifecycle);
+    }
+    if (method == 'POST' && path == '/v1/spaces/lifecycle') {
+      final handler = setSpaceLifecycle;
+      if (handler == null) {
+        return const ApiResponse(501, {'error': 'Space lifecycle unavailable'});
+      }
+      final space = body?['space'];
+      final action = body?['action'];
+      if (space is! String ||
+          space.isEmpty ||
+          (action != 'archive' && action != 'restore')) {
+        return const ApiResponse(400, {
+          'error': 'valid space and lifecycle action required',
+        });
+      }
+      return _spaceMutationResponse(await handler(space, action as String));
     }
     if (method == 'GET' && path == '/v1/spaces/retention') {
       final handler = spaceRetention;

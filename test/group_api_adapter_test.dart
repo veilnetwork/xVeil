@@ -126,6 +126,15 @@ void main() {
       expect(profile['visibility'], 'secret');
       expect(await api.updateDescription(space, 'Updated summary'), isNull);
       expect((await api.profile(space))!['description'], 'Updated summary');
+      expect((await api.lifecycle(space))!['state'], 'active');
+      expect(await api.setLifecycle(space, 'archive'), isNull);
+      final archived = (await api.lifecycle(space))!;
+      expect(archived['state'], 'archived');
+      expect(archived['canRestore'], isTrue);
+      expect(await api.updateDescription(space, 'Blocked'), isNotNull);
+      expect(await api.setLifecycle(space, 'restore'), isNull);
+      expect((await api.lifecycle(space))!['state'], 'active');
+      expect(await api.setLifecycle(space, 'invalid'), isNotNull);
       expect(await api.createSpace('Bad', '', 'unknown'), isNull);
     } finally {
       await service.dispose();

@@ -357,6 +357,52 @@ void main() {
     expect(transferred.roleOf(alice), GroupRole.owner);
   });
 
+  testWidgets('Space owner archives and restores from settings', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(19);
+    final service = GroupService(storage, _Signer(owner));
+    addTearDown(service.dispose);
+    final spaceId = await service.createSpace('Lifecycle lab');
+
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [groupServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(SpaceSettingsScreen)));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('space-lifecycle-action')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const ValueKey('space-lifecycle-action')));
+    await tester.pumpAndSettle();
+    expect(find.text(l.spaceArchiveConfirm), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('space-lifecycle-confirm')));
+    await tester.pumpAndSettle();
+    expect((await service.stateOf(spaceId))!.isArchived, isTrue);
+    expect(find.text(l.spaceArchivedTitle), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('space-lifecycle-action')));
+    await tester.pumpAndSettle();
+    expect(find.text(l.spaceRestoreConfirm), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('space-lifecycle-confirm')));
+    await tester.pumpAndSettle();
+    expect((await service.stateOf(spaceId))!.isArchived, isFalse);
+    expect(find.text(l.spaceActiveTitle), findsOneWidget);
+  });
+
   testWidgets('Space rules publish, display history and require acceptance', (
     tester,
   ) async {
