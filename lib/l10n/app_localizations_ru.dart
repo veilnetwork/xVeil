@@ -317,6 +317,18 @@ class AppL10nRu extends AppL10n {
   String get spacePostTypeArticle => 'Статья';
 
   @override
+  String get spacePostTypeVideo => 'Видео';
+
+  @override
+  String get spacePostTypeShortVideo => 'Короткое видео';
+
+  @override
+  String get spacePostTypeAudio => 'Аудио';
+
+  @override
+  String get spacePostTypeVoiceMessage => 'Голосовое сообщение';
+
+  @override
   String get spaceFeedEnable => 'Показывать сообщество в ленте';
 
   @override
@@ -613,6 +625,21 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get feedPostHideFailed => 'Не удалось изменить настройку ленты';
+
+  @override
+  String get feedFilterTitle => 'Фильтр публикаций';
+
+  @override
+  String get feedFilterAll => 'Все';
+
+  @override
+  String get feedFilterApply => 'Применить';
+
+  @override
+  String get feedFilterEmptyHint => 'Нет публикаций выбранных типов.';
+
+  @override
+  String get feedFilterUpdateFailed => 'Не удалось изменить фильтр ленты';
 
   @override
   String get chatsEmpty => 'Пока нет переписок';

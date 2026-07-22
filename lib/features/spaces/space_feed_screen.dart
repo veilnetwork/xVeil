@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/ids.dart';
+import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import 'space_post_reactions.dart';
@@ -64,77 +65,233 @@ class SpaceFeedScreen extends ConsumerWidget {
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(title: Text(l.navFeed)),
-      body: StreamBuilder<int>(
-        stream: service.changes.stream,
-        builder: (context, _) => FutureBuilder<List<SpaceFeedItem>>(
-          future: service.spaceFeed(limit: 100),
-          builder: (context, snapshot) {
-            if (!snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final items = snapshot.data!;
-            if (items.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.dynamic_feed_outlined,
-                      size: 48,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(l.feedEmpty),
-                    const SizedBox(height: 4),
-                    Text(
-                      l.feedEmptyHint,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall,
+    Future<void> chooseTypes(Set<SpacePostType> current) async {
+      final selected = await showModalBottomSheet<Set<SpacePostType>>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        builder: (_) => _PostTypeFilterSheet(initial: current),
+      );
+      if (selected == null) return;
+      try {
+        await service.setSpaceFeedTypeFilter(selected);
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(l.feedFilterUpdateFailed)));
+        }
+      }
+    }
+
+    return StreamBuilder<int>(
+      stream: service.changes.stream,
+      builder: (context, _) =>
+          FutureBuilder<
+            ({Set<SpacePostType> types, List<SpaceFeedItem> items})
+          >(
+            future: () async {
+              final types = await service.spaceFeedTypeFilter();
+              return (
+                types: types,
+                items: await service.spaceFeed(limit: 100, types: types),
+              );
+            }(),
+            builder: (context, snapshot) {
+              final selectedTypes = snapshot.data?.types;
+              final filtering =
+                  selectedTypes != null &&
+                  selectedTypes.length != SpacePostType.values.length;
+              return Scaffold(
+                appBar: AppBar(
+                  title: Text(l.navFeed),
+                  actions: [
+                    IconButton(
+                      key: const ValueKey('space-feed-type-filter'),
+                      tooltip: l.feedFilterTitle,
+                      onPressed: selectedTypes == null
+                          ? null
+                          : () => chooseTypes(selectedTypes),
+                      icon: Badge(
+                        isLabelVisible: filtering,
+                        label: Text('${selectedTypes?.length ?? 0}'),
+                        child: Icon(
+                          filtering
+                              ? Icons.filter_alt
+                              : Icons.filter_alt_outlined,
+                        ),
+                      ),
                     ),
                   ],
                 ),
+                body: Builder(
+                  builder: (context) {
+                    if (!snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final items = snapshot.data!.items;
+                    if (items.isEmpty) {
+                      return Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.dynamic_feed_outlined,
+                              size: 48,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(l.feedEmpty),
+                            const SizedBox(height: 4),
+                            Text(
+                              filtering
+                                  ? l.feedFilterEmptyHint
+                                  : l.feedEmptyHint,
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                    final spaces = {for (final item in items) item.spaceId};
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      for (final spaceId in spaces) {
+                        unawaited(service.markSpaceFeedSeen(spaceId));
+                      }
+                    });
+                    return RefreshIndicator(
+                      onRefresh: () async {
+                        await service.nudgeGroupSyncAll();
+                      },
+                      child: ListView.separated(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        itemCount: items.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 4),
+                        itemBuilder: (context, index) {
+                          final item = items[index];
+                          return _PostCard(
+                            item: item,
+                            onTap: () => context.push(
+                              '/space/${item.spaceId.hex}/posts',
+                            ),
+                            onReact: (emoji) => service.reactToSpacePost(
+                              item.spaceId,
+                              item.post.postId,
+                              emoji,
+                            ),
+                            onHide: () => hidePost(item),
+                            selfId: service.selfId,
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
               );
-            }
-            final spaces = {for (final item in items) item.spaceId};
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              for (final spaceId in spaces) {
-                unawaited(service.markSpaceFeedSeen(spaceId));
-              }
-            });
-            return RefreshIndicator(
-              onRefresh: () async {
-                await service.nudgeGroupSyncAll();
-              },
-              child: ListView.separated(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                itemCount: items.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 4),
-                itemBuilder: (context, index) {
-                  final item = items[index];
-                  return _PostCard(
-                    item: item,
-                    onTap: () =>
-                        context.push('/space/${item.spaceId.hex}/posts'),
-                    onReact: (emoji) => service.reactToSpacePost(
-                      item.spaceId,
-                      item.post.postId,
-                      emoji,
+            },
+          ),
+    );
+  }
+}
+
+class _PostTypeFilterSheet extends StatefulWidget {
+  const _PostTypeFilterSheet({required this.initial});
+
+  final Set<SpacePostType> initial;
+
+  @override
+  State<_PostTypeFilterSheet> createState() => _PostTypeFilterSheetState();
+}
+
+class _PostTypeFilterSheetState extends State<_PostTypeFilterSheet> {
+  late final Set<SpacePostType> _selected = widget.initial.toSet();
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return SafeArea(
+      child: Align(
+        alignment: Alignment.topCenter,
+        heightFactor: 1,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        l.feedFilterTitle,
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
                     ),
-                    onHide: () => hidePost(item),
-                    selfId: service.selfId,
-                  );
-                },
-              ),
-            );
-          },
+                    TextButton(
+                      key: const ValueKey('space-feed-filter-all'),
+                      onPressed: () => setState(() {
+                        _selected
+                          ..clear()
+                          ..addAll(SpacePostType.values);
+                      }),
+                      child: Text(l.feedFilterAll),
+                    ),
+                  ],
+                ),
+                for (final type in SpacePostType.values)
+                  CheckboxListTile(
+                    key: ValueKey('space-feed-filter-${type.name}'),
+                    value: _selected.contains(type),
+                    secondary: Icon(_postTypeIcon(type)),
+                    title: Text(_postTypeLabel(l, type)),
+                    onChanged: (checked) => setState(() {
+                      if (checked ?? false) {
+                        _selected.add(type);
+                      } else if (_selected.length > 1) {
+                        _selected.remove(type);
+                      }
+                    }),
+                  ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    key: const ValueKey('space-feed-filter-apply'),
+                    onPressed: () => Navigator.of(context).pop(_selected),
+                    child: Text(l.feedFilterApply),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 }
+
+String _postTypeLabel(AppL10n l, SpacePostType type) => switch (type) {
+  SpacePostType.post => l.spacePostTypePost,
+  SpacePostType.article => l.spacePostTypeArticle,
+  SpacePostType.video => l.spacePostTypeVideo,
+  SpacePostType.shortVideo => l.spacePostTypeShortVideo,
+  SpacePostType.audio => l.spacePostTypeAudio,
+  SpacePostType.voiceMessage => l.spacePostTypeVoiceMessage,
+};
+
+IconData _postTypeIcon(SpacePostType type) => switch (type) {
+  SpacePostType.post => Icons.campaign_outlined,
+  SpacePostType.article => Icons.article_outlined,
+  SpacePostType.video => Icons.video_library_outlined,
+  SpacePostType.shortVideo => Icons.smart_display_outlined,
+  SpacePostType.audio => Icons.headphones_outlined,
+  SpacePostType.voiceMessage => Icons.mic_none_outlined,
+};
 
 class _PostCard extends StatelessWidget {
   const _PostCard({

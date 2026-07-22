@@ -578,6 +578,27 @@ final class GroupApiAdapter {
     };
   }
 
+  Future<Map<String, dynamic>> feedTypeFilter() async => {
+    'types': [
+      for (final type in await _groups.spaceFeedTypeFilter()) type.name,
+    ],
+  };
+
+  Future<String?> setFeedTypeFilter(List<String> typeNames) async {
+    final types = <SpacePostType>{};
+    for (final name in typeNames) {
+      final type = SpacePostType.fromName(name);
+      if (type == null) return 'invalid post type';
+      types.add(type);
+    }
+    try {
+      await _groups.setSpaceFeedTypeFilter(types);
+      return null;
+    } catch (_) {
+      return 'feed type preference rejected';
+    }
+  }
+
   Future<String?> setFeedEnabled(String spaceHex, bool enabled) async {
     final visible = await _visible(spaceHex);
     if (visible == null) return 'space not found';

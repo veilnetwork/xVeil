@@ -259,6 +259,8 @@ class HeadlessRuntime {
         deleteSpacePost: groupApi.deletePost,
         reactToSpacePost: groupApi.reactToPost,
         spaceFeed: groupApi.feed,
+        spaceFeedTypeFilter: groupApi.feedTypeFilter,
+        setSpaceFeedTypeFilter: groupApi.setFeedTypeFilter,
         setSpaceFeedEnabled: groupApi.setFeedEnabled,
         setSpaceFeedPostHidden: groupApi.setFeedPostHidden,
         spaceInvites: groupApi.invites,
