@@ -279,6 +279,8 @@ Map<String, dynamic> openApiSpec() {
             'author': {'type': 'string'},
             'body': {'type': 'string'},
             'sentAt': {'type': 'integer', 'format': 'int64'},
+            'edited': {'type': 'boolean'},
+            'updatedAt': {'type': 'integer', 'format': 'int64'},
             'replyTo': {'type': 'string'},
             'media': {r'$ref': '#/components/schemas/MediaObject'},
             'attachment': {'type': obj},
@@ -1012,6 +1014,31 @@ Map<String, dynamic> openApiSpec() {
                   },
                   'description':
                       'At least one of body or media must be present.',
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+        'patch': {
+          'summary':
+              'Append an encrypted edit revision to an own Space post comment',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space', 'postId', 'commentId', 'body'],
+                  'properties': {
+                    'space': {'type': 'string'},
+                    'postId': {'type': 'string'},
+                    'commentId': {'type': 'string'},
+                    'body': {
+                      'type': 'string',
+                      'maxLength': kSpacePostCommentMaxBytes,
+                    },
+                  },
                 },
               },
             },
@@ -2335,6 +2362,7 @@ class ApiHandler {
     this.clearSpacePostDraft,
     this.spacePostComments,
     this.publishSpacePostComment,
+    this.editSpacePostComment,
     this.publishSpacePost,
     this.editSpacePost,
     this.deleteSpacePost,
@@ -2502,6 +2530,13 @@ class ApiHandler {
     MediaObject? media,
   )?
   publishSpacePostComment;
+  final Future<String?> Function(
+    String spaceHex,
+    String postId,
+    String commentId,
+    String body,
+  )?
+  editSpacePostComment;
   final Future<({String? error, Map<String, dynamic>? post})> Function(
     String spaceHex,
     String title,
@@ -3205,6 +3240,33 @@ class ApiHandler {
       }
       return _spaceMutationResponse(
         await handler(space, postId, text.trim(), replyTo as String?, media),
+      );
+    }
+    if (method == 'PATCH' && path == '/v1/spaces/posts/comments') {
+      final handler = editSpacePostComment;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space post comment editing unavailable',
+        });
+      }
+      final space = body?['space'];
+      final postId = body?['postId'];
+      final commentId = body?['commentId'];
+      final text = body?['body'];
+      if (space is! String ||
+          space.isEmpty ||
+          postId is! String ||
+          !_validPostId(postId) ||
+          commentId is! String ||
+          !_validPostId(commentId) ||
+          text is! String ||
+          utf8.encode(text).length > kSpacePostCommentMaxBytes) {
+        return const ApiResponse(400, {
+          'error': 'invalid Space post comment edit',
+        });
+      }
+      return _spaceMutationResponse(
+        await handler(space, postId, commentId, text.trim()),
       );
     }
     if (method == 'POST' && path == '/v1/spaces/posts') {

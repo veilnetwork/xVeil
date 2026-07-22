@@ -4119,6 +4119,24 @@ void main() {
       )).single;
       expect(firstComment.body, 'First comment');
       expect(
+        await service.editSpacePostComment(
+          spaceId,
+          first.postId,
+          firstComment.ref,
+          'Corrected first comment',
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      final editedFirst = (await service.spacePostCommentsOf(
+        spaceId,
+        first.postId,
+      )).single;
+      expect(editedFirst.ref, firstComment.ref);
+      expect(editedFirst.body, 'Corrected first comment');
+      expect(editedFirst.edited, isTrue);
+      expect(editedFirst.editedAtMs, isNotNull);
+      expect(
         await service.commentOnSpacePost(
           spaceId,
           first.postId,
@@ -4153,7 +4171,7 @@ void main() {
         first.postId,
       );
       expect(firstThread.map((comment) => comment.body), [
-        'First comment',
+        'Corrected first comment',
         'Reply',
         '',
       ]);
@@ -4185,11 +4203,12 @@ void main() {
       );
 
       final wire = (await service.load(spaceId))!.messages;
-      expect(wire, hasLength(4));
+      expect(wire, hasLength(5));
       expect(wire.every((comment) => comment.isEncrypted), isTrue);
       expect(wire.every((comment) => comment.body.isEmpty), isTrue);
       expect(wire.every((comment) => comment.channelId == null), isTrue);
       expect(wire.map((comment) => comment.spacePostId), [
+        first.postId,
         first.postId,
         first.postId,
         first.postId,
@@ -4238,6 +4257,15 @@ void main() {
         ),
         isFalse,
       );
+      expect(
+        await service.editSpacePostComment(
+          spaceId,
+          first.postId,
+          '${bob.hex}:99',
+          'Cannot edit a missing or foreign comment',
+        ),
+        isFalse,
+      );
 
       expect(
         await service.deleteSpacePost(spaceId, first.postId, broadcast: false),
@@ -4248,7 +4276,7 @@ void main() {
         await service.referencedContentIds(spaceId),
         isNot(contains('c' * 64)),
       );
-      expect((await service.load(spaceId))!.messages, hasLength(4));
+      expect((await service.load(spaceId))!.messages, hasLength(5));
     },
   );
 
@@ -4298,14 +4326,19 @@ void main() {
 
       final chatNotices = <GroupMessage>[];
       final commentNotices = <GroupMessage>[];
+      final ownerCommentNotices = <GroupMessage>[];
       final chatSub = bobService.incoming.listen(
         (notice) => chatNotices.add(notice.message),
       );
       final commentSub = bobService.incomingComments.listen(
         (notice) => commentNotices.add(notice.message),
       );
+      final ownerCommentSub = ownerService.incomingComments.listen(
+        (notice) => ownerCommentNotices.add(notice.message),
+      );
       addTearDown(chatSub.cancel);
       addTearDown(commentSub.cancel);
+      addTearDown(ownerCommentSub.cancel);
 
       final root = (await ownerService.publishSpacePost(
         spaceId,
@@ -4356,6 +4389,20 @@ void main() {
         )).single.attachment?.toReferenceJson(),
         commentMedia.toReferenceJson(),
       );
+      final ownerComment = (await bobService.spacePostCommentsOf(
+        spaceId,
+        root.postId,
+      )).single;
+      expect(
+        await bobService.editSpacePostComment(
+          spaceId,
+          root.postId,
+          ownerComment.ref,
+          'Member cannot impersonate the owner',
+          broadcast: false,
+        ),
+        isFalse,
+      );
       expect(
         await bobService.referencedContentIds(spaceId),
         contains('d' * 64),
@@ -4386,12 +4433,53 @@ void main() {
         )).map((comment) => comment.body),
         ['Owner comment', 'Member redistribution'],
       );
+      final memberComment = (await ownerService.spacePostCommentsOf(
+        spaceId,
+        root.postId,
+      )).last;
+      expect(
+        await bobService.editSpacePostComment(
+          spaceId,
+          root.postId,
+          memberComment.ref,
+          'Member revision',
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerService.ingestSnapshot(
+          bobService.snapshotJson(
+            (await bobService.load(spaceId))!,
+            recipient: owner,
+          ),
+        ),
+        isTrue,
+      );
+      await pump();
+      expect(
+        (await ownerService.spacePostCommentsOf(
+          spaceId,
+          root.postId,
+        )).last.body,
+        'Member revision',
+      );
+      expect(
+        commentNotices.map((comment) => comment.body),
+        ['Owner comment'],
+        reason: 'an edit refreshes state but is not a new-comment notice',
+      );
+      expect(
+        ownerCommentNotices.map((comment) => comment.body),
+        ['Member redistribution'],
+        reason: 'a remote edit is not emitted as another comment',
+      );
 
       final bobBundle = (await bobService.load(spaceId))!;
       final bobState = (await bobService.stateOf(spaceId))!;
-      final bobHead = bobBundle.messages.singleWhere(
-        (message) => message.author == bob,
-      );
+      final bobHead = bobBundle.messages
+          .where((message) => message.author == bob)
+          .reduce((left, right) => left.seq > right.seq ? left : right);
       final clearWithAttachment = const GroupMessageCleartext(
         body: 'attachment smuggling',
         attachment: GroupAttachment(
@@ -4442,7 +4530,7 @@ void main() {
       );
       expect(
         (await ownerService.load(spaceId))!.messages,
-        hasLength(2),
+        hasLength(3),
         reason: 'legacy inline comment media is rejected after AEAD open',
       );
       expect(

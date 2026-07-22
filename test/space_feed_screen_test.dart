@@ -404,10 +404,44 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('First comment'), findsOneWidget);
 
+      final original = (await service.spacePostCommentsOf(
+        spaceId,
+        post.postId,
+      )).single;
+      await tester.enterText(
+        find.byKey(const ValueKey('space-post-comment-composer')),
+        'Preserved draft',
+      );
+      await tester.tap(
+        find.byKey(ValueKey('space-post-comment-edit-${original.ref}')),
+      );
+      await tester.pump();
+      expect(find.text(l.spacePostCommentEditing), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const ValueKey('space-post-comment-composer')),
+        'Corrected first comment',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('space-post-comment-send')));
+      await tester.pumpAndSettle();
+      expect(find.text('First comment'), findsNothing);
+      expect(find.text('Corrected first comment'), findsOneWidget);
+      expect(find.text(l.spacePostCommentEdited), findsOneWidget);
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey('space-post-comment-composer')),
+            )
+            .controller
+            ?.text,
+        'Preserved draft',
+      );
       final first = (await service.spacePostCommentsOf(
         spaceId,
         post.postId,
       )).single;
+      expect(first.ref, original.ref);
+      expect(first.edited, isTrue);
       await tester.tap(
         find.byKey(ValueKey('space-post-comment-reply-${first.ref}')),
       );
@@ -436,7 +470,7 @@ void main() {
 
       final comments = await service.spacePostCommentsOf(spaceId, post.postId);
       expect(comments.map((comment) => comment.body), [
-        'First comment',
+        'Corrected first comment',
         'Threaded reply',
         '',
       ]);

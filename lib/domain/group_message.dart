@@ -32,15 +32,24 @@ class GroupMessageCleartext {
     required this.body,
     this.attachment,
     this.replyTo,
+    this.editOf,
     this.customEmoji = const [],
   });
 
   final String body;
   final MediaObject? attachment;
   final String? replyTo;
+  final String? editOf;
   final List<InlineCustomEmoji> customEmoji;
 
   Uint8List encode() {
+    final isEdit = editOf != null;
+    if (isEdit &&
+        (!_spacePostCommentTargetPattern.hasMatch(editOf!) ||
+            attachment != null ||
+            replyTo != null)) {
+      throw ArgumentError.value(editOf, 'editOf', 'invalid comment edit');
+    }
     final referenceMedia =
         attachment != null &&
         attachment!.inlinePreviewB64 == null &&
@@ -48,12 +57,17 @@ class GroupMessageCleartext {
     return Uint8List.fromList(
       utf8.encode(
         jsonEncode({
-          'v': referenceMedia ? 2 : 1,
+          'v': isEdit
+              ? 3
+              : referenceMedia
+              ? 2
+              : 1,
           'body': body,
-          if (referenceMedia) 'media': attachment!.toReferenceJson(),
-          if (!referenceMedia && attachment != null)
+          if (!isEdit && referenceMedia) 'media': attachment!.toReferenceJson(),
+          if (!isEdit && !referenceMedia && attachment != null)
             'att': attachment!.toLegacyAttachmentCanonical(),
-          if (replyTo != null) 'rt': replyTo,
+          if (!isEdit && replyTo != null) 'rt': replyTo,
+          if (isEdit) 'edit': editOf,
           if (customEmoji.isNotEmpty)
             'ce': encodeInlineCustomEmoji(customEmoji),
         }),
@@ -66,13 +80,19 @@ class GroupMessageCleartext {
     try {
       final value = jsonDecode(utf8.decode(bytes, allowMalformed: false));
       if (value is! Map ||
-          (value['v'] != 1 && value['v'] != 2) ||
+          (value['v'] != 1 && value['v'] != 2 && value['v'] != 3) ||
           value['body'] is! String) {
         return null;
       }
+      final isEdit = value['v'] == 3;
       final referenceMedia = value['v'] == 2;
       if ((referenceMedia && value.containsKey('att')) ||
-          (!referenceMedia && value.containsKey('media'))) {
+          (!referenceMedia && value.containsKey('media')) ||
+          (isEdit &&
+              (value.containsKey('att') ||
+                  value.containsKey('media') ||
+                  value.containsKey('rt'))) ||
+          (!isEdit && value.containsKey('edit'))) {
         return null;
       }
       final attachment = referenceMedia
@@ -85,10 +105,17 @@ class GroupMessageCleartext {
       }
       final replyTo = value['rt'];
       if (replyTo != null && replyTo is! String) return null;
+      final editOf = value['edit'];
+      if (isEdit &&
+          (editOf is! String ||
+              !_spacePostCommentTargetPattern.hasMatch(editOf))) {
+        return null;
+      }
       return GroupMessageCleartext(
         body: value['body'] as String,
         attachment: attachment,
         replyTo: replyTo as String?,
+        editOf: editOf as String?,
         customEmoji: parseInlineCustomEmoji(
           value['body'] as String,
           value['ce'],
@@ -118,6 +145,7 @@ class GroupMessage {
     this.spacePostId,
     this.attachment,
     this.replyTo,
+    this.editOf,
     this.customEmoji = const [],
     this.lifecycleGeneration,
     Uint8List? authorPubKey,
@@ -147,8 +175,12 @@ class GroupMessage {
 
   /// The `<authorHex>:<seq>` reference of the message this one replies to, or
   /// null. Group messages have no single id, but (author, seq) is a permanent
-  /// identity (groups have no edit/delete), so it resolves stably on any device.
+  /// identity; comment edits append revisions and keep this root stable.
   final String? replyTo;
+
+  /// Stable root-comment reference changed by this immutable row. It is kept
+  /// inside the encrypted cleartext, so observers cannot correlate edits.
+  final String? editOf;
   final Uint8List authorPubKey; // bound via node_id == BLAKE3(pk), not signed
 
   /// This message's own stable reference, for another message to [replyTo].
@@ -217,6 +249,7 @@ class GroupMessage {
             if (attachment != null)
               'att': attachment!.toLegacyAttachmentCanonical(),
             if (replyTo != null) 'rt': replyTo,
+            if (editOf != null) 'edit': editOf,
             if (customEmoji.isNotEmpty)
               'ce': encodeInlineCustomEmoji(customEmoji),
             if (version == 4) 'lifecycle': lifecycleGeneration,
@@ -241,6 +274,7 @@ class GroupMessage {
     signature: sig,
     attachment: attachment,
     replyTo: replyTo,
+    editOf: editOf,
     customEmoji: customEmoji,
     lifecycleGeneration: lifecycleGeneration,
     authorPubKey: pubKey,
@@ -264,6 +298,7 @@ class GroupMessage {
         signature: signature,
         attachment: cleartext.attachment,
         replyTo: cleartext.replyTo,
+        editOf: cleartext.editOf,
         customEmoji: cleartext.customEmoji,
         lifecycleGeneration: lifecycleGeneration,
         authorPubKey: authorPubKey,
@@ -318,6 +353,7 @@ class GroupMessage {
       'ts': createdAtMs,
       if (attachment != null) 'att': attachment!.toLegacyAttachmentCanonical(),
       if (replyTo != null) 'rt': replyTo,
+      if (editOf != null) 'edit': editOf,
       if (customEmoji.isNotEmpty) 'ce': encodeInlineCustomEmoji(customEmoji),
       if (version == 4) 'lifecycle': lifecycleGeneration,
       'sig': base64Encode(signature),
@@ -333,6 +369,7 @@ class GroupMessage {
     final prev = j['prev'], body = j['body'], pv = j['pv'], ts = j['ts'];
     final sig = j['sig'];
     final spacePostId = j['post'];
+    final editOf = j['edit'];
     if (gid is! String ||
         author is! String ||
         seq is! int ||
@@ -344,6 +381,12 @@ class GroupMessage {
             (spacePostId is! String ||
                 !_spacePostCommentTargetPattern.hasMatch(spacePostId))) ||
         (spacePostId != null && j['channel'] != null) ||
+        (editOf != null &&
+            (editOf is! String ||
+                !_spacePostCommentTargetPattern.hasMatch(editOf) ||
+                spacePostId == null ||
+                j.containsKey('att') ||
+                j.containsKey('rt'))) ||
         seq < 0) {
       return null;
     }
@@ -370,6 +413,7 @@ class GroupMessage {
                 j.containsKey('body') ||
                 j.containsKey('att') ||
                 j.containsKey('rt') ||
+                j.containsKey('edit') ||
                 j.containsKey('ce'))) ||
         ((version == 3 || version == 6) &&
             (channelEpoch is! int ||
@@ -381,6 +425,7 @@ class GroupMessage {
                 j.containsKey('body') ||
                 j.containsKey('att') ||
                 j.containsKey('rt') ||
+                j.containsKey('edit') ||
                 j.containsKey('ce')))) {
       return null;
     }
@@ -408,6 +453,9 @@ class GroupMessage {
         replyTo: (version == 1 || version == 4) && j['rt'] is String
             ? j['rt'] as String
             : null,
+        editOf: (version == 1 || version == 4) && editOf is String
+            ? editOf
+            : null,
         customEmoji: version == 1 || version == 4
             ? parseInlineCustomEmoji(body as String, j['ce'])
             : const [],
@@ -420,6 +468,26 @@ class GroupMessage {
       return null;
     }
   }
+}
+
+/// Stable, user-facing projection of one Space-post comment and its latest
+/// valid immutable edit. Replies keep targeting [ref], while the original
+/// signed row remains available in the replicated log.
+class SpacePostCommentView {
+  const SpacePostCommentView({required this.root, this.revision});
+
+  final GroupMessage root;
+  final GroupMessage? revision;
+
+  String get ref => root.ref;
+  NodeId get author => root.author;
+  String get body => revision?.body ?? root.body;
+  MediaObject? get attachment => root.attachment;
+  String? get replyTo => root.replyTo;
+  String? get spacePostId => root.spacePostId;
+  int get createdAtMs => root.createdAtMs;
+  bool get edited => revision != null;
+  int? get editedAtMs => revision?.createdAtMs;
 }
 
 /// Digest used by the per-author, per-visibility-scope message chain.
