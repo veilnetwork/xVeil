@@ -2857,7 +2857,7 @@ class GroupService {
     );
   }
 
-  /// The group chats we are STILL A MEMBER of, newest-created last. Spaces are
+  /// The group chats we are STILL A MEMBER of. Spaces are
   /// deliberately excluded: they have their own list and navigation surface.
   /// (or were never/no-longer a member of, per the folded control-log) is hidden
   /// without deleting its blob — the stored data lingers deniably and a fresh
@@ -2920,7 +2920,11 @@ class GroupService {
           postUnread: await unreadSpacePosts(gid),
           muted: await isGroupMuted(gid),
           preview: last == null ? '' : previewOf(last),
-          lastTs: last?.createdAtMs ?? 0,
+          // A brand-new chat has no message timestamp yet, but it must still
+          // participate in the shared Chats recency ordering. Using zero sent
+          // it below every established direct/group conversation, which made
+          // successful creation look as if the chat had disappeared.
+          lastTs: last?.createdAtMs ?? b.manifest.createdAtMs,
         ));
       } catch (_) {}
     }
