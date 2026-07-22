@@ -28,17 +28,19 @@ final groupListProvider = StreamProvider<List<GroupListEntry>>((ref) async* {
     yield const [];
     return;
   }
-  yield await service.listGroups();
   final ticks = StreamController<void>();
   void onTick() {
     if (!ticks.isClosed) ticks.add(null);
   }
 
+  // Subscribe before the initial read so a create that lands while this
+  // provider starts cannot disappear between listGroups and addListener.
   service.changes.addListener(onTick);
   ref.onDispose(() {
     service.changes.removeListener(onTick);
     unawaited(ticks.close());
   });
+  yield await service.listGroups();
   await for (final _ in ticks.stream) {
     yield await service.listGroups();
   }
@@ -51,17 +53,19 @@ final spaceListProvider = StreamProvider<List<GroupListEntry>>((ref) async* {
     yield const [];
     return;
   }
-  yield await service.listSpaces();
   final ticks = StreamController<void>();
   void onTick() {
     if (!ticks.isClosed) ticks.add(null);
   }
 
+  // Spaces use the same durable index protocol and need the same startup-race
+  // protection, while remaining a separate list from ordinary group chats.
   service.changes.addListener(onTick);
   ref.onDispose(() {
     service.changes.removeListener(onTick);
     unawaited(ticks.close());
   });
+  yield await service.listSpaces();
   await for (final _ in ticks.stream) {
     yield await service.listSpaces();
   }

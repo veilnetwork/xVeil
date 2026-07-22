@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 import 'package:xveil/core/ids.dart';
@@ -24,8 +25,8 @@ import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_rules.dart';
 import 'package:xveil/domain/inline_custom_emoji.dart';
-import 'package:xveil/state/group_service.dart';
 import 'package:xveil/state/group_epoch_service.dart';
+import 'package:xveil/state/group_service_providers.dart';
 
 import 'support/fake_hv_container.dart';
 
@@ -180,6 +181,10 @@ void main() {
 
   test('create -> owner is sole member, group persists + lists', () async {
     final (svc, _) = await setup();
+    final ticks = <int>[];
+    void recordTick() => ticks.add(svc.changes.value);
+    svc.changes.addListener(recordTick);
+    addTearDown(() => svc.changes.removeListener(recordTick));
     final gid = await svc.createGroup('Family');
     final state = (await svc.stateOf(gid))!;
     expect(state.roleOf(owner), GroupRole.owner);
@@ -187,12 +192,48 @@ void main() {
     final groups = await svc.listGroups();
     expect(groups.single.name, 'Family');
     expect(groups.single.groupId, gid);
+    expect(ticks, [
+      1,
+    ], reason: 'a mounted Chats list must refresh after the durable create');
+  });
+
+  test('mounted group list provider emits a newly created group', () async {
+    final (service, _) = await setup();
+    final container = ProviderContainer(
+      overrides: [groupServiceProvider.overrideWithValue(service)],
+    );
+    addTearDown(container.dispose);
+    final values = <List<GroupListEntry>>[];
+    final subscription = container.listen(
+      groupListProvider,
+      (_, next) => next.whenData(values.add),
+      fireImmediately: true,
+    );
+    addTearDown(subscription.close);
+
+    expect(await container.read(groupListProvider.future), isEmpty);
+    final groupId = await service.createGroup('Visible immediately');
+    for (var attempt = 0; attempt < 20; attempt++) {
+      if (values.any(
+        (value) => value.any((entry) => entry.groupId == groupId),
+      )) {
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+
+    expect(
+      values.expand((value) => value).map((entry) => entry.groupId),
+      contains(groupId),
+      reason: 'Chats must update without restarting or another group mutation',
+    );
   });
 
   test(
     'group chats and Spaces have disjoint creation and list semantics',
     () async {
       final (service, _) = await setup();
+      final before = service.changes.value;
       final groupId = await service.createGroup('Family chat');
       final spaceId = await service.createSpace('Builders');
 
@@ -205,6 +246,11 @@ void main() {
 
       expect((await service.listGroups()).single.groupId, groupId);
       expect((await service.listSpaces()).single.groupId, spaceId);
+      expect(
+        service.changes.value,
+        before + 2,
+        reason: 'Group and Space creation each invalidate their own list',
+      );
     },
   );
 

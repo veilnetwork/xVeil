@@ -97,7 +97,11 @@ class GroupTile extends ConsumerWidget {
 }
 
 /// Creates a group chat and opens its group-wide conversation.
-Future<void> showCreateGroupDialog(BuildContext context, WidgetRef ref) async {
+Future<void> showCreateGroupDialog(
+  BuildContext context,
+  WidgetRef ref, {
+  VoidCallback? onCreated,
+}) async {
   final l = AppL10n.of(context);
   final controller = TextEditingController();
   final name = await showDialog<String>(
@@ -130,6 +134,7 @@ Future<void> showCreateGroupDialog(BuildContext context, WidgetRef ref) async {
   if (service == null) return;
   try {
     final groupId = await service.createGroup(name);
+    onCreated?.call();
     if (context.mounted) context.push('/group/${groupId.hex}');
   } catch (_) {
     if (context.mounted) {

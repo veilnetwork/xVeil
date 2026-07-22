@@ -2682,7 +2682,7 @@ class GroupService {
     }
   }
 
-  Future<void> _save(GroupBundle b) async {
+  Future<void> _save(GroupBundle b, {bool notify = true}) async {
     // Chunked file-store (not putSetting): the bundle carries inline media that
     // overflows the single-setting cap. storeFile replaces the prior blob (or
     // no-ops if byte-identical) and chunks large values across commits.
@@ -2714,7 +2714,7 @@ class GroupService {
       Uint8List.fromList(utf8.encode(json)),
       name: 'group',
     );
-    changes.value++;
+    if (notify) changes.value++;
   }
 
   /// Start the idempotent lifecycle maintenance loop. GUI and headless hosts
@@ -3059,10 +3059,16 @@ class GroupService {
         key.fillRange(0, key.length, 0);
       }
     }
-    await _save(bundle);
+    // Creation is visible only after both the bundle and its index entry are
+    // durable. Emitting from _save here races listGroups against the old index.
+    await _save(bundle, notify: false);
     final idx = await _index();
     idx.add(gid.hex);
     await _setIndex(idx);
+    // The durable bundle/index commit is the moment list consumers may expose
+    // the new Space. Without this tick an already-mounted Communities screen
+    // kept its old StreamProvider value until some unrelated group mutation.
+    changes.value++;
     return gid;
   }
 
@@ -3129,10 +3135,16 @@ class GroupService {
         key.fillRange(0, key.length, 0);
       }
     }
-    await _save(bundle);
+    // Creation is visible only after both the bundle and its index entry are
+    // durable. Emitting from _save here races listGroups against the old index.
+    await _save(bundle, notify: false);
     final idx = await _index();
     idx.add(gid.hex);
     await _setIndex(idx);
+    // Creation is a list mutation too. Group chat screens are opened directly
+    // after this call, so the missing tick stayed invisible until Back: the
+    // Chats tab then kept the pre-create provider snapshot indefinitely.
+    changes.value++;
     return gid;
   }
 

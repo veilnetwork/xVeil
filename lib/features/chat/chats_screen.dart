@@ -622,7 +622,12 @@ class _FolderDrawer extends ConsumerWidget {
               title: Text(l.groupCreateTitle),
               onTap: () {
                 Navigator.of(context).pop();
-                showCreateGroupDialog(context, ref);
+                showCreateGroupDialog(
+                  context,
+                  ref,
+                  onCreated: () =>
+                      ref.read(selectedFolderProvider.notifier).state = null,
+                );
               },
             ),
             ListTile(
