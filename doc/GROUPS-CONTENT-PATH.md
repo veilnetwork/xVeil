@@ -71,6 +71,7 @@ signatures already use):
 ```
 GroupContentRequest {
   groupId, contentId,
+  channelId?, channelEpoch?, // both present only for protected Space media
   requester (NodeId), nonce (random hex), tsMs,
   authorPubKey, signature   // over canonicalBytes (all fields above)
 }
@@ -89,6 +90,15 @@ The HOLDER authorizes locally and deterministically
 4. `tsMs` is within a freshness window (10 min) AND `nonce` is unseen
    (bounded replay cache) — a captured request cannot be replayed later,
    e.g. after a ban.
+
+For a protected Space channel the request additionally signs `channelId` and
+the current `channelEpoch`. The holder decrypts its own copy of the current ACL
+and requires the requester to be one of its recipients; an unscoped request
+explicitly excludes references from channel-encrypted rows. The requester also
+fans the request out only to current recipients of that channel. Thus guessing
+a CID, remaining a Space member outside the channel, or replaying the request
+after an ACL rotation never unlocks the blob and never reveals the channel to
+unrelated fanout peers.
 
 Canon (no oracle): an unauthorized request is DROPPED SILENTLY — never a
 "not a member" reply. A non-member learns nothing, a removed member just
@@ -114,8 +124,10 @@ correctness change.
 
 ### 5. Explicitly out of scope for v1
 
-* E2EE epoch keys (separate Ф0 crypto brick — content is already inside the
-  veil transport's encryption; group-E2EE wraps it later).
+* Persistent/offline encrypted blob relay. Live protected-channel content is
+  already scoped by the signed channel epoch grant, encrypted in transit by
+  Veil and encrypted at rest; the store does not publish a clear network
+  object for later relay.
 * Relay/mailbox delivery of content to OFFLINE members (they fetch when the
   author is reachable; durable log still syncs the ref immediately).
 * DHT provider records for group content (Ф4 scale work).

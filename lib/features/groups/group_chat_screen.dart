@@ -461,45 +461,25 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     return '…';
   }
 
-  /// Inline voice cap (raw VOP1 bytes): Opus at voice bitrate is ~2 KB/s, so
-  /// this is ~45s of speech. Rides the snapshot-chunking wire path like inline
-  /// images; longer clips need the content-path media epic.
-  static const int _kGroupVoiceRawMax = 96000;
-
-  /// Tap the mic: start recording; tap again (stop icon): finish + post the
-  /// clip as an inline `voice` attachment. durationMs travels in the signed
-  /// attachment's `w` (and h=1) — reusing the existing fields keeps the
-  /// canonical bytes identical for builds that predate voice.
+  /// Tap the mic: register the clip in the encrypted content store and keep
+  /// only its strict reference in the signed/encrypted message. This avoids an
+  /// inline clear-media fallback in protected channels at every clip length.
   Future<void> _sendVoiceClip(GroupService svc, VoiceClip clip) async {
     if (clip.bytes.isEmpty) return;
-    if (clip.bytes.length > _kGroupVoiceRawMax) {
-      // Long clip: over the content path (register + ref, members stream it)
-      // instead of the old "too long" refusal. dataB64 must be non-empty per
-      // the attachment schema — a 1-byte placeholder marks "no inline payload".
-      final cid = await ref
-          .read(messagingServiceProvider)
-          .registerGroupContent(clip.bytes, name: 'voice.vop1');
-      await _postGroupMessage(
-        svc,
-        '',
-        attachment: MediaObject(
-          kind: 'voice',
-          dataB64: 'QQ==',
-          w: clip.durationMs > 0 ? clip.durationMs : 1,
-          h: 1,
-          cid: cid,
-        ),
-      );
-      return;
-    }
+    final cid = await ref
+        .read(messagingServiceProvider)
+        .registerGroupContent(clip.bytes, name: 'voice.vop1');
+    final duration = clip.durationMs > 0 ? clip.durationMs : 1;
     await _postGroupMessage(
       svc,
       '',
       attachment: MediaObject(
         kind: 'voice',
-        dataB64: base64Encode(clip.bytes),
-        w: clip.durationMs > 0 ? clip.durationMs : 1,
-        h: 1,
+        contentId: cid,
+        size: clip.bytes.length,
+        width: duration,
+        height: 1,
+        durationMs: duration,
       ),
     );
   }
@@ -516,10 +496,11 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       '',
       attachment: MediaObject(
         kind: 'vnote',
-        dataB64: 'QQ==',
-        w: clip.durationMs > 0 ? clip.durationMs : 1,
-        h: 1,
-        cid: cid,
+        contentId: cid,
+        size: clip.bytes.length,
+        width: clip.durationMs > 0 ? clip.durationMs : 1,
+        height: 1,
+        durationMs: clip.durationMs > 0 ? clip.durationMs : 1,
       ),
     );
   }
@@ -676,6 +657,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       if (mounted) _snack(l.groupImageTooLarge);
       return;
     }
+    final cid = await ref
+        .read(messagingServiceProvider)
+        .registerGroupContent(bytes, name: file.name);
     await _postGroupMessage(
       svc,
       caption.body,
@@ -683,9 +667,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       clearInput: true,
       attachment: MediaObject(
         kind: 'image',
-        dataB64: img.b64,
-        w: img.w,
-        h: img.h,
+        contentId: cid,
+        size: bytes.length,
+        width: img.w,
+        height: img.h,
         name: file.name,
       ),
     );
@@ -1546,16 +1531,12 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                                   .map((member) => member.nodeId)
                                   .toList(growable: false) ??
                               const [],
-                          onAttachmentAction: protected
-                              ? null
-                              : (action) =>
-                                    _handleAttachmentAction(svc, action),
-                          onVoice: protected
-                              ? null
-                              : (clip) => unawaited(_sendVoiceClip(svc, clip)),
-                          onVideoNote: protected
-                              ? null
-                              : (clip) => unawaited(_sendVnoteClip(svc, clip)),
+                          onAttachmentAction: (action) =>
+                              _handleAttachmentAction(svc, action),
+                          onVoice: (clip) =>
+                              unawaited(_sendVoiceClip(svc, clip)),
+                          onVideoNote: (clip) =>
+                              unawaited(_sendVnoteClip(svc, clip)),
                           onSticker: protected
                               ? null
                               : (itemId) =>
