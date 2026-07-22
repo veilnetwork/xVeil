@@ -187,11 +187,19 @@ void main() {
     addTearDown(() => svc.changes.removeListener(recordTick));
     final gid = await svc.createGroup('Family');
     final state = (await svc.stateOf(gid))!;
+    final manifest = (await svc.load(gid))!.manifest;
     expect(state.roleOf(owner), GroupRole.owner);
     expect(state.members.length, 1);
     final groups = await svc.listGroups();
     expect(groups.single.name, 'Family');
     expect(groups.single.groupId, gid);
+    expect(
+      groups.single.lastTs,
+      manifest.createdAtMs,
+      reason:
+          'an empty new group must sort by creation time instead of falling '
+          'to the bottom of Chats with timestamp zero',
+    );
     expect(ticks, [
       1,
     ], reason: 'a mounted Chats list must refresh after the durable create');
