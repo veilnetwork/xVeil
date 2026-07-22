@@ -21,6 +21,7 @@ void main() {
   final spacePostReactions = <(String, String, String)>[];
   final spaceRecommendationShares = <(String, String, String)>[];
   final subscriptions = <(String, bool)>[];
+  final subscriptionUpdates = <(String, bool?, bool?, bool?)>[];
   final feedPostPreferences = <(String, String, bool)>[];
   final feedTypePreferences = <List<String>>[];
   final spaceInviteDecisions = <(String, bool)>[];
@@ -58,6 +59,7 @@ void main() {
     spacePostReactions.clear();
     spaceRecommendationShares.clear();
     subscriptions.clear();
+    subscriptionUpdates.clear();
     feedPostPreferences.clear();
     feedTypePreferences.clear();
     spaceInviteDecisions.clear();
@@ -307,6 +309,32 @@ void main() {
         feedTypePreferences.add(List<String>.of(types));
         return null;
       },
+      spaceSubscription: (space) async => space == 'missing'
+          ? null
+          : {
+              'spaceId': space,
+              'feedEnabled': true,
+              'notificationsEnabled': false,
+              'hiddenFromRecommendations': true,
+              'publicOnly': false,
+              'updatedAt': 123,
+            },
+      updateSpaceSubscription:
+          (
+            space, {
+            feedEnabled,
+            notificationsEnabled,
+            hiddenFromRecommendations,
+          }) async {
+            if (space == 'missing') return 'space not found';
+            subscriptionUpdates.add((
+              space,
+              feedEnabled,
+              notificationsEnabled,
+              hiddenFromRecommendations,
+            ));
+            return null;
+          },
       setSpaceFeedEnabled: (space, enabled) async {
         if (space == 'missing') return 'space not found';
         subscriptions.add((space, enabled));
@@ -1615,14 +1643,51 @@ void main() {
       );
       expect(
         (await h.handle(
+          'GET',
+          u('/v1/spaces/subscription?space=aa'),
+          auth,
+        )).body,
+        containsPair('notificationsEnabled', false),
+      );
+      expect(
+        (await h.handle(
           'POST',
           u('/v1/spaces/subscription'),
           auth,
-          body: {'space': 'aa', 'enabled': false},
+          body: {
+            'space': 'aa',
+            'feedEnabled': false,
+            'notificationsEnabled': false,
+            'hiddenFromRecommendations': true,
+          },
         )).status,
         200,
       );
-      expect(subscriptions.single, ('aa', false));
+      expect(subscriptionUpdates.single, ('aa', false, false, true));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/subscription'),
+          auth,
+          body: {'space': 'aa', 'publicOnly': true},
+        )).status,
+        400,
+        reason: 'public-only access is not implemented by local preferences',
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/subscription'),
+          auth,
+          body: {
+            'space': 'aa',
+            'feedEnabled': false,
+            'notificationsEnabled': null,
+          },
+        )).status,
+        400,
+        reason: 'present preference fields are strict booleans',
+      );
       expect(
         (await h.handle(
           'POST',

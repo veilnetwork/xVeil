@@ -524,6 +524,20 @@ void main() {
         expect((await service.load(spaceId))!.messages, isEmpty);
         expect(await api.setFeedEnabled(spaceId.hex, false), isNull);
         expect((await api.feed(10, null))['posts'], isEmpty);
+        expect((await api.subscription(spaceId.hex))?['feedEnabled'], isFalse);
+        expect(
+          await api.updateSubscription(
+            spaceId.hex,
+            notificationsEnabled: false,
+            hiddenFromRecommendations: true,
+          ),
+          isNull,
+        );
+        final subscription = (await api.subscription(spaceId.hex))!;
+        expect(subscription['notificationsEnabled'], isFalse);
+        expect(subscription['hiddenFromRecommendations'], isTrue);
+        expect(subscription['publicOnly'], isFalse);
+        expect(await api.subscription('invalid'), isNull);
         final groupId = await service.createGroup('Still a group chat');
         expect(
           await service.setSpacePostPinned(groupId, postId, true),

@@ -12,6 +12,7 @@ import '../../domain/group_policy.dart';
 import '../../domain/space_retention.dart';
 import '../../domain/space_join_request.dart';
 import '../../domain/space_recommendation.dart';
+import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/messaging.dart' show conversationsProvider;
@@ -32,12 +33,81 @@ class SpaceSettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
+  GroupService? _snapshotService;
+  NodeId? _snapshotSpaceId;
+  int? _snapshotRevision;
+  Future<List<Object?>>? _snapshotFuture;
+  bool _snapshotLoaded = false;
+  bool _snapshotCanRefresh = false;
+
   NodeId? get _spaceId {
     try {
       return NodeId.fromHex(widget.spaceIdHex);
     } catch (_) {
       return null;
     }
+  }
+
+  Future<List<Object?>> _loadSettingsSnapshot(
+    GroupService service,
+    NodeId spaceId,
+  ) => Future.wait<Object?>([
+    service.stateOf(spaceId),
+    service.spaceSubscription(spaceId),
+    service.load(spaceId),
+    service.localSpaceRetentionDays(spaceId),
+    service.currentSpaceJoinCode(spaceId),
+    service.pendingSpaceJoinRequests(spaceId),
+    service.spaceRecommendationCampaigns(spaceId),
+  ]);
+
+  Future<List<Object?>> _settingsSnapshot(
+    GroupService service,
+    NodeId spaceId,
+    int? revision,
+  ) {
+    final identityChanged =
+        !identical(_snapshotService, service) || _snapshotSpaceId != spaceId;
+    if (identityChanged || _snapshotFuture == null) {
+      _snapshotService = service;
+      _snapshotSpaceId = spaceId;
+      _snapshotRevision = revision;
+      _snapshotCanRefresh = false;
+      _startSettingsSnapshot(service, spaceId);
+    } else if (_snapshotRevision != revision) {
+      _snapshotRevision = revision;
+      // Coalesce revisions received while the first read is in flight. Once
+      // data is visible, FutureBuilder retains it while a refresh completes.
+      if (_snapshotLoaded && _snapshotCanRefresh) {
+        _startSettingsSnapshot(service, spaceId);
+      }
+    }
+    return _snapshotFuture!;
+  }
+
+  void _startSettingsSnapshot(GroupService service, NodeId spaceId) {
+    _snapshotLoaded = false;
+    _snapshotCanRefresh = false;
+    final future = _loadSettingsSnapshot(service, spaceId);
+    _snapshotFuture = future;
+    unawaited(
+      future.then<void>(
+        (_) => _settingsSnapshotFinished(future),
+        onError: (Object _, StackTrace _) => _settingsSnapshotFinished(future),
+      ),
+    );
+  }
+
+  void _settingsSnapshotFinished(Future<List<Object?>> future) {
+    if (!identical(_snapshotFuture, future)) return;
+    _snapshotLoaded = true;
+    // Let FutureBuilder paint the completed initial snapshot before accepting
+    // another high-frequency replication revision.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && identical(_snapshotFuture, future)) {
+        _snapshotCanRefresh = true;
+      }
+    });
   }
 
   void _failure() {
@@ -573,16 +643,8 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     }
     return StreamBuilder<int>(
       stream: service.changes.stream,
-      builder: (context, _) => FutureBuilder<List<Object?>>(
-        future: Future.wait<Object?>([
-          service.stateOf(spaceId),
-          service.isSpaceFeedEnabled(spaceId),
-          service.load(spaceId),
-          service.localSpaceRetentionDays(spaceId),
-          service.currentSpaceJoinCode(spaceId),
-          service.pendingSpaceJoinRequests(spaceId),
-          service.spaceRecommendationCampaigns(spaceId),
-        ]),
+      builder: (context, changes) => FutureBuilder<List<Object?>>(
+        future: _settingsSnapshot(service, spaceId, changes.data),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const Scaffold(
@@ -593,7 +655,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
           if (state == null || !state.isMember(service.selfId)) {
             return Scaffold(body: Center(child: Text(l.spaceOperationFailed)));
           }
-          final feedEnabled = snapshot.data![1] as bool;
+          final subscription = snapshot.data![1] as SpaceSubscription;
           final bundle = snapshot.data![2] as GroupBundle?;
           final localRetentionDays = snapshot.data![3] as int?;
           final joinCode = snapshot.data![4] as String?;
@@ -691,17 +753,67 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                     )
                                   : null,
                             ),
-                            SwitchListTile(
-                              secondary: const Icon(Icons.campaign_outlined),
-                              title: Text(
-                                feedEnabled
-                                    ? l.spaceFeedDisable
-                                    : l.spaceFeedEnable,
+                            ExpansionTile(
+                              key: const ValueKey(
+                                'space-subscription-settings',
                               ),
-                              value: feedEnabled,
-                              onChanged: (enabled) => unawaited(
-                                service.setSpaceFeedEnabled(spaceId, enabled),
-                              ),
+                              leading: const Icon(Icons.tune),
+                              title: Text(l.spaceSubscriptionSettings),
+                              children: [
+                                SwitchListTile(
+                                  key: const ValueKey('space-feed-setting'),
+                                  secondary: const Icon(
+                                    Icons.campaign_outlined,
+                                  ),
+                                  title: Text(l.spaceFeedSetting),
+                                  subtitle: Text(l.spaceFeedSettingHint),
+                                  value: subscription.feedEnabled,
+                                  onChanged: (enabled) => unawaited(
+                                    service.setSpaceFeedEnabled(
+                                      spaceId,
+                                      enabled,
+                                    ),
+                                  ),
+                                ),
+                                SwitchListTile(
+                                  key: const ValueKey(
+                                    'space-notifications-setting',
+                                  ),
+                                  secondary: const Icon(
+                                    Icons.notifications_outlined,
+                                  ),
+                                  title: Text(l.spaceNotificationsSetting),
+                                  subtitle: Text(
+                                    l.spaceNotificationsSettingHint,
+                                  ),
+                                  value: subscription.notificationsEnabled,
+                                  onChanged: (enabled) => unawaited(
+                                    service.setSpaceNotificationsEnabled(
+                                      spaceId,
+                                      enabled,
+                                    ),
+                                  ),
+                                ),
+                                SwitchListTile(
+                                  key: const ValueKey(
+                                    'space-hide-recommendations-setting',
+                                  ),
+                                  secondary: const Icon(Icons.visibility_off),
+                                  title: Text(
+                                    l.spaceHideRecommendationsSetting,
+                                  ),
+                                  subtitle: Text(
+                                    l.spaceHideRecommendationsSettingHint,
+                                  ),
+                                  value: subscription.hiddenFromRecommendations,
+                                  onChanged: (hidden) => unawaited(
+                                    service.setSpaceHiddenFromRecommendations(
+                                      spaceId,
+                                      hidden,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                             _ReplicationSetting(
                               service: service,

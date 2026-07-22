@@ -109,4 +109,19 @@ void main() {
       expect(newestByTimestamp(<int>[], (value) => value), isNull);
     });
   });
+
+  group('notification payload routes', () {
+    test('community publications open the Space publication surface', () {
+      expect(notificationRouteForPayload('space:abc'), '/space/abc/posts');
+      expect(notificationPayloadSupportsReply('space:abc'), isFalse);
+    });
+
+    test('group and direct chat routes retain inline reply support', () {
+      expect(notificationRouteForPayload('group:def'), '/group/def');
+      expect(notificationRouteForPayload('fedcba'), '/chat/fedcba');
+      expect(notificationPayloadSupportsReply('group:def'), isTrue);
+      expect(notificationPayloadSupportsReply('fedcba'), isTrue);
+      expect(notificationRouteForPayload(''), isNull);
+    });
+  });
 }
