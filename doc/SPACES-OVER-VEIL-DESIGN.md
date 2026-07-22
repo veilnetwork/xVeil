@@ -117,6 +117,20 @@ inviter повторно проходит текущий `SpaceAcl`, публи�
 отклоняется. Durable transport ACK для proposal/decision отправляется после
 завершения локального persistence, а не до него.
 
+Для публичного Space owner/admin может отдельно выпустить ограниченную по
+времени bearer-ссылку `xveil://space/v1#…`. Она содержит только строгий ticket
+с `space_id`, authenticated approver, display name и сроком; control-log,
+roster, content ids и ключей в ней нет. Запрос от не-контакта принимается лишь
+если точный ticket всё ещё хранится у approver, Space остаётся активным и
+публичным, а requester не заблокирован и проходит cooldown. Хеш ticket входит
+в запрос, поэтому изменение routing/display полей разрывает привязку. Заявка
+не является membership: доступ появляется только после обычного подписанного
+`addMember`, а новый Space материализуется у requester только при совпадении
+его локального outbox-запроса и проверенного grant в полном snapshot.
+Unsolicited snapshot и guessed ACK отклоняются. Этот link-mediated сценарий не
+является глобальным public discovery: поиск и публичные holder records требуют
+отдельного протокола, который не раскрывает control/channel/epoch данные.
+
 `SpaceSubscription` — отдельная локальная запись пользователя плюс подписанный
 публичный feed cursor. Она не входит в membership log и не получает ключей.
 
@@ -353,6 +367,12 @@ camera/background/push проверяются дополнительно на ф
   Дальнейшее описание меняется owner/admin через подписанный
   `setDescription` в том же control-log и читается единым fold'ом в
   GUI/headless/API; отдельного profile-store нет;
+* owner/admin публичного Space может выпустить и отозвать capability-ссылку;
+  не-контакт отправляет по ней durable заявку, а UI и
+  `/v1/spaces/join-requests` позволяют одобрить её. Ticket-bound request не
+  даёт данных или membership, и только подписанный `addMember` разрешает
+  материализацию проверенного snapshot. Глобальный поиск неизвестных Space
+  по-прежнему не заявляется;
 * boot anti-entropy не преобразует групповые чаты; явный owner-only conversion
   protocol отложен до отдельного пользовательского сценария;
 * ingest подписанного Space запрещает immutable-root fork и downgrade;
@@ -475,7 +495,7 @@ camera/background/push проверяются дополнительно на ф
   возникает промежуточного состояния с нулём/двумя владельцами. Операция
   запускает ротацию restricted channel-control, чтобы новый owner получил
   управляющий key envelope;
-* проверка нового слоя: `flutter analyze` чист, полный `flutter test` — 1319
+* проверка нового слоя: `flutter analyze` чист, полный `flutter test` — 1343
   passed, 40 conditional skipped. Свежий arm64 Android APK установлен и
   разблокирован; свежий macOS bundle leaf-by-leaf development-signed,
   strict-verified, запущен единственным экземпляром и разблокирован через debug

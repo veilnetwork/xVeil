@@ -1038,6 +1038,52 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
       },
+      '/spaces/join-requests': {
+        'get': {
+          'summary': 'List outgoing or Space-scoped public join requests',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': false,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': ok({'type': obj}),
+        },
+        'post': {
+          'summary':
+              'Request, approve, decline or manage a capability-bound Space join link',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['action'],
+                  'properties': {
+                    'action': {
+                      'type': 'string',
+                      'enum': [
+                        'request',
+                        'dismiss',
+                        'approve',
+                        'decline',
+                        'create_link',
+                        'revoke_link',
+                      ],
+                    },
+                    'space': {'type': 'string'},
+                    'requestId': {'type': 'string'},
+                    'code': {'type': 'string', 'maxLength': 2048},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
       '/spaces/name': {
         'post': {
           'summary': 'Rename a community through its signed control log',
@@ -1858,6 +1904,8 @@ class ApiHandler {
     this.setSpaceFeedEnabled,
     this.spaceInvites,
     this.decideSpaceInvite,
+    this.spaceJoinRequests,
+    this.spaceJoinRequestAction,
     this.spaceProfile,
     this.updateSpaceDescription,
     this.spaceLifecycle,
@@ -2006,6 +2054,15 @@ class ApiHandler {
   final Future<List<Map<String, dynamic>>> Function()? spaceInvites;
   final Future<String?> Function(String inviteId, bool accept)?
   decideSpaceInvite;
+  final Future<Map<String, dynamic>> Function(String? spaceHex)?
+  spaceJoinRequests;
+  final Future<({String? error, String? code})> Function(
+    String action,
+    String? spaceHex,
+    String? requestId,
+    String? code,
+  )?
+  spaceJoinRequestAction;
   final Future<Map<String, dynamic>?> Function(String spaceHex)? spaceProfile;
   final Future<String?> Function(String spaceHex, String description)?
   updateSpaceDescription;
@@ -2676,6 +2733,57 @@ class ApiHandler {
       return _spaceMutationResponse(
         await handler(inviteId, action == 'accept'),
       );
+    }
+    if (method == 'GET' && path == '/v1/spaces/join-requests') {
+      final handler = spaceJoinRequests;
+      if (handler == null) {
+        return const ApiResponse(501, {'error': 'Space joins unavailable'});
+      }
+      final result = await handler(uri.queryParameters['space']);
+      return result['error'] == null
+          ? ApiResponse(200, result)
+          : ApiResponse(404, result);
+    }
+    if (method == 'POST' && path == '/v1/spaces/join-requests') {
+      final handler = spaceJoinRequestAction;
+      if (handler == null) {
+        return const ApiResponse(501, {'error': 'Space joins unavailable'});
+      }
+      final action = body?['action'];
+      final space = body?['space'];
+      final requestId = body?['requestId'];
+      final code = body?['code'];
+      if (action is! String ||
+          !const {
+            'request',
+            'dismiss',
+            'approve',
+            'decline',
+            'create_link',
+            'revoke_link',
+          }.contains(action) ||
+          (space != null && space is! String) ||
+          (requestId != null && requestId is! String) ||
+          (code != null && (code is! String || code.length > 2048)) ||
+          ((action == 'approve' ||
+                  action == 'decline' ||
+                  action == 'dismiss') &&
+              (requestId is! String ||
+                  !RegExp(r'^[0-9a-f]{64}$').hasMatch(requestId))) ||
+          ((action == 'create_link' || action == 'revoke_link') &&
+              (space is! String || space.isEmpty)) ||
+          (action == 'request' && (code is! String || code.isEmpty))) {
+        return const ApiResponse(400, {
+          'error': 'valid Space join request action required',
+        });
+      }
+      final result = await handler(action, space, requestId, code);
+      return result.error == null
+          ? ApiResponse(200, {
+              'ok': true,
+              if (result.code != null) 'code': result.code,
+            })
+          : ApiResponse(400, {'error': result.error});
     }
     if (method == 'GET' && path == '/v1/feed') {
       final handler = spaceFeed;

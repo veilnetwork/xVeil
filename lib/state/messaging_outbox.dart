@@ -217,6 +217,9 @@ class _MessagingOutbox {
         continue;
       }
       var groupMemberCarrier = false;
+      final spaceJoinCarrier =
+          frame.frameId.startsWith('space-join-request:') ||
+          frame.frameId.startsWith('space-join-decision:');
       if (contact == null || contact.status != ContactStatus.accepted) {
         final parts = frame.frameId.split(':');
         if (parts.length >= 3 &&
@@ -226,7 +229,7 @@ class _MessagingOutbox {
               false;
         }
       }
-      if (contact == null && !groupMemberCarrier) {
+      if (contact == null && !groupMemberCarrier && !spaceJoinCarrier) {
         retire(frame.frameId);
         continue;
       }
@@ -320,6 +323,23 @@ class _MessagingOutbox {
     final parts = frameId.split(':');
     if (parts.length < 5 || parts.first != 'gcall') return false;
     if (!(await _owner.allowStrangerGroupSync?.call(peer, parts[1]) ?? false)) {
+      return false;
+    }
+    try {
+      return (await _owner._storage.pendingOutboxFrames()).any(
+        (frame) => frame.frameId == frameId && frame.peerHex == peer.hex,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// A public Space join frame can be addressed to a non-contact. An ACK may
+  /// retire it only when the exact id is still queued for that authenticated
+  /// peer; guessed ids and cross-peer acknowledgements remain inert.
+  Future<bool> authorizedSpaceJoinAck(NodeId peer, String frameId) async {
+    if (!frameId.startsWith('space-join-request:') &&
+        !frameId.startsWith('space-join-decision:')) {
       return false;
     }
     try {

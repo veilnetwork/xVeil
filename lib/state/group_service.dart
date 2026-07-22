@@ -36,6 +36,7 @@ import '../domain/group_reaction.dart';
 import '../domain/inline_custom_emoji.dart';
 import '../domain/space_channel.dart';
 import '../domain/space_invite.dart';
+import '../domain/space_join_request.dart';
 import '../domain/space_lifecycle.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
@@ -438,6 +439,10 @@ typedef SpaceInviteSender =
     Future<void> Function(NodeId peer, String inviteId, String inviteJson);
 typedef SpaceInviteDecisionSender =
     Future<void> Function(NodeId peer, String inviteId, String decisionJson);
+typedef SpaceJoinRequestSender =
+    Future<void> Function(NodeId peer, String requestId, String requestJson);
+typedef SpaceJoinDecisionSender =
+    Future<void> Function(NodeId peer, String requestId, String decisionJson);
 
 typedef GroupCallFrameSender =
     Future<void> Function(
@@ -453,6 +458,8 @@ class GroupService {
     this._send,
     this.sendSpaceInvite,
     this.sendSpaceInviteDecision,
+    this.sendSpaceJoinRequest,
+    this.sendSpaceJoinDecision,
     this._epochService,
     this.ourCertVersion = 1,
     this.sendContentRequest,
@@ -468,6 +475,8 @@ class GroupService {
   final GroupSnapshotSender? _send;
   final SpaceInviteSender? sendSpaceInvite;
   final SpaceInviteDecisionSender? sendSpaceInviteDecision;
+  final SpaceJoinRequestSender? sendSpaceJoinRequest;
+  final SpaceJoinDecisionSender? sendSpaceJoinDecision;
   final GroupEpochService? _epochService;
   final int ourCertVersion;
 
@@ -804,6 +813,519 @@ class GroupService {
     });
     changes.value++;
     return true;
+  }
+
+  static const String _spaceJoinRequestsSetting = 'spaces.join_requests.v1';
+  static const int _maxSpaceJoinRecords = 256;
+  Future<void> _spaceJoinMutationTail = Future<void>.value();
+
+  Future<T> _serializeSpaceJoins<T>(Future<T> Function() action) async {
+    final previous = _spaceJoinMutationTail;
+    final gate = Completer<void>();
+    _spaceJoinMutationTail = gate.future;
+    try {
+      try {
+        await previous;
+      } catch (_) {}
+      return await action();
+    } finally {
+      gate.complete();
+    }
+  }
+
+  Future<
+    ({
+      List<SpaceJoinTicket> tickets,
+      List<SpaceJoinInboxEntry> incoming,
+      List<SpaceJoinOutboxEntry> outgoing,
+    })
+  >
+  _loadSpaceJoins() async {
+    final raw = await _storage.getSetting(_spaceJoinRequestsSetting);
+    if (raw == null || raw.isEmpty) {
+      return (
+        tickets: <SpaceJoinTicket>[],
+        incoming: <SpaceJoinInboxEntry>[],
+        outgoing: <SpaceJoinOutboxEntry>[],
+      );
+    }
+    try {
+      final value = jsonDecode(raw);
+      if (value is! Map || value['v'] != 1) throw const FormatException();
+      return (
+        tickets: (value['tickets'] as List? ?? const [])
+            .map(SpaceJoinTicket.fromJson)
+            .whereType<SpaceJoinTicket>()
+            .take(_maxSpaceJoinRecords)
+            .toList(),
+        incoming: (value['incoming'] as List? ?? const [])
+            .map(SpaceJoinInboxEntry.fromJson)
+            .whereType<SpaceJoinInboxEntry>()
+            .take(_maxSpaceJoinRecords)
+            .toList(),
+        outgoing: (value['outgoing'] as List? ?? const [])
+            .map(SpaceJoinOutboxEntry.fromJson)
+            .whereType<SpaceJoinOutboxEntry>()
+            .take(_maxSpaceJoinRecords)
+            .toList(),
+      );
+    } catch (_) {
+      return (
+        tickets: <SpaceJoinTicket>[],
+        incoming: <SpaceJoinInboxEntry>[],
+        outgoing: <SpaceJoinOutboxEntry>[],
+      );
+    }
+  }
+
+  Future<void> _saveSpaceJoins({
+    required List<SpaceJoinTicket> tickets,
+    required List<SpaceJoinInboxEntry> incoming,
+    required List<SpaceJoinOutboxEntry> outgoing,
+  }) => _storage.putSetting(
+    _spaceJoinRequestsSetting,
+    jsonEncode({
+      'v': 1,
+      'tickets': [
+        for (final ticket in tickets.take(_maxSpaceJoinRecords))
+          ticket.toJson(),
+      ],
+      'incoming': [
+        for (final entry in incoming.take(_maxSpaceJoinRecords)) entry.toJson(),
+      ],
+      'outgoing': [
+        for (final entry in outgoing.take(_maxSpaceJoinRecords)) entry.toJson(),
+      ],
+    }),
+  );
+
+  /// Create or reuse a capability-bound join link for one active public Space.
+  /// Only an actor who can currently add a member may issue it. The link itself
+  /// grants no data and is useless after the local ticket is revoked/expired.
+  Future<String?> createSpaceJoinCode(NodeId spaceId) async {
+    final bundle = await load(spaceId);
+    if (bundle == null ||
+        !bundle.manifest.isSpace ||
+        bundle.manifest.visibility != SpaceVisibility.public) {
+      return null;
+    }
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    final role = state.roleOf(selfId);
+    if (!state.isActive ||
+        role == null ||
+        !canApply(
+          authorRole: role,
+          op: ControlOp.addMember,
+          newRole: GroupRole.member,
+        )) {
+      return null;
+    }
+    return _serializeSpaceJoins(() async {
+      final now = _now();
+      final store = await _loadSpaceJoins();
+      SpaceJoinTicket? current;
+      for (final ticket in store.tickets) {
+        if (ticket.spaceId == spaceId &&
+            ticket.approver == selfId &&
+            !ticket.isExpiredAt(now)) {
+          current = ticket;
+          break;
+        }
+      }
+      current ??= SpaceJoinTicket(
+        ticketId: _newSpaceInviteId(),
+        spaceId: spaceId,
+        approver: selfId,
+        spaceName: state.name,
+        createdAtMs: now,
+        expiresAtMs: now + kSpaceJoinTicketLifetime.inMilliseconds,
+      );
+      final tickets = <SpaceJoinTicket>[
+        current,
+        for (final ticket in store.tickets)
+          if (ticket.spaceId != spaceId && !ticket.isExpiredAt(now)) ticket,
+      ];
+      await _saveSpaceJoins(
+        tickets: tickets,
+        incoming: store.incoming,
+        outgoing: store.outgoing,
+      );
+      changes.value++;
+      return SpaceJoinCode.encode(current);
+    });
+  }
+
+  Future<bool> revokeSpaceJoinCode(NodeId spaceId) => _serializeSpaceJoins(
+    () async {
+      final store = await _loadSpaceJoins();
+      final tickets = [
+        for (final ticket in store.tickets)
+          if (!(ticket.spaceId == spaceId && ticket.approver == selfId)) ticket,
+      ];
+      if (tickets.length == store.tickets.length) return false;
+      await _saveSpaceJoins(
+        tickets: tickets,
+        incoming: store.incoming,
+        outgoing: store.outgoing,
+      );
+      changes.value++;
+      return true;
+    },
+  );
+
+  Future<String?> currentSpaceJoinCode(NodeId spaceId) async {
+    final now = _now();
+    for (final ticket in (await _loadSpaceJoins()).tickets) {
+      if (ticket.spaceId == spaceId &&
+          ticket.approver == selfId &&
+          !ticket.isExpiredAt(now)) {
+        return SpaceJoinCode.encode(ticket);
+      }
+    }
+    return null;
+  }
+
+  /// Send a requester-authenticated intent using a public bearer link. No
+  /// contact relationship is required; blocked peers are still rejected.
+  Future<bool> requestToJoinSpace(String code) async {
+    final SpaceJoinTicket ticket;
+    try {
+      ticket = SpaceJoinCode.parse(code);
+    } catch (_) {
+      return false;
+    }
+    final now = _now();
+    if (ticket.approver == selfId ||
+        ticket.createdAtMs > now + const Duration(minutes: 5).inMilliseconds ||
+        ticket.isExpiredAt(now) ||
+        await load(ticket.spaceId) != null ||
+        (await _storage.getContact(ticket.approver))?.status ==
+            ContactStatus.blocked ||
+        sendSpaceJoinRequest == null) {
+      return false;
+    }
+    final prepared = await _serializeSpaceJoins(() async {
+      final store = await _loadSpaceJoins();
+      for (final existing in store.outgoing) {
+        if (existing.ticket.spaceId == ticket.spaceId &&
+            !existing.declined &&
+            !existing.ticket.isExpiredAt(now)) {
+          return existing;
+        }
+      }
+      final request = SpaceJoinRequest(
+        requestId: _newSpaceInviteId(),
+        ticketId: ticket.ticketId,
+        ticketHash: spaceJoinTicketHash(ticket),
+        spaceId: ticket.spaceId,
+        requester: selfId,
+        approver: ticket.approver,
+        createdAtMs: now < ticket.createdAtMs ? ticket.createdAtMs : now,
+      );
+      final entry = SpaceJoinOutboxEntry(ticket: ticket, request: request);
+      if (!entry.isStructurallyValid) return null;
+      await _saveSpaceJoins(
+        tickets: store.tickets,
+        incoming: store.incoming,
+        outgoing: [
+          entry,
+          for (final old in store.outgoing)
+            if (old.ticket.spaceId != ticket.spaceId) old,
+        ],
+      );
+      changes.value++;
+      return entry;
+    });
+    if (prepared == null) return false;
+    try {
+      await sendSpaceJoinRequest!(
+        prepared.request.approver,
+        prepared.request.requestId,
+        jsonEncode(prepared.request.toJson()),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<List<SpaceJoinOutboxEntry>> outgoingSpaceJoinRequests() async {
+    final now = _now();
+    final result = <SpaceJoinOutboxEntry>[];
+    for (final entry in (await _loadSpaceJoins()).outgoing) {
+      if (entry.ticket.isExpiredAt(now) ||
+          await load(entry.ticket.spaceId) != null) {
+        continue;
+      }
+      if (entry.declined &&
+          now - entry.decision!.decidedAtMs >
+              kSpaceJoinRequestRetryDelay.inMilliseconds) {
+        continue;
+      }
+      result.add(entry);
+    }
+    result.sort(
+      (left, right) =>
+          right.request.createdAtMs.compareTo(left.request.createdAtMs),
+    );
+    return result;
+  }
+
+  Future<bool> dismissSpaceJoinRequest(String requestId) =>
+      _serializeSpaceJoins(() async {
+        final store = await _loadSpaceJoins();
+        final outgoing = [
+          for (final entry in store.outgoing)
+            if (entry.request.requestId != requestId) entry,
+        ];
+        if (outgoing.length == store.outgoing.length) return false;
+        await _saveSpaceJoins(
+          tickets: store.tickets,
+          incoming: store.incoming,
+          outgoing: outgoing,
+        );
+        changes.value++;
+        return true;
+      });
+
+  /// Validate and durably persist one capability-bound request from an
+  /// authenticated Veil sender. The ticket, current public Space policy and
+  /// per-requester cooldown all have to pass before an ACK is permitted.
+  Future<bool> receiveSpaceJoinRequest(NodeId peer, String requestJson) async {
+    final SpaceJoinRequest? request;
+    try {
+      request = SpaceJoinRequest.fromJson(jsonDecode(requestJson));
+    } catch (_) {
+      return false;
+    }
+    final now = _now();
+    if (request == null ||
+        request.requester != peer ||
+        request.approver != selfId ||
+        request.createdAtMs > now + const Duration(minutes: 5).inMilliseconds ||
+        (await _storage.getContact(peer))?.status == ContactStatus.blocked) {
+      return false;
+    }
+    final bundle = await load(request.spaceId);
+    if (bundle == null ||
+        !bundle.manifest.isSpace ||
+        bundle.manifest.visibility != SpaceVisibility.public) {
+      return false;
+    }
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    final role = state.roleOf(selfId);
+    if (!state.isActive ||
+        role == null ||
+        state.isMember(peer) ||
+        !canApply(
+          authorRole: role,
+          op: ControlOp.addMember,
+          newRole: GroupRole.member,
+        )) {
+      return false;
+    }
+    final acceptedRequest = request;
+    return _serializeSpaceJoins(() async {
+      final store = await _loadSpaceJoins();
+      SpaceJoinTicket? ticket;
+      for (final candidate in store.tickets) {
+        if (candidate.ticketId == acceptedRequest.ticketId &&
+            candidate.spaceId == acceptedRequest.spaceId &&
+            candidate.approver == selfId) {
+          ticket = candidate;
+          break;
+        }
+      }
+      if (ticket == null ||
+          ticket.isExpiredAt(now) ||
+          acceptedRequest.ticketHash != spaceJoinTicketHash(ticket) ||
+          acceptedRequest.createdAtMs < ticket.createdAtMs ||
+          acceptedRequest.createdAtMs >= ticket.expiresAtMs) {
+        return false;
+      }
+      for (final old in store.incoming) {
+        if (old.request.requestId == acceptedRequest.requestId) {
+          return old.request.requester == peer &&
+              old.request.spaceId == acceptedRequest.spaceId;
+        }
+        if (old.request.requester == peer &&
+            old.request.spaceId == acceptedRequest.spaceId &&
+            (old.pending ||
+                now - old.decision!.decidedAtMs <
+                    kSpaceJoinRequestRetryDelay.inMilliseconds)) {
+          return false;
+        }
+      }
+      final entry = SpaceJoinInboxEntry(
+        request: acceptedRequest,
+        receivedAtMs: now < acceptedRequest.createdAtMs
+            ? acceptedRequest.createdAtMs
+            : now,
+      );
+      await _saveSpaceJoins(
+        tickets: store.tickets,
+        incoming: [
+          entry,
+          for (final old in store.incoming)
+            if (!(old.request.requester == peer &&
+                old.request.spaceId == acceptedRequest.spaceId))
+              old,
+        ],
+        outgoing: store.outgoing,
+      );
+      changes.value++;
+      return true;
+    });
+  }
+
+  Future<List<SpaceJoinInboxEntry>> pendingSpaceJoinRequests(
+    NodeId spaceId,
+  ) async {
+    final result =
+        (await _loadSpaceJoins()).incoming
+            .where((entry) => entry.pending && entry.request.spaceId == spaceId)
+            .toList()
+          ..sort(
+            (left, right) => right.receivedAtMs.compareTo(left.receivedAtMs),
+          );
+    return result;
+  }
+
+  Future<bool> decideSpaceJoinRequest(
+    String requestId, {
+    required bool accept,
+  }) async {
+    final sender = sendSpaceJoinDecision;
+    if (sender == null) return false;
+    final prepared =
+        await _serializeSpaceJoins<
+          ({SpaceJoinRequest request, SpaceJoinDecision decision})?
+        >(() async {
+          final store = await _loadSpaceJoins();
+          SpaceJoinInboxEntry? pending;
+          for (final candidate in store.incoming) {
+            if (candidate.request.requestId == requestId && candidate.pending) {
+              pending = candidate;
+              break;
+            }
+          }
+          if (pending == null) return null;
+          if (accept) {
+            final added = await addControlOp(
+              pending.request.spaceId,
+              ControlOp.addMember,
+              target: pending.request.requester,
+              role: GroupRole.member,
+            );
+            if (!added) return null;
+          }
+          final now = _now();
+          final decision = SpaceJoinDecision(
+            requestId: requestId,
+            spaceId: pending.request.spaceId,
+            accepted: accept,
+            decidedAtMs: now < pending.receivedAtMs
+                ? pending.receivedAtMs
+                : now,
+          );
+          await _saveSpaceJoins(
+            tickets: store.tickets,
+            incoming: [
+              for (final entry in store.incoming)
+                if (entry.request.requestId == requestId)
+                  SpaceJoinInboxEntry(
+                    request: entry.request,
+                    receivedAtMs: entry.receivedAtMs,
+                    decision: decision,
+                  )
+                else
+                  entry,
+            ],
+            outgoing: store.outgoing,
+          );
+          changes.value++;
+          return (request: pending.request, decision: decision);
+        });
+    if (prepared == null) return false;
+    try {
+      await sender(
+        prepared.request.requester,
+        prepared.request.requestId,
+        jsonEncode(prepared.decision.toJson()),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> receiveSpaceJoinDecision(
+    NodeId peer,
+    String decisionJson,
+  ) async {
+    final SpaceJoinDecision? decision;
+    try {
+      decision = SpaceJoinDecision.fromJson(jsonDecode(decisionJson));
+    } catch (_) {
+      return false;
+    }
+    if (decision == null ||
+        (await _storage.getContact(peer))?.status == ContactStatus.blocked) {
+      return false;
+    }
+    final acceptedDecision = decision;
+    return _serializeSpaceJoins(() async {
+      final store = await _loadSpaceJoins();
+      SpaceJoinOutboxEntry? matched;
+      for (final entry in store.outgoing) {
+        if (entry.request.requestId == acceptedDecision.requestId &&
+            entry.request.spaceId == acceptedDecision.spaceId &&
+            entry.request.approver == peer) {
+          matched = entry;
+          break;
+        }
+      }
+      if (matched == null ||
+          acceptedDecision.decidedAtMs < matched.request.createdAtMs ||
+          acceptedDecision.decidedAtMs >
+              matched.ticket.expiresAtMs +
+                  const Duration(minutes: 5).inMilliseconds) {
+        return false;
+      }
+      if (matched.decision != null) {
+        return matched.decision!.accepted == acceptedDecision.accepted &&
+            matched.decision!.decidedAtMs == acceptedDecision.decidedAtMs;
+      }
+      await _saveSpaceJoins(
+        tickets: store.tickets,
+        incoming: store.incoming,
+        outgoing: [
+          for (final entry in store.outgoing)
+            if (entry.request.requestId == acceptedDecision.requestId)
+              SpaceJoinOutboxEntry(
+                ticket: entry.ticket,
+                request: entry.request,
+                decision: acceptedDecision,
+              )
+            else
+              entry,
+        ],
+      );
+      changes.value++;
+      return true;
+    });
   }
 
   final Map<String, Future<void>> _mutationTails = <String, Future<void>>{};
@@ -6410,12 +6932,18 @@ class GroupService {
     final pending = await _tryPendingDeviceSnapshot(peer, json);
     if (pending != null) return pending;
     PendingSpaceInvite? acceptedInvite;
+    SpaceJoinOutboxEntry? acceptedJoinRequest;
     final manifest = GroupManifest.fromJson(decoded?['m']);
     if (manifest != null &&
         manifest.isSpace &&
         await load(manifest.groupId) == null) {
       acceptedInvite = await _acceptedSpaceInviteFor(peer, manifest, decoded!);
-      if (acceptedInvite == null) {
+      acceptedJoinRequest = await _acceptedSpaceJoinRequestFor(
+        peer,
+        manifest,
+        decoded,
+      );
+      if (acceptedInvite == null && acceptedJoinRequest == null) {
         devLog(
           () =>
               'xVeil[spaces]: unsolicited materialization DENIED — consent '
@@ -6432,6 +6960,52 @@ class GroupService {
       await _relayOverlayDelta(peer, decoded);
     }
     return accepted;
+  }
+
+  Future<SpaceJoinOutboxEntry?> _acceptedSpaceJoinRequestFor(
+    NodeId peer,
+    SpaceManifest manifest,
+    Map wire,
+  ) async {
+    if (manifest.visibility != SpaceVisibility.public) return null;
+    SpaceJoinOutboxEntry? pending;
+    for (final candidate in (await _loadSpaceJoins()).outgoing) {
+      if (!candidate.declined &&
+          candidate.request.spaceId == manifest.spaceId &&
+          candidate.request.approver == peer &&
+          candidate.request.requester == selfId) {
+        pending = candidate;
+        break;
+      }
+    }
+    if (pending == null) return null;
+    final control = (wire['c'] as List? ?? const [])
+        .map(ControlEntry.fromJson)
+        .whereType<ControlEntry>()
+        .where((entry) => _validControlFor(manifest, entry))
+        .toList();
+    final folded = foldControlLog(
+      owner: manifest.owner,
+      entries: control,
+      verify: (entry) => _validControlFor(manifest, entry),
+      initialName: manifest.name,
+      initialDescription: manifest.description ?? '',
+    );
+    final grantAccepted = folded.accepted.any(
+      (entry) =>
+          entry.op == ControlOp.addMember &&
+          entry.author == peer &&
+          entry.target == selfId &&
+          (entry.role ?? GroupRole.member) == GroupRole.member &&
+          entry.createdAtMs >= pending!.request.createdAtMs &&
+          entry.createdAtMs <= pending.ticket.expiresAtMs,
+    );
+    if (!grantAccepted ||
+        !folded.state.isMember(selfId) ||
+        !folded.state.isMember(peer)) {
+      return null;
+    }
+    return pending;
   }
 
   Future<PendingSpaceInvite?> _acceptedSpaceInviteFor(
@@ -6500,7 +7074,20 @@ class GroupService {
     } catch (_) {
       return false; // malformed — drop
     }
-    final accepted = await ingestSnapshotFromStranger(peer, json);
+    SpaceJoinOutboxEntry? acceptedJoinRequest;
+    final manifest = GroupManifest.fromJson(decoded?['m']);
+    if (manifest != null &&
+        manifest.isSpace &&
+        await load(manifest.groupId) == null) {
+      acceptedJoinRequest = await _acceptedSpaceJoinRequestFor(
+        peer,
+        manifest,
+        decoded!,
+      );
+    }
+    final accepted = acceptedJoinRequest == null
+        ? await ingestSnapshotFromStranger(peer, json)
+        : await ingestSnapshot(json);
     if (accepted && decoded != null) {
       await _relayOverlayDelta(peer, decoded);
     }
