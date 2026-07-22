@@ -1479,6 +1479,9 @@ void main() {
         mentionPolicy.effectiveAt(DateTime.now()),
         NotificationMuteMode.mentionsOnly,
       );
+      final mentionListed = (await ownerSvc.listGroups()).single;
+      expect(mentionListed.muted, isTrue);
+      expect(mentionListed.notificationMode, NotificationMuteMode.mentionsOnly);
       await ownerSvc.setGroupMuted(gid, false);
       expect(await ownerSvc.isGroupMuted(gid), isFalse);
     },
