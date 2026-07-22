@@ -4204,6 +4204,102 @@ void main() {
   );
 
   test(
+    'feed dismissals stay local, survive edits/reopen and serialize across Spaces',
+    () async {
+      final (service, reopen) = await setup();
+      final firstSpace = await service.createSpace(
+        'One',
+        visibility: SpaceVisibility.public,
+      );
+      final secondSpace = await service.createSpace(
+        'Two',
+        visibility: SpaceVisibility.public,
+      );
+      final first = (await service.publishSpacePost(
+        firstSpace,
+        body: 'first',
+        broadcast: false,
+      ))!;
+      final second = (await service.publishSpacePost(
+        secondSpace,
+        body: 'second',
+        broadcast: false,
+      ))!;
+
+      await Future.wait([
+        service.setSpaceFeedPostHidden(firstSpace, first.postId, true),
+        service.setSpaceFeedPostHidden(secondSpace, second.postId, true),
+      ]);
+      expect(await service.spaceFeed(), isEmpty);
+      expect(await service.postsOf(firstSpace), hasLength(1));
+      expect(await service.postsOf(secondSpace), hasLength(1));
+
+      final edited = await service.editSpacePost(
+        firstSpace,
+        first.postId,
+        title: '',
+        body: 'edited while hidden',
+        broadcast: false,
+      );
+      expect(edited?.postId, first.postId);
+      expect(await service.spaceFeed(), isEmpty);
+
+      final reopened = reopen(owner) as GroupService;
+      expect(
+        await reopened.isSpaceFeedPostHidden(firstSpace, first.postId),
+        isTrue,
+      );
+      expect(await reopened.spaceFeed(), isEmpty);
+      await Future.wait([
+        reopened.setSpaceFeedPostHidden(firstSpace, first.postId, false),
+        reopened.setSpaceFeedPostHidden(secondSpace, second.postId, false),
+      ]);
+      final restored = await reopened.spaceFeed();
+      expect(restored, hasLength(2));
+      expect(
+        restored.singleWhere((item) => item.spaceId == firstSpace).post.body,
+        'edited while hidden',
+      );
+    },
+  );
+
+  test(
+    'hidden feed registry crosses the single-setting limit safely',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner));
+      final spaceId = await service.createSpace(
+        'Busy feed',
+        visibility: SpaceVisibility.public,
+      );
+      final postIds = <String>[];
+      for (var index = 0; index < 40; index++) {
+        final post = await service.publishSpacePost(
+          spaceId,
+          body: 'publication $index',
+          broadcast: false,
+        );
+        postIds.add(post!.postId);
+      }
+
+      await Future.wait([
+        for (final postId in postIds)
+          service.setSpaceFeedPostHidden(spaceId, postId, true),
+      ]);
+      final persisted = await storage.loadFile('space.feed.hidden.v1');
+      expect(persisted, isNotNull);
+      expect(
+        persisted!.length,
+        greaterThan(4096),
+        reason: 'the registry must use chunked file storage, not putSetting',
+      );
+      expect(await service.spaceFeed(), isEmpty);
+      expect(await service.postsOf(spaceId), hasLength(40));
+    },
+  );
+
+  test(
     'checkpointed posts scale past 256 state-mutating control authors',
     () async {
       final (svc, _) = await setup();
@@ -4425,6 +4521,11 @@ void main() {
     final visible = await bobSvc.postsOf(spaceId);
     expect(visible.single.title, 'Members');
     expect(visible.single.body, 'ciphertext on the wire');
+    expect(await bobSvc.unreadSpacePosts(spaceId), 1);
+    await bobSvc.setSpaceFeedPostHidden(spaceId, visible.single.postId, true);
+    expect(await bobSvc.unreadSpacePosts(spaceId), 0);
+    expect(await bobSvc.postsOf(spaceId), hasLength(1));
+    await bobSvc.setSpaceFeedPostHidden(spaceId, visible.single.postId, false);
     expect(await bobSvc.unreadSpacePosts(spaceId), 1);
     await bobSvc.markSpaceFeedSeen(spaceId);
     expect(await bobSvc.unreadSpacePosts(spaceId), 0);

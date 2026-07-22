@@ -471,6 +471,15 @@ void main() {
         expect((posts?['posts'] as List).single['body'], 'Body');
         final feed = await api.feed(10, null);
         expect((feed['posts'] as List).single['spaceName'], 'Public API');
+        final postId = result.post!['postId'] as String;
+        expect(await api.setFeedPostHidden(spaceId.hex, postId, true), isNull);
+        expect((await api.feed(10, null))['posts'], isEmpty);
+        expect(
+          (await api.posts(spaceId.hex, 10, null))?['posts'],
+          hasLength(1),
+        );
+        expect(await api.setFeedPostHidden(spaceId.hex, postId, false), isNull);
+        expect((await api.feed(10, null))['posts'], hasLength(1));
         expect((await service.load(spaceId))!.messages, isEmpty);
         expect(await api.setFeedEnabled(spaceId.hex, false), isNull);
         expect((await api.feed(10, null))['posts'], isEmpty);

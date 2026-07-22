@@ -616,6 +616,7 @@ class ApiServerController extends Notifier<ApiConfig> {
       reactToSpacePost: groupApi?.reactToPost,
       spaceFeed: groupApi?.feed,
       setSpaceFeedEnabled: groupApi?.setFeedEnabled,
+      setSpaceFeedPostHidden: groupApi?.setFeedPostHidden,
       spaceInvites: groupApi?.invites,
       decideSpaceInvite: groupApi?.decideInvite,
       spaceJoinRequests: groupApi?.joinRequests,
