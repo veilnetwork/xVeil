@@ -16,6 +16,7 @@ import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/messaging.dart' show conversationsProvider;
+import '../chat/chat_actions.dart';
 
 enum _SpaceMemberAction { unmute, promote, demote, remove, transferOwner }
 
@@ -59,6 +60,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     service.currentSpaceJoinCode(spaceId),
     service.pendingSpaceJoinRequests(spaceId),
     service.spaceRecommendationCampaigns(spaceId),
+    service.groupNotificationPolicy(spaceId),
   ]);
 
   Future<List<Object?>> _settingsSnapshot(
@@ -662,6 +664,8 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
             final joinRequests = snapshot.data![5] as List<SpaceJoinInboxEntry>;
             final recommendationCampaigns =
                 snapshot.data![6] as List<SpaceRecommendationCampaign>;
+            final notificationPolicy =
+                snapshot.data![7] as NotificationMutePolicy;
             final myRole = state.roleOf(service.selfId)!;
             final canRename =
                 state.isActive &&
@@ -758,6 +762,52 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                               leading: const Icon(Icons.tune),
                               title: Text(l.spaceSubscriptionSettings),
                               children: [
+                                ListTile(
+                                  key: const ValueKey(
+                                    'space-notification-policy-setting',
+                                  ),
+                                  leading: const Icon(
+                                    Icons.notifications_paused_outlined,
+                                  ),
+                                  title: Text(l.notificationsTitle),
+                                  subtitle: Text(
+                                    notificationMutePolicyLabel(
+                                      context,
+                                      notificationPolicy,
+                                    ),
+                                  ),
+                                  trailing:
+                                      notificationPolicy.effectiveAt(
+                                            DateTime.now(),
+                                          ) ==
+                                          NotificationMuteMode.all
+                                      ? const Icon(Icons.chevron_right)
+                                      : IconButton(
+                                          tooltip: l.chatMenuUnmute,
+                                          icon: const Icon(
+                                            Icons.notifications_active_outlined,
+                                          ),
+                                          onPressed: () => unawaited(
+                                            service.setGroupNotificationPolicy(
+                                              spaceId,
+                                              NotificationMuteMode.all,
+                                              null,
+                                            ),
+                                          ),
+                                        ),
+                                  onTap: () async {
+                                    final picked =
+                                        await pickNotificationMutePolicy(
+                                          context,
+                                        );
+                                    if (picked == null) return;
+                                    await service.setGroupNotificationPolicy(
+                                      spaceId,
+                                      picked.mode,
+                                      picked.until,
+                                    );
+                                  },
+                                ),
                                 SwitchListTile(
                                   key: const ValueKey('space-feed-setting'),
                                   secondary: const Icon(

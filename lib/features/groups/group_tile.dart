@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
+import '../chat/chat_actions.dart';
 
 class GroupTile extends ConsumerWidget {
   const GroupTile({super.key, required this.entry});
@@ -86,7 +87,21 @@ class GroupTile extends ConsumerWidget {
                     title: Text(muted ? l.chatMenuUnmute : l.chatMenuMute),
                     onTap: () {
                       Navigator.of(sheet).pop();
-                      service.setGroupMuted(group.groupId, !muted);
+                      if (muted) {
+                        service.setGroupMuted(group.groupId, false);
+                      } else {
+                        () async {
+                          final picked = await pickNotificationMutePolicy(
+                            context,
+                          );
+                          if (picked == null) return;
+                          await service.setGroupNotificationPolicy(
+                            group.groupId,
+                            picked.mode,
+                            picked.until,
+                          );
+                        }();
+                      }
                     },
                   ),
                 ),

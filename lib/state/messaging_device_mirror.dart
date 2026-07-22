@@ -68,6 +68,7 @@ class _MessagingDeviceMirror {
     required NodeId peer,
     String? name,
     int? mutedUntilMs,
+    NotificationMuteMode notificationMuteMode = NotificationMuteMode.none,
     required bool pinned,
     required bool archived,
     int? retentionDays,
@@ -83,6 +84,7 @@ class _MessagingDeviceMirror {
         mutedUntil: mutedUntilMs == null
             ? null
             : DateTime.fromMillisecondsSinceEpoch(mutedUntilMs),
+        notificationMuteMode: notificationMuteMode,
         pinned: pinned,
         archived: archived,
         retentionDays: retentionDays,

@@ -14,6 +14,28 @@ enum ContactStatus { pendingOutgoing, pendingIncoming, accepted, blocked }
 /// that it never expires in practice, and encodable as a plain ms-epoch.
 final DateTime kMuteForever = DateTime.utc(9999);
 
+/// Device-local delivery policy while a notification mute window is active.
+/// [mentionsOnly] suppresses ordinary messages but still alerts when the
+/// canonical mention token targets our node id; [none] suppresses everything.
+enum NotificationMuteMode { all, mentionsOnly, none }
+
+class NotificationMutePolicy {
+  const NotificationMutePolicy({required this.mode, this.until});
+
+  const NotificationMutePolicy.all()
+    : mode = NotificationMuteMode.all,
+      until = null;
+
+  final NotificationMuteMode mode;
+  final DateTime? until;
+
+  bool activeAt(DateTime now) =>
+      mode != NotificationMuteMode.all && until != null && now.isBefore(until!);
+
+  NotificationMuteMode effectiveAt(DateTime now) =>
+      activeAt(now) ? mode : NotificationMuteMode.all;
+}
+
 /// A remote party the user can message.
 class Contact {
   const Contact({
@@ -21,6 +43,7 @@ class Contact {
     this.name,
     this.status = ContactStatus.accepted,
     this.mutedUntil,
+    this.notificationMuteMode = NotificationMuteMode.none,
     this.pinned = false,
     this.archived = false,
     this.retentionDays,
@@ -41,8 +64,18 @@ class Contact {
   /// would otherwise leak the contact set on a seized device).
   final DateTime? mutedUntil;
 
+  /// What remains deliverable during [mutedUntil]. Old records had only a
+  /// boolean/deadline and therefore decode as [NotificationMuteMode.none].
+  final NotificationMuteMode notificationMuteMode;
+
   /// Whether notifications are muted RIGHT NOW (mute deadline in the future).
   bool get muted => mutedUntil != null && DateTime.now().isBefore(mutedUntil!);
+
+  NotificationMuteMode notificationModeAt(DateTime now) =>
+      NotificationMutePolicy(
+        mode: notificationMuteMode,
+        until: mutedUntil,
+      ).effectiveAt(now);
 
   /// Local archive flag — archived conversations collapse into a separate
   /// section at the bottom of the chat list. Encrypted + local-only, same
@@ -87,6 +120,7 @@ class Contact {
     // Nullable-field update: distinguish "leave as is" (omitted) from
     // "clear the mute" (explicit null) via a sentinel default.
     Object? mutedUntil = _unset,
+    NotificationMuteMode? notificationMuteMode,
     bool? pinned,
     bool? archived,
     int? retentionDays,
@@ -99,6 +133,7 @@ class Contact {
     mutedUntil: identical(mutedUntil, _unset)
         ? this.mutedUntil
         : mutedUntil as DateTime?,
+    notificationMuteMode: notificationMuteMode ?? this.notificationMuteMode,
     pinned: pinned ?? this.pinned,
     archived: archived ?? this.archived,
     retentionDays: retentionDays ?? this.retentionDays,

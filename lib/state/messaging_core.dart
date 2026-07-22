@@ -298,6 +298,7 @@ class MessagingService {
     required NodeId peer,
     String? name,
     int? mutedUntilMs,
+    NotificationMuteMode notificationMuteMode = NotificationMuteMode.none,
     required bool pinned,
     required bool archived,
     int? retentionDays,
@@ -306,6 +307,7 @@ class MessagingService {
     peer: peer,
     name: name,
     mutedUntilMs: mutedUntilMs,
+    notificationMuteMode: notificationMuteMode,
     pinned: pinned,
     archived: archived,
     retentionDays: retentionDays,
@@ -692,10 +694,20 @@ class MessagingService {
     if (!_changes.isClosed) _changes.add(null);
   }
 
-  void _emitIncoming(NodeId from, String preview, {required bool isFile}) {
+  void _emitIncoming(
+    NodeId from,
+    String preview, {
+    required bool isFile,
+    String? messageId,
+  }) {
     if (!_incoming.isClosed) {
       _incoming.add(
-        IncomingNotice(from: from, preview: preview, isFile: isFile),
+        IncomingNotice(
+          from: from,
+          preview: preview,
+          isFile: isFile,
+          messageId: messageId,
+        ),
       );
     }
   }
@@ -1005,8 +1017,11 @@ class MessagingService {
   Future<void> setContactName(NodeId peer, String? name) =>
       _conversationAdmin.setContactName(peer, name);
 
-  Future<void> setContactMutedUntil(NodeId peer, DateTime? until) =>
-      _conversationAdmin.setContactMutedUntil(peer, until);
+  Future<void> setContactMutedUntil(
+    NodeId peer,
+    DateTime? until, {
+    NotificationMuteMode mode = NotificationMuteMode.none,
+  }) => _conversationAdmin.setContactMutedUntil(peer, until, mode: mode);
 
   Future<void> setContactMuted(NodeId peer, bool muted) =>
       setContactMutedUntil(peer, muted ? kMuteForever : null);

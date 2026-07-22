@@ -8,19 +8,72 @@ import '../../core/ids.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
+import '../home/home_section_scaffold.dart';
 import 'space_post_body.dart';
 import 'space_post_media.dart';
 import 'space_post_reactions.dart';
 
-class SpaceFeedScreen extends ConsumerWidget {
+class SpaceFeedScreen extends ConsumerStatefulWidget {
   const SpaceFeedScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SpaceFeedScreen> createState() => _SpaceFeedScreenState();
+}
+
+class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
+  final _searchController = TextEditingController();
+  bool _searching = false;
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _startSearch() => setState(() => _searching = true);
+
+  void _closeSearch() {
+    _searchController.clear();
+    setState(() {
+      _searching = false;
+      _query = '';
+    });
+  }
+
+  bool _matches(SpaceFeedItem item) {
+    final query = _query.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    return item.spaceName.toLowerCase().contains(query) ||
+        item.spaceId.hex.contains(query) ||
+        item.post.title.toLowerCase().contains(query) ||
+        item.post.body.toLowerCase().contains(query) ||
+        item.post.author.hex.contains(query);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final service = ref.watch(groupServiceProvider);
     if (service == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return HomeSectionScaffold(
+        title: l.navFeed,
+        searching: _searching,
+        searchController: _searchController,
+        searchHint: l.searchHint,
+        onSearchStart: _startSearch,
+        onSearchClose: _closeSearch,
+        onSearchChanged: (value) => setState(() => _query = value),
+        contextActions: [
+          IconButton(
+            key: const ValueKey('space-feed-type-filter'),
+            tooltip: l.feedFilterTitle,
+            onPressed: null,
+            icon: const Icon(Icons.filter_alt_outlined),
+          ),
+        ],
+        body: const Center(child: CircularProgressIndicator()),
+      );
     }
     Future<void> hidePost(SpaceFeedItem item) async {
       try {
@@ -109,35 +162,43 @@ class SpaceFeedScreen extends ConsumerWidget {
               final filtering =
                   selectedTypes != null &&
                   selectedTypes.length != SpacePostType.values.length;
-              return Scaffold(
-                appBar: AppBar(
-                  title: Text(l.navFeed),
-                  actions: [
-                    IconButton(
-                      key: const ValueKey('space-feed-type-filter'),
-                      tooltip: l.feedFilterTitle,
-                      onPressed: selectedTypes == null
-                          ? null
-                          : () => chooseTypes(selectedTypes),
-                      icon: Badge(
-                        isLabelVisible: filtering,
-                        label: Text('${selectedTypes?.length ?? 0}'),
-                        child: Icon(
-                          filtering
-                              ? Icons.filter_alt
-                              : Icons.filter_alt_outlined,
-                        ),
+              return HomeSectionScaffold(
+                title: l.navFeed,
+                searching: _searching,
+                searchController: _searchController,
+                searchHint: l.searchHint,
+                onSearchStart: _startSearch,
+                onSearchClose: _closeSearch,
+                onSearchChanged: (value) => setState(() => _query = value),
+                contextActions: [
+                  IconButton(
+                    key: const ValueKey('space-feed-type-filter'),
+                    tooltip: l.feedFilterTitle,
+                    onPressed: selectedTypes == null
+                        ? null
+                        : () => chooseTypes(selectedTypes),
+                    icon: Badge(
+                      isLabelVisible: filtering,
+                      label: Text('${selectedTypes?.length ?? 0}'),
+                      child: Icon(
+                        filtering
+                            ? Icons.filter_alt
+                            : Icons.filter_alt_outlined,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
                 body: Builder(
                   builder: (context) {
                     if (!snapshot.hasData) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    final pinnedItems = snapshot.data!.pinnedItems;
-                    final items = snapshot.data!.items;
+                    final pinnedItems = snapshot.data!.pinnedItems
+                        .where(_matches)
+                        .toList(growable: false);
+                    final items = snapshot.data!.items
+                        .where(_matches)
+                        .toList(growable: false);
                     if (pinnedItems.isEmpty && items.isEmpty) {
                       return Center(
                         child: Column(
@@ -154,7 +215,9 @@ class SpaceFeedScreen extends ConsumerWidget {
                             Text(l.feedEmpty),
                             const SizedBox(height: 4),
                             Text(
-                              filtering
+                              _query.trim().isNotEmpty
+                                  ? l.searchNoResults
+                                  : filtering
                                   ? l.feedFilterEmptyHint
                                   : l.feedEmptyHint,
                               textAlign: TextAlign.center,

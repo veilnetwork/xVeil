@@ -21,7 +21,12 @@ import 'package:veil_flutter/veil_ffi.dart' as veil;
 
 import '../core/ids.dart';
 import '../core/log.dart';
-import '../domain/chat.dart' show ContactStatus;
+import '../domain/chat.dart'
+    show
+        ContactStatus,
+        NotificationMuteMode,
+        NotificationMutePolicy,
+        kMuteForever;
 import '../domain/call_signal.dart';
 import '../domain/device_sync.dart';
 import '../domain/device_link.dart';
@@ -7270,6 +7275,10 @@ class GroupService {
   }
 
   Future<int> unreadSpacePosts(NodeId spaceId) async {
+    return (await unreadSpacePostViews(spaceId)).length;
+  }
+
+  Future<List<SpacePostView>> unreadSpacePostViews(NodeId spaceId) async {
     final hidden = await _hiddenSpaceFeedPosts();
     final seen = SpaceFeedCursor.decode(
       await _storage.getSetting(_spaceFeedSeenKey(spaceId)),
@@ -7285,7 +7294,7 @@ class GroupService {
               (seen == null ||
                   SpaceFeedCursor.fromView(post).compareTo(seen) > 0),
         )
-        .length;
+        .toList(growable: false);
   }
 
   Future<void> markSpaceFeedSeen(NodeId spaceId) async {
@@ -8273,6 +8282,54 @@ class GroupService {
       spacePostId: postId,
       applyLocalRetention: applyLocalRetention,
     );
+    return _projectSpacePostComments(comments);
+  }
+
+  /// Validated publications and all of their effective comments, projected
+  /// with one message-log read. Aggregate consumers such as the mention inbox
+  /// must not call [spacePostCommentsOf] once per post: that would repeatedly
+  /// decrypt and validate the same Space log on larger histories.
+  Future<
+    ({
+      List<SpacePostView> posts,
+      Map<String, List<SpacePostCommentView>> commentsByPost,
+    })
+  >
+  spacePostsAndCommentsOf(
+    NodeId spaceId, {
+    bool applyLocalRetention = true,
+  }) async {
+    final posts = await postsOf(spaceId);
+    if (posts.isEmpty) {
+      return (
+        posts: posts,
+        commentsByPost: const <String, List<SpacePostCommentView>>{},
+      );
+    }
+    final visiblePostIds = {for (final post in posts) post.postId};
+    final messages = await messagesOf(
+      spaceId,
+      includeSpacePostComments: true,
+      applyLocalRetention: applyLocalRetention,
+    );
+    final grouped = <String, List<GroupMessage>>{};
+    for (final message in messages) {
+      final postId = message.spacePostId;
+      if (postId == null || !visiblePostIds.contains(postId)) continue;
+      (grouped[postId] ??= <GroupMessage>[]).add(message);
+    }
+    return (
+      posts: posts,
+      commentsByPost: Map<String, List<SpacePostCommentView>>.unmodifiable({
+        for (final entry in grouped.entries)
+          entry.key: _projectSpacePostComments(entry.value),
+      }),
+    );
+  }
+
+  List<SpacePostCommentView> _projectSpacePostComments(
+    List<GroupMessage> comments,
+  ) {
     final roots = [
       for (final comment in comments)
         if (comment.editOf == null) comment,
@@ -8297,11 +8354,11 @@ class GroupService {
       }
     }
     final refs = byRef.keys.toSet();
-    return [
+    return List.unmodifiable([
       for (final comment in roots)
         if (comment.replyTo == null || refs.contains(comment.replyTo))
           SpacePostCommentView(root: comment, revision: revisions[comment.ref]),
-    ];
+    ]);
   }
 
   /// Toggle our reaction [emoji] on [msgRef] (`<authorHex>:<seq>`):
@@ -9620,16 +9677,73 @@ class GroupService {
     return msgs.where((m) => m.createdAtMs > wm && m.author != selfId).length;
   }
 
-  /// Local notification mute for [groupId] — a display preference like the
-  /// unread watermark (never sent anywhere; distinct from the CONTROL-LOG
-  /// member mute, which is about posting rights).
+  String _groupNotificationPolicyKey(NodeId groupId) =>
+      'group.notification-policy.v1:${groupId.hex}';
+
+  /// Local notification policy for [groupId]. It remains in the encrypted
+  /// identity store and is distinct from the CONTROL-LOG member mute, which is
+  /// about posting rights. The old boolean key decodes as "nothing, forever".
+  Future<void> setGroupNotificationPolicy(
+    NodeId groupId,
+    NotificationMuteMode mode,
+    DateTime? until,
+  ) async {
+    final clear = mode == NotificationMuteMode.all || until == null;
+    await _storage.putSetting(
+      _groupNotificationPolicyKey(groupId),
+      clear
+          ? ''
+          : jsonEncode({
+              'mode': mode.name,
+              'until': until.millisecondsSinceEpoch,
+            }),
+    );
+    // Clear the legacy flag so it cannot shadow an explicit new policy.
+    await _storage.putSetting('group.muted:${groupId.hex}', '');
+    changes.value++;
+  }
+
+  Future<NotificationMutePolicy> groupNotificationPolicy(NodeId groupId) async {
+    final raw = await _storage.getSetting(_groupNotificationPolicyKey(groupId));
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        final value = jsonDecode(raw);
+        if (value is Map && value['until'] is int) {
+          final mode = NotificationMuteMode.values.firstWhere(
+            (candidate) => candidate.name == value['mode'],
+            orElse: () => NotificationMuteMode.none,
+          );
+          return NotificationMutePolicy(
+            mode: mode,
+            until: DateTime.fromMillisecondsSinceEpoch(value['until'] as int),
+          );
+        }
+      } catch (_) {
+        // Corrupt local preference fails open to normal notifications.
+      }
+      return const NotificationMutePolicy.all();
+    }
+    if ((await _storage.getSetting('group.muted:${groupId.hex}')) == '1') {
+      return NotificationMutePolicy(
+        mode: NotificationMuteMode.none,
+        until: kMuteForever,
+      );
+    }
+    return const NotificationMutePolicy.all();
+  }
+
+  /// Compatibility wrapper retained for older UI/tests.
   Future<void> setGroupMuted(NodeId groupId, bool muted) async {
-    await _storage.putSetting('group.muted:${groupId.hex}', muted ? '1' : '');
-    changes.value++; // the group list re-renders its mute affordance
+    await setGroupNotificationPolicy(
+      groupId,
+      muted ? NotificationMuteMode.none : NotificationMuteMode.all,
+      muted ? kMuteForever : null,
+    );
   }
 
   Future<bool> isGroupMuted(NodeId groupId) async =>
-      (await _storage.getSetting('group.muted:${groupId.hex}')) == '1';
+      (await groupNotificationPolicy(groupId)).effectiveAt(DateTime.now()) !=
+      NotificationMuteMode.all;
 
   // ── Device group (multi-device epic, doc/MULTIDEVICE-DESIGN.md) ──────────
 

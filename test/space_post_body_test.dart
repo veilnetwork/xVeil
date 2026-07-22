@@ -1,19 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/features/spaces/space_post_body.dart';
 import 'package:xveil/features/spaces/space_post_body_editor.dart';
+import 'package:xveil/features/chat/custom_emoji_controller.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 
-Widget _host(Widget child) => MaterialApp(
-  localizationsDelegates: const [
-    AppL10n.delegate,
-    GlobalMaterialLocalizations.delegate,
-    GlobalWidgetsLocalizations.delegate,
-    GlobalCupertinoLocalizations.delegate,
-  ],
-  supportedLocales: AppL10n.supportedLocales,
-  home: Scaffold(body: child),
+Widget _host(Widget child) => ProviderScope(
+  child: MaterialApp(
+    localizationsDelegates: const [
+      AppL10n.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
+    supportedLocales: AppL10n.supportedLocales,
+    home: Scaffold(body: child),
+  ),
 );
 
 void main() {
@@ -82,7 +86,7 @@ final value = 1;
   testWidgets('editor applies blocks and previews the structured result', (
     tester,
   ) async {
-    final controller = TextEditingController(text: 'Alpha\nBeta');
+    final controller = CustomEmojiEditingController()..text = 'Alpha\nBeta';
     addTearDown(controller.dispose);
     var changed = '';
     await tester.pumpWidget(

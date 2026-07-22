@@ -11,10 +11,13 @@ import '../../domain/group_policy.dart';
 import '../../domain/space_recommendation.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/app_controller.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/messaging.dart';
+import '../../state/mention_identity.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';
+import 'message_mentions.dart';
 
 /// Bridges the active messaging service's [MessagingService.incoming] stream to
 /// OS notifications, applying the privacy + lifecycle policy. A widget (not a
@@ -66,6 +69,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       String preview,
       int timestampMs,
       bool allowReply,
+      bool isMention,
     })
   >
   _pendingSpaceComments = {};
@@ -129,19 +133,30 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       contact = await ref.read(storageProvider).getContact(notice.from);
     } catch (_) {}
     if (!mounted || generation != _notificationGeneration) return;
+    final self = ref.read(appControllerProvider).identity?.nodeId;
+    final isMention = self != null && messageMentionsNode(notice.preview, self);
+    final mode =
+        contact?.notificationModeAt(DateTime.now()) ?? NotificationMuteMode.all;
     if (!shouldAlertIncoming(
       enabled: settings.enabled,
-      muted: contact?.muted ?? false,
+      muted: !notificationModeAllows(mode, isMention: isMention),
       foreground: _foreground,
     )) {
       return;
     }
+    final mentionRoute = notice.messageId == null
+        ? null
+        : '/chat/${notice.from.hex}?msg=${Uri.encodeQueryComponent(notice.messageId!)}';
     await _show(
-      convHex: notice.from.hex,
+      convHex: isMention && mentionRoute != null
+          ? notificationMentionPayload(mentionRoute)
+          : notice.from.hex,
       name: contact?.name,
       shortId: notice.from.short,
       preview: notice.preview,
       settings: settings,
+      allowReply: !isMention,
+      isMention: isMention,
     );
   }
 
@@ -153,31 +168,45 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     if (!mounted) return;
     final generation = ++_notificationGeneration;
     final settings = ref.read(notificationSettingsProvider);
-    var muted = false;
+    var policy = const NotificationMutePolicy.all();
+    GroupService? service;
     try {
-      muted =
-          await ref.read(groupServiceProvider)?.isGroupMuted(n.groupId) ??
-          false;
+      service = ref.read(groupServiceProvider);
+      policy =
+          await service?.groupNotificationPolicy(n.groupId) ??
+          const NotificationMutePolicy.all();
     } catch (_) {}
     if (!mounted || generation != _notificationGeneration) return;
+    final self =
+        service?.selfId ?? ref.read(appControllerProvider).identity?.nodeId;
+    final isMention = self != null && messageMentionsNode(n.message.body, self);
     if (!shouldAlertIncoming(
       enabled: settings.enabled,
-      muted: muted,
+      muted: !notificationModeAllows(
+        policy.effectiveAt(DateTime.now()),
+        isMention: isMention,
+      ),
       foreground: _foreground,
     )) {
       return;
     }
     String? name;
     try {
-      name = (await ref.read(groupServiceProvider)?.stateOf(n.groupId))?.name;
+      name = (await service?.stateOf(n.groupId))?.name;
     } catch (_) {}
     if (!mounted || generation != _notificationGeneration) return;
     await _show(
-      convHex: 'group:${n.groupId.hex}',
+      convHex: isMention
+          ? notificationMentionPayload(
+              '/group/${n.groupId.hex}?msg=${Uri.encodeQueryComponent(n.message.ref)}',
+            )
+          : 'group:${n.groupId.hex}',
       name: (name != null && name.trim().isNotEmpty) ? name : null,
       shortId: n.groupId.short,
       preview: _groupPreview(n.message),
       settings: settings,
+      allowReply: !isMention,
+      isMention: isMention,
     );
   }
 
@@ -201,25 +230,41 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     final generation = ++_notificationGeneration;
     final settings = ref.read(notificationSettingsProvider);
     var notificationsEnabled = false;
-    var muted = true;
+    var policy = const NotificationMutePolicy.all();
     String? name;
+    GroupService? service;
     try {
-      final service = ref.read(groupServiceProvider);
+      service = ref.read(groupServiceProvider);
       final subscription = await service?.spaceSubscription(n.spaceId);
       notificationsEnabled = subscription?.notificationsEnabled ?? false;
-      muted = await service?.isGroupMuted(n.spaceId) ?? true;
+      policy =
+          await service?.groupNotificationPolicy(n.spaceId) ??
+          const NotificationMutePolicy.all();
       name = (await service?.stateOf(n.spaceId))?.name;
     } catch (_) {}
     if (!mounted || generation != _notificationGeneration) return;
+    final self =
+        service?.selfId ?? ref.read(appControllerProvider).identity?.nodeId;
+    final mentionText = '${n.post.title}\n${n.post.body}';
+    final isMention = self != null && messageMentionsNode(mentionText, self);
     if (!shouldAlertIncoming(
       enabled: settings.enabled,
-      muted: muted || !notificationsEnabled,
+      muted:
+          (!notificationsEnabled && !isMention) ||
+          !notificationModeAllows(
+            policy.effectiveAt(DateTime.now()),
+            isMention: isMention,
+          ),
       foreground: _foreground,
     )) {
       return;
     }
     await _show(
-      convHex: 'space:${n.spaceId.hex}',
+      convHex: isMention
+          ? notificationMentionPayload(
+              '/space/${n.spaceId.hex}/comments?post=${Uri.encodeQueryComponent(n.post.postId)}',
+            )
+          : 'space:${n.spaceId.hex}',
       name: (name != null && name.trim().isNotEmpty) ? name : null,
       shortId: n.spaceId.short,
       preview: n.post.title.trim().isNotEmpty
@@ -229,6 +274,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           : '…',
       settings: settings,
       allowReply: false,
+      isMention: isMention,
     );
   }
 
@@ -245,18 +291,18 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     final generation = ++_notificationGeneration;
     final settings = ref.read(notificationSettingsProvider);
     var mode = SpaceCommentNotificationMode.none;
-    var muted = true;
+    var policy = const NotificationMutePolicy.all();
     String? name;
     SpacePostView? post;
     List<SpacePostCommentView> comments = const [];
-    GroupService? service;
+    final service = ref.read(groupServiceProvider);
+    if (service == null) return;
+    final isMention = messageMentionsNode(n.message.body, service.selfId);
     try {
-      service = ref.read(groupServiceProvider);
-      if (service == null) return;
       final subscription = await service.spaceSubscription(n.spaceId);
       mode = subscription.commentNotifications;
-      if (mode == SpaceCommentNotificationMode.none) return;
-      muted = await service.isGroupMuted(n.spaceId);
+      if (mode == SpaceCommentNotificationMode.none && !isMention) return;
+      policy = await service.groupNotificationPolicy(n.spaceId);
       final results = await Future.wait<Object?>([
         service.stateOf(n.spaceId),
         service.postsOf(n.spaceId),
@@ -278,15 +324,24 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         : comments
               .where((comment) => comment.ref == n.message.replyTo)
               .firstOrNull;
-    if (muted ||
-        !shouldNotifySpaceComment(
-          mode: mode,
-          repliesToSelf: replyTarget?.author == service.selfId,
-          commentsOnOwnPost: post?.author == service.selfId,
-        )) {
+    if (!notificationModeAllows(
+          policy.effectiveAt(DateTime.now()),
+          isMention: isMention,
+        ) ||
+        !(isMention ||
+            shouldNotifySpaceComment(
+              mode: mode,
+              repliesToSelf: replyTarget?.author == service.selfId,
+              commentsOnOwnPost: post?.author == service.selfId,
+            ))) {
       return;
     }
-    final payload = 'space-comment:${n.spaceId.hex}:$postId';
+    final ordinaryPayload = 'space-comment:${n.spaceId.hex}:$postId';
+    final payload = isMention
+        ? notificationMentionPayload(
+            '/space/${n.spaceId.hex}/comments?post=${Uri.encodeQueryComponent(postId)}&comment=${Uri.encodeQueryComponent(n.message.ref)}',
+          )
+        : ordinaryPayload;
     final candidate = (
       convHex: payload,
       name: (name != null && name.trim().isNotEmpty) ? name : null,
@@ -294,10 +349,11 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       preview: _groupPreview(n.message),
       timestampMs: n.message.createdAtMs,
       allowReply: false,
+      isMention: isMention,
     );
     if (_foreground) {
-      if (ref.read(activeConversationProvider) != payload) {
-        _pendingSpaceComments[payload] = candidate;
+      if (ref.read(activeConversationProvider) != ordinaryPayload) {
+        _pendingSpaceComments[ordinaryPayload] = candidate;
       }
       return;
     }
@@ -315,6 +371,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       preview: candidate.preview,
       settings: settings,
       allowReply: false,
+      isMention: isMention,
     );
   }
 
@@ -340,6 +397,48 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     }
   }
 
+  Future<Message?> _newestUnreadDirectMention(
+    Conversation conversation,
+    NodeId self,
+  ) async {
+    final storage = ref.read(storageProvider);
+    final readAt = await storage.readMarker(conversation.id);
+    final messages = await storage.loadMessages(conversation.id);
+    return newestByTimestamp(
+      messages.where(
+        (message) =>
+            message.direction == MessageDirection.incoming &&
+            message.timestamp.millisecondsSinceEpoch > readAt &&
+            messageMentionsNode(message.body, self),
+      ),
+      (message) => message.timestamp.millisecondsSinceEpoch,
+    );
+  }
+
+  Future<GroupMessage?> _newestUnreadGroupMention(
+    GroupService service,
+    NodeId groupId,
+  ) async {
+    final seen =
+        int.tryParse(
+          await ref
+                  .read(storageProvider)
+                  .getSetting('group.seen:${groupId.hex}') ??
+              '',
+        ) ??
+        0;
+    final messages = await service.messagesOf(groupId);
+    return newestByTimestamp(
+      messages.where(
+        (message) =>
+            message.author != service.selfId &&
+            message.createdAtMs > seen &&
+            messageMentionsNode(message.body, service.selfId),
+      ),
+      (message) => message.createdAtMs,
+    );
+  }
+
   Future<void> _flushUnread() async {
     if (!mounted) return;
     final generation = ++_notificationGeneration;
@@ -363,27 +462,46 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             String preview,
             int timestampMs,
             bool allowReply,
+            bool isMention,
           })
         >[];
+    final self = ref.read(appControllerProvider).identity?.nodeId;
     for (final c in convs) {
+      final mode = c.peer.notificationModeAt(DateTime.now());
       if (!shouldAlertOnMinimize(
         enabled: settings.enabled,
         unread: c.unread,
-        muted: c.peer.muted,
+        muted: mode == NotificationMuteMode.none,
         isActive: c.id == active,
       )) {
         continue;
       }
+      Message? mention;
+      if (mode == NotificationMuteMode.mentionsOnly) {
+        if (self == null) continue;
+        mention = await _newestUnreadDirectMention(c, self);
+        if (mention == null) continue;
+      }
       candidates.add((
-        convHex: c.id,
+        convHex: mention == null
+            ? c.id
+            : notificationMentionPayload(
+                '/chat/${c.id}?msg=${Uri.encodeQueryComponent(mention.id)}',
+              ),
         name: c.peer.name,
         shortId: c.peer.nodeId.short,
-        preview: c.lastMessage == null
-            ? ''
-            : (parseSpaceRecommendationMessage(c.lastMessage!.body)?.name ??
-                  c.lastMessage!.body),
-        timestampMs: c.lastMessage?.timestamp.millisecondsSinceEpoch ?? 0,
-        allowReply: true,
+        preview:
+            mention?.body ??
+            (c.lastMessage == null
+                ? ''
+                : (parseSpaceRecommendationMessage(c.lastMessage!.body)?.name ??
+                      c.lastMessage!.body)),
+        timestampMs:
+            mention?.timestamp.millisecondsSinceEpoch ??
+            c.lastMessage?.timestamp.millisecondsSinceEpoch ??
+            0,
+        allowReply: mention == null,
+        isMention: mention != null,
       ));
     }
     // Groups compete with 1:1 chats for the same single latest alert.
@@ -400,40 +518,77 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         );
         if (!mounted || generation != _notificationGeneration) return;
         for (final g in groups) {
-          if (g.unread <= 0 || g.muted || 'group:${g.groupId.hex}' == active) {
+          final policy = await gsvc.groupNotificationPolicy(g.groupId);
+          final mode = policy.effectiveAt(DateTime.now());
+          if (g.unread <= 0 ||
+              mode == NotificationMuteMode.none ||
+              'group:${g.groupId.hex}' == active) {
+            continue;
+          }
+          final mention = mode == NotificationMuteMode.mentionsOnly
+              ? await _newestUnreadGroupMention(gsvc, g.groupId)
+              : null;
+          if (mode == NotificationMuteMode.mentionsOnly && mention == null) {
             continue;
           }
           candidates.add((
-            convHex: 'group:${g.groupId.hex}',
+            convHex: mention == null
+                ? 'group:${g.groupId.hex}'
+                : notificationMentionPayload(
+                    '/group/${g.groupId.hex}?msg=${Uri.encodeQueryComponent(mention.ref)}',
+                  ),
             name: g.name.trim().isNotEmpty ? g.name : null,
             shortId: g.groupId.short,
-            preview: '', // list has no last-message preview; hidden-safe
-            timestampMs: g.lastTs,
-            allowReply: true,
+            preview: mention == null ? '' : _groupPreview(mention),
+            timestampMs: mention?.createdAtMs ?? g.lastTs,
+            allowReply: mention == null,
+            isMention: mention != null,
           ));
         }
         final spaces = await gsvc.listSpaces();
         for (final space in spaces) {
           final subscription = await gsvc.spaceSubscription(space.groupId);
+          final policy = await gsvc.groupNotificationPolicy(space.groupId);
+          final mode = policy.effectiveAt(DateTime.now());
           if (space.postUnread <= 0 ||
-              space.muted ||
-              !subscription.notificationsEnabled ||
+              mode == NotificationMuteMode.none ||
               'space:${space.groupId.hex}' == active) {
             continue;
           }
-          final posts = await gsvc.postsOf(space.groupId);
-          final latestPost = posts.isEmpty ? null : posts.last;
+          final unreadPosts = await gsvc.unreadSpacePostViews(space.groupId);
+          final requireMention =
+              mode == NotificationMuteMode.mentionsOnly ||
+              !subscription.notificationsEnabled;
+          final latestPost = newestByTimestamp(
+            unreadPosts.where(
+              (post) =>
+                  !requireMention ||
+                  messageMentionsNode(
+                    '${post.title}\n${post.body}',
+                    gsvc.selfId,
+                  ),
+            ),
+            (post) => post.publishedAtMs,
+          );
+          if (latestPost == null) continue;
+          final isMention = messageMentionsNode(
+            '${latestPost.title}\n${latestPost.body}',
+            gsvc.selfId,
+          );
           candidates.add((
-            convHex: 'space:${space.groupId.hex}',
+            convHex: isMention
+                ? notificationMentionPayload(
+                    '/space/${space.groupId.hex}/comments?post=${Uri.encodeQueryComponent(latestPost.postId)}',
+                  )
+                : 'space:${space.groupId.hex}',
             name: space.name.trim().isNotEmpty ? space.name : null,
             shortId: space.groupId.short,
-            preview: latestPost == null
-                ? ''
-                : latestPost.title.trim().isNotEmpty
+            preview: latestPost.title.trim().isNotEmpty
                 ? latestPost.title
                 : latestPost.body,
-            timestampMs: latestPost?.publishedAtMs ?? space.lastTs,
+            timestampMs: latestPost.publishedAtMs,
             allowReply: false,
+            isMention: isMention,
           ));
         }
       } catch (e) {
@@ -442,11 +597,11 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       }
     }
     if (!mounted || generation != _notificationGeneration) return;
-    final pendingComments = _pendingSpaceComments.values.toList();
+    final pendingComments = _pendingSpaceComments.entries.toList();
     _pendingSpaceComments.clear();
-    for (final comment in pendingComments) {
-      if (comment.convHex == active) continue;
-      candidates.add(comment);
+    for (final pending in pendingComments) {
+      if (pending.key == active) continue;
+      candidates.add(pending.value);
     }
     final latest = newestByTimestamp(candidates, (c) => c.timestampMs);
     if (latest == null) return;
@@ -457,6 +612,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       preview: latest.preview,
       settings: settings,
       allowReply: latest.allowReply,
+      isMention: latest.isMention,
     );
   }
 
@@ -470,6 +626,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     required String preview,
     required NotificationSettings settings,
     bool allowReply = true,
+    bool isMention = false,
   }) async {
     if (!mounted) return;
     final l = AppL10n.of(context);
@@ -481,11 +638,12 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       // node id on a notification).
       final cn = name?.trim();
       title = (cn != null && cn.isNotEmpty) ? cn : shortId;
-      body = preview;
+      body = await resolveMentionsForLocalDisplay(ref, preview);
+      if (!mounted) return;
     } else {
       // Hidden: no sender, no text — just that something arrived.
       title = 'xVeil';
-      body = l.notificationNewMessage;
+      body = isMention ? l.notificationMention : l.notificationNewMessage;
     }
     await ref
         .read(notificationServiceProvider)

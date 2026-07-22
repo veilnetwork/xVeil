@@ -940,6 +940,9 @@ class AppL10nRu extends AppL10n {
   String get notificationNewMessage => 'Новое сообщение';
 
   @override
+  String get notificationMention => 'Вас упомянули';
+
+  @override
   String get notificationReply => 'Ответить';
 
   @override
@@ -960,6 +963,22 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get notificationsPreviewFull => 'Полное (отправитель и текст)';
+
+  @override
+  String get mentionsTitle => 'Упоминания';
+
+  @override
+  String get mentionsOpenTooltip => 'Все упоминания';
+
+  @override
+  String get mentionsEmpty => 'Упоминаний пока нет';
+
+  @override
+  String get mentionsEmptyHint =>
+      'Здесь появятся сообщения, публикации и комментарии сообществ, в которых упомянули вас.';
+
+  @override
+  String get mentionsLoadFailed => 'Не удалось загрузить упоминания';
 
   @override
   String get chatRequestSent => 'Запрос отправлен — ожидание одобрения';
@@ -1718,6 +1737,33 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get chatMenuUnmute => 'Включить уведомления';
+
+  @override
+  String get notificationMuteModeTitle => 'Какие уведомления оставить?';
+
+  @override
+  String get notificationMuteMentionsOnly => 'Только упоминания';
+
+  @override
+  String get notificationMuteMentionsOnlyHint =>
+      'Не уведомлять о новых сообщениях, но уведомлять, когда упомянули вас';
+
+  @override
+  String get notificationMuteNone => 'Ничего';
+
+  @override
+  String get notificationMuteNoneHint =>
+      'Не уведомлять ни о чём, включая упоминания';
+
+  @override
+  String notificationMuteCurrentMentionsOnly(String until) {
+    return 'Только упоминания до $until';
+  }
+
+  @override
+  String notificationMuteCurrentNone(String until) {
+    return 'Без уведомлений до $until';
+  }
 
   @override
   String get chatMenuMarkRead => 'Пометить прочитанным';

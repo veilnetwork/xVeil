@@ -303,14 +303,82 @@ Future<String?> _promptNewFolderName(BuildContext context) {
   ).whenComplete(ctl.dispose);
 }
 
-/// Pick how long to mute [peer]: presets from 30 minutes to a month, forever,
-/// or a custom hour count. The deadline is stored (not a flag), so a timed
-/// mute expires on its own — see [Contact.mutedUntil]. Shared by the in-chat
-/// menu and the chats-list sheet.
+typedef NotificationMuteSelection = ({
+  NotificationMuteMode mode,
+  DateTime until,
+});
+
+String notificationMutePolicyLabel(
+  BuildContext context,
+  NotificationMutePolicy policy,
+) {
+  final l = AppL10n.of(context);
+  final mode = policy.effectiveAt(DateTime.now());
+  if (mode == NotificationMuteMode.all) return l.notificationsEnabled;
+  final until = policy.until!.isAtSameMomentAs(kMuteForever)
+      ? l.muteForever
+      : '${MaterialLocalizations.of(context).formatShortDate(policy.until!.toLocal())} '
+            '${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(policy.until!.toLocal()))}';
+  return mode == NotificationMuteMode.mentionsOnly
+      ? l.notificationMuteCurrentMentionsOnly(until)
+      : l.notificationMuteCurrentNone(until);
+}
+
+/// Pick both the suppression level and its duration. The duration page reuses
+/// the established presets unchanged; callers decide which encrypted local
+/// scope (direct chat, group or Space) stores the result.
+Future<NotificationMuteSelection?> pickNotificationMutePolicy(
+  BuildContext context,
+) async {
+  final l = AppL10n.of(context);
+  final mode = await showDialog<NotificationMuteMode>(
+    context: context,
+    builder: (dialog) => SimpleDialog(
+      title: Text(l.notificationMuteModeTitle),
+      children: [
+        SimpleDialogOption(
+          key: const ValueKey('notification-mute-mentions-only'),
+          onPressed: () =>
+              Navigator.of(dialog).pop(NotificationMuteMode.mentionsOnly),
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.alternate_email),
+            title: Text(l.notificationMuteMentionsOnly),
+            subtitle: Text(l.notificationMuteMentionsOnlyHint),
+          ),
+        ),
+        SimpleDialogOption(
+          key: const ValueKey('notification-mute-none'),
+          onPressed: () => Navigator.of(dialog).pop(NotificationMuteMode.none),
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.notifications_off_outlined),
+            title: Text(l.notificationMuteNone),
+            subtitle: Text(l.notificationMuteNoneHint),
+          ),
+        ),
+      ],
+    ),
+  );
+  if (mode == null || !context.mounted) return null;
+  return _pickNotificationMuteDuration(context, mode);
+}
+
 Future<void> pickMuteDuration(
   BuildContext context,
   WidgetRef ref,
   NodeId peer,
+) async {
+  final picked = await pickNotificationMutePolicy(context);
+  if (picked == null || !context.mounted) return;
+  await ref
+      .read(messagingServiceProvider)
+      .setContactMutedUntil(peer, picked.until, mode: picked.mode);
+}
+
+Future<NotificationMuteSelection?> _pickNotificationMuteDuration(
+  BuildContext context,
+  NotificationMuteMode mode,
 ) async {
   final l = AppL10n.of(context);
   // (label, duration); null duration = forever, -1h sentinel = custom.
@@ -337,18 +405,18 @@ Future<void> pickMuteDuration(
       ],
     ),
   );
-  if (picked == null || !context.mounted) return;
+  if (picked == null || !context.mounted) return null;
   Duration? d = picked.$2;
   if (d != null && d.isNegative) {
     final hours = await showDialog<int>(
       context: context,
       builder: (_) => _HoursDialog(),
     );
-    if (hours == null || !context.mounted) return;
+    if (hours == null || !context.mounted) return null;
     d = Duration(hours: hours);
   }
   final until = d == null ? kMuteForever : DateTime.now().add(d);
-  await ref.read(messagingServiceProvider).setContactMutedUntil(peer, until);
+  return (mode: mode, until: until);
 }
 
 /// Pick [peer]'s auto-delete window — the existing presets PLUS a custom day

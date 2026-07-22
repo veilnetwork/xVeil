@@ -937,6 +937,9 @@ class AppL10nEn extends AppL10n {
   String get notificationNewMessage => 'New message';
 
   @override
+  String get notificationMention => 'You were mentioned';
+
+  @override
   String get notificationReply => 'Reply';
 
   @override
@@ -957,6 +960,22 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get notificationsPreviewFull => 'Full (sender and text)';
+
+  @override
+  String get mentionsTitle => 'Mentions';
+
+  @override
+  String get mentionsOpenTooltip => 'All mentions';
+
+  @override
+  String get mentionsEmpty => 'No mentions yet';
+
+  @override
+  String get mentionsEmptyHint =>
+      'Messages, community posts and comments that mention you will appear here.';
+
+  @override
+  String get mentionsLoadFailed => 'Could not load mentions';
 
   @override
   String get chatRequestSent => 'Request sent — waiting for approval';
@@ -1706,6 +1725,33 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get chatMenuUnmute => 'Unmute notifications';
+
+  @override
+  String get notificationMuteModeTitle => 'What should still notify you?';
+
+  @override
+  String get notificationMuteMentionsOnly => 'Mentions only';
+
+  @override
+  String get notificationMuteMentionsOnlyHint =>
+      'Silence new-message alerts, but notify when you are mentioned';
+
+  @override
+  String get notificationMuteNone => 'Nothing';
+
+  @override
+  String get notificationMuteNoneHint =>
+      'Silence all alerts, including mentions';
+
+  @override
+  String notificationMuteCurrentMentionsOnly(String until) {
+    return 'Mentions only until $until';
+  }
+
+  @override
+  String notificationMuteCurrentNone(String until) {
+    return 'Muted until $until';
+  }
 
   @override
   String get chatMenuMarkRead => 'Mark as read';
