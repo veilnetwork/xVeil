@@ -193,6 +193,10 @@
   "spaceYou": "You",
   "feedEmpty": "Your feed is empty",
   "feedEmptyHint": "Publications from enabled communities will appear here in chronological order.",
+  "feedPostHide": "Hide from Feed",
+  "feedPostHidden": "Publication hidden from your Feed",
+  "feedPostUndo": "Undo",
+  "feedPostHideFailed": "Could not update this Feed preference",
 
   "chatsEmpty": "No conversations yet",
   "chatsEmptyHint": "Start a new chat to begin messaging",

@@ -1159,6 +1159,30 @@ abstract class AppL10n {
   /// **'Publications from enabled communities will appear here in chronological order.'**
   String get feedEmptyHint;
 
+  /// No description provided for @feedPostHide.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide from Feed'**
+  String get feedPostHide;
+
+  /// No description provided for @feedPostHidden.
+  ///
+  /// In en, this message translates to:
+  /// **'Publication hidden from your Feed'**
+  String get feedPostHidden;
+
+  /// No description provided for @feedPostUndo.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo'**
+  String get feedPostUndo;
+
+  /// No description provided for @feedPostHideFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not update this Feed preference'**
+  String get feedPostHideFailed;
+
   /// No description provided for @chatsEmpty.
   ///
   /// In en, this message translates to:

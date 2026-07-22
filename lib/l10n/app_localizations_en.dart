@@ -603,6 +603,18 @@ class AppL10nEn extends AppL10n {
       'Publications from enabled communities will appear here in chronological order.';
 
   @override
+  String get feedPostHide => 'Hide from Feed';
+
+  @override
+  String get feedPostHidden => 'Publication hidden from your Feed';
+
+  @override
+  String get feedPostUndo => 'Undo';
+
+  @override
+  String get feedPostHideFailed => 'Could not update this Feed preference';
+
+  @override
   String get chatsEmpty => 'No conversations yet';
 
   @override

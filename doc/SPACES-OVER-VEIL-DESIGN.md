@@ -462,10 +462,15 @@ camera/background/push проверяются дополнительно на ф
 * общая «Лента» объединяет доступные публикации без алгоритмического
   ранжирования, дедуплицирует их и использует стабильный подписанный cursor
   `(publishedAt, spaceId, author, seq)`. Состояние прочтения и счётчик новых
-  публикаций отделены от channel-message unread;
+  публикаций отделены от channel-message unread. Скрытие отдельной публикации
+  является bounded identity-scoped настройкой по root post id: оно переживает
+  immutable edits, не меняет signed log/P2P и не скрывает публикацию внутри
+  самого сообщества. Реестр лежит в encrypted chunked store, а не в
+  ограниченном по размеру одиночном setting;
 * UI заменил нижний раздел «Хранилище» на «Ленту», а «Хранилище» перенесено в
   основное меню. Публикации Space доступны из самого сообщества; REST/OpenAPI
-  получили `/v1/spaces/posts`, `/v1/spaces/subscription` и `/v1/feed`;
+  получили `/v1/spaces/posts`, `/v1/spaces/subscription`, `/v1/feed` и
+  локальную мутацию `/v1/feed/hidden`;
 * правила сообщества используют `ControlEntry` v7: immutable последовательные
   версии и отдельные signed acknowledgements участников сходятся через тот же
   P2P delta/gap-fill. Экран внутри Space показывает полный текущий документ,

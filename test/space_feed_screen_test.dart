@@ -122,6 +122,20 @@ void main() {
     expect((await service.spacePostReactionsOf(spaceId))[post.postId]?['👍'], [
       _id(1),
     ]);
+    final l = AppL10n.of(tester.element(find.byType(SpaceFeedScreen)));
+    await tester.tap(
+      find.byKey(ValueKey('space-feed-post-menu-${post.postId}')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.feedPostHide));
+    await tester.pumpAndSettle();
+    expect(find.text('Release'), findsNothing);
+    expect(find.text(l.feedPostHidden), findsOneWidget);
+    expect(await service.postsOf(spaceId), hasLength(1));
+
+    await tester.tap(find.text(l.feedPostUndo));
+    await tester.pumpAndSettle();
+    expect(find.text('Release'), findsOneWidget);
   });
 
   testWidgets('Space publications screen composes and publishes through ACL', (
