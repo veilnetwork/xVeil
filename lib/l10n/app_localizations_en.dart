@@ -347,6 +347,12 @@ class AppL10nEn extends AppL10n {
       'Saved encrypted on this device. The draft is not shared until you publish it.';
 
   @override
+  String get spacePostMediaAttach => 'Add media or file';
+
+  @override
+  String get spacePostMediaRejected => 'Some files couldn\'t be attached';
+
+  @override
   String get spacePostEdit => 'Edit publication';
 
   @override

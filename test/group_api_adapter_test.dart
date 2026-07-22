@@ -206,13 +206,21 @@ void main() {
     );
     try {
       final space = (await api.createSpace('News', '', 'public'))!;
+      final originalMedia = MediaObjectRef(
+        contentId: 'a' * 64,
+        kind: 'image',
+        name: 'before.png',
+        size: 42,
+      );
       final created = await api.publishPost(
         space,
         'Initial',
         'first body',
         'article',
+        [originalMedia],
       );
       expect(created.error, isNull);
+      expect((created.post!['media'] as List).single['name'], 'before.png');
       final postId = created.post!['postId'] as String;
       final cursor = created.post!['cursor'];
       final edited = await api.editPost(
@@ -221,20 +229,29 @@ void main() {
         'Corrected',
         'second body',
         'post',
+        [
+          MediaObjectRef(
+            contentId: 'b' * 64,
+            kind: 'video',
+            name: 'after.mp4',
+            size: 84,
+          ),
+        ],
       );
       expect(edited.error, isNull);
       expect(edited.post!['postId'], postId);
       expect(edited.post!['revisionId'], isNot(postId));
       expect(edited.post!['cursor'], cursor);
       expect(edited.post!['edited'], isTrue);
+      expect((edited.post!['media'] as List).single['name'], 'after.mp4');
       expect(await api.reactToPost(space, postId, '🔥'), isNull);
       final listed = (await api.posts(space, 50, null))!['posts'] as List;
       expect(listed, hasLength(1));
       expect((listed.single['reactions'] as Map)['🔥'], [_id(33).hex]);
-      expect(await api.editPost(space, '${_id(34).hex}:0', '', 'x', null), (
-        error: 'post edit rejected',
-        post: null,
-      ));
+      expect(
+        await api.editPost(space, '${_id(34).hex}:0', '', 'x', null, null),
+        (error: 'post edit rejected', post: null),
+      );
       expect(await api.deletePost(space, postId), isNull);
       expect((await api.posts(space, 50, null))!['posts'], isEmpty);
       expect(await api.deletePost(space, postId), 'post deletion rejected');
@@ -490,12 +507,19 @@ void main() {
           'Public API',
           visibility: SpaceVisibility.public,
         );
+        final media = MediaObjectRef(
+          contentId: 'c' * 64,
+          kind: 'audio',
+          name: 'episode.opus',
+          size: 128,
+        );
         expect(
           await api.savePostDraft(
             spaceId.hex,
             'Draft headline',
             'Draft body',
             SpacePostType.voiceMessage.name,
+            [media],
           ),
           isNull,
         );
@@ -503,7 +527,11 @@ void main() {
         expect((draft?['draft'] as Map)['title'], 'Draft headline');
         expect((draft?['draft'] as Map)['type'], 'voiceMessage');
         expect(
-          await api.savePostDraft(spaceId.hex, '', '', 'unknown'),
+          (((draft?['draft'] as Map)['media'] as List).single as Map)['cid'],
+          media.contentId,
+        );
+        expect(
+          await api.savePostDraft(spaceId.hex, '', '', 'unknown', const []),
           isNotNull,
         );
         expect(await api.clearPostDraft(spaceId.hex), isNull);
@@ -515,9 +543,11 @@ void main() {
           'Headline',
           'Body',
           SpacePostType.article.name,
+          [media],
         );
         expect(result.error, isNull);
         expect(result.post?['title'], 'Headline');
+        expect((result.post?['media'] as List).single['cid'], media.contentId);
         final posts = await api.posts(spaceId.hex, 10, null);
         expect((posts?['posts'] as List).single['body'], 'Body');
         expect((posts?['posts'] as List).single['pinned'], isFalse);

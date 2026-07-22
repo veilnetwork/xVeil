@@ -388,6 +388,12 @@ class MessagingService {
     sourcePath: sourcePath,
   );
 
+  /// Verified original source for media this identity registered by path.
+  /// The content layer re-hashes before exposing it so a changed file cannot
+  /// masquerade as the immutable signed content id.
+  Future<String?> verifiedGroupContentSourcePath(String contentId) =>
+      _groupContent.verifiedSourcePath(contentId);
+
   List<Map<String, Object>> debugGroupServeGrants() =>
       _groupContent.debugGroupServeGrants();
 

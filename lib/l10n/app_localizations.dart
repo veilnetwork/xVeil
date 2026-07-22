@@ -727,6 +727,18 @@ abstract class AppL10n {
   /// **'Saved encrypted on this device. The draft is not shared until you publish it.'**
   String get spacePostDraftHint;
 
+  /// No description provided for @spacePostMediaAttach.
+  ///
+  /// In en, this message translates to:
+  /// **'Add media or file'**
+  String get spacePostMediaAttach;
+
+  /// No description provided for @spacePostMediaRejected.
+  ///
+  /// In en, this message translates to:
+  /// **'Some files couldn\'t be attached'**
+  String get spacePostMediaRejected;
+
   /// No description provided for @spacePostEdit.
   ///
   /// In en, this message translates to:

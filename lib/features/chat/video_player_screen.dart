@@ -5,6 +5,7 @@
 // backend; Linux registers video_player_media_kit over the distro's libmpv.
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,13 +18,21 @@ import '../../state/providers.dart';
 class VideoPlayerScreen extends ConsumerStatefulWidget {
   const VideoPlayerScreen({
     super.key,
-    required this.fileKey,
     required this.name,
-  });
+    this.fileKey,
+    this.sourcePath,
+  }) : assert(
+         (fileKey == null) != (sourcePath == null),
+         'exactly one video source is required',
+       );
 
   /// Blob key, exactly like the image preview keys it (fileId when held,
   /// else the contentId — loadFile resolves both).
-  final String fileKey;
+  final String? fileKey;
+
+  /// User-selected plaintext source. It is accepted only after the content
+  /// layer re-hashes the file against the signed content id.
+  final String? sourcePath;
   final String name;
 
   @override
@@ -43,14 +52,19 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
   Future<void> _load() async {
     try {
-      final bytes = await ref.read(storageProvider).loadFile(widget.fileKey);
-      if (!mounted) return;
-      if (bytes == null) {
-        setState(() => _error = StateError('blob missing'));
-        return;
+      final VideoPlayerController controller;
+      if (widget.sourcePath != null) {
+        controller = VideoPlayerController.file(File(widget.sourcePath!));
+      } else {
+        final bytes = await ref.read(storageProvider).loadFile(widget.fileKey!);
+        if (!mounted) return;
+        if (bytes == null) {
+          setState(() => _error = StateError('blob missing'));
+          return;
+        }
+        final url = await _server.serve(bytes, name: widget.name);
+        controller = VideoPlayerController.networkUrl(url);
       }
-      final url = await _server.serve(bytes, name: widget.name);
-      final controller = VideoPlayerController.networkUrl(url);
       await controller.initialize();
       if (!mounted) {
         await controller.dispose();

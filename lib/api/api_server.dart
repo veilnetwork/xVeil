@@ -26,6 +26,20 @@ bool _validFeedCursor(String value) => SpaceFeedCursor.decode(value) != null;
 bool _validPostId(String value) =>
     RegExp(r'^[0-9a-f]{64}:[0-9]+$').hasMatch(value);
 
+List<MediaObjectRef>? _spacePostMedia(Object? value, {bool optional = false}) {
+  if (value == null) return optional ? null : const <MediaObjectRef>[];
+  if (value is! List || value.length > kSpacePostMediaMax) return null;
+  final media = value
+      .map(MediaObjectRef.fromJson)
+      .whereType<MediaObjectRef>()
+      .toList(growable: false);
+  if (media.length != value.length ||
+      media.map((item) => item.contentId).toSet().length != media.length) {
+    return null;
+  }
+  return media;
+}
+
 /// Why [url] is unusable as a webhook target, or null if it is fine.
 /// Privacy canon: cleartext HTTP must never leave the machine, so the target
 /// host is restricted to loopback — a bot on the same host. (An external
@@ -189,6 +203,20 @@ Map<String, dynamic> openApiSpec() {
             },
           },
         },
+        'MediaObjectRef': {
+          'type': obj,
+          'required': ['cid', 'kind'],
+          'properties': {
+            'cid': {'type': 'string', 'pattern': r'^[0-9a-f]{64}$'},
+            'kind': {'type': 'string', 'maxLength': 32},
+            'name': {'type': 'string', 'maxLength': 255},
+            'mime': {'type': 'string', 'maxLength': 128},
+            'size': {'type': 'integer', 'format': 'int64', 'minimum': 1},
+            'width': {'type': 'integer', 'minimum': 1},
+            'height': {'type': 'integer', 'minimum': 1},
+            'duration': {'type': 'integer', 'format': 'int64', 'minimum': 0},
+          },
+        },
         'SpacePost': {
           'type': obj,
           'properties': {
@@ -229,7 +257,8 @@ Map<String, dynamic> openApiSpec() {
             'cursor': {'type': 'string'},
             'media': {
               'type': 'array',
-              'items': {'type': obj},
+              'maxItems': kSpacePostMediaMax,
+              'items': {r'$ref': '#/components/schemas/MediaObjectRef'},
             },
           },
         },
@@ -743,7 +772,7 @@ Map<String, dynamic> openApiSpec() {
               'application/json': {
                 'schema': {
                   'type': obj,
-                  'required': ['space', 'body'],
+                  'required': ['space'],
                   'properties': {
                     'space': {'type': 'string'},
                     'title': {'type': 'string', 'maxLength': 300},
@@ -758,6 +787,11 @@ Map<String, dynamic> openApiSpec() {
                         'audio',
                         'voiceMessage',
                       ],
+                    },
+                    'media': {
+                      'type': 'array',
+                      'maxItems': kSpacePostMediaMax,
+                      'items': {r'$ref': '#/components/schemas/MediaObjectRef'},
                     },
                   },
                 },
@@ -790,6 +824,11 @@ Map<String, dynamic> openApiSpec() {
                         'audio',
                         'voiceMessage',
                       ],
+                    },
+                    'media': {
+                      'type': 'array',
+                      'maxItems': kSpacePostMediaMax,
+                      'items': {r'$ref': '#/components/schemas/MediaObjectRef'},
                     },
                   },
                 },
@@ -852,6 +891,11 @@ Map<String, dynamic> openApiSpec() {
                     ],
                   },
                   'updatedAt': {'type': 'integer'},
+                  'media': {
+                    'type': 'array',
+                    'maxItems': kSpacePostMediaMax,
+                    'items': {r'$ref': '#/components/schemas/MediaObjectRef'},
+                  },
                 },
               },
             },
@@ -880,6 +924,11 @@ Map<String, dynamic> openApiSpec() {
                         'audio',
                         'voiceMessage',
                       ],
+                    },
+                    'media': {
+                      'type': 'array',
+                      'maxItems': kSpacePostMediaMax,
+                      'items': {r'$ref': '#/components/schemas/MediaObjectRef'},
                     },
                   },
                 },
@@ -2423,6 +2472,7 @@ class ApiHandler {
     String title,
     String body,
     String type,
+    List<MediaObjectRef> media,
   )?
   saveSpacePostDraft;
   final Future<String?> Function(String spaceHex)? clearSpacePostDraft;
@@ -2444,6 +2494,7 @@ class ApiHandler {
     String title,
     String body,
     String type,
+    List<MediaObjectRef> media,
   )?
   publishSpacePost;
   final Future<({String? error, Map<String, dynamic>? post})> Function(
@@ -2452,6 +2503,7 @@ class ApiHandler {
     String title,
     String body,
     String? type,
+    List<MediaObjectRef>? media,
   )?
   editSpacePost;
   final Future<String?> Function(String spaceHex, String postId)?
@@ -3060,6 +3112,7 @@ class ApiHandler {
       final title = body?['title'] ?? '';
       final text = body?['body'] ?? '';
       final type = body?['type'] ?? 'post';
+      final media = _spacePostMedia(body?['media']);
       if (space is! String ||
           space.isEmpty ||
           title is! String ||
@@ -3067,10 +3120,13 @@ class ApiHandler {
           text is! String ||
           utf8.encode(text).length > kSpacePostBodyMax ||
           type is! String ||
-          SpacePostType.fromName(type) == null) {
+          SpacePostType.fromName(type) == null ||
+          media == null) {
         return const ApiResponse(400, {'error': 'invalid Space post draft'});
       }
-      return _spaceMutationResponse(await handler(space, title, text, type));
+      return _spaceMutationResponse(
+        await handler(space, title, text, type, media),
+      );
     }
     if (method == 'DELETE' && path == '/v1/spaces/posts/draft') {
       final handler = clearSpacePostDraft;
@@ -3142,6 +3198,7 @@ class ApiHandler {
       final title = body?['title'] ?? '';
       final text = body?['body'] ?? '';
       final type = body?['type'] ?? 'post';
+      final media = _spacePostMedia(body?['media']);
       const types = {
         'post',
         'article',
@@ -3156,12 +3213,19 @@ class ApiHandler {
           title.length > 300 ||
           text is! String ||
           utf8.encode(text).length > 256 * 1024 ||
-          (title.trim().isEmpty && text.trim().isEmpty) ||
+          media == null ||
+          (title.trim().isEmpty && text.trim().isEmpty && media.isEmpty) ||
           type is! String ||
           !types.contains(type)) {
         return const ApiResponse(400, {'error': 'invalid Space post'});
       }
-      final result = await handler(space, title.trim(), text.trim(), type);
+      final result = await handler(
+        space,
+        title.trim(),
+        text.trim(),
+        type,
+        media,
+      );
       return result.error == null
           ? ApiResponse(200, {'ok': true, 'post': result.post})
           : ApiResponse(400, {'error': result.error});
@@ -3178,6 +3242,8 @@ class ApiHandler {
       final title = body?['title'] ?? '';
       final text = body?['body'] ?? '';
       final type = body?['type'];
+      final hasMedia = body?.containsKey('media') ?? false;
+      final media = hasMedia ? _spacePostMedia(body?['media']) : null;
       const types = {
         'post',
         'article',
@@ -3194,6 +3260,7 @@ class ApiHandler {
           title.length > 300 ||
           text is! String ||
           utf8.encode(text).length > 256 * 1024 ||
+          (hasMedia && media == null) ||
           (type != null && (type is! String || !types.contains(type)))) {
         return const ApiResponse(400, {'error': 'invalid Space post edit'});
       }
@@ -3203,6 +3270,7 @@ class ApiHandler {
         title.trim(),
         text.trim(),
         type as String?,
+        media,
       );
       return result.error == null
           ? ApiResponse(200, {'ok': true, 'post': result.post})
