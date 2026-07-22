@@ -8,6 +8,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
+
 import '../core/ids.dart';
 import 'group_payload.dart';
 import 'inline_custom_emoji.dart';
@@ -401,3 +403,14 @@ class GroupMessage {
     }
   }
 }
+
+/// Digest used by the per-author, per-visibility-scope message chain.
+///
+/// The signature is included so [GroupMessage.prevHash] commits to one exact
+/// signed predecessor. Two valid signatures over otherwise identical payloads
+/// therefore remain distinct fork evidence instead of collapsing into one
+/// arrival-order-dependent row.
+String groupMessageHash(GroupMessage message) => crypto.sha256.convert(<int>[
+  ...message.canonicalBytes(),
+  ...message.signature,
+]).toString();
