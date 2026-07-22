@@ -16,6 +16,7 @@ void main() {
   final spacePublications = <(String, String, String, String)>[];
   final spacePostEdits = <(String, String, String, String, String?)>[];
   final spacePostDeletes = <(String, String)>[];
+  final spacePostPins = <(String, String, bool)>[];
   final spacePostReactions = <(String, String, String)>[];
   final subscriptions = <(String, bool)>[];
   final feedPostPreferences = <(String, String, bool)>[];
@@ -50,6 +51,7 @@ void main() {
     spacePublications.clear();
     spacePostEdits.clear();
     spacePostDeletes.clear();
+    spacePostPins.clear();
     spacePostReactions.clear();
     subscriptions.clear();
     feedPostPreferences.clear();
@@ -248,12 +250,17 @@ void main() {
         spacePostDeletes.add((space, postId));
         return null;
       },
+      setSpacePostPinned: (space, postId, pinned) async {
+        if (space == 'denied') return 'post pin rejected';
+        spacePostPins.add((space, postId, pinned));
+        return null;
+      },
       reactToSpacePost: (space, postId, emoji) async {
         if (space == 'denied') return 'post reaction rejected';
         spacePostReactions.add((space, postId, emoji));
         return null;
       },
-      spaceFeed: (limit, before) async => {
+      spaceFeed: (limit, before, pinned) async => {
         'posts': [
           {'spaceId': 'aa', 'body': 'community post'},
         ],
@@ -613,6 +620,10 @@ void main() {
         ('/v1/spaces', {'name': 'S'}),
         ('/v1/spaces/profile', {'space': 's', 'description': 'new'}),
         ('/v1/spaces/posts', {'space': 's', 'body': 'x'}),
+        (
+          '/v1/spaces/posts/pin',
+          {'space': 's', 'postId': '${'01' * 32}:0', 'pinned': true},
+        ),
         ('/v1/spaces/subscription', {'space': 's', 'enabled': false}),
         (
           '/v1/feed/hidden',
@@ -1459,6 +1470,25 @@ void main() {
       expect(
         (await h.handle(
           'POST',
+          u('/v1/spaces/posts/pin'),
+          auth,
+          body: {'space': 'aa', 'postId': postId, 'pinned': true},
+        )).status,
+        200,
+      );
+      expect(spacePostPins.single, ('aa', postId, true));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/posts/pin'),
+          auth,
+          body: {'space': 'aa', 'postId': 'bad', 'pinned': true},
+        )).status,
+        400,
+      );
+      expect(
+        (await h.handle(
+          'POST',
           u('/v1/spaces/posts/reactions'),
           auth,
           body: {'space': 'aa', 'postId': 'bad', 'emoji': '🔥'},
@@ -1477,6 +1507,10 @@ void main() {
       final feed = await h.handle('GET', u('/v1/feed?limit=20'), auth);
       expect(feed.status, 200);
       expect(((feed.body as Map)['posts'] as List), hasLength(1));
+      expect(
+        (await h.handle('GET', u('/v1/feed?pinned=invalid'), auth)).status,
+        400,
+      );
       final feedFilter = await h.handle('GET', u('/v1/feed/filter'), auth);
       expect(feedFilter.status, 200);
       expect((feedFilter.body as Map)['types'], ['post', 'article']);

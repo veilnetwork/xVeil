@@ -301,6 +301,21 @@ class AppL10nRu extends AppL10n {
   String get spacePostEdited => 'Изменено';
 
   @override
+  String get spacePostPin => 'Закрепить';
+
+  @override
+  String get spacePostUnpin => 'Открепить';
+
+  @override
+  String get spacePostPinned => 'Закреплено';
+
+  @override
+  String get feedPinnedTitle => 'Закреплённые';
+
+  @override
+  String get feedRecentTitle => 'Последние';
+
+  @override
   String get spacePostDelete => 'Удалить публикацию';
 
   @override

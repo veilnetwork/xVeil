@@ -232,6 +232,82 @@ enum SpacePostOperation {
   }
 }
 
+/// One community-wide pin state carried by the signed Space control log.
+///
+/// The exact root hash prevents an early or replayed control row from pinning a
+/// different publication that later happens to reuse the same author/sequence
+/// identity. The control entry also binds [changedAtMs] to its signed timestamp.
+class SpacePostPin {
+  const SpacePostPin({
+    required this.spaceId,
+    required this.postAuthor,
+    required this.postSeq,
+    required this.rootHash,
+    required this.pinned,
+    required this.changedAtMs,
+  });
+
+  final NodeId spaceId;
+  final NodeId postAuthor;
+  final int postSeq;
+  final String rootHash;
+  final bool pinned;
+  final int changedAtMs;
+
+  String get postId => '${postAuthor.hex}:$postSeq';
+
+  bool get isStructurallyValid =>
+      postSeq >= 0 &&
+      RegExp(r'^[0-9a-f]{64}$').hasMatch(rootHash) &&
+      changedAtMs >= 0;
+
+  Map<String, dynamic> toJson() => {
+    'v': 1,
+    'sid': spaceId.hex,
+    'author': postAuthor.hex,
+    'seq': postSeq,
+    'root': rootHash,
+    'pinned': pinned,
+    'ts': changedAtMs,
+  };
+
+  static SpacePostPin? fromJson(Object? value) {
+    if (value is! Map ||
+        value.length != 7 ||
+        !const {
+          'v',
+          'sid',
+          'author',
+          'seq',
+          'root',
+          'pinned',
+          'ts',
+        }.every(value.containsKey) ||
+        value['v'] != 1 ||
+        value['sid'] is! String ||
+        value['author'] is! String ||
+        value['seq'] is! int ||
+        value['root'] is! String ||
+        value['pinned'] is! bool ||
+        value['ts'] is! int) {
+      return null;
+    }
+    try {
+      final pin = SpacePostPin(
+        spaceId: NodeId.fromHex(value['sid'] as String),
+        postAuthor: NodeId.fromHex(value['author'] as String),
+        postSeq: value['seq'] as int,
+        rootHash: value['root'] as String,
+        pinned: value['pinned'] as bool,
+        changedAtMs: value['ts'] as int,
+      );
+      return pin.isStructurallyValid ? pin : null;
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 /// A content-addressed media reference shared by publication types. Bytes do
 /// not ride in a post log row; they use the existing content path. This is the
 /// first consumer of the common media vocabulary and deliberately avoids a
@@ -771,10 +847,17 @@ class SpacePost {
 /// edit. The root owns identity, chronological position and feed cursor; the
 /// effective row owns the current content. Neither signed row is rewritten.
 class SpacePostView {
-  const SpacePostView({required this.root, required this.effective});
+  const SpacePostView({
+    required this.root,
+    required this.effective,
+    this.pinned = false,
+    this.pinnedAtMs,
+  });
 
   final SpacePost root;
   final SpacePost effective;
+  final bool pinned;
+  final int? pinnedAtMs;
 
   String get postId => root.postId;
   String get revisionId => effective.postId;
@@ -793,6 +876,14 @@ class SpacePostView {
   int get publishedAtMs => root.publishedAtMs;
   int get updatedAtMs => effective.createdAtMs;
   bool get edited => effective.seq != root.seq;
+
+  SpacePostView withPin({required bool pinned, int? pinnedAtMs}) =>
+      SpacePostView(
+        root: root,
+        effective: effective,
+        pinned: pinned,
+        pinnedAtMs: pinned ? pinnedAtMs : null,
+      );
 }
 
 /// Stable chronological cursor. Every tie-breaker is signed by the post, so

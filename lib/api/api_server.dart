@@ -214,6 +214,8 @@ Map<String, dynamic> openApiSpec() {
             'publishedAt': {'type': 'integer', 'format': 'int64'},
             'updatedAt': {'type': 'integer', 'format': 'int64'},
             'edited': {'type': 'boolean'},
+            'pinned': {'type': 'boolean'},
+            'pinnedAt': {'type': 'integer', 'format': 'int64'},
             'reactions': {
               'type': obj,
               'additionalProperties': {
@@ -833,6 +835,28 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
       },
+      '/spaces/posts/pin': {
+        'post': {
+          'summary': 'Append an admin-signed community post pin state',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space', 'postId', 'pinned'],
+                  'properties': {
+                    'space': {'type': 'string'},
+                    'postId': {'type': 'string'},
+                    'pinned': {'type': 'boolean'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
       '/spaces/subscription': {
         'post': {
           'summary': 'Enable or disable one community in the local feed',
@@ -935,6 +959,11 @@ Map<String, dynamic> openApiSpec() {
               'name': 'limit',
               'in': 'query',
               'schema': {'type': 'integer', 'minimum': 1, 'maximum': 200},
+            },
+            {
+              'name': 'pinned',
+              'in': 'query',
+              'schema': {'type': 'boolean'},
             },
           ],
           'responses': ok({
@@ -1967,6 +1996,7 @@ class ApiHandler {
     this.publishSpacePost,
     this.editSpacePost,
     this.deleteSpacePost,
+    this.setSpacePostPinned,
     this.reactToSpacePost,
     this.spaceFeed,
     this.spaceFeedTypeFilter,
@@ -2116,9 +2146,15 @@ class ApiHandler {
   editSpacePost;
   final Future<String?> Function(String spaceHex, String postId)?
   deleteSpacePost;
+  final Future<String?> Function(String spaceHex, String postId, bool pinned)?
+  setSpacePostPinned;
   final Future<String?> Function(String spaceHex, String postId, String emoji)?
   reactToSpacePost;
-  final Future<Map<String, dynamic>> Function(int limit, String? before)?
+  final Future<Map<String, dynamic>> Function(
+    int limit,
+    String? before,
+    bool? pinned,
+  )?
   spaceFeed;
   final Future<Map<String, dynamic>> Function()? spaceFeedTypeFilter;
   final Future<String?> Function(List<String> types)? setSpaceFeedTypeFilter;
@@ -2746,6 +2782,25 @@ class ApiHandler {
       }
       return _spaceMutationResponse(await handler(space, postId));
     }
+    if (method == 'POST' && path == '/v1/spaces/posts/pin') {
+      final handler = setSpacePostPinned;
+      if (handler == null) {
+        return const ApiResponse(501, {'error': 'Space post pins unavailable'});
+      }
+      final space = body?['space'];
+      final postId = body?['postId'];
+      final pinned = body?['pinned'];
+      if (space is! String ||
+          space.isEmpty ||
+          postId is! String ||
+          !RegExp(r'^[0-9a-f]{64}:[0-9]+$').hasMatch(postId) ||
+          pinned is! bool) {
+        return const ApiResponse(400, {
+          'error': 'valid space + postId + pinned required',
+        });
+      }
+      return _spaceMutationResponse(await handler(space, postId, pinned));
+    }
     if (method == 'POST' && path == '/v1/spaces/posts/reactions') {
       final handler = reactToSpacePost;
       if (handler == null) {
@@ -2870,7 +2925,20 @@ class ApiHandler {
         return const ApiResponse(400, {'error': 'invalid feed cursor'});
       }
       final limit = int.tryParse(uri.queryParameters['limit'] ?? '') ?? 50;
-      return ApiResponse(200, await handler(limit.clamp(1, 200), before));
+      final pinnedValue = uri.queryParameters['pinned'];
+      final bool? pinned = switch (pinnedValue) {
+        null => null,
+        'true' => true,
+        'false' => false,
+        _ => null,
+      };
+      if (pinnedValue != null && pinned == null) {
+        return const ApiResponse(400, {'error': 'invalid pinned filter'});
+      }
+      return ApiResponse(
+        200,
+        await handler(limit.clamp(1, 200), before, pinned),
+      );
     }
     if (method == 'GET' && path == '/v1/feed/filter') {
       final handler = spaceFeedTypeFilter;

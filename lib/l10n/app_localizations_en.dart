@@ -300,6 +300,21 @@ class AppL10nEn extends AppL10n {
   String get spacePostEdited => 'Edited';
 
   @override
+  String get spacePostPin => 'Pin';
+
+  @override
+  String get spacePostUnpin => 'Unpin';
+
+  @override
+  String get spacePostPinned => 'Pinned';
+
+  @override
+  String get feedPinnedTitle => 'Pinned';
+
+  @override
+  String get feedRecentTitle => 'Recent';
+
+  @override
   String get spacePostDelete => 'Delete publication';
 
   @override
