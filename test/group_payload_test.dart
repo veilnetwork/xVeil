@@ -48,6 +48,33 @@ void main() {
     );
   });
 
+  test('Space post comment target is signed and cannot also be a channel', () {
+    final postId = '${_id(4).hex}:7';
+    final message = GroupMessage(
+      groupId: _id(10),
+      author: _id(1),
+      seq: 2,
+      prevHash: 'prev',
+      body: 'discussion',
+      spacePostId: postId,
+      policyVersion: 3,
+      createdAtMs: 4000,
+      signature: Uint8List(64),
+    );
+    final json = message.toJson();
+    expect(json['post'], postId);
+    expect(utf8.decode(message.canonicalBytes()), contains('"post":"$postId"'));
+    final parsed = GroupMessage.fromJson(json);
+    expect(parsed?.spacePostId, postId);
+    expect(parsed?.canonicalBytes(), message.canonicalBytes());
+
+    expect(
+      GroupMessage.fromJson({...json, 'post': 'not-a-post-reference'}),
+      isNull,
+    );
+    expect(GroupMessage.fromJson({...json, 'channel': _id(9).hex}), isNull);
+  });
+
   test(
     'v2 stores only authenticated ciphertext and materializes in RAM',
     () async {

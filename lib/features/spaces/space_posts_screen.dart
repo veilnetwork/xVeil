@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/ids.dart';
 import '../../domain/group_policy.dart';
@@ -370,6 +371,17 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
                                 post.postId,
                                 emoji,
                               ),
+                            ),
+                            TextButton.icon(
+                              key: ValueKey(
+                                'space-post-comments-${post.postId}',
+                              ),
+                              onPressed: () => context.push(
+                                '/space/${spaceId.hex}/comments?post='
+                                '${Uri.encodeQueryComponent(post.postId)}',
+                              ),
+                              icon: const Icon(Icons.forum_outlined, size: 18),
+                              label: Text(l.spacePostCommentsOpen),
                             ),
                           ],
                         ),

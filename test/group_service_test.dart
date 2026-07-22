@@ -16,6 +16,7 @@ import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
+import 'package:xveil/domain/group_payload.dart';
 import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_channel.dart';
@@ -4048,6 +4049,338 @@ void main() {
         await svc.unreadSpacePosts(spaceId),
         0,
         reason: 'own posts are read-neutral',
+      );
+    },
+  );
+
+  test(
+    'Space post comments are encrypted, scoped to their root and absent from Chats',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(
+        storage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      final spaceId = await service.createSpace(
+        'Discussion lab',
+        visibility: SpaceVisibility.public,
+      );
+      final otherSpace = await service.createSpace(
+        'Other discussion',
+        visibility: SpaceVisibility.public,
+      );
+      final groupId = await service.createGroup('Ordinary group chat');
+      final first = (await service.publishSpacePost(
+        spaceId,
+        body: 'First root',
+        broadcast: false,
+      ))!;
+      final second = (await service.publishSpacePost(
+        spaceId,
+        body: 'Second root',
+        broadcast: false,
+      ))!;
+      await service.publishSpacePost(
+        otherSpace,
+        body: 'Foreign root',
+        broadcast: false,
+      );
+
+      expect(
+        await service.commentOnSpacePost(
+          spaceId,
+          first.postId,
+          '  First comment  ',
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      final firstComment = (await service.spacePostCommentsOf(
+        spaceId,
+        first.postId,
+      )).single;
+      expect(firstComment.body, 'First comment');
+      expect(
+        await service.commentOnSpacePost(
+          spaceId,
+          first.postId,
+          'Reply',
+          replyTo: firstComment.ref,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await service.commentOnSpacePost(
+          spaceId,
+          second.postId,
+          'Second-root comment',
+          broadcast: false,
+        ),
+        isTrue,
+      );
+
+      final firstThread = await service.spacePostCommentsOf(
+        spaceId,
+        first.postId,
+      );
+      expect(firstThread.map((comment) => comment.body), [
+        'First comment',
+        'Reply',
+      ]);
+      expect(firstThread.last.replyTo, firstThread.first.ref);
+      expect(
+        (await service.spacePostCommentsOf(spaceId, second.postId)).single.body,
+        'Second-root comment',
+      );
+      expect(await service.messagesOf(spaceId), isEmpty);
+      expect(
+        await service.messagesOf(
+          spaceId,
+          channelId: defaultSpaceChannelId(spaceId),
+        ),
+        isEmpty,
+      );
+      expect((await service.listGroups()).single.groupId, groupId);
+      expect(
+        (await service.listSpaces()).map((entry) => entry.groupId),
+        containsAll([spaceId, otherSpace]),
+      );
+
+      final wire = (await service.load(spaceId))!.messages;
+      expect(wire, hasLength(3));
+      expect(wire.every((comment) => comment.isEncrypted), isTrue);
+      expect(wire.every((comment) => comment.body.isEmpty), isTrue);
+      expect(wire.every((comment) => comment.channelId == null), isTrue);
+      expect(wire.map((comment) => comment.spacePostId), [
+        first.postId,
+        first.postId,
+        second.postId,
+      ]);
+
+      expect(
+        await service.commentOnSpacePost(
+          groupId,
+          first.postId,
+          'Must not turn a group chat into a Space',
+        ),
+        isFalse,
+      );
+      expect(
+        await service.commentOnSpacePost(
+          spaceId,
+          '${bob.hex}:99',
+          'Cross-Space target',
+        ),
+        isFalse,
+      );
+      expect(
+        await service.commentOnSpacePost(
+          spaceId,
+          second.postId,
+          'Cross-thread reply',
+          replyTo: firstComment.ref,
+        ),
+        isFalse,
+      );
+      expect(
+        await service.commentOnSpacePost(
+          spaceId,
+          first.postId,
+          List.filled(kSpacePostCommentMaxBytes + 1, 'x').join(),
+        ),
+        isFalse,
+      );
+
+      expect(
+        await service.deleteSpacePost(spaceId, first.postId, broadcast: false),
+        isTrue,
+      );
+      expect(await service.spacePostCommentsOf(spaceId, first.postId), isEmpty);
+      expect((await service.load(spaceId))!.messages, hasLength(3));
+    },
+  );
+
+  test(
+    'Space post comments converge member-to-member without chat notifications',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final bobStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final ownerService = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      final bobService = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      final spaceId = await ownerService.createSpace(
+        'Distributed discussion',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+
+      final chatNotices = <GroupMessage>[];
+      final commentNotices = <GroupMessage>[];
+      final chatSub = bobService.incoming.listen(
+        (notice) => chatNotices.add(notice.message),
+      );
+      final commentSub = bobService.incomingComments.listen(
+        (notice) => commentNotices.add(notice.message),
+      );
+      addTearDown(chatSub.cancel);
+      addTearDown(commentSub.cancel);
+
+      final root = (await ownerService.publishSpacePost(
+        spaceId,
+        body: 'Root distributed with its discussion',
+        broadcast: false,
+      ))!;
+      expect(
+        await ownerService.commentOnSpacePost(
+          spaceId,
+          root.postId,
+          'Owner comment',
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      await pump();
+      expect(chatNotices, isEmpty);
+      expect(commentNotices.map((comment) => comment.body), ['Owner comment']);
+      expect(
+        (await bobService.spacePostCommentsOf(
+          spaceId,
+          root.postId,
+        )).single.body,
+        'Owner comment',
+      );
+
+      expect(
+        await bobService.commentOnSpacePost(
+          spaceId,
+          root.postId,
+          'Member redistribution',
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerService.ingestSnapshot(
+          bobService.snapshotJson(
+            (await bobService.load(spaceId))!,
+            recipient: owner,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        (await ownerService.spacePostCommentsOf(
+          spaceId,
+          root.postId,
+        )).map((comment) => comment.body),
+        ['Owner comment', 'Member redistribution'],
+      );
+
+      final bobBundle = (await bobService.load(spaceId))!;
+      final bobState = (await bobService.stateOf(spaceId))!;
+      final bobHead = bobBundle.messages.singleWhere(
+        (message) => message.author == bob,
+      );
+      final clearWithAttachment = const GroupMessageCleartext(
+        body: 'attachment smuggling',
+        attachment: GroupAttachment(
+          kind: 'file',
+          dataB64: 'AQID',
+          w: 0,
+          h: 0,
+          cid: 'must-not-be-referenced',
+        ),
+      ).encode();
+      final createdAt = bobHead.createdAtMs + 1;
+      final encryptedWithAttachment = await encryptGroupPayload(
+        groupId: spaceId,
+        membershipEpoch: bobState.epoch,
+        author: bob,
+        seq: bobHead.seq + 1,
+        prevHash: groupMessageHash(bobHead),
+        policyVersion: bobState.policyVersion,
+        createdAtMs: createdAt,
+        clearText: clearWithAttachment,
+        epochKey: bobBundle.localEpochKeys[bobState.epoch]!,
+      );
+      clearWithAttachment.fillRange(0, clearWithAttachment.length, 0);
+      final smuggled = _FakeSigner(bob).signMessage(
+        GroupMessage(
+          groupId: spaceId,
+          author: bob,
+          seq: bobHead.seq + 1,
+          prevHash: groupMessageHash(bobHead),
+          body: '',
+          spacePostId: root.postId,
+          version: 2,
+          membershipEpoch: bobState.epoch,
+          encryptedPayload: encryptedWithAttachment,
+          policyVersion: bobState.policyVersion,
+          createdAtMs: createdAt,
+          signature: Uint8List(0),
+        ),
+      );
+      expect(
+        await ownerService.ingestSnapshot(
+          bobService.snapshotJson(
+            bobBundle.copyWith(messages: [...bobBundle.messages, smuggled]),
+            recipient: owner,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        (await ownerService.load(spaceId))!.messages,
+        hasLength(2),
+        reason: 'text-only comment policy is enforced after AEAD open',
+      );
+      expect(
+        await ownerService.referencedContentIds(spaceId),
+        isNot(contains('must-not-be-referenced')),
       );
     },
   );
