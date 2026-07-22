@@ -419,6 +419,29 @@ void main() {
         expect(created.error, isNull);
         final channel = created.channelId!;
         expect(
+          await api.updateChannel(space, channel, {
+            'name': 'protocol-design',
+            'description': 'Signed channel metadata',
+            'position': 20,
+            'history': 'since',
+            'historySince': 1234,
+          }),
+          isNull,
+        );
+        final updated = (await api.channels(
+          space,
+        ))!.singleWhere((value) => value['channelId'] == channel);
+        expect(updated['name'], 'protocol-design');
+        expect(updated['description'], 'Signed channel metadata');
+        expect(updated['position'], 20);
+        expect(updated['history'], SpaceChannelHistory.since.name);
+        expect(updated['historySince'], 1234);
+        expect(
+          await api.updateChannel(space, channel, {'kind': 'voice'}),
+          'invalid channel properties',
+          reason: 'identity-bearing fields are not patchable',
+        );
+        expect(
           await api.sendChannelMessage(space, channel, 'signed note', null),
           isNull,
         );

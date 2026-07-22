@@ -1116,6 +1116,40 @@ Map<String, dynamic> openApiSpec() {
           },
           'responses': ok({'type': obj}),
         },
+        'patch': {
+          'summary': 'Patch mutable signed channel properties',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space', 'channel'],
+                  'properties': {
+                    'space': {'type': 'string'},
+                    'channel': {'type': 'string'},
+                    'name': {'type': 'string', 'maxLength': 100},
+                    'description': {'type': 'string', 'maxLength': 1024},
+                    'categoryId': {
+                      'type': ['string', 'null'],
+                      'description': 'Null moves the channel to the Space root',
+                    },
+                    'position': {'type': 'integer'},
+                    'history': {
+                      'type': 'string',
+                      'enum': ['fromJoin', 'full', 'since'],
+                    },
+                    'historySince': {
+                      'type': ['integer', 'null'],
+                      'format': 'int64',
+                    },
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
       },
       '/spaces/members': {
         'get': {
@@ -2102,6 +2136,7 @@ class ApiHandler {
     this.moderateSpace,
     this.revokeSpaceModeration,
     this.createSpaceChannel,
+    this.updateSpaceChannel,
     this.spaceChannelAction,
     this.setSpaceChannelMembers,
     this.spaceChannelMessages,
@@ -2325,6 +2360,12 @@ class ApiHandler {
     List<String> members,
   )?
   createSpaceChannel;
+  final Future<String?> Function(
+    String spaceHex,
+    String channelHex,
+    Map<String, Object?> patch,
+  )?
+  updateSpaceChannel;
   final Future<String?> Function(
     String spaceHex,
     String channelHex,
@@ -3229,6 +3270,45 @@ class ApiHandler {
       return result.error == null
           ? ApiResponse(200, {'ok': true, 'channelId': result.channelId})
           : ApiResponse(400, {'error': result.error});
+    }
+    if (method == 'PATCH' && path == '/v1/spaces/channels') {
+      final handler = updateSpaceChannel;
+      if (handler == null) {
+        return const ApiResponse(501, {'error': 'Space channels unavailable'});
+      }
+      final space = body?['space'];
+      final channel = body?['channel'];
+      const mutableKeys = {
+        'name',
+        'description',
+        'categoryId',
+        'position',
+        'history',
+        'historySince',
+      };
+      if (space is! String ||
+          space.isEmpty ||
+          channel is! String ||
+          channel.isEmpty ||
+          body!.keys.any(
+            (key) =>
+                key != 'space' &&
+                key != 'channel' &&
+                !mutableKeys.contains(key),
+          )) {
+        return const ApiResponse(400, {'error': 'invalid channel properties'});
+      }
+      final patch = <String, Object?>{
+        for (final key in mutableKeys)
+          if (body.containsKey(key)) key: body[key],
+      };
+      if (patch.isEmpty) {
+        return const ApiResponse(400, {'error': 'invalid channel properties'});
+      }
+      final error = await handler(space, channel, patch);
+      return error == null
+          ? const ApiResponse(200, {'ok': true})
+          : ApiResponse(400, {'error': error});
     }
     if (method == 'POST' && path == '/v1/spaces/channels/action') {
       final handler = spaceChannelAction;

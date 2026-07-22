@@ -250,6 +250,12 @@ class AppL10nEn extends AppL10n {
   String get spaceChannelNameHint => 'Channel name';
 
   @override
+  String get spaceChannelDescriptionHint => 'Description (optional)';
+
+  @override
+  String get spaceChannelKind => 'Channel type';
+
+  @override
   String get spaceChannelText => 'Text channel';
 
   @override
@@ -257,6 +263,12 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get spaceChannelCategory => 'Category';
+
+  @override
+  String get spaceChannelCategoryLabel => 'Place in category';
+
+  @override
+  String get spaceChannelNoCategory => 'Community root';
 
   @override
   String get spaceChannelAccess => 'Access';
@@ -270,6 +282,43 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get spaceChannelAccessSecret => 'Secret · admins only initially';
+
+  @override
+  String get spaceChannelHistory => 'History for new members';
+
+  @override
+  String get spaceChannelHistoryFromJoin => 'Only from the time they join';
+
+  @override
+  String get spaceChannelHistoryFull => 'Full channel history';
+
+  @override
+  String get spaceChannelHistorySinceNow => 'Messages from now on';
+
+  @override
+  String get spaceChannelManage => 'Manage channel';
+
+  @override
+  String get spaceChannelEdit => 'Edit channel';
+
+  @override
+  String get spaceChannelSave => 'Save channel';
+
+  @override
+  String get spaceChannelArchive => 'Archive channel';
+
+  @override
+  String get spaceChannelRestore => 'Restore channel';
+
+  @override
+  String get spaceChannelMakeDefault => 'Make default channel';
+
+  @override
+  String get spaceChannelArchived => 'Archived';
+
+  @override
+  String get spaceChannelArchiveCategoryBlocked =>
+      'Move or archive the active channels in this category first.';
 
   @override
   String get spaceVoiceStartFailed =>

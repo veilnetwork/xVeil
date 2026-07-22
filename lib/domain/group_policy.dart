@@ -1039,12 +1039,19 @@ GroupFoldResult foldControlLog({
               value.isDefault &&
               !value.archived,
         );
+        final hasActiveChildren = channels.values.any(
+          (value) => value.categoryId == channel.channelId && !value.archived,
+        );
         if (previous == null ||
             !previous.sameIdentity(channel) ||
             (channel.categoryId != null &&
                 (category == null ||
                     category.kind != SpaceChannelKind.category ||
                     category.archived)) ||
+            (previous.kind == SpaceChannelKind.category &&
+                !previous.archived &&
+                channel.archived &&
+                hasActiveChildren) ||
             (previous.isDefault &&
                 (!channel.isDefault || channel.archived) &&
                 !otherDefault)) {
