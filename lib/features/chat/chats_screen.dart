@@ -16,12 +16,12 @@ import '../../state/nickname_peers.dart';
 import 'chat_actions.dart';
 import 'chat_search.dart';
 import '../../state/group_service_providers.dart';
-import '../groups/group_tile.dart';
 import '../../state/folder_panel_controller.dart';
 import '../../state/vnote_message.dart';
 import '../../state/voice_message.dart';
 import '../../state/providers.dart';
 import '../contacts/invite_exchange_sheet.dart';
+import '../groups/group_tile.dart';
 import '../network/security_center_sheet.dart';
 
 /// The chat-list folder filter: null = "All", else a [ChatFolder.id]. A plain
@@ -131,12 +131,10 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
   ) {
     final needle = _query.trim().toLowerCase();
     final chatHits = filterConversationsByName(convos, needle);
-    // Group chats live in this list now (NAV1) — match them by name in the
-    // same section. (Message-scan inside groups is a follow-up.)
     final groupHits = needle.isEmpty
         ? const <GroupListEntry>[]
         : groups
-              .where((g) => g.name.toLowerCase().contains(needle))
+              .where((group) => group.name.toLowerCase().contains(needle))
               .toList(growable: false);
     final empty =
         chatHits.isEmpty && groupHits.isEmpty && _msgHits.isEmpty && !_scanning;
@@ -154,7 +152,7 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
             child: Text(l.navChats, style: TextStyle(color: scheme.primary)),
           ),
         for (final c in chatHits) _ConversationTile(conversation: c),
-        for (final g in groupHits) GroupTile(entry: g),
+        for (final group in groupHits) GroupTile(entry: group),
         if (_msgHits.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -315,10 +313,8 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('$e')),
               data: (list) {
-                // NAV1: group chats live HERE, inlined with 1:1 conversations
-                // (channels are ideologically a different thing — that tab now
-                // waits for the real channels epic). Folders stay peer-based,
-                // so a custom folder filters groups out for now.
+                // Group chats share the Chats timeline with 1:1 chats. Custom
+                // folders are peer-based for now, so they only affect 1:1 rows.
                 final groups = folder == null
                     ? ref.watch(groupListProvider).valueOrNull ??
                           const <GroupListEntry>[]
@@ -344,15 +340,15 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
                 final archived = scoped
                     .where((c) => c.peer.archived)
                     .toList(growable: false);
-                // One recency-ordered stream: 1:1 rows by their last message,
-                // group rows by the group log's last entry.
+                // One recency-ordered Chats stream: direct and group chats.
                 final rows = <(int, Widget)>[
                   for (final c in active)
                     (
                       c.lastMessage?.timestamp.millisecondsSinceEpoch ?? 0,
                       _ConversationTile(conversation: c),
                     ),
-                  for (final g in groups) (g.lastTs, GroupTile(entry: g)),
+                  for (final group in groups)
+                    (group.lastTs, GroupTile(entry: group)),
                 ]..sort((a, b) => b.$1.compareTo(a.$1));
                 return Column(
                   children: [
@@ -621,15 +617,20 @@ class _FolderDrawer extends ConsumerWidget {
                 showAddContactSheet(context, ref);
               },
             ),
-            // Group creation moved here from the Channels tab (NAV1): group
-            // chats live in the chats list now, so their creation entry sits
-            // next to "add contact".
             ListTile(
               leading: const Icon(Icons.group_add_outlined),
               title: Text(l.groupCreateTitle),
               onTap: () {
                 Navigator.of(context).pop();
                 showCreateGroupDialog(context, ref);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.diversity_3_outlined),
+              title: Text(l.navCommunities),
+              onTap: () {
+                Navigator.of(context).pop();
+                context.push('/spaces');
               },
             ),
             ListTile(

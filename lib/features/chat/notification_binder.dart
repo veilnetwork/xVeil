@@ -236,7 +236,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       devLog(() => 'xVeil[notify]: flush — no group service');
     } else {
       try {
-        final groups = await gsvc.listGroups();
+        final groups = [...await gsvc.listGroups(), ...await gsvc.listSpaces()];
         devLog(
           () =>
               'xVeil[notify]: flush — ${groups.length} groups, unread: '

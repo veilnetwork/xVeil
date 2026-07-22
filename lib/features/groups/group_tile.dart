@@ -1,7 +1,5 @@
-// Shared group-chat tile (nav redesign NAV1): the chats list inlines group
-// chats next to 1:1 conversations, so the tile — avatar, name, last-message
-// preview, mute glyph, unread badge, long-press mute sheet — lives here and
-// is used by both the chats list and any group-only surface.
+// Shared group-chat tile. Group chats are shown beside 1:1 conversations in
+// Chats, while Spaces have their own Communities surface.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,26 +15,24 @@ class GroupTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final g = entry;
+    final group = entry;
     final scheme = Theme.of(context).colorScheme;
-    final svc = ref.read(groupServiceProvider);
+    final service = ref.read(groupServiceProvider);
     return ListTile(
       leading: CircleAvatar(
         child: Text(
-          g.name.isEmpty ? '#' : g.name.characters.first.toUpperCase(),
+          group.name.isEmpty ? '#' : group.name.characters.first.toUpperCase(),
         ),
       ),
-      title: Text(g.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      title: Text(group.name, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
-        g.preview.isEmpty ? g.groupId.short : g.preview,
+        group.preview.isEmpty ? group.groupId.short : group.preview,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Group marker — distinguishes a group row inside the mixed chats
-          // list without inventing a second visual language.
           Padding(
             padding: const EdgeInsets.only(right: 6),
             child: Icon(
@@ -45,7 +41,7 @@ class GroupTile extends ConsumerWidget {
               color: scheme.onSurfaceVariant,
             ),
           ),
-          if (g.muted)
+          if (group.muted)
             Padding(
               padding: const EdgeInsets.only(right: 6),
               child: Icon(
@@ -54,28 +50,30 @@ class GroupTile extends ConsumerWidget {
                 color: scheme.onSurfaceVariant,
               ),
             ),
-          if (g.unread > 0)
+          if (group.unread > 0)
             CircleAvatar(
               radius: 12,
-              backgroundColor: g.muted
+              backgroundColor: group.muted
                   ? scheme.surfaceContainerHighest
                   : scheme.primary,
               child: Text(
-                g.unread > 999 ? '999+' : '${g.unread}',
+                group.unread > 999 ? '999+' : '${group.unread}',
                 style: TextStyle(
                   fontSize: 11,
-                  color: g.muted ? scheme.onSurfaceVariant : scheme.onPrimary,
+                  color: group.muted
+                      ? scheme.onSurfaceVariant
+                      : scheme.onPrimary,
                 ),
               ),
             ),
         ],
       ),
-      onTap: () => context.push('/group/${g.groupId.hex}'),
-      onLongPress: svc == null
+      onTap: () => context.push('/group/${group.groupId.hex}'),
+      onLongPress: service == null
           ? null
           : () async {
-              final l10n = AppL10n.of(context);
-              final muted = g.muted;
+              final l = AppL10n.of(context);
+              final muted = group.muted;
               await showModalBottomSheet<void>(
                 context: context,
                 builder: (sheet) => SafeArea(
@@ -85,10 +83,10 @@ class GroupTile extends ConsumerWidget {
                           ? Icons.volume_up_outlined
                           : Icons.volume_off_outlined,
                     ),
-                    title: Text(muted ? l10n.chatMenuUnmute : l10n.chatMenuMute),
+                    title: Text(muted ? l.chatMenuUnmute : l.chatMenuMute),
                     onTap: () {
                       Navigator.of(sheet).pop();
-                      svc.setGroupMuted(g.groupId, !muted);
+                      service.setGroupMuted(group.groupId, !muted);
                     },
                   ),
                 ),
@@ -98,44 +96,46 @@ class GroupTile extends ConsumerWidget {
   }
 }
 
-/// The create-group dialog, shared by the drawer menu item (and any future
-/// surface). Navigates into the fresh group on success.
+/// Creates a group chat and opens its group-wide conversation.
 Future<void> showCreateGroupDialog(BuildContext context, WidgetRef ref) async {
   final l = AppL10n.of(context);
-  final ctrl = TextEditingController();
+  final controller = TextEditingController();
   final name = await showDialog<String>(
     context: context,
-    builder: (ctx) => AlertDialog(
+    builder: (dialogContext) => AlertDialog(
       title: Text(l.groupCreateTitle),
       content: TextField(
-        controller: ctrl,
+        controller: controller,
         autofocus: true,
+        maxLength: 64,
         decoration: InputDecoration(hintText: l.groupNameHint),
-        onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+        onSubmitted: (value) => Navigator.of(dialogContext).pop(value.trim()),
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(ctx).pop(),
+          onPressed: () => Navigator.of(dialogContext).pop(),
           child: Text(l.actionCancel),
         ),
         FilledButton(
-          onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+          onPressed: () =>
+              Navigator.of(dialogContext).pop(controller.text.trim()),
           child: Text(l.groupCreateAction),
         ),
       ],
     ),
   );
+  controller.dispose();
   if (name == null || name.isEmpty) return;
-  final svc = ref.read(groupServiceProvider);
-  if (svc == null) return;
+  final service = ref.read(groupServiceProvider);
+  if (service == null) return;
   try {
-    final gid = await svc.createGroup(name);
-    if (context.mounted) context.push('/group/${gid.hex}');
+    final groupId = await service.createGroup(name);
+    if (context.mounted) context.push('/group/${groupId.hex}');
   } catch (_) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.groupOperationFailed)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.groupOperationFailed)));
     }
   }
 }

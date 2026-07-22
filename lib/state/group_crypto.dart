@@ -13,6 +13,42 @@ import '../domain/group_call.dart';
 import '../domain/group_content.dart';
 import '../domain/group_message.dart';
 import '../domain/group_reaction.dart';
+import '../domain/space_post.dart';
+
+/// Sign a Space genesis manifest with the owner's deniable identity key.
+/// Legacy v1 manifests are deliberately never signed through this path.
+SpaceManifest signSpaceGenesisManifest({
+  required String identityToml,
+  required SpaceManifest unsigned,
+  DynamicLibrary? lib,
+}) {
+  final result = EmbeddedNode.signMessage(
+    identityToml,
+    unsigned.canonicalBytes(),
+    lib: lib,
+  );
+  return unsigned.withSignature(result.signature);
+}
+
+/// Verify a Space genesis signature and bind its public key to its owner id.
+bool verifySpaceGenesisManifest(SpaceManifest manifest, {DynamicLibrary? lib}) {
+  if (!manifest.isSpace ||
+      manifest.genesisPubKey.length != 32 ||
+      manifest.signature.length != 64) {
+    return false;
+  }
+  try {
+    return EmbeddedNode.verifyMessage(
+      nodeId: manifest.owner.bytes,
+      publicKey: manifest.genesisPubKey,
+      message: manifest.canonicalBytes(),
+      signature: manifest.signature,
+      lib: lib,
+    );
+  } catch (_) {
+    return false;
+  }
+}
 
 /// Sign [unsigned] with the identity in [identityToml], returning a copy with
 /// its signature + author public key filled. The signature is over
@@ -106,6 +142,40 @@ bool verifyGroupReaction(GroupReaction r, {DynamicLibrary? lib}) {
       publicKey: r.authorPubKey,
       message: r.canonicalBytes(),
       signature: r.signature,
+      lib: lib,
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Sign a Space publication with the author's deniable identity key.
+SpacePost signSpacePost({
+  required String identityToml,
+  required SpacePost unsigned,
+  DynamicLibrary? lib,
+}) {
+  final result = EmbeddedNode.signMessage(
+    identityToml,
+    unsigned.canonicalBytes(),
+    lib: lib,
+  );
+  return unsigned.withSignature(result.signature, result.publicKey);
+}
+
+/// Verify the publication signature and bind the public key to its author.
+bool verifySpacePost(SpacePost post, {DynamicLibrary? lib}) {
+  if (!post.isStructurallyValid ||
+      post.authorPubKey.length != 32 ||
+      post.signature.length != 64) {
+    return false;
+  }
+  try {
+    return EmbeddedNode.verifyMessage(
+      nodeId: post.author.bytes,
+      publicKey: post.authorPubKey,
+      message: post.canonicalBytes(),
+      signature: post.signature,
       lib: lib,
     );
   } catch (_) {

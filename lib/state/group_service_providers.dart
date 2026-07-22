@@ -44,6 +44,29 @@ final groupListProvider = StreamProvider<List<GroupListEntry>>((ref) async* {
   }
 });
 
+/// Spaces have a separate user-facing surface from group chats.
+final spaceListProvider = StreamProvider<List<GroupListEntry>>((ref) async* {
+  final service = ref.watch(groupServiceProvider);
+  if (service == null) {
+    yield const [];
+    return;
+  }
+  yield await service.listSpaces();
+  final ticks = StreamController<void>();
+  void onTick() {
+    if (!ticks.isClosed) ticks.add(null);
+  }
+
+  service.changes.addListener(onTick);
+  ref.onDispose(() {
+    service.changes.removeListener(onTick);
+    unawaited(ticks.close());
+  });
+  await for (final _ in ticks.stream) {
+    yield await service.listSpaces();
+  }
+});
+
 /// Builds the real signer from the GUI app's active deniable identity.
 final groupSignerProvider = FutureProvider<GroupSigner?>((ref) async {
   final selfId = ref.watch(
@@ -83,6 +106,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     ourCertVersion: 1,
     send: (peer, groupId, json) =>
         messaging.sendGroupSnapshot(peer, groupId.hex, json),
+    sendSpaceInvite: messaging.sendSpaceInvite,
+    sendSpaceInviteDecision: messaging.sendSpaceInviteDecision,
     sendContentRequest: (holder, json) =>
         messaging.sendGroupContentRequest(holder, json),
     sendGroupCallFrame: (peer, signal, json) =>
@@ -99,6 +124,12 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
 
   messaging.onGroupEntry = (peer, bundleJson) async {
     await service.ingestGroupEntry(peer, bundleJson);
+  };
+  messaging.onSpaceInvite = (peer, inviteJson) async {
+    await service.receiveSpaceInvite(peer, inviteJson);
+  };
+  messaging.onSpaceInviteDecision = (peer, decisionJson) async {
+    await service.receiveSpaceInviteDecision(peer, decisionJson);
   };
   messaging.onGroupContentRequest = (peer, requestJson) {
     unawaited(service.handleContentRequest(requestJson));

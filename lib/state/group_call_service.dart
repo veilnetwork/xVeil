@@ -9,6 +9,8 @@ import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call_signal.dart';
 import '../domain/group.dart';
 import '../domain/group_call.dart';
+import '../domain/group_policy.dart';
+import '../domain/space_channel.dart';
 import 'call_service.dart';
 import 'call_slot.dart';
 import 'group_service_providers.dart';
@@ -34,6 +36,7 @@ const Duration kGroupCallRoomTtl = Duration(seconds: 150);
 class ActiveGroupRoom {
   const ActiveGroupRoom({
     required this.groupId,
+    this.channelId,
     required this.callId,
     required this.initiator,
     required this.membershipEpoch,
@@ -42,6 +45,7 @@ class ActiveGroupRoom {
   });
 
   final NodeId groupId;
+  final NodeId? channelId;
   final String callId;
   final NodeId initiator;
   final int membershipEpoch;
@@ -150,14 +154,27 @@ class GroupCallService {
     final call = _current;
     if (call == null || !call.isLive) return;
     final state = await _groups.stateOf(call.groupId);
-    if (state == null || !state.isMember(_groups.selfId)) {
+    if (state == null ||
+        !SpaceAcl(state).allows(
+          _groups.selfId,
+          SpacePermission.enterVoice,
+          channelId: call.channelId,
+        )) {
       _end(CallEndReason.error, roomOver: true);
       return;
     }
     final participants = Map<String, GroupCallParticipant>.from(
       call.participants,
     );
-    participants.removeWhere((hex, _) => !state.members.containsKey(hex));
+    participants.removeWhere((hex, _) {
+      final participant = state.members[hex];
+      return participant == null ||
+          !SpaceAcl(state).allows(
+            participant.nodeId,
+            SpacePermission.enterVoice,
+            channelId: call.channelId,
+          );
+    });
     final epochChanged = state.epoch != call.membershipEpoch;
     if ((participants.length != call.participants.length || epochChanged) &&
         _current?.callId == call.callId) {
@@ -171,19 +188,38 @@ class GroupCallService {
     }
   }
 
-  Future<bool> startCall(NodeId groupId, CallMedia media) async {
+  Future<bool> startCall(
+    NodeId groupId,
+    CallMedia media, {
+    NodeId? channelId,
+  }) async {
     if (media.isEmpty || (_current?.isLive ?? false) || _otherCallBusy()) {
       return false;
     }
     if (!(_callSlot?.acquire(CallSlotOwner.group) ?? true)) return false;
     final state = await _groups.stateOf(groupId);
-    if (state == null || !state.isMember(_groups.selfId)) {
+    if (state == null ||
+        !SpaceAcl(state).allows(
+          _groups.selfId,
+          SpacePermission.enterVoice,
+          channelId: channelId,
+        )) {
       _callSlot?.release(CallSlotOwner.group);
       return false;
+    }
+    if (channelId != null) {
+      final channel = state.channels[channelId.hex];
+      if (channel == null ||
+          channel.kind != SpaceChannelKind.voice ||
+          channel.archived) {
+        _callSlot?.release(CallSlotOwner.group);
+        return false;
+      }
     }
     final now = _now();
     final call = GroupCall(
       groupId: groupId,
+      channelId: channelId,
       callId: _uuid.v4(),
       initiator: _groups.selfId,
       membershipEpoch: state.epoch,
@@ -207,6 +243,7 @@ class GroupCallService {
     _set(call);
     final sent = await _groups.broadcastGroupCallSignal(
       groupId,
+      channelId: channelId,
       callId: call.callId,
       type: GroupCallSignalType.announce,
       media: media,
@@ -229,7 +266,12 @@ class GroupCallService {
       return false;
     }
     final state = await _groups.stateOf(call.groupId);
-    if (state == null || !state.isMember(_groups.selfId)) {
+    if (state == null ||
+        !SpaceAcl(state).allows(
+          _groups.selfId,
+          SpacePermission.enterVoice,
+          channelId: call.channelId,
+        )) {
       _end(CallEndReason.error, roomOver: true);
       return false;
     }
@@ -253,6 +295,7 @@ class GroupCallService {
     _cancelRingTimer();
     final sent = await _groups.broadcastGroupCallSignal(
       call.groupId,
+      channelId: call.channelId,
       callId: call.callId,
       type: GroupCallSignalType.join,
       media: call.media,
@@ -278,11 +321,11 @@ class GroupCallService {
   /// Join an ongoing room from the passive banner: a declined or missed ring,
   /// or re-joining after leave. Adopts the announced room as a local ringing
   /// call, then runs the ordinary join path.
-  Future<bool> joinRoom(NodeId groupId) async {
+  Future<bool> joinRoom(NodeId groupId, {NodeId? channelId}) async {
     final current = _current;
     if (current != null && current.isLive) return false;
     if (_otherCallBusy()) return false;
-    final room = activeRoomFor(groupId);
+    final room = activeRoomFor(groupId, channelId: channelId);
     if (room == null) return false;
     if (!(_callSlot?.acquire(CallSlotOwner.group) ?? true)) return false;
     _suppressRing(room.callId);
@@ -290,6 +333,7 @@ class GroupCallService {
     _set(
       GroupCall(
         groupId: room.groupId,
+        channelId: room.channelId,
         callId: room.callId,
         initiator: room.initiator,
         membershipEpoch: room.membershipEpoch,
@@ -324,6 +368,7 @@ class GroupCallService {
       unawaited(
         _groups.broadcastGroupCallSignal(
           call.groupId,
+          channelId: call.channelId,
           callId: call.callId,
           type: GroupCallSignalType.leave,
           reason: CallEndReason.hangup,
@@ -345,6 +390,7 @@ class GroupCallService {
     unawaited(
       _groups.broadcastGroupCallSignal(
         call.groupId,
+        channelId: call.channelId,
         callId: call.callId,
         type: GroupCallSignalType.end,
         reason: CallEndReason.hangup,
@@ -435,6 +481,7 @@ class GroupCallService {
     }
     await _groups.broadcastGroupCallSignal(
       call.groupId,
+      channelId: call.channelId,
       callId: call.callId,
       type: GroupCallSignalType.renegotiate,
       media: media,
@@ -457,6 +504,7 @@ class GroupCallService {
         final media = signal.media!;
         call = GroupCall(
           groupId: signal.groupId,
+          channelId: signal.channelId,
           callId: signal.callId,
           initiator: signal.author,
           membershipEpoch: signal.membershipEpoch,
@@ -480,7 +528,10 @@ class GroupCallService {
         _armRingTimer();
         return;
       }
-      if (call.groupId != signal.groupId) return;
+      if (call.groupId != signal.groupId ||
+          call.channelId != signal.channelId) {
+        return;
+      }
       if (call.callId != signal.callId) {
         // Simultaneous rooms converge on the lexicographically smaller id.
         if (signal.callId.compareTo(call.callId) >= 0) return;
@@ -510,13 +561,14 @@ class GroupCallService {
       final role = state?.roleOf(signal.author);
       if (role != null && role.rank >= GroupRole.admin.rank) {
         _rememberEndedCall(signal.groupId, signal.callId);
-        _forgetRoom(signal.groupId.hex);
+        _forgetRoom(signal.groupId, signal.channelId);
       }
       return;
     }
     if (call == null ||
         !call.isLive ||
         call.groupId != signal.groupId ||
+        call.channelId != signal.channelId ||
         call.callId != signal.callId) {
       return;
     }
@@ -646,6 +698,7 @@ class GroupCallService {
     if (call == null || !call.isLive || !call.isJoined(_groups.selfId)) return;
     await _groups.broadcastGroupCallSignal(
       call.groupId,
+      channelId: call.channelId,
       callId: call.callId,
       type: GroupCallSignalType.heartbeat,
       // A renegotiation is a live frame and can be lost. Every heartbeat
@@ -680,6 +733,7 @@ class GroupCallService {
     if (call == null || !call.isLive || !call.isJoined(_groups.selfId)) return;
     await _groups.broadcastGroupCallSignal(
       call.groupId,
+      channelId: call.channelId,
       callId: call.callId,
       type: GroupCallSignalType.announce,
       // Announce remains the non-empty room capability for a peer that missed
@@ -726,7 +780,7 @@ class GroupCallService {
       // The room itself is finished (admin end / membership lost): bury the
       // call id and drop the banner.
       _rememberEndedCall(call.groupId, call.callId);
-      _forgetRoom(call.groupId.hex);
+      _forgetRoom(call.groupId, call.channelId);
     } else {
       // WE left the room (decline / missed / hangup) but it keeps going for
       // the others: never ring this call id again, keep the banner offer.
@@ -755,8 +809,9 @@ class GroupCallService {
     final media = signal.media;
     if (media == null || media.isEmpty) return;
     _pruneRooms();
-    _knownRooms[signal.groupId.hex] = ActiveGroupRoom(
+    _knownRooms[_roomKey(signal.groupId, signal.channelId)] = ActiveGroupRoom(
       groupId: signal.groupId,
+      channelId: signal.channelId,
       callId: signal.callId,
       initiator: signal.author,
       membershipEpoch: signal.membershipEpoch,
@@ -766,8 +821,13 @@ class GroupCallService {
     roomsRevision.value++;
   }
 
-  void _forgetRoom(String groupHex) {
-    if (_knownRooms.remove(groupHex) != null) roomsRevision.value++;
+  String _roomKey(NodeId groupId, NodeId? channelId) =>
+      '${groupId.hex}:${channelId?.hex ?? "legacy"}';
+
+  void _forgetRoom(NodeId groupId, NodeId? channelId) {
+    if (_knownRooms.remove(_roomKey(groupId, channelId)) != null) {
+      roomsRevision.value++;
+    }
   }
 
   void _pruneRooms() {
@@ -788,9 +848,9 @@ class GroupCallService {
 
   /// The ongoing room to offer in [groupId]'s banner, or null. The room we
   /// are currently inside is excluded — the in-call UI owns that state.
-  ActiveGroupRoom? activeRoomFor(NodeId groupId) {
+  ActiveGroupRoom? activeRoomFor(NodeId groupId, {NodeId? channelId}) {
     _pruneRooms();
-    final room = _knownRooms[groupId.hex];
+    final room = _knownRooms[_roomKey(groupId, channelId)];
     if (room == null) return null;
     final call = _current;
     if (call != null && call.isLive && call.callId == room.callId) return null;

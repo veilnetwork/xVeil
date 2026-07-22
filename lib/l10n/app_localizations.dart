@@ -355,6 +355,18 @@ abstract class AppL10n {
   /// **'Chats'**
   String get navChats;
 
+  /// No description provided for @navCommunities.
+  ///
+  /// In en, this message translates to:
+  /// **'Communities'**
+  String get navCommunities;
+
+  /// No description provided for @navFeed.
+  ///
+  /// In en, this message translates to:
+  /// **'Feed'**
+  String get navFeed;
+
   /// No description provided for @navNetwork.
   ///
   /// In en, this message translates to:
@@ -415,17 +427,479 @@ abstract class AppL10n {
   /// **'Failed'**
   String get callOutcomeFailed;
 
-  /// No description provided for @channelsEmpty.
+  /// No description provided for @spaceCreateTitle.
   ///
   /// In en, this message translates to:
-  /// **'No channels yet'**
-  String get channelsEmpty;
+  /// **'New community'**
+  String get spaceCreateTitle;
 
-  /// No description provided for @channelsEmptyHint.
+  /// No description provided for @spaceCreateAction.
   ///
   /// In en, this message translates to:
-  /// **'Channels — owner-signed broadcast feeds — are coming in a future update. Your group chats now live in the Chats tab.'**
-  String get channelsEmptyHint;
+  /// **'Create'**
+  String get spaceCreateAction;
+
+  /// No description provided for @spaceNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Community name'**
+  String get spaceNameHint;
+
+  /// No description provided for @spaceDescriptionLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Description'**
+  String get spaceDescriptionLabel;
+
+  /// No description provided for @spaceDescriptionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'What this community is for'**
+  String get spaceDescriptionHint;
+
+  /// No description provided for @spaceDescriptionEditTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit description'**
+  String get spaceDescriptionEditTitle;
+
+  /// No description provided for @spaceDescriptionSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save description'**
+  String get spaceDescriptionSave;
+
+  /// No description provided for @spaceVisibilityLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Visibility'**
+  String get spaceVisibilityLabel;
+
+  /// No description provided for @spaceVisibilityPublic.
+  ///
+  /// In en, this message translates to:
+  /// **'Public'**
+  String get spaceVisibilityPublic;
+
+  /// No description provided for @spaceVisibilityPrivate.
+  ///
+  /// In en, this message translates to:
+  /// **'Private'**
+  String get spaceVisibilityPrivate;
+
+  /// No description provided for @spaceVisibilitySecret.
+  ///
+  /// In en, this message translates to:
+  /// **'Secret'**
+  String get spaceVisibilitySecret;
+
+  /// No description provided for @spaceVisibilityPublicHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Posts may be shared publicly. Automatic discovery is not enabled until the holder protocol is ready.'**
+  String get spaceVisibilityPublicHint;
+
+  /// No description provided for @spaceVisibilityPrivateHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Membership is by invitation and community content is encrypted for current members.'**
+  String get spaceVisibilityPrivateHint;
+
+  /// No description provided for @spaceVisibilitySecretHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Invitations hide the community name; content is encrypted and the community is never searchable.'**
+  String get spaceVisibilitySecretHint;
+
+  /// No description provided for @spaceEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No communities yet'**
+  String get spaceEmpty;
+
+  /// No description provided for @spaceOperationFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not update the community. Check the network and try again.'**
+  String get spaceOperationFailed;
+
+  /// No description provided for @spaceChannelsEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No channels in this community'**
+  String get spaceChannelsEmpty;
+
+  /// No description provided for @spaceChannelCreateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New channel'**
+  String get spaceChannelCreateTitle;
+
+  /// No description provided for @spaceChannelNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Channel name'**
+  String get spaceChannelNameHint;
+
+  /// No description provided for @spaceChannelText.
+  ///
+  /// In en, this message translates to:
+  /// **'Text channel'**
+  String get spaceChannelText;
+
+  /// No description provided for @spaceChannelVoice.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice channel'**
+  String get spaceChannelVoice;
+
+  /// No description provided for @spaceChannelCategory.
+  ///
+  /// In en, this message translates to:
+  /// **'Category'**
+  String get spaceChannelCategory;
+
+  /// No description provided for @spaceChannelAccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Access'**
+  String get spaceChannelAccess;
+
+  /// No description provided for @spaceChannelAccessSpace.
+  ///
+  /// In en, this message translates to:
+  /// **'All community members'**
+  String get spaceChannelAccessSpace;
+
+  /// No description provided for @spaceChannelAccessRestricted.
+  ///
+  /// In en, this message translates to:
+  /// **'Restricted · admins only initially'**
+  String get spaceChannelAccessRestricted;
+
+  /// No description provided for @spaceChannelAccessSecret.
+  ///
+  /// In en, this message translates to:
+  /// **'Secret · admins only initially'**
+  String get spaceChannelAccessSecret;
+
+  /// No description provided for @spaceVoiceStartFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not start or join this voice session.'**
+  String get spaceVoiceStartFailed;
+
+  /// No description provided for @spacePostsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Publications'**
+  String get spacePostsTitle;
+
+  /// No description provided for @spacePostsEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No publications yet'**
+  String get spacePostsEmpty;
+
+  /// No description provided for @spacePostCreateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New publication'**
+  String get spacePostCreateTitle;
+
+  /// No description provided for @spacePostTitleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Title (optional)'**
+  String get spacePostTitleHint;
+
+  /// No description provided for @spacePostBodyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Share an update with the community…'**
+  String get spacePostBodyHint;
+
+  /// No description provided for @spacePostPublish.
+  ///
+  /// In en, this message translates to:
+  /// **'Publish'**
+  String get spacePostPublish;
+
+  /// No description provided for @spacePostEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit publication'**
+  String get spacePostEdit;
+
+  /// No description provided for @spacePostEdited.
+  ///
+  /// In en, this message translates to:
+  /// **'Edited'**
+  String get spacePostEdited;
+
+  /// No description provided for @spacePostDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete publication'**
+  String get spacePostDelete;
+
+  /// No description provided for @spacePostDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this publication?'**
+  String get spacePostDeleteTitle;
+
+  /// No description provided for @spacePostDeleteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'A signed tombstone will remove it from the community feed on every synchronized member device. This cannot be undone.'**
+  String get spacePostDeleteBody;
+
+  /// No description provided for @spacePostTypePost.
+  ///
+  /// In en, this message translates to:
+  /// **'Post'**
+  String get spacePostTypePost;
+
+  /// No description provided for @spacePostTypeArticle.
+  ///
+  /// In en, this message translates to:
+  /// **'Article'**
+  String get spacePostTypeArticle;
+
+  /// No description provided for @spaceFeedEnable.
+  ///
+  /// In en, this message translates to:
+  /// **'Show this community in Feed'**
+  String get spaceFeedEnable;
+
+  /// No description provided for @spaceFeedDisable.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide this community from Feed'**
+  String get spaceFeedDisable;
+
+  /// No description provided for @spaceSettingsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Members and settings'**
+  String get spaceSettingsTitle;
+
+  /// No description provided for @spaceMembersTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Members and settings'**
+  String get spaceMembersTooltip;
+
+  /// No description provided for @spaceMembers.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 member} other{{count} members}}'**
+  String spaceMembers(int count);
+
+  /// No description provided for @spaceMemberAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Invite member'**
+  String get spaceMemberAdd;
+
+  /// No description provided for @spaceNoContactsToAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'All accepted contacts are already members'**
+  String get spaceNoContactsToAdd;
+
+  /// No description provided for @spaceInviteSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Invitation sent. Membership and keys stay private until they accept.'**
+  String get spaceInviteSent;
+
+  /// No description provided for @spaceInvitesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Invitations'**
+  String get spaceInvitesTitle;
+
+  /// No description provided for @spaceSecretInviteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Secret community'**
+  String get spaceSecretInviteTitle;
+
+  /// No description provided for @spaceInviteFrom.
+  ///
+  /// In en, this message translates to:
+  /// **'From {peer}'**
+  String spaceInviteFrom(String peer);
+
+  /// No description provided for @spaceInviteAccept.
+  ///
+  /// In en, this message translates to:
+  /// **'Accept'**
+  String get spaceInviteAccept;
+
+  /// No description provided for @spaceInviteDecline.
+  ///
+  /// In en, this message translates to:
+  /// **'Decline'**
+  String get spaceInviteDecline;
+
+  /// No description provided for @spaceInviteJoining.
+  ///
+  /// In en, this message translates to:
+  /// **'Accepted · waiting for verified membership'**
+  String get spaceInviteJoining;
+
+  /// No description provided for @spaceRoleLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Community role'**
+  String get spaceRoleLabel;
+
+  /// No description provided for @spaceRoleOwner.
+  ///
+  /// In en, this message translates to:
+  /// **'Owner'**
+  String get spaceRoleOwner;
+
+  /// No description provided for @spaceRoleAdmin.
+  ///
+  /// In en, this message translates to:
+  /// **'Administrator'**
+  String get spaceRoleAdmin;
+
+  /// No description provided for @spaceRoleMember.
+  ///
+  /// In en, this message translates to:
+  /// **'Member'**
+  String get spaceRoleMember;
+
+  /// No description provided for @spaceMemberMuted.
+  ///
+  /// In en, this message translates to:
+  /// **'Cannot publish until unmuted'**
+  String get spaceMemberMuted;
+
+  /// No description provided for @spaceMemberMute.
+  ///
+  /// In en, this message translates to:
+  /// **'Restrict publishing'**
+  String get spaceMemberMute;
+
+  /// No description provided for @spaceMemberUnmute.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow publishing'**
+  String get spaceMemberUnmute;
+
+  /// No description provided for @spaceMemberPromote.
+  ///
+  /// In en, this message translates to:
+  /// **'Make administrator'**
+  String get spaceMemberPromote;
+
+  /// No description provided for @spaceMemberDemote.
+  ///
+  /// In en, this message translates to:
+  /// **'Make member'**
+  String get spaceMemberDemote;
+
+  /// No description provided for @spaceMemberRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from community'**
+  String get spaceMemberRemove;
+
+  /// No description provided for @spaceMemberRemoveConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove {member} and rotate access keys?'**
+  String spaceMemberRemoveConfirm(String member);
+
+  /// No description provided for @spaceMemberTransferOwnership.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer ownership'**
+  String get spaceMemberTransferOwnership;
+
+  /// No description provided for @spaceMemberTransferOwnershipConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer ownership to {member}? You will become an administrator, and only the new owner can transfer it back.'**
+  String spaceMemberTransferOwnershipConfirm(String member);
+
+  /// No description provided for @spaceRenameTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename community'**
+  String get spaceRenameTitle;
+
+  /// No description provided for @spaceRenameAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get spaceRenameAction;
+
+  /// No description provided for @spaceRenameDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'You do not have permission to rename this community'**
+  String get spaceRenameDenied;
+
+  /// No description provided for @spaceLeave.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave community'**
+  String get spaceLeave;
+
+  /// No description provided for @spaceLeaveConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'You will lose access to its channels and publications. Protected keys will be rotated for the remaining members.'**
+  String get spaceLeaveConfirm;
+
+  /// No description provided for @spaceOwnerLeaveHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer ownership to another member before leaving the community.'**
+  String get spaceOwnerLeaveHint;
+
+  /// No description provided for @spaceReplicationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'P2P availability'**
+  String get spaceReplicationTitle;
+
+  /// No description provided for @spaceReplicationNeighbors.
+  ///
+  /// In en, this message translates to:
+  /// **'Distribute through {count} nearby members'**
+  String spaceReplicationNeighbors(int count);
+
+  /// No description provided for @spaceReplicationHint.
+  ///
+  /// In en, this message translates to:
+  /// **'More distributors improve offline availability and recovery, but use more traffic on this device.'**
+  String get spaceReplicationHint;
+
+  /// No description provided for @spaceYou.
+  ///
+  /// In en, this message translates to:
+  /// **'You'**
+  String get spaceYou;
+
+  /// No description provided for @feedEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Your feed is empty'**
+  String get feedEmpty;
+
+  /// No description provided for @feedEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Publications from enabled communities will appear here in chronological order.'**
+  String get feedEmptyHint;
 
   /// No description provided for @chatsEmpty.
   ///
@@ -598,7 +1072,7 @@ abstract class AppL10n {
   /// No description provided for @groupCreateTitle.
   ///
   /// In en, this message translates to:
-  /// **'New group'**
+  /// **'New group chat'**
   String get groupCreateTitle;
 
   /// No description provided for @groupCreateAction.
@@ -628,13 +1102,13 @@ abstract class AppL10n {
   /// No description provided for @groupNameHint.
   ///
   /// In en, this message translates to:
-  /// **'Group name'**
+  /// **'Group chat name'**
   String get groupNameHint;
 
   /// No description provided for @groupEmpty.
   ///
   /// In en, this message translates to:
-  /// **'No groups yet'**
+  /// **'No group chats yet'**
   String get groupEmpty;
 
   /// No description provided for @groupNoMessages.
@@ -1044,12 +1518,6 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Closing the window hides it to the system tray and keeps running, so messages and notifications keep arriving. Off = closing quits.'**
   String get settingsCloseToTrayHint;
-
-  /// No description provided for @navChannels.
-  ///
-  /// In en, this message translates to:
-  /// **'Channels'**
-  String get navChannels;
 
   /// No description provided for @navStorage.
   ///
@@ -6312,6 +6780,246 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'An authenticated but invalid change was kept inert.'**
   String get cloudCollectionInvalid;
+
+  /// No description provided for @spaceRulesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Community rules'**
+  String get spaceRulesTitle;
+
+  /// No description provided for @spaceRulesEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'This community has not published rules yet.'**
+  String get spaceRulesEmpty;
+
+  /// No description provided for @spaceRulesPublish.
+  ///
+  /// In en, this message translates to:
+  /// **'Publish rules'**
+  String get spaceRulesPublish;
+
+  /// No description provided for @spaceRulesPublishVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Publish rules version {version}'**
+  String spaceRulesPublishVersion(int version);
+
+  /// No description provided for @spaceRulesFullText.
+  ///
+  /// In en, this message translates to:
+  /// **'Full rules'**
+  String get spaceRulesFullText;
+
+  /// No description provided for @spaceRulesSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'Short summary'**
+  String get spaceRulesSummary;
+
+  /// No description provided for @spaceRulesEffectiveDate.
+  ///
+  /// In en, this message translates to:
+  /// **'Effective date'**
+  String get spaceRulesEffectiveDate;
+
+  /// No description provided for @spaceRulesEffective.
+  ///
+  /// In en, this message translates to:
+  /// **'Effective {date}'**
+  String spaceRulesEffective(String date);
+
+  /// No description provided for @spaceRulesVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Version {version}'**
+  String spaceRulesVersion(int version);
+
+  /// No description provided for @spaceRulesAccept.
+  ///
+  /// In en, this message translates to:
+  /// **'Accept rules'**
+  String get spaceRulesAccept;
+
+  /// No description provided for @spaceRulesAccepted.
+  ///
+  /// In en, this message translates to:
+  /// **'Rules accepted'**
+  String get spaceRulesAccepted;
+
+  /// No description provided for @spaceRulesAcceptanceRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Please review and accept the current rules'**
+  String get spaceRulesAcceptanceRequired;
+
+  /// No description provided for @spaceRulesHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous versions'**
+  String get spaceRulesHistory;
+
+  /// No description provided for @spaceModerationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Moderation'**
+  String get spaceModerationTitle;
+
+  /// No description provided for @spaceModerationEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No moderation actions have been recorded.'**
+  String get spaceModerationEmpty;
+
+  /// No description provided for @spaceModerationAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'New moderation action'**
+  String get spaceModerationAdd;
+
+  /// No description provided for @spaceModerationTarget.
+  ///
+  /// In en, this message translates to:
+  /// **'Member'**
+  String get spaceModerationTarget;
+
+  /// No description provided for @spaceModerationAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Action'**
+  String get spaceModerationAction;
+
+  /// No description provided for @spaceModerationReason.
+  ///
+  /// In en, this message translates to:
+  /// **'Reason'**
+  String get spaceModerationReason;
+
+  /// No description provided for @spaceModerationDuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Duration'**
+  String get spaceModerationDuration;
+
+  /// No description provided for @spaceModerationNoExpiry.
+  ///
+  /// In en, this message translates to:
+  /// **'Until revoked'**
+  String get spaceModerationNoExpiry;
+
+  /// No description provided for @spaceModerationOneHour.
+  ///
+  /// In en, this message translates to:
+  /// **'1 hour'**
+  String get spaceModerationOneHour;
+
+  /// No description provided for @spaceModerationOneDay.
+  ///
+  /// In en, this message translates to:
+  /// **'24 hours'**
+  String get spaceModerationOneDay;
+
+  /// No description provided for @spaceModerationOneWeek.
+  ///
+  /// In en, this message translates to:
+  /// **'7 days'**
+  String get spaceModerationOneWeek;
+
+  /// No description provided for @spaceModerationActive.
+  ///
+  /// In en, this message translates to:
+  /// **'Active'**
+  String get spaceModerationActive;
+
+  /// No description provided for @spaceModerationExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'Expired'**
+  String get spaceModerationExpired;
+
+  /// No description provided for @spaceModerationRevoked.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoked'**
+  String get spaceModerationRevoked;
+
+  /// No description provided for @spaceModerationRevoke.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke action'**
+  String get spaceModerationRevoke;
+
+  /// No description provided for @spaceModerationRevokeReason.
+  ///
+  /// In en, this message translates to:
+  /// **'Reason for revocation'**
+  String get spaceModerationRevokeReason;
+
+  /// No description provided for @spaceModerationWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Warning'**
+  String get spaceModerationWarning;
+
+  /// No description provided for @spaceModerationDeleteMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove message'**
+  String get spaceModerationDeleteMessage;
+
+  /// No description provided for @spaceModerationDeletePost.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove publication'**
+  String get spaceModerationDeletePost;
+
+  /// No description provided for @spaceModerationRestrictPublishing.
+  ///
+  /// In en, this message translates to:
+  /// **'Temporarily restrict publications'**
+  String get spaceModerationRestrictPublishing;
+
+  /// No description provided for @spaceModerationRestrictMessages.
+  ///
+  /// In en, this message translates to:
+  /// **'Prevent sending messages'**
+  String get spaceModerationRestrictMessages;
+
+  /// No description provided for @spaceModerationRestrictVoice.
+  ///
+  /// In en, this message translates to:
+  /// **'Prevent joining voice channels'**
+  String get spaceModerationRestrictVoice;
+
+  /// No description provided for @spaceModerationMute.
+  ///
+  /// In en, this message translates to:
+  /// **'Mute messages and voice'**
+  String get spaceModerationMute;
+
+  /// No description provided for @spaceModerationTimeout.
+  ///
+  /// In en, this message translates to:
+  /// **'Timeout'**
+  String get spaceModerationTimeout;
+
+  /// No description provided for @spaceModerationTemporaryBan.
+  ///
+  /// In en, this message translates to:
+  /// **'Temporary ban'**
+  String get spaceModerationTemporaryBan;
+
+  /// No description provided for @spaceModerationPermanentBan.
+  ///
+  /// In en, this message translates to:
+  /// **'Permanent ban'**
+  String get spaceModerationPermanentBan;
+
+  /// No description provided for @spaceModerationUntil.
+  ///
+  /// In en, this message translates to:
+  /// **'Until {date}'**
+  String spaceModerationUntil(String date);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
