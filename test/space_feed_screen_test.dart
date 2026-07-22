@@ -806,6 +806,92 @@ void main() {
   );
 
   testWidgets(
+    'Space composer schedules locally and exposes publish-now and cancel controls',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _Signer(_id(20)));
+      final spaceId = await service.createSpace(
+        'Scheduled writers',
+        visibility: SpaceVisibility.public,
+      );
+      final dueAt =
+          DateTime.now().millisecondsSinceEpoch +
+          const Duration(hours: 2).inMilliseconds;
+      expect(
+        await service.saveSpacePostDraft(
+          spaceId,
+          title: 'Planned release',
+          body: 'Publish from the encrypted local queue',
+          type: SpacePostType.article,
+          scheduledAtMs: dueAt,
+        ),
+        isTrue,
+      );
+
+      await tester.pumpWidget(
+        _host(
+          service,
+          SpacePostsScreen(spaceIdHex: spaceId.hex),
+          storage: storage,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('space-post-pick-schedule')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('space-post-publish')));
+      await tester.pumpAndSettle();
+
+      expect(await service.postsOf(spaceId), isEmpty);
+      final scheduled = (await service.scheduledSpacePosts(spaceId)).single;
+      expect(scheduled.title, 'Planned release');
+      expect(
+        find.byKey(const ValueKey('space-posts-scheduled-panel')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(ValueKey('space-post-scheduled-${scheduled.id}')),
+        findsOneWidget,
+      );
+
+      final l = AppL10n.of(tester.element(find.byType(SpacePostsScreen)));
+      await tester.tap(
+        find.byKey(ValueKey('space-post-scheduled-menu-${scheduled.id}')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l.spacePostPublishNow));
+      await tester.pumpAndSettle();
+      expect(await service.scheduledSpacePosts(spaceId), isEmpty);
+      expect((await service.postsOf(spaceId)).single.title, 'Planned release');
+
+      final cancelCandidate = await service.scheduleSpacePost(
+        spaceId,
+        body: 'Cancel from the visible queue',
+        scheduledAtMs: dueAt + 1,
+      );
+      expect(cancelCandidate, isNotNull);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(
+          ValueKey('space-post-scheduled-menu-${cancelCandidate!.id}'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l.spacePostCancelSchedule));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('space-post-cancel-schedule-confirm')),
+      );
+      await tester.pumpAndSettle();
+      expect(await service.scheduledSpacePosts(spaceId), isEmpty);
+    },
+  );
+
+  testWidgets(
     'Space voice composer records into MediaObject and keeps it in the draft',
     (tester) async {
       final storage = FakeHvContainer().storage();

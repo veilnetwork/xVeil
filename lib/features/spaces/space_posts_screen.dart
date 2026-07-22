@@ -110,35 +110,54 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
         initialBody: saved?.body ?? '',
         initialType: saved?.type ?? SpacePostType.post,
         initialMedia: saved?.media ?? const [],
+        initialScheduledAtMs: saved?.scheduledAtMs,
         mentionTargets: mentionTargets,
         onPickMedia: (remaining) =>
             widget.mediaPicker?.call(remaining) ??
             pickAndRegisterSpacePostMedia(ref, remaining: remaining),
         onRecordVoice: (clip) => _registerVoice(ref, clip),
         onRecordVnote: (clip) => _registerVnote(ref, clip),
-        onSaveDraft: (title, body, type, media) => service.saveSpacePostDraft(
-          spaceId,
-          title: title,
-          body: body,
-          type: type,
-          media: media,
-        ),
+        onSaveDraft: (title, body, type, media, scheduledAtMs) =>
+            service.saveSpacePostDraft(
+              spaceId,
+              title: title,
+              body: body,
+              type: type,
+              media: media,
+              scheduledAtMs: scheduledAtMs,
+            ),
       ),
     );
     if (draft == null || !draft.hasContent) return;
-    final post = await service.publishSpacePost(
-      spaceId,
-      title: draft.title,
-      body: draft.body,
-      type: draft.type,
-      media: draft.media,
-    );
-    if (post != null) {
+    final scheduledAtMs = draft.scheduledAtMs;
+    final succeeded = scheduledAtMs == null
+        ? await service.publishSpacePost(
+                spaceId,
+                title: draft.title,
+                body: draft.body,
+                type: draft.type,
+                media: draft.media,
+              ) !=
+              null
+        : await service.scheduleSpacePost(
+                spaceId,
+                title: draft.title,
+                body: draft.body,
+                type: draft.type,
+                media: draft.media,
+                scheduledAtMs: scheduledAtMs,
+              ) !=
+              null;
+    if (succeeded) {
       final cleared = await service.clearSpacePostDraft(spaceId);
       if (!cleared && context.mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(l.spaceOperationFailed)));
+      } else if (scheduledAtMs != null && context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.spacePostScheduledSuccess)));
       }
     } else if (context.mounted) {
       ScaffoldMessenger.of(
@@ -303,6 +322,143 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
     }
   }
 
+  Future<void> _publishScheduledNow(
+    BuildContext context,
+    GroupService service,
+    NodeId spaceId,
+    ScheduledSpacePost scheduled,
+  ) async {
+    final published = await service.publishScheduledSpacePostNow(
+      spaceId,
+      scheduled.id,
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          published
+              ? AppL10n.of(context).spacePostPublishedNow
+              : AppL10n.of(context).spaceOperationFailed,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _cancelScheduled(
+    BuildContext context,
+    GroupService service,
+    NodeId spaceId,
+    ScheduledSpacePost scheduled,
+  ) async {
+    final l = AppL10n.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l.spacePostCancelScheduleTitle),
+        content: Text(l.spacePostCancelScheduleBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            key: const ValueKey('space-post-cancel-schedule-confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l.spacePostCancelSchedule),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final removed = await service.cancelScheduledSpacePost(
+      spaceId,
+      scheduled.id,
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          removed ? l.spacePostScheduleCancelled : l.spaceOperationFailed,
+        ),
+      ),
+    );
+  }
+
+  Widget _scheduledPostsPanel(
+    BuildContext context,
+    GroupService service,
+    NodeId spaceId,
+    List<ScheduledSpacePost> scheduled,
+    bool canPublish,
+  ) {
+    final l = AppL10n.of(context);
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: ExpansionTile(
+        key: const ValueKey('space-posts-scheduled-panel'),
+        initiallyExpanded: true,
+        leading: const Icon(Icons.schedule_outlined),
+        title: Text(
+          '${l.spacePostScheduledPublications} (${scheduled.length})',
+        ),
+        children: [
+          for (final item in scheduled)
+            ListTile(
+              key: ValueKey('space-post-scheduled-${item.id}'),
+              leading: Icon(
+                item.status == ScheduledSpacePostStatus.failed
+                    ? Icons.error_outline
+                    : Icons.schedule_send_outlined,
+                color: item.status == ScheduledSpacePostStatus.failed
+                    ? Theme.of(context).colorScheme.error
+                    : null,
+              ),
+              title: Text(
+                item.title.isNotEmpty
+                    ? item.title
+                    : item.body.trim().isNotEmpty
+                    ? item.body.trim().split('\n').first
+                    : _postTypeLabel(l, item.type),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                '${_formatScheduledPostTime(context, DateTime.fromMillisecondsSinceEpoch(item.scheduledAtMs))}'
+                '${item.status == ScheduledSpacePostStatus.failed ? '\n${l.spacePostScheduledFailed}' : ''}',
+              ),
+              isThreeLine: item.status == ScheduledSpacePostStatus.failed,
+              trailing: PopupMenuButton<_ScheduledPostAction>(
+                key: ValueKey('space-post-scheduled-menu-${item.id}'),
+                onSelected: (action) {
+                  switch (action) {
+                    case _ScheduledPostAction.publishNow:
+                      unawaited(
+                        _publishScheduledNow(context, service, spaceId, item),
+                      );
+                    case _ScheduledPostAction.cancel:
+                      unawaited(
+                        _cancelScheduled(context, service, spaceId, item),
+                      );
+                  }
+                },
+                itemBuilder: (_) => [
+                  if (canPublish)
+                    PopupMenuItem(
+                      value: _ScheduledPostAction.publishNow,
+                      child: Text(l.spacePostPublishNow),
+                    ),
+                  PopupMenuItem(
+                    value: _ScheduledPostAction.cancel,
+                    child: Text(l.spacePostCancelSchedule),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -324,6 +480,7 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
           service.postsOf(spaceId),
           service.isSpaceFeedEnabled(spaceId),
           service.spacePostReactionsOf(spaceId),
+          service.scheduledSpacePosts(spaceId),
         ]),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
@@ -335,6 +492,7 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
           final posts = snapshot.data![1] as List<SpacePostView>;
           final enabled = snapshot.data![2] as bool;
           final reactions = snapshot.data![3] as Map<String, MessageReactions>;
+          final scheduled = snapshot.data![4] as List<ScheduledSpacePost>;
           if (state == null) {
             return Scaffold(body: Center(child: Text(l.spaceOperationFailed)));
           }
@@ -386,167 +544,203 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
                     child: const Icon(Icons.edit_outlined),
                   )
                 : null,
-            body: posts.isEmpty
-                ? Center(child: Text(l.spacePostsEmpty))
-                : ListView.separated(
-                    reverse: true,
-                    padding: const EdgeInsets.only(top: 8, bottom: 96),
-                    itemCount: displayPosts.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final post = displayPosts[index];
-                      return ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 8,
-                        ),
-                        title: post.title.isEmpty ? null : Text(post.title),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (post.pinned)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 4),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.push_pin, size: 14),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      l.spacePostPinned,
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.labelSmall,
-                                    ),
-                                  ],
-                                ),
+            body: Column(
+              children: [
+                if (scheduled.isNotEmpty)
+                  _scheduledPostsPanel(
+                    context,
+                    service,
+                    spaceId,
+                    scheduled,
+                    canPublish,
+                  ),
+                Expanded(
+                  child: posts.isEmpty
+                      ? Center(child: Text(l.spacePostsEmpty))
+                      : ListView.separated(
+                          reverse: true,
+                          padding: const EdgeInsets.only(top: 8, bottom: 96),
+                          itemCount: displayPosts.length,
+                          separatorBuilder: (_, _) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final post = displayPosts[index];
+                            return ListTile(
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 8,
                               ),
-                            if (post.body.isNotEmpty) SpacePostBody(post.body),
-                            SpacePostMediaList(spaceId: spaceId, post: post),
-                            if (post.edited)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Text(
-                                  l.spacePostEdited,
-                                  style: Theme.of(context).textTheme.labelSmall,
-                                ),
-                              ),
-                            const SizedBox(height: 6),
-                            SpacePostReactionBar(
-                              postId: post.postId,
-                              reactions: reactions[post.postId] ?? const {},
-                              selfId: service.selfId,
-                              onReact: (emoji) => service.reactToSpacePost(
-                                spaceId,
-                                post.postId,
-                                emoji,
-                              ),
-                            ),
-                            TextButton.icon(
-                              key: ValueKey(
-                                'space-post-comments-${post.postId}',
-                              ),
-                              onPressed: () => context.push(
-                                '/space/${spaceId.hex}/comments?post='
-                                '${Uri.encodeQueryComponent(post.postId)}',
-                              ),
-                              icon: const Icon(Icons.forum_outlined, size: 18),
-                              label: Text(l.spacePostCommentsOpen),
-                            ),
-                          ],
-                        ),
-                        leading: Icon(
-                          post.type == SpacePostType.article
-                              ? Icons.article_outlined
-                              : Icons.campaign_outlined,
-                        ),
-                        trailing:
-                            post.author == service.selfId ||
-                                canModerate ||
-                                canManagePosts
-                            ? PopupMenuButton<_PostAction>(
-                                key: ValueKey('space-post-menu-${post.postId}'),
-                                onSelected: (action) {
-                                  switch (action) {
-                                    case _PostAction.edit:
-                                      unawaited(
-                                        _edit(
-                                          context,
-                                          ref,
-                                          spaceId,
-                                          post,
-                                          state.members.values.map(
-                                            (member) => member.nodeId,
+                              title: post.title.isEmpty
+                                  ? null
+                                  : Text(post.title),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (post.pinned)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 4),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.push_pin, size: 14),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            l.spacePostPinned,
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.labelSmall,
                                           ),
-                                        ),
-                                      );
-                                    case _PostAction.delete:
-                                      unawaited(
-                                        _delete(context, ref, spaceId, post),
-                                      );
-                                    case _PostAction.moderateDelete:
-                                      unawaited(
-                                        _moderateDelete(
-                                          context,
-                                          ref,
-                                          spaceId,
-                                          post,
-                                        ),
-                                      );
-                                    case _PostAction.pin:
-                                      unawaited(
-                                        _setPinned(
-                                          context,
-                                          ref,
-                                          spaceId,
-                                          post,
-                                          true,
-                                        ),
-                                      );
-                                    case _PostAction.unpin:
-                                      unawaited(
-                                        _setPinned(
-                                          context,
-                                          ref,
-                                          spaceId,
-                                          post,
-                                          false,
-                                        ),
-                                      );
-                                  }
-                                },
-                                itemBuilder: (_) => [
-                                  if (canManagePosts)
-                                    PopupMenuItem(
-                                      value: post.pinned
-                                          ? _PostAction.unpin
-                                          : _PostAction.pin,
-                                      child: Text(
-                                        post.pinned
-                                            ? l.spacePostUnpin
-                                            : l.spacePostPin,
+                                        ],
                                       ),
                                     ),
-                                  if (post.author == service.selfId) ...[
-                                    PopupMenuItem(
-                                      value: _PostAction.edit,
-                                      child: Text(l.spacePostEdit),
+                                  if (post.body.isNotEmpty)
+                                    SpacePostBody(post.body),
+                                  SpacePostMediaList(
+                                    spaceId: spaceId,
+                                    post: post,
+                                  ),
+                                  if (post.edited)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        l.spacePostEdited,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.labelSmall,
+                                      ),
                                     ),
-                                    PopupMenuItem(
-                                      value: _PostAction.delete,
-                                      child: Text(l.spacePostDelete),
+                                  const SizedBox(height: 6),
+                                  SpacePostReactionBar(
+                                    postId: post.postId,
+                                    reactions:
+                                        reactions[post.postId] ?? const {},
+                                    selfId: service.selfId,
+                                    onReact: (emoji) =>
+                                        service.reactToSpacePost(
+                                          spaceId,
+                                          post.postId,
+                                          emoji,
+                                        ),
+                                  ),
+                                  TextButton.icon(
+                                    key: ValueKey(
+                                      'space-post-comments-${post.postId}',
                                     ),
-                                  ] else if (canModerate)
-                                    PopupMenuItem(
-                                      value: _PostAction.moderateDelete,
-                                      child: Text(l.spaceModerationDeletePost),
+                                    onPressed: () => context.push(
+                                      '/space/${spaceId.hex}/comments?post='
+                                      '${Uri.encodeQueryComponent(post.postId)}',
                                     ),
+                                    icon: const Icon(
+                                      Icons.forum_outlined,
+                                      size: 18,
+                                    ),
+                                    label: Text(l.spacePostCommentsOpen),
+                                  ),
                                 ],
-                              )
-                            : null,
-                      );
-                    },
-                  ),
+                              ),
+                              leading: Icon(
+                                post.type == SpacePostType.article
+                                    ? Icons.article_outlined
+                                    : Icons.campaign_outlined,
+                              ),
+                              trailing:
+                                  post.author == service.selfId ||
+                                      canModerate ||
+                                      canManagePosts
+                                  ? PopupMenuButton<_PostAction>(
+                                      key: ValueKey(
+                                        'space-post-menu-${post.postId}',
+                                      ),
+                                      onSelected: (action) {
+                                        switch (action) {
+                                          case _PostAction.edit:
+                                            unawaited(
+                                              _edit(
+                                                context,
+                                                ref,
+                                                spaceId,
+                                                post,
+                                                state.members.values.map(
+                                                  (member) => member.nodeId,
+                                                ),
+                                              ),
+                                            );
+                                          case _PostAction.delete:
+                                            unawaited(
+                                              _delete(
+                                                context,
+                                                ref,
+                                                spaceId,
+                                                post,
+                                              ),
+                                            );
+                                          case _PostAction.moderateDelete:
+                                            unawaited(
+                                              _moderateDelete(
+                                                context,
+                                                ref,
+                                                spaceId,
+                                                post,
+                                              ),
+                                            );
+                                          case _PostAction.pin:
+                                            unawaited(
+                                              _setPinned(
+                                                context,
+                                                ref,
+                                                spaceId,
+                                                post,
+                                                true,
+                                              ),
+                                            );
+                                          case _PostAction.unpin:
+                                            unawaited(
+                                              _setPinned(
+                                                context,
+                                                ref,
+                                                spaceId,
+                                                post,
+                                                false,
+                                              ),
+                                            );
+                                        }
+                                      },
+                                      itemBuilder: (_) => [
+                                        if (canManagePosts)
+                                          PopupMenuItem(
+                                            value: post.pinned
+                                                ? _PostAction.unpin
+                                                : _PostAction.pin,
+                                            child: Text(
+                                              post.pinned
+                                                  ? l.spacePostUnpin
+                                                  : l.spacePostPin,
+                                            ),
+                                          ),
+                                        if (post.author == service.selfId) ...[
+                                          PopupMenuItem(
+                                            value: _PostAction.edit,
+                                            child: Text(l.spacePostEdit),
+                                          ),
+                                          PopupMenuItem(
+                                            value: _PostAction.delete,
+                                            child: Text(l.spacePostDelete),
+                                          ),
+                                        ] else if (canModerate)
+                                          PopupMenuItem(
+                                            value: _PostAction.moderateDelete,
+                                            child: Text(
+                                              l.spaceModerationDeletePost,
+                                            ),
+                                          ),
+                                      ],
+                                    )
+                                  : null,
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
           );
         },
       ),
@@ -556,13 +750,22 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
 
 enum _PostAction { pin, unpin, edit, delete, moderateDelete }
 
+enum _ScheduledPostAction { publishNow, cancel }
+
 class _PostComposerValue {
-  const _PostComposerValue(this.title, this.body, this.type, this.media);
+  const _PostComposerValue(
+    this.title,
+    this.body,
+    this.type,
+    this.media, {
+    this.scheduledAtMs,
+  });
 
   final String title;
   final String body;
   final SpacePostType type;
   final List<MediaObject> media;
+  final int? scheduledAtMs;
 
   bool get hasContent =>
       title.trim().isNotEmpty || body.trim().isNotEmpty || media.isNotEmpty;
@@ -574,6 +777,7 @@ class _PostComposerDialog extends ConsumerStatefulWidget {
     this.initialBody = '',
     this.initialType = SpacePostType.post,
     this.initialMedia = const [],
+    this.initialScheduledAtMs,
     this.editing = false,
     this.onPickMedia,
     this.onRecordVoice,
@@ -586,6 +790,7 @@ class _PostComposerDialog extends ConsumerStatefulWidget {
   final String initialBody;
   final SpacePostType initialType;
   final List<MediaObject> initialMedia;
+  final int? initialScheduledAtMs;
   final Iterable<NodeId> mentionTargets;
   final bool editing;
   final Future<SpacePostMediaPickResult> Function(int remaining)? onPickMedia;
@@ -596,6 +801,7 @@ class _PostComposerDialog extends ConsumerStatefulWidget {
     String body,
     SpacePostType type,
     List<MediaObject> media,
+    int? scheduledAtMs,
   )?
   onSaveDraft;
 
@@ -609,6 +815,7 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
   late final CustomEmojiEditingController _body;
   late SpacePostType _type;
   late List<MediaObject> _media;
+  DateTime? _scheduledAt;
   Timer? _draftTimer;
   bool _draftSettled = false;
   bool _saving = false;
@@ -634,6 +841,12 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
       ..loadWireValue(widget.initialBody, const []);
     _type = widget.initialType;
     _media = List<MediaObject>.of(widget.initialMedia);
+    final initialSchedule = widget.initialScheduledAtMs;
+    if (!widget.editing &&
+        initialSchedule != null &&
+        initialSchedule > DateTime.now().millisecondsSinceEpoch) {
+      _scheduledAt = DateTime.fromMillisecondsSinceEpoch(initialSchedule);
+    }
   }
 
   @override
@@ -648,7 +861,13 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
     if (!widget.editing && !_draftSettled && widget.onSaveDraft != null) {
       final value = _value;
       unawaited(
-        widget.onSaveDraft!(value.title, value.body, value.type, value.media),
+        widget.onSaveDraft!(
+          value.title,
+          value.body,
+          value.type,
+          value.media,
+          value.scheduledAtMs,
+        ),
       );
     }
     _title.dispose();
@@ -662,6 +881,7 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
     _body.toWireValue().body,
     _type,
     List.unmodifiable(_media),
+    scheduledAtMs: _scheduledAt?.millisecondsSinceEpoch,
   );
 
   void _scheduleDraft() {
@@ -678,6 +898,7 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
         value.body,
         value.type,
         value.media,
+        value.scheduledAtMs,
       );
       if (mounted && !saved) setState(() => _saveFailed = true);
     });
@@ -697,6 +918,7 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
           value.body,
           value.type,
           value.media,
+          value.scheduledAtMs,
         );
       } catch (_) {
         saved = false;
@@ -928,6 +1150,47 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _pickSchedule() async {
+    if (widget.editing || _saving || _recordingBusy) return;
+    final now = DateTime.now();
+    final initial = _scheduledAt?.isAfter(now) == true
+        ? _scheduledAt!
+        : now.add(const Duration(hours: 1));
+    final date = await showDatePicker(
+      context: context,
+      initialDate: DateTime(initial.year, initial.month, initial.day),
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: now.add(const Duration(days: 365)),
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (time == null || !mounted) return;
+    final selected = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    if (!selected.isAfter(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).spacePostScheduleFuture)),
+      );
+      return;
+    }
+    setState(() => _scheduledAt = selected);
+    _scheduleDraft();
+  }
+
+  void _clearSchedule() {
+    if (_scheduledAt == null || _saving) return;
+    setState(() => _scheduledAt = null);
+    _scheduleDraft();
   }
 
   Widget _voiceRecordingCard(
@@ -1217,6 +1480,45 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
               if (!widget.editing) ...[
                 const SizedBox(height: 12),
                 Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        key: const ValueKey('space-post-pick-schedule'),
+                        onPressed: _saving || _recordingBusy
+                            ? null
+                            : _pickSchedule,
+                        icon: const Icon(Icons.schedule_outlined),
+                        label: Text(
+                          _scheduledAt == null
+                              ? l.spacePostSchedule
+                              : _formatScheduledPostTime(
+                                  context,
+                                  _scheduledAt!,
+                                ),
+                        ),
+                      ),
+                    ),
+                    if (_scheduledAt != null)
+                      IconButton(
+                        key: const ValueKey('space-post-clear-schedule'),
+                        onPressed: _saving ? null : _clearSchedule,
+                        tooltip: l.spacePostScheduleClear,
+                        icon: const Icon(Icons.close),
+                      ),
+                  ],
+                ),
+                if (_scheduledAt != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      l.spacePostScheduleDeviceHint,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+              ],
+              if (!widget.editing) ...[
+                const SizedBox(height: 12),
+                Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Padding(
@@ -1255,7 +1557,13 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
           onPressed: _saving || _recordingBusy || !_value.hasContent
               ? null
               : () => _finish(publish: true),
-          child: Text(widget.editing ? l.actionSave : l.spacePostPublish),
+          child: Text(
+            widget.editing
+                ? l.actionSave
+                : _scheduledAt == null
+                ? l.spacePostPublish
+                : l.spacePostSchedule,
+          ),
         ),
       ],
     );
@@ -1270,3 +1578,9 @@ String _postTypeLabel(AppL10n l, SpacePostType type) => switch (type) {
   SpacePostType.audio => l.spacePostTypeAudio,
   SpacePostType.voiceMessage => l.spacePostTypeVoiceMessage,
 };
+
+String _formatScheduledPostTime(BuildContext context, DateTime value) {
+  final material = MaterialLocalizations.of(context);
+  return '${material.formatMediumDate(value)} '
+      '${material.formatTimeOfDay(TimeOfDay.fromDateTime(value))}';
+}

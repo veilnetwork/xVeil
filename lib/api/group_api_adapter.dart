@@ -588,6 +588,7 @@ final class GroupApiAdapter {
     String body,
     String typeName,
     List<MediaObject> media,
+    int? scheduledAtMs,
   ) async {
     final visible = await _visible(spaceHex);
     if (visible == null) return 'space not found';
@@ -599,6 +600,7 @@ final class GroupApiAdapter {
           body: body,
           type: type,
           media: media,
+          scheduledAtMs: scheduledAtMs,
         )
         ? null
         : 'post draft rejected';
@@ -610,6 +612,70 @@ final class GroupApiAdapter {
     return await _groups.clearSpacePostDraft(visible.$1)
         ? null
         : 'post draft clearing failed';
+  }
+
+  static Map<String, dynamic> scheduledPostJson(ScheduledSpacePost post) => {
+    'id': post.id,
+    'spaceId': post.spaceId.hex,
+    'title': post.title,
+    'body': post.body,
+    'type': post.type.name,
+    if (post.media.isNotEmpty)
+      'media': [for (final item in post.media) item.toJson()],
+    'queuedAt': post.queuedAtMs,
+    'scheduledAt': post.scheduledAtMs,
+    'status': post.status.name,
+    if (post.lastAttemptAtMs != null) 'lastAttemptAt': post.lastAttemptAtMs,
+  };
+
+  Future<Map<String, dynamic>?> scheduledPosts(String spaceHex) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return null;
+    final jobs = await _groups.scheduledSpacePosts(visible.$1);
+    return {
+      'scheduled': [for (final job in jobs) scheduledPostJson(job)],
+    };
+  }
+
+  Future<({String? error, Map<String, dynamic>? scheduled})> schedulePost(
+    String spaceHex,
+    String title,
+    String body,
+    String typeName,
+    List<MediaObject> media,
+    int scheduledAtMs,
+  ) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return (error: 'space not found', scheduled: null);
+    final type = SpacePostType.fromName(typeName);
+    if (type == null) return (error: 'invalid post type', scheduled: null);
+    final scheduled = await _groups.scheduleSpacePost(
+      visible.$1,
+      title: title,
+      body: body,
+      type: type,
+      media: media,
+      scheduledAtMs: scheduledAtMs,
+    );
+    return scheduled == null
+        ? (error: 'post scheduling rejected', scheduled: null)
+        : (error: null, scheduled: scheduledPostJson(scheduled));
+  }
+
+  Future<String?> cancelScheduledPost(String spaceHex, String id) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    return await _groups.cancelScheduledSpacePost(visible.$1, id)
+        ? null
+        : 'scheduled post cancellation rejected';
+  }
+
+  Future<String?> publishScheduledPostNow(String spaceHex, String id) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    return await _groups.publishScheduledSpacePostNow(visible.$1, id)
+        ? null
+        : 'scheduled post publication rejected';
   }
 
   Future<({String? error, Map<String, dynamic>? post})> publishPost(

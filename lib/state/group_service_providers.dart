@@ -129,6 +129,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   );
   ref.onDispose(() => unawaited(service.dispose()));
   service.startSpaceLifecycleMaintenance();
+  service.startScheduledSpacePostMaintenance();
 
   messaging.onGroupEntry = (peer, bundleJson) async {
     await service.ingestGroupEntry(peer, bundleJson);

@@ -28,6 +28,7 @@ void main() {
         body: 'Only this identity can read this draft.',
         type: SpacePostType.voiceMessage,
         updatedAtMs: 42,
+        scheduledAtMs: 4200,
         media: [
           MediaObjectRef(
             contentId: 'a' * 64,
@@ -41,6 +42,10 @@ void main() {
 
       expect(draft.isStructurallyValid, isTrue);
       expect(draft.hasContent, isTrue);
+      expect(
+        SpacePostDraft.fromJson(draft.toJson(), spaceId)?.scheduledAtMs,
+        4200,
+      );
       expect(
         SpacePostDraft.fromJson(draft.toJson(), spaceId)?.media.single.name,
         'memo.opus',
@@ -69,6 +74,46 @@ void main() {
       );
     },
   );
+
+  test('scheduled Space post round-trips as strict local-only work', () {
+    final scheduled = ScheduledSpacePost(
+      id: 'f' * 64,
+      spaceId: _id(21),
+      title: 'Tomorrow',
+      body: 'Still unsigned and private.',
+      type: SpacePostType.article,
+      media: [
+        MediaObjectRef(
+          contentId: 'b' * 64,
+          kind: 'image',
+          name: 'cover.webp',
+          size: 77,
+        ),
+      ],
+      queuedAtMs: 1000,
+      scheduledAtMs: 2000,
+      membershipGrant: 'a' * 64,
+      lifecycleGeneration: 'c' * 64,
+      policyVersion: 3,
+    );
+
+    expect(scheduled.isStructurallyValid, isTrue);
+    final decoded = ScheduledSpacePost.fromJson(
+      scheduled.toJson(),
+      expectedId: scheduled.id,
+    );
+    expect(decoded?.body, scheduled.body);
+    expect(decoded?.media.single.contentId, 'b' * 64);
+    expect(
+      ScheduledSpacePost.fromJson({...scheduled.toJson(), 'id': 'broken'}),
+      isNull,
+    );
+    expect(
+      ScheduledSpacePost.fromJson({...scheduled.toJson(), 'status': 'failed'}),
+      isNull,
+      reason: 'a failure must carry its durable attempt timestamp',
+    );
+  });
 
   test('public SpacePost round-trips with stable signed media metadata', () {
     final post = SpacePost(

@@ -163,6 +163,7 @@ class HeadlessRuntime {
         },
       );
       groups.startSpaceLifecycleMaintenance();
+      groups.startScheduledSpacePostMaintenance();
       _wireGroupIngress(messaging, groups);
 
       final relays = mailboxRelayCandidates(config.bootstrapPeers);
@@ -254,6 +255,13 @@ class HeadlessRuntime {
         leaveGroup: groupApi.leave,
         spaceChannels: groupApi.channels,
         spacePosts: groupApi.posts,
+        spacePostDraft: groupApi.postDraft,
+        saveSpacePostDraft: groupApi.savePostDraft,
+        clearSpacePostDraft: groupApi.clearPostDraft,
+        spaceScheduledPosts: groupApi.scheduledPosts,
+        scheduleSpacePost: groupApi.schedulePost,
+        cancelScheduledSpacePost: groupApi.cancelScheduledPost,
+        publishScheduledSpacePostNow: groupApi.publishScheduledPostNow,
         publishSpacePost: groupApi.publishPost,
         editSpacePost: groupApi.editPost,
         deleteSpacePost: groupApi.deletePost,
