@@ -19,6 +19,8 @@ void main() {
   final spacePostDeletes = <(String, String)>[];
   final spacePostPins = <(String, String, bool)>[];
   final spacePostReactions = <(String, String, String)>[];
+  final spacePostDraftWrites = <(String, String, String, String)>[];
+  final spacePostDraftClears = <String>[];
   final spaceRecommendationShares = <(String, String, String)>[];
   final subscriptions = <(String, bool)>[];
   final subscriptionUpdates = <(String, bool?, bool?, bool?)>[];
@@ -38,6 +40,7 @@ void main() {
   final leaves = <String>[];
   Map<String, dynamic>? call;
   Map<String, dynamic>? groupCall;
+  Map<String, dynamic>? localSpacePostDraft;
   ApiHandler make({
     String token = 'secret-token',
     bool readOnly = false,
@@ -57,6 +60,9 @@ void main() {
     spacePostDeletes.clear();
     spacePostPins.clear();
     spacePostReactions.clear();
+    spacePostDraftWrites.clear();
+    spacePostDraftClears.clear();
+    localSpacePostDraft = null;
     spaceRecommendationShares.clear();
     subscriptions.clear();
     subscriptionUpdates.clear();
@@ -219,6 +225,28 @@ void main() {
                 },
               ],
             },
+      spacePostDraft: (space) async => space == 'missing'
+          ? null
+          : {'spaceId': space, 'draft': localSpacePostDraft},
+      saveSpacePostDraft: (space, title, body, type) async {
+        if (space == 'denied') return 'post draft rejected';
+        spacePostDraftWrites.add((space, title, body, type));
+        localSpacePostDraft = {
+          'v': 1,
+          'sid': space,
+          'title': title,
+          'body': body,
+          'type': type,
+          'updatedAt': 1,
+        };
+        return null;
+      },
+      clearSpacePostDraft: (space) async {
+        if (space == 'denied') return 'post draft rejected';
+        spacePostDraftClears.add(space);
+        localSpacePostDraft = null;
+        return null;
+      },
       publishSpacePost: (space, title, body, type) async {
         if (space == 'denied') {
           return (error: 'post publication rejected', post: null);
@@ -752,8 +780,25 @@ void main() {
       );
       expect(
         (await h.handle(
+          'PUT',
+          u('/v1/spaces/posts/draft'),
+          'Bearer secret-token',
+          body: {'space': 's', 'body': 'local'},
+        )).status,
+        403,
+      );
+      expect(
+        (await h.handle(
           'DELETE',
           u('/v1/spaces/posts?space=s&postId=$postId'),
+          'Bearer secret-token',
+        )).status,
+        403,
+      );
+      expect(
+        (await h.handle(
+          'DELETE',
+          u('/v1/spaces/posts/draft?space=s'),
           'Bearer secret-token',
         )).status,
         403,
@@ -1500,6 +1545,67 @@ void main() {
         )).status,
         400,
       );
+
+      final emptyDraft = await h.handle(
+        'GET',
+        u('/v1/spaces/posts/draft?space=aa'),
+        auth,
+      );
+      expect(emptyDraft.status, 200);
+      expect((emptyDraft.body as Map)['draft'], isNull);
+      final savedDraft = await h.handle(
+        'PUT',
+        u('/v1/spaces/posts/draft'),
+        auth,
+        body: {
+          'space': 'aa',
+          'title': 'Local title',
+          'body': 'Local body',
+          'type': 'audio',
+        },
+      );
+      expect(savedDraft.status, 200);
+      expect(spacePostDraftWrites.single, (
+        'aa',
+        'Local title',
+        'Local body',
+        'audio',
+      ));
+      final restoredDraft = await h.handle(
+        'GET',
+        u('/v1/spaces/posts/draft?space=aa'),
+        auth,
+      );
+      expect(
+        ((restoredDraft.body as Map)['draft'] as Map)['body'],
+        'Local body',
+      );
+      expect(
+        (await h.handle(
+          'PUT',
+          u('/v1/spaces/posts/draft'),
+          auth,
+          body: {'space': 'aa', 'type': 'unknown'},
+        )).status,
+        400,
+      );
+      expect(
+        (await h.handle(
+          'GET',
+          u('/v1/spaces/posts/draft?space=missing'),
+          auth,
+        )).status,
+        404,
+      );
+      expect(
+        (await h.handle(
+          'DELETE',
+          u('/v1/spaces/posts/draft?space=aa'),
+          auth,
+        )).status,
+        200,
+      );
+      expect(spacePostDraftClears.single, 'aa');
 
       final published = await h.handle(
         'POST',
@@ -2545,6 +2651,7 @@ void main() {
           '/spaces/moderation',
           '/spaces/moderation/revoke',
           '/spaces/posts',
+          '/spaces/posts/draft',
           '/spaces/posts/reactions',
           '/spaces/subscription',
           '/feed',
@@ -2578,6 +2685,11 @@ void main() {
         'get',
         'post',
         'patch',
+        'delete',
+      });
+      expect((pathMap['/spaces/posts/draft'] as Map).keys.toSet(), {
+        'get',
+        'put',
         'delete',
       });
       expect((pathMap['/spaces/channels'] as Map).keys.toSet(), {

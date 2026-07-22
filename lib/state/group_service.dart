@@ -526,11 +526,26 @@ class GroupService {
   static const String _spaceInvitesSetting = 'spaces.invites.v1';
   static const int _maxSpaceInvites = 256;
   Future<void> _spaceInviteMutationTail = Future<void>.value();
+  Future<void> _spacePostDraftMutationTail = Future<void>.value();
 
   Future<T> _serializeSpaceInvites<T>(Future<T> Function() action) async {
     final previous = _spaceInviteMutationTail;
     final gate = Completer<void>();
     _spaceInviteMutationTail = gate.future;
+    try {
+      try {
+        await previous;
+      } catch (_) {}
+      return await action();
+    } finally {
+      gate.complete();
+    }
+  }
+
+  Future<T> _serializeSpacePostDrafts<T>(Future<T> Function() action) async {
+    final previous = _spacePostDraftMutationTail;
+    final gate = Completer<void>();
+    _spacePostDraftMutationTail = gate.future;
     try {
       try {
         await previous;
@@ -5128,6 +5143,95 @@ class GroupService {
     if (broadcast) unawaited(broadcastDelta(groupId, messages: [signed]));
     return true;
   }
+
+  String _spacePostDraftKey(NodeId spaceId) =>
+      'space.post-draft.v1:${spaceId.hex}';
+
+  Future<bool> _canKeepSpacePostDraft(NodeId spaceId) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return false;
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    return !state.isDeleted && state.isMember(_signer.selfId);
+  }
+
+  /// Load this identity's local draft for [spaceId]. The encrypted blob is
+  /// deliberately outside the signed/P2P bundle and is invisible after access
+  /// is revoked, even if stale local bytes remain until storage maintenance.
+  Future<SpacePostDraft?> spacePostDraft(NodeId spaceId) =>
+      _serializeSpacePostDrafts(() async {
+        try {
+          if (!await _canKeepSpacePostDraft(spaceId)) return null;
+          final bytes = await _storage.loadFile(_spacePostDraftKey(spaceId));
+          if (bytes == null || bytes.isEmpty) {
+            devLog(() => 'xVeil[spaces]: local post draft is not stored');
+            return null;
+          }
+          final draft = SpacePostDraft.fromJson(
+            jsonDecode(utf8.decode(bytes, allowMalformed: false)),
+            spaceId,
+          );
+          if (draft == null) {
+            devLog(() => 'xVeil[spaces]: ignored malformed local post draft');
+          }
+          return draft;
+        } catch (_) {
+          // Storage/corruption must not block opening the publication list.
+          devLog(() => 'xVeil[spaces]: failed to load local post draft');
+          return null;
+        }
+      });
+
+  /// Save an identity-local draft. Empty content means an explicit clear.
+  /// Writes are serialized with clears so a delayed autosave cannot resurrect
+  /// a draft after its signed publication succeeds.
+  Future<bool> saveSpacePostDraft(
+    NodeId spaceId, {
+    required String title,
+    required String body,
+    required SpacePostType type,
+  }) => _serializeSpacePostDrafts(() async {
+    try {
+      final draft = SpacePostDraft(
+        spaceId: spaceId,
+        title: title,
+        body: body,
+        type: type,
+        updatedAtMs: _now(),
+      );
+      if (!draft.isStructurallyValid ||
+          !await _canKeepSpacePostDraft(spaceId)) {
+        return false;
+      }
+      final key = _spacePostDraftKey(spaceId);
+      if (!draft.hasContent) {
+        await _storage.deleteStoredFile(key);
+        return true;
+      }
+      final bytes = Uint8List.fromList(utf8.encode(jsonEncode(draft.toJson())));
+      await _storage.storeFile(key, bytes, name: 'space-post-draft');
+      return true;
+    } catch (_) {
+      devLog(() => 'xVeil[spaces]: failed to save local post draft');
+      return false;
+    }
+  });
+
+  Future<bool> clearSpacePostDraft(NodeId spaceId) =>
+      _serializeSpacePostDrafts(() async {
+        try {
+          await _storage.deleteStoredFile(_spacePostDraftKey(spaceId));
+          return true;
+        } catch (_) {
+          devLog(() => 'xVeil[spaces]: failed to clear local post draft');
+          return false;
+        }
+      });
 
   /// Publish one immutable Space feed row. Public Spaces produce signed
   /// cleartext rows suitable for a future non-member public-feed transport;

@@ -113,6 +113,7 @@
   "spacePostTitleHint": "Title (optional)",
   "spacePostBodyHint": "Share an update with the community…",
   "spacePostPublish": "Publish",
+  "spacePostDraftHint": "Saved encrypted on this device. The draft is not shared until you publish it.",
   "spacePostEdit": "Edit publication",
   "spacePostEdited": "Edited",
   "spacePostPin": "Pin",

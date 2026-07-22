@@ -18,6 +18,35 @@ NodeId _ordinalId(int value) {
 }
 
 void main() {
+  test(
+    'local Space post draft round-trips strictly without wire semantics',
+    () {
+      final spaceId = _id(19);
+      final draft = SpacePostDraft(
+        spaceId: spaceId,
+        title: 'Unpublished',
+        body: 'Only this identity can read this draft.',
+        type: SpacePostType.voiceMessage,
+        updatedAtMs: 42,
+      );
+
+      expect(draft.isStructurallyValid, isTrue);
+      expect(draft.hasContent, isTrue);
+      expect(
+        SpacePostDraft.fromJson(draft.toJson(), spaceId)?.type,
+        SpacePostType.voiceMessage,
+      );
+      expect(SpacePostDraft.fromJson(draft.toJson(), _id(20)), isNull);
+      expect(
+        SpacePostDraft.fromJson({
+          ...draft.toJson(),
+          'type': 'unknown',
+        }, spaceId),
+        isNull,
+      );
+    },
+  );
+
   test('public SpacePost round-trips with stable signed media metadata', () {
     final post = SpacePost(
       spaceId: _id(1),

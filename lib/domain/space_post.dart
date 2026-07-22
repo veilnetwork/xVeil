@@ -200,6 +200,65 @@ enum SpacePostType {
   }
 }
 
+/// Device-local, identity-scoped publication draft.
+///
+/// Drafts are never signed, added to the Space post log, advertised to peers,
+/// or included in feed projections. The storage layer encrypts this value in
+/// the active identity container; [spaceId] only scopes independent composers.
+class SpacePostDraft {
+  const SpacePostDraft({
+    required this.spaceId,
+    required this.title,
+    required this.body,
+    required this.type,
+    required this.updatedAtMs,
+  });
+
+  final NodeId spaceId;
+  final String title;
+  final String body;
+  final SpacePostType type;
+  final int updatedAtMs;
+
+  bool get hasContent => title.trim().isNotEmpty || body.trim().isNotEmpty;
+
+  bool get isStructurallyValid =>
+      title.length <= kSpacePostTitleMax &&
+      body.length <= kSpacePostBodyMax &&
+      updatedAtMs >= 0;
+
+  Map<String, dynamic> toJson() => {
+    'v': 1,
+    'sid': spaceId.hex,
+    'title': title,
+    'body': body,
+    'type': type.name,
+    'updatedAt': updatedAtMs,
+  };
+
+  static SpacePostDraft? fromJson(Object? value, NodeId expectedSpaceId) {
+    if (value is! Map ||
+        value['v'] != 1 ||
+        value['sid'] != expectedSpaceId.hex ||
+        value['title'] is! String ||
+        value['body'] is! String ||
+        value['type'] is! String ||
+        value['updatedAt'] is! int) {
+      return null;
+    }
+    final type = SpacePostType.fromName(value['type'] as String);
+    if (type == null) return null;
+    final draft = SpacePostDraft(
+      spaceId: expectedSpaceId,
+      title: value['title'] as String,
+      body: value['body'] as String,
+      type: type,
+      updatedAtMs: value['updatedAt'] as int,
+    );
+    return draft.isStructurallyValid ? draft : null;
+  }
+}
+
 /// Visibility of one publication. `public` is permitted only in a public
 /// Space; `members` is encrypted with the current Space membership epoch.
 enum SpacePostVisibility {

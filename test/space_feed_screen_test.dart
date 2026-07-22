@@ -223,12 +223,52 @@ void main() {
     await tester.pumpAndSettle();
     final l = AppL10n.of(tester.element(find.byType(SpacePostsScreen)));
     expect(find.text(l.spacePostCreateTitle), findsOneWidget);
-    await tester.enterText(find.byType(TextField).at(1), 'Fresh update');
-    await tester.tap(find.text(l.spacePostPublish));
+    await tester.tap(find.byKey(const ValueKey('space-post-type-field')));
+    await tester.pumpAndSettle();
+    expect(find.text(l.spacePostTypePost), findsWidgets);
+    expect(find.text(l.spacePostTypeArticle), findsOneWidget);
+    expect(find.text(l.spacePostTypeVideo), findsOneWidget);
+    expect(find.text(l.spacePostTypeShortVideo), findsOneWidget);
+    expect(find.text(l.spacePostTypeAudio), findsOneWidget);
+    expect(find.text(l.spacePostTypeVoiceMessage), findsOneWidget);
+    await tester.tap(find.text(l.spacePostTypeShortVideo));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('space-post-body-field')),
+      'Fresh update',
+    );
+    await tester.pump();
+    await tester.tap(find.text(l.actionCancel));
+    await tester.pumpAndSettle();
+    final savedDraft = await service.spacePostDraft(spaceId);
+    expect(savedDraft?.body, 'Fresh update');
+    expect(savedDraft?.type, SpacePostType.shortVideo);
+    expect((await service.load(spaceId))!.posts, isEmpty);
+
+    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
+    final restoredBody = tester.widget<TextField>(
+      find.byKey(const ValueKey('space-post-body-field')),
+    );
+    expect(restoredBody.controller?.text, 'Fresh update');
+    expect(
+      tester
+          .widget<DropdownButtonFormField<SpacePostType>>(
+            find.byKey(const ValueKey('space-post-type-field')),
+          )
+          .initialValue,
+      SpacePostType.shortVideo,
+    );
+    await tester.tap(find.byKey(const ValueKey('space-post-publish')));
     await tester.pumpAndSettle();
     expect(find.text('Fresh update'), findsOneWidget);
     expect((await service.load(spaceId))!.messages, isEmpty);
     expect((await service.load(spaceId))!.posts, hasLength(1));
+    expect(
+      (await service.postsOf(spaceId)).single.type,
+      SpacePostType.shortVideo,
+    );
+    expect(await service.spacePostDraft(spaceId), isNull);
 
     final postId = (await service.postsOf(spaceId)).single.postId;
     final menu = find.byKey(ValueKey('space-post-menu-$postId'));

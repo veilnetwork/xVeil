@@ -344,6 +344,10 @@ class AppL10nRu extends AppL10n {
   String get spacePostPublish => 'Опубликовать';
 
   @override
+  String get spacePostDraftHint =>
+      'Черновик зашифрован и сохранён на этом устройстве. До публикации он никуда не отправляется.';
+
+  @override
   String get spacePostEdit => 'Редактировать публикацию';
 
   @override
