@@ -830,6 +830,7 @@ final class GroupApiAdapter {
       'spaceId': value.spaceId.hex,
       'feedEnabled': value.feedEnabled,
       'notificationsEnabled': value.notificationsEnabled,
+      'commentNotifications': value.commentNotifications.name,
       'hiddenFromRecommendations': value.hiddenFromRecommendations,
       'publicOnly': value.publicOnly,
       'updatedAt': value.updatedAtMs,
@@ -840,15 +841,23 @@ final class GroupApiAdapter {
     String spaceHex, {
     bool? feedEnabled,
     bool? notificationsEnabled,
+    String? commentNotifications,
     bool? hiddenFromRecommendations,
   }) async {
     final visible = await _visible(spaceHex);
     if (visible == null) return 'space not found';
     try {
+      final commentMode = commentNotifications == null
+          ? null
+          : SpaceCommentNotificationMode.fromName(commentNotifications);
+      if (commentNotifications != null && commentMode == null) {
+        return 'invalid comment notification mode';
+      }
       await _groups.updateSpaceSubscription(
         visible.$1,
         feedEnabled: feedEnabled,
         notificationsEnabled: notificationsEnabled,
+        commentNotifications: commentMode,
         hiddenFromRecommendations: hiddenFromRecommendations,
       );
       return null;

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/state/notifications.dart';
 
 void main() {
@@ -116,12 +117,72 @@ void main() {
       expect(notificationPayloadSupportsReply('space:abc'), isFalse);
     });
 
+    test('community discussion alerts open the exact publication thread', () {
+      expect(
+        notificationRouteForPayload('space-comment:abc:def:7'),
+        '/space/abc/comments?post=def%3A7',
+      );
+      expect(
+        notificationPayloadSupportsReply('space-comment:abc:def:7'),
+        isFalse,
+      );
+      expect(notificationRouteForPayload('space-comment:abc'), isNull);
+    });
+
     test('group and direct chat routes retain inline reply support', () {
       expect(notificationRouteForPayload('group:def'), '/group/def');
       expect(notificationRouteForPayload('fedcba'), '/chat/fedcba');
       expect(notificationPayloadSupportsReply('group:def'), isTrue);
       expect(notificationPayloadSupportsReply('fedcba'), isTrue);
       expect(notificationRouteForPayload(''), isNull);
+    });
+  });
+
+  group('Space discussion notification relevance', () {
+    test('all includes every accepted root and none excludes every root', () {
+      expect(
+        shouldNotifySpaceComment(
+          mode: SpaceCommentNotificationMode.all,
+          repliesToSelf: false,
+          commentsOnOwnPost: false,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldNotifySpaceComment(
+          mode: SpaceCommentNotificationMode.none,
+          repliesToSelf: true,
+          commentsOnOwnPost: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('focused mode includes direct replies and our publication thread', () {
+      expect(
+        shouldNotifySpaceComment(
+          mode: SpaceCommentNotificationMode.replies,
+          repliesToSelf: true,
+          commentsOnOwnPost: false,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldNotifySpaceComment(
+          mode: SpaceCommentNotificationMode.replies,
+          repliesToSelf: false,
+          commentsOnOwnPost: true,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldNotifySpaceComment(
+          mode: SpaceCommentNotificationMode.replies,
+          repliesToSelf: false,
+          commentsOnOwnPost: false,
+        ),
+        isFalse,
+      );
     });
   });
 }

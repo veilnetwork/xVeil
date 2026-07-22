@@ -495,6 +495,7 @@ void main() {
     final value = SpaceSubscription.memberDefault(_id(9)).copyWith(
       feedEnabled: false,
       notificationsEnabled: false,
+      commentNotifications: SpaceCommentNotificationMode.all,
       hiddenFromRecommendations: true,
       updatedAtMs: 42,
     );
@@ -502,12 +503,21 @@ void main() {
     expect(decoded, isNotNull);
     expect(decoded!.feedEnabled, isFalse);
     expect(decoded.notificationsEnabled, isFalse);
+    expect(decoded.commentNotifications, SpaceCommentNotificationMode.all);
     expect(decoded.hiddenFromRecommendations, isTrue);
     expect(decoded.publicOnly, isFalse);
     expect(
       SpaceSubscription.fromJson(value.toJson(), _id(10)),
       isNull,
       reason: 'a copied preference cannot retarget another Space',
+    );
+
+    final legacy = Map<String, dynamic>.of(value.toJson())
+      ..remove('commentNotifications');
+    expect(
+      SpaceSubscription.fromJson(legacy, _id(9))!.commentNotifications,
+      SpaceCommentNotificationMode.none,
+      reason: 'a legacy all-notifications opt-out must remain silent',
     );
   });
 }

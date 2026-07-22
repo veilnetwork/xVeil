@@ -773,6 +773,68 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                     ),
                                   ),
                                 ),
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    4,
+                                    16,
+                                    12,
+                                  ),
+                                  child:
+                                      DropdownButtonFormField<
+                                        SpaceCommentNotificationMode
+                                      >(
+                                        key: const ValueKey(
+                                          'space-comment-notifications-setting',
+                                        ),
+                                        initialValue:
+                                            subscription.commentNotifications,
+                                        isExpanded: true,
+                                        decoration: InputDecoration(
+                                          prefixIcon: const Icon(
+                                            Icons.forum_outlined,
+                                          ),
+                                          labelText: l
+                                              .spaceCommentNotificationsSetting,
+                                          helperText: l
+                                              .spaceCommentNotificationsSettingHint,
+                                        ),
+                                        items: [
+                                          DropdownMenuItem(
+                                            value: SpaceCommentNotificationMode
+                                                .all,
+                                            child: Text(
+                                              l.spaceCommentNotificationsAll,
+                                            ),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: SpaceCommentNotificationMode
+                                                .replies,
+                                            child: Text(
+                                              l.spaceCommentNotificationsReplies,
+                                            ),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: SpaceCommentNotificationMode
+                                                .none,
+                                            child: Text(
+                                              l.spaceCommentNotificationsNone,
+                                            ),
+                                          ),
+                                        ],
+                                        onChanged: (mode) {
+                                          if (mode != null) {
+                                            unawaited(
+                                              service
+                                                  .setSpaceCommentNotifications(
+                                                    spaceId,
+                                                    mode,
+                                                  ),
+                                            );
+                                          }
+                                        },
+                                      ),
+                                ),
                                 SwitchListTile(
                                   key: const ValueKey(
                                     'space-notifications-setting',

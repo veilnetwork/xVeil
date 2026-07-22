@@ -991,6 +991,36 @@ abstract class AppL10n {
   /// **'Alert on this device when a new community publication arrives.'**
   String get spaceNotificationsSettingHint;
 
+  /// No description provided for @spaceCommentNotificationsSetting.
+  ///
+  /// In en, this message translates to:
+  /// **'Discussion notifications'**
+  String get spaceCommentNotificationsSetting;
+
+  /// No description provided for @spaceCommentNotificationsSettingHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose which new comments alert this device.'**
+  String get spaceCommentNotificationsSettingHint;
+
+  /// No description provided for @spaceCommentNotificationsAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All comments'**
+  String get spaceCommentNotificationsAll;
+
+  /// No description provided for @spaceCommentNotificationsReplies.
+  ///
+  /// In en, this message translates to:
+  /// **'Replies to me and comments on my posts'**
+  String get spaceCommentNotificationsReplies;
+
+  /// No description provided for @spaceCommentNotificationsNone.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get spaceCommentNotificationsNone;
+
   /// No description provided for @spaceHideRecommendationsSetting.
   ///
   /// In en, this message translates to:
