@@ -482,6 +482,26 @@ void main() {
           'Public API',
           visibility: SpaceVisibility.public,
         );
+        expect(
+          await api.savePostDraft(
+            spaceId.hex,
+            'Draft headline',
+            'Draft body',
+            SpacePostType.voiceMessage.name,
+          ),
+          isNull,
+        );
+        final draft = await api.postDraft(spaceId.hex);
+        expect((draft?['draft'] as Map)['title'], 'Draft headline');
+        expect((draft?['draft'] as Map)['type'], 'voiceMessage');
+        expect(
+          await api.savePostDraft(spaceId.hex, '', '', 'unknown'),
+          isNotNull,
+        );
+        expect(await api.clearPostDraft(spaceId.hex), isNull);
+        expect((await api.postDraft(spaceId.hex))?['draft'], isNull);
+        expect(await api.postDraft('invalid'), isNull);
+
         final result = await api.publishPost(
           spaceId.hex,
           'Headline',

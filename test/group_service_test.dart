@@ -3858,6 +3858,82 @@ void main() {
   );
 
   test(
+    'Space post drafts persist locally, support large bodies and never enter P2P logs',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner));
+      final spaceId = await service.createSpace(
+        'Draft lab',
+        visibility: SpaceVisibility.public,
+      );
+      final largeBody = List.filled(6000, 'draft').join();
+
+      expect(
+        await service.saveSpacePostDraft(
+          spaceId,
+          title: 'Work in progress',
+          body: largeBody,
+          type: SpacePostType.shortVideo,
+        ),
+        isTrue,
+      );
+      final stored = await storage.loadFile(
+        'space.post-draft.v1:${spaceId.hex}',
+      );
+      expect(stored, isNotNull);
+      final storedJson = jsonDecode(utf8.decode(stored!)) as Map;
+      // Keep this assertion close to persistence: the local draft must not be
+      // confused with opaque content bytes or a signed post row.
+      expect(storedJson['v'], 1);
+      expect(storedJson['sid'], spaceId.hex);
+      expect(storedJson['type'], SpacePostType.shortVideo.name);
+      expect(storedJson['title'], 'Work in progress');
+      expect((storedJson['body'] as String).length, largeBody.length);
+      expect(storedJson['updatedAt'], isA<int>());
+      final draft = await service.spacePostDraft(spaceId);
+      expect(draft?.title, 'Work in progress');
+      expect(draft?.body, largeBody);
+      expect(draft?.type, SpacePostType.shortVideo);
+      expect((await service.load(spaceId))!.posts, isEmpty);
+
+      final reopened = GroupService(storage, _FakeSigner(owner));
+      expect((await reopened.spacePostDraft(spaceId))?.body, largeBody);
+
+      await Future.wait([
+        service.saveSpacePostDraft(
+          spaceId,
+          title: 'First queued value',
+          body: '',
+          type: SpacePostType.post,
+        ),
+        service.saveSpacePostDraft(
+          spaceId,
+          title: 'Last queued value',
+          body: '',
+          type: SpacePostType.article,
+        ),
+      ]);
+      expect(
+        (await service.spacePostDraft(spaceId))?.title,
+        'Last queued value',
+      );
+
+      expect(await service.clearSpacePostDraft(spaceId), isTrue);
+      expect(await service.spacePostDraft(spaceId), isNull);
+      expect(
+        await service.saveSpacePostDraft(
+          await service.createGroup('Not a community'),
+          title: 'Must stay unavailable',
+          body: '',
+          type: SpacePostType.post,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test(
     'public Space posts are a separate signed log with stable feed paging',
     () async {
       final (svc, _) = await setup();

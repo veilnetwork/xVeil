@@ -495,6 +495,43 @@ final class GroupApiAdapter {
     };
   }
 
+  /// The identity-local encrypted composer draft. It is intentionally exposed
+  /// separately from [posts] because it is neither signed nor replicated.
+  Future<Map<String, dynamic>?> postDraft(String spaceHex) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return null;
+    final draft = await _groups.spacePostDraft(visible.$1);
+    return {'spaceId': visible.$1.hex, 'draft': draft?.toJson()};
+  }
+
+  Future<String?> savePostDraft(
+    String spaceHex,
+    String title,
+    String body,
+    String typeName,
+  ) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    final type = SpacePostType.fromName(typeName);
+    if (type == null) return 'invalid post type';
+    return await _groups.saveSpacePostDraft(
+          visible.$1,
+          title: title,
+          body: body,
+          type: type,
+        )
+        ? null
+        : 'post draft rejected';
+  }
+
+  Future<String?> clearPostDraft(String spaceHex) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    return await _groups.clearSpacePostDraft(visible.$1)
+        ? null
+        : 'post draft clearing failed';
+  }
+
   Future<({String? error, Map<String, dynamic>? post})> publishPost(
     String spaceHex,
     String title,
