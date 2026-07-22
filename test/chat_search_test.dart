@@ -3,19 +3,20 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/space_recommendation.dart';
 import 'package:xveil/features/chat/chat_search.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
 
 Message _msg(String body, {String? fileName}) => Message(
-      id: 'm-$body',
-      conversationId: 'c',
-      direction: MessageDirection.incoming,
-      body: body,
-      timestamp: DateTime(2026, 7, 9),
-      status: MessageStatus.delivered,
-      fileName: fileName,
-    );
+  id: 'm-$body',
+  conversationId: 'c',
+  direction: MessageDirection.incoming,
+  body: body,
+  timestamp: DateTime(2026, 7, 9),
+  status: MessageStatus.delivered,
+  fileName: fileName,
+);
 
 void main() {
   group('messageMatchesQuery', () {
@@ -35,6 +36,23 @@ void main() {
     test('never matches service echoes or empty queries', () {
       expect(messageMatchesQuery(_msg('↩︎ echo: {"t":9}'), 'echo'), isFalse);
       expect(messageMatchesQuery(_msg('anything'), ''), isFalse);
+    });
+
+    test('searches recommendation display fields without exposing marker', () {
+      final body = encodeSpaceRecommendationMessage(
+        SpaceRecommendationCard(
+          campaignId: 'ab' * 32,
+          spaceId: _id(8),
+          name: 'Public lab',
+          description: 'Open community',
+          text: 'Take a look',
+          joinCode: 'ticket',
+        ),
+      );
+      final message = _msg(body);
+      expect(messageMatchesQuery(message, 'community'), isTrue);
+      expect(messageSearchText(message), contains('Public lab'));
+      expect(messageSearchText(message), isNot(contains('xveil:')));
     });
   });
 
@@ -77,17 +95,18 @@ void main() {
 
   test('filterConversationsByName matches label and name', () {
     final convos = [
-      Conversation(peer: Contact(nodeId: _id(1), name: 'Alice')),
-      Conversation(peer: Contact(nodeId: _id(2), name: 'Bob')),
+      Conversation(
+        peer: Contact(nodeId: _id(1), name: 'Alice'),
+      ),
+      Conversation(
+        peer: Contact(nodeId: _id(2), name: 'Bob'),
+      ),
       Conversation(peer: Contact(nodeId: _id(3))),
     ];
     expect(filterConversationsByName(convos, 'ali').length, 1);
     expect(filterConversationsByName(convos, '').length, 3);
     // No name → label falls back to the short node id.
     final shortId = convos.last.peer.label.toLowerCase();
-    expect(
-      filterConversationsByName(convos, shortId).isNotEmpty,
-      isTrue,
-    );
+    expect(filterConversationsByName(convos, shortId).isNotEmpty, isTrue);
   });
 }

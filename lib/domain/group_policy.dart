@@ -22,8 +22,10 @@ import 'group.dart';
 import 'group_epoch.dart';
 import 'space_channel.dart';
 import 'space_lifecycle.dart';
+import 'space_join_request.dart';
 import 'space_moderation.dart';
 import 'space_post.dart';
+import 'space_recommendation.dart';
 import 'space_retention.dart';
 import 'space_rules.dart';
 
@@ -43,6 +45,7 @@ class GroupState {
     this.moderationRecords,
     this.retentionHistory,
     this.postPins,
+    this.recommendationCampaigns,
     this.lifecycleState,
     this.lifecycleTransition,
     this.lifecycleTransitionHash,
@@ -97,6 +100,10 @@ class GroupState {
   /// The payload also binds the exact root hash; materialization must verify it
   /// before exposing a pin so a stale control row cannot attach to new content.
   final Map<String, SpacePostPin> postPins;
+
+  /// Latest signed state for every recommendation campaign. Revoked rows stay
+  /// present as audit evidence but are never distributable.
+  final Map<String, SpaceRecommendationCampaign> recommendationCampaigns;
 
   /// Signed Space lifecycle state. Group chats never author lifecycle ops and
   /// therefore remain [SpaceLifecycleState.active].
@@ -180,6 +187,8 @@ class GroupState {
   bool isMember(NodeId id) => members.containsKey(id.hex);
   GroupRole? roleOf(NodeId id) => members[id.hex]?.role;
   SpacePostPin? postPinFor(String postId) => postPins[postId];
+  SpaceRecommendationCampaign? recommendationCampaignFor(String campaignId) =>
+      recommendationCampaigns[campaignId];
 
   /// The initial state of a group: the owner (genesis) is the sole member.
   factory GroupState.genesis(NodeId owner, [String name = '']) => GroupState._(
@@ -196,6 +205,7 @@ class GroupState {
     const {},
     const [],
     const {},
+    const {},
     SpaceLifecycleState.active,
     null,
     null,
@@ -211,6 +221,7 @@ enum SpacePermission {
   publishMessages,
   publishPosts,
   managePosts,
+  manageRecommendations,
   enterVoice,
   manageMembers,
   manageRoles,
@@ -269,6 +280,8 @@ final class SpaceAcl {
       SpacePermission.publishMessages => !member.muted && !blocksMessages,
       SpacePermission.publishPosts => !member.muted && !blocksPosts,
       SpacePermission.managePosts => member.role.rank >= GroupRole.admin.rank,
+      SpacePermission.manageRecommendations =>
+        member.role.rank >= GroupRole.admin.rank,
       SpacePermission.enterVoice => !blocksVoice,
       SpacePermission.manageMembers ||
       SpacePermission.manageRoles ||
@@ -308,6 +321,7 @@ final class SpaceAcl {
       case ControlOp.createChannel:
       case ControlOp.updateChannel:
       case ControlOp.setPostPin:
+      case ControlOp.setRecommendationCampaign:
         return authorRole.rank >= GroupRole.admin.rank;
       case ControlOp.publishRules:
         return authorRole == GroupRole.owner;
@@ -407,6 +421,7 @@ GroupFoldResult foldControlLog({
   final moderationRecords = <String, SpaceModerationRecord>{};
   final retentionHistory = <SpaceRetentionRevision>[];
   final postPins = <String, SpacePostPin>{};
+  final recommendationCampaigns = <String, SpaceRecommendationCampaign>{};
   var lifecycleState = SpaceLifecycleState.active;
   SpaceLifecycleTransition? lifecycleTransition;
   String? lifecycleTransitionHash;
@@ -774,6 +789,47 @@ GroupFoldResult foldControlLog({
       rejected.add(e);
       continue;
     }
+    if (e.op == ControlOp.setRecommendationCampaign) {
+      final campaign = e.recommendationCampaign;
+      var capabilityValid = campaign?.active == false;
+      if (campaign?.active == true) {
+        try {
+          final ticket = SpaceJoinCode.parse(campaign!.joinCode);
+          capabilityValid =
+              ticket.spaceId == campaign.spaceId &&
+              ticket.approver == campaign.createdBy &&
+              !ticket.isExpiredAt(campaign.createdAtMs) &&
+              ticket.createdAtMs <= campaign.createdAtMs;
+        } catch (_) {
+          capabilityValid = false;
+        }
+      }
+      final previous = campaign == null
+          ? null
+          : recommendationCampaigns[campaign.campaignId];
+      final creates = previous == null && campaign?.active == true;
+      final revokes =
+          previous != null &&
+          previous.active &&
+          campaign?.active == false &&
+          campaign!.spaceId == previous.spaceId &&
+          campaign.createdBy == previous.createdBy &&
+          campaign.text == previous.text &&
+          campaign.createdAtMs == previous.createdAtMs;
+      if (e.version != 13 ||
+          campaign == null ||
+          campaign.spaceId != e.groupId ||
+          !capabilityValid ||
+          campaign.changedAtMs != e.createdAtMs ||
+          (creates && campaign.createdBy != e.author) ||
+          (!creates && !revokes)) {
+        rejected.add(e);
+        continue;
+      }
+    } else if (e.recommendationCampaign != null) {
+      rejected.add(e);
+      continue;
+    }
     final descriptor = e.epochDescriptor;
     GroupEpochDescriptor? usableDescriptor = descriptor;
     final moderationRemovesMember =
@@ -877,6 +933,9 @@ GroupFoldResult foldControlLog({
       case ControlOp.setPostPin:
         final pin = e.postPin!;
         postPins[pin.postId] = pin;
+      case ControlOp.setRecommendationCampaign:
+        final campaign = e.recommendationCampaign!;
+        recommendationCampaigns[campaign.campaignId] = campaign;
       case ControlOp.archiveSpace:
       case ControlOp.deleteSpace:
       case ControlOp.restoreSpace:
@@ -1034,6 +1093,7 @@ GroupFoldResult foldControlLog({
       Map.unmodifiable(moderationRecords),
       List.unmodifiable(retentionHistory),
       Map.unmodifiable(postPins),
+      Map.unmodifiable(recommendationCampaigns),
       lifecycleState,
       lifecycleTransition,
       lifecycleTransitionHash,

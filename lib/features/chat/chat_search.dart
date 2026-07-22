@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../../data/transport/wire_envelope.dart' show isServiceEchoBody;
 import '../../domain/chat.dart';
+import '../../domain/space_recommendation.dart';
 
 /// Pure matchers/formatters behind the chats-screen search — kept
 /// widget-free so the behavior is unit-testable.
@@ -16,9 +17,23 @@ import '../../domain/chat.dart';
 bool messageMatchesQuery(Message m, String lowerQuery) {
   if (lowerQuery.isEmpty) return false;
   if (isServiceEchoBody(m.body)) return false;
-  if (m.body.toLowerCase().contains(lowerQuery)) return true;
+  if (messageSearchText(m).toLowerCase().contains(lowerQuery)) return true;
   final fn = m.fileName;
   return fn != null && fn.toLowerCase().contains(lowerQuery);
+}
+
+/// User-visible text for search and snippets; never expose the encoded card.
+String messageSearchText(Message message) {
+  final recommendation = parseSpaceRecommendationMessage(message.body);
+  if (recommendation != null) {
+    return [
+      recommendation.name,
+      recommendation.description,
+      recommendation.text,
+    ].where((part) => part.isNotEmpty).join(' — ');
+  }
+  if (isSpaceRecommendationMessageBody(message.body)) return '';
+  return message.body;
 }
 
 /// A short window of [body] centered on the first match of [lowerQuery],

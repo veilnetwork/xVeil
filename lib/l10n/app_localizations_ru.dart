@@ -545,6 +545,57 @@ class AppL10nRu extends AppL10n {
   String get spaceJoinLinkRevoked => 'Ссылка для вступления отозвана';
 
   @override
+  String get spaceRecommendationsTitle => 'Рекомендации';
+
+  @override
+  String get spaceRecommendationsHint =>
+      'Создайте подписанную публичную кампанию. После этого участники смогут рекомендовать сообщество только явно выбранным контактам.';
+
+  @override
+  String get spaceRecommendationCreate => 'Создать кампанию';
+
+  @override
+  String get spaceRecommendationTextHint =>
+      'Текст, который участники отправят вместе с карточкой сообщества';
+
+  @override
+  String get spaceRecommendationShare => 'Рекомендовать сообщество';
+
+  @override
+  String get spaceRecommendationSelectCampaign => 'Выберите кампанию';
+
+  @override
+  String get spaceRecommendationSelectContact => 'Выберите получателя';
+
+  @override
+  String get spaceRecommendationRevoke => 'Отозвать кампанию';
+
+  @override
+  String get spaceRecommendationSent => 'Рекомендация отправлена';
+
+  @override
+  String get spaceRecommendationDuplicate =>
+      'Эта кампания уже отправлялась этому контакту';
+
+  @override
+  String get spaceRecommendationRateLimited =>
+      'Лимит рекомендаций исчерпан. Повторите позже.';
+
+  @override
+  String get spaceRecommendationAlreadyMember =>
+      'Этот контакт уже участвует в сообществе';
+
+  @override
+  String get spaceRecommendationEmpty => 'Нет активных кампаний рекомендаций';
+
+  @override
+  String get spaceRecommendationReceive => 'Рекомендации сообществ';
+
+  @override
+  String get spaceRecommendationReceiveHint =>
+      'Разрешить принятым контактам отправлять карточки сообществ. При отключении новые рекомендации будут молча отбрасываться.';
+
+  @override
   String get spaceRoleLabel => 'Роль в сообществе';
 
   @override

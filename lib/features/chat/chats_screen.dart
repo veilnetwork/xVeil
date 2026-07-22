@@ -9,6 +9,7 @@ import '../../core/ids.dart';
 import '../../data/transport/wire_envelope.dart' show isChatDeletedMarker;
 import '../../domain/chat.dart';
 import '../../domain/chat_folder.dart';
+import '../../domain/space_recommendation.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/messaging.dart';
@@ -169,7 +170,9 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
             title: Text(c.peer.label),
             subtitle: Text(
               searchSnippet(
-                m.body.isNotEmpty ? m.body : (m.fileName ?? ''),
+                messageSearchText(m).isNotEmpty
+                    ? messageSearchText(m)
+                    : (m.fileName ?? ''),
                 needle,
               ),
               maxLines: 2,
@@ -970,7 +973,10 @@ class _ConversationTile extends ConsumerWidget {
                                 ? l.chatVoiceTooltip
                                 : (isChatDeletedMarker(last.body)
                                       ? l.chatDeletedByPeer
-                                      : last.body)),
+                                      : (parseSpaceRecommendationMessage(
+                                              last.body,
+                                            )?.name ??
+                                            last.body))),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     )),

@@ -7,6 +7,7 @@ import '../../core/ids.dart';
 import '../../core/log.dart';
 import '../../domain/chat.dart';
 import '../../domain/group_message.dart';
+import '../../domain/space_recommendation.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/messaging.dart';
@@ -226,7 +227,10 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         convHex: c.id,
         name: c.peer.name,
         shortId: c.peer.nodeId.short,
-        preview: c.lastMessage?.body ?? '',
+        preview: c.lastMessage == null
+            ? ''
+            : (parseSpaceRecommendationMessage(c.lastMessage!.body)?.name ??
+                  c.lastMessage!.body),
         timestampMs: c.lastMessage?.timestamp.millisecondsSinceEpoch ?? 0,
       ));
     }

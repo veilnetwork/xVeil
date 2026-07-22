@@ -114,6 +114,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     sendSpaceInviteDecision: messaging.sendSpaceInviteDecision,
     sendSpaceJoinRequest: messaging.sendSpaceJoinRequest,
     sendSpaceJoinDecision: messaging.sendSpaceJoinDecision,
+    sendSpaceRecommendation: messaging.sendSpaceRecommendation,
     sendContentRequest: (holder, json) =>
         messaging.sendGroupContentRequest(holder, json),
     sendGroupCallFrame: (peer, signal, json) =>
@@ -140,6 +141,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   };
   messaging.onSpaceJoinRequest = service.receiveSpaceJoinRequest;
   messaging.onSpaceJoinDecision = service.receiveSpaceJoinDecision;
+  messaging.onSpaceRecommendation = service.acceptsSpaceRecommendationCard;
   messaging.onGroupContentRequest = (peer, requestJson) {
     unawaited(service.handleContentRequest(requestJson));
   };

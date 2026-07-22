@@ -615,6 +615,15 @@ class ApiServerController extends Notifier<ApiConfig> {
       deleteSpacePost: groupApi?.deletePost,
       setSpacePostPinned: groupApi?.setPostPinned,
       reactToSpacePost: groupApi?.reactToPost,
+      spaceRecommendationCampaigns: groupApi == null
+          ? null
+          : (space, includeRevoked) => groupApi.recommendationCampaigns(
+              space,
+              includeRevoked: includeRevoked,
+            ),
+      createSpaceRecommendationCampaign: groupApi?.createRecommendationCampaign,
+      revokeSpaceRecommendationCampaign: groupApi?.revokeRecommendationCampaign,
+      shareSpaceRecommendation: groupApi?.shareRecommendation,
       spaceFeed: groupApi?.feed,
       spaceFeedTypeFilter: groupApi?.feedTypeFilter,
       setSpaceFeedTypeFilter: groupApi?.setFeedTypeFilter,

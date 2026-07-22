@@ -585,6 +585,66 @@ void main() {
     expect(find.text(l.spaceActiveTitle), findsOneWidget);
   });
 
+  testWidgets('owner creates a signed recommendation campaign in settings', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(29);
+    final service = GroupService(storage, _Signer(owner));
+    addTearDown(service.dispose);
+    final spaceId = await service.createSpace(
+      'Public lab',
+      visibility: SpaceVisibility.public,
+    );
+
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [groupServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final create = find.byKey(const ValueKey('space-recommendation-create'));
+    for (var i = 0; i < 6 && create.evaluate().isEmpty; i++) {
+      await tester.drag(find.byType(ListView).first, const Offset(0, -500));
+      await tester.pumpAndSettle();
+    }
+    await tester.ensureVisible(create);
+    await tester.pumpAndSettle();
+    await tester.tap(create);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('space-recommendation-text')),
+      'Расскажите тем, кому это действительно полезно',
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('space-recommendation-create-confirm')),
+    );
+    await tester.pumpAndSettle();
+
+    final campaigns = await service.spaceRecommendationCampaigns(spaceId);
+    expect(campaigns, hasLength(1));
+    expect(
+      campaigns.single.text,
+      'Расскажите тем, кому это действительно полезно',
+    );
+    final row = find.byKey(
+      ValueKey('space-recommendation-${campaigns.single.campaignId}'),
+    );
+    for (var i = 0; i < 4 && row.evaluate().isEmpty; i++) {
+      await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+      await tester.pumpAndSettle();
+    }
+    expect(row, findsOneWidget);
+  });
+
   testWidgets('Space rules publish, display history and require acceptance', (
     tester,
   ) async {

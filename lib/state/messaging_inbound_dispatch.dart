@@ -78,6 +78,13 @@ extension _MessagingInboundDispatch on MessagingService {
           if (id != null) await _ackTo(m, id, direct: true);
           return;
         }
+        // The durable recommendation marker is reserved for the typed wire
+        // kind. Refuse it on the ordinary text path so callers cannot bypass
+        // campaign consent, rate limits and capability validation via sendText.
+        if (isSpaceRecommendationMessageBody(env.body)) {
+          if (id != null) await _ackTo(m, id, direct: true);
+          return;
+        }
         // [timeline] inbound receipt: id + whether it carried a reply path. id +
         // replyId only (no body) — lets us separate receive-latency from the ACK
         // round-trip when reading a session's logs.
@@ -435,6 +442,62 @@ extension _MessagingInboundDispatch on MessagingService {
           _outbox.remember(fid);
           await _ackFrame(m, fid);
         }
+        return;
+      case WireKind.spaceRecommendation:
+        // A card is still a user-visible 1:1 message, so contact consent,
+        // message-id dedup, deletion tombstones and ACK semantics all apply.
+        if (existing?.status != ContactStatus.accepted) return;
+        final id = env.id;
+        if (id == null) return;
+        if (await _hasMessage(m.src, id)) {
+          await _ackTo(m, id, direct: true);
+          return;
+        }
+        if (await _storage.isMessageDeleted(m.src.hex, id)) {
+          await _ackTo(m, id, direct: true);
+          return;
+        }
+        final SpaceRecommendationCard? card;
+        try {
+          card = SpaceRecommendationCard.fromJson(jsonDecode(env.body));
+        } catch (_) {
+          return;
+        }
+        if (card == null) return;
+        try {
+          final ticket = SpaceJoinCode.parse(card.joinCode);
+          if (ticket.spaceId != card.spaceId ||
+              ticket.isExpiredAt(_now().millisecondsSinceEpoch)) {
+            await _ackTo(m, id, direct: true);
+            return;
+          }
+        } catch (_) {
+          await _ackTo(m, id, direct: true);
+          return;
+        }
+        if (!await spaceRecommendationsEnabled()) {
+          // Receiver opt-out is intentionally silent: ACK and discard so the
+          // sender gets no preference oracle and retries cannot create spam.
+          await _ackTo(m, id, direct: true);
+          return;
+        }
+        final recommendationGate = onSpaceRecommendation;
+        if (recommendationGate != null &&
+            !await recommendationGate(m.src, card)) {
+          await _ackTo(m, id, direct: true);
+          return;
+        }
+        await _store(
+          m.src,
+          MessageDirection.incoming,
+          encodeSpaceRecommendationMessage(card),
+          MessageStatus.delivered,
+          id: id,
+          timestamp: _wireSentAt(env),
+          seq: env.seq,
+        );
+        _emitIncoming(m.src, 'Community: ${card.name}', isFile: false);
+        await _ackTo(m, id);
         return;
       case WireKind.reaction:
         // The peer reacted to a message in THIS conversation. A side annotation

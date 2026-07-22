@@ -40,6 +40,7 @@ import '../domain/space_join_request.dart';
 import '../domain/space_lifecycle.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
+import '../domain/space_recommendation.dart';
 import '../domain/space_retention.dart';
 import '../domain/space_rules.dart';
 import '../data/transport/bootstrap_invite.dart';
@@ -444,6 +445,8 @@ typedef SpaceJoinRequestSender =
     Future<void> Function(NodeId peer, String requestId, String requestJson);
 typedef SpaceJoinDecisionSender =
     Future<void> Function(NodeId peer, String requestId, String decisionJson);
+typedef SpaceRecommendationSender =
+    Future<bool> Function(NodeId peer, SpaceRecommendationCard card);
 
 typedef GroupCallFrameSender =
     Future<void> Function(
@@ -461,6 +464,7 @@ class GroupService {
     this.sendSpaceInviteDecision,
     this.sendSpaceJoinRequest,
     this.sendSpaceJoinDecision,
+    this.sendSpaceRecommendation,
     this._epochService,
     this.ourCertVersion = 1,
     this.sendContentRequest,
@@ -478,6 +482,7 @@ class GroupService {
   final SpaceInviteDecisionSender? sendSpaceInviteDecision;
   final SpaceJoinRequestSender? sendSpaceJoinRequest;
   final SpaceJoinDecisionSender? sendSpaceJoinDecision;
+  final SpaceRecommendationSender? sendSpaceRecommendation;
   final GroupEpochService? _epochService;
   final int ourCertVersion;
 
@@ -979,6 +984,315 @@ class GroupService {
       return true;
     },
   );
+
+  /// Create a signed, public recommendation campaign. The capability is
+  /// issued by an admin, while any current member with distribute permission
+  /// may later carry the resulting card to explicitly selected contacts.
+  Future<SpaceRecommendationCampaign?> createSpaceRecommendationCampaign(
+    NodeId spaceId,
+    String text,
+  ) async {
+    final normalized = text.trim();
+    if (normalized.isEmpty || normalized.length > 1000) return null;
+    final joinCode = await createSpaceJoinCode(spaceId);
+    if (joinCode == null) return null;
+    try {
+      final ticket = SpaceJoinCode.parse(joinCode);
+      if (ticket.isExpiredAt(_now())) return null;
+    } catch (_) {
+      return null;
+    }
+    return _serialized(spaceId, () async {
+      final bundle = await load(spaceId);
+      if (bundle == null ||
+          !bundle.manifest.isSpace ||
+          bundle.manifest.visibility != SpaceVisibility.public) {
+        return null;
+      }
+      final state = foldControlLog(
+        owner: bundle.manifest.owner,
+        entries: bundle.control,
+        verify: (entry) => _validControlFor(bundle.manifest, entry),
+        initialName: bundle.manifest.name,
+        initialDescription: bundle.manifest.description ?? '',
+      ).state;
+      if (!state.isActive ||
+          !SpaceAcl(
+            state,
+          ).allows(selfId, SpacePermission.manageRecommendations)) {
+        return null;
+      }
+      final now = _now();
+      final campaign = SpaceRecommendationCampaign(
+        campaignId: _newSpaceInviteId(),
+        spaceId: spaceId,
+        createdBy: selfId,
+        text: normalized,
+        joinCode: joinCode,
+        createdAtMs: now,
+        changedAtMs: now,
+        active: true,
+      );
+      final applied = await _addControlOp(
+        spaceId,
+        ControlOp.setRecommendationCampaign,
+        recommendationCampaign: campaign,
+        createdAtMs: now,
+      );
+      return applied ? campaign : null;
+    });
+  }
+
+  Future<List<SpaceRecommendationCampaign>> spaceRecommendationCampaigns(
+    NodeId spaceId, {
+    bool includeRevoked = false,
+  }) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return const [];
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    if (!SpaceAcl(state).allows(selfId, SpacePermission.view)) return const [];
+    final now = _now();
+    final campaigns = state.recommendationCampaigns.values.where((campaign) {
+      if (includeRevoked) return true;
+      if (!campaign.active) return false;
+      try {
+        return !SpaceJoinCode.parse(campaign.joinCode).isExpiredAt(now);
+      } catch (_) {
+        return false;
+      }
+    }).toList();
+    campaigns.sort((a, b) => b.changedAtMs.compareTo(a.changedAtMs));
+    return List.unmodifiable(campaigns);
+  }
+
+  Future<bool> revokeSpaceRecommendationCampaign(
+    NodeId spaceId,
+    String campaignId,
+  ) => _serialized(spaceId, () async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return false;
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    if (!SpaceAcl(
+          state,
+        ).allows(selfId, SpacePermission.manageRecommendations) ||
+        !state.isActive) {
+      return false;
+    }
+    final current = state.recommendationCampaignFor(campaignId);
+    if (current == null || !current.active) return false;
+    final now = _now();
+    return _addControlOp(
+      spaceId,
+      ControlOp.setRecommendationCampaign,
+      recommendationCampaign: SpaceRecommendationCampaign(
+        campaignId: current.campaignId,
+        spaceId: current.spaceId,
+        createdBy: current.createdBy,
+        text: current.text,
+        joinCode: '',
+        createdAtMs: current.createdAtMs,
+        changedAtMs: now,
+        active: false,
+      ),
+      createdAtMs: now,
+    );
+  });
+
+  static const String _spaceRecommendationAuditSetting =
+      'spaces.recommendations.audit.v1';
+  static const int _maxSpaceRecommendationAudit = 512;
+  static const int _spaceRecommendationCampaignHourlyLimit = 5;
+  static const int _spaceRecommendationDailyLimit = 20;
+  static const Duration _spaceRecommendationDuplicateWindow = Duration(days: 7);
+  Future<void> _spaceRecommendationMutationTail = Future<void>.value();
+
+  Future<T> _serializeSpaceRecommendations<T>(
+    Future<T> Function() action,
+  ) async {
+    final previous = _spaceRecommendationMutationTail;
+    final gate = Completer<void>();
+    _spaceRecommendationMutationTail = gate.future;
+    try {
+      try {
+        await previous;
+      } catch (_) {}
+      return await action();
+    } finally {
+      gate.complete();
+    }
+  }
+
+  Future<List<SpaceRecommendationShareAudit>>
+  spaceRecommendationShareAudit() async {
+    final raw = await _storage.getSetting(_spaceRecommendationAuditSetting);
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final value = jsonDecode(raw);
+      if (value is! Map || value['v'] != 1 || value['records'] is! List) {
+        return const [];
+      }
+      return List.unmodifiable(
+        (value['records'] as List)
+            .map(SpaceRecommendationShareAudit.fromJson)
+            .whereType<SpaceRecommendationShareAudit>()
+            .take(_maxSpaceRecommendationAudit),
+      );
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _saveSpaceRecommendationShareAudit(
+    List<SpaceRecommendationShareAudit> records,
+  ) => _storage.putSetting(
+    _spaceRecommendationAuditSetting,
+    jsonEncode({
+      'v': 1,
+      'records': [
+        for (final record in records.take(_maxSpaceRecommendationAudit))
+          record.toJson(),
+      ],
+    }),
+  );
+
+  /// Explicitly share one current public campaign with one accepted contact.
+  /// Membership/role is never included in the card, so a member's hidden role
+  /// cannot leak through recommendation metadata.
+  Future<SpaceRecommendationShareResult> shareSpaceRecommendation(
+    NodeId spaceId,
+    String campaignId,
+    NodeId recipient,
+  ) => _serializeSpaceRecommendations(() async {
+    final sender = sendSpaceRecommendation;
+    if (sender == null || recipient == selfId) {
+      return SpaceRecommendationShareResult.invalidRecipient;
+    }
+    final contact = await _storage.getContact(recipient);
+    if (contact == null || contact.status != ContactStatus.accepted) {
+      return SpaceRecommendationShareResult.invalidRecipient;
+    }
+    final bundle = await load(spaceId);
+    if (bundle == null ||
+        !bundle.manifest.isSpace ||
+        bundle.manifest.visibility != SpaceVisibility.public) {
+      return SpaceRecommendationShareResult.invalidCampaign;
+    }
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    if (!state.isActive ||
+        !SpaceAcl(state).allows(selfId, SpacePermission.distributeContent)) {
+      return SpaceRecommendationShareResult.notAllowed;
+    }
+    if (state.isMember(recipient)) {
+      return SpaceRecommendationShareResult.alreadyMember;
+    }
+    final campaign = state.recommendationCampaignFor(campaignId);
+    if (campaign == null || !campaign.active) {
+      return SpaceRecommendationShareResult.invalidCampaign;
+    }
+    final now = _now();
+    try {
+      final ticket = SpaceJoinCode.parse(campaign.joinCode);
+      if (ticket.spaceId != spaceId || ticket.isExpiredAt(now)) {
+        return SpaceRecommendationShareResult.invalidCampaign;
+      }
+    } catch (_) {
+      return SpaceRecommendationShareResult.invalidCampaign;
+    }
+    final records = await spaceRecommendationShareAudit();
+    final duplicateCutoff =
+        now - _spaceRecommendationDuplicateWindow.inMilliseconds;
+    if (records.any(
+      (record) =>
+          record.campaignId == campaignId &&
+          record.recipient == recipient &&
+          record.sentAtMs >= duplicateCutoff,
+    )) {
+      return SpaceRecommendationShareResult.duplicate;
+    }
+    final hourlyCutoff = now - const Duration(hours: 1).inMilliseconds;
+    final dailyCutoff = now - const Duration(days: 1).inMilliseconds;
+    if (records.where((record) => record.sentAtMs >= dailyCutoff).length >=
+            _spaceRecommendationDailyLimit ||
+        records
+                .where(
+                  (record) =>
+                      record.campaignId == campaignId &&
+                      record.sentAtMs >= hourlyCutoff,
+                )
+                .length >=
+            _spaceRecommendationCampaignHourlyLimit) {
+      return SpaceRecommendationShareResult.rateLimited;
+    }
+    final card = SpaceRecommendationCard(
+      campaignId: campaignId,
+      spaceId: spaceId,
+      name: state.name,
+      description: state.description,
+      text: campaign.text,
+      joinCode: campaign.joinCode,
+    );
+    try {
+      if (!await sender(recipient, card)) {
+        return SpaceRecommendationShareResult.failed;
+      }
+    } catch (_) {
+      return SpaceRecommendationShareResult.failed;
+    }
+    final updated = <SpaceRecommendationShareAudit>[
+      SpaceRecommendationShareAudit(
+        campaignId: campaignId,
+        spaceId: spaceId,
+        recipient: recipient,
+        sentAtMs: now,
+      ),
+      for (final record in records)
+        if (record.sentAtMs >= duplicateCutoff) record,
+    ];
+    await _saveSpaceRecommendationShareAudit(updated);
+    changes.value++;
+    return SpaceRecommendationShareResult.sent;
+  });
+
+  /// Receiver-side card suppression. A locally held Space cannot be joined via
+  /// the public ticket flow, so showing the card would be both redundant and
+  /// misleading. The card never becomes authority by itself.
+  Future<bool> acceptsSpaceRecommendationCard(
+    NodeId sender,
+    SpaceRecommendationCard card,
+  ) async {
+    if (sender == selfId) return false;
+    final contact = await _storage.getContact(sender);
+    if (contact == null || contact.status != ContactStatus.accepted) {
+      return false;
+    }
+    try {
+      final ticket = SpaceJoinCode.parse(card.joinCode);
+      if (ticket.spaceId != card.spaceId || ticket.isExpiredAt(_now())) {
+        return false;
+      }
+    } catch (_) {
+      return false;
+    }
+    return await load(card.spaceId) == null;
+  }
 
   Future<String?> currentSpaceJoinCode(NodeId spaceId) async {
     final now = _now();
@@ -3762,6 +4076,7 @@ class GroupService {
     SpaceRetentionPolicy? retentionPolicy,
     SpaceLifecycleTransition? lifecycleTransition,
     SpacePostPin? postPin,
+    SpaceRecommendationCampaign? recommendationCampaign,
     int? createdAtMs,
   }) async {
     final b = await load(groupId);
@@ -3774,6 +4089,7 @@ class GroupService {
             op == ControlOp.revokeModeration ||
             op == ControlOp.setRetention ||
             op == ControlOp.setPostPin ||
+            op == ControlOp.setRecommendationCampaign ||
             op == ControlOp.archiveSpace ||
             op == ControlOp.deleteSpace ||
             op == ControlOp.restoreSpace) &&
@@ -3868,6 +4184,8 @@ class GroupService {
                     : 11
               : postPin != null
               ? 12
+              : recommendationCampaign != null
+              ? 13
               : retentionPolicy != null
               ? 9
               : moderationAction != null || moderationRevocation != null
@@ -3895,6 +4213,7 @@ class GroupService {
           retentionPolicy: retentionPolicy,
           lifecycleTransition: lifecycleTransition,
           postPin: postPin,
+          recommendationCampaign: recommendationCampaign,
           policyVersion: pv,
           createdAtMs: createdAt,
           signature: Uint8List(0),
@@ -5985,6 +6304,7 @@ class GroupService {
         case ControlOp.deleteSpace:
         case ControlOp.restoreSpace:
         case ControlOp.setPostPin:
+        case ControlOp.setRecommendationCampaign:
         case ControlOp.checkpoint:
           break;
       }
@@ -6052,6 +6372,7 @@ class GroupService {
         case ControlOp.deleteSpace:
         case ControlOp.restoreSpace:
         case ControlOp.setPostPin:
+        case ControlOp.setRecommendationCampaign:
         case ControlOp.checkpoint:
           break;
       }

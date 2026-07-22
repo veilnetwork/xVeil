@@ -24,6 +24,7 @@ import 'package:xveil/domain/space_join_request.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_rules.dart';
+import 'package:xveil/domain/space_recommendation.dart';
 import 'package:xveil/domain/inline_custom_emoji.dart';
 import 'package:xveil/state/group_epoch_service.dart';
 import 'package:xveil/state/group_service_providers.dart';
@@ -3072,6 +3073,126 @@ void main() {
       );
       expect(await requesterService.outgoingSpaceJoinRequests(), isEmpty);
       expect(await ownerService.pendingSpaceJoinRequests(spaceId), isEmpty);
+    },
+  );
+
+  test(
+    'public Space recommendation campaign is signed and revocable',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'owner', createIfMissing: true);
+      final sent = <({NodeId peer, String campaign})>[];
+      final service = GroupService(
+        storage,
+        _FakeSigner(owner),
+        sendSpaceRecommendation: (peer, card) async {
+          sent.add((peer: peer, campaign: card.campaignId));
+          return true;
+        },
+      );
+      addTearDown(service.dispose);
+
+      final groupId = await service.createGroup('Chat');
+      final privateSpace = await service.createSpace('Private');
+      final publicSpace = await service.createSpace(
+        'Public',
+        description: 'Open community',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await service.createSpaceRecommendationCampaign(groupId, 'Share it'),
+        isNull,
+      );
+      expect(
+        await service.createSpaceRecommendationCampaign(
+          privateSpace,
+          'Share it',
+        ),
+        isNull,
+      );
+
+      final campaign = await service.createSpaceRecommendationCampaign(
+        publicSpace,
+        '  Расскажите друзьям  ',
+      );
+      expect(campaign, isNotNull);
+      expect(campaign!.text, 'Расскажите друзьям');
+      expect(campaign.joinCode, startsWith('xveil://space/v1#'));
+      final listed = await service.spaceRecommendationCampaigns(publicSpace);
+      expect(listed, hasLength(1));
+      expect(listed.single.campaignId, campaign.campaignId);
+      final bundle = (await service.load(publicSpace))!;
+      final control = bundle.control.last;
+      expect(control.version, 13);
+      expect(control.op, ControlOp.setRecommendationCampaign);
+      expect(control.recommendationCampaign?.campaignId, campaign.campaignId);
+
+      await storage.upsertContact(
+        Contact(nodeId: bob, status: ContactStatus.accepted),
+      );
+      expect(
+        await service.shareSpaceRecommendation(
+          publicSpace,
+          campaign.campaignId,
+          bob,
+        ),
+        SpaceRecommendationShareResult.sent,
+      );
+      expect(sent.single.peer, bob);
+      expect(
+        await service.shareSpaceRecommendation(
+          publicSpace,
+          campaign.campaignId,
+          bob,
+        ),
+        SpaceRecommendationShareResult.duplicate,
+      );
+      final shareAudit = await service.spaceRecommendationShareAudit();
+      expect(shareAudit, hasLength(1));
+      expect(shareAudit.single.recipient, bob);
+
+      for (var seed = 30; seed < 34; seed++) {
+        final peer = _id(seed);
+        await storage.upsertContact(
+          Contact(nodeId: peer, status: ContactStatus.accepted),
+        );
+        expect(
+          await service.shareSpaceRecommendation(
+            publicSpace,
+            campaign.campaignId,
+            peer,
+          ),
+          SpaceRecommendationShareResult.sent,
+        );
+      }
+      final overLimit = _id(34);
+      await storage.upsertContact(
+        Contact(nodeId: overLimit, status: ContactStatus.accepted),
+      );
+      expect(
+        await service.shareSpaceRecommendation(
+          publicSpace,
+          campaign.campaignId,
+          overLimit,
+        ),
+        SpaceRecommendationShareResult.rateLimited,
+      );
+      expect(sent, hasLength(5));
+
+      expect(
+        await service.revokeSpaceRecommendationCampaign(
+          publicSpace,
+          campaign.campaignId,
+        ),
+        isTrue,
+      );
+      expect(await service.spaceRecommendationCampaigns(publicSpace), isEmpty);
+      final campaignAudit = await service.spaceRecommendationCampaigns(
+        publicSpace,
+        includeRevoked: true,
+      );
+      expect(campaignAudit.single.active, isFalse);
+      expect(campaignAudit.single.joinCode, isEmpty);
     },
   );
 

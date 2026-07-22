@@ -885,4 +885,52 @@ void main() {
       }
     },
   );
+
+  test('Space recommendation API creates, shares and revokes', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(72);
+    final recipient = _id(73);
+    final sent = <NodeId>[];
+    final service = GroupService(
+      storage,
+      _Signer(owner),
+      sendSpaceRecommendation: (peer, card) async {
+        sent.add(peer);
+        return true;
+      },
+    );
+    final api = GroupApiAdapter(
+      service,
+      registerContentSource:
+          (name, size, read, {required close, sourcePath}) async {
+            await close();
+            return 'unused';
+          },
+      loadContent: storage.loadFile,
+    );
+    addTearDown(service.dispose);
+    await storage.upsertContact(
+      Contact(nodeId: recipient, status: ContactStatus.accepted),
+    );
+    final space = (await api.createSpace('Public', '', 'public'))!;
+
+    final created = await api.createRecommendationCampaign(
+      space,
+      'Share with people who will value this',
+    );
+    expect(created.error, isNull);
+    final campaignId = created.campaign!['campaignId'] as String;
+    expect(
+      (await api.recommendationCampaigns(space))!['campaigns'],
+      hasLength(1),
+    );
+    expect(
+      await api.shareRecommendation(space, campaignId, recipient.hex),
+      isNull,
+    );
+    expect(sent, [recipient]);
+    expect(await api.revokeRecommendationCampaign(space, campaignId), isNull);
+    expect((await api.recommendationCampaigns(space))!['campaigns'], isEmpty);
+  });
 }

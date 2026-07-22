@@ -25,6 +25,8 @@ import '../domain/file_download_policy.dart';
 import '../domain/file_transfer.dart';
 import '../domain/media_file_name.dart';
 import '../domain/p2p_policy.dart';
+import '../domain/space_recommendation.dart';
+import '../domain/space_join_request.dart';
 import 'mailbox_service.dart' show MailboxSink;
 import 'sticker_message.dart';
 import 'vnote_message.dart';
@@ -218,6 +220,12 @@ class MessagingService {
   /// durably persisted the exact ticket/request, which is the ACK gate.
   Future<bool> Function(NodeId peer, String requestJson)? onSpaceJoinRequest;
   Future<bool> Function(NodeId peer, String decisionJson)? onSpaceJoinDecision;
+
+  /// Space-layer admission for a recommendation card. Contact consent and the
+  /// receiver-wide opt-out are enforced here; this callback additionally
+  /// suppresses cards for a Space already held/joined by the recipient.
+  Future<bool> Function(NodeId peer, SpaceRecommendationCard card)?
+  onSpaceRecommendation;
 
   /// Attached by shared-document replication. Both whole and reassembled
   /// frames reach this callback only from accepted contacts; the document
@@ -1057,6 +1065,7 @@ class MessagingService {
   }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
+    if (isSpaceRecommendationMessageBody(trimmed)) return;
     if (!isValidInlineCustomEmoji(trimmed, customEmoji)) return;
     // Consent gate — only free-message an accepted contact.
     final contact = await _storage.getContact(dst);
@@ -1110,6 +1119,62 @@ class MessagingService {
     // message feel laggy even when the live path delivers instantly. If the peer
     // is offline the deposit (or the outbox retry) still gets there.
     _stashInBackground(dst, id, wire);
+  }
+
+  /// Send one recommendation card after the caller's explicit recipient
+  /// selection. There is intentionally no bulk/broadcast primitive here.
+  Future<bool> sendSpaceRecommendation(
+    NodeId dst,
+    SpaceRecommendationCard card,
+  ) async {
+    if (!card.isStructurallyValid) return false;
+    try {
+      final ticket = SpaceJoinCode.parse(card.joinCode);
+      if (ticket.spaceId != card.spaceId ||
+          ticket.isExpiredAt(_now().millisecondsSinceEpoch)) {
+        return false;
+      }
+    } catch (_) {
+      return false;
+    }
+    final contact = await _storage.getContact(dst);
+    if (contact == null || contact.status != ContactStatus.accepted) {
+      return false;
+    }
+    final sentAt = _now();
+    final stored = await _store(
+      dst,
+      MessageDirection.outgoing,
+      encodeSpaceRecommendationMessage(card),
+      MessageStatus.sent,
+      timestamp: sentAt,
+    );
+    _signal();
+    final wire = WireEnvelope.spaceRecommendation(
+      card,
+      id: stored.id,
+      sentAtMs: sentAt.millisecondsSinceEpoch,
+      seq: stored.seq,
+    ).encode();
+    _mailboxDelivery.noteActivity();
+    await _send(dst, wire, wantReply: true);
+    _stashInBackground(dst, stored.id, wire);
+    return true;
+  }
+
+  static const _spaceRecommendationsEnabledSetting =
+      'privacy.space_recommendations.enabled.v1';
+
+  Future<bool> spaceRecommendationsEnabled() async =>
+      (await _storage.getSetting(_spaceRecommendationsEnabledSetting)) !=
+      'false';
+
+  Future<void> setSpaceRecommendationsEnabled(bool enabled) async {
+    await _storage.putSetting(
+      _spaceRecommendationsEnabledSetting,
+      enabled ? 'true' : 'false',
+    );
+    _signal();
   }
 
   /// Re-send every outgoing text message still awaiting a delivery ack (i.e.

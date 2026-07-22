@@ -1327,6 +1327,110 @@ String _resolveForwardAuthor(WidgetRef ref, AppL10n l, String origin) {
   return contact?.name ?? id.short;
 }
 
+class _SpaceRecommendationBubble extends ConsumerStatefulWidget {
+  const _SpaceRecommendationBubble({required this.card});
+
+  final SpaceRecommendationCard card;
+
+  @override
+  ConsumerState<_SpaceRecommendationBubble> createState() =>
+      _SpaceRecommendationBubbleState();
+}
+
+class _SpaceRecommendationBubbleState
+    extends ConsumerState<_SpaceRecommendationBubble> {
+  bool _working = false;
+
+  Future<void> _openOrJoin() async {
+    if (_working) return;
+    setState(() => _working = true);
+    final l = AppL10n.of(context);
+    final service = ref.read(groupServiceProvider);
+    if (service == null) {
+      if (mounted) setState(() => _working = false);
+      return;
+    }
+    final local = await service.load(widget.card.spaceId);
+    if (!mounted) return;
+    if (local != null) {
+      setState(() => _working = false);
+      await context.push('/space/${widget.card.spaceId.hex}');
+      return;
+    }
+    final sent = await service.requestToJoinSpace(widget.card.joinCode);
+    if (!mounted) return;
+    setState(() => _working = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(sent ? l.spaceJoinRequestSent : l.spaceOperationFailed),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 220, maxWidth: 340),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 19,
+                backgroundColor: scheme.secondaryContainer,
+                foregroundColor: scheme.onSecondaryContainer,
+                child: const Icon(Icons.groups_2_outlined, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.card.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(widget.card.text),
+          if (widget.card.description.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              widget.card.description,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ],
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonalIcon(
+              onPressed: _working ? null : _openOrJoin,
+              icon: _working
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.arrow_forward),
+              label: Text(l.spaceJoinAction),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _Bubble extends ConsumerWidget {
   const _Bubble({
     super.key,
@@ -1431,6 +1535,7 @@ class _Bubble extends ConsumerWidget {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final outgoing = message.direction == MessageDirection.outgoing;
+    final recommendation = parseSpaceRecommendationMessage(message.body);
     final naked = message.isFile && isStickerFileName(message.fileName);
     // In-flight download fraction for this file (null = not downloading). Falls
     // back to fileId so our OWN re-download (pulling a deleted sent file back
@@ -1534,7 +1639,10 @@ class _Bubble extends ConsumerWidget {
                     onTap: onTapQuote,
                     child: _QuoteBlock(quoted: quoted, outgoing: outgoing),
                   ),
-                if (message.isFile && isStickerPackFileName(message.fileName))
+                if (recommendation != null)
+                  _SpaceRecommendationBubble(card: recommendation)
+                else if (message.isFile &&
+                    isStickerPackFileName(message.fileName))
                   _StickerPackCard(
                     fileKey: message.fileId ?? message.fileContentId ?? '',
                     thumbB64: message.thumb,

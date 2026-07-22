@@ -9,6 +9,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/api_server.dart';
 import '../../state/p2p_policy_controller.dart';
 import '../../state/signature_policy_controller.dart';
+import '../../state/messaging.dart' show messagingServiceProvider;
 
 String p2pPolicyLabel(AppL10n l, P2PGlobalPolicy p) => switch (p) {
   P2PGlobalPolicy.allowAll => l.p2pPolicyAllowAll,
@@ -122,6 +123,7 @@ class PrivacySettingsScreen extends ConsumerWidget {
             ),
             onTap: () => _pickSignaturePolicy(context, ref, l),
           ),
+          const _RecommendationPrivacySwitch(),
           const Divider(),
           // Local automation API (REST API epic): off by default; a permanently
           // open port is discoverable, so the user opts in here. When on it binds
@@ -141,8 +143,9 @@ class PrivacySettingsScreen extends ConsumerWidget {
         SwitchListTile(
           secondary: const Icon(Icons.api_outlined),
           title: Text(l.settingsApiTitle),
-          subtitle:
-              Text(cfg.enabled ? '127.0.0.1:$kApiPort' : l.settingsApiHint),
+          subtitle: Text(
+            cfg.enabled ? '127.0.0.1:$kApiPort' : l.settingsApiHint,
+          ),
           value: cfg.enabled,
           onChanged: (v) async {
             if (v) {
@@ -155,9 +158,9 @@ class PrivacySettingsScreen extends ConsumerWidget {
         if (cfg.enabled) ...[
           for (final t in cfg.tokens)
             ListTile(
-              leading: Icon(t.readOnly
-                  ? Icons.visibility_outlined
-                  : Icons.key_outlined),
+              leading: Icon(
+                t.readOnly ? Icons.visibility_outlined : Icons.key_outlined,
+              ),
               title: Text(t.name),
               subtitle: Text(
                 '${t.token.substring(0, 8)}…'
@@ -211,8 +214,7 @@ class PrivacySettingsScreen extends ConsumerWidget {
               TextField(
                 controller: nameCtrl,
                 autofocus: true,
-                decoration:
-                    InputDecoration(hintText: l.settingsApiTokenName),
+                decoration: InputDecoration(hintText: l.settingsApiTokenName),
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
@@ -239,5 +241,49 @@ class PrivacySettingsScreen extends ConsumerWidget {
     await ref
         .read(apiServerControllerProvider.notifier)
         .addToken(nameCtrl.text, readOnly: readOnly);
+  }
+}
+
+class _RecommendationPrivacySwitch extends ConsumerStatefulWidget {
+  const _RecommendationPrivacySwitch();
+
+  @override
+  ConsumerState<_RecommendationPrivacySwitch> createState() =>
+      _RecommendationPrivacySwitchState();
+}
+
+class _RecommendationPrivacySwitchState
+    extends ConsumerState<_RecommendationPrivacySwitch> {
+  bool? _enabled;
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>(() async {
+      final value = await ref
+          .read(messagingServiceProvider)
+          .spaceRecommendationsEnabled();
+      if (mounted) setState(() => _enabled = value);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return SwitchListTile(
+      key: const ValueKey('space-recommendations-privacy'),
+      secondary: const Icon(Icons.share_outlined),
+      title: Text(l.spaceRecommendationReceive),
+      subtitle: Text(l.spaceRecommendationReceiveHint),
+      value: _enabled ?? true,
+      onChanged: _enabled == null
+          ? null
+          : (value) async {
+              setState(() => _enabled = value);
+              await ref
+                  .read(messagingServiceProvider)
+                  .setSpaceRecommendationsEnabled(value);
+            },
+    );
   }
 }

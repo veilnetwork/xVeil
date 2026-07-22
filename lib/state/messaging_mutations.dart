@@ -48,6 +48,12 @@ class _MessagingMutations {
     final id = envelope.id;
     if (id == null) return;
     if (await isIncomingFrom(peer, id)) {
+      final target = await _findInConversation(peer.hex, id);
+      if (target == null ||
+          isSpaceRecommendationMessageBody(target.body) ||
+          isSpaceRecommendationMessageBody(envelope.body)) {
+        return;
+      }
       // Fold under the editor's seq so both devices converge on (author, seq).
       await _owner._storage.editMessage(
         peer.hex,
@@ -143,11 +149,13 @@ class _MessagingMutations {
   }) async {
     final trimmed = newBody.trim();
     if (trimmed.isEmpty) return;
+    if (isSpaceRecommendationMessageBody(trimmed)) return;
     if (!isValidInlineCustomEmoji(trimmed, customEmoji)) return;
     final message = await _find(messageId);
     if (message == null || message.direction != MessageDirection.outgoing) {
       return;
     }
+    if (isSpaceRecommendationMessageBody(message.body)) return;
     final editSeq = await _owner._storage.editMessage(
       message.conversationId,
       messageId,
@@ -178,6 +186,16 @@ class _MessagingMutations {
       )) {
         if (message.id == messageId) return message;
       }
+    }
+    return null;
+  }
+
+  Future<Message?> _findInConversation(
+    String conversationId,
+    String messageId,
+  ) async {
+    for (final message in await _owner._storage.loadMessages(conversationId)) {
+      if (message.id == messageId) return message;
     }
     return null;
   }

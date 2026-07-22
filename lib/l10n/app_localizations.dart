@@ -1063,6 +1063,96 @@ abstract class AppL10n {
   /// **'Join link revoked'**
   String get spaceJoinLinkRevoked;
 
+  /// No description provided for @spaceRecommendationsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Recommendations'**
+  String get spaceRecommendationsTitle;
+
+  /// No description provided for @spaceRecommendationsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Create a signed public campaign. Members can then recommend this community only to contacts they explicitly select.'**
+  String get spaceRecommendationsHint;
+
+  /// No description provided for @spaceRecommendationCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Create campaign'**
+  String get spaceRecommendationCreate;
+
+  /// No description provided for @spaceRecommendationTextHint.
+  ///
+  /// In en, this message translates to:
+  /// **'What members may send with the community card'**
+  String get spaceRecommendationTextHint;
+
+  /// No description provided for @spaceRecommendationShare.
+  ///
+  /// In en, this message translates to:
+  /// **'Recommend community'**
+  String get spaceRecommendationShare;
+
+  /// No description provided for @spaceRecommendationSelectCampaign.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a campaign'**
+  String get spaceRecommendationSelectCampaign;
+
+  /// No description provided for @spaceRecommendationSelectContact.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a recipient'**
+  String get spaceRecommendationSelectContact;
+
+  /// No description provided for @spaceRecommendationRevoke.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke campaign'**
+  String get spaceRecommendationRevoke;
+
+  /// No description provided for @spaceRecommendationSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Recommendation sent'**
+  String get spaceRecommendationSent;
+
+  /// No description provided for @spaceRecommendationDuplicate.
+  ///
+  /// In en, this message translates to:
+  /// **'This campaign was already sent to that contact'**
+  String get spaceRecommendationDuplicate;
+
+  /// No description provided for @spaceRecommendationRateLimited.
+  ///
+  /// In en, this message translates to:
+  /// **'Recommendation limit reached. Try again later.'**
+  String get spaceRecommendationRateLimited;
+
+  /// No description provided for @spaceRecommendationAlreadyMember.
+  ///
+  /// In en, this message translates to:
+  /// **'This contact is already a member'**
+  String get spaceRecommendationAlreadyMember;
+
+  /// No description provided for @spaceRecommendationEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No active recommendation campaigns'**
+  String get spaceRecommendationEmpty;
+
+  /// No description provided for @spaceRecommendationReceive.
+  ///
+  /// In en, this message translates to:
+  /// **'Community recommendations'**
+  String get spaceRecommendationReceive;
+
+  /// No description provided for @spaceRecommendationReceiveHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow accepted contacts to send community cards. Turning this off silently discards new recommendations.'**
+  String get spaceRecommendationReceiveHint;
+
   /// No description provided for @spaceRoleLabel.
   ///
   /// In en, this message translates to:
