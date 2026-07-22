@@ -721,6 +721,12 @@ abstract class AppL10n {
   /// **'Publish'**
   String get spacePostPublish;
 
+  /// No description provided for @spacePostDraftHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved encrypted on this device. The draft is not shared until you publish it.'**
+  String get spacePostDraftHint;
+
   /// No description provided for @spacePostEdit.
   ///
   /// In en, this message translates to:

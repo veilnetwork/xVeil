@@ -51,20 +51,40 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
     NodeId spaceId,
   ) async {
     final l = AppL10n.of(context);
-    final draft = await showDialog<(String, String, SpacePostType)>(
+    final service = ref.read(groupServiceProvider);
+    if (service == null) return;
+    final saved = await service.spacePostDraft(spaceId);
+    if (!context.mounted) return;
+    final draft = await showDialog<_PostComposerValue>(
       context: context,
-      builder: (_) => const _PostComposerDialog(),
-    );
-    if (draft == null || (draft.$1.isEmpty && draft.$2.isEmpty)) return;
-    final post = await ref
-        .read(groupServiceProvider)
-        ?.publishSpacePost(
+      barrierDismissible: false,
+      builder: (_) => _PostComposerDialog(
+        initialTitle: saved?.title ?? '',
+        initialBody: saved?.body ?? '',
+        initialType: saved?.type ?? SpacePostType.post,
+        onSaveDraft: (title, body, type) => service.saveSpacePostDraft(
           spaceId,
-          title: draft.$1,
-          body: draft.$2,
-          type: draft.$3,
-        );
-    if (post == null && context.mounted) {
+          title: title,
+          body: body,
+          type: type,
+        ),
+      ),
+    );
+    if (draft == null || !draft.hasContent) return;
+    final post = await service.publishSpacePost(
+      spaceId,
+      title: draft.title,
+      body: draft.body,
+      type: draft.type,
+    );
+    if (post != null) {
+      final cleared = await service.clearSpacePostDraft(spaceId);
+      if (!cleared && context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.spaceOperationFailed)));
+      }
+    } else if (context.mounted) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(l.spaceOperationFailed)));
@@ -78,7 +98,7 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
     SpacePostView post,
   ) async {
     final l = AppL10n.of(context);
-    final draft = await showDialog<(String, String, SpacePostType)>(
+    final draft = await showDialog<_PostComposerValue>(
       context: context,
       builder: (_) => _PostComposerDialog(
         initialTitle: post.title,
@@ -93,9 +113,9 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
         ?.editSpacePost(
           spaceId,
           post.postId,
-          title: draft.$1,
-          body: draft.$2,
-          type: draft.$3,
+          title: draft.title,
+          body: draft.body,
+          type: draft.type,
         );
     if (updated == null && context.mounted) {
       ScaffoldMessenger.of(
@@ -446,18 +466,31 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
 
 enum _PostAction { pin, unpin, edit, delete, moderateDelete }
 
+class _PostComposerValue {
+  const _PostComposerValue(this.title, this.body, this.type);
+
+  final String title;
+  final String body;
+  final SpacePostType type;
+
+  bool get hasContent => title.trim().isNotEmpty || body.trim().isNotEmpty;
+}
+
 class _PostComposerDialog extends StatefulWidget {
   const _PostComposerDialog({
     this.initialTitle = '',
     this.initialBody = '',
     this.initialType = SpacePostType.post,
     this.editing = false,
+    this.onSaveDraft,
   });
 
   final String initialTitle;
   final String initialBody;
   final SpacePostType initialType;
   final bool editing;
+  final Future<bool> Function(String title, String body, SpacePostType type)?
+  onSaveDraft;
 
   @override
   State<_PostComposerDialog> createState() => _PostComposerDialogState();
@@ -467,6 +500,10 @@ class _PostComposerDialogState extends State<_PostComposerDialog> {
   late final TextEditingController _title;
   late final TextEditingController _body;
   late SpacePostType _type;
+  Timer? _draftTimer;
+  bool _draftSettled = false;
+  bool _saving = false;
+  bool _saveFailed = false;
 
   @override
   void initState() {
@@ -478,9 +515,60 @@ class _PostComposerDialogState extends State<_PostComposerDialog> {
 
   @override
   void dispose() {
+    _draftTimer?.cancel();
+    if (!widget.editing && !_draftSettled && widget.onSaveDraft != null) {
+      final value = _value;
+      unawaited(widget.onSaveDraft!(value.title, value.body, value.type));
+    }
     _title.dispose();
     _body.dispose();
     super.dispose();
+  }
+
+  _PostComposerValue get _value =>
+      _PostComposerValue(_title.text, _body.text, _type);
+
+  void _scheduleDraft() {
+    if (widget.editing || widget.onSaveDraft == null) {
+      setState(() {});
+      return;
+    }
+    setState(() => _saveFailed = false);
+    _draftTimer?.cancel();
+    _draftTimer = Timer(const Duration(milliseconds: 450), () async {
+      final value = _value;
+      final saved = await widget.onSaveDraft!(
+        value.title,
+        value.body,
+        value.type,
+      );
+      if (mounted && !saved) setState(() => _saveFailed = true);
+    });
+  }
+
+  Future<void> _finish({required bool publish}) async {
+    if (_saving) return;
+    final value = _value;
+    if (publish && !value.hasContent) return;
+    _draftTimer?.cancel();
+    if (!widget.editing && widget.onSaveDraft != null) {
+      setState(() => _saving = true);
+      final saved = await widget.onSaveDraft!(
+        value.title,
+        value.body,
+        value.type,
+      );
+      if (!mounted) return;
+      if (!saved) {
+        setState(() {
+          _saving = false;
+          _saveFailed = true;
+        });
+        return;
+      }
+      _draftSettled = true;
+    }
+    if (mounted) Navigator.of(context).pop(publish ? value : null);
   }
 
   @override
@@ -496,6 +584,7 @@ class _PostComposerDialogState extends State<_PostComposerDialog> {
               key: const ValueKey('space-post-title-field'),
               controller: _title,
               maxLength: kSpacePostTitleMax,
+              onChanged: (_) => _scheduleDraft(),
               decoration: InputDecoration(hintText: l.spacePostTitleHint),
             ),
             TextField(
@@ -504,43 +593,83 @@ class _PostComposerDialogState extends State<_PostComposerDialog> {
               autofocus: true,
               minLines: 4,
               maxLines: 10,
-              decoration: InputDecoration(hintText: l.spacePostBodyHint),
+              maxLength: kSpacePostBodyMax,
+              onChanged: (_) => _scheduleDraft(),
+              decoration: InputDecoration(
+                hintText: l.spacePostBodyHint,
+                counterText: '',
+              ),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<SpacePostType>(
+              key: const ValueKey('space-post-type-field'),
               initialValue: _type,
               items: [
-                DropdownMenuItem(
-                  value: SpacePostType.post,
-                  child: Text(l.spacePostTypePost),
-                ),
-                DropdownMenuItem(
-                  value: SpacePostType.article,
-                  child: Text(l.spacePostTypeArticle),
-                ),
+                for (final type in SpacePostType.values)
+                  DropdownMenuItem(
+                    value: type,
+                    child: Text(_postTypeLabel(l, type)),
+                  ),
               ],
               onChanged: (value) {
-                if (value != null) setState(() => _type = value);
+                if (value != null) {
+                  _type = value;
+                  _scheduleDraft();
+                }
               },
             ),
+            if (!widget.editing) ...[
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 2),
+                    child: Icon(Icons.lock_outline, size: 18),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _saveFailed
+                          ? l.spaceOperationFailed
+                          : l.spacePostDraftHint,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: _saveFailed
+                            ? Theme.of(context).colorScheme.error
+                            : null,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _saving ? null : () => _finish(publish: false),
           child: Text(l.actionCancel),
         ),
         FilledButton(
           key: ValueKey(
             widget.editing ? 'space-post-save-edit' : 'space-post-publish',
           ),
-          onPressed: () => Navigator.of(
-            context,
-          ).pop((_title.text.trim(), _body.text.trim(), _type)),
+          onPressed: _saving || !_value.hasContent
+              ? null
+              : () => _finish(publish: true),
           child: Text(widget.editing ? l.actionSave : l.spacePostPublish),
         ),
       ],
     );
   }
 }
+
+String _postTypeLabel(AppL10n l, SpacePostType type) => switch (type) {
+  SpacePostType.post => l.spacePostTypePost,
+  SpacePostType.article => l.spacePostTypeArticle,
+  SpacePostType.video => l.spacePostTypeVideo,
+  SpacePostType.shortVideo => l.spacePostTypeShortVideo,
+  SpacePostType.audio => l.spacePostTypeAudio,
+  SpacePostType.voiceMessage => l.spacePostTypeVoiceMessage,
+};

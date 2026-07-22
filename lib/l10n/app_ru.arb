@@ -113,6 +113,7 @@
   "spacePostTitleHint": "Заголовок (необязательно)",
   "spacePostBodyHint": "Поделитесь новостью с сообществом…",
   "spacePostPublish": "Опубликовать",
+  "spacePostDraftHint": "Черновик зашифрован и сохранён на этом устройстве. До публикации он никуда не отправляется.",
   "spacePostEdit": "Редактировать публикацию",
   "spacePostEdited": "Изменено",
   "spacePostPin": "Закрепить",

@@ -343,6 +343,10 @@ class AppL10nEn extends AppL10n {
   String get spacePostPublish => 'Publish';
 
   @override
+  String get spacePostDraftHint =>
+      'Saved encrypted on this device. The draft is not shared until you publish it.';
+
+  @override
   String get spacePostEdit => 'Edit publication';
 
   @override

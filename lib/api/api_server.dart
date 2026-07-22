@@ -813,6 +813,90 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
       },
+      '/spaces/posts/draft': {
+        'get': {
+          'summary': 'Read the encrypted identity-local composer draft',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'spaceId': {'type': 'string'},
+              'draft': {
+                'nullable': true,
+                'type': obj,
+                'properties': {
+                  'v': {'type': 'integer'},
+                  'sid': {'type': 'string'},
+                  'title': {'type': 'string', 'maxLength': 300},
+                  'body': {'type': 'string', 'maxLength': 262144},
+                  'type': {
+                    'type': 'string',
+                    'enum': [
+                      'post',
+                      'article',
+                      'video',
+                      'shortVideo',
+                      'audio',
+                      'voiceMessage',
+                    ],
+                  },
+                  'updatedAt': {'type': 'integer'},
+                },
+              },
+            },
+          }),
+        },
+        'put': {
+          'summary': 'Save or replace the encrypted identity-local draft',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space'],
+                  'properties': {
+                    'space': {'type': 'string'},
+                    'title': {'type': 'string', 'maxLength': 300},
+                    'body': {'type': 'string', 'maxLength': 262144},
+                    'type': {
+                      'type': 'string',
+                      'enum': [
+                        'post',
+                        'article',
+                        'video',
+                        'shortVideo',
+                        'audio',
+                        'voiceMessage',
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+        'delete': {
+          'summary': 'Delete the encrypted identity-local draft',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': ok({'type': obj}),
+        },
+      },
       '/spaces/posts/reactions': {
         'post': {
           'summary': 'Toggle an encrypted reaction on a Space post',
@@ -2124,6 +2208,9 @@ class ApiHandler {
     required this.leaveGroup,
     this.spaceChannels,
     this.spacePosts,
+    this.spacePostDraft,
+    this.saveSpacePostDraft,
+    this.clearSpacePostDraft,
     this.publishSpacePost,
     this.editSpacePost,
     this.deleteSpacePost,
@@ -2267,6 +2354,15 @@ class ApiHandler {
     String? before,
   )?
   spacePosts;
+  final Future<Map<String, dynamic>?> Function(String spaceHex)? spacePostDraft;
+  final Future<String?> Function(
+    String spaceHex,
+    String title,
+    String body,
+    String type,
+  )?
+  saveSpacePostDraft;
+  final Future<String?> Function(String spaceHex)? clearSpacePostDraft;
   final Future<({String? error, Map<String, dynamic>? post})> Function(
     String spaceHex,
     String title,
@@ -2860,6 +2956,58 @@ class ApiHandler {
       return result == null
           ? const ApiResponse(404, {'error': 'space not found'})
           : ApiResponse(200, result);
+    }
+    if (method == 'GET' && path == '/v1/spaces/posts/draft') {
+      final handler = spacePostDraft;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space post draft unavailable',
+        });
+      }
+      final space = uri.queryParameters['space'];
+      if (space == null || space.isEmpty) {
+        return const ApiResponse(400, {'error': 'valid space required'});
+      }
+      final result = await handler(space);
+      return result == null
+          ? const ApiResponse(404, {'error': 'space not found'})
+          : ApiResponse(200, result);
+    }
+    if (method == 'PUT' && path == '/v1/spaces/posts/draft') {
+      final handler = saveSpacePostDraft;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space post draft unavailable',
+        });
+      }
+      final space = body?['space'];
+      final title = body?['title'] ?? '';
+      final text = body?['body'] ?? '';
+      final type = body?['type'] ?? 'post';
+      if (space is! String ||
+          space.isEmpty ||
+          title is! String ||
+          title.length > kSpacePostTitleMax ||
+          text is! String ||
+          utf8.encode(text).length > kSpacePostBodyMax ||
+          type is! String ||
+          SpacePostType.fromName(type) == null) {
+        return const ApiResponse(400, {'error': 'invalid Space post draft'});
+      }
+      return _spaceMutationResponse(await handler(space, title, text, type));
+    }
+    if (method == 'DELETE' && path == '/v1/spaces/posts/draft') {
+      final handler = clearSpacePostDraft;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space post draft unavailable',
+        });
+      }
+      final space = uri.queryParameters['space'];
+      if (space == null || space.isEmpty) {
+        return const ApiResponse(400, {'error': 'valid space required'});
+      }
+      return _spaceMutationResponse(await handler(space));
     }
     if (method == 'POST' && path == '/v1/spaces/posts') {
       final handler = publishSpacePost;
