@@ -6037,9 +6037,11 @@ void main() {
       final ownerStorage = FakeHvContainer().storage();
       await ownerStorage.open(password: 'pw', createIfMissing: true);
       final contentGrants = <(NodeId, String)>[];
+      final sentSync = <(NodeId, String)>[];
       final ownerSvc = GroupService(
         ownerStorage,
         _FakeSigner(owner),
+        send: (peer, _, payload) async => sentSync.add((peer, payload)),
         grantContentServe: (peer, cid) => contentGrants.add((peer, cid)),
         epochService: GroupEpochService(
           LoopbackMailboxCrypto(senderForOpen: owner),
@@ -6178,6 +6180,34 @@ void main() {
       expect(visibleMedia.attachment?.contentId, 'a' * 64);
       expect(visibleMedia.attachment?.inlinePreviewB64, isNull);
       expect(await bobSvc.referencedContentIds(spaceId), contains('a' * 64));
+      final protectedTarget = (await bobSvc.messagesOf(
+        spaceId,
+        channelId: channelId,
+      )).first;
+      expect(
+        await bobSvc.react(
+          spaceId,
+          protectedTarget.ref,
+          '🔐',
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      final reactedBobBundle = (await bobSvc.load(spaceId))!;
+      final protectedReaction = reactedBobBundle.reactions.single;
+      expect(protectedReaction.version, 7);
+      expect(protectedReaction.isChannelEncrypted, isTrue);
+      expect(protectedReaction.channelId, channelId);
+      expect(protectedReaction.channelEpoch, 1);
+      expect(jsonEncode(protectedReaction.toJson()), isNot(contains('🔐')));
+      expect(protectedReaction.toJson(), isNot(containsPair('tgt', anything)));
+      expect((await bobSvc.reactionsOf(spaceId))[protectedTarget.ref]?['🔐'], [
+        bob,
+      ]);
+      final outsiderReactionWire =
+          jsonDecode(bobSvc.snapshotJson(reactedBobBundle, recipient: carol))
+              as Map;
+      expect(outsiderReactionWire['r'], isEmpty);
       expect(await bobSvc.fetchGroupContent(spaceId, 'a' * 64, owner), isTrue);
       expect(scopedRequests.map((request) => request.$1), [owner]);
       expect(scopedRequests.single.$2.channelId, channelId);
@@ -6191,9 +6221,15 @@ void main() {
               as Map;
       expect(protectedHead['s'], 1);
       expect(protectedHead['h'], groupMessageHash(storedMedia));
+      expect((syncVector['r'] as Map)[bob.hex], isNull);
+      expect(
+        (((syncVector['cr'] as Map)['${channelId.hex}|channelEpoch:1']
+            as Map)[bob.hex]),
+        0,
+      );
       expect(
         await ownerSvc.ingestSnapshot(
-          bobSvc.snapshotJson(bobBundle, recipient: owner),
+          bobSvc.snapshotJson(reactedBobBundle, recipient: owner),
         ),
         isTrue,
       );
@@ -6204,6 +6240,35 @@ void main() {
         )).map((message) => message.body),
         ['channel-key ciphertext', 'protected media'],
       );
+      expect(
+        (await ownerSvc.reactionsOf(spaceId))[protectedTarget.ref]?['🔐'],
+        [bob],
+      );
+      final reactionGapRequest =
+          jsonDecode(jsonEncode(syncVector)) as Map<String, dynamic>;
+      reactionGapRequest['r'] = {bob.hex: 99};
+      (reactionGapRequest['cr'] as Map)['${channelId.hex}|channelEpoch:1'] =
+          <String, int>{};
+      sentSync.clear();
+      expect(
+        await ownerSvc.handleGroupSyncRequest(bob, reactionGapRequest),
+        isTrue,
+      );
+      final reactionGapDelta = jsonDecode(sentSync.single.$2) as Map;
+      expect((reactionGapDelta['r'] as List), hasLength(1));
+      expect(
+        GroupReaction.fromJson(
+          (reactionGapDelta['r'] as List).single,
+        )?.isChannelEncrypted,
+        isTrue,
+      );
+      sentSync.clear();
+      expect(
+        await ownerSvc.handleGroupSyncRequest(carol, reactionGapRequest),
+        isFalse,
+        reason: 'a Space member outside the channel gets no reaction delta',
+      );
+      expect(sentSync, isEmpty);
       GroupContentRequest signedRequest(
         NodeId requester, {
         required String nonce,
@@ -6261,6 +6326,11 @@ void main() {
         isTrue,
       );
       expect(
+        (await ownerSvc.reactionsOf(spaceId))[protectedTarget.ref],
+        isNull,
+        reason: 'revoked channel authors no longer contribute reaction state',
+      );
+      expect(
         (await ownerSvc.stateOf(
           spaceId,
         ))!.protectedChannels[channelId.hex]!.channelEpoch,
@@ -6304,6 +6374,149 @@ void main() {
         ),
         isFalse,
       );
+    },
+  );
+
+  test(
+    'reaction lifecycle heads keep public state reconstructible outside a protected channel',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      final spaceId = await ownerSvc.createSpace('Scoped reaction lifecycle');
+      for (final peer in [bob, carol]) {
+        expect(
+          await ownerSvc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: peer,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+      }
+      final publicChannel = (await ownerSvc.channelsOf(
+        spaceId,
+      )).singleWhere((channel) => channel.isDefault);
+      final protectedChannel = await ownerSvc.createChannel(
+        spaceId,
+        name: 'private reactions',
+        kind: SpaceChannelKind.text,
+        access: SpaceChannelAccess.restricted,
+        members: [bob],
+      );
+      expect(protectedChannel, isNotNull);
+      expect(
+        await ownerSvc.postMessage(
+          spaceId,
+          'public target',
+          channelId: publicChannel.channelId,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.postMessage(
+          spaceId,
+          'protected target',
+          channelId: protectedChannel,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      final publicTarget = (await ownerSvc.messagesOf(
+        spaceId,
+        channelId: publicChannel.channelId,
+      )).single;
+      final protectedTarget = (await ownerSvc.messagesOf(
+        spaceId,
+        channelId: protectedChannel,
+      )).single;
+      expect(
+        await ownerSvc.react(spaceId, publicTarget.ref, '🌍', broadcast: false),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.react(
+          spaceId,
+          protectedTarget.ref,
+          '🔐',
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        (await ownerSvc.load(spaceId))!.reactions.map((row) => row.version),
+        [4, 7],
+      );
+      expect(await ownerSvc.setSpaceArchived(spaceId, true), isTrue);
+      final archived = (await ownerSvc.load(spaceId))!;
+      final transition = (await ownerSvc.stateOf(
+        spaceId,
+      ))!.lifecycleTransition!;
+      expect(transition.reactionHeads, hasLength(2));
+      expect(
+        transition.reactionHeads.map((head) => head.scopeHash).toSet().length,
+        2,
+      );
+
+      Future<GroupService> replica(NodeId peer) async {
+        final storage = FakeHvContainer().storage();
+        await storage.open(password: 'pw', createIfMissing: true);
+        return GroupService(
+          storage,
+          _FakeSigner(peer),
+          epochService: GroupEpochService(
+            LoopbackMailboxCrypto(senderForOpen: owner),
+          ),
+        );
+      }
+
+      final carolSvc = await replica(carol);
+      final carolWire = ownerSvc.snapshotJson(archived, recipient: carol);
+      expect((jsonDecode(carolWire) as Map)['r'], hasLength(1));
+      expect(await carolSvc.ingestSnapshot(carolWire), isTrue);
+      expect(
+        (await carolSvc.reactionsOf(spaceId))[publicTarget.ref]?['🌍'],
+        [owner],
+        reason: 'a missing protected scope head cannot hide the public prefix',
+      );
+      expect(
+        (await carolSvc.reactionsOf(spaceId))[protectedTarget.ref],
+        isNull,
+      );
+
+      final bobSvc = await replica(bob);
+      final bobWire = ownerSvc.snapshotJson(archived, recipient: bob);
+      expect((jsonDecode(bobWire) as Map)['r'], hasLength(2));
+      expect(await bobSvc.ingestSnapshot(bobWire), isTrue);
+      final bobReactions = await bobSvc.reactionsOf(spaceId);
+      expect(bobReactions[publicTarget.ref]?['🌍'], [owner]);
+      expect(bobReactions[protectedTarget.ref]?['🔐'], [owner]);
+
+      expect(await ownerSvc.setSpaceArchived(spaceId, false), isTrue);
+      expect(
+        await ownerSvc.react(
+          spaceId,
+          protectedTarget.ref,
+          '✅',
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      final restoredReaction = (await ownerSvc.load(spaceId))!.reactions.last;
+      expect(restoredReaction.version, 8);
+      expect(
+        restoredReaction.lifecycleGeneration,
+        (await ownerSvc.stateOf(spaceId))!.lifecycleTransitionHash,
+      );
+      expect(jsonEncode(restoredReaction.toJson()), isNot(contains('✅')));
     },
   );
 

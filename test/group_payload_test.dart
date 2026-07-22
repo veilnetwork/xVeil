@@ -546,6 +546,97 @@ void main() {
   });
 
   test(
+    'restricted reaction v8 binds ciphertext to channel epoch and lifecycle',
+    () async {
+      final spaceId = _id(10);
+      final channelId = _id(11);
+      final author = _id(1);
+      final key = Uint8List.fromList(
+        List.generate(32, (index) => index ^ 0x5a),
+      );
+      final lifecycle = 'ef' * 32;
+      final target = '${_id(3).hex}:7';
+      final clear = GroupReactionCleartext(
+        target: target,
+        emoji: '🔐',
+        schemaVersion: 2,
+      ).encode();
+      final payload = await encryptSpaceChannelReactionPayload(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: 4,
+        author: author,
+        seq: 12,
+        createdAtMs: 7000,
+        clearText: clear,
+        channelKey: key,
+        reactionVersion: 8,
+        lifecycleGeneration: lifecycle,
+        random: Random(15),
+      );
+      clear.fillRange(0, clear.length, 0);
+      final reaction = GroupReaction(
+        groupId: spaceId,
+        author: author,
+        seq: 12,
+        target: '',
+        emoji: '',
+        version: 8,
+        channelId: channelId,
+        channelEpoch: 4,
+        encryptedPayload: payload,
+        lifecycleGeneration: lifecycle,
+        createdAtMs: 7000,
+        signature: Uint8List(64),
+      );
+      final wire = jsonEncode(reaction.toJson());
+      expect(wire, isNot(contains(target)));
+      expect(wire, isNot(contains('🔐')));
+      final parsed = GroupReaction.fromJson(reaction.toJson())!;
+      expect(parsed.isChannelEncrypted, isTrue);
+      expect(parsed.isMembershipEncrypted, isFalse);
+      expect(parsed.channelId, channelId);
+      expect(parsed.channelEpoch, 4);
+      final opened = await decryptSpaceChannelReactionPayload(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: 4,
+        author: author,
+        seq: 12,
+        reactionVersion: 8,
+        lifecycleGeneration: lifecycle,
+        createdAtMs: 7000,
+        payload: parsed.encryptedPayload!,
+        channelKey: key,
+      );
+      final decoded = GroupReactionCleartext.decode(opened)!;
+      expect(decoded.target, target);
+      expect(decoded.emoji, '🔐');
+      opened.fillRange(0, opened.length, 0);
+      await expectLater(
+        decryptSpaceChannelReactionPayload(
+          spaceId: spaceId,
+          channelId: _id(12),
+          channelEpoch: 4,
+          author: author,
+          seq: 12,
+          reactionVersion: 8,
+          lifecycleGeneration: lifecycle,
+          createdAtMs: 7000,
+          payload: parsed.encryptedPayload!,
+          channelKey: key,
+        ),
+        throwsFormatException,
+      );
+      final mixed = Map<String, dynamic>.from(parsed.toJson())..['epoch'] = 4;
+      expect(GroupReaction.fromJson(mixed), isNull);
+      final partial = Map<String, dynamic>.from(parsed.toJson())
+        ..remove('cepoch');
+      expect(GroupReaction.fromJson(partial), isNull);
+    },
+  );
+
+  test(
     'channel control + message v3 bind the independent channel scope',
     () async {
       final spaceId = _id(10);

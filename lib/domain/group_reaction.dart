@@ -89,6 +89,8 @@ class GroupReaction {
     this.version = 1,
     this.targetKind = ReactionTargetKind.message,
     this.membershipEpoch,
+    this.channelId,
+    this.channelEpoch,
     this.encryptedPayload,
     this.lifecycleGeneration,
     Uint8List? authorPubKey,
@@ -102,20 +104,33 @@ class GroupReaction {
   final String emoji; // '' = remove this author's reaction on [target]
   final ReactionTargetKind targetKind;
   final int? membershipEpoch;
+  final NodeId? channelId;
+  final int? channelEpoch;
   final GroupEncryptedPayload? encryptedPayload;
   final String? lifecycleGeneration;
   final int createdAtMs;
   final Uint8List signature;
   final Uint8List authorPubKey; // bound via node_id == BLAKE3(pk)
 
-  bool get isEncrypted =>
+  bool get isMembershipEncrypted =>
       (version == 2 || version == 4 || version == 6) &&
       membershipEpoch != null &&
+      channelId == null &&
+      channelEpoch == null &&
       encryptedPayload != null;
 
+  bool get isChannelEncrypted =>
+      (version == 7 || version == 8) &&
+      membershipEpoch == null &&
+      channelId != null &&
+      channelEpoch != null &&
+      encryptedPayload != null;
+
+  bool get isEncrypted => isMembershipEncrypted || isChannelEncrypted;
+
   bool get isStructurallyValid {
-    if (seq < 0 || createdAtMs < 0 || version < 1 || version > 6) return false;
-    final lifecycleScoped = version == 5 || version == 6;
+    if (seq < 0 || createdAtMs < 0 || version < 1 || version > 8) return false;
+    final lifecycleScoped = version == 5 || version == 6 || version == 8;
     if ((lifecycleScoped &&
             (lifecycleGeneration == null ||
                 !RegExp(r'^[0-9a-f]{64}$').hasMatch(lifecycleGeneration!))) ||
@@ -124,6 +139,8 @@ class GroupReaction {
     }
     if (version == 1 || version == 3 || version == 5) {
       return membershipEpoch == null &&
+          channelId == null &&
+          channelEpoch == null &&
           encryptedPayload == null &&
           target.isNotEmpty &&
           utf8.encode(target).length <= 160 &&
@@ -132,7 +149,17 @@ class GroupReaction {
               version == 5 ||
               targetKind == ReactionTargetKind.message);
     }
-    return membershipEpoch != null &&
+    if (version == 7 || version == 8) {
+      return membershipEpoch == null &&
+          channelId != null &&
+          channelEpoch != null &&
+          channelEpoch! > 0 &&
+          channelEpoch! <= 0xffffffff &&
+          encryptedPayload?.isStructurallyValid == true;
+    }
+    return channelId == null &&
+        channelEpoch == null &&
+        membershipEpoch != null &&
         membershipEpoch! >= 0 &&
         encryptedPayload?.isStructurallyValid == true;
   }
@@ -141,7 +168,19 @@ class GroupReaction {
   Uint8List canonicalBytes() => Uint8List.fromList(
     utf8.encode(
       jsonEncode(
-        version == 2 || version == 4 || version == 6
+        version == 7 || version == 8
+            ? {
+                'v': version,
+                'gid': groupId.hex,
+                'author': author.hex,
+                'seq': seq,
+                'cid': channelId?.hex,
+                'cepoch': channelEpoch,
+                'enc': encryptedPayload?.toJson(),
+                if (version == 8) 'lifecycle': lifecycleGeneration,
+                'ts': createdAtMs,
+              }
+            : version == 2 || version == 4 || version == 6
             ? {
                 'v': version,
                 'gid': groupId.hex,
@@ -185,6 +224,8 @@ class GroupReaction {
     version: version,
     targetKind: targetKind,
     membershipEpoch: membershipEpoch,
+    channelId: channelId,
+    channelEpoch: channelEpoch,
     encryptedPayload: encryptedPayload,
     lifecycleGeneration: lifecycleGeneration,
     createdAtMs: createdAtMs,
@@ -202,6 +243,8 @@ class GroupReaction {
         version: version,
         targetKind: cleartext.targetKind,
         membershipEpoch: membershipEpoch,
+        channelId: channelId,
+        channelEpoch: channelEpoch,
         encryptedPayload: encryptedPayload,
         lifecycleGeneration: lifecycleGeneration,
         createdAtMs: createdAtMs,
@@ -209,7 +252,21 @@ class GroupReaction {
         authorPubKey: authorPubKey,
       );
 
-  Map<String, dynamic> toJson() => version == 2 || version == 4 || version == 6
+  Map<String, dynamic> toJson() => version == 7 || version == 8
+      ? {
+          'v': version,
+          'gid': groupId.hex,
+          'author': author.hex,
+          'seq': seq,
+          'cid': channelId?.hex,
+          'cepoch': channelEpoch,
+          'enc': encryptedPayload?.toJson(),
+          if (version == 8) 'lifecycle': lifecycleGeneration,
+          'ts': createdAtMs,
+          'sig': base64Encode(signature),
+          if (authorPubKey.isNotEmpty) 'apk': base64Encode(authorPubKey),
+        }
+      : version == 2 || version == 4 || version == 6
       ? {
           'v': version,
           'gid': groupId.hex,
@@ -250,17 +307,21 @@ class GroupReaction {
   static GroupReaction? fromJson(Object? j) {
     if (j is! Map) return null;
     final version = j['v'] is int ? j['v'] as int : 1;
-    if (version < 1 || version > 6) return null;
+    if (version < 1 || version > 8) return null;
     final gid = j['gid'], author = j['author'], seq = j['seq'];
     final tgt = j['tgt'], emoji = j['emoji'], ts = j['ts'], sig = j['sig'];
-    final encrypted = version == 2 || version == 4 || version == 6;
+    final membershipEncrypted = version == 2 || version == 4 || version == 6;
+    final channelEncrypted = version == 7 || version == 8;
+    final encrypted = membershipEncrypted || channelEncrypted;
     final typed = version == 3 || version == 5;
-    final lifecycleScoped = version == 5 || version == 6;
+    final lifecycleScoped = version == 5 || version == 6 || version == 8;
     final lifecycle = lifecycleScoped ? j['lifecycle'] : null;
     final encryptedPayload = encrypted
         ? GroupEncryptedPayload.fromJson(j['enc'])
         : null;
-    final membershipEpoch = encrypted ? j['epoch'] : null;
+    final membershipEpoch = membershipEncrypted ? j['epoch'] : null;
+    final channelId = channelEncrypted ? j['cid'] : null;
+    final channelEpoch = channelEncrypted ? j['cepoch'] : null;
     final kind = typed
         ? j['kind'] is String
               ? ReactionTargetKind.fromName(j['kind'] as String)
@@ -279,10 +340,26 @@ class GroupReaction {
         (!lifecycleScoped && j.containsKey('lifecycle')) ||
         (!encrypted && (tgt is! String || emoji is! String)) ||
         (version == 1 && j.containsKey('kind')) ||
-        (!encrypted && (j.containsKey('epoch') || j.containsKey('enc'))) ||
-        (encrypted &&
+        (!encrypted &&
+            (j.containsKey('epoch') ||
+                j.containsKey('cid') ||
+                j.containsKey('cepoch') ||
+                j.containsKey('enc'))) ||
+        (membershipEncrypted &&
             (membershipEpoch is! int ||
                 membershipEpoch < 0 ||
+                encryptedPayload == null ||
+                j.containsKey('cid') ||
+                j.containsKey('cepoch') ||
+                j.containsKey('tgt') ||
+                j.containsKey('emoji') ||
+                j.containsKey('kind'))) ||
+        (channelEncrypted &&
+            (j.containsKey('epoch') ||
+                channelId is! String ||
+                channelEpoch is! int ||
+                channelEpoch <= 0 ||
+                channelEpoch > 0xffffffff ||
                 encryptedPayload == null ||
                 j.containsKey('tgt') ||
                 j.containsKey('emoji') ||
@@ -299,6 +376,8 @@ class GroupReaction {
         version: version,
         targetKind: kind,
         membershipEpoch: membershipEpoch as int?,
+        channelId: channelId is String ? NodeId.fromHex(channelId) : null,
+        channelEpoch: channelEpoch as int?,
         encryptedPayload: encryptedPayload,
         lifecycleGeneration: lifecycle as String?,
         createdAtMs: ts,
