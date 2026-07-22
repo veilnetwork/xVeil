@@ -61,6 +61,7 @@ final class GroupApiAdapter {
     'unread': group.unread,
     'postUnread': group.postUnread,
     'muted': group.muted,
+    'notificationMode': group.notificationMode.name,
     'preview': group.preview,
     'lastTs': group.lastTs,
   };

@@ -856,6 +856,9 @@ class _ConversationTile extends ConsumerWidget {
     final myHex = ref.watch(appControllerProvider).identity?.nodeId.hex;
     final isSaved = myHex != null && conversation.peer.nodeId.hex == myHex;
     final label = isSaved ? l.savedMessages : conversation.peer.label;
+    final notificationMode = conversation.peer.notificationModeAt(
+      DateTime.now(),
+    );
 
     // Saved Messages is a chat with yourself — never a consent state, even if
     // an older build left a stale pendingIncoming self-contact behind.
@@ -894,13 +897,19 @@ class _ConversationTile extends ConsumerWidget {
                 ),
               ),
             Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
-            if (conversation.peer.muted)
+            if (notificationMode != NotificationMuteMode.all)
               Padding(
                 padding: const EdgeInsets.only(left: 4),
-                child: Icon(
-                  Icons.notifications_off,
-                  size: 14,
-                  color: scheme.onSurfaceVariant,
+                child: Tooltip(
+                  message: notificationMuteModeLabel(context, notificationMode),
+                  child: Icon(
+                    notificationMuteModeIcon(notificationMode),
+                    key: ValueKey(
+                      'chat-notification-${notificationMode.name}-${conversation.id}',
+                    ),
+                    size: 14,
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ),
           ],

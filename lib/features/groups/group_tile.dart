@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../domain/chat.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../chat/chat_actions.dart';
@@ -19,6 +20,7 @@ class GroupTile extends ConsumerWidget {
     final group = entry;
     final scheme = Theme.of(context).colorScheme;
     final service = ref.read(groupServiceProvider);
+    final notificationMode = group.notificationMode;
     return ListTile(
       leading: CircleAvatar(
         child: Text(
@@ -42,13 +44,19 @@ class GroupTile extends ConsumerWidget {
               color: scheme.onSurfaceVariant,
             ),
           ),
-          if (group.muted)
+          if (notificationMode != NotificationMuteMode.all)
             Padding(
               padding: const EdgeInsets.only(right: 6),
-              child: Icon(
-                Icons.volume_off,
-                size: 16,
-                color: scheme.onSurfaceVariant,
+              child: Tooltip(
+                message: notificationMuteModeLabel(context, notificationMode),
+                child: Icon(
+                  notificationMuteModeIcon(notificationMode),
+                  key: ValueKey(
+                    'group-notification-${notificationMode.name}-${group.groupId.hex}',
+                  ),
+                  size: 16,
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
             ),
           if (group.unread > 0)
@@ -74,23 +82,23 @@ class GroupTile extends ConsumerWidget {
           ? null
           : () async {
               final l = AppL10n.of(context);
-              final muted = group.muted;
+              final muted = notificationMode != NotificationMuteMode.all;
               await showModalBottomSheet<void>(
                 context: context,
                 builder: (sheet) => SafeArea(
-                  child: ListTile(
-                    leading: Icon(
-                      muted
-                          ? Icons.volume_up_outlined
-                          : Icons.volume_off_outlined,
-                    ),
-                    title: Text(muted ? l.chatMenuUnmute : l.chatMenuMute),
-                    onTap: () {
-                      Navigator.of(sheet).pop();
-                      if (muted) {
-                        service.setGroupMuted(group.groupId, false);
-                      } else {
-                        () async {
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ListTile(
+                        leading: Icon(
+                          notificationMuteModeIcon(notificationMode),
+                        ),
+                        title: Text(l.notificationsTitle),
+                        subtitle: Text(
+                          notificationMuteModeLabel(context, notificationMode),
+                        ),
+                        onTap: () async {
+                          Navigator.of(sheet).pop();
                           final picked = await pickNotificationMutePolicy(
                             context,
                           );
@@ -100,9 +108,20 @@ class GroupTile extends ConsumerWidget {
                             picked.mode,
                             picked.until,
                           );
-                        }();
-                      }
-                    },
+                        },
+                      ),
+                      if (muted)
+                        ListTile(
+                          leading: const Icon(
+                            Icons.notifications_active_outlined,
+                          ),
+                          title: Text(l.chatMenuUnmute),
+                          onTap: () {
+                            Navigator.of(sheet).pop();
+                            service.setGroupMuted(group.groupId, false);
+                          },
+                        ),
+                    ],
                   ),
                 ),
               );

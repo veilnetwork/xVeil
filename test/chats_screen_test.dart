@@ -98,8 +98,16 @@ Conversation _conv(
   String name,
   ContactStatus status, {
   String? last,
+  NotificationMuteMode notificationMode = NotificationMuteMode.none,
+  DateTime? mutedUntil,
 }) => Conversation(
-  peer: Contact(nodeId: _id(seed), name: name, status: status),
+  peer: Contact(
+    nodeId: _id(seed),
+    name: name,
+    status: status,
+    notificationMuteMode: notificationMode,
+    mutedUntil: mutedUntil,
+  ),
   lastMessage: last == null
       ? null
       : Message(
@@ -161,6 +169,33 @@ void main() {
     expect(find.text(l.chatsEmpty), findsOneWidget);
   });
 
+  testWidgets('mentions-only has a distinct chat-list indicator', (
+    tester,
+  ) async {
+    final conversation = _conv(
+      1,
+      'Alice',
+      ContactStatus.accepted,
+      last: 'hey',
+      notificationMode: NotificationMuteMode.mentionsOnly,
+      mutedUntil: DateTime(2099),
+    );
+    await tester.pumpWidget(_host([conversation]));
+    await tester.pump();
+
+    expect(
+      find.byKey(ValueKey('chat-notification-mentionsOnly-${conversation.id}')),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is Tooltip && widget.message == 'Mentions only',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.notifications_off_outlined), findsNothing);
+  });
+
   testWidgets('group chats remain in Chats beside personal chats', (
     tester,
   ) async {
@@ -177,7 +212,8 @@ void main() {
             discoverable: false,
             unread: 2,
             postUnread: 1,
-            muted: false,
+            muted: true,
+            notificationMode: NotificationMuteMode.mentionsOnly,
             preview: 'шашлыки в субботу',
             // Newer than Alice's 2026-01-01 message → the group sorts on top.
             lastTs: DateTime(2026, 6, 1).millisecondsSinceEpoch,
@@ -194,6 +230,7 @@ void main() {
             unread: 3,
             postUnread: 2,
             muted: false,
+            notificationMode: NotificationMuteMode.all,
             preview: 'community channel message',
             lastTs: DateTime(2026, 7, 1).millisecondsSinceEpoch,
           ),
@@ -207,6 +244,16 @@ void main() {
     expect(find.text('Дача'), findsOneWidget);
     expect(find.text('шашлыки в субботу'), findsOneWidget);
     expect(find.byIcon(Icons.group_outlined), findsOneWidget);
+    expect(
+      find.byKey(ValueKey('group-notification-mentionsOnly-${_id(7).hex}')),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is Tooltip && widget.message == 'Mentions only',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Alice'), findsOneWidget);
     expect(find.text('Veil Community'), findsNothing);
     expect(find.text('community channel message'), findsNothing);
@@ -299,6 +346,7 @@ void main() {
                 unread: 2,
                 postUnread: 1,
                 muted: false,
+                notificationMode: NotificationMuteMode.all,
                 preview: 'шашлыки в субботу',
                 lastTs: DateTime(2026, 6, 1).millisecondsSinceEpoch,
               ),
