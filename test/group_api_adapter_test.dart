@@ -471,6 +471,18 @@ void main() {
         expect((posts?['posts'] as List).single['body'], 'Body');
         final feed = await api.feed(10, null);
         expect((feed['posts'] as List).single['spaceName'], 'Public API');
+        expect(
+          (await api.feedTypeFilter())['types'],
+          SpacePostType.values.map((type) => type.name).toList(),
+        );
+        expect(await api.setFeedTypeFilter([SpacePostType.video.name]), isNull);
+        expect((await api.feed(10, null))['posts'], isEmpty);
+        expect(
+          await api.setFeedTypeFilter([SpacePostType.article.name]),
+          isNull,
+        );
+        expect((await api.feed(10, null))['posts'], hasLength(1));
+        expect(await api.setFeedTypeFilter(['unknown']), 'invalid post type');
         final postId = result.post!['postId'] as String;
         expect(await api.setFeedPostHidden(spaceId.hex, postId, true), isNull);
         expect((await api.feed(10, null))['posts'], isEmpty);

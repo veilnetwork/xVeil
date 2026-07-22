@@ -667,6 +667,30 @@ abstract class AppL10n {
   /// **'Article'**
   String get spacePostTypeArticle;
 
+  /// No description provided for @spacePostTypeVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Video'**
+  String get spacePostTypeVideo;
+
+  /// No description provided for @spacePostTypeShortVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Short video'**
+  String get spacePostTypeShortVideo;
+
+  /// No description provided for @spacePostTypeAudio.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio'**
+  String get spacePostTypeAudio;
+
+  /// No description provided for @spacePostTypeVoiceMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice message'**
+  String get spacePostTypeVoiceMessage;
+
   /// No description provided for @spaceFeedEnable.
   ///
   /// In en, this message translates to:
@@ -1182,6 +1206,36 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Could not update this Feed preference'**
   String get feedPostHideFailed;
+
+  /// No description provided for @feedFilterTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Filter publications'**
+  String get feedFilterTitle;
+
+  /// No description provided for @feedFilterAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get feedFilterAll;
+
+  /// No description provided for @feedFilterApply.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get feedFilterApply;
+
+  /// No description provided for @feedFilterEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'No publications match the selected content types.'**
+  String get feedFilterEmptyHint;
+
+  /// No description provided for @feedFilterUpdateFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not update the Feed filter'**
+  String get feedFilterUpdateFailed;
 
   /// No description provided for @chatsEmpty.
   ///

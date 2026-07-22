@@ -876,6 +876,52 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
       },
+      '/feed/filter': {
+        'get': {
+          'summary': 'Read the local content-type filter for the merged feed',
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'types': {
+                'type': 'array',
+                'items': {'type': 'string'},
+              },
+            },
+          }),
+        },
+        'post': {
+          'summary': 'Set the local content-type filter for the merged feed',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['types'],
+                  'properties': {
+                    'types': {
+                      'type': 'array',
+                      'uniqueItems': true,
+                      'items': {
+                        'type': 'string',
+                        'enum': [
+                          'post',
+                          'article',
+                          'video',
+                          'shortVideo',
+                          'audio',
+                          'voiceMessage',
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
       '/feed': {
         'get': {
           'summary': 'Merged chronological feed of enabled communities',
@@ -1923,6 +1969,8 @@ class ApiHandler {
     this.deleteSpacePost,
     this.reactToSpacePost,
     this.spaceFeed,
+    this.spaceFeedTypeFilter,
+    this.setSpaceFeedTypeFilter,
     this.setSpaceFeedEnabled,
     this.setSpaceFeedPostHidden,
     this.spaceInvites,
@@ -2072,6 +2120,8 @@ class ApiHandler {
   reactToSpacePost;
   final Future<Map<String, dynamic>> Function(int limit, String? before)?
   spaceFeed;
+  final Future<Map<String, dynamic>> Function()? spaceFeedTypeFilter;
+  final Future<String?> Function(List<String> types)? setSpaceFeedTypeFilter;
   final Future<String?> Function(String spaceHex, bool enabled)?
   setSpaceFeedEnabled;
   final Future<String?> Function(String spaceHex, String postId, bool hidden)?
@@ -2821,6 +2871,31 @@ class ApiHandler {
       }
       final limit = int.tryParse(uri.queryParameters['limit'] ?? '') ?? 50;
       return ApiResponse(200, await handler(limit.clamp(1, 200), before));
+    }
+    if (method == 'GET' && path == '/v1/feed/filter') {
+      final handler = spaceFeedTypeFilter;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'feed type preferences unavailable',
+        });
+      }
+      return ApiResponse(200, await handler());
+    }
+    if (method == 'POST' && path == '/v1/feed/filter') {
+      final handler = setSpaceFeedTypeFilter;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'feed type preferences unavailable',
+        });
+      }
+      final rawTypes = body?['types'];
+      if (rawTypes is! List || rawTypes.any((type) => type is! String)) {
+        return const ApiResponse(400, {'error': 'valid types list required'});
+      }
+      final error = await handler(rawTypes.cast<String>());
+      return error == null
+          ? const ApiResponse(200, {'ok': true})
+          : ApiResponse(400, {'error': error});
     }
     if (method == 'POST' && path == '/v1/feed/hidden') {
       final handler = setSpaceFeedPostHidden;
