@@ -640,11 +640,13 @@ class ApiServerController extends Notifier<ApiConfig> {
               space, {
               feedEnabled,
               notificationsEnabled,
+              commentNotifications,
               hiddenFromRecommendations,
             }) => groupApi.updateSubscription(
               space,
               feedEnabled: feedEnabled,
               notificationsEnabled: notificationsEnabled,
+              commentNotifications: commentNotifications,
               hiddenFromRecommendations: hiddenFromRecommendations,
             ),
       setSpaceFeedEnabled: groupApi?.setFeedEnabled,

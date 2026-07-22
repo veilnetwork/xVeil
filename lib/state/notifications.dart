@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/notifications/notification_service.dart';
+import '../domain/space_post.dart';
 import '../routing/router.dart';
 import 'group_service_providers.dart' show groupServiceProvider;
 import 'messaging.dart';
@@ -38,6 +39,18 @@ bool shouldAlertOnMinimize({
   required bool isActive,
 }) => enabled && unread > 0 && !muted && !isActive;
 
+/// Whether an accepted Space discussion entry matches the device-local mode.
+/// The focused mode includes direct replies and comments below our own post.
+bool shouldNotifySpaceComment({
+  required SpaceCommentNotificationMode mode,
+  required bool repliesToSelf,
+  required bool commentsOnOwnPost,
+}) => switch (mode) {
+  SpaceCommentNotificationMode.all => true,
+  SpaceCommentNotificationMode.replies => repliesToSelf || commentsOnOwnPost,
+  SpaceCommentNotificationMode.none => false,
+};
+
 /// All message alerts intentionally reuse one OS notification id. A mailbox
 /// replay can restore many unread conversations at startup; assigning an id per
 /// conversation would turn that replay into a notification storm. Reusing one
@@ -50,6 +63,14 @@ int notificationIdForIncomingMessage(String _) => 0x78564d53; // "xVMS"
 /// community publication surface, never `/group/...` or a direct chat.
 String? notificationRouteForPayload(String? payload) {
   if (payload == null || payload.isEmpty) return null;
+  if (payload.startsWith('space-comment:')) {
+    final value = payload.substring('space-comment:'.length);
+    final separator = value.indexOf(':');
+    if (separator <= 0 || separator == value.length - 1) return null;
+    final space = value.substring(0, separator);
+    final post = value.substring(separator + 1);
+    return '/space/$space/comments?post=${Uri.encodeQueryComponent(post)}';
+  }
   if (payload.startsWith('space:')) {
     final space = payload.substring(6);
     return space.isEmpty ? null : '/space/$space/posts';
@@ -64,7 +85,7 @@ String? notificationRouteForPayload(String? payload) {
 /// Publications have no message composer, so the OS must not expose an inline
 /// reply action for their payload even when full previews are enabled.
 bool notificationPayloadSupportsReply(String payload) =>
-    !payload.startsWith('space:');
+    !payload.startsWith('space:') && !payload.startsWith('space-comment:');
 
 /// Select the newest candidate without relying on storage/list sort order.
 /// Pinned chats, groups, and restored logs can all have different ordering.

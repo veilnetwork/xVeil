@@ -399,6 +399,15 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('space-feed-setting')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(
+      find.byKey(const ValueKey('space-comment-notifications-setting')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('space-comment-notifications-setting')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.spaceCommentNotificationsAll).last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
       find.byKey(const ValueKey('space-notifications-setting')),
     );
     await tester.tap(find.byKey(const ValueKey('space-notifications-setting')));
@@ -413,6 +422,7 @@ void main() {
     final subscription = await service.spaceSubscription(spaceId);
     expect(subscription.feedEnabled, isFalse);
     expect(subscription.notificationsEnabled, isFalse);
+    expect(subscription.commentNotifications, SpaceCommentNotificationMode.all);
     expect(subscription.hiddenFromRecommendations, isTrue);
 
     await tester.ensureVisible(find.byKey(const ValueKey('space-add-member')));

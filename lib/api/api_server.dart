@@ -1194,6 +1194,10 @@ Map<String, dynamic> openApiSpec() {
                     'space': {'type': 'string'},
                     'feedEnabled': {'type': 'boolean'},
                     'notificationsEnabled': {'type': 'boolean'},
+                    'commentNotifications': {
+                      'type': 'string',
+                      'enum': ['all', 'replies', 'none'],
+                    },
                     'hiddenFromRecommendations': {'type': 'boolean'},
                     'enabled': {
                       'type': 'boolean',
@@ -2592,6 +2596,7 @@ class ApiHandler {
     String spaceHex, {
     bool? feedEnabled,
     bool? notificationsEnabled,
+    String? commentNotifications,
     bool? hiddenFromRecommendations,
   })?
   updateSpaceSubscription;
@@ -3524,6 +3529,7 @@ class ApiHandler {
         'enabled',
         'feedEnabled',
         'notificationsEnabled',
+        'commentNotifications',
         'hiddenFromRecommendations',
       };
       if (body == null || body.keys.any((key) => !allowed.contains(key))) {
@@ -3532,6 +3538,7 @@ class ApiHandler {
       final legacyFeed = body['enabled'];
       final explicitFeed = body['feedEnabled'];
       final notifications = body['notificationsEnabled'];
+      final commentNotifications = body['commentNotifications'];
       final hidden = body['hiddenFromRecommendations'];
       if (space is! String ||
           space.isEmpty ||
@@ -3539,6 +3546,13 @@ class ApiHandler {
           (body.containsKey('feedEnabled') && explicitFeed is! bool) ||
           (body.containsKey('notificationsEnabled') &&
               notifications is! bool) ||
+          (body.containsKey('commentNotifications') &&
+              (commentNotifications is! String ||
+                  !const {
+                    'all',
+                    'replies',
+                    'none',
+                  }.contains(commentNotifications))) ||
           (body.containsKey('hiddenFromRecommendations') && hidden is! bool) ||
           (legacyFeed is bool &&
               explicitFeed is bool &&
@@ -3552,7 +3566,10 @@ class ApiHandler {
           : legacyFeed is bool
           ? legacyFeed
           : null;
-      if (feed == null && notifications == null && hidden == null) {
+      if (feed == null &&
+          notifications == null &&
+          commentNotifications == null &&
+          hidden == null) {
         return const ApiResponse(400, {
           'error': 'at least one subscription preference required',
         });
@@ -3562,9 +3579,12 @@ class ApiHandler {
               space,
               feedEnabled: feed,
               notificationsEnabled: notifications as bool?,
+              commentNotifications: commentNotifications as String?,
               hiddenFromRecommendations: hidden as bool?,
             )
-          : notifications != null || hidden != null
+          : notifications != null ||
+                commentNotifications != null ||
+                hidden != null
           ? 'subscription preference unavailable'
           : await legacyHandler!(space, feed!);
       return error == null

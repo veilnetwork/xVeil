@@ -678,13 +678,22 @@ void main() {
           await api.updateSubscription(
             spaceId.hex,
             notificationsEnabled: false,
+            commentNotifications: 'all',
             hiddenFromRecommendations: true,
           ),
           isNull,
         );
         final subscription = (await api.subscription(spaceId.hex))!;
         expect(subscription['notificationsEnabled'], isFalse);
+        expect(subscription['commentNotifications'], 'all');
         expect(subscription['hiddenFromRecommendations'], isTrue);
+        expect(
+          await api.updateSubscription(
+            spaceId.hex,
+            commentNotifications: 'mentions',
+          ),
+          isNotNull,
+        );
         expect(subscription['publicOnly'], isFalse);
         expect(await api.subscription('invalid'), isNull);
         final groupId = await service.createGroup('Still a group chat');

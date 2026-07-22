@@ -29,7 +29,7 @@ void main() {
   final spacePostCommentEdits = <(String, String, String, String)>[];
   final spaceRecommendationShares = <(String, String, String)>[];
   final subscriptions = <(String, bool)>[];
-  final subscriptionUpdates = <(String, bool?, bool?, bool?)>[];
+  final subscriptionUpdates = <(String, bool?, bool?, String?, bool?)>[];
   final feedPostPreferences = <(String, String, bool)>[];
   final feedTypePreferences = <List<String>>[];
   final spaceInviteDecisions = <(String, bool)>[];
@@ -394,6 +394,7 @@ void main() {
               'spaceId': space,
               'feedEnabled': true,
               'notificationsEnabled': false,
+              'commentNotifications': 'replies',
               'hiddenFromRecommendations': true,
               'publicOnly': false,
               'updatedAt': 123,
@@ -403,6 +404,7 @@ void main() {
             space, {
             feedEnabled,
             notificationsEnabled,
+            commentNotifications,
             hiddenFromRecommendations,
           }) async {
             if (space == 'missing') return 'space not found';
@@ -410,6 +412,7 @@ void main() {
               space,
               feedEnabled,
               notificationsEnabled,
+              commentNotifications,
               hiddenFromRecommendations,
             ));
             return null;
@@ -1962,12 +1965,23 @@ void main() {
             'space': 'aa',
             'feedEnabled': false,
             'notificationsEnabled': false,
+            'commentNotifications': 'all',
             'hiddenFromRecommendations': true,
           },
         )).status,
         200,
       );
-      expect(subscriptionUpdates.single, ('aa', false, false, true));
+      expect(subscriptionUpdates.single, ('aa', false, false, 'all', true));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/subscription'),
+          auth,
+          body: {'space': 'aa', 'commentNotifications': 'mentions'},
+        )).status,
+        400,
+        reason: 'comment notification modes are a closed API enum',
+      );
       expect(
         (await h.handle(
           'POST',

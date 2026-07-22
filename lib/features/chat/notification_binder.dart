@@ -7,6 +7,7 @@ import '../../core/ids.dart';
 import '../../core/log.dart';
 import '../../domain/chat.dart';
 import '../../domain/group_message.dart';
+import '../../domain/group_policy.dart';
 import '../../domain/space_recommendation.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
@@ -52,8 +53,22 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   StreamSubscription<IncomingNotice>? _sub;
   ProviderSubscription<MessagingService>? _serviceListener;
   StreamSubscription<({NodeId groupId, GroupMessage message})>? _groupSub;
+  StreamSubscription<({NodeId spaceId, GroupMessage message})>?
+  _spaceCommentSub;
   StreamSubscription<({NodeId spaceId, SpacePostView post})>? _spacePostSub;
   ProviderSubscription<GroupService?>? _groupServiceListener;
+  final Map<
+    String,
+    ({
+      String convHex,
+      String? name,
+      String shortId,
+      String preview,
+      int timestampMs,
+      bool allowReply,
+    })
+  >
+  _pendingSpaceComments = {};
   int _notificationGeneration = 0;
 
   bool get _foreground =>
@@ -94,8 +109,12 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
 
   void _subscribeGroups(GroupService? service) {
     _groupSub?.cancel();
+    _spaceCommentSub?.cancel();
     _spacePostSub?.cancel();
     _groupSub = service?.incoming.listen(_onGroupIncoming);
+    _spaceCommentSub = service?.incomingComments.listen(
+      _onSpaceCommentIncoming,
+    );
     _spacePostSub = service?.incomingPosts.listen(_onSpacePostIncoming);
   }
 
@@ -182,17 +201,19 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     final generation = ++_notificationGeneration;
     final settings = ref.read(notificationSettingsProvider);
     var notificationsEnabled = false;
+    var muted = true;
     String? name;
     try {
       final service = ref.read(groupServiceProvider);
       final subscription = await service?.spaceSubscription(n.spaceId);
       notificationsEnabled = subscription?.notificationsEnabled ?? false;
+      muted = await service?.isGroupMuted(n.spaceId) ?? true;
       name = (await service?.stateOf(n.spaceId))?.name;
     } catch (_) {}
     if (!mounted || generation != _notificationGeneration) return;
     if (!shouldAlertIncoming(
       enabled: settings.enabled,
-      muted: !notificationsEnabled,
+      muted: muted || !notificationsEnabled,
       foreground: _foreground,
     )) {
       return;
@@ -206,6 +227,92 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           : n.post.body.trim().isNotEmpty
           ? n.post.body
           : '…',
+      settings: settings,
+      allowReply: false,
+    );
+  }
+
+  /// Comments have their own high-signal preference. Only accepted roots reach
+  /// this stream, so edits cannot generate a second alert. While foregrounded,
+  /// retain the newest relevant thread and compete with chat/post unread when
+  /// the app is minimized, matching the rest of the notification policy.
+  Future<void> _onSpaceCommentIncoming(
+    ({NodeId spaceId, GroupMessage message}) n,
+  ) async {
+    if (!mounted) return;
+    final postId = n.message.spacePostId;
+    if (postId == null) return;
+    final generation = ++_notificationGeneration;
+    final settings = ref.read(notificationSettingsProvider);
+    var mode = SpaceCommentNotificationMode.none;
+    var muted = true;
+    String? name;
+    SpacePostView? post;
+    List<SpacePostCommentView> comments = const [];
+    GroupService? service;
+    try {
+      service = ref.read(groupServiceProvider);
+      if (service == null) return;
+      final subscription = await service.spaceSubscription(n.spaceId);
+      mode = subscription.commentNotifications;
+      if (mode == SpaceCommentNotificationMode.none) return;
+      muted = await service.isGroupMuted(n.spaceId);
+      final results = await Future.wait<Object?>([
+        service.stateOf(n.spaceId),
+        service.postsOf(n.spaceId),
+        service.spacePostCommentsOf(n.spaceId, postId),
+      ]);
+      name = (results[0] as GroupState?)?.name;
+      post = (results[1] as List<SpacePostView>)
+          .where((candidate) => candidate.postId == postId)
+          .firstOrNull;
+      comments = results[2] as List<SpacePostCommentView>;
+    } catch (_) {
+      return;
+    }
+    if (!mounted || generation != _notificationGeneration) {
+      return;
+    }
+    final replyTarget = n.message.replyTo == null
+        ? null
+        : comments
+              .where((comment) => comment.ref == n.message.replyTo)
+              .firstOrNull;
+    if (muted ||
+        !shouldNotifySpaceComment(
+          mode: mode,
+          repliesToSelf: replyTarget?.author == service.selfId,
+          commentsOnOwnPost: post?.author == service.selfId,
+        )) {
+      return;
+    }
+    final payload = 'space-comment:${n.spaceId.hex}:$postId';
+    final candidate = (
+      convHex: payload,
+      name: (name != null && name.trim().isNotEmpty) ? name : null,
+      shortId: n.spaceId.short,
+      preview: _groupPreview(n.message),
+      timestampMs: n.message.createdAtMs,
+      allowReply: false,
+    );
+    if (_foreground) {
+      if (ref.read(activeConversationProvider) != payload) {
+        _pendingSpaceComments[payload] = candidate;
+      }
+      return;
+    }
+    if (!shouldAlertIncoming(
+      enabled: settings.enabled,
+      muted: false,
+      foreground: false,
+    )) {
+      return;
+    }
+    await _show(
+      convHex: candidate.convHex,
+      name: candidate.name,
+      shortId: candidate.shortId,
+      preview: candidate.preview,
       settings: settings,
       allowReply: false,
     );
@@ -335,6 +442,12 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       }
     }
     if (!mounted || generation != _notificationGeneration) return;
+    final pendingComments = _pendingSpaceComments.values.toList();
+    _pendingSpaceComments.clear();
+    for (final comment in pendingComments) {
+      if (comment.convHex == active) continue;
+      candidates.add(comment);
+    }
     final latest = newestByTimestamp(candidates, (c) => c.timestampMs);
     if (latest == null) return;
     await _show(
@@ -396,6 +509,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     _groupServiceListener?.close();
     _sub?.cancel();
     _groupSub?.cancel();
+    _spaceCommentSub?.cancel();
     _spacePostSub?.cancel();
     super.dispose();
   }

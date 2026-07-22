@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import '../../domain/group_policy.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
+import '../../state/notifications.dart' show activeConversationProvider;
 import 'space_post_media.dart';
 
 /// Member discussion for one Space publication. Comments share the signed,
@@ -50,9 +52,41 @@ class _SpacePostCommentsScreenState
   bool _sending = false;
   bool _followAfterLoad = true;
   int _renderedCommentCount = -1;
+  StateController<String?>? _activeConversation;
+  String? _previousActiveConversation;
+
+  String get _conversationKey =>
+      'space-comment:${widget.spaceIdHex}:${widget.postId}';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _activeConversation = ref.read(activeConversationProvider.notifier);
+      _previousActiveConversation = _activeConversation!.state;
+      _activeConversation!.state = _conversationKey;
+    });
+  }
 
   @override
   void dispose() {
+    final activeConversation = _activeConversation;
+    final previousActiveConversation = _previousActiveConversation;
+    final conversationKey = _conversationKey;
+    if (activeConversation?.state == conversationKey) {
+      // Riverpod forbids provider mutations while Flutter finalizes a route's
+      // widget tree. Restore the parent Space key after this synchronous frame.
+      scheduleMicrotask(() {
+        try {
+          if (activeConversation!.state == conversationKey) {
+            activeConversation.state = previousActiveConversation;
+          }
+        } catch (_) {
+          // The ProviderScope may already be gone during test/app teardown.
+        }
+      });
+    }
     _boundService?.changes.removeListener(_onServiceChanged);
     _composer.dispose();
     _composerFocus.dispose();
