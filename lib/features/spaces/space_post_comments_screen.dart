@@ -19,10 +19,12 @@ class SpacePostCommentsScreen extends ConsumerStatefulWidget {
     super.key,
     required this.spaceIdHex,
     required this.postId,
+    this.mediaPicker,
   });
 
   final String spaceIdHex;
   final String postId;
+  final Future<SpacePostMediaPickResult> Function(int remaining)? mediaPicker;
 
   @override
   ConsumerState<SpacePostCommentsScreen> createState() =>
@@ -39,6 +41,7 @@ class _SpacePostCommentsScreenState
   NodeId? _boundSpaceId;
   Future<_CommentsProjection>? _projection;
   GroupMessage? _replyTo;
+  MediaObject? _media;
   bool _sending = false;
   bool _followAfterLoad = true;
   int _renderedCommentCount = -1;
@@ -115,7 +118,35 @@ class _SpacePostCommentsScreenState
       utf8.encode(_composer.text.trim()).length > kSpacePostCommentMaxBytes;
 
   bool get _canSend =>
-      !_sending && _composer.text.trim().isNotEmpty && !_tooLong;
+      !_sending &&
+      (_composer.text.trim().isNotEmpty || _media != null) &&
+      !_tooLong;
+
+  Future<void> _pickMedia() async {
+    if (_sending || _media != null) return;
+    final SpacePostMediaPickResult result;
+    try {
+      result =
+          await (widget.mediaPicker?.call(1) ??
+              pickAndRegisterSpacePostMedia(ref, remaining: 1));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).spaceOperationFailed)),
+      );
+      return;
+    }
+    if (!mounted) return;
+    final picked = result.media.firstOrNull;
+    setState(() {
+      if (picked != null) _media = picked;
+    });
+    if (result.rejected > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).spacePostMediaRejected)),
+      );
+    }
+  }
 
   Future<void> _send() async {
     final service = _boundService;
@@ -128,11 +159,13 @@ class _SpacePostCommentsScreenState
       widget.postId,
       body,
       replyTo: _replyTo?.ref,
+      media: _media,
     );
     if (!mounted) return;
     if (sent) {
       _composer.clear();
       _replyTo = null;
+      _media = null;
       _followAfterLoad = true;
       _projection = _load(service, spaceId);
     }
@@ -252,6 +285,7 @@ class _SpacePostCommentsScreenState
                           final comment = comments[index - 1];
                           return _CommentBubble(
                             key: ValueKey('space-post-comment-${comment.ref}'),
+                            spaceId: spaceId,
                             comment: comment,
                             repliedComment: byRef[comment.replyTo],
                             isSelf: comment.author == service.selfId,
@@ -266,11 +300,14 @@ class _SpacePostCommentsScreenState
                       controller: _composer,
                       focusNode: _composerFocus,
                       replyTo: _replyTo,
+                      media: _media,
                       sending: _sending,
                       canSend: _canSend,
                       tooLong: _tooLong,
                       onChanged: () => setState(() {}),
                       onCancelReply: () => setState(() => _replyTo = null),
+                      onPickMedia: _pickMedia,
+                      onRemoveMedia: () => setState(() => _media = null),
                       onSend: _send,
                     )
                   else
@@ -361,12 +398,14 @@ class _PublicationHeader extends StatelessWidget {
 class _CommentBubble extends StatelessWidget {
   const _CommentBubble({
     super.key,
+    required this.spaceId,
     required this.comment,
     required this.repliedComment,
     required this.isSelf,
     required this.onReply,
   });
 
+  final NodeId spaceId;
   final GroupMessage comment;
   final GroupMessage? repliedComment;
   final bool isSelf;
@@ -377,8 +416,11 @@ class _CommentBubble extends StatelessWidget {
     final l = AppL10n.of(context);
     final colors = Theme.of(context).colorScheme;
     final author = isSelf ? l.chatYou : comment.author.short;
+    final semanticBody = comment.body.isNotEmpty
+        ? comment.body
+        : comment.attachment?.name ?? comment.attachment?.kind ?? '';
     return Semantics(
-      label: '$author, ${comment.body}',
+      label: '$author, $semanticBody',
       child: Align(
         alignment: isSelf ? Alignment.centerRight : Alignment.centerLeft,
         child: Container(
@@ -423,15 +465,24 @@ class _CommentBubble extends StatelessWidget {
                     ),
                   ),
                   child: Text(
-                    _preview(repliedComment!.body),
+                    _commentPreview(repliedComment!),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
               ],
-              const SizedBox(height: 5),
-              SelectionArea(child: Text(comment.body)),
+              if (comment.body.isNotEmpty) ...[
+                const SizedBox(height: 5),
+                SelectionArea(child: Text(comment.body)),
+              ],
+              if (comment.attachment != null)
+                MediaObjectList(
+                  spaceId: spaceId,
+                  author: comment.author,
+                  media: [comment.attachment!],
+                  compact: true,
+                ),
               if (onReply != null)
                 Align(
                   alignment: Alignment.centerRight,
@@ -458,22 +509,28 @@ class _Composer extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.replyTo,
+    required this.media,
     required this.sending,
     required this.canSend,
     required this.tooLong,
     required this.onChanged,
     required this.onCancelReply,
+    required this.onPickMedia,
+    required this.onRemoveMedia,
     required this.onSend,
   });
 
   final TextEditingController controller;
   final FocusNode focusNode;
   final GroupMessage? replyTo;
+  final MediaObject? media;
   final bool sending;
   final bool canSend;
   final bool tooLong;
   final VoidCallback onChanged;
   final VoidCallback onCancelReply;
+  final VoidCallback onPickMedia;
+  final VoidCallback onRemoveMedia;
   final VoidCallback onSend;
 
   @override
@@ -510,9 +567,33 @@ class _Composer extends StatelessWidget {
                     ),
                   ],
                 ),
+              if (media != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: InputChip(
+                    key: const ValueKey('space-post-comment-media'),
+                    avatar: Icon(spacePostMediaIcon(media!.kind), size: 18),
+                    label: Text(
+                      media!.name ?? media!.kind,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onDeleted: sending ? null : onRemoveMedia,
+                    deleteButtonTooltipMessage: MaterialLocalizations.of(
+                      context,
+                    ).deleteButtonTooltip,
+                  ),
+                ),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  IconButton(
+                    key: const ValueKey('space-post-comment-attach'),
+                    tooltip: l.spacePostMediaAttach,
+                    onPressed: sending || media != null ? null : onPickMedia,
+                    icon: const Icon(Icons.attach_file),
+                  ),
+                  const SizedBox(width: 4),
                   Expanded(
                     child: TextField(
                       key: const ValueKey('space-post-comment-composer'),
@@ -558,6 +639,12 @@ String _preview(String value) {
   return normalized.length <= 120
       ? normalized
       : '${normalized.substring(0, 117)}…';
+}
+
+String _commentPreview(GroupMessage comment) {
+  final body = _preview(comment.body);
+  if (body.isNotEmpty) return body;
+  return comment.attachment?.name ?? comment.attachment?.kind ?? '';
 }
 
 String _commentTime(BuildContext context, int milliseconds) {

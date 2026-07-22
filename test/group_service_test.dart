@@ -4096,6 +4096,13 @@ void main() {
         body: 'Foreign root',
         broadcast: false,
       );
+      final commentMedia = MediaObject(
+        contentId: 'c' * 64,
+        kind: 'file',
+        name: 'review.pdf',
+        mimeType: 'application/pdf',
+        size: 128,
+      );
 
       expect(
         await service.commentOnSpacePost(
@@ -4124,6 +4131,16 @@ void main() {
       expect(
         await service.commentOnSpacePost(
           spaceId,
+          first.postId,
+          '',
+          media: commentMedia,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await service.commentOnSpacePost(
+          spaceId,
           second.postId,
           'Second-root comment',
           broadcast: false,
@@ -4138,8 +4155,17 @@ void main() {
       expect(firstThread.map((comment) => comment.body), [
         'First comment',
         'Reply',
+        '',
       ]);
-      expect(firstThread.last.replyTo, firstThread.first.ref);
+      expect(firstThread[1].replyTo, firstThread.first.ref);
+      expect(firstThread.last.attachment?.toReferenceJson(), {
+        'cid': 'c' * 64,
+        'kind': 'file',
+        'name': 'review.pdf',
+        'mime': 'application/pdf',
+        'size': 128,
+      });
+      expect(await service.referencedContentIds(spaceId), contains('c' * 64));
       expect(
         (await service.spacePostCommentsOf(spaceId, second.postId)).single.body,
         'Second-root comment',
@@ -4159,11 +4185,12 @@ void main() {
       );
 
       final wire = (await service.load(spaceId))!.messages;
-      expect(wire, hasLength(3));
+      expect(wire, hasLength(4));
       expect(wire.every((comment) => comment.isEncrypted), isTrue);
       expect(wire.every((comment) => comment.body.isEmpty), isTrue);
       expect(wire.every((comment) => comment.channelId == null), isTrue);
       expect(wire.map((comment) => comment.spacePostId), [
+        first.postId,
         first.postId,
         first.postId,
         second.postId,
@@ -4174,6 +4201,15 @@ void main() {
           groupId,
           first.postId,
           'Must not turn a group chat into a Space',
+        ),
+        isFalse,
+      );
+      expect(
+        await service.commentOnSpacePost(
+          spaceId,
+          first.postId,
+          '',
+          media: const MediaObject(contentId: 'not-a-sha256-cid', kind: 'file'),
         ),
         isFalse,
       );
@@ -4208,7 +4244,11 @@ void main() {
         isTrue,
       );
       expect(await service.spacePostCommentsOf(spaceId, first.postId), isEmpty);
-      expect((await service.load(spaceId))!.messages, hasLength(3));
+      expect(
+        await service.referencedContentIds(spaceId),
+        isNot(contains('c' * 64)),
+      );
+      expect((await service.load(spaceId))!.messages, hasLength(4));
     },
   );
 
@@ -4272,11 +4312,20 @@ void main() {
         body: 'Root distributed with its discussion',
         broadcast: false,
       ))!;
+      final commentMedia = MediaObject(
+        contentId: 'd' * 64,
+        kind: 'audio',
+        name: 'answer.opus',
+        mimeType: 'audio/opus',
+        size: 512,
+        durationMs: 2400,
+      );
       expect(
         await ownerService.commentOnSpacePost(
           spaceId,
           root.postId,
           'Owner comment',
+          media: commentMedia,
           broadcast: false,
         ),
         isTrue,
@@ -4299,6 +4348,17 @@ void main() {
           root.postId,
         )).single.body,
         'Owner comment',
+      );
+      expect(
+        (await bobService.spacePostCommentsOf(
+          spaceId,
+          root.postId,
+        )).single.attachment?.toReferenceJson(),
+        commentMedia.toReferenceJson(),
+      );
+      expect(
+        await bobService.referencedContentIds(spaceId),
+        contains('d' * 64),
       );
 
       expect(
@@ -4337,8 +4397,8 @@ void main() {
         attachment: GroupAttachment(
           kind: 'file',
           dataB64: 'AQID',
-          w: 0,
-          h: 0,
+          w: 1,
+          h: 1,
           cid: 'must-not-be-referenced',
         ),
       ).encode();
@@ -4383,7 +4443,7 @@ void main() {
       expect(
         (await ownerService.load(spaceId))!.messages,
         hasLength(2),
-        reason: 'text-only comment policy is enforced after AEAD open',
+        reason: 'legacy inline comment media is rejected after AEAD open',
       );
       expect(
         await ownerService.referencedContentIds(spaceId),

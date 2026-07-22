@@ -4922,7 +4922,7 @@ class GroupService {
     ),
   );
 
-  /// Add a text comment to one visible root publication. The row uses the
+  /// Add a comment to one visible root publication. The row uses the
   /// existing signed message log and Space epoch, but its scope is the post
   /// root rather than a channel, so neither Chats nor channel history sees it.
   Future<bool> commentOnSpacePost(
@@ -4930,10 +4930,14 @@ class GroupService {
     String postId,
     String body, {
     String? replyTo,
+    MediaObject? media,
     bool broadcast = true,
   }) {
     final normalized = body.trim();
-    if (normalized.isEmpty ||
+    if ((normalized.isEmpty && media == null) ||
+        (media != null &&
+            (media.inlinePreviewB64 != null ||
+                !media.isReferenceStructurallyValid)) ||
         utf8.encode(normalized).length > kSpacePostCommentMaxBytes) {
       return Future.value(false);
     }
@@ -4943,6 +4947,7 @@ class GroupService {
         spaceId,
         normalized,
         spacePostId: postId,
+        attachment: media,
         replyTo: replyTo,
         broadcast: broadcast,
       ),
@@ -4960,7 +4965,9 @@ class GroupService {
     bool broadcast = true,
   }) async {
     if (!isValidInlineCustomEmoji(body, customEmoji)) return false;
-    if (spacePostId != null && body.trim().isEmpty) return false;
+    if (spacePostId != null && body.trim().isEmpty && attachment == null) {
+      return false;
+    }
     final b = await load(groupId);
     if (b == null) return false;
     final state = foldControlLog(
@@ -4978,11 +4985,15 @@ class GroupService {
     if (b.manifest.isSpace) {
       if (spacePostId != null) {
         if (resolvedChannelId != null ||
-            attachment != null ||
             !_spacePostIdPattern.hasMatch(spacePostId) ||
             !(await _postsOfBundle(
               b,
             )).any((post) => post.postId == spacePostId)) {
+          return false;
+        }
+        if (attachment != null &&
+            (attachment.inlinePreviewB64 != null ||
+                !attachment.isReferenceStructurallyValid)) {
           return false;
         }
         if (replyTo != null) {
@@ -8083,6 +8094,7 @@ class GroupService {
     NodeId groupId, {
     NodeId? channelId,
     String? spacePostId,
+    bool includeSpacePostComments = false,
     bool applyLocalRetention = true,
   }) async {
     final b = await load(groupId);
@@ -8106,7 +8118,9 @@ class GroupService {
     final out = <GroupMessage>[];
     for (final m in _acceptedMessagesWithinLifecycle(b, state)) {
       final isComment = m.spacePostId != null;
-      if (spacePostId == null ? isComment : m.spacePostId != spacePostId) {
+      if (spacePostId == null
+          ? isComment && !includeSpacePostComments
+          : m.spacePostId != spacePostId) {
         continue;
       }
       final effectiveChannelId = b.manifest.isSpace && !isComment
@@ -8470,14 +8484,21 @@ class GroupService {
   /// the only content a membership grant may unlock (membership must not
   /// become a license to fetch arbitrary content this device holds).
   Future<Set<String>> referencedContentIds(NodeId groupId) async {
-    final msgs = await messagesOf(groupId, applyLocalRetention: false);
     final bundle = await load(groupId);
     final posts = bundle == null || !bundle.manifest.isSpace
         ? const <SpacePostView>[]
         : await _postsOfBundle(bundle);
+    final postIds = {for (final post in posts) post.postId};
+    final msgs = await messagesOf(
+      groupId,
+      includeSpacePostComments: true,
+      applyLocalRetention: false,
+    );
     return {
       for (final m in msgs)
-        if (m.attachment?.cid != null) m.attachment!.cid!,
+        if (m.attachment?.cid != null &&
+            (m.spacePostId == null || postIds.contains(m.spacePostId)))
+          m.attachment!.cid!,
       for (final post in posts)
         for (final media in post.media) media.contentId!,
     };
@@ -9200,7 +9221,12 @@ class GroupService {
               materialBundle,
               m,
             );
-            if (visible == null || visible.attachment != null) continue;
+            if (visible == null ||
+                (visible.attachment != null &&
+                    (visible.attachment!.inlinePreviewB64 != null ||
+                        !visible.attachment!.isReferenceStructurallyValid))) {
+              continue;
+            }
           }
         }
       } else if (encryptionEstablished || !mergedState.isMember(m.author)) {

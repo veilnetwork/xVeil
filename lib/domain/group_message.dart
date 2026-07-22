@@ -40,30 +40,49 @@ class GroupMessageCleartext {
   final String? replyTo;
   final List<InlineCustomEmoji> customEmoji;
 
-  Uint8List encode() => Uint8List.fromList(
-    utf8.encode(
-      jsonEncode({
-        'v': 1,
-        'body': body,
-        if (attachment != null)
-          'att': attachment!.toLegacyAttachmentCanonical(),
-        if (replyTo != null) 'rt': replyTo,
-        if (customEmoji.isNotEmpty) 'ce': encodeInlineCustomEmoji(customEmoji),
-      }),
-    ),
-  );
+  Uint8List encode() {
+    final referenceMedia =
+        attachment != null &&
+        attachment!.inlinePreviewB64 == null &&
+        attachment!.isReferenceStructurallyValid;
+    return Uint8List.fromList(
+      utf8.encode(
+        jsonEncode({
+          'v': referenceMedia ? 2 : 1,
+          'body': body,
+          if (referenceMedia) 'media': attachment!.toReferenceJson(),
+          if (!referenceMedia && attachment != null)
+            'att': attachment!.toLegacyAttachmentCanonical(),
+          if (replyTo != null) 'rt': replyTo,
+          if (customEmoji.isNotEmpty)
+            'ce': encodeInlineCustomEmoji(customEmoji),
+        }),
+      ),
+    );
+  }
 
   static GroupMessageCleartext? decode(Uint8List bytes) {
     if (bytes.length > maxGroupEncryptedPayloadBytes) return null;
     try {
       final value = jsonDecode(utf8.decode(bytes, allowMalformed: false));
-      if (value is! Map || value['v'] != 1 || value['body'] is! String) {
+      if (value is! Map ||
+          (value['v'] != 1 && value['v'] != 2) ||
+          value['body'] is! String) {
         return null;
       }
-      final attachment = value.containsKey('att')
+      final referenceMedia = value['v'] == 2;
+      if ((referenceMedia && value.containsKey('att')) ||
+          (!referenceMedia && value.containsKey('media'))) {
+        return null;
+      }
+      final attachment = referenceMedia
+          ? MediaObject.fromReferenceJson(value['media'])
+          : value.containsKey('att')
           ? MediaObject.fromLegacyAttachmentJson(value['att'])
           : null;
-      if (value.containsKey('att') && attachment == null) return null;
+      if ((referenceMedia || value.containsKey('att')) && attachment == null) {
+        return null;
+      }
       final replyTo = value['rt'];
       if (replyTo != null && replyTo is! String) return null;
       return GroupMessageCleartext(

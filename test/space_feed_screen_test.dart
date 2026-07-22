@@ -343,11 +343,23 @@ void main() {
         body: 'Discuss this independently from channels.',
         broadcast: false,
       ))!;
+      final commentMedia = MediaObject(
+        contentId: 'f' * 64,
+        kind: 'image',
+        name: 'diagram.png',
+        mimeType: 'image/png',
+        size: 64,
+      );
 
       await tester.pumpWidget(
         _host(
           service,
-          SpacePostCommentsScreen(spaceIdHex: spaceId.hex, postId: post.postId),
+          SpacePostCommentsScreen(
+            spaceIdHex: spaceId.hex,
+            postId: post.postId,
+            mediaPicker: (_) async => (media: [commentMedia], rejected: 0),
+          ),
+          storage: storage,
         ),
       );
       await tester.pumpAndSettle();
@@ -394,14 +406,39 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('space-post-comment-send')));
       await tester.pumpAndSettle();
 
+      await tester.tap(find.byKey(const ValueKey('space-post-comment-attach')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('space-post-comment-media')),
+        findsOneWidget,
+      );
+      expect(find.text('diagram.png'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('space-post-comment-send')));
+      await tester.pumpAndSettle();
+
       final comments = await service.spacePostCommentsOf(spaceId, post.postId);
       expect(comments.map((comment) => comment.body), [
         'First comment',
         'Threaded reply',
+        '',
       ]);
-      expect(comments.last.replyTo, comments.first.ref);
+      expect(comments[1].replyTo, comments.first.ref);
+      expect(
+        comments.last.attachment?.toReferenceJson(),
+        commentMedia.toReferenceJson(),
+      );
       expect(find.text('Threaded reply'), findsOneWidget);
-      expect(find.text(l.spacePostCommentsCount(2)), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('space-post-media-${commentMedia.contentId}')),
+        findsOneWidget,
+      );
+      await tester.drag(
+        find.byKey(const PageStorageKey('space-post-comments-list')),
+        const Offset(0, 800),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(l.spacePostCommentsCount(3)), findsOneWidget);
+      expect(await service.referencedContentIds(spaceId), contains('f' * 64));
       expect(await service.messagesOf(spaceId), isEmpty);
       expect(
         await service.messagesOf(

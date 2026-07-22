@@ -581,7 +581,13 @@ void main() {
         expect((await api.feed(10, null))['posts'], hasLength(1));
         expect((await service.load(spaceId))!.messages, isEmpty);
         expect(
-          await api.postComment(spaceId.hex, postId, 'First API comment', null),
+          await api.postComment(
+            spaceId.hex,
+            postId,
+            'First API comment',
+            null,
+            null,
+          ),
           isNull,
         );
         final firstComment =
@@ -597,6 +603,7 @@ void main() {
             postId,
             'API reply',
             firstComment['id'] as String,
+            null,
           ),
           isNull,
         );
@@ -607,6 +614,27 @@ void main() {
                 as Map;
         expect(lastComment['body'], 'API reply');
         expect(lastComment['replyTo'], firstComment['id']);
+        final commentMedia = MediaObject(
+          contentId: 'e' * 64,
+          kind: 'audio',
+          name: 'comment.opus',
+          mimeType: 'audio/opus',
+          size: 256,
+          durationMs: 1200,
+        );
+        expect(
+          await api.postComment(spaceId.hex, postId, '', null, commentMedia),
+          isNull,
+        );
+        final mediaComment =
+            ((await api.postComments(spaceId.hex, postId, 1))!['comments']
+                        as List)
+                    .single
+                as Map;
+        expect(mediaComment['body'], isEmpty);
+        expect(mediaComment['media'], commentMedia.toReferenceJson());
+        expect(mediaComment.containsKey('attachment'), isFalse);
+        expect(await service.referencedContentIds(spaceId), contains('e' * 64));
         final defaultChannel =
             (await api.channels(spaceId.hex))!.single['channelId'] as String;
         expect(
@@ -619,6 +647,7 @@ void main() {
             spaceId.hex,
             '${_id(12).hex}:99',
             'missing root',
+            null,
             null,
           ),
           isNotNull,
