@@ -359,6 +359,35 @@ void main() {
     expect(closed, isTrue);
   });
 
+  test('original group media source is exposed only while its content id '
+      'still verifies', () async {
+    var bytes = rnd(300000, 73);
+    Future<Uint8List> read(int offset, int length) async =>
+        Uint8List.sublistView(bytes, offset, offset + length);
+    mA.sourceOpener = (path) async => path == 'mem://verified-media'
+        ? (read: read, close: () async {})
+        : null;
+
+    final cid = await mA.registerGroupContentStreaming(
+      'verified.bin',
+      bytes.length,
+      read,
+      close: () async {},
+      sourcePath: 'mem://verified-media',
+    );
+    expect(
+      await mA.verifiedGroupContentSourcePath(cid),
+      'mem://verified-media',
+    );
+
+    bytes = Uint8List.fromList(bytes)..[0] ^= 0xff;
+    expect(
+      await mA.verifiedGroupContentSourcePath(cid),
+      isNull,
+      reason: 'a changed plaintext source must not open under a signed ref',
+    );
+  });
+
   test(
     'DURABLE offer: a reoffer after the SENDER restarts re-opens the source '
     'file and re-serves (offer survives the sender losing its serve state)',

@@ -268,6 +268,18 @@ class _MessagingGroupContent {
     return cid;
   }
 
+  /// Returns the original user-selected source path only after re-hashing it
+  /// against [cid]. A moved or modified plaintext source is never opened under
+  /// an old signed media reference.
+  Future<String?> verifiedSourcePath(String cid) async {
+    final record = _owner._parseServedRecord(
+      await _owner._storage.getSetting('served:$cid'),
+    );
+    if (record == null) return null;
+    final manifest = await _owner._rebuildManifestFromServedRecord(cid, record);
+    return manifest?.contentId == cid ? record.path : null;
+  }
+
   /// The active (unexpired) grants, for the debug hook / tests.
   List<Map<String, Object>> debugGroupServeGrants() {
     final now = DateTime.now().millisecondsSinceEpoch;

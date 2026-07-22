@@ -550,6 +550,7 @@ final class GroupApiAdapter {
     String title,
     String body,
     String typeName,
+    List<MediaObjectRef> media,
   ) async {
     final visible = await _visible(spaceHex);
     if (visible == null) return 'space not found';
@@ -560,6 +561,7 @@ final class GroupApiAdapter {
           title: title,
           body: body,
           type: type,
+          media: media,
         )
         ? null
         : 'post draft rejected';
@@ -578,6 +580,7 @@ final class GroupApiAdapter {
     String title,
     String body,
     String typeName,
+    List<MediaObjectRef> media,
   ) async {
     final visible = await _visible(spaceHex);
     if (visible == null) return (error: 'space not found', post: null);
@@ -588,6 +591,7 @@ final class GroupApiAdapter {
       title: title,
       body: body,
       type: type,
+      media: media,
     );
     return post == null
         ? (error: 'post publication rejected', post: null)
@@ -603,6 +607,7 @@ final class GroupApiAdapter {
     String title,
     String body,
     String? typeName,
+    List<MediaObjectRef>? media,
   ) async {
     final visible = await _visible(spaceHex);
     if (visible == null) return (error: 'space not found', post: null);
@@ -616,6 +621,7 @@ final class GroupApiAdapter {
       title: title,
       body: body,
       type: type,
+      media: media,
     );
     return post == null
         ? (error: 'post edit rejected', post: null)

@@ -114,6 +114,8 @@
   "spacePostBodyHint": "Share an update with the community…",
   "spacePostPublish": "Publish",
   "spacePostDraftHint": "Saved encrypted on this device. The draft is not shared until you publish it.",
+  "spacePostMediaAttach": "Add media or file",
+  "spacePostMediaRejected": "Some files couldn't be attached",
   "spacePostEdit": "Edit publication",
   "spacePostEdited": "Edited",
   "spacePostPin": "Pin",

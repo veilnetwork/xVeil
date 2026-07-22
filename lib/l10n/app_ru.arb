@@ -114,6 +114,8 @@
   "spacePostBodyHint": "Поделитесь новостью с сообществом…",
   "spacePostPublish": "Опубликовать",
   "spacePostDraftHint": "Черновик зашифрован и сохранён на этом устройстве. До публикации он никуда не отправляется.",
+  "spacePostMediaAttach": "Добавить медиа или файл",
+  "spacePostMediaRejected": "Некоторые файлы не удалось прикрепить",
   "spacePostEdit": "Редактировать публикацию",
   "spacePostEdited": "Изменено",
   "spacePostPin": "Закрепить",

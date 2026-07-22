@@ -8,6 +8,7 @@ import '../../core/ids.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
+import 'space_post_media.dart';
 import 'space_post_reactions.dart';
 
 class SpaceFeedScreen extends ConsumerWidget {
@@ -449,16 +450,11 @@ class _PostCard extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(post.body),
               ],
-              if (post.media.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    const Icon(Icons.attach_file, size: 18),
-                    const SizedBox(width: 4),
-                    Text('${post.media.length}'),
-                  ],
-                ),
-              ],
+              SpacePostMediaList(
+                spaceId: item.spaceId,
+                post: post,
+                compact: true,
+              ),
               const SizedBox(height: 8),
               SpacePostReactionBar(
                 postId: post.postId,

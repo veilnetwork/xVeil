@@ -3869,6 +3869,12 @@ void main() {
         visibility: SpaceVisibility.public,
       );
       final largeBody = List.filled(6000, 'draft').join();
+      final draftMedia = MediaObjectRef(
+        contentId: 'd' * 64,
+        kind: 'video',
+        name: 'draft.mp4',
+        size: 512,
+      );
 
       expect(
         await service.saveSpacePostDraft(
@@ -3876,6 +3882,7 @@ void main() {
           title: 'Work in progress',
           body: largeBody,
           type: SpacePostType.shortVideo,
+          media: [draftMedia],
         ),
         isTrue,
       );
@@ -3886,16 +3893,18 @@ void main() {
       final storedJson = jsonDecode(utf8.decode(stored!)) as Map;
       // Keep this assertion close to persistence: the local draft must not be
       // confused with opaque content bytes or a signed post row.
-      expect(storedJson['v'], 1);
+      expect(storedJson['v'], 2);
       expect(storedJson['sid'], spaceId.hex);
       expect(storedJson['type'], SpacePostType.shortVideo.name);
       expect(storedJson['title'], 'Work in progress');
       expect((storedJson['body'] as String).length, largeBody.length);
       expect(storedJson['updatedAt'], isA<int>());
+      expect((storedJson['media'] as List).single['cid'], 'd' * 64);
       final draft = await service.spacePostDraft(spaceId);
       expect(draft?.title, 'Work in progress');
       expect(draft?.body, largeBody);
       expect(draft?.type, SpacePostType.shortVideo);
+      expect(draft?.media.single.name, 'draft.mp4');
       expect((await service.load(spaceId))!.posts, isEmpty);
 
       final reopened = GroupService(storage, _FakeSigner(owner));
@@ -3947,9 +3956,7 @@ void main() {
         title: 'One',
         body: 'first publication',
         type: SpacePostType.article,
-        media: const [
-          MediaObjectRef(contentId: 'post-media-cid', kind: 'image'),
-        ],
+        media: [MediaObjectRef(contentId: 'a' * 64, kind: 'image')],
         broadcast: false,
       );
       final second = await svc.publishSpacePost(
@@ -3983,7 +3990,7 @@ void main() {
         ),
         isTrue,
       );
-      expect(await svc.referencedContentIds(spaceId), {'post-media-cid'});
+      expect(await svc.referencedContentIds(spaceId), {'a' * 64});
 
       expect(
         await svc.reactToSpacePost(
@@ -4398,9 +4405,7 @@ void main() {
         title: 'Original',
         body: 'first body',
         type: SpacePostType.article,
-        media: const [
-          MediaObjectRef(contentId: 'edited-media-cid', kind: 'image'),
-        ],
+        media: [MediaObjectRef(contentId: 'a' * 64, kind: 'image')],
         broadcast: false,
       ))!;
       await svc.publishSpacePost(
@@ -4416,6 +4421,7 @@ void main() {
         title: 'Corrected',
         body: 'revised body',
         type: SpacePostType.post,
+        media: [MediaObjectRef(contentId: 'b' * 64, kind: 'image')],
         broadcast: false,
       );
       expect(edited, isNotNull);
@@ -4427,7 +4433,7 @@ void main() {
       expect(edited.type, SpacePostType.post);
       expect(SpaceFeedCursor.fromView(edited).compareTo(rootCursor), 0);
       expect(await svc.postsOf(spaceId), hasLength(2));
-      expect(await svc.referencedContentIds(spaceId), {'edited-media-cid'});
+      expect(await svc.referencedContentIds(spaceId), {'b' * 64});
       final afterEdit = (await svc.load(spaceId))!;
       expect(afterEdit.posts, hasLength(3));
       expect(afterEdit.posts.last.version, 7);

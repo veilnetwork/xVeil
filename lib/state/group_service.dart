@@ -5267,6 +5267,7 @@ class GroupService {
     required String title,
     required String body,
     required SpacePostType type,
+    List<MediaObjectRef> media = const [],
   }) => _serializeSpacePostDrafts(() async {
     try {
       final draft = SpacePostDraft(
@@ -5275,6 +5276,7 @@ class GroupService {
         body: body,
         type: type,
         updatedAtMs: _now(),
+        media: List<MediaObjectRef>.unmodifiable(media),
       );
       if (!draft.isStructurallyValid ||
           !await _canKeepSpacePostDraft(spaceId)) {
@@ -5499,6 +5501,7 @@ class GroupService {
     required String title,
     required String body,
     SpacePostType? type,
+    List<MediaObjectRef>? media,
     bool broadcast = true,
   }) => _serialized(spaceId, () async {
     final row = await _mutateSpacePost(
@@ -5508,6 +5511,7 @@ class GroupService {
       title: title,
       body: body,
       type: type,
+      media: media,
       broadcast: broadcast,
     );
     if (row == null) return null;
@@ -5591,6 +5595,7 @@ class GroupService {
     required String title,
     required String body,
     SpacePostType? type,
+    List<MediaObjectRef>? media,
     required bool broadcast,
   }) async {
     if (operation == SpacePostOperation.publish) return null;
@@ -5616,7 +5621,9 @@ class GroupService {
     final cleartext = SpacePostCleartext(
       title: operation == SpacePostOperation.delete ? '' : title.trim(),
       body: operation == SpacePostOperation.delete ? '' : body.trim(),
-      media: operation == SpacePostOperation.delete ? const [] : target.media,
+      media: operation == SpacePostOperation.delete
+          ? const []
+          : List<MediaObjectRef>.unmodifiable(media ?? target.media),
       isTombstone: operation == SpacePostOperation.delete,
     );
     if (!cleartext.isStructurallyValid) return null;

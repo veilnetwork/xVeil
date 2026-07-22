@@ -212,6 +212,7 @@ class SpacePostDraft {
     required this.body,
     required this.type,
     required this.updatedAtMs,
+    this.media = const [],
   });
 
   final NodeId spaceId;
@@ -219,41 +220,55 @@ class SpacePostDraft {
   final String body;
   final SpacePostType type;
   final int updatedAtMs;
+  final List<MediaObjectRef> media;
 
-  bool get hasContent => title.trim().isNotEmpty || body.trim().isNotEmpty;
+  bool get hasContent =>
+      title.trim().isNotEmpty || body.trim().isNotEmpty || media.isNotEmpty;
 
   bool get isStructurallyValid =>
       title.length <= kSpacePostTitleMax &&
       body.length <= kSpacePostBodyMax &&
+      media.length <= kSpacePostMediaMax &&
+      media.every((item) => item.isStructurallyValid) &&
+      media.map((item) => item.contentId).toSet().length == media.length &&
       updatedAtMs >= 0;
 
   Map<String, dynamic> toJson() => {
-    'v': 1,
+    'v': 2,
     'sid': spaceId.hex,
     'title': title,
     'body': body,
     'type': type.name,
     'updatedAt': updatedAtMs,
+    if (media.isNotEmpty) 'media': [for (final item in media) item.toJson()],
   };
 
   static SpacePostDraft? fromJson(Object? value, NodeId expectedSpaceId) {
     if (value is! Map ||
-        value['v'] != 1 ||
+        (value['v'] != 1 && value['v'] != 2) ||
         value['sid'] != expectedSpaceId.hex ||
         value['title'] is! String ||
         value['body'] is! String ||
         value['type'] is! String ||
-        value['updatedAt'] is! int) {
+        value['updatedAt'] is! int ||
+        (value['media'] != null && value['media'] is! List)) {
       return null;
     }
     final type = SpacePostType.fromName(value['type'] as String);
     if (type == null) return null;
+    final rawMedia = value['media'] as List? ?? const [];
+    final media = rawMedia
+        .map(MediaObjectRef.fromJson)
+        .whereType<MediaObjectRef>()
+        .toList(growable: false);
+    if (media.length != rawMedia.length) return null;
     final draft = SpacePostDraft(
       spaceId: expectedSpaceId,
       title: value['title'] as String,
       body: value['body'] as String,
       type: type,
       updatedAtMs: value['updatedAt'] as int,
+      media: media,
     );
     return draft.isStructurallyValid ? draft : null;
   }
@@ -393,13 +408,12 @@ class MediaObjectRef {
   final int? durationMs;
 
   bool get isStructurallyValid =>
-      contentId.isNotEmpty &&
-      contentId.length <= 512 &&
+      RegExp(r'^[0-9a-f]{64}$').hasMatch(contentId) &&
       kind.isNotEmpty &&
       kind.length <= 32 &&
       (name == null || name!.length <= 255) &&
       (mimeType == null || mimeType!.length <= 128) &&
-      (size == null || size! >= 0) &&
+      (size == null || size! > 0) &&
       (width == null || width! > 0) &&
       (height == null || height! > 0) &&
       (durationMs == null || durationMs! >= 0);
@@ -451,6 +465,7 @@ class SpacePostCleartext {
       body.length <= kSpacePostBodyMax &&
       media.length <= kSpacePostMediaMax &&
       media.every((item) => item.isStructurallyValid) &&
+      media.map((item) => item.contentId).toSet().length == media.length &&
       (isTombstone
           ? title.isEmpty && body.isEmpty && media.isEmpty
           : title.trim().isNotEmpty ||

@@ -28,12 +28,28 @@ void main() {
         body: 'Only this identity can read this draft.',
         type: SpacePostType.voiceMessage,
         updatedAtMs: 42,
+        media: [
+          MediaObjectRef(
+            contentId: 'a' * 64,
+            kind: 'audio',
+            name: 'memo.opus',
+            mimeType: 'audio/opus',
+            size: 128,
+          ),
+        ],
       );
 
       expect(draft.isStructurallyValid, isTrue);
       expect(draft.hasContent, isTrue);
       expect(
-        SpacePostDraft.fromJson(draft.toJson(), spaceId)?.type,
+        SpacePostDraft.fromJson(draft.toJson(), spaceId)?.media.single.name,
+        'memo.opus',
+      );
+      final legacy = Map<String, dynamic>.from(draft.toJson())
+        ..['v'] = 1
+        ..remove('media');
+      expect(
+        SpacePostDraft.fromJson(legacy, spaceId)?.type,
         SpacePostType.voiceMessage,
       );
       expect(SpacePostDraft.fromJson(draft.toJson(), _id(20)), isNull);
@@ -41,6 +57,13 @@ void main() {
         SpacePostDraft.fromJson({
           ...draft.toJson(),
           'type': 'unknown',
+        }, spaceId),
+        isNull,
+      );
+      expect(
+        SpacePostDraft.fromJson({
+          ...draft.toJson(),
+          'media': [draft.media.single.toJson(), draft.media.single.toJson()],
         }, spaceId),
         isNull,
       );
@@ -57,9 +80,9 @@ void main() {
       visibility: SpacePostVisibility.public,
       title: 'Release notes',
       body: 'The body is separate from channel messages.',
-      media: const [
+      media: [
         MediaObjectRef(
-          contentId: 'sha256:abc',
+          contentId: 'a' * 64,
           kind: 'image',
           name: 'cover.webp',
           mimeType: 'image/webp',
@@ -78,7 +101,7 @@ void main() {
     final decoded = SpacePost.fromJson(post.toJson());
     expect(decoded, isNotNull);
     expect(decoded!.canonicalBytes(), post.canonicalBytes());
-    expect(decoded.media.single.contentId, 'sha256:abc');
+    expect(decoded.media.single.contentId, 'a' * 64);
     expect(decoded.postId, '${_id(2).hex}:0');
 
     final mixed = Map<String, dynamic>.from(post.toJson())
