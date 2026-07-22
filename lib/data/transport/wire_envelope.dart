@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../../domain/inline_custom_emoji.dart';
+import '../../domain/space_recommendation.dart';
 
 /// Application message type carried in the transport payload.
 /// - [request]: a connection request (body = greeting).
@@ -155,6 +156,12 @@ enum WireKind {
   /// Approver response to [spaceJoinRequest]. Acceptance is only progress UI;
   /// authority still comes exclusively from the signed membership snapshot.
   spaceJoinDecision,
+
+  /// An explicitly shared public-Space recommendation card. It is a separate
+  /// kind so older clients drop it instead of displaying structured metadata
+  /// as user text. The receiver stores a typed body in the ordinary message
+  /// event log, preserving ACK, deletion, retention and gap-fill semantics.
+  spaceRecommendation,
   unknown,
 }
 
@@ -185,7 +192,9 @@ bool isServiceEchoBody(String body) {
     final decoded = jsonDecode(text.substring(_echoPrefix.length).trimLeft());
     if (decoded is! Map) return true;
     final t = decoded['t'];
-    return t != WireKind.message.index && t != WireKind.fileMeta.index;
+    return t != WireKind.message.index &&
+        t != WireKind.fileMeta.index &&
+        t != WireKind.spaceRecommendation.index;
   } catch (_) {
     return true; // an echo we can't parse is not user content
   }
@@ -359,6 +368,19 @@ class WireEnvelope {
 
   const WireEnvelope.spaceJoinDecision(String bodyJson)
     : this(WireKind.spaceJoinDecision, bodyJson);
+
+  WireEnvelope.spaceRecommendation(
+    SpaceRecommendationCard card, {
+    String? id,
+    int? sentAtMs,
+    int? seq,
+  }) : this(
+         WireKind.spaceRecommendation,
+         jsonEncode(card.toJson()),
+         id: id,
+         sentAtMs: sentAtMs,
+         seq: seq,
+       );
 
   /// The decode-only sentinel for a structured (v:2) frame whose kind this build
   /// does not know — the dispatcher drops it (RULE WC).

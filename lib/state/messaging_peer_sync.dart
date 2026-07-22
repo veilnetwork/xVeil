@@ -169,17 +169,28 @@ class _MessagingPeerSync {
               );
               continue;
             }
+            final recommendation = parseSpaceRecommendationMessage(
+              event.body ?? '',
+            );
             await _owner._send(
               peer,
-              WireEnvelope.message(
-                event.body ?? '',
-                id: event.id,
-                sentAtMs: event.ts,
-                seq: event.seq,
-                replyTo: event.replyTo,
-                forwardedFrom: event.forwardedFrom,
-                customEmoji: stored?.customEmoji ?? const [],
-              ).encode(),
+              (recommendation == null
+                      ? WireEnvelope.message(
+                          event.body ?? '',
+                          id: event.id,
+                          sentAtMs: event.ts,
+                          seq: event.seq,
+                          replyTo: event.replyTo,
+                          forwardedFrom: event.forwardedFrom,
+                          customEmoji: stored?.customEmoji ?? const [],
+                        )
+                      : WireEnvelope.spaceRecommendation(
+                          recommendation,
+                          id: event.id,
+                          sentAtMs: event.ts,
+                          seq: event.seq,
+                        ))
+                  .encode(),
             );
           case EventKind.edit:
             if (event.target == null) continue;

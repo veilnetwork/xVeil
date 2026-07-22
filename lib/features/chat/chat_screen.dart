@@ -24,11 +24,13 @@ import '../../domain/call_signal.dart';
 import '../../domain/chat.dart';
 import '../../domain/file_download_policy.dart';
 import '../../domain/inline_custom_emoji.dart';
+import '../../domain/space_recommendation.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/call_service.dart';
 import '../../state/chat_page_size_controller.dart';
 import '../../state/messaging.dart';
+import '../../state/group_service_providers.dart';
 import '../../state/nickname_peers.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';
@@ -190,7 +192,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _setPin(Message m) async {
-    final body = m.body.isNotEmpty ? m.body : (m.fileName ?? '');
+    final body = messageSearchText(m).isNotEmpty
+        ? messageSearchText(m)
+        : (m.fileName ?? '');
     final encoded = encodePinned(m.id, body);
     setState(() => _pinned = decodePinned(encoded));
     try {
@@ -1170,6 +1174,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _showMessageActions(Message m) async {
     final l = AppL10n.of(context);
     final own = m.direction == MessageDirection.outgoing;
+    final recommendation = parseSpaceRecommendationMessage(m.body) != null;
     final showReactions = ref.read(showReactionsProvider);
     // A file is forwardable only to Saved Messages and only when its blob is
     // already HELD locally (a copy-reference — no re-download). An
@@ -1211,15 +1216,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
                 const Divider(height: 1),
               ],
-              ListTile(
-                leading: const Icon(Icons.reply_outlined),
-                title: Text(l.chatMsgReply),
-                onTap: () {
-                  Navigator.of(sheet).pop();
-                  _startReply(m);
-                },
-              ),
-              if (!m.isFile || fileHeld)
+              if (!recommendation)
+                ListTile(
+                  leading: const Icon(Icons.reply_outlined),
+                  title: Text(l.chatMsgReply),
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    _startReply(m);
+                  },
+                ),
+              if (!recommendation && (!m.isFile || fileHeld))
                 ListTile(
                   leading: const Icon(Icons.forward_outlined),
                   title: Text(l.chatMsgForward),
@@ -1228,33 +1234,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     _forwardMessages([m]);
                   },
                 ),
-              ListTile(
-                leading: Icon(
-                  _pinned?.id == m.id
-                      ? Icons.push_pin
-                      : Icons.push_pin_outlined,
+              if (!recommendation)
+                ListTile(
+                  leading: Icon(
+                    _pinned?.id == m.id
+                        ? Icons.push_pin
+                        : Icons.push_pin_outlined,
+                  ),
+                  title: Text(
+                    _pinned?.id == m.id ? l.chatMsgUnpin : l.chatMsgPin,
+                  ),
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    if (_pinned?.id == m.id) {
+                      _clearPin();
+                    } else {
+                      _setPin(m);
+                    }
+                  },
                 ),
-                title: Text(
-                  _pinned?.id == m.id ? l.chatMsgUnpin : l.chatMsgPin,
+              if (!recommendation)
+                ListTile(
+                  leading: const Icon(Icons.checklist_outlined),
+                  title: Text(l.chatMsgSelect),
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    _toggleSelected(m);
+                  },
                 ),
-                onTap: () {
-                  Navigator.of(sheet).pop();
-                  if (_pinned?.id == m.id) {
-                    _clearPin();
-                  } else {
-                    _setPin(m);
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.checklist_outlined),
-                title: Text(l.chatMsgSelect),
-                onTap: () {
-                  Navigator.of(sheet).pop();
-                  _toggleSelected(m);
-                },
-              ),
-              if (!m.isFile)
+              if (!m.isFile && !recommendation)
                 ListTile(
                   leading: const Icon(Icons.copy_outlined),
                   title: Text(l.chatMsgCopy),
@@ -1263,7 +1271,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     _copyMessage(m);
                   },
                 ),
-              if (!m.isFile)
+              if (!m.isFile && !recommendation)
                 ListTile(
                   leading: const Icon(Icons.copy_all_outlined),
                   title: Text(l.chatMsgCopyMeta),
@@ -1272,7 +1280,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     _copyMessage(m, withMetadata: true);
                   },
                 ),
-              if (own && !m.isFile)
+              if (own && !m.isFile && !recommendation)
                 ListTile(
                   leading: const Icon(Icons.edit_outlined),
                   title: Text(l.chatMsgEdit),
@@ -1309,7 +1317,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
               // Ask the AUTHOR to attest they wrote this incoming message. Only
               // for a peer's text message that isn't already verified.
-              if (!own && !m.isFile && m.signature != MessageSignature.verified)
+              if (!own &&
+                  !m.isFile &&
+                  !recommendation &&
+                  m.signature != MessageSignature.verified)
                 ListTile(
                   leading: const Icon(Icons.verified_user_outlined),
                   title: Text(l.chatMsgRequestSignature),

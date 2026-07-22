@@ -10,6 +10,8 @@ import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/p2p_policy.dart';
+import 'package:xveil/domain/space_recommendation.dart';
+import 'package:xveil/domain/space_join_request.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
@@ -55,6 +57,20 @@ SpaceOpener _memOpener() {
 }
 
 Future<void> _pump() => Future<void>.delayed(const Duration(milliseconds: 20));
+
+String _joinCode(NodeId space, NodeId approver, String ticketId) {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  return SpaceJoinCode.encode(
+    SpaceJoinTicket(
+      ticketId: ticketId,
+      spaceId: space,
+      approver: approver,
+      spaceName: 'Public lab',
+      createdAtMs: now,
+      expiresAtMs: now + const Duration(days: 7).inMilliseconds,
+    ),
+  );
+}
 
 void main() {
   late NodeId a, b;
@@ -116,6 +132,129 @@ void main() {
     await _pump();
     expect(await sB.getContact(a), isNull);
     expect(await sB.loadMessages(a.hex), isEmpty);
+  });
+
+  test('recommendation card is consent-gated, typed and persisted', () async {
+    final card = SpaceRecommendationCard(
+      campaignId: 'ab' * 32,
+      spaceId: _id(8),
+      name: 'Public lab',
+      description: 'Open community',
+      text: 'Take a look',
+      joinCode: _joinCode(_id(8), a, '11' * 32),
+    );
+    expect(await mA.sendSpaceRecommendation(b, card), isFalse);
+
+    await mA.sendRequest(b, 'hi');
+    await _pump();
+    await mB.acceptContact(a);
+    await _pump();
+    expect(await mA.sendSpaceRecommendation(b, card), isTrue);
+    await _pump();
+
+    final incoming = (await sB.loadMessages(a.hex)).where(
+      (message) => parseSpaceRecommendationMessage(message.body) != null,
+    );
+    expect(incoming, hasLength(1));
+    expect(
+      parseSpaceRecommendationMessage(incoming.single.body)?.campaignId,
+      card.campaignId,
+    );
+  });
+
+  test('plain text and edit APIs cannot forge or rewrite a card', () async {
+    final card = SpaceRecommendationCard(
+      campaignId: 'bc' * 32,
+      spaceId: _id(8),
+      name: 'Public lab',
+      description: 'Open community',
+      text: 'Take a look',
+      joinCode: _joinCode(_id(8), a, '12' * 32),
+    );
+    await mA.sendRequest(b, 'hi');
+    await _pump();
+    await mB.acceptContact(a);
+    await _pump();
+
+    final marker = encodeSpaceRecommendationMessage(card);
+    await mA.sendText(b, marker);
+    await tA.send(
+      b,
+      WireEnvelope.message(marker, id: 'smuggled-card').encode(),
+    );
+    await _pump();
+    expect(
+      (await sB.loadMessages(a.hex)).where(
+        (message) => parseSpaceRecommendationMessage(message.body) != null,
+      ),
+      isEmpty,
+    );
+
+    expect(await mA.sendSpaceRecommendation(b, card), isTrue);
+    await _pump();
+    final outgoing = (await sA.loadMessages(b.hex)).singleWhere(
+      (message) => parseSpaceRecommendationMessage(message.body) != null,
+    );
+    await mA.editOwnMessage(outgoing.id, 'rewritten');
+    expect(
+      parseSpaceRecommendationMessage(
+        (await sA.loadMessages(
+          b.hex,
+        )).singleWhere((message) => message.id == outgoing.id).body,
+      )?.text,
+      card.text,
+    );
+  });
+
+  test('recommendation receiver opt-out silently discards the card', () async {
+    final card = SpaceRecommendationCard(
+      campaignId: 'cd' * 32,
+      spaceId: _id(8),
+      name: 'Public lab',
+      description: '',
+      text: 'Take a look',
+      joinCode: _joinCode(_id(8), a, '22' * 32),
+    );
+    await mA.sendRequest(b, 'hi');
+    await _pump();
+    await mB.acceptContact(a);
+    await _pump();
+    await mB.setSpaceRecommendationsEnabled(false);
+
+    expect(await mA.sendSpaceRecommendation(b, card), isTrue);
+    await _pump();
+    expect(
+      (await sB.loadMessages(a.hex)).where(
+        (message) => parseSpaceRecommendationMessage(message.body) != null,
+      ),
+      isEmpty,
+    );
+  });
+
+  test('recommendation with a forged join capability is dropped', () async {
+    await mA.sendRequest(b, 'hi');
+    await _pump();
+    await mB.acceptContact(a);
+    await _pump();
+    final forged = SpaceRecommendationCard(
+      campaignId: 'ef' * 32,
+      spaceId: _id(8),
+      name: 'Forged',
+      description: '',
+      text: 'Click me',
+      joinCode: 'xveil://space/v1#not-a-capability',
+    );
+    await tA.send(
+      b,
+      WireEnvelope.spaceRecommendation(forged, id: 'forged-card').encode(),
+    );
+    await _pump();
+    expect(
+      (await sB.loadMessages(a.hex)).where(
+        (message) => parseSpaceRecommendationMessage(message.body) != null,
+      ),
+      isEmpty,
+    );
   });
 
   test(

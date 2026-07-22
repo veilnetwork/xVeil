@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/inline_custom_emoji.dart';
+import 'package:xveil/core/ids.dart';
+import 'package:xveil/domain/space_recommendation.dart';
 
 void main() {
   test('each kind round-trips through encode/decode', () {
@@ -59,6 +61,33 @@ void main() {
     );
     expect(request.kind, WireKind.spaceJoinRequest);
     expect(decision.kind, WireKind.spaceJoinDecision);
+  });
+
+  test('Space recommendation is a typed forward-compatible frame', () {
+    final card = SpaceRecommendationCard(
+      campaignId: 'ab' * 32,
+      spaceId: NodeId(Uint8List(32)),
+      name: 'Public lab',
+      description: 'Open community',
+      text: 'Recommended by a member',
+      joinCode: 'xveil://space/v1#capability',
+    );
+    final out = WireEnvelope.decode(
+      WireEnvelope.spaceRecommendation(
+        card,
+        id: 'message-id',
+        sentAtMs: 123,
+        seq: 4,
+      ).encode(),
+    );
+    expect(out.kind, WireKind.spaceRecommendation);
+    expect(out.id, 'message-id');
+    expect(out.sentAtMs, 123);
+    expect(out.seq, 4);
+    expect(
+      SpaceRecommendationCard.fromJson(jsonDecode(out.body))?.name,
+      'Public lab',
+    );
   });
 
   test('a non-envelope payload decodes as a plain message', () {

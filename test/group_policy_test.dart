@@ -7,6 +7,8 @@ import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
+import 'package:xveil/domain/space_recommendation.dart';
+import 'package:xveil/domain/space_join_request.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
 
@@ -877,6 +879,136 @@ void main() {
         createdAtMs: 1200,
         signature: Uint8List(64),
       ).isStructurallyValid,
+      isFalse,
+    );
+  });
+
+  test('Space recommendation campaign V13 creates once and only revokes', () {
+    final spaceId = _id(7);
+    final campaign = SpaceRecommendationCampaign(
+      campaignId: 'ab' * 32,
+      spaceId: spaceId,
+      createdBy: _owner,
+      text: 'Пригласите тех, кому будет полезно сообщество',
+      joinCode: SpaceJoinCode.encode(
+        SpaceJoinTicket(
+          ticketId: 'cd' * 32,
+          spaceId: spaceId,
+          approver: _owner,
+          spaceName: 'Public lab',
+          createdAtMs: 1000,
+          expiresAtMs: 1000 + const Duration(days: 7).inMilliseconds,
+        ),
+      ),
+      createdAtMs: 1200,
+      changedAtMs: 1200,
+      active: true,
+    );
+    final create = ControlEntry(
+      version: 13,
+      groupId: spaceId,
+      author: _owner,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.setRecommendationCampaign,
+      target: null,
+      role: null,
+      recommendationCampaign: campaign,
+      policyVersion: 0,
+      createdAtMs: 1200,
+      signature: Uint8List(64),
+      authorPubKey: Uint8List(32),
+    );
+    final revoked = SpaceRecommendationCampaign(
+      campaignId: campaign.campaignId,
+      spaceId: spaceId,
+      createdBy: _owner,
+      text: campaign.text,
+      joinCode: '',
+      createdAtMs: 1200,
+      changedAtMs: 1300,
+      active: false,
+    );
+    final revoke = ControlEntry(
+      version: 13,
+      groupId: spaceId,
+      author: _owner,
+      seq: 1,
+      prevHash: controlEntryHash(create),
+      op: ControlOp.setRecommendationCampaign,
+      target: null,
+      role: null,
+      recommendationCampaign: revoked,
+      policyVersion: 0,
+      createdAtMs: 1300,
+      signature: Uint8List(64),
+      authorPubKey: Uint8List(32),
+    );
+
+    expect(create.isStructurallyValid, isTrue);
+    expect(
+      ControlEntry.fromJson(
+        create.toJson(),
+      )?.recommendationCampaign?.campaignId,
+      campaign.campaignId,
+    );
+    final folded = foldControlLog(
+      owner: _owner,
+      entries: [create, revoke],
+      verify: _ok,
+    );
+    expect(folded.rejected, isEmpty);
+    expect(
+      folded.state.recommendationCampaignFor(campaign.campaignId)?.active,
+      isFalse,
+    );
+    expect(
+      canApply(
+        authorRole: GroupRole.admin,
+        op: ControlOp.setRecommendationCampaign,
+      ),
+      isTrue,
+    );
+    expect(
+      canApply(
+        authorRole: GroupRole.member,
+        op: ControlOp.setRecommendationCampaign,
+      ),
+      isFalse,
+    );
+
+    final attemptedReactivation = ControlEntry(
+      version: 13,
+      groupId: spaceId,
+      author: _owner,
+      seq: 2,
+      prevHash: controlEntryHash(revoke),
+      op: ControlOp.setRecommendationCampaign,
+      target: null,
+      role: null,
+      recommendationCampaign: SpaceRecommendationCampaign(
+        campaignId: campaign.campaignId,
+        spaceId: spaceId,
+        createdBy: _owner,
+        text: campaign.text,
+        joinCode: campaign.joinCode,
+        createdAtMs: 1200,
+        changedAtMs: 1400,
+        active: true,
+      ),
+      policyVersion: 0,
+      createdAtMs: 1400,
+      signature: Uint8List(64),
+      authorPubKey: Uint8List(32),
+    );
+    final failClosed = foldControlLog(
+      owner: _owner,
+      entries: [create, revoke, attemptedReactivation],
+      verify: _ok,
+    );
+    expect(failClosed.rejected, contains(attemptedReactivation));
+    expect(
+      failClosed.state.recommendationCampaignFor(campaign.campaignId)?.active,
       isFalse,
     );
   });

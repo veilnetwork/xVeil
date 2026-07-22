@@ -20,6 +20,7 @@ import 'space_channel.dart';
 import 'space_lifecycle.dart';
 import 'space_moderation.dart';
 import 'space_post.dart';
+import 'space_recommendation.dart';
 import 'space_retention.dart';
 import 'space_rules.dart';
 
@@ -349,6 +350,7 @@ enum ControlOp {
   deleteSpace,
   restoreSpace,
   setPostPin,
+  setRecommendationCampaign,
   checkpoint,
   leave; // the author removes THEMSELVES (any member may leave)
 
@@ -417,6 +419,7 @@ class ControlEntry {
     this.retentionPolicy,
     this.lifecycleTransition,
     this.postPin,
+    this.recommendationCampaign,
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
@@ -431,7 +434,8 @@ class ControlEntry {
   /// carries a typed Space retention policy revision. V10 carries an exact
   /// causal Space archive/restore boundary. V11 adds recoverable deletion and
   /// restoration bound to a signed recovery deadline. V12 carries one
-  /// community-wide Space publication pin/unpin state.
+  /// community-wide Space publication pin/unpin state. V13 carries creation
+  /// or revocation of a Space recommendation campaign.
   final int version;
 
   /// Group binding for replay resistance. Legacy entries omit it and retain
@@ -456,6 +460,7 @@ class ControlEntry {
   final SpaceRetentionPolicy? retentionPolicy;
   final SpaceLifecycleTransition? lifecycleTransition;
   final SpacePostPin? postPin;
+  final SpaceRecommendationCampaign? recommendationCampaign;
 
   /// Optional scale-free recipient-envelope root for the epoch established by
   /// this control entry. Legacy entries omit it and keep identical bytes.
@@ -481,7 +486,8 @@ class ControlEntry {
           version == 9 ||
           version == 10 ||
           version == 11 ||
-          version == 12) &&
+          version == 12 ||
+          version == 13) &&
       seq >= 0 &&
       policyVersion >= 0 &&
       createdAtMs >= 0 &&
@@ -647,6 +653,29 @@ class ControlEntry {
                 retentionPolicy == null &&
                 lifecycleTransition == null
           : postPin == null && op != ControlOp.setPostPin) &&
+      (version == 13
+          ? op == ControlOp.setRecommendationCampaign &&
+                recommendationCampaign != null &&
+                recommendationCampaign!.isStructurallyValid &&
+                groupId == recommendationCampaign!.spaceId &&
+                recommendationCampaign!.changedAtMs == createdAtMs &&
+                target == null &&
+                role == null &&
+                text == null &&
+                epochDescriptor == null &&
+                channel == null &&
+                channelControl == null &&
+                postBoundary == null &&
+                controlCheckpoint == null &&
+                rules == null &&
+                rulesAcceptance == null &&
+                moderationAction == null &&
+                moderationRevocation == null &&
+                retentionPolicy == null &&
+                lifecycleTransition == null &&
+                postPin == null
+          : recommendationCampaign == null &&
+                op != ControlOp.setRecommendationCampaign) &&
       (controlCheckpoint == null
           ? op != ControlOp.checkpoint
           : version == 4 &&
@@ -692,6 +721,7 @@ class ControlEntry {
     retentionPolicy: retentionPolicy,
     lifecycleTransition: lifecycleTransition,
     postPin: postPin,
+    recommendationCampaign: recommendationCampaign,
     policyVersion: policyVersion,
     createdAtMs: createdAtMs,
     signature: sig,
@@ -728,6 +758,8 @@ class ControlEntry {
       if (lifecycleTransition != null)
         'lifecycleTransition': lifecycleTransition!.toJson(),
       if (postPin != null) 'postPin': postPin!.toJson(),
+      if (recommendationCampaign != null)
+        'recommendationCampaign': recommendationCampaign!.toJson(),
       'pv': policyVersion,
       'ts': createdAtMs,
     };
@@ -760,6 +792,8 @@ class ControlEntry {
     if (lifecycleTransition != null)
       'lifecycleTransition': lifecycleTransition!.toJson(),
     if (postPin != null) 'postPin': postPin!.toJson(),
+    if (recommendationCampaign != null)
+      'recommendationCampaign': recommendationCampaign!.toJson(),
     'pv': policyVersion,
     'ts': createdAtMs,
     'sig': base64Encode(signature),
@@ -783,7 +817,8 @@ class ControlEntry {
             version != 9 &&
             version != 10 &&
             version != 11 &&
-            version != 12) ||
+            version != 12 &&
+            version != 13) ||
         author is! String ||
         seq is! int ||
         prev is! String ||
@@ -859,6 +894,13 @@ class ControlEntry {
           ? SpacePostPin.fromJson(j['postPin'])
           : null;
       if (j.containsKey('postPin') && postPin == null) return null;
+      final recommendationCampaign = j.containsKey('recommendationCampaign')
+          ? SpaceRecommendationCampaign.fromJson(j['recommendationCampaign'])
+          : null;
+      if (j.containsKey('recommendationCampaign') &&
+          recommendationCampaign == null) {
+        return null;
+      }
       final entry = ControlEntry(
         version: version,
         groupId: j['gid'] is String ? NodeId.fromHex(j['gid'] as String) : null,
@@ -883,6 +925,7 @@ class ControlEntry {
         retentionPolicy: retentionPolicy,
         lifecycleTransition: lifecycleTransition,
         postPin: postPin,
+        recommendationCampaign: recommendationCampaign,
         policyVersion: pv,
         createdAtMs: ts,
         signature: Uint8List.fromList(base64Decode(sig)),

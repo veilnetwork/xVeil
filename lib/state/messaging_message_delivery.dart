@@ -110,15 +110,25 @@ class _MessagingMessageDelivery {
 
         // Preserve the original timestamp and author sequence so retry and
         // gap-fill fold into the same convergent event on the recipient.
-        final wire = WireEnvelope.message(
-          message.body,
-          id: message.id,
-          sentAtMs: message.timestamp.millisecondsSinceEpoch,
-          seq: message.seq,
-          replyTo: message.replyToId,
-          forwardedFrom: message.forwardedFrom,
-          customEmoji: message.customEmoji,
-        ).encode();
+        final recommendation = parseSpaceRecommendationMessage(message.body);
+        final wire =
+            (recommendation == null
+                    ? WireEnvelope.message(
+                        message.body,
+                        id: message.id,
+                        sentAtMs: message.timestamp.millisecondsSinceEpoch,
+                        seq: message.seq,
+                        replyTo: message.replyToId,
+                        forwardedFrom: message.forwardedFrom,
+                        customEmoji: message.customEmoji,
+                      )
+                    : WireEnvelope.spaceRecommendation(
+                        recommendation,
+                        id: message.id,
+                        sentAtMs: message.timestamp.millisecondsSinceEpoch,
+                        seq: message.seq,
+                      ))
+                .encode();
         devLog(
           () =>
               'xVeil[timeline]: retry id=${message.id} '

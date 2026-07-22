@@ -544,6 +544,57 @@ class AppL10nEn extends AppL10n {
   String get spaceJoinLinkRevoked => 'Join link revoked';
 
   @override
+  String get spaceRecommendationsTitle => 'Recommendations';
+
+  @override
+  String get spaceRecommendationsHint =>
+      'Create a signed public campaign. Members can then recommend this community only to contacts they explicitly select.';
+
+  @override
+  String get spaceRecommendationCreate => 'Create campaign';
+
+  @override
+  String get spaceRecommendationTextHint =>
+      'What members may send with the community card';
+
+  @override
+  String get spaceRecommendationShare => 'Recommend community';
+
+  @override
+  String get spaceRecommendationSelectCampaign => 'Choose a campaign';
+
+  @override
+  String get spaceRecommendationSelectContact => 'Choose a recipient';
+
+  @override
+  String get spaceRecommendationRevoke => 'Revoke campaign';
+
+  @override
+  String get spaceRecommendationSent => 'Recommendation sent';
+
+  @override
+  String get spaceRecommendationDuplicate =>
+      'This campaign was already sent to that contact';
+
+  @override
+  String get spaceRecommendationRateLimited =>
+      'Recommendation limit reached. Try again later.';
+
+  @override
+  String get spaceRecommendationAlreadyMember =>
+      'This contact is already a member';
+
+  @override
+  String get spaceRecommendationEmpty => 'No active recommendation campaigns';
+
+  @override
+  String get spaceRecommendationReceive => 'Community recommendations';
+
+  @override
+  String get spaceRecommendationReceiveHint =>
+      'Allow accepted contacts to send community cards. Turning this off silently discards new recommendations.';
+
+  @override
   String get spaceRoleLabel => 'Community role';
 
   @override
