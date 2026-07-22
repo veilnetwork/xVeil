@@ -21,6 +21,7 @@ void main() {
   final spaceInviteDecisions = <(String, bool)>[];
   final spaceCreates = <(String, String, String)>[];
   final spaceDescriptions = <(String, String)>[];
+  final spaceRetentionUpdates = <(String, int?, bool)>[];
   final spaceRulesPublications = <(String, String, String, int?)>[];
   final spaceRulesAcceptances = <String>[];
   final spaceModerationActions = <(String, String, String, String, String)>[];
@@ -50,6 +51,7 @@ void main() {
     spaceInviteDecisions.clear();
     spaceCreates.clear();
     spaceDescriptions.clear();
+    spaceRetentionUpdates.clear();
     spaceRulesPublications.clear();
     spaceRulesAcceptances.clear();
     spaceModerationActions.clear();
@@ -277,6 +279,19 @@ void main() {
       updateSpaceDescription: (space, description) async {
         if (space == 'denied') return 'operation rejected by space policy';
         spaceDescriptions.add((space, description));
+        return null;
+      },
+      spaceRetention: (space) async => space == 'missing'
+          ? null
+          : {
+              'spaceId': space,
+              'community': {'mode': 'deleteAfter', 'retentionMs': 7776000000},
+              'localDevice': {'mode': 'keepForever'},
+              'history': const [],
+            },
+      setSpaceRetention: (space, days, localDevice) async {
+        if (space == 'denied') return 'operation rejected by space policy';
+        spaceRetentionUpdates.add((space, days, localDevice));
         return null;
       },
       spaceRules: (space) async => space == 'missing'
@@ -894,6 +909,27 @@ void main() {
         200,
       );
       expect(spaceDescriptions.single, ('aa', 'Updated summary'));
+
+      final retention = await h.handle(
+        'GET',
+        u('/v1/spaces/retention?space=aa'),
+        auth,
+      );
+      expect(retention.status, 200);
+      expect(
+        ((retention.body as Map)['community'] as Map)['mode'],
+        'deleteAfter',
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/retention'),
+          auth,
+          body: {'space': 'aa', 'scope': 'community', 'days': 90},
+        )).status,
+        200,
+      );
+      expect(spaceRetentionUpdates.single, ('aa', 90, false));
 
       final rules = await h.handle('GET', u('/v1/spaces/rules?space=aa'), auth);
       expect(rules.status, 200);
@@ -2092,6 +2128,7 @@ void main() {
           '/messages',
           '/spaces',
           '/spaces/profile',
+          '/spaces/retention',
           '/spaces/rules',
           '/spaces/rules/accept',
           '/spaces/moderation',

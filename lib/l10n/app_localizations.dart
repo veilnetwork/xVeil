@@ -691,6 +691,42 @@ abstract class AppL10n {
   /// **'Members and settings'**
   String get spaceMembersTooltip;
 
+  /// No description provided for @spaceRetentionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'History retention'**
+  String get spaceRetentionTitle;
+
+  /// No description provided for @spaceRetentionSafetyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Community policy and this device\'s local history are independent.'**
+  String get spaceRetentionSafetyHint;
+
+  /// No description provided for @spaceRetentionGlobal.
+  ///
+  /// In en, this message translates to:
+  /// **'Community policy'**
+  String get spaceRetentionGlobal;
+
+  /// No description provided for @spaceRetentionGlobalHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed by the owner and enforced by every member.'**
+  String get spaceRetentionGlobalHint;
+
+  /// No description provided for @spaceRetentionLocal.
+  ///
+  /// In en, this message translates to:
+  /// **'On this device'**
+  String get spaceRetentionLocal;
+
+  /// No description provided for @spaceRetentionLocalHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Only hides local history; it never deletes content for other members.'**
+  String get spaceRetentionLocalHint;
+
   /// No description provided for @spaceMembers.
   ///
   /// In en, this message translates to:

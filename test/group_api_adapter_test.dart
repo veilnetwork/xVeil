@@ -711,4 +711,77 @@ void main() {
       await service.dispose();
     }
   });
+
+  test(
+    'retention API separates signed community and local device policy',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final signer = _Signer(_id(71));
+      final service = GroupService(storage, signer);
+      final api = GroupApiAdapter(
+        service,
+        registerContentSource:
+            (name, size, read, {required close, sourcePath}) async {
+              await close();
+              return 'unused';
+            },
+        loadContent: storage.loadFile,
+      );
+      try {
+        final group = (await api.create('Group chat'))!;
+        expect(await api.retention(group), isNull);
+
+        final space = (await api.createSpace('Community', '', 'private'))!;
+        expect(await api.setRetention(space, 90, false), isNull);
+        expect(await api.setRetention(space, 30, true), isNull);
+
+        final spaceId = NodeId.fromHex(space);
+        final bundle = (await service.load(spaceId))!;
+        final oldMessage = signer.signMessage(
+          GroupMessage(
+            groupId: spaceId,
+            author: signer.selfId,
+            seq: 0,
+            prevHash: '',
+            body: 'old on this device',
+            policyVersion: 0,
+            createdAtMs:
+                DateTime.now().millisecondsSinceEpoch -
+                const Duration(days: 2).inMilliseconds,
+            signature: Uint8List(0),
+          ),
+        );
+        expect(
+          await service.ingestSnapshot(
+            service.snapshotJson(bundle.copyWith(messages: [oldMessage])),
+          ),
+          isTrue,
+        );
+        expect(await service.messagesOf(spaceId), hasLength(1));
+        expect(await api.setRetention(space, 1, true), isNull);
+        expect(await service.messagesOf(spaceId), isEmpty);
+        expect(
+          await service.messagesOf(spaceId, applyLocalRetention: false),
+          hasLength(1),
+          reason: 'device retention must not revoke community distribution',
+        );
+
+        final value = (await api.retention(space))!;
+        expect(value['community']['mode'], 'deleteAfter');
+        expect(
+          value['community']['retentionMs'],
+          const Duration(days: 90).inMilliseconds,
+        );
+        expect(value['localDevice']['retentionDays'], 1);
+        expect(value['history'], hasLength(1));
+        expect(
+          (await service.stateOf(NodeId.fromHex(space)))!.policyVersion,
+          0,
+        );
+      } finally {
+        await service.dispose();
+      }
+    },
+  );
 }

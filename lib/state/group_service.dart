@@ -38,6 +38,7 @@ import '../domain/space_channel.dart';
 import '../domain/space_invite.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
+import '../domain/space_retention.dart';
 import '../domain/space_rules.dart';
 import '../data/transport/bootstrap_invite.dart';
 import '../data/storage/storage.dart';
@@ -905,7 +906,8 @@ class GroupService {
     if ((e.op == ControlOp.transferOwnership ||
             e.op == ControlOp.setDescription ||
             e.op == ControlOp.publishRules ||
-            e.op == ControlOp.acceptRules) &&
+            e.op == ControlOp.acceptRules ||
+            e.op == ControlOp.setRetention) &&
         !manifest.isSpace) {
       return false;
     }
@@ -3036,6 +3038,7 @@ class GroupService {
     SpaceRulesAcceptance? rulesAcceptance,
     SpaceModerationAction? moderationAction,
     SpaceModerationRevocation? moderationRevocation,
+    SpaceRetentionPolicy? retentionPolicy,
     int? createdAtMs,
   }) async {
     final b = await load(groupId);
@@ -3045,7 +3048,8 @@ class GroupService {
             op == ControlOp.publishRules ||
             op == ControlOp.acceptRules ||
             op == ControlOp.moderate ||
-            op == ControlOp.revokeModeration) &&
+            op == ControlOp.revokeModeration ||
+            op == ControlOp.setRetention) &&
         !b.manifest.isSpace) {
       return false;
     }
@@ -3131,7 +3135,9 @@ class GroupService {
           : null;
       final signed = _signer.signControl(
         ControlEntry(
-          version: moderationAction != null || moderationRevocation != null
+          version: retentionPolicy != null
+              ? 9
+              : moderationAction != null || moderationRevocation != null
               ? 8
               : rules != null || rulesAcceptance != null
               ? 7
@@ -3153,6 +3159,7 @@ class GroupService {
           rulesAcceptance: rulesAcceptance,
           moderationAction: moderationAction,
           moderationRevocation: moderationRevocation,
+          retentionPolicy: retentionPolicy,
           policyVersion: pv,
           createdAtMs: createdAt,
           signature: Uint8List(0),
@@ -3306,6 +3313,105 @@ class GroupService {
     final normalized = description.trim();
     if (normalized.length > 4096) return false;
     return addControlOp(spaceId, ControlOp.setDescription, text: normalized);
+  }
+
+  /// Publish a typed Space-wide or open-channel retention revision. Protected
+  /// channel ids are deliberately rejected here: placing one in the global
+  /// control log would leak hidden metadata. Their encrypted policy envelope
+  /// remains a later protocol revision.
+  Future<bool> setSpaceRetentionPolicy(
+    NodeId spaceId,
+    SpaceRetentionPolicy policy,
+  ) => _serialized(spaceId, () async {
+    final bundle = await load(spaceId);
+    if (bundle == null ||
+        !bundle.manifest.isSpace ||
+        !policy.isStructurallyValid) {
+      return false;
+    }
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    if (!SpaceAcl(
+      state,
+    ).allows(_signer.selfId, SpacePermission.manageStorage)) {
+      return false;
+    }
+    if (policy.channelId != null &&
+        !state.channels.containsKey(policy.channelId!.hex)) {
+      return false;
+    }
+    return _addControlOp(
+      spaceId,
+      ControlOp.setRetention,
+      retentionPolicy: policy,
+    );
+  });
+
+  String _localSpaceRetentionKey(NodeId spaceId) =>
+      'space.retention.local.v1:${spaceId.hex}';
+
+  Future<({int? days, int retiredBeforeMs})> _localSpaceRetention(
+    NodeId spaceId,
+  ) async {
+    final raw = await _storage.getSetting(_localSpaceRetentionKey(spaceId));
+    if (raw == null || raw.isEmpty) return (days: null, retiredBeforeMs: -1);
+    try {
+      final value = jsonDecode(raw);
+      if (value is! Map || value['v'] != 1) {
+        return (days: null, retiredBeforeMs: -1);
+      }
+      final days = value['days'];
+      final retired = value['retiredBefore'];
+      if ((days != null && (days is! int || days <= 0 || days > 36500)) ||
+          retired is! int ||
+          retired < -1) {
+        return (days: null, retiredBeforeMs: -1);
+      }
+      return (days: days as int?, retiredBeforeMs: retired);
+    } catch (_) {
+      return (days: null, retiredBeforeMs: -1);
+    }
+  }
+
+  Future<int?> localSpaceRetentionDays(NodeId spaceId) async =>
+      (await _localSpaceRetention(spaceId)).days;
+
+  Future<int> _localSpaceRetentionCutoff(NodeId spaceId, int atMs) async {
+    final local = await _localSpaceRetention(spaceId);
+    final rolling = local.days == null
+        ? -1
+        : atMs - Duration(days: local.days!).inMilliseconds;
+    return rolling > local.retiredBeforeMs ? rolling : local.retiredBeforeMs;
+  }
+
+  /// Change only this device's materialized history window. The previously
+  /// reached cutoff is retained, so extending the window never resurrects
+  /// locally retired history and never mutates the signed Space policy.
+  Future<bool> setLocalSpaceRetentionDays(NodeId spaceId, int? days) async {
+    final bundle = await load(spaceId);
+    if (bundle == null ||
+        !bundle.manifest.isSpace ||
+        (days != null && (days <= 0 || days > 36500))) {
+      return false;
+    }
+    final now = _now();
+    final cutoff = await _localSpaceRetentionCutoff(spaceId, now);
+    await _storage.putSetting(
+      _localSpaceRetentionKey(spaceId),
+      jsonEncode({
+        'v': 1,
+        'days': ?days,
+        'retiredBefore': cutoff,
+        'updatedAt': now,
+      }),
+    );
+    changes.value++;
+    return true;
   }
 
   /// Publish a new immutable rules revision through the signed Space control
@@ -4427,6 +4533,7 @@ class GroupService {
         case ControlOp.transferOwnership:
         case ControlOp.rotateEpoch:
         case ControlOp.setPolicy:
+        case ControlOp.setRetention:
         case ControlOp.setName:
         case ControlOp.setDescription:
         case ControlOp.publishRules:
@@ -4491,6 +4598,7 @@ class GroupService {
         case ControlOp.transferOwnership:
         case ControlOp.rotateEpoch:
         case ControlOp.setPolicy:
+        case ControlOp.setRetention:
         case ControlOp.setName:
         case ControlOp.setDescription:
         case ControlOp.publishRules:
@@ -4621,13 +4729,16 @@ class GroupService {
   Future<List<SpacePostView>> postsOf(NodeId spaceId) async {
     final bundle = await load(spaceId);
     if (bundle == null || !bundle.manifest.isSpace) return const [];
-    return _postsOfBundle(bundle);
+    return _postsOfBundle(bundle, applyLocalRetention: true);
   }
 
   /// Variant for callers that already loaded the bundle. Keeping validation in
   /// one place avoids a second hidden-volume read for every Space in the merged
   /// feed while preserving the exact same fail-closed path as [postsOf].
-  Future<List<SpacePostView>> _postsOfBundle(GroupBundle bundle) async {
+  Future<List<SpacePostView>> _postsOfBundle(
+    GroupBundle bundle, {
+    bool applyLocalRetention = false,
+  }) async {
     final spaceId = bundle.manifest.groupId;
     final readAt = DateTime.now().millisecondsSinceEpoch;
     final currentFold = foldControlLog(
@@ -4640,6 +4751,9 @@ class GroupService {
     if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
       return const [];
     }
+    final localCutoff = applyLocalRetention
+        ? await _localSpaceRetentionCutoff(spaceId, readAt)
+        : -1;
     final byAuthor = <String, List<SpacePost>>{};
     for (final post in _canonicalPostRows(spaceId, bundle.posts)) {
       byAuthor.putIfAbsent(post.author.hex, () => []).add(post);
@@ -4722,7 +4836,12 @@ class GroupService {
                     author: entry.value.root.author,
                     seq: entry.value.root.seq,
                     atMs: readAt,
-                  ),
+                  ) &&
+                  !state.isRetentionExpired(
+                    createdAtMs: entry.value.root.createdAtMs,
+                    atMs: readAt,
+                  ) &&
+                  entry.value.root.createdAtMs > localCutoff,
             )
             .map((entry) => entry.value),
       );
@@ -4847,7 +4966,10 @@ class GroupService {
         initialName: bundle.manifest.name,
       ).state;
       if (!state.isMember(_signer.selfId)) continue;
-      final visiblePosts = await _postsOfBundle(bundle);
+      final visiblePosts = await _postsOfBundle(
+        bundle,
+        applyLocalRetention: true,
+      );
       final reactions = await _spacePostReactionsOfBundle(
         bundle,
         visiblePostIds: {for (final post in visiblePosts) post.postId},
@@ -5520,6 +5642,7 @@ class GroupService {
   Future<List<GroupMessage>> messagesOf(
     NodeId groupId, {
     NodeId? channelId,
+    bool applyLocalRetention = true,
   }) async {
     final b = await load(groupId);
     if (b == null) return const [];
@@ -5531,6 +5654,9 @@ class GroupService {
     final readAt = DateTime.now().millisecondsSinceEpoch;
     final reader = state.memberOf(_signer.selfId);
     if (b.manifest.isSpace && reader == null) return const [];
+    final localCutoff = b.manifest.isSpace && applyLocalRetention
+        ? await _localSpaceRetentionCutoff(groupId, readAt)
+        : -1;
     final protected = b.manifest.isSpace
         ? await _protectedChannelsOf(b, state)
         : const <String, SpaceChannelControlCleartext>{};
@@ -5561,6 +5687,14 @@ class GroupService {
           SpaceChannelHistory.full => true,
         };
         if (!historyAllows) continue;
+        if (state.isRetentionExpired(
+              createdAtMs: m.createdAtMs,
+              atMs: readAt,
+              channelId: effectiveChannel,
+            ) ||
+            m.createdAtMs <= localCutoff) {
+          continue;
+        }
       } else if (channelId != null) {
         continue;
       }
@@ -5856,8 +5990,11 @@ class GroupService {
   /// the only content a membership grant may unlock (membership must not
   /// become a license to fetch arbitrary content this device holds).
   Future<Set<String>> referencedContentIds(NodeId groupId) async {
-    final msgs = await messagesOf(groupId);
-    final posts = await postsOf(groupId);
+    final msgs = await messagesOf(groupId, applyLocalRetention: false);
+    final bundle = await load(groupId);
+    final posts = bundle == null || !bundle.manifest.isSpace
+        ? const <SpacePostView>[]
+        : await _postsOfBundle(bundle);
     return {
       for (final m in msgs)
         if (m.attachment?.cid != null) m.attachment!.cid!,

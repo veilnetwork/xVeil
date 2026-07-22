@@ -233,8 +233,10 @@ void main() {
     await tester.pumpAndSettle();
     expect((await service.stateOf(spaceId))!.roleOf(alice), GroupRole.admin);
 
-    await tester.ensureVisible(
+    await tester.scrollUntilVisible(
       find.byKey(const ValueKey('space-rename-button')),
+      -300,
+      scrollable: find.byType(Scrollable).first,
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('space-rename-button')));
@@ -301,7 +303,11 @@ void main() {
     await tester.pumpAndSettle();
     expect((await service.stateOf(spaceId))!.isMember(alice), isFalse);
 
-    await tester.ensureVisible(find.byKey(const ValueKey('space-add-member')));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('space-add-member')),
+      -300,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('space-add-member')));
     await tester.pumpAndSettle();
@@ -322,7 +328,11 @@ void main() {
       isTrue,
     );
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byIcon(Icons.more_vert));
+    await tester.scrollUntilVisible(
+      find.byIcon(Icons.more_vert),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pumpAndSettle();
