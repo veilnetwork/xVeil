@@ -288,6 +288,50 @@ Map<String, dynamic> openApiSpec() {
             },
           },
         },
+        'ScheduledSpacePost': {
+          'type': obj,
+          'description':
+              'Encrypted identity-local publication; not signed or replicated before its due time.',
+          'required': [
+            'id',
+            'spaceId',
+            'title',
+            'body',
+            'type',
+            'queuedAt',
+            'scheduledAt',
+            'status',
+          ],
+          'properties': {
+            'id': {'type': 'string'},
+            'spaceId': {'type': 'string'},
+            'title': {'type': 'string', 'maxLength': kSpacePostTitleMax},
+            'body': {'type': 'string', 'maxLength': kSpacePostBodyMax},
+            'type': {
+              'type': 'string',
+              'enum': [
+                'post',
+                'article',
+                'video',
+                'shortVideo',
+                'audio',
+                'voiceMessage',
+              ],
+            },
+            'media': {
+              'type': 'array',
+              'maxItems': kSpacePostMediaMax,
+              'items': {r'$ref': '#/components/schemas/MediaObject'},
+            },
+            'queuedAt': {'type': 'integer', 'format': 'int64'},
+            'scheduledAt': {'type': 'integer', 'format': 'int64'},
+            'status': {
+              'type': 'string',
+              'enum': ['pending', 'failed'],
+            },
+            'lastAttemptAt': {'type': 'integer', 'format': 'int64'},
+          },
+        },
         'GroupMessage': {
           'type': obj,
           'properties': {
@@ -920,6 +964,7 @@ Map<String, dynamic> openApiSpec() {
                     ],
                   },
                   'updatedAt': {'type': 'integer'},
+                  'scheduledAt': {'type': 'integer', 'format': 'int64'},
                   'media': {
                     'type': 'array',
                     'maxItems': kSpacePostMediaMax,
@@ -959,6 +1004,7 @@ Map<String, dynamic> openApiSpec() {
                       'maxItems': kSpacePostMediaMax,
                       'items': {r'$ref': '#/components/schemas/MediaObject'},
                     },
+                    'scheduledAt': {'type': 'integer', 'format': 'int64'},
                   },
                 },
               },
@@ -976,6 +1022,126 @@ Map<String, dynamic> openApiSpec() {
               'schema': {'type': 'string'},
             },
           ],
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/spaces/posts/scheduled': {
+        'get': {
+          'summary': 'List encrypted identity-local scheduled publications',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'scheduled': {
+                'type': 'array',
+                'items': {r'$ref': '#/components/schemas/ScheduledSpacePost'},
+              },
+            },
+          }),
+        },
+        'post': {
+          'summary':
+              'Store a future publication encrypted locally without signing or replication',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space', 'scheduledAt'],
+                  'properties': {
+                    'space': {'type': 'string'},
+                    'title': {
+                      'type': 'string',
+                      'maxLength': kSpacePostTitleMax,
+                    },
+                    'body': {'type': 'string', 'maxLength': kSpacePostBodyMax},
+                    'type': {
+                      'type': 'string',
+                      'enum': [
+                        'post',
+                        'article',
+                        'video',
+                        'shortVideo',
+                        'audio',
+                        'voiceMessage',
+                      ],
+                    },
+                    'media': {
+                      'type': 'array',
+                      'maxItems': kSpacePostMediaMax,
+                      'items': {r'$ref': '#/components/schemas/MediaObject'},
+                    },
+                    'scheduledAt': {'type': 'integer', 'format': 'int64'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': {
+            '201': {
+              'description': 'Scheduled publication stored locally',
+              'content': {
+                'application/json': {
+                  'schema': {
+                    'type': obj,
+                    'required': ['ok', 'scheduled'],
+                    'properties': {
+                      'ok': {'type': 'boolean'},
+                      'scheduled': {
+                        r'$ref': '#/components/schemas/ScheduledSpacePost',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        'delete': {
+          'summary': 'Cancel and remove one local scheduled publication',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+            {
+              'name': 'id',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/spaces/posts/scheduled/publish': {
+        'post': {
+          'summary': 'Revalidate and publish one scheduled publication now',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space', 'id'],
+                  'properties': {
+                    'space': {'type': 'string'},
+                    'id': {'type': 'string'},
+                  },
+                },
+              },
+            },
+          },
           'responses': ok({'type': obj}),
         },
       },
@@ -2382,6 +2548,10 @@ class ApiHandler {
     this.spacePostDraft,
     this.saveSpacePostDraft,
     this.clearSpacePostDraft,
+    this.spaceScheduledPosts,
+    this.scheduleSpacePost,
+    this.cancelScheduledSpacePost,
+    this.publishScheduledSpacePostNow,
     this.spacePostComments,
     this.publishSpacePostComment,
     this.editSpacePostComment,
@@ -2535,9 +2705,25 @@ class ApiHandler {
     String body,
     String type,
     List<MediaObject> media,
+    int? scheduledAtMs,
   )?
   saveSpacePostDraft;
   final Future<String?> Function(String spaceHex)? clearSpacePostDraft;
+  final Future<Map<String, dynamic>?> Function(String spaceHex)?
+  spaceScheduledPosts;
+  final Future<({String? error, Map<String, dynamic>? scheduled})> Function(
+    String spaceHex,
+    String title,
+    String body,
+    String type,
+    List<MediaObject> media,
+    int scheduledAtMs,
+  )?
+  scheduleSpacePost;
+  final Future<String?> Function(String spaceHex, String id)?
+  cancelScheduledSpacePost;
+  final Future<String?> Function(String spaceHex, String id)?
+  publishScheduledSpacePostNow;
   final Future<Map<String, dynamic>?> Function(
     String spaceHex,
     String postId,
@@ -3184,6 +3370,7 @@ class ApiHandler {
       final text = body?['body'] ?? '';
       final type = body?['type'] ?? 'post';
       final media = _spacePostMedia(body?['media']);
+      final scheduledAt = body?['scheduledAt'];
       if (space is! String ||
           space.isEmpty ||
           title is! String ||
@@ -3192,11 +3379,12 @@ class ApiHandler {
           utf8.encode(text).length > kSpacePostBodyMax ||
           type is! String ||
           SpacePostType.fromName(type) == null ||
+          (scheduledAt != null && scheduledAt is! int) ||
           media == null) {
         return const ApiResponse(400, {'error': 'invalid Space post draft'});
       }
       return _spaceMutationResponse(
-        await handler(space, title, text, type, media),
+        await handler(space, title, text, type, media, scheduledAt as int?),
       );
     }
     if (method == 'DELETE' && path == '/v1/spaces/posts/draft') {
@@ -3211,6 +3399,97 @@ class ApiHandler {
         return const ApiResponse(400, {'error': 'valid space required'});
       }
       return _spaceMutationResponse(await handler(space));
+    }
+    if (method == 'GET' && path == '/v1/spaces/posts/scheduled') {
+      final handler = spaceScheduledPosts;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Scheduled Space posts unavailable',
+        });
+      }
+      final space = uri.queryParameters['space'];
+      if (space == null || space.isEmpty) {
+        return const ApiResponse(400, {'error': 'valid space required'});
+      }
+      final result = await handler(space);
+      return result == null
+          ? const ApiResponse(404, {'error': 'space not found'})
+          : ApiResponse(200, result);
+    }
+    if (method == 'POST' && path == '/v1/spaces/posts/scheduled') {
+      final handler = scheduleSpacePost;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Scheduled Space posts unavailable',
+        });
+      }
+      final space = body?['space'];
+      final title = body?['title'] ?? '';
+      final text = body?['body'] ?? '';
+      final type = body?['type'] ?? 'post';
+      final media = _spacePostMedia(body?['media']);
+      final scheduledAt = body?['scheduledAt'];
+      if (space is! String ||
+          space.isEmpty ||
+          title is! String ||
+          title.length > kSpacePostTitleMax ||
+          text is! String ||
+          utf8.encode(text).length > kSpacePostBodyMax ||
+          type is! String ||
+          SpacePostType.fromName(type) == null ||
+          media == null ||
+          (title.trim().isEmpty && text.trim().isEmpty && media.isEmpty) ||
+          scheduledAt is! int ||
+          scheduledAt <= DateTime.now().millisecondsSinceEpoch) {
+        return const ApiResponse(400, {
+          'error': 'invalid scheduled Space post',
+        });
+      }
+      final result = await handler(
+        space,
+        title.trim(),
+        text.trim(),
+        type,
+        media,
+        scheduledAt,
+      );
+      return result.error == null
+          ? ApiResponse(201, {'ok': true, 'scheduled': result.scheduled})
+          : ApiResponse(400, {'error': result.error});
+    }
+    if (method == 'DELETE' && path == '/v1/spaces/posts/scheduled') {
+      final handler = cancelScheduledSpacePost;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Scheduled Space posts unavailable',
+        });
+      }
+      final space = uri.queryParameters['space'];
+      final id = uri.queryParameters['id'];
+      if (space == null ||
+          space.isEmpty ||
+          id == null ||
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(id)) {
+        return const ApiResponse(400, {'error': 'valid space + id required'});
+      }
+      return _spaceMutationResponse(await handler(space, id));
+    }
+    if (method == 'POST' && path == '/v1/spaces/posts/scheduled/publish') {
+      final handler = publishScheduledSpacePostNow;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Scheduled Space posts unavailable',
+        });
+      }
+      final space = body?['space'];
+      final id = body?['id'];
+      if (space is! String ||
+          space.isEmpty ||
+          id is! String ||
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(id)) {
+        return const ApiResponse(400, {'error': 'valid space + id required'});
+      }
+      return _spaceMutationResponse(await handler(space, id));
     }
     if (method == 'GET' && path == '/v1/spaces/posts/comments') {
       final handler = spacePostComments;

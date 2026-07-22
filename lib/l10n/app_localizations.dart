@@ -793,6 +793,84 @@ abstract class AppL10n {
   /// **'Saved encrypted on this device. The draft is not shared until you publish it.'**
   String get spacePostDraftHint;
 
+  /// No description provided for @spacePostSchedule.
+  ///
+  /// In en, this message translates to:
+  /// **'Schedule'**
+  String get spacePostSchedule;
+
+  /// No description provided for @spacePostScheduleClear.
+  ///
+  /// In en, this message translates to:
+  /// **'Publish immediately instead'**
+  String get spacePostScheduleClear;
+
+  /// No description provided for @spacePostScheduleFuture.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a time in the future.'**
+  String get spacePostScheduleFuture;
+
+  /// No description provided for @spacePostScheduleDeviceHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted on this device and not shared before publication. If xVeil is closed or locked at that time, it will publish after the next unlock.'**
+  String get spacePostScheduleDeviceHint;
+
+  /// No description provided for @spacePostScheduledSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Publication scheduled'**
+  String get spacePostScheduledSuccess;
+
+  /// No description provided for @spacePostScheduledPublications.
+  ///
+  /// In en, this message translates to:
+  /// **'Scheduled publications'**
+  String get spacePostScheduledPublications;
+
+  /// No description provided for @spacePostScheduledFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Not published. Review it and retry or cancel.'**
+  String get spacePostScheduledFailed;
+
+  /// No description provided for @spacePostPublishNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Publish now'**
+  String get spacePostPublishNow;
+
+  /// No description provided for @spacePostPublishedNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Publication published'**
+  String get spacePostPublishedNow;
+
+  /// No description provided for @spacePostCancelSchedule.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel schedule'**
+  String get spacePostCancelSchedule;
+
+  /// No description provided for @spacePostCancelScheduleTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel scheduled publication?'**
+  String get spacePostCancelScheduleTitle;
+
+  /// No description provided for @spacePostCancelScheduleBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The encrypted local copy of this scheduled publication will be removed.'**
+  String get spacePostCancelScheduleBody;
+
+  /// No description provided for @spacePostScheduleCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Scheduled publication cancelled'**
+  String get spacePostScheduleCancelled;
+
   /// No description provided for @spacePostMediaAttach.
   ///
   /// In en, this message translates to:

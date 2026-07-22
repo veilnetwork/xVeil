@@ -66,6 +66,7 @@ bool _listEquals<T>(List<T>? left, List<T>? right) {
 
 final RegExp _channelKeyIdPattern = RegExp(r'^[0-9a-f]{64}:[1-9][0-9]*$');
 final RegExp _spacePostIdPattern = RegExp(r'^[0-9a-f]{64}:[0-9]+$');
+final RegExp _scheduledSpacePostIdPattern = RegExp(r'^[0-9a-f]{64}$');
 
 String _channelKeyId(NodeId channelId, int epoch) => '${channelId.hex}:$epoch';
 
@@ -421,6 +422,20 @@ class SpaceDeletionSweep {
   final int failed;
 }
 
+class ScheduledSpacePostSweep {
+  const ScheduledSpacePostSweep({
+    required this.scanned,
+    required this.published,
+    required this.failed,
+    required this.reconciled,
+  });
+
+  final int scanned;
+  final int published;
+  final int failed;
+  final int reconciled;
+}
+
 /// Result of an idempotent local legacy-group -> signed-Space migration.
 class SpaceManifestMigration {
   const SpaceManifestMigration({
@@ -529,6 +544,12 @@ class GroupService {
   final GroupChangeSignal feedAccessChanges = GroupChangeSignal();
   Timer? _spaceDeletionMaintenanceTimer;
   bool _spaceDeletionMaintenanceRunning = false;
+  Timer? _scheduledSpacePostTimer;
+  bool _scheduledSpacePostMaintenanceStarted = false;
+  bool _scheduledSpacePostMaintenanceRunning = false;
+  bool _scheduledSpacePostWakeRequested = false;
+  int _scheduledSpacePostWakeGeneration = 0;
+  bool _disposed = false;
 
   /// Our own node id — the composer uses it to align outgoing bubbles.
   NodeId get selfId => _signer.selfId;
@@ -549,8 +570,12 @@ class GroupService {
 
   static const String _spaceInvitesSetting = 'spaces.invites.v1';
   static const int _maxSpaceInvites = 256;
+  static const String _scheduledSpacePostIndexSetting =
+      'space.scheduled-posts.index.v1';
+  static const int _maxScheduledSpacePosts = 128;
   Future<void> _spaceInviteMutationTail = Future<void>.value();
   Future<void> _spacePostDraftMutationTail = Future<void>.value();
+  Future<void> _scheduledSpacePostMutationTail = Future<void>.value();
 
   Future<T> _serializeSpaceInvites<T>(Future<T> Function() action) async {
     final previous = _spaceInviteMutationTail;
@@ -570,6 +595,22 @@ class GroupService {
     final previous = _spacePostDraftMutationTail;
     final gate = Completer<void>();
     _spacePostDraftMutationTail = gate.future;
+    try {
+      try {
+        await previous;
+      } catch (_) {}
+      return await action();
+    } finally {
+      gate.complete();
+    }
+  }
+
+  Future<T> _serializeScheduledSpacePosts<T>(
+    Future<T> Function() action,
+  ) async {
+    final previous = _scheduledSpacePostMutationTail;
+    final gate = Completer<void>();
+    _scheduledSpacePostMutationTail = gate.future;
     try {
       try {
         await previous;
@@ -5362,6 +5403,7 @@ class GroupService {
     required String body,
     required SpacePostType type,
     List<MediaObject> media = const [],
+    int? scheduledAtMs,
   }) => _serializeSpacePostDrafts(() async {
     try {
       final draft = SpacePostDraft(
@@ -5371,6 +5413,7 @@ class GroupService {
         type: type,
         updatedAtMs: _now(),
         media: List<MediaObject>.unmodifiable(media),
+        scheduledAtMs: scheduledAtMs,
       );
       if (!draft.isStructurallyValid ||
           !await _canKeepSpacePostDraft(spaceId)) {
@@ -5400,6 +5443,497 @@ class GroupService {
           return false;
         }
       });
+
+  String _scheduledSpacePostKey(String id) => 'space.scheduled-post.v1:$id';
+
+  Future<List<String>> _scheduledSpacePostIndex() async {
+    final raw = await _storage.getSetting(_scheduledSpacePostIndexSetting);
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final value = jsonDecode(raw);
+      if (value is! Map || value['v'] != 1 || value['ids'] is! List) {
+        return const [];
+      }
+      final ids = <String>[];
+      final seen = <String>{};
+      for (final value in (value['ids'] as List).take(
+        _maxScheduledSpacePosts,
+      )) {
+        if (value is String &&
+            _scheduledSpacePostIdPattern.hasMatch(value) &&
+            seen.add(value)) {
+          ids.add(value);
+        }
+      }
+      return ids;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _saveScheduledSpacePostIndex(Iterable<String> ids) =>
+      _storage.putSetting(
+        _scheduledSpacePostIndexSetting,
+        jsonEncode({'v': 1, 'ids': ids.take(_maxScheduledSpacePosts).toList()}),
+      );
+
+  Future<ScheduledSpacePost?> _loadScheduledSpacePost(String id) async {
+    if (!_scheduledSpacePostIdPattern.hasMatch(id)) return null;
+    try {
+      final bytes = await _storage.loadFile(_scheduledSpacePostKey(id));
+      if (bytes == null || bytes.isEmpty) return null;
+      return ScheduledSpacePost.fromJson(
+        jsonDecode(utf8.decode(bytes, allowMalformed: false)),
+        expectedId: id,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _storeScheduledSpacePost(ScheduledSpacePost post) async {
+    await _storage.storeFile(
+      _scheduledSpacePostKey(post.id),
+      Uint8List.fromList(utf8.encode(jsonEncode(post.toJson()))),
+      name: 'scheduled-space-post',
+    );
+  }
+
+  Future<List<ScheduledSpacePost>> _indexedScheduledSpacePosts({
+    bool repair = false,
+  }) async {
+    final ids = await _scheduledSpacePostIndex();
+    final jobs = <ScheduledSpacePost>[];
+    final validIds = <String>[];
+    for (final id in ids) {
+      final job = await _loadScheduledSpacePost(id);
+      if (job == null) continue;
+      jobs.add(job);
+      validIds.add(id);
+    }
+    if (repair && !_listEquals(ids, validIds)) {
+      await _saveScheduledSpacePostIndex(validIds);
+    }
+    return jobs;
+  }
+
+  Future<({String grant, String lifecycle, int policyVersion})?>
+  _scheduledSpacePostAuthorization(NodeId spaceId) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return null;
+    final folded = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    );
+    final state = folded.state;
+    if (!state.isActive ||
+        !SpaceAcl(state).allows(_signer.selfId, SpacePermission.publishPosts)) {
+      return null;
+    }
+    final grant = _postGrantAt(
+      bundle.manifest,
+      folded.accepted,
+      _signer.selfId,
+    );
+    if (grant == null) return null;
+    return (
+      grant: grant,
+      lifecycle:
+          state.lifecycleTransitionHash ?? _legacyPostGeneration(spaceId),
+      policyVersion: state.policyVersion,
+    );
+  }
+
+  bool _sameScheduledSpacePostContent(
+    ScheduledSpacePost left,
+    ScheduledSpacePost right,
+  ) =>
+      left.spaceId == right.spaceId &&
+      left.scheduledAtMs == right.scheduledAtMs &&
+      left.title == right.title &&
+      left.body == right.body &&
+      left.type == right.type &&
+      jsonEncode([for (final item in left.media) item.toJson()]) ==
+          jsonEncode([for (final item in right.media) item.toJson()]);
+
+  /// Persist a future publication only inside this identity's encrypted
+  /// container. Nothing is signed or advertised until the worker reaches the
+  /// due time and revalidates the exact authority generation.
+  Future<ScheduledSpacePost?> scheduleSpacePost(
+    NodeId spaceId, {
+    required String body,
+    required int scheduledAtMs,
+    String title = '',
+    SpacePostType type = SpacePostType.post,
+    List<MediaObject> media = const [],
+  }) async {
+    final result = await _serializeScheduledSpacePosts(() async {
+      final queuedAt = _now();
+      if (scheduledAtMs <= queuedAt ||
+          scheduledAtMs > queuedAt + const Duration(days: 365).inMilliseconds) {
+        return null;
+      }
+      final cleartext = SpacePostCleartext(
+        title: title.trim(),
+        body: body.trim(),
+        media: List<MediaObject>.unmodifiable(media),
+      );
+      if (!cleartext.isStructurallyValid) return null;
+      final authorization = await _scheduledSpacePostAuthorization(spaceId);
+      if (authorization == null) return null;
+      final candidate = ScheduledSpacePost(
+        id: _newSpaceInviteId(),
+        spaceId: spaceId,
+        title: cleartext.title,
+        body: cleartext.body,
+        type: type,
+        media: cleartext.media,
+        queuedAtMs: queuedAt,
+        scheduledAtMs: scheduledAtMs,
+        membershipGrant: authorization.grant,
+        lifecycleGeneration: authorization.lifecycle,
+        policyVersion: authorization.policyVersion,
+      );
+      if (!candidate.isStructurallyValid) return null;
+      final jobs = await _indexedScheduledSpacePosts(repair: true);
+      for (final existing in jobs) {
+        if (_sameScheduledSpacePostContent(existing, candidate)) {
+          return existing;
+        }
+      }
+      if (jobs.length >= _maxScheduledSpacePosts) return null;
+      await _storeScheduledSpacePost(candidate);
+      try {
+        await _saveScheduledSpacePostIndex([
+          ...jobs.map((job) => job.id),
+          candidate.id,
+        ]);
+      } catch (_) {
+        try {
+          await _storage.deleteStoredFile(_scheduledSpacePostKey(candidate.id));
+        } catch (_) {}
+        rethrow;
+      }
+      changes.value++;
+      return candidate;
+    });
+    if (result != null) _requestScheduledSpacePostMaintenance();
+    return result;
+  }
+
+  Future<List<ScheduledSpacePost>> scheduledSpacePosts(NodeId spaceId) =>
+      _serializeScheduledSpacePosts(() async {
+        final jobs = await _indexedScheduledSpacePosts(repair: true);
+        final result =
+            jobs.where((job) => job.spaceId == spaceId).toList(growable: false)
+              ..sort((left, right) {
+                final due = left.scheduledAtMs.compareTo(right.scheduledAtMs);
+                return due != 0 ? due : left.id.compareTo(right.id);
+              });
+        return List<ScheduledSpacePost>.unmodifiable(result);
+      });
+
+  Future<bool> cancelScheduledSpacePost(NodeId spaceId, String id) async {
+    final removed = await _serializeScheduledSpacePosts(() async {
+      final ids = await _scheduledSpacePostIndex();
+      if (!ids.contains(id)) return false;
+      final job = await _loadScheduledSpacePost(id);
+      if (job == null || job.spaceId != spaceId) return false;
+      await _saveScheduledSpacePostIndex(ids.where((value) => value != id));
+      try {
+        await _storage.deleteStoredFile(_scheduledSpacePostKey(id));
+      } catch (_) {
+        // The index is authoritative. A detached encrypted blob is inert and
+        // can be reclaimed by storage maintenance without resurrecting work.
+      }
+      changes.value++;
+      return true;
+    });
+    if (removed) _requestScheduledSpacePostMaintenance();
+    return removed;
+  }
+
+  bool _scheduledAuthorizationMatches(
+    ScheduledSpacePost job,
+    ({String grant, String lifecycle, int policyVersion}) authorization,
+  ) =>
+      job.membershipGrant == authorization.grant &&
+      job.lifecycleGeneration == authorization.lifecycle &&
+      job.policyVersion == authorization.policyVersion;
+
+  bool _publishedPostMatchesSchedule(
+    SpacePostView view,
+    ScheduledSpacePost job,
+  ) {
+    final publicationAt = job.publicationAtMs;
+    if (publicationAt == null) return false;
+    final root = view.root;
+    return root.author == _signer.selfId &&
+        root.operation == SpacePostOperation.publish &&
+        root.createdAtMs == publicationAt &&
+        root.publishedAtMs == publicationAt &&
+        root.type == job.type &&
+        root.title == job.title &&
+        root.body == job.body &&
+        jsonEncode([for (final item in root.media) item.toJson()]) ==
+            jsonEncode([for (final item in job.media) item.toJson()]);
+  }
+
+  Future<bool> _scheduledPostAlreadyPublished(ScheduledSpacePost job) async {
+    if (job.publicationAtMs == null) return false;
+    final bundle = await load(job.spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return false;
+    final posts = await _postsOfBundle(bundle);
+    return posts.any((view) => _publishedPostMatchesSchedule(view, job));
+  }
+
+  /// Execute due jobs in a bounded batch. Failed authorization or persistence
+  /// is retained as an explicit failed item; it is never silently retried
+  /// after a later rejoin or policy change.
+  Future<ScheduledSpacePostSweep> runDueScheduledSpacePosts({
+    int? nowMs,
+    int limit = 16,
+  }) => _serializeScheduledSpacePosts(() async {
+    if (limit <= 0 || limit > _maxScheduledSpacePosts) {
+      throw ArgumentError.value(
+        limit,
+        'limit',
+        'must be 1..$_maxScheduledSpacePosts',
+      );
+    }
+    final effectiveNow = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+    final jobs = await _indexedScheduledSpacePosts(repair: true);
+    final ids = jobs.map((job) => job.id).toList();
+    final removed = <String>{};
+    var scanned = 0;
+    var published = 0;
+    var failed = 0;
+    var reconciled = 0;
+    for (final original in jobs) {
+      if (scanned >= limit ||
+          original.status != ScheduledSpacePostStatus.pending ||
+          original.scheduledAtMs > effectiveNow) {
+        continue;
+      }
+      scanned++;
+      var job = original;
+      final alreadyPublished = await _serialized(
+        job.spaceId,
+        () => _scheduledPostAlreadyPublished(job),
+      );
+      if (alreadyPublished) {
+        removed.add(job.id);
+        reconciled++;
+        continue;
+      }
+      final publicationAt = effectiveNow < job.scheduledAtMs
+          ? job.scheduledAtMs
+          : effectiveNow;
+      job = ScheduledSpacePost(
+        id: job.id,
+        spaceId: job.spaceId,
+        title: job.title,
+        body: job.body,
+        type: job.type,
+        media: job.media,
+        queuedAtMs: job.queuedAtMs,
+        scheduledAtMs: job.scheduledAtMs,
+        membershipGrant: job.membershipGrant,
+        lifecycleGeneration: job.lifecycleGeneration,
+        policyVersion: job.policyVersion,
+        publicationAtMs: publicationAt,
+      );
+      await _storeScheduledSpacePost(job);
+      SpacePost? post;
+      try {
+        post = await _serialized(job.spaceId, () async {
+          if (_disposed) return null;
+          final authorization = await _scheduledSpacePostAuthorization(
+            job.spaceId,
+          );
+          if (authorization == null ||
+              !_scheduledAuthorizationMatches(job, authorization)) {
+            return null;
+          }
+          return _publishSpacePost(
+            job.spaceId,
+            body: job.body,
+            title: job.title,
+            type: job.type,
+            media: job.media,
+            broadcast: true,
+            createdAtMs: publicationAt,
+            publishedAtMs: publicationAt,
+          );
+        });
+      } catch (_) {
+        post = null;
+      }
+      if (post != null) {
+        removed.add(job.id);
+        published++;
+        continue;
+      }
+      if (_disposed) {
+        // Lock/identity teardown must not turn an untouched due job into a
+        // permanent failure. The next unlocked service instance catches up.
+        continue;
+      }
+      // A storage implementation may report an error after its durable write
+      // became visible. Re-read under the group gate before classifying the
+      // job as failed, otherwise an explicit retry could duplicate a post
+      // which was actually committed.
+      final committedDespiteError = await _serialized(
+        job.spaceId,
+        () => _scheduledPostAlreadyPublished(job),
+      );
+      if (committedDespiteError) {
+        removed.add(job.id);
+        reconciled++;
+        continue;
+      }
+      final attemptedAt = effectiveNow < publicationAt
+          ? publicationAt
+          : effectiveNow;
+      final failedJob = ScheduledSpacePost(
+        id: job.id,
+        spaceId: job.spaceId,
+        title: job.title,
+        body: job.body,
+        type: job.type,
+        media: job.media,
+        queuedAtMs: job.queuedAtMs,
+        scheduledAtMs: job.scheduledAtMs,
+        membershipGrant: job.membershipGrant,
+        lifecycleGeneration: job.lifecycleGeneration,
+        policyVersion: job.policyVersion,
+        status: ScheduledSpacePostStatus.failed,
+        publicationAtMs: publicationAt,
+        lastAttemptAtMs: attemptedAt,
+      );
+      await _storeScheduledSpacePost(failedJob);
+      failed++;
+    }
+    if (removed.isNotEmpty) {
+      await _saveScheduledSpacePostIndex(
+        ids.where((id) => !removed.contains(id)),
+      );
+      for (final id in removed) {
+        try {
+          await _storage.deleteStoredFile(_scheduledSpacePostKey(id));
+        } catch (_) {}
+      }
+    }
+    if (removed.isNotEmpty || failed > 0) changes.value++;
+    return ScheduledSpacePostSweep(
+      scanned: scanned,
+      published: published,
+      failed: failed,
+      reconciled: reconciled,
+    );
+  });
+
+  Future<bool> publishScheduledSpacePostNow(NodeId spaceId, String id) async {
+    final dueAt = await _serializeScheduledSpacePosts(() async {
+      final ids = await _scheduledSpacePostIndex();
+      if (!ids.contains(id)) return null;
+      final job = await _loadScheduledSpacePost(id);
+      if (job == null || job.spaceId != spaceId) return null;
+      final authorization = await _scheduledSpacePostAuthorization(spaceId);
+      if (authorization == null) return null;
+      final now = _now();
+      final reset = ScheduledSpacePost(
+        id: job.id,
+        spaceId: job.spaceId,
+        title: job.title,
+        body: job.body,
+        type: job.type,
+        media: job.media,
+        queuedAtMs: now,
+        scheduledAtMs: now,
+        membershipGrant: authorization.grant,
+        lifecycleGeneration: authorization.lifecycle,
+        policyVersion: authorization.policyVersion,
+      );
+      await _storeScheduledSpacePost(reset);
+      return now;
+    });
+    if (dueAt == null) return false;
+    await runDueScheduledSpacePosts(nowMs: dueAt);
+    final remainsIndexed = await _serializeScheduledSpacePosts(
+      () async => (await _scheduledSpacePostIndex()).contains(id),
+    );
+    _requestScheduledSpacePostMaintenance();
+    return !remainsIndexed;
+  }
+
+  void startScheduledSpacePostMaintenance() {
+    if (_scheduledSpacePostMaintenanceStarted || _disposed) return;
+    _scheduledSpacePostMaintenanceStarted = true;
+    _requestScheduledSpacePostMaintenance();
+  }
+
+  void _requestScheduledSpacePostMaintenance() {
+    if (!_scheduledSpacePostMaintenanceStarted || _disposed) return;
+    _scheduledSpacePostWakeGeneration++;
+    _scheduledSpacePostTimer?.cancel();
+    _scheduledSpacePostTimer = null;
+    if (_scheduledSpacePostMaintenanceRunning) {
+      _scheduledSpacePostWakeRequested = true;
+      return;
+    }
+    unawaited(_runScheduledSpacePostMaintenance());
+  }
+
+  Future<void> _runScheduledSpacePostMaintenance() async {
+    if (_scheduledSpacePostMaintenanceRunning || _disposed) return;
+    _scheduledSpacePostMaintenanceRunning = true;
+    try {
+      await runDueScheduledSpacePosts();
+    } catch (_) {
+      devLog(() => 'xVeil[spaces]: scheduled publication maintenance failed');
+    } finally {
+      _scheduledSpacePostMaintenanceRunning = false;
+    }
+    if (_disposed) return;
+    if (_scheduledSpacePostWakeRequested) {
+      _scheduledSpacePostWakeRequested = false;
+      _requestScheduledSpacePostMaintenance();
+      return;
+    }
+    final wakeGeneration = _scheduledSpacePostWakeGeneration;
+    await _armScheduledSpacePostTimer(wakeGeneration);
+  }
+
+  Future<void> _armScheduledSpacePostTimer(int wakeGeneration) async {
+    if (_disposed || !_scheduledSpacePostMaintenanceStarted) return;
+    final jobs = await _serializeScheduledSpacePosts(
+      () => _indexedScheduledSpacePosts(repair: true),
+    );
+    int? nextAt;
+    for (final job in jobs) {
+      if (job.status != ScheduledSpacePostStatus.pending) continue;
+      if (nextAt == null || job.scheduledAtMs < nextAt) {
+        nextAt = job.scheduledAtMs;
+      }
+    }
+    if (nextAt == null ||
+        _disposed ||
+        wakeGeneration != _scheduledSpacePostWakeGeneration) {
+      return;
+    }
+    final remaining = nextAt - DateTime.now().millisecondsSinceEpoch;
+    final delayMs = remaining <= 0
+        ? 1
+        : min(remaining, const Duration(hours: 24).inMilliseconds);
+    _scheduledSpacePostTimer = Timer(
+      Duration(milliseconds: delayMs),
+      _requestScheduledSpacePostMaintenance,
+    );
+  }
 
   /// Publish one immutable Space feed row. Public Spaces produce signed
   /// cleartext rows suitable for a future non-member public-feed transport;
@@ -5431,6 +5965,8 @@ class GroupService {
     required SpacePostType type,
     required List<MediaObject> media,
     required bool broadcast,
+    int? createdAtMs,
+    int? publishedAtMs,
   }) async {
     final cleartext = SpacePostCleartext(
       title: title.trim(),
@@ -5490,6 +6026,13 @@ class GroupService {
     );
     final prevHash = authored.isEmpty ? '' : _spacePostHash(authored.last);
     final now = _now();
+    final created = createdAtMs ?? now;
+    final published = publishedAtMs ?? now;
+    if (created < 0 ||
+        published < created ||
+        published > created + const Duration(days: 365).inMilliseconds) {
+      return null;
+    }
     final isPublic = bundle.manifest.visibility == SpaceVisibility.public;
     late final SpacePost unsigned;
     if (isPublic) {
@@ -5504,8 +6047,8 @@ class GroupService {
         body: cleartext.body,
         media: cleartext.media,
         policyVersion: state.policyVersion,
-        createdAtMs: now,
-        publishedAtMs: now,
+        createdAtMs: created,
+        publishedAtMs: published,
         version: lifecycleGeneration == null ? 5 : 9,
         controlCheckpointHash: checkpointHash,
         lifecycleGeneration: lifecycleGeneration,
@@ -5537,8 +6080,8 @@ class GroupService {
           postType: type.name,
           visibility: SpacePostVisibility.members.name,
           policyVersion: state.policyVersion,
-          createdAtMs: now,
-          publishedAtMs: now,
+          createdAtMs: created,
+          publishedAtMs: published,
           controlCheckpointHash: checkpointHash,
           lifecycleGeneration: lifecycleGeneration ?? '',
           clearText: encoded,
@@ -5554,8 +6097,8 @@ class GroupService {
           title: '',
           body: '',
           policyVersion: state.policyVersion,
-          createdAtMs: now,
-          publishedAtMs: now,
+          createdAtMs: created,
+          publishedAtMs: published,
           version: lifecycleGeneration == null ? 6 : 10,
           membershipEpoch: state.epoch,
           encryptedPayload: encrypted,
@@ -10723,8 +11266,11 @@ class GroupService {
   /// Hosts must call this before replacing/closing the active identity so a
   /// stale group feed cannot survive an identity switch.
   Future<void> dispose() async {
+    _disposed = true;
     _spaceDeletionMaintenanceTimer?.cancel();
     _spaceDeletionMaintenanceTimer = null;
+    _scheduledSpacePostTimer?.cancel();
+    _scheduledSpacePostTimer = null;
     changes.dispose();
     feedAccessChanges.dispose();
     await _groupCallIncomingCtl.close();

@@ -25,6 +25,9 @@ void main() {
   final spacePostEditMedia = <List<Map<String, dynamic>>?>[];
   final spacePostDraftMedia = <List<Map<String, dynamic>>>[];
   final spacePostDraftClears = <String>[];
+  final spaceScheduledWrites = <(String, String, int)>[];
+  final spaceScheduledCancels = <(String, String)>[];
+  final spaceScheduledPublishes = <(String, String)>[];
   final spacePostCommentWrites = <(String, String, String, String?, String?)>[];
   final spacePostCommentEdits = <(String, String, String, String)>[];
   final spaceRecommendationShares = <(String, String, String)>[];
@@ -47,6 +50,7 @@ void main() {
   Map<String, dynamic>? call;
   Map<String, dynamic>? groupCall;
   Map<String, dynamic>? localSpacePostDraft;
+  Map<String, dynamic>? localScheduledSpacePost;
   ApiHandler make({
     String token = 'secret-token',
     bool readOnly = false,
@@ -71,9 +75,13 @@ void main() {
     spacePostEditMedia.clear();
     spacePostDraftMedia.clear();
     spacePostDraftClears.clear();
+    spaceScheduledWrites.clear();
+    spaceScheduledCancels.clear();
+    spaceScheduledPublishes.clear();
     spacePostCommentWrites.clear();
     spacePostCommentEdits.clear();
     localSpacePostDraft = null;
+    localScheduledSpacePost = null;
     spaceRecommendationShares.clear();
     subscriptions.clear();
     subscriptionUpdates.clear();
@@ -239,26 +247,64 @@ void main() {
       spacePostDraft: (space) async => space == 'missing'
           ? null
           : {'spaceId': space, 'draft': localSpacePostDraft},
-      saveSpacePostDraft: (space, title, body, type, media) async {
-        if (space == 'denied') return 'post draft rejected';
-        spacePostDraftWrites.add((space, title, body, type));
-        final mediaJson = [for (final item in media) item.toJson()];
-        spacePostDraftMedia.add(mediaJson);
-        localSpacePostDraft = {
-          'v': 2,
-          'sid': space,
-          'title': title,
-          'body': body,
-          'type': type,
-          'updatedAt': 1,
-          if (mediaJson.isNotEmpty) 'media': mediaJson,
-        };
-        return null;
-      },
+      saveSpacePostDraft:
+          (space, title, body, type, media, scheduledAtMs) async {
+            if (space == 'denied') return 'post draft rejected';
+            spacePostDraftWrites.add((space, title, body, type));
+            final mediaJson = [for (final item in media) item.toJson()];
+            spacePostDraftMedia.add(mediaJson);
+            localSpacePostDraft = {
+              'v': 2,
+              'sid': space,
+              'title': title,
+              'body': body,
+              'type': type,
+              'updatedAt': 1,
+              if (mediaJson.isNotEmpty) 'media': mediaJson,
+              'scheduledAt': ?scheduledAtMs,
+            };
+            return null;
+          },
       clearSpacePostDraft: (space) async {
         if (space == 'denied') return 'post draft rejected';
         spacePostDraftClears.add(space);
         localSpacePostDraft = null;
+        return null;
+      },
+      spaceScheduledPosts: (space) async => space == 'missing'
+          ? null
+          : {
+              'scheduled': [
+                if (localScheduledSpacePost != null) localScheduledSpacePost!,
+              ],
+            },
+      scheduleSpacePost:
+          (space, title, body, type, media, scheduledAtMs) async {
+            if (space == 'denied') {
+              return (error: 'post scheduling rejected', scheduled: null);
+            }
+            spaceScheduledWrites.add((space, title, scheduledAtMs));
+            localScheduledSpacePost = {
+              'id': '09' * 32,
+              'spaceId': space,
+              'title': title,
+              'body': body,
+              'type': type,
+              'media': [for (final item in media) item.toJson()],
+              'queuedAt': scheduledAtMs - 1,
+              'scheduledAt': scheduledAtMs,
+              'status': 'pending',
+            };
+            return (error: null, scheduled: localScheduledSpacePost);
+          },
+      cancelScheduledSpacePost: (space, id) async {
+        spaceScheduledCancels.add((space, id));
+        localScheduledSpacePost = null;
+        return null;
+      },
+      publishScheduledSpacePostNow: (space, id) async {
+        spaceScheduledPublishes.add((space, id));
+        localScheduledSpacePost = null;
         return null;
       },
       spacePostComments: (space, postId, limit) async => space == 'missing'
@@ -1678,6 +1724,79 @@ void main() {
       );
       expect(spacePostDraftClears.single, 'aa');
 
+      final scheduledAt =
+          DateTime.now().millisecondsSinceEpoch +
+          const Duration(hours: 2).inMilliseconds;
+      final scheduled = await h.handle(
+        'POST',
+        u('/v1/spaces/posts/scheduled'),
+        auth,
+        body: {
+          'space': 'aa',
+          'title': 'Later',
+          'body': 'Publish this later',
+          'type': 'article',
+          'media': [media],
+          'scheduledAt': scheduledAt,
+        },
+      );
+      expect(scheduled.status, 201);
+      expect(spaceScheduledWrites.single, ('aa', 'Later', scheduledAt));
+      expect(
+        (((scheduled.body as Map)['scheduled'] as Map)['media'] as List).single,
+        media,
+      );
+      final listedScheduled = await h.handle(
+        'GET',
+        u('/v1/spaces/posts/scheduled?space=aa'),
+        auth,
+      );
+      expect(listedScheduled.status, 200);
+      expect(
+        (((listedScheduled.body as Map)['scheduled'] as List).single
+            as Map)['scheduledAt'],
+        scheduledAt,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/posts/scheduled'),
+          auth,
+          body: {'space': 'aa', 'body': 'past', 'scheduledAt': 1},
+        )).status,
+        400,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/posts/scheduled/publish'),
+          auth,
+          body: {'space': 'aa', 'id': '09' * 32},
+        )).status,
+        200,
+      );
+      expect(spaceScheduledPublishes.single, ('aa', '09' * 32));
+
+      await h.handle(
+        'POST',
+        u('/v1/spaces/posts/scheduled'),
+        auth,
+        body: {
+          'space': 'aa',
+          'body': 'Cancel this',
+          'scheduledAt': scheduledAt + 1,
+        },
+      );
+      expect(
+        (await h.handle(
+          'DELETE',
+          u('/v1/spaces/posts/scheduled?space=aa&id=${'09' * 32}'),
+          auth,
+        )).status,
+        200,
+      );
+      expect(spaceScheduledCancels.single, ('aa', '09' * 32));
+
       final published = await h.handle(
         'POST',
         u('/v1/spaces/posts'),
@@ -2906,6 +3025,30 @@ void main() {
         'put',
         'delete',
       });
+      expect((pathMap['/spaces/posts/scheduled'] as Map).keys.toSet(), {
+        'get',
+        'post',
+        'delete',
+      });
+      expect((pathMap['/spaces/posts/scheduled/publish'] as Map).keys.toSet(), {
+        'post',
+      });
+      final scheduleResponses =
+          (((pathMap['/spaces/posts/scheduled'] as Map)['post']
+                  as Map)['responses']
+              as Map);
+      expect(scheduleResponses.keys, {'201'});
+      final scheduleResponseSchema =
+          (((((scheduleResponses['201'] as Map)['content']
+                      as Map)['application/json']
+                  as Map)['schema'])
+              as Map);
+      expect(scheduleResponseSchema['required'], ['ok', 'scheduled']);
+      expect(
+        (((scheduleResponseSchema['properties'] as Map)['scheduled']
+            as Map)[r'$ref']),
+        '#/components/schemas/ScheduledSpacePost',
+      );
       expect((pathMap['/spaces/posts/comments'] as Map).keys.toSet(), {
         'get',
         'post',
@@ -2942,6 +3085,16 @@ void main() {
         'patch',
       });
       final schemas = (spec['components'] as Map)['schemas'] as Map;
+      expect((schemas['ScheduledSpacePost'] as Map)['required'], [
+        'id',
+        'spaceId',
+        'title',
+        'body',
+        'type',
+        'queuedAt',
+        'scheduledAt',
+        'status',
+      ]);
       final mediaSchema = schemas['MediaObject'] as Map;
       expect(mediaSchema['required'], ['cid', 'kind']);
       expect(

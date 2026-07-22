@@ -381,6 +381,50 @@ class AppL10nRu extends AppL10n {
       'Черновик зашифрован и сохранён на этом устройстве. До публикации он никуда не отправляется.';
 
   @override
+  String get spacePostSchedule => 'Запланировать';
+
+  @override
+  String get spacePostScheduleClear => 'Опубликовать сразу';
+
+  @override
+  String get spacePostScheduleFuture => 'Выберите время в будущем.';
+
+  @override
+  String get spacePostScheduleDeviceHint =>
+      'Зашифровано на этом устройстве и не отправляется до публикации. Если в выбранное время xVeil закрыт или заблокирован, публикация выйдет после следующей разблокировки.';
+
+  @override
+  String get spacePostScheduledSuccess => 'Публикация запланирована';
+
+  @override
+  String get spacePostScheduledPublications => 'Запланированные публикации';
+
+  @override
+  String get spacePostScheduledFailed =>
+      'Не опубликовано. Проверьте и повторите либо отмените.';
+
+  @override
+  String get spacePostPublishNow => 'Опубликовать сейчас';
+
+  @override
+  String get spacePostPublishedNow => 'Публикация опубликована';
+
+  @override
+  String get spacePostCancelSchedule => 'Отменить публикацию';
+
+  @override
+  String get spacePostCancelScheduleTitle =>
+      'Отменить запланированную публикацию?';
+
+  @override
+  String get spacePostCancelScheduleBody =>
+      'Зашифрованная локальная копия этой публикации будет удалена.';
+
+  @override
+  String get spacePostScheduleCancelled =>
+      'Запланированная публикация отменена';
+
+  @override
   String get spacePostMediaAttach => 'Добавить медиа или файл';
 
   @override
