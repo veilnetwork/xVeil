@@ -3949,13 +3949,21 @@ void main() {
       expect(page2.single.spaceName, 'Public updates');
       expect(page2.single.reactions['🔥'], [owner]);
 
-      await svc.setSpaceFeedEnabled(spaceId, false);
+      await svc.updateSpaceSubscription(
+        spaceId,
+        feedEnabled: true,
+        notificationsEnabled: true,
+        hiddenFromRecommendations: false,
+      );
+      await Future.wait([
+        svc.setSpaceFeedEnabled(spaceId, false),
+        svc.setSpaceNotificationsEnabled(spaceId, false),
+        svc.setSpaceHiddenFromRecommendations(spaceId, true),
+      ]);
       expect(await svc.spaceFeed(), isEmpty);
       expect((await svc.stateOf(spaceId))!.isMember(owner), isTrue);
-      expect((await svc.spaceSubscription(spaceId)).feedEnabled, isFalse);
-      await svc.setSpaceNotificationsEnabled(spaceId, false);
-      await svc.setSpaceHiddenFromRecommendations(spaceId, true);
       final preferences = await svc.spaceSubscription(spaceId);
+      expect(preferences.feedEnabled, isFalse);
       expect(preferences.notificationsEnabled, isFalse);
       expect(preferences.hiddenFromRecommendations, isTrue);
       await svc.setSpaceFeedEnabled(spaceId, true);
@@ -4272,6 +4280,11 @@ void main() {
         },
       );
       final bobSvc = GroupService(bobStorage, _FakeSigner(bob));
+      final incomingPosts = <SpacePostView>[];
+      final incomingPostSub = bobSvc.incomingPosts.listen(
+        (notice) => incomingPosts.add(notice.post),
+      );
+      addTearDown(incomingPostSub.cancel);
       final spaceId = await ownerSvc.createSpace(
         'Relayed revisions',
         visibility: SpaceVisibility.public,
@@ -4303,6 +4316,7 @@ void main() {
       expect(toBob, isNotEmpty);
       expect(await bobSvc.ingestSnapshot(toBob.last), isTrue);
       expect((await bobSvc.postsOf(spaceId)).single.body, 'relayed original');
+      expect(incomingPosts.map((post) => post.body), ['relayed original']);
 
       toBob.clear();
       expect(
@@ -4320,6 +4334,7 @@ void main() {
       expect((editDelta['p'] as List).single['op'], 'edit');
       expect(await bobSvc.ingestSnapshot(toBob.last), isTrue);
       expect((await bobSvc.postsOf(spaceId)).single.body, 'relayed correction');
+      expect(incomingPosts, hasLength(1), reason: 'edits do not alert again');
 
       toBob.clear();
       expect(await ownerSvc.deleteSpacePost(spaceId, root.postId), isTrue);
@@ -4329,6 +4344,7 @@ void main() {
       expect((deleteDelta['p'] as List).single['op'], 'delete');
       expect(await bobSvc.ingestSnapshot(toBob.last), isTrue);
       expect(await bobSvc.postsOf(spaceId), isEmpty);
+      expect(incomingPosts, hasLength(1), reason: 'deletions never alert');
     },
   );
 
@@ -4698,6 +4714,13 @@ void main() {
     expect(visible.single.title, 'Members');
     expect(visible.single.body, 'ciphertext on the wire');
     expect(await bobSvc.unreadSpacePosts(spaceId), 1);
+    await bobSvc.setSpaceFeedEnabled(spaceId, false);
+    expect(await bobSvc.spaceFeed(), isEmpty);
+    expect(
+      await bobSvc.unreadSpacePosts(spaceId),
+      1,
+      reason: 'combined Feed and per-Space unread are independent',
+    );
     await bobSvc.setSpaceFeedPostHidden(spaceId, visible.single.postId, true);
     expect(await bobSvc.unreadSpacePosts(spaceId), 0);
     expect(await bobSvc.postsOf(spaceId), hasLength(1));

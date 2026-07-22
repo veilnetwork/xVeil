@@ -700,10 +700,38 @@ final class GroupApiAdapter {
   }
 
   Future<String?> setFeedEnabled(String spaceHex, bool enabled) async {
+    return updateSubscription(spaceHex, feedEnabled: enabled);
+  }
+
+  Future<Map<String, dynamic>?> subscription(String spaceHex) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return null;
+    final value = await _groups.spaceSubscription(visible.$1);
+    return {
+      'spaceId': value.spaceId.hex,
+      'feedEnabled': value.feedEnabled,
+      'notificationsEnabled': value.notificationsEnabled,
+      'hiddenFromRecommendations': value.hiddenFromRecommendations,
+      'publicOnly': value.publicOnly,
+      'updatedAt': value.updatedAtMs,
+    };
+  }
+
+  Future<String?> updateSubscription(
+    String spaceHex, {
+    bool? feedEnabled,
+    bool? notificationsEnabled,
+    bool? hiddenFromRecommendations,
+  }) async {
     final visible = await _visible(spaceHex);
     if (visible == null) return 'space not found';
     try {
-      await _groups.setSpaceFeedEnabled(visible.$1, enabled);
+      await _groups.updateSpaceSubscription(
+        visible.$1,
+        feedEnabled: feedEnabled,
+        notificationsEnabled: notificationsEnabled,
+        hiddenFromRecommendations: hiddenFromRecommendations,
+      );
       return null;
     } catch (_) {
       return 'subscription update rejected';

@@ -8,6 +8,7 @@ import '../../core/log.dart';
 import '../../domain/chat.dart';
 import '../../domain/group_message.dart';
 import '../../domain/space_recommendation.dart';
+import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/messaging.dart';
@@ -51,6 +52,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   StreamSubscription<IncomingNotice>? _sub;
   ProviderSubscription<MessagingService>? _serviceListener;
   StreamSubscription<({NodeId groupId, GroupMessage message})>? _groupSub;
+  StreamSubscription<({NodeId spaceId, SpacePostView post})>? _spacePostSub;
   ProviderSubscription<GroupService?>? _groupServiceListener;
   int _notificationGeneration = 0;
 
@@ -92,7 +94,9 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
 
   void _subscribeGroups(GroupService? service) {
     _groupSub?.cancel();
+    _spacePostSub?.cancel();
     _groupSub = service?.incoming.listen(_onGroupIncoming);
+    _spacePostSub = service?.incomingPosts.listen(_onSpacePostIncoming);
   }
 
   /// A message just arrived. Alert in real time ONLY when backgrounded; a
@@ -168,6 +172,45 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     return '…';
   }
 
+  /// A publication is a Space-native event, not a group message. Its local
+  /// notification preference is independent from whether that Space appears
+  /// in the combined Feed.
+  Future<void> _onSpacePostIncoming(
+    ({NodeId spaceId, SpacePostView post}) n,
+  ) async {
+    if (!mounted) return;
+    final generation = ++_notificationGeneration;
+    final settings = ref.read(notificationSettingsProvider);
+    var notificationsEnabled = false;
+    String? name;
+    try {
+      final service = ref.read(groupServiceProvider);
+      final subscription = await service?.spaceSubscription(n.spaceId);
+      notificationsEnabled = subscription?.notificationsEnabled ?? false;
+      name = (await service?.stateOf(n.spaceId))?.name;
+    } catch (_) {}
+    if (!mounted || generation != _notificationGeneration) return;
+    if (!shouldAlertIncoming(
+      enabled: settings.enabled,
+      muted: !notificationsEnabled,
+      foreground: _foreground,
+    )) {
+      return;
+    }
+    await _show(
+      convHex: 'space:${n.spaceId.hex}',
+      name: (name != null && name.trim().isNotEmpty) ? name : null,
+      shortId: n.spaceId.short,
+      preview: n.post.title.trim().isNotEmpty
+          ? n.post.title
+          : n.post.body.trim().isNotEmpty
+          ? n.post.body
+          : '…',
+      settings: settings,
+      allowReply: false,
+    );
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -212,6 +255,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             String shortId,
             String preview,
             int timestampMs,
+            bool allowReply,
           })
         >[];
     for (final c in convs) {
@@ -232,6 +276,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             : (parseSpaceRecommendationMessage(c.lastMessage!.body)?.name ??
                   c.lastMessage!.body),
         timestampMs: c.lastMessage?.timestamp.millisecondsSinceEpoch ?? 0,
+        allowReply: true,
       ));
     }
     // Groups compete with 1:1 chats for the same single latest alert.
@@ -240,7 +285,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       devLog(() => 'xVeil[notify]: flush — no group service');
     } else {
       try {
-        final groups = [...await gsvc.listGroups(), ...await gsvc.listSpaces()];
+        final groups = await gsvc.listGroups();
         devLog(
           () =>
               'xVeil[notify]: flush — ${groups.length} groups, unread: '
@@ -257,6 +302,31 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             shortId: g.groupId.short,
             preview: '', // list has no last-message preview; hidden-safe
             timestampMs: g.lastTs,
+            allowReply: true,
+          ));
+        }
+        final spaces = await gsvc.listSpaces();
+        for (final space in spaces) {
+          final subscription = await gsvc.spaceSubscription(space.groupId);
+          if (space.postUnread <= 0 ||
+              space.muted ||
+              !subscription.notificationsEnabled ||
+              'space:${space.groupId.hex}' == active) {
+            continue;
+          }
+          final posts = await gsvc.postsOf(space.groupId);
+          final latestPost = posts.isEmpty ? null : posts.last;
+          candidates.add((
+            convHex: 'space:${space.groupId.hex}',
+            name: space.name.trim().isNotEmpty ? space.name : null,
+            shortId: space.groupId.short,
+            preview: latestPost == null
+                ? ''
+                : latestPost.title.trim().isNotEmpty
+                ? latestPost.title
+                : latestPost.body,
+            timestampMs: latestPost?.publishedAtMs ?? space.lastTs,
+            allowReply: false,
           ));
         }
       } catch (e) {
@@ -273,6 +343,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       shortId: latest.shortId,
       preview: latest.preview,
       settings: settings,
+      allowReply: latest.allowReply,
     );
   }
 
@@ -285,6 +356,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     required String shortId,
     required String preview,
     required NotificationSettings settings,
+    bool allowReply = true,
   }) async {
     if (!mounted) return;
     final l = AppL10n.of(context);
@@ -312,8 +384,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           // Offer inline reply ONLY when the sender is visible (full preview) —
           // replying to an anonymous "new message" would be confusing, and it
           // keeps the hidden-preview lock-screen surface minimal.
-          replyLabel: full ? l.notificationReply : null,
-          replyHint: full ? l.notificationReplyHint : null,
+          replyLabel: full && allowReply ? l.notificationReply : null,
+          replyHint: full && allowReply ? l.notificationReplyHint : null,
         );
   }
 
@@ -324,6 +396,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     _groupServiceListener?.close();
     _sub?.cancel();
     _groupSub?.cancel();
+    _spacePostSub?.cancel();
     super.dispose();
   }
 

@@ -10,12 +10,40 @@ import '../../domain/space_moderation.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
+import '../../state/notifications.dart' show activeConversationProvider;
 import 'space_post_reactions.dart';
 
-class SpacePostsScreen extends ConsumerWidget {
+class SpacePostsScreen extends ConsumerStatefulWidget {
   const SpacePostsScreen({super.key, required this.spaceIdHex});
 
   final String spaceIdHex;
+
+  @override
+  ConsumerState<SpacePostsScreen> createState() => _SpacePostsScreenState();
+}
+
+class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
+  StateController<String?>? _activeConversation;
+
+  String get _conversationKey => 'space:${widget.spaceIdHex}';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _activeConversation = ref.read(activeConversationProvider.notifier);
+      _activeConversation!.state = _conversationKey;
+    });
+  }
+
+  @override
+  void dispose() {
+    if (_activeConversation?.state == _conversationKey) {
+      _activeConversation!.state = null;
+    }
+    super.dispose();
+  }
 
   Future<void> _compose(
     BuildContext context,
@@ -191,12 +219,12 @@ class SpacePostsScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final service = ref.watch(groupServiceProvider);
     final NodeId spaceId;
     try {
-      spaceId = NodeId.fromHex(spaceIdHex);
+      spaceId = NodeId.fromHex(widget.spaceIdHex);
     } catch (_) {
       return Scaffold(body: Center(child: Text(l.spaceOperationFailed)));
     }
@@ -254,15 +282,15 @@ class SpacePostsScreen extends ConsumerWidget {
                       service.setSpaceFeedEnabled(spaceId, !enabled),
                   icon: Icon(
                     enabled
-                        ? Icons.notifications_active_outlined
-                        : Icons.notifications_off_outlined,
+                        ? Icons.dynamic_feed_outlined
+                        : Icons.comments_disabled_outlined,
                   ),
                 ),
               ],
             ),
             floatingActionButton: canPublish
                 ? FloatingActionButton(
-                    heroTag: 'xveil-space-post-$spaceIdHex',
+                    heroTag: 'xveil-space-post-${widget.spaceIdHex}',
                     tooltip: l.spacePostCreateTitle,
                     onPressed: () => _compose(context, ref, spaceId),
                     child: const Icon(Icons.edit_outlined),
