@@ -541,6 +541,18 @@ abstract class AppL10n {
   /// **'Channel name'**
   String get spaceChannelNameHint;
 
+  /// No description provided for @spaceChannelDescriptionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Description (optional)'**
+  String get spaceChannelDescriptionHint;
+
+  /// No description provided for @spaceChannelKind.
+  ///
+  /// In en, this message translates to:
+  /// **'Channel type'**
+  String get spaceChannelKind;
+
   /// No description provided for @spaceChannelText.
   ///
   /// In en, this message translates to:
@@ -558,6 +570,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Category'**
   String get spaceChannelCategory;
+
+  /// No description provided for @spaceChannelCategoryLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Place in category'**
+  String get spaceChannelCategoryLabel;
+
+  /// No description provided for @spaceChannelNoCategory.
+  ///
+  /// In en, this message translates to:
+  /// **'Community root'**
+  String get spaceChannelNoCategory;
 
   /// No description provided for @spaceChannelAccess.
   ///
@@ -582,6 +606,78 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Secret · admins only initially'**
   String get spaceChannelAccessSecret;
+
+  /// No description provided for @spaceChannelHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'History for new members'**
+  String get spaceChannelHistory;
+
+  /// No description provided for @spaceChannelHistoryFromJoin.
+  ///
+  /// In en, this message translates to:
+  /// **'Only from the time they join'**
+  String get spaceChannelHistoryFromJoin;
+
+  /// No description provided for @spaceChannelHistoryFull.
+  ///
+  /// In en, this message translates to:
+  /// **'Full channel history'**
+  String get spaceChannelHistoryFull;
+
+  /// No description provided for @spaceChannelHistorySinceNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Messages from now on'**
+  String get spaceChannelHistorySinceNow;
+
+  /// No description provided for @spaceChannelManage.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage channel'**
+  String get spaceChannelManage;
+
+  /// No description provided for @spaceChannelEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit channel'**
+  String get spaceChannelEdit;
+
+  /// No description provided for @spaceChannelSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save channel'**
+  String get spaceChannelSave;
+
+  /// No description provided for @spaceChannelArchive.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive channel'**
+  String get spaceChannelArchive;
+
+  /// No description provided for @spaceChannelRestore.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore channel'**
+  String get spaceChannelRestore;
+
+  /// No description provided for @spaceChannelMakeDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Make default channel'**
+  String get spaceChannelMakeDefault;
+
+  /// No description provided for @spaceChannelArchived.
+  ///
+  /// In en, this message translates to:
+  /// **'Archived'**
+  String get spaceChannelArchived;
+
+  /// No description provided for @spaceChannelArchiveCategoryBlocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Move or archive the active channels in this category first.'**
+  String get spaceChannelArchiveCategoryBlocked;
 
   /// No description provided for @spaceVoiceStartFailed.
   ///

@@ -378,3 +378,60 @@ NodeId defaultSpaceChannelId(NodeId spaceId) {
   final bytes = utf8.encode('xveil.space.default-channel.v1:${spaceId.hex}');
   return NodeId(Uint8List.fromList(crypto.sha256.convert(bytes).bytes));
 }
+
+/// Stable presentation order: root channels/categories by signed position,
+/// followed immediately by each category's direct children. The service
+/// rejects nested categories, but legacy/corrupt orphan children are retained
+/// as roots instead of disappearing from the management UI.
+List<SpaceChannel> orderSpaceChannelsForDisplay(Iterable<SpaceChannel> values) {
+  final channels = values.toList(growable: false);
+  int compare(SpaceChannel left, SpaceChannel right) {
+    final position = left.position.compareTo(right.position);
+    if (position != 0) return position;
+    return left.channelId.hex.compareTo(right.channelId.hex);
+  }
+
+  final categoryIds = {
+    for (final channel in channels)
+      if (channel.kind == SpaceChannelKind.category) channel.channelId.hex,
+  };
+  final roots =
+      channels
+          .where(
+            (channel) =>
+                channel.categoryId == null ||
+                !categoryIds.contains(channel.categoryId!.hex),
+          )
+          .toList()
+        ..sort(compare);
+  final children = <String, List<SpaceChannel>>{};
+  for (final channel in channels) {
+    final category = channel.categoryId;
+    if (category == null || !categoryIds.contains(category.hex)) continue;
+    children.putIfAbsent(category.hex, () => []).add(channel);
+  }
+  for (final list in children.values) {
+    list.sort(compare);
+  }
+  return List.unmodifiable([
+    for (final root in roots) ...[
+      root,
+      if (root.kind == SpaceChannelKind.category)
+        ...?children[root.channelId.hex],
+    ],
+  ]);
+}
+
+/// A gap-preserving default position for a newly created sibling.
+int nextSpaceChannelPosition(
+  Iterable<SpaceChannel> values, {
+  NodeId? categoryId,
+}) {
+  var maximum = -100;
+  for (final channel in values) {
+    if (channel.categoryId == categoryId && channel.position > maximum) {
+      maximum = channel.position;
+    }
+  }
+  return (maximum + 100).clamp(-1000000, 1000000);
+}

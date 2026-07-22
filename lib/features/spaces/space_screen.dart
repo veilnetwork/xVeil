@@ -45,30 +45,93 @@ class SpaceScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     NodeId spaceId,
+    List<SpaceChannel> channels,
   ) async {
+    final result = await _showChannelEditor(context, channels: channels);
+    if (result == null) return;
+    final service = ref.read(groupServiceProvider);
+    final created = await service?.createChannel(
+      spaceId,
+      name: result.name,
+      kind: result.kind,
+      description: result.description,
+      categoryId: result.categoryId,
+      position: nextSpaceChannelPosition(
+        channels,
+        categoryId: result.categoryId,
+      ),
+      history: result.history,
+      historySinceMs: result.historySinceMs,
+      access: result.access,
+    );
+    if (created == null && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).spaceOperationFailed)),
+      );
+    }
+  }
+
+  Future<_SpaceChannelDraft?> _showChannelEditor(
+    BuildContext context, {
+    required List<SpaceChannel> channels,
+    SpaceChannel? current,
+  }) async {
     final l = AppL10n.of(context);
-    final controller = TextEditingController();
-    var kind = SpaceChannelKind.text;
-    var access = SpaceChannelAccess.space;
-    final result =
-        await showDialog<(String, SpaceChannelKind, SpaceChannelAccess)>(
-          context: context,
-          builder: (dialogContext) => StatefulBuilder(
-            builder: (context, setDialogState) => AlertDialog(
-              title: Text(l.spaceChannelCreateTitle),
-              content: Column(
+    var name = current?.name ?? '';
+    var description = current?.description ?? '';
+    var kind = current?.kind ?? SpaceChannelKind.text;
+    var access = current?.access ?? SpaceChannelAccess.space;
+    var categoryHex = current?.categoryId?.hex ?? '';
+    var history = current?.history ?? SpaceChannelHistory.fromJoin;
+    var historySinceMs = current?.historySinceMs;
+    final categories = channels
+        .where(
+          (channel) =>
+              channel.kind == SpaceChannelKind.category &&
+              !channel.archived &&
+              channel.channelId != current?.channelId,
+        )
+        .toList(growable: false);
+    return showDialog<_SpaceChannelDraft>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(
+            current == null ? l.spaceChannelCreateTitle : l.spaceChannelEdit,
+          ),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  TextField(
-                    controller: controller,
-                    autofocus: true,
+                  TextFormField(
+                    key: const ValueKey('space-channel-name'),
+                    initialValue: name,
+                    autofocus: current == null,
+                    maxLength: 100,
                     decoration: InputDecoration(
-                      hintText: l.spaceChannelNameHint,
+                      labelText: l.spaceChannelNameHint,
                     ),
+                    onChanged: (value) => name = value,
                   ),
-                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: const ValueKey('space-channel-description'),
+                    initialValue: description,
+                    maxLength: 1024,
+                    minLines: 1,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      labelText: l.spaceChannelDescriptionHint,
+                    ),
+                    onChanged: (value) => description = value,
+                  ),
+                  const SizedBox(height: 8),
                   DropdownButtonFormField<SpaceChannelKind>(
+                    key: const ValueKey('space-channel-kind'),
+                    isExpanded: true,
                     initialValue: kind,
+                    decoration: InputDecoration(labelText: l.spaceChannelKind),
                     items: [
                       DropdownMenuItem(
                         value: SpaceChannelKind.text,
@@ -83,16 +146,23 @@ class SpaceScreen extends ConsumerWidget {
                         child: Text(l.spaceChannelCategory),
                       ),
                     ],
-                    onChanged: access == SpaceChannelAccess.space
-                        ? (value) {
-                            if (value != null) {
-                              setDialogState(() => kind = value);
-                            }
-                          }
-                        : null,
+                    onChanged:
+                        current != null || access != SpaceChannelAccess.space
+                        ? null
+                        : (value) {
+                            if (value == null) return;
+                            setDialogState(() {
+                              kind = value;
+                              if (kind == SpaceChannelKind.category) {
+                                categoryHex = '';
+                              }
+                            });
+                          },
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<SpaceChannelAccess>(
+                    key: const ValueKey('space-channel-access'),
+                    isExpanded: true,
                     initialValue: access,
                     decoration: InputDecoration(
                       labelText: l.spaceChannelAccess,
@@ -107,46 +177,230 @@ class SpaceScreen extends ConsumerWidget {
                         child: Text(l.spaceChannelAccessRestricted),
                       ),
                     ],
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setDialogState(() {
-                        access = value;
-                        if (access != SpaceChannelAccess.space) {
-                          kind = SpaceChannelKind.text;
-                        }
-                      });
-                    },
+                    onChanged: current != null
+                        ? null
+                        : (value) {
+                            if (value == null) return;
+                            setDialogState(() {
+                              access = value;
+                              if (access != SpaceChannelAccess.space) {
+                                kind = SpaceChannelKind.text;
+                                categoryHex = '';
+                              }
+                            });
+                          },
                   ),
+                  if (access == SpaceChannelAccess.space &&
+                      kind != SpaceChannelKind.category) ...[
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      key: const ValueKey('space-channel-category'),
+                      isExpanded: true,
+                      initialValue: categoryHex,
+                      decoration: InputDecoration(
+                        labelText: l.spaceChannelCategoryLabel,
+                      ),
+                      items: [
+                        DropdownMenuItem(
+                          value: '',
+                          child: Text(l.spaceChannelNoCategory),
+                        ),
+                        for (final category in categories)
+                          DropdownMenuItem(
+                            value: category.channelId.hex,
+                            child: Text(category.name),
+                          ),
+                      ],
+                      onChanged: (value) =>
+                          setDialogState(() => categoryHex = value ?? ''),
+                    ),
+                  ],
+                  if (kind == SpaceChannelKind.text) ...[
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<SpaceChannelHistory>(
+                      key: const ValueKey('space-channel-history'),
+                      isExpanded: true,
+                      initialValue: history,
+                      decoration: InputDecoration(
+                        labelText: l.spaceChannelHistory,
+                      ),
+                      items: [
+                        DropdownMenuItem(
+                          value: SpaceChannelHistory.fromJoin,
+                          child: Text(l.spaceChannelHistoryFromJoin),
+                        ),
+                        DropdownMenuItem(
+                          value: SpaceChannelHistory.full,
+                          child: Text(l.spaceChannelHistoryFull),
+                        ),
+                        DropdownMenuItem(
+                          value: SpaceChannelHistory.since,
+                          child: Text(l.spaceChannelHistorySinceNow),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setDialogState(() {
+                          history = value;
+                          historySinceMs = value == SpaceChannelHistory.since
+                              ? historySinceMs ??
+                                    DateTime.now().millisecondsSinceEpoch
+                              : null;
+                        });
+                      },
+                    ),
+                  ],
                 ],
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: Text(l.actionCancel),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.of(
-                    dialogContext,
-                  ).pop((controller.text.trim(), kind, access)),
-                  child: Text(l.spaceCreateAction),
-                ),
-              ],
             ),
           ),
-        );
-    controller.dispose();
-    if (result == null || result.$1.isEmpty) return;
-    final service = ref.read(groupServiceProvider);
-    final created = await service?.createChannel(
-      spaceId,
-      name: result.$1,
-      kind: result.$2,
-      access: result.$3,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(l.actionCancel),
+            ),
+            FilledButton(
+              key: const ValueKey('space-channel-save'),
+              onPressed: () {
+                final normalized = name.trim();
+                if (normalized.isEmpty) return;
+                Navigator.of(dialogContext).pop(
+                  _SpaceChannelDraft(
+                    name: normalized,
+                    description: description,
+                    kind: kind,
+                    access: access,
+                    categoryId: categoryHex.isEmpty
+                        ? null
+                        : NodeId.fromHex(categoryHex),
+                    history: history,
+                    historySinceMs: history == SpaceChannelHistory.since
+                        ? historySinceMs ??
+                              DateTime.now().millisecondsSinceEpoch
+                        : null,
+                  ),
+                );
+              },
+              child: Text(
+                current == null ? l.spaceCreateAction : l.spaceChannelSave,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
-    if (created == null && context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l.spaceOperationFailed)));
+  }
+
+  Future<void> _manageChannel(
+    BuildContext context,
+    GroupService service,
+    NodeId spaceId,
+    SpaceChannel channel,
+    List<SpaceChannel> channels,
+  ) async {
+    final l = AppL10n.of(context);
+    final action = await showModalBottomSheet<_SpaceChannelAction>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: Text(l.spaceChannelEdit),
+              onTap: () => Navigator.of(sheet).pop(_SpaceChannelAction.edit),
+            ),
+            if (channel.kind == SpaceChannelKind.text &&
+                !channel.archived &&
+                !channel.isDefault)
+              ListTile(
+                leading: const Icon(Icons.home_outlined),
+                title: Text(l.spaceChannelMakeDefault),
+                onTap: () =>
+                    Navigator.of(sheet).pop(_SpaceChannelAction.makeDefault),
+              ),
+            ListTile(
+              leading: Icon(
+                channel.archived
+                    ? Icons.unarchive_outlined
+                    : Icons.archive_outlined,
+              ),
+              title: Text(
+                channel.archived
+                    ? l.spaceChannelRestore
+                    : l.spaceChannelArchive,
+              ),
+              onTap: () => Navigator.of(sheet).pop(
+                channel.archived
+                    ? _SpaceChannelAction.restore
+                    : _SpaceChannelAction.archive,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !context.mounted) return;
+    var applied = false;
+    switch (action) {
+      case _SpaceChannelAction.edit:
+        final draft = await _showChannelEditor(
+          context,
+          channels: channels,
+          current: channel,
+        );
+        if (draft == null || !context.mounted) return;
+        final moved = draft.categoryId != channel.categoryId;
+        applied = await service.updateChannel(
+          spaceId,
+          channel.copyWith(
+            name: draft.name,
+            description: draft.description,
+            categoryId: draft.categoryId,
+            clearCategory: draft.categoryId == null,
+            position: moved
+                ? nextSpaceChannelPosition(
+                    channels,
+                    categoryId: draft.categoryId,
+                  )
+                : channel.position,
+            history: draft.history,
+            historySinceMs: draft.historySinceMs,
+            clearHistorySince: draft.history != SpaceChannelHistory.since,
+          ),
+        );
+      case _SpaceChannelAction.makeDefault:
+        applied = await service.setDefaultChannel(spaceId, channel.channelId);
+      case _SpaceChannelAction.archive:
+        applied = await service.setChannelArchived(
+          spaceId,
+          channel.channelId,
+          true,
+        );
+      case _SpaceChannelAction.restore:
+        applied = await service.setChannelArchived(
+          spaceId,
+          channel.channelId,
+          false,
+        );
+    }
+    if (!applied && context.mounted) {
+      final hasActiveChildren =
+          channel.kind == SpaceChannelKind.category &&
+          channels.any(
+            (candidate) =>
+                candidate.categoryId == channel.channelId &&
+                !candidate.archived,
+          );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            hasActiveChildren
+                ? l.spaceChannelArchiveCategoryBlocked
+                : l.spaceOperationFailed,
+          ),
+        ),
+      );
     }
   }
 
@@ -279,7 +533,7 @@ class SpaceScreen extends ConsumerWidget {
       builder: (context, _) => FutureBuilder(
         future: Future.wait<Object?>([
           service.stateOf(spaceId),
-          service.channelsOf(spaceId),
+          service.channelsOf(spaceId, includeArchived: true),
           service.spaceRecommendationCampaigns(spaceId),
         ]),
         builder: (context, snapshot) {
@@ -289,7 +543,9 @@ class SpaceScreen extends ConsumerWidget {
             );
           }
           final state = snapshot.data![0] as GroupState?;
-          final channels = snapshot.data![1] as List<SpaceChannel>;
+          final channels = orderSpaceChannelsForDisplay(
+            snapshot.data![1] as List<SpaceChannel>,
+          );
           final recommendationCampaigns =
               snapshot.data![2] as List<SpaceRecommendationCampaign>;
           if (state == null) {
@@ -382,7 +638,8 @@ class SpaceScreen extends ConsumerWidget {
                 ? FloatingActionButton(
                     heroTag: 'xveil-space-channel-create-$spaceIdHex',
                     tooltip: l.spaceChannelCreateTitle,
-                    onPressed: () => _createChannel(context, ref, spaceId),
+                    onPressed: () =>
+                        _createChannel(context, ref, spaceId, channels),
                     child: const Icon(Icons.add),
                   )
                 : null,
@@ -410,24 +667,64 @@ class SpaceScreen extends ConsumerWidget {
                               SpaceChannelKind.category =>
                                 Icons.folder_outlined,
                             };
+                            final subtitle = [
+                              if (channel.archived) l.spaceChannelArchived,
+                              if (channel.description.isNotEmpty)
+                                channel.description,
+                              if (channel.access != SpaceChannelAccess.space)
+                                channel.access == SpaceChannelAccess.secret
+                                    ? l.spaceChannelAccessSecret
+                                    : l.spaceChannelAccessRestricted,
+                            ];
                             return ListTile(
+                              key: ValueKey(
+                                'space-channel-${channel.channelId.hex}',
+                              ),
                               contentPadding: EdgeInsets.only(
                                 left: channel.categoryId == null ? 16 : 40,
                                 right: 16,
                               ),
-                              leading: Icon(icon),
-                              title: Text(channel.name),
-                              subtitle:
-                                  channel.access == SpaceChannelAccess.space
+                              leading: Icon(
+                                channel.archived
+                                    ? Icons.archive_outlined
+                                    : icon,
+                              ),
+                              title: Row(
+                                children: [
+                                  Expanded(child: Text(channel.name)),
+                                  if (channel.isDefault)
+                                    const Padding(
+                                      padding: EdgeInsets.only(left: 6),
+                                      child: Icon(
+                                        Icons.home_outlined,
+                                        size: 18,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              subtitle: subtitle.isEmpty
                                   ? null
                                   : Text(
-                                      channel.access ==
-                                              SpaceChannelAccess.secret
-                                          ? l.spaceChannelAccessSecret
-                                          : l.spaceChannelAccessRestricted,
+                                      subtitle.join(' · '),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
-                              trailing: channel.isDefault
-                                  ? const Icon(Icons.home_outlined, size: 18)
+                              trailing: canManage
+                                  ? IconButton(
+                                      key: ValueKey(
+                                        'space-channel-manage-'
+                                        '${channel.channelId.hex}',
+                                      ),
+                                      tooltip: l.spaceChannelManage,
+                                      onPressed: () => _manageChannel(
+                                        context,
+                                        service,
+                                        spaceId,
+                                        channel,
+                                        channels,
+                                      ),
+                                      icon: const Icon(Icons.more_vert),
+                                    )
                                   : channel.access == SpaceChannelAccess.space
                                   ? null
                                   : Icon(
@@ -439,6 +736,7 @@ class SpaceScreen extends ConsumerWidget {
                                     ),
                               onTap:
                                   isCategory ||
+                                      channel.archived ||
                                       (archived &&
                                           channel.kind ==
                                               SpaceChannelKind.voice)
@@ -459,6 +757,15 @@ class SpaceScreen extends ConsumerWidget {
                                         '${channel.channelId.hex}',
                                       );
                                     },
+                              onLongPress: canManage
+                                  ? () => _manageChannel(
+                                      context,
+                                      service,
+                                      spaceId,
+                                      channel,
+                                      channels,
+                                    )
+                                  : null,
                             );
                           },
                         ),
@@ -470,4 +777,26 @@ class SpaceScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+enum _SpaceChannelAction { edit, makeDefault, archive, restore }
+
+class _SpaceChannelDraft {
+  const _SpaceChannelDraft({
+    required this.name,
+    required this.description,
+    required this.kind,
+    required this.access,
+    required this.categoryId,
+    required this.history,
+    required this.historySinceMs,
+  });
+
+  final String name;
+  final String description;
+  final SpaceChannelKind kind;
+  final SpaceChannelAccess access;
+  final NodeId? categoryId;
+  final SpaceChannelHistory history;
+  final int? historySinceMs;
 }

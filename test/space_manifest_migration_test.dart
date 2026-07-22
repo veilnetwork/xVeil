@@ -346,6 +346,27 @@ void main() {
             .archived,
         isTrue,
       );
+      final ordered = orderSpaceChannelsForDisplay(channels);
+      final categoryIndex = ordered.indexWhere(
+        (channel) => channel.channelId == categoryId,
+      );
+      expect(categoryIndex, greaterThanOrEqualTo(0));
+      expect(ordered[categoryIndex + 1].channelId, voiceId);
+      expect(ordered[categoryIndex + 2].channelId, textId);
+      expect(nextSpaceChannelPosition(channels, categoryId: categoryId), 120);
+
+      expect(
+        await ownerService.setChannelArchived(id, categoryId!, true),
+        isFalse,
+        reason: 'an active child must never be orphaned by category archival',
+      );
+      expect(await ownerService.setDefaultChannel(id, fromJoinId!), isTrue);
+      expect(await ownerService.setChannelArchived(id, voiceId!, true), isTrue);
+      expect(await ownerService.setChannelArchived(id, textId, true), isTrue);
+      expect(
+        await ownerService.setChannelArchived(id, categoryId, true),
+        isTrue,
+      );
     },
   );
 
