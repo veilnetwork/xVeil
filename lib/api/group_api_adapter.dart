@@ -15,6 +15,7 @@ import '../domain/group_reaction.dart';
 import '../domain/space_channel.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
+import '../domain/space_retention.dart';
 import '../domain/space_rules.dart';
 import '../state/group_service.dart';
 
@@ -117,6 +118,65 @@ final class GroupApiAdapter {
     return await _groups.setSpaceDescription(visible.$1, description)
         ? null
         : 'space mutation failed';
+  }
+
+  Future<Map<String, dynamic>?> retention(String spaceHex) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return null;
+    final bundle = await _groups.load(visible.$1);
+    if (bundle == null || !bundle.manifest.isSpace) return null;
+    final policy = visible.$2.effectiveRetentionPolicy();
+    final localDays = await _groups.localSpaceRetentionDays(visible.$1);
+    return {
+      'spaceId': visible.$1.hex,
+      'community': policy.toJson(),
+      'localDevice': {
+        'mode': localDays == null ? 'keepForever' : 'deleteAfter',
+        'retentionDays': ?localDays,
+      },
+      'history': [
+        for (final revision in visible.$2.retentionHistory)
+          {
+            'policy': revision.policy.toJson(),
+            'activatedAt': revision.activatedAtMs,
+            'author': revision.author.hex,
+            'authorSeq': revision.authorSeq,
+          },
+      ],
+    };
+  }
+
+  Future<String?> setRetention(
+    String spaceHex,
+    int? days,
+    bool localDevice,
+  ) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    final bundle = await _groups.load(visible.$1);
+    if (bundle == null || !bundle.manifest.isSpace) return 'space not found';
+    if (days != null && (days <= 0 || days > 36500)) {
+      return 'invalid retention days';
+    }
+    if (localDevice) {
+      return await _groups.setLocalSpaceRetentionDays(visible.$1, days)
+          ? null
+          : 'local retention update failed';
+    }
+    if (!SpaceAcl(
+      visible.$2,
+    ).allows(_groups.selfId, SpacePermission.manageStorage)) {
+      return 'operation rejected by space policy';
+    }
+    final policy = days == null
+        ? const SpaceRetentionPolicy(mode: SpaceRetentionMode.keepForever)
+        : SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.deleteAfter,
+            retentionMs: Duration(days: days).inMilliseconds,
+          );
+    return await _groups.setSpaceRetentionPolicy(visible.$1, policy)
+        ? null
+        : 'retention update failed';
   }
 
   static Map<String, dynamic> rulesVersionJson(SpaceRulesVersion rules) => {

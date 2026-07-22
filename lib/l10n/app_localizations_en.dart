@@ -328,6 +328,27 @@ class AppL10nEn extends AppL10n {
   String get spaceMembersTooltip => 'Members and settings';
 
   @override
+  String get spaceRetentionTitle => 'History retention';
+
+  @override
+  String get spaceRetentionSafetyHint =>
+      'Community policy and this device\'s local history are independent.';
+
+  @override
+  String get spaceRetentionGlobal => 'Community policy';
+
+  @override
+  String get spaceRetentionGlobalHint =>
+      'Signed by the owner and enforced by every member.';
+
+  @override
+  String get spaceRetentionLocal => 'On this device';
+
+  @override
+  String get spaceRetentionLocalHint =>
+      'Only hides local history; it never deletes content for other members.';
+
+  @override
   String spaceMembers(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

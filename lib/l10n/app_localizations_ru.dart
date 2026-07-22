@@ -329,6 +329,27 @@ class AppL10nRu extends AppL10n {
   String get spaceMembersTooltip => 'Участники и настройки';
 
   @override
+  String get spaceRetentionTitle => 'Хранение истории';
+
+  @override
+  String get spaceRetentionSafetyHint =>
+      'Политика сообщества и локальная история этого устройства независимы.';
+
+  @override
+  String get spaceRetentionGlobal => 'Политика сообщества';
+
+  @override
+  String get spaceRetentionGlobalHint =>
+      'Подписывается владельцем и применяется у всех участников.';
+
+  @override
+  String get spaceRetentionLocal => 'На этом устройстве';
+
+  @override
+  String get spaceRetentionLocalHint =>
+      'Скрывает только локальную историю и ничего не удаляет у других участников.';
+
+  @override
   String spaceMembers(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

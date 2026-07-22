@@ -485,6 +485,48 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
       },
+      '/spaces/retention': {
+        'get': {
+          'summary': 'Read signed community and local-device retention',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': ok({'type': obj}),
+        },
+        'post': {
+          'summary': 'Set community or local-device retention',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space', 'scope'],
+                  'properties': {
+                    'space': {'type': 'string'},
+                    'scope': {
+                      'type': 'string',
+                      'enum': ['community', 'device'],
+                    },
+                    'days': {
+                      'type': 'integer',
+                      'minimum': 1,
+                      'maximum': 36500,
+                      'nullable': true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
       '/spaces/rules': {
         'get': {
           'summary': 'Read current and historical signed community rules',
@@ -1781,6 +1823,8 @@ class ApiHandler {
     this.decideSpaceInvite,
     this.spaceProfile,
     this.updateSpaceDescription,
+    this.spaceRetention,
+    this.setSpaceRetention,
     this.spaceRules,
     this.publishSpaceRules,
     this.acceptSpaceRules,
@@ -1926,6 +1970,9 @@ class ApiHandler {
   final Future<Map<String, dynamic>?> Function(String spaceHex)? spaceProfile;
   final Future<String?> Function(String spaceHex, String description)?
   updateSpaceDescription;
+  final Future<Map<String, dynamic>?> Function(String spaceHex)? spaceRetention;
+  final Future<String?> Function(String spaceHex, int? days, bool localDevice)?
+  setSpaceRetention;
   final Future<Map<String, dynamic>?> Function(String spaceHex)? spaceRules;
   final Future<String?> Function(
     String spaceHex,
@@ -2205,6 +2252,40 @@ class ApiHandler {
         });
       }
       return _spaceMutationResponse(await handler(space, description.trim()));
+    }
+    if (method == 'GET' && path == '/v1/spaces/retention') {
+      final handler = spaceRetention;
+      if (handler == null) {
+        return const ApiResponse(501, {'error': 'Space retention unavailable'});
+      }
+      final space = uri.queryParameters['space'];
+      if (space == null || space.isEmpty) {
+        return const ApiResponse(400, {'error': 'space required'});
+      }
+      final retention = await handler(space);
+      return retention == null
+          ? const ApiResponse(404, {'error': 'space not found'})
+          : ApiResponse(200, retention);
+    }
+    if (method == 'POST' && path == '/v1/spaces/retention') {
+      final handler = setSpaceRetention;
+      if (handler == null) {
+        return const ApiResponse(501, {'error': 'Space retention unavailable'});
+      }
+      final space = body?['space'];
+      final scope = body?['scope'];
+      final days = body?['days'];
+      if (space is! String ||
+          space.isEmpty ||
+          (scope != 'community' && scope != 'device') ||
+          (days != null && (days is! int || days <= 0 || days > 36500))) {
+        return const ApiResponse(400, {
+          'error': 'valid space, scope and optional days required',
+        });
+      }
+      return _spaceMutationResponse(
+        await handler(space, days as int?, scope == 'device'),
+      );
     }
     if (method == 'GET' && path == '/v1/spaces/rules') {
       final handler = spaceRules;

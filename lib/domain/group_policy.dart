@@ -22,6 +22,7 @@ import 'group.dart';
 import 'group_epoch.dart';
 import 'space_channel.dart';
 import 'space_moderation.dart';
+import 'space_retention.dart';
 import 'space_rules.dart';
 
 /// The folded group state after replaying a (validated) control-log prefix.
@@ -38,6 +39,7 @@ class GroupState {
     this.rulesHistory,
     this.rulesAcceptances,
     this.moderationRecords,
+    this.retentionHistory,
   );
 
   /// nodeId hex -> member.
@@ -80,6 +82,11 @@ class GroupState {
   /// revocation annotates a record but never removes the original evidence.
   final Map<String, SpaceModerationRecord> moderationRecords;
 
+  /// Every accepted signed revision, retained for audit and irreversible
+  /// expiry evaluation. A later relaxed policy cannot resurrect an item that
+  /// expired while an earlier destructive revision was active.
+  final List<SpaceRetentionRevision> retentionHistory;
+
   SpaceRulesVersion? get currentRules =>
       rulesHistory.isEmpty ? null : rulesHistory[rulesHistory.length];
 
@@ -121,6 +128,33 @@ class GroupState {
         (reference.channelId == null || reference.channelId == channelId);
   });
 
+  SpaceRetentionPolicy effectiveRetentionPolicy([NodeId? channelId]) {
+    SpaceRetentionPolicy space = const SpaceRetentionPolicy(
+      mode: SpaceRetentionMode.keepForever,
+    );
+    SpaceRetentionPolicy? channel;
+    for (final revision in retentionHistory) {
+      final policy = revision.policy;
+      if (policy.channelId == null) {
+        space = policy;
+      } else if (policy.channelId == channelId) {
+        channel = policy.mode == SpaceRetentionMode.inherit ? null : policy;
+      }
+    }
+    return channel ?? space;
+  }
+
+  bool isRetentionExpired({
+    required int createdAtMs,
+    required int atMs,
+    NodeId? channelId,
+  }) => spaceRetentionRemoves(
+    revisions: retentionHistory,
+    createdAtMs: createdAtMs,
+    atMs: atMs,
+    channelId: channelId,
+  );
+
   GroupMember? memberOf(NodeId id) => members[id.hex];
   bool isMember(NodeId id) => members.containsKey(id.hex);
   GroupRole? roleOf(NodeId id) => members[id.hex]?.role;
@@ -138,6 +172,7 @@ class GroupState {
     const {},
     const {},
     const {},
+    const [],
   );
 }
 
@@ -217,6 +252,7 @@ final class SpaceAcl {
   }) {
     switch (op) {
       case ControlOp.setPolicy:
+      case ControlOp.setRetention:
         return authorRole == GroupRole.owner;
       case ControlOp.transferOwnership:
         return authorRole == GroupRole.owner &&
@@ -324,6 +360,8 @@ GroupFoldResult foldControlLog({
   final rulesHistory = <int, SpaceRulesVersion>{};
   final rulesAcceptances = <String, SpaceRulesAcceptance>{};
   final moderationRecords = <String, SpaceModerationRecord>{};
+  final retentionHistory = <SpaceRetentionRevision>[];
+  var lastRetentionActivationMs = 0;
   final rejected = <ControlEntry>[];
   final accepted = <ControlEntry>[];
 
@@ -605,6 +643,22 @@ GroupFoldResult foldControlLog({
       rejected.add(e);
       continue;
     }
+    if (e.op == ControlOp.setRetention) {
+      final policy = e.retentionPolicy;
+      final channel = policy?.channelId == null
+          ? null
+          : channels[policy!.channelId!.hex];
+      if (e.version != 9 ||
+          policy == null ||
+          !policy.isStructurallyValid ||
+          (policy.channelId != null && channel == null)) {
+        rejected.add(e);
+        continue;
+      }
+    } else if (e.retentionPolicy != null) {
+      rejected.add(e);
+      continue;
+    }
     final descriptor = e.epochDescriptor;
     GroupEpochDescriptor? usableDescriptor = descriptor;
     final moderationRemovesMember =
@@ -692,6 +746,19 @@ GroupFoldResult foldControlLog({
         epochDescriptor = usableDescriptor;
       case ControlOp.setPolicy:
         policyVersion++;
+      case ControlOp.setRetention:
+        final activatedAt = e.createdAtMs < lastRetentionActivationMs
+            ? lastRetentionActivationMs
+            : e.createdAtMs;
+        lastRetentionActivationMs = activatedAt;
+        retentionHistory.add(
+          SpaceRetentionRevision(
+            policy: e.retentionPolicy!,
+            activatedAtMs: activatedAt,
+            author: e.author,
+            authorSeq: e.seq,
+          ),
+        );
       case ControlOp.setName:
         name = e.text ?? name;
       case ControlOp.setDescription:
@@ -840,6 +907,7 @@ GroupFoldResult foldControlLog({
       Map.unmodifiable(rulesHistory),
       Map.unmodifiable(rulesAcceptances),
       Map.unmodifiable(moderationRecords),
+      List.unmodifiable(retentionHistory),
     ),
     rejected,
     List.unmodifiable(accepted),

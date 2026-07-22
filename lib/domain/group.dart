@@ -19,6 +19,7 @@ import 'group_epoch.dart';
 import 'space_channel.dart';
 import 'space_moderation.dart';
 import 'space_post.dart';
+import 'space_retention.dart';
 import 'space_rules.dart';
 
 /// A member's role. Higher [rank] can manage lower ranks (see policy).
@@ -339,6 +340,7 @@ enum ControlOp {
   acceptRules,
   moderate,
   revokeModeration,
+  setRetention,
   createChannel,
   updateChannel,
   transferOwnership,
@@ -407,6 +409,7 @@ class ControlEntry {
     this.rulesAcceptance,
     this.moderationAction,
     this.moderationRevocation,
+    this.retentionPolicy,
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
@@ -417,7 +420,8 @@ class ControlEntry {
   /// control revision. V6 atomically transfers the one effective owner role;
   /// the immutable manifest owner remains the genesis trust root. V7 carries
   /// a versioned Space rules document or one member's acknowledgement. V8
-  /// carries an immutable moderation action or a signed revocation of one.
+  /// carries an immutable moderation action or a signed revocation of one. V9
+  /// carries a typed Space retention policy revision.
   final int version;
 
   /// Group binding for replay resistance. Legacy entries omit it and retain
@@ -439,6 +443,7 @@ class ControlEntry {
   final SpaceRulesAcceptance? rulesAcceptance;
   final SpaceModerationAction? moderationAction;
   final SpaceModerationRevocation? moderationRevocation;
+  final SpaceRetentionPolicy? retentionPolicy;
 
   /// Optional scale-free recipient-envelope root for the epoch established by
   /// this control entry. Legacy entries omit it and keep identical bytes.
@@ -460,7 +465,8 @@ class ControlEntry {
           version == 5 ||
           version == 6 ||
           version == 7 ||
-          version == 8) &&
+          version == 8 ||
+          version == 9) &&
       seq >= 0 &&
       policyVersion >= 0 &&
       createdAtMs >= 0 &&
@@ -552,6 +558,24 @@ class ControlEntry {
                 moderationRevocation == null &&
                 op != ControlOp.moderate &&
                 op != ControlOp.revokeModeration) &&
+      (version == 9
+          ? op == ControlOp.setRetention &&
+                retentionPolicy != null &&
+                retentionPolicy!.isStructurallyValid &&
+                groupId != null &&
+                target == null &&
+                role == null &&
+                text == null &&
+                epochDescriptor == null &&
+                channel == null &&
+                channelControl == null &&
+                postBoundary == null &&
+                controlCheckpoint == null &&
+                rules == null &&
+                rulesAcceptance == null &&
+                moderationAction == null &&
+                moderationRevocation == null
+          : retentionPolicy == null && op != ControlOp.setRetention) &&
       (controlCheckpoint == null
           ? op != ControlOp.checkpoint
           : version == 4 &&
@@ -594,6 +618,7 @@ class ControlEntry {
     rulesAcceptance: rulesAcceptance,
     moderationAction: moderationAction,
     moderationRevocation: moderationRevocation,
+    retentionPolicy: retentionPolicy,
     policyVersion: policyVersion,
     createdAtMs: createdAtMs,
     signature: sig,
@@ -626,6 +651,7 @@ class ControlEntry {
         'moderationAction': moderationAction!.toJson(),
       if (moderationRevocation != null)
         'moderationRevocation': moderationRevocation!.toJson(),
+      if (retentionPolicy != null) 'retentionPolicy': retentionPolicy!.toJson(),
       'pv': policyVersion,
       'ts': createdAtMs,
     };
@@ -654,6 +680,7 @@ class ControlEntry {
       'moderationAction': moderationAction!.toJson(),
     if (moderationRevocation != null)
       'moderationRevocation': moderationRevocation!.toJson(),
+    if (retentionPolicy != null) 'retentionPolicy': retentionPolicy!.toJson(),
     'pv': policyVersion,
     'ts': createdAtMs,
     'sig': base64Encode(signature),
@@ -673,7 +700,8 @@ class ControlEntry {
             version != 5 &&
             version != 6 &&
             version != 7 &&
-            version != 8) ||
+            version != 8 &&
+            version != 9) ||
         author is! String ||
         seq is! int ||
         prev is! String ||
@@ -733,6 +761,12 @@ class ControlEntry {
           moderationRevocation == null) {
         return null;
       }
+      final retentionPolicy = j.containsKey('retentionPolicy')
+          ? SpaceRetentionPolicy.fromJson(j['retentionPolicy'])
+          : null;
+      if (j.containsKey('retentionPolicy') && retentionPolicy == null) {
+        return null;
+      }
       final entry = ControlEntry(
         version: version,
         groupId: j['gid'] is String ? NodeId.fromHex(j['gid'] as String) : null,
@@ -754,6 +788,7 @@ class ControlEntry {
         rulesAcceptance: rulesAcceptance,
         moderationAction: moderationAction,
         moderationRevocation: moderationRevocation,
+        retentionPolicy: retentionPolicy,
         policyVersion: pv,
         createdAtMs: ts,
         signature: Uint8List.fromList(base64Decode(sig)),

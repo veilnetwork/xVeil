@@ -261,6 +261,8 @@ class HeadlessRuntime {
         decideSpaceInvite: groupApi.decideInvite,
         spaceProfile: groupApi.profile,
         updateSpaceDescription: groupApi.updateDescription,
+        spaceRetention: groupApi.retention,
+        setSpaceRetention: groupApi.setRetention,
         spaceRules: groupApi.rules,
         publishSpaceRules: groupApi.publishRules,
         acceptSpaceRules: groupApi.acceptRules,

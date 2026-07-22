@@ -8,6 +8,7 @@ import '../../core/ids.dart';
 import '../../domain/chat.dart';
 import '../../domain/group.dart';
 import '../../domain/group_policy.dart';
+import '../../domain/space_retention.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/messaging.dart' show conversationsProvider;
@@ -56,6 +57,33 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
         SpaceVisibility.secret => l.spaceVisibilitySecret,
         null => l.spaceVisibilityPrivate,
       };
+
+  int? _retentionDays(SpaceRetentionPolicy policy) =>
+      policy.mode == SpaceRetentionMode.deleteAfter
+      ? policy.retentionMs! ~/ const Duration(days: 1).inMilliseconds
+      : null;
+
+  Future<void> _setGlobalRetention(
+    GroupService service,
+    NodeId spaceId,
+    int? days,
+  ) async {
+    final policy = days == null
+        ? const SpaceRetentionPolicy(mode: SpaceRetentionMode.keepForever)
+        : SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.deleteAfter,
+            retentionMs: Duration(days: days).inMilliseconds,
+          );
+    if (!await service.setSpaceRetentionPolicy(spaceId, policy)) _failure();
+  }
+
+  Future<void> _setLocalRetention(
+    GroupService service,
+    NodeId spaceId,
+    int? days,
+  ) async {
+    if (!await service.setLocalSpaceRetentionDays(spaceId, days)) _failure();
+  }
 
   String _memberLabel(
     AppL10n l,
@@ -389,6 +417,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
           service.stateOf(spaceId),
           service.isSpaceFeedEnabled(spaceId),
           service.load(spaceId),
+          service.localSpaceRetentionDays(spaceId),
         ]),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
@@ -402,6 +431,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
           }
           final feedEnabled = snapshot.data![1] as bool;
           final bundle = snapshot.data![2] as GroupBundle?;
+          final localRetentionDays = snapshot.data![3] as int?;
           final myRole = state.roleOf(service.selfId)!;
           final canRename = canApply(authorRole: myRole, op: ControlOp.setName);
           final canEditDescription = canApply(
@@ -412,6 +442,12 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
             authorRole: myRole,
             op: ControlOp.addMember,
             newRole: GroupRole.member,
+          );
+          final canManageRetention = SpaceAcl(
+            state,
+          ).allows(service.selfId, SpacePermission.manageStorage);
+          final globalRetentionDays = _retentionDays(
+            state.effectiveRetentionPolicy(),
           );
           final members = state.members.values.toList()
             ..sort((a, b) {
@@ -600,6 +636,37 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                           icon: const Icon(Icons.logout),
                           label: Text(l.spaceLeave),
                         ),
+                      const SizedBox(height: 12),
+                      Card(
+                        child: Column(
+                          children: [
+                            ListTile(
+                              leading: const Icon(Icons.history_toggle_off),
+                              title: Text(l.spaceRetentionTitle),
+                              subtitle: Text(l.spaceRetentionSafetyHint),
+                            ),
+                            _RetentionTile(
+                              key: const ValueKey('space-global-retention'),
+                              title: l.spaceRetentionGlobal,
+                              subtitle: l.spaceRetentionGlobalHint,
+                              value: globalRetentionDays,
+                              enabled: canManageRetention,
+                              onChanged: (days) => unawaited(
+                                _setGlobalRetention(service, spaceId, days),
+                              ),
+                            ),
+                            _RetentionTile(
+                              key: const ValueKey('space-local-retention'),
+                              title: l.spaceRetentionLocal,
+                              subtitle: l.spaceRetentionLocalHint,
+                              value: localRetentionDays,
+                              onChanged: (days) => unawaited(
+                                _setLocalRetention(service, spaceId, days),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -607,6 +674,64 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _RetentionTile extends StatelessWidget {
+  const _RetentionTile({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+    this.enabled = true,
+  });
+
+  final String title;
+  final String subtitle;
+  final int? value;
+  final bool enabled;
+  final ValueChanged<int?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return ListTile(
+      title: Text(title),
+      subtitle: Text(subtitle),
+      trailing: DropdownButton<int>(
+        value: value ?? 0,
+        underline: const SizedBox.shrink(),
+        onChanged: enabled
+            ? (next) {
+                if (next != null) onChanged(next == 0 ? null : next);
+              }
+            : null,
+        selectedItemBuilder: (_) => [
+          for (final text in [
+            l.retentionUnlimited,
+            l.retention7,
+            l.retention30,
+            l.retention90,
+            l.retention365,
+          ])
+            SizedBox(
+              width: 112,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+            ),
+        ],
+        items: [
+          DropdownMenuItem(value: 0, child: Text(l.retentionUnlimited)),
+          DropdownMenuItem(value: 7, child: Text(l.retention7)),
+          DropdownMenuItem(value: 30, child: Text(l.retention30)),
+          DropdownMenuItem(value: 90, child: Text(l.retention90)),
+          DropdownMenuItem(value: 365, child: Text(l.retention365)),
+        ],
       ),
     );
   }
