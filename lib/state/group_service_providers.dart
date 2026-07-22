@@ -190,7 +190,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
             'fsize': message.fileSize,
           },
         ),
-        attachment: GroupAttachment(
+        attachment: MediaObject(
           kind: 'file',
           dataB64: (message.thumb?.isNotEmpty ?? false)
               ? message.thumb!

@@ -2824,7 +2824,7 @@ void main() {
         'patch',
       });
       final schemas = (spec['components'] as Map)['schemas'] as Map;
-      final mediaSchema = schemas['MediaObjectRef'] as Map;
+      final mediaSchema = schemas['MediaObject'] as Map;
       expect(mediaSchema['required'], ['cid', 'kind']);
       expect(
         ((mediaSchema['properties'] as Map)['cid'] as Map)['pattern'],
@@ -2836,8 +2836,9 @@ void main() {
       expect(postMedia['maxItems'], kSpacePostMediaMax);
       expect(
         (postMedia['items'] as Map)[r'$ref'],
-        '#/components/schemas/MediaObjectRef',
+        '#/components/schemas/MediaObject',
       );
+      expect((schemas['MediaObjectRef'] as Map)['deprecated'], isTrue);
       // The security scheme is declared so generated clients wire the token.
       expect(
         ((spec['components'] as Map)['securitySchemes'] as Map)['bearerAuth'],

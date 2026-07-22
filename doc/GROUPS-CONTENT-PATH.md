@@ -38,7 +38,9 @@ already-accepted contacts.)
 
 ### 1. Content reference instead of inline payload
 
-`GroupAttachment` grows a reference form (wire brick): kind stays
+The current domain object is `MediaObject`; `GroupAttachment` remains a
+source-compatible name for this historical wire section. Its explicit legacy
+codec grows a reference form (wire brick): kind stays
 'image' / 'voice' / 'vnote', but instead of `dataB64` with the full payload it
 carries a `GroupContentRef`:
 
@@ -54,6 +56,10 @@ carries a `GroupContentRef`:
 The ref is INSIDE the signed message (tamper-evident); the fetched bytes are
 verified against `sha256` before rendering, so a malicious holder cannot
 substitute content.
+
+Space publications use the same `MediaObject` and content path through a
+separate strict reference codec. Keeping the codecs explicit preserves old
+message signatures without creating a second blob store or domain entity.
 
 ### 2. Membership-authorized fetch (the core, brick 1 — DONE)
 

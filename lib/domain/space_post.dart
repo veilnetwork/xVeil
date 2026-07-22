@@ -5,6 +5,9 @@ import 'package:crypto/crypto.dart' as crypto;
 
 import '../core/ids.dart';
 import 'group_payload.dart';
+import 'media_object.dart';
+
+export 'media_object.dart' show MediaObject, MediaObjectRef;
 
 const int kSpacePostTitleMax = 300;
 const int kSpacePostBodyMax = 256 * 1024;
@@ -220,7 +223,7 @@ class SpacePostDraft {
   final String body;
   final SpacePostType type;
   final int updatedAtMs;
-  final List<MediaObjectRef> media;
+  final List<MediaObject> media;
 
   bool get hasContent =>
       title.trim().isNotEmpty || body.trim().isNotEmpty || media.isNotEmpty;
@@ -258,8 +261,8 @@ class SpacePostDraft {
     if (type == null) return null;
     final rawMedia = value['media'] as List? ?? const [];
     final media = rawMedia
-        .map(MediaObjectRef.fromJson)
-        .whereType<MediaObjectRef>()
+        .map(MediaObject.fromReferenceJson)
+        .whereType<MediaObject>()
         .toList(growable: false);
     if (media.length != rawMedia.length) return null;
     final draft = SpacePostDraft(
@@ -382,71 +385,8 @@ class SpacePostPin {
   }
 }
 
-/// A content-addressed media reference shared by publication types. Bytes do
-/// not ride in a post log row; they use the existing content path. This is the
-/// first consumer of the common media vocabulary and deliberately avoids a
-/// separate attachment model per publication kind.
-class MediaObjectRef {
-  const MediaObjectRef({
-    required this.contentId,
-    required this.kind,
-    this.name,
-    this.mimeType,
-    this.size,
-    this.width,
-    this.height,
-    this.durationMs,
-  });
-
-  final String contentId;
-  final String kind;
-  final String? name;
-  final String? mimeType;
-  final int? size;
-  final int? width;
-  final int? height;
-  final int? durationMs;
-
-  bool get isStructurallyValid =>
-      RegExp(r'^[0-9a-f]{64}$').hasMatch(contentId) &&
-      kind.isNotEmpty &&
-      kind.length <= 32 &&
-      (name == null || name!.length <= 255) &&
-      (mimeType == null || mimeType!.length <= 128) &&
-      (size == null || size! > 0) &&
-      (width == null || width! > 0) &&
-      (height == null || height! > 0) &&
-      (durationMs == null || durationMs! >= 0);
-
-  Map<String, dynamic> toJson() => {
-    'cid': contentId,
-    'kind': kind,
-    if (name != null) 'name': name,
-    if (mimeType != null) 'mime': mimeType,
-    if (size != null) 'size': size,
-    if (width != null) 'width': width,
-    if (height != null) 'height': height,
-    if (durationMs != null) 'duration': durationMs,
-  };
-
-  static MediaObjectRef? fromJson(Object? value) {
-    if (value is! Map || value['cid'] is! String || value['kind'] is! String) {
-      return null;
-    }
-    final ref = MediaObjectRef(
-      contentId: value['cid'] as String,
-      kind: value['kind'] as String,
-      name: value['name'] is String ? value['name'] as String : null,
-      mimeType: value['mime'] is String ? value['mime'] as String : null,
-      size: value['size'] is int ? value['size'] as int : null,
-      width: value['width'] is int ? value['width'] as int : null,
-      height: value['height'] is int ? value['height'] as int : null,
-      durationMs: value['duration'] is int ? value['duration'] as int : null,
-    );
-    return ref.isStructurallyValid ? ref : null;
-  }
-}
-
+/// Decrypted publication content. Media bytes do not ride in the post log row;
+/// [MediaObject] carries strict references into the shared content path.
 class SpacePostCleartext {
   const SpacePostCleartext({
     required this.title,
@@ -457,7 +397,7 @@ class SpacePostCleartext {
 
   final String title;
   final String body;
-  final List<MediaObjectRef> media;
+  final List<MediaObject> media;
   final bool isTombstone;
 
   bool get isStructurallyValid =>
@@ -503,8 +443,8 @@ class SpacePostCleartext {
         return null;
       }
       final media = (value['media'] as List? ?? const [])
-          .map(MediaObjectRef.fromJson)
-          .whereType<MediaObjectRef>()
+          .map(MediaObject.fromReferenceJson)
+          .whereType<MediaObject>()
           .toList();
       if (media.length != (value['media'] as List? ?? const []).length) {
         return null;
@@ -564,7 +504,7 @@ class SpacePost {
   final SpacePostVisibility visibility;
   final String title;
   final String body;
-  final List<MediaObjectRef> media;
+  final List<MediaObject> media;
   final int policyVersion;
   final int createdAtMs;
   final int publishedAtMs;
@@ -855,10 +795,10 @@ class SpacePost {
       if (isPublic && rawMedia != null && rawMedia is! List) return null;
       final media = isPublic
           ? (rawMedia as List? ?? const [])
-                .map(MediaObjectRef.fromJson)
-                .whereType<MediaObjectRef>()
+                .map(MediaObject.fromReferenceJson)
+                .whereType<MediaObject>()
                 .toList()
-          : const <MediaObjectRef>[];
+          : const <MediaObject>[];
       if (isPublic && media.length != (rawMedia as List? ?? const []).length) {
         return null;
       }
@@ -944,7 +884,7 @@ class SpacePostView {
   SpacePostVisibility get visibility => effective.visibility;
   String get title => effective.title;
   String get body => effective.body;
-  List<MediaObjectRef> get media => effective.media;
+  List<MediaObject> get media => effective.media;
   int get policyVersion => effective.policyVersion;
   int get createdAtMs => root.createdAtMs;
   int get publishedAtMs => root.publishedAtMs;

@@ -4902,7 +4902,7 @@ class GroupService {
     NodeId groupId,
     String body, {
     NodeId? channelId,
-    GroupAttachment? attachment,
+    MediaObject? attachment,
     String? replyTo,
     List<InlineCustomEmoji> customEmoji = const [],
     // Test/repro-only escape hatch: append WITHOUT the delta fanout —
@@ -4954,7 +4954,7 @@ class GroupService {
     String body, {
     NodeId? channelId,
     String? spacePostId,
-    GroupAttachment? attachment,
+    MediaObject? attachment,
     String? replyTo,
     List<InlineCustomEmoji> customEmoji = const [],
     bool broadcast = true,
@@ -5267,7 +5267,7 @@ class GroupService {
     required String title,
     required String body,
     required SpacePostType type,
-    List<MediaObjectRef> media = const [],
+    List<MediaObject> media = const [],
   }) => _serializeSpacePostDrafts(() async {
     try {
       final draft = SpacePostDraft(
@@ -5276,7 +5276,7 @@ class GroupService {
         body: body,
         type: type,
         updatedAtMs: _now(),
-        media: List<MediaObjectRef>.unmodifiable(media),
+        media: List<MediaObject>.unmodifiable(media),
       );
       if (!draft.isStructurallyValid ||
           !await _canKeepSpacePostDraft(spaceId)) {
@@ -5316,7 +5316,7 @@ class GroupService {
     required String body,
     String title = '',
     SpacePostType type = SpacePostType.post,
-    List<MediaObjectRef> media = const [],
+    List<MediaObject> media = const [],
     bool broadcast = true,
   }) => _serialized(
     spaceId,
@@ -5335,13 +5335,13 @@ class GroupService {
     required String body,
     required String title,
     required SpacePostType type,
-    required List<MediaObjectRef> media,
+    required List<MediaObject> media,
     required bool broadcast,
   }) async {
     final cleartext = SpacePostCleartext(
       title: title.trim(),
       body: body.trim(),
-      media: List<MediaObjectRef>.unmodifiable(media),
+      media: List<MediaObject>.unmodifiable(media),
     );
     if (!cleartext.isStructurallyValid) return null;
     final bundle = await load(spaceId);
@@ -5501,7 +5501,7 @@ class GroupService {
     required String title,
     required String body,
     SpacePostType? type,
-    List<MediaObjectRef>? media,
+    List<MediaObject>? media,
     bool broadcast = true,
   }) => _serialized(spaceId, () async {
     final row = await _mutateSpacePost(
@@ -5595,7 +5595,7 @@ class GroupService {
     required String title,
     required String body,
     SpacePostType? type,
-    List<MediaObjectRef>? media,
+    List<MediaObject>? media,
     required bool broadcast,
   }) async {
     if (operation == SpacePostOperation.publish) return null;
@@ -5623,7 +5623,7 @@ class GroupService {
       body: operation == SpacePostOperation.delete ? '' : body.trim(),
       media: operation == SpacePostOperation.delete
           ? const []
-          : List<MediaObjectRef>.unmodifiable(media ?? target.media),
+          : List<MediaObject>.unmodifiable(media ?? target.media),
       isTombstone: operation == SpacePostOperation.delete,
     );
     if (!cleartext.isStructurallyValid) return null;
@@ -8479,7 +8479,7 @@ class GroupService {
       for (final m in msgs)
         if (m.attachment?.cid != null) m.attachment!.cid!,
       for (final post in posts)
-        for (final media in post.media) media.contentId,
+        for (final media in post.media) media.contentId!,
     };
   }
 
@@ -10184,10 +10184,7 @@ class GroupService {
   /// its contentId as a real attachment ref, which puts the cid into
   /// [referencedContentIds] — that is what authorizes my other devices'
   /// membership pull of the bytes. The event body stays the JSON codec.
-  Future<bool> postDeviceEvent(
-    DeviceSyncEvent e, {
-    GroupAttachment? attachment,
-  }) {
+  Future<bool> postDeviceEvent(DeviceSyncEvent e, {MediaObject? attachment}) {
     final done = _devicePostChain.then((_) async {
       final hex = await deviceGroupIdHex();
       if (hex == null) return false;

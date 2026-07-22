@@ -25,7 +25,7 @@ import '../../state/providers.dart';
 import '../chat/cancelable_download_progress.dart';
 import '../chat/video_player_screen.dart';
 
-typedef SpacePostMediaPickResult = ({List<MediaObjectRef> media, int rejected});
+typedef SpacePostMediaPickResult = ({List<MediaObject> media, int rejected});
 
 String spacePostMediaKind(String name) {
   if (isImageFileName(name)) return 'image';
@@ -82,14 +82,14 @@ Future<SpacePostMediaPickResult> pickAndRegisterSpacePostMedia(
   required int remaining,
 }) async {
   if (remaining <= 0) {
-    return (media: const <MediaObjectRef>[], rejected: 0);
+    return (media: const <MediaObject>[], rejected: 0);
   }
   final picked = await FilePicker.pickFiles(allowMultiple: true);
   if (picked == null) {
-    return (media: const <MediaObjectRef>[], rejected: 0);
+    return (media: const <MediaObject>[], rejected: 0);
   }
   final messaging = ref.read(messagingServiceProvider);
-  final media = <MediaObjectRef>[];
+  final media = <MediaObject>[];
   var rejected = picked.files.length > remaining
       ? picked.files.length - remaining
       : 0;
@@ -146,7 +146,7 @@ Future<SpacePostMediaPickResult> pickAndRegisterSpacePostMedia(
       rejected++;
       continue;
     }
-    final reference = MediaObjectRef(
+    final reference = MediaObject(
       contentId: contentId,
       kind: spacePostMediaKind(file.name),
       name: file.name,
@@ -208,7 +208,7 @@ class _SpacePostMediaTile extends ConsumerStatefulWidget {
 
   final NodeId spaceId;
   final NodeId author;
-  final MediaObjectRef media;
+  final MediaObject media;
   final bool compact;
 
   @override
@@ -221,7 +221,7 @@ class _SpacePostMediaTileState extends ConsumerState<_SpacePostMediaTile> {
   bool _loadingImage = false;
   bool _imageReadAttempted = false;
   bool _busy = false;
-  String get _cid => widget.media.contentId;
+  String get _cid => widget.media.contentId!;
 
   @override
   void initState() {

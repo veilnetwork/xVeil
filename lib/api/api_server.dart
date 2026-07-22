@@ -26,12 +26,12 @@ bool _validFeedCursor(String value) => SpaceFeedCursor.decode(value) != null;
 bool _validPostId(String value) =>
     RegExp(r'^[0-9a-f]{64}:[0-9]+$').hasMatch(value);
 
-List<MediaObjectRef>? _spacePostMedia(Object? value, {bool optional = false}) {
-  if (value == null) return optional ? null : const <MediaObjectRef>[];
+List<MediaObject>? _spacePostMedia(Object? value, {bool optional = false}) {
+  if (value == null) return optional ? null : const <MediaObject>[];
   if (value is! List || value.length > kSpacePostMediaMax) return null;
   final media = value
-      .map(MediaObjectRef.fromJson)
-      .whereType<MediaObjectRef>()
+      .map(MediaObject.fromReferenceJson)
+      .whereType<MediaObject>()
       .toList(growable: false);
   if (media.length != value.length ||
       media.map((item) => item.contentId).toSet().length != media.length) {
@@ -77,6 +77,20 @@ Map<String, dynamic> openApiSpec() {
     },
   };
   const obj = 'object';
+  final mediaObjectSchema = <String, dynamic>{
+    'type': obj,
+    'required': ['cid', 'kind'],
+    'properties': {
+      'cid': {'type': 'string', 'pattern': r'^[0-9a-f]{64}$'},
+      'kind': {'type': 'string', 'maxLength': 32},
+      'name': {'type': 'string', 'maxLength': 255},
+      'mime': {'type': 'string', 'maxLength': 128},
+      'size': {'type': 'integer', 'format': 'int64', 'minimum': 1},
+      'width': {'type': 'integer', 'minimum': 1},
+      'height': {'type': 'integer', 'minimum': 1},
+      'duration': {'type': 'integer', 'format': 'int64', 'minimum': 0},
+    },
+  };
   return {
     'openapi': '3.0.3',
     'info': {
@@ -203,19 +217,13 @@ Map<String, dynamic> openApiSpec() {
             },
           },
         },
+        'MediaObject': mediaObjectSchema,
         'MediaObjectRef': {
-          'type': obj,
-          'required': ['cid', 'kind'],
-          'properties': {
-            'cid': {'type': 'string', 'pattern': r'^[0-9a-f]{64}$'},
-            'kind': {'type': 'string', 'maxLength': 32},
-            'name': {'type': 'string', 'maxLength': 255},
-            'mime': {'type': 'string', 'maxLength': 128},
-            'size': {'type': 'integer', 'format': 'int64', 'minimum': 1},
-            'width': {'type': 'integer', 'minimum': 1},
-            'height': {'type': 'integer', 'minimum': 1},
-            'duration': {'type': 'integer', 'format': 'int64', 'minimum': 0},
-          },
+          'deprecated': true,
+          'description': 'Compatibility schema name; use MediaObject.',
+          'allOf': [
+            {r'$ref': '#/components/schemas/MediaObject'},
+          ],
         },
         'SpacePost': {
           'type': obj,
@@ -258,7 +266,7 @@ Map<String, dynamic> openApiSpec() {
             'media': {
               'type': 'array',
               'maxItems': kSpacePostMediaMax,
-              'items': {r'$ref': '#/components/schemas/MediaObjectRef'},
+              'items': {r'$ref': '#/components/schemas/MediaObject'},
             },
           },
         },
@@ -791,7 +799,7 @@ Map<String, dynamic> openApiSpec() {
                     'media': {
                       'type': 'array',
                       'maxItems': kSpacePostMediaMax,
-                      'items': {r'$ref': '#/components/schemas/MediaObjectRef'},
+                      'items': {r'$ref': '#/components/schemas/MediaObject'},
                     },
                   },
                 },
@@ -828,7 +836,7 @@ Map<String, dynamic> openApiSpec() {
                     'media': {
                       'type': 'array',
                       'maxItems': kSpacePostMediaMax,
-                      'items': {r'$ref': '#/components/schemas/MediaObjectRef'},
+                      'items': {r'$ref': '#/components/schemas/MediaObject'},
                     },
                   },
                 },
@@ -894,7 +902,7 @@ Map<String, dynamic> openApiSpec() {
                   'media': {
                     'type': 'array',
                     'maxItems': kSpacePostMediaMax,
-                    'items': {r'$ref': '#/components/schemas/MediaObjectRef'},
+                    'items': {r'$ref': '#/components/schemas/MediaObject'},
                   },
                 },
               },
@@ -928,7 +936,7 @@ Map<String, dynamic> openApiSpec() {
                     'media': {
                       'type': 'array',
                       'maxItems': kSpacePostMediaMax,
-                      'items': {r'$ref': '#/components/schemas/MediaObjectRef'},
+                      'items': {r'$ref': '#/components/schemas/MediaObject'},
                     },
                   },
                 },
@@ -2472,7 +2480,7 @@ class ApiHandler {
     String title,
     String body,
     String type,
-    List<MediaObjectRef> media,
+    List<MediaObject> media,
   )?
   saveSpacePostDraft;
   final Future<String?> Function(String spaceHex)? clearSpacePostDraft;
@@ -2494,7 +2502,7 @@ class ApiHandler {
     String title,
     String body,
     String type,
-    List<MediaObjectRef> media,
+    List<MediaObject> media,
   )?
   publishSpacePost;
   final Future<({String? error, Map<String, dynamic>? post})> Function(
@@ -2503,7 +2511,7 @@ class ApiHandler {
     String title,
     String body,
     String? type,
-    List<MediaObjectRef>? media,
+    List<MediaObject>? media,
   )?
   editSpacePost;
   final Future<String?> Function(String spaceHex, String postId)?
