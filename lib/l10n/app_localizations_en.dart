@@ -349,6 +349,40 @@ class AppL10nEn extends AppL10n {
       'Only hides local history; it never deletes content for other members.';
 
   @override
+  String get spaceActiveTitle => 'Community is active';
+
+  @override
+  String get spaceActiveHint =>
+      'Members can publish, write in channels, and join voice rooms.';
+
+  @override
+  String get spaceArchivedTitle => 'Community is archived';
+
+  @override
+  String get spaceArchivedHint =>
+      'History remains readable, but messages, posts, reactions, voice rooms, and settings are read-only.';
+
+  @override
+  String get spaceArchiveTitle => 'Archive community?';
+
+  @override
+  String get spaceArchiveConfirm =>
+      'This creates an owner-signed boundary and makes the community read-only on every device. You can restore it later.';
+
+  @override
+  String get spaceArchiveAction => 'Archive';
+
+  @override
+  String get spaceRestoreTitle => 'Restore community?';
+
+  @override
+  String get spaceRestoreConfirm =>
+      'New content will start in a fresh signed lifecycle epoch. Archived history remains available.';
+
+  @override
+  String get spaceRestoreAction => 'Restore';
+
+  @override
   String spaceMembers(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

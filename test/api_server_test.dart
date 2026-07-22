@@ -21,6 +21,7 @@ void main() {
   final spaceInviteDecisions = <(String, bool)>[];
   final spaceCreates = <(String, String, String)>[];
   final spaceDescriptions = <(String, String)>[];
+  final spaceLifecycleActions = <(String, String)>[];
   final spaceRetentionUpdates = <(String, int?, bool)>[];
   final spaceRulesPublications = <(String, String, String, int?)>[];
   final spaceRulesAcceptances = <String>[];
@@ -51,6 +52,7 @@ void main() {
     spaceInviteDecisions.clear();
     spaceCreates.clear();
     spaceDescriptions.clear();
+    spaceLifecycleActions.clear();
     spaceRetentionUpdates.clear();
     spaceRulesPublications.clear();
     spaceRulesAcceptances.clear();
@@ -279,6 +281,19 @@ void main() {
       updateSpaceDescription: (space, description) async {
         if (space == 'denied') return 'operation rejected by space policy';
         spaceDescriptions.add((space, description));
+        return null;
+      },
+      spaceLifecycle: (space) async => space == 'missing'
+          ? null
+          : {
+              'spaceId': space,
+              'state': 'archived',
+              'canArchive': false,
+              'canRestore': true,
+            },
+      setSpaceLifecycle: (space, action) async {
+        if (space == 'denied') return 'operation rejected by space policy';
+        spaceLifecycleActions.add((space, action));
         return null;
       },
       spaceRetention: (space) async => space == 'missing'
@@ -909,6 +924,33 @@ void main() {
         200,
       );
       expect(spaceDescriptions.single, ('aa', 'Updated summary'));
+
+      final lifecycle = await h.handle(
+        'GET',
+        u('/v1/spaces/lifecycle?space=aa'),
+        auth,
+      );
+      expect(lifecycle.status, 200);
+      expect((lifecycle.body as Map)['state'], 'archived');
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/lifecycle'),
+          auth,
+          body: {'space': 'aa', 'action': 'restore'},
+        )).status,
+        200,
+      );
+      expect(spaceLifecycleActions.single, ('aa', 'restore'));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/lifecycle'),
+          auth,
+          body: {'space': 'aa', 'action': 'delete'},
+        )).status,
+        400,
+      );
 
       final retention = await h.handle(
         'GET',
@@ -2128,6 +2170,7 @@ void main() {
           '/messages',
           '/spaces',
           '/spaces/profile',
+          '/spaces/lifecycle',
           '/spaces/retention',
           '/spaces/rules',
           '/spaces/rules/accept',
