@@ -402,6 +402,24 @@ class AppL10nEn extends AppL10n {
   String get spacePostCommentReply => 'Reply';
 
   @override
+  String get spacePostCommentEdit => 'Edit';
+
+  @override
+  String get spacePostCommentEditing => 'Editing comment';
+
+  @override
+  String get spacePostCommentCancelEdit => 'Cancel editing';
+
+  @override
+  String get spacePostCommentSaveEdit => 'Save changes';
+
+  @override
+  String get spacePostCommentEdited => 'edited';
+
+  @override
+  String get spacePostCommentEditFailed => 'Could not save the comment changes';
+
+  @override
   String spacePostCommentReplyingTo(String author) {
     return 'Replying to $author';
   }

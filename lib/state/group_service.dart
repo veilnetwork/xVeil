@@ -4954,6 +4954,32 @@ class GroupService {
     );
   }
 
+  /// Append an encrypted immutable revision for one of our own comments.
+  /// The original row remains the stable reply target and audit record.
+  Future<bool> editSpacePostComment(
+    NodeId spaceId,
+    String postId,
+    String commentRef,
+    String body, {
+    bool broadcast = true,
+  }) {
+    final normalized = body.trim();
+    if (!_spacePostIdPattern.hasMatch(commentRef) ||
+        utf8.encode(normalized).length > kSpacePostCommentMaxBytes) {
+      return Future.value(false);
+    }
+    return _serialized(
+      spaceId,
+      () => _postMessage(
+        spaceId,
+        normalized,
+        spacePostId: postId,
+        editOf: commentRef,
+        broadcast: broadcast,
+      ),
+    );
+  }
+
   Future<bool> _postMessage(
     NodeId groupId,
     String body, {
@@ -4961,11 +4987,23 @@ class GroupService {
     String? spacePostId,
     MediaObject? attachment,
     String? replyTo,
+    String? editOf,
     List<InlineCustomEmoji> customEmoji = const [],
     bool broadcast = true,
   }) async {
     if (!isValidInlineCustomEmoji(body, customEmoji)) return false;
-    if (spacePostId != null && body.trim().isEmpty && attachment == null) {
+    if (editOf != null &&
+        (spacePostId == null ||
+            !_spacePostIdPattern.hasMatch(editOf) ||
+            attachment != null ||
+            replyTo != null ||
+            customEmoji.isNotEmpty)) {
+      return false;
+    }
+    if (spacePostId != null &&
+        editOf == null &&
+        body.trim().isEmpty &&
+        attachment == null) {
       return false;
     }
     final b = await load(groupId);
@@ -4996,12 +5034,22 @@ class GroupService {
                 !attachment.isReferenceStructurallyValid)) {
           return false;
         }
+        final comments = replyTo == null && editOf == null
+            ? const <SpacePostCommentView>[]
+            : await spacePostCommentsOf(groupId, spacePostId);
         if (replyTo != null) {
           if (!_spacePostIdPattern.hasMatch(replyTo) ||
-              !(await spacePostCommentsOf(
-                groupId,
-                spacePostId,
-              )).any((comment) => comment.ref == replyTo)) {
+              !comments.any((comment) => comment.ref == replyTo)) {
+            return false;
+          }
+        }
+        if (editOf != null) {
+          final target = comments
+              .where((comment) => comment.ref == editOf)
+              .firstOrNull;
+          if (target == null ||
+              target.author != _signer.selfId ||
+              (body.trim().isEmpty && target.attachment == null)) {
             return false;
           }
         }
@@ -5167,6 +5215,7 @@ class GroupService {
         body: body,
         attachment: attachment,
         replyTo: replyTo,
+        editOf: editOf,
         customEmoji: customEmoji,
       ).encode();
       try {
@@ -5214,6 +5263,7 @@ class GroupService {
         signature: Uint8List(0),
         attachment: attachment,
         replyTo: replyTo,
+        editOf: editOf,
         customEmoji: customEmoji,
         version: lifecycleGeneration == null ? 1 : 4,
         lifecycleGeneration: lifecycleGeneration,
@@ -8200,7 +8250,7 @@ class GroupService {
     return out;
   }
 
-  Future<List<GroupMessage>> spacePostCommentsOf(
+  Future<List<SpacePostCommentView>> spacePostCommentsOf(
     NodeId spaceId,
     String postId, {
     bool applyLocalRetention = true,
@@ -8213,10 +8263,34 @@ class GroupService {
       spacePostId: postId,
       applyLocalRetention: applyLocalRetention,
     );
-    final refs = {for (final comment in comments) comment.ref};
-    return [
+    final roots = [
       for (final comment in comments)
-        if (comment.replyTo == null || refs.contains(comment.replyTo)) comment,
+        if (comment.editOf == null) comment,
+    ];
+    final byRef = {for (final comment in roots) comment.ref: comment};
+    final revisions = <String, GroupMessage>{};
+    for (final revision in comments.where(
+      (comment) => comment.editOf != null,
+    )) {
+      final target = byRef[revision.editOf];
+      if (target == null ||
+          revision.author != target.author ||
+          revision.seq <= target.seq ||
+          revision.attachment != null ||
+          revision.replyTo != null ||
+          (revision.body.trim().isEmpty && target.attachment == null)) {
+        continue;
+      }
+      final current = revisions[target.ref];
+      if (current == null || revision.seq > current.seq) {
+        revisions[target.ref] = revision;
+      }
+    }
+    final refs = byRef.keys.toSet();
+    return [
+      for (final comment in roots)
+        if (comment.replyTo == null || refs.contains(comment.replyTo))
+          SpacePostCommentView(root: comment, revision: revisions[comment.ref]),
     ];
   }
 
@@ -9453,7 +9527,7 @@ class GroupService {
         if (materialized != null) {
           if (materialized.spacePostId == null) {
             _incomingCtl.add((groupId: man.groupId, message: materialized));
-          } else {
+          } else if (materialized.editOf == null) {
             _incomingCommentCtl.add((
               spaceId: man.groupId,
               message: materialized,

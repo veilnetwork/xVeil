@@ -817,6 +817,42 @@ abstract class AppL10n {
   /// **'Reply'**
   String get spacePostCommentReply;
 
+  /// No description provided for @spacePostCommentEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get spacePostCommentEdit;
+
+  /// No description provided for @spacePostCommentEditing.
+  ///
+  /// In en, this message translates to:
+  /// **'Editing comment'**
+  String get spacePostCommentEditing;
+
+  /// No description provided for @spacePostCommentCancelEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel editing'**
+  String get spacePostCommentCancelEdit;
+
+  /// No description provided for @spacePostCommentSaveEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Save changes'**
+  String get spacePostCommentSaveEdit;
+
+  /// No description provided for @spacePostCommentEdited.
+  ///
+  /// In en, this message translates to:
+  /// **'edited'**
+  String get spacePostCommentEdited;
+
+  /// No description provided for @spacePostCommentEditFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the comment changes'**
+  String get spacePostCommentEditFailed;
+
   /// No description provided for @spacePostCommentReplyingTo.
   ///
   /// In en, this message translates to:

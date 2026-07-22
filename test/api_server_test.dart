@@ -26,6 +26,7 @@ void main() {
   final spacePostDraftMedia = <List<Map<String, dynamic>>>[];
   final spacePostDraftClears = <String>[];
   final spacePostCommentWrites = <(String, String, String, String?, String?)>[];
+  final spacePostCommentEdits = <(String, String, String, String)>[];
   final spaceRecommendationShares = <(String, String, String)>[];
   final subscriptions = <(String, bool)>[];
   final subscriptionUpdates = <(String, bool?, bool?, bool?)>[];
@@ -71,6 +72,7 @@ void main() {
     spacePostDraftMedia.clear();
     spacePostDraftClears.clear();
     spacePostCommentWrites.clear();
+    spacePostCommentEdits.clear();
     localSpacePostDraft = null;
     spaceRecommendationShares.clear();
     subscriptions.clear();
@@ -281,6 +283,11 @@ void main() {
           replyTo,
           media?.contentId,
         ));
+        return null;
+      },
+      editSpacePostComment: (space, postId, commentId, body) async {
+        if (space == 'denied') return 'comment edit rejected';
+        spacePostCommentEdits.add((space, postId, commentId, body));
         return null;
       },
       publishSpacePost: (space, title, body, type, media) async {
@@ -1739,6 +1746,40 @@ void main() {
         replyTo,
         null,
       ));
+      expect(
+        (await h.handle(
+          'PATCH',
+          u('/v1/spaces/posts/comments'),
+          auth,
+          body: {
+            'space': 'aa',
+            'postId': postId,
+            'commentId': replyTo,
+            'body': '  Corrected discussion  ',
+          },
+        )).status,
+        200,
+      );
+      expect(spacePostCommentEdits.single, (
+        'aa',
+        postId,
+        replyTo,
+        'Corrected discussion',
+      ));
+      expect(
+        (await h.handle(
+          'PATCH',
+          u('/v1/spaces/posts/comments'),
+          auth,
+          body: {
+            'space': 'aa',
+            'postId': postId,
+            'commentId': 'bad',
+            'body': 'x',
+          },
+        )).status,
+        400,
+      );
       final commentMedia = {
         'cid': 'd' * 64,
         'kind': 'image',
@@ -2854,6 +2895,7 @@ void main() {
       expect((pathMap['/spaces/posts/comments'] as Map).keys.toSet(), {
         'get',
         'post',
+        'patch',
       });
       final commentRequest =
           (((((pathMap['/spaces/posts/comments'] as Map)['post']
@@ -2867,6 +2909,19 @@ void main() {
         ((commentRequest['properties'] as Map)['media'] as Map)[r'$ref'],
         '#/components/schemas/MediaObject',
       );
+      final commentEditRequest =
+          (((((pathMap['/spaces/posts/comments'] as Map)['patch']
+                              as Map)['requestBody']
+                          as Map)['content']
+                      as Map)['application/json']
+                  as Map)['schema']
+              as Map;
+      expect(commentEditRequest['required'], [
+        'space',
+        'postId',
+        'commentId',
+        'body',
+      ]);
       expect((pathMap['/spaces/channels'] as Map).keys.toSet(), {
         'get',
         'post',
@@ -2892,6 +2947,13 @@ void main() {
             as Map)[r'$ref'],
         '#/components/schemas/MediaObject',
       );
+      final groupMessageProperties =
+          (schemas['GroupMessage'] as Map)['properties'] as Map;
+      expect(groupMessageProperties['edited'], {'type': 'boolean'});
+      expect(groupMessageProperties['updatedAt'], {
+        'type': 'integer',
+        'format': 'int64',
+      });
       expect((schemas['MediaObjectRef'] as Map)['deprecated'], isTrue);
       // The security scheme is declared so generated clients wire the token.
       expect(

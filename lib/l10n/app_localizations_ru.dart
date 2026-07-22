@@ -405,6 +405,25 @@ class AppL10nRu extends AppL10n {
   String get spacePostCommentReply => 'Ответить';
 
   @override
+  String get spacePostCommentEdit => 'Изменить';
+
+  @override
+  String get spacePostCommentEditing => 'Редактирование комментария';
+
+  @override
+  String get spacePostCommentCancelEdit => 'Отменить редактирование';
+
+  @override
+  String get spacePostCommentSaveEdit => 'Сохранить изменения';
+
+  @override
+  String get spacePostCommentEdited => 'изменено';
+
+  @override
+  String get spacePostCommentEditFailed =>
+      'Не удалось сохранить изменения комментария';
+
+  @override
   String spacePostCommentReplyingTo(String author) {
     return 'Ответ для $author';
   }

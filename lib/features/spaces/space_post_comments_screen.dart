@@ -41,8 +41,12 @@ class _SpacePostCommentsScreenState
   GroupService? _boundService;
   NodeId? _boundSpaceId;
   Future<_CommentsProjection>? _projection;
-  GroupMessage? _replyTo;
+  SpacePostCommentView? _replyTo;
+  SpacePostCommentView? _editing;
   MediaObject? _media;
+  String? _composerBeforeEdit;
+  SpacePostCommentView? _replyBeforeEdit;
+  MediaObject? _mediaBeforeEdit;
   bool _sending = false;
   bool _followAfterLoad = true;
   int _renderedCommentCount = -1;
@@ -84,7 +88,7 @@ class _SpacePostCommentsScreenState
         .where((item) => item.postId == widget.postId)
         .firstOrNull;
     final comments = post == null
-        ? const <GroupMessage>[]
+        ? const <SpacePostCommentView>[]
         : await service.spacePostCommentsOf(spaceId, widget.postId);
     return _CommentsProjection(state: state, post: post, comments: comments);
   }
@@ -120,7 +124,11 @@ class _SpacePostCommentsScreenState
 
   bool get _canSend =>
       !_sending &&
-      (_composer.text.trim().isNotEmpty || _media != null) &&
+      (_editing == null
+          ? _composer.text.trim().isNotEmpty || _media != null
+          : (_composer.text.trim().isNotEmpty ||
+                    _editing!.attachment != null) &&
+                _composer.text.trim() != _editing!.body) &&
       !_tooLong;
 
   Future<void> _pickMedia() async {
@@ -155,32 +163,88 @@ class _SpacePostCommentsScreenState
     final body = _composer.text.trim();
     if (service == null || spaceId == null || !_canSend) return;
     setState(() => _sending = true);
-    final sent = await service.commentOnSpacePost(
-      spaceId,
-      widget.postId,
-      body,
-      replyTo: _replyTo?.ref,
-      media: _media,
-    );
+    final editing = _editing;
+    final sent = editing == null
+        ? await service.commentOnSpacePost(
+            spaceId,
+            widget.postId,
+            body,
+            replyTo: _replyTo?.ref,
+            media: _media,
+          )
+        : await service.editSpacePostComment(
+            spaceId,
+            widget.postId,
+            editing.ref,
+            body,
+          );
     if (!mounted) return;
     if (sent) {
-      _composer.clear();
-      _replyTo = null;
-      _media = null;
+      if (editing == null) {
+        _composer.clear();
+        _replyTo = null;
+        _media = null;
+      } else {
+        _restoreComposerAfterEdit();
+      }
       _followAfterLoad = true;
       _projection = _load(service, spaceId);
     }
     setState(() => _sending = false);
     if (!sent) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppL10n.of(context).spacePostCommentFailed)),
+        SnackBar(
+          content: Text(
+            editing == null
+                ? AppL10n.of(context).spacePostCommentFailed
+                : AppL10n.of(context).spacePostCommentEditFailed,
+          ),
+        ),
       );
     }
   }
 
-  void _reply(GroupMessage comment) {
-    setState(() => _replyTo = comment);
+  void _reply(SpacePostCommentView comment) {
+    setState(() {
+      if (_editing != null) _restoreComposerAfterEdit();
+      _replyTo = comment;
+    });
     _composerFocus.requestFocus();
+  }
+
+  void _edit(SpacePostCommentView comment) {
+    setState(() {
+      if (_editing == null) {
+        _composerBeforeEdit = _composer.text;
+        _replyBeforeEdit = _replyTo;
+        _mediaBeforeEdit = _media;
+      }
+      _replyTo = null;
+      _media = null;
+      _editing = comment;
+      _composer.text = comment.body;
+      _composer.selection = TextSelection.collapsed(
+        offset: _composer.text.length,
+      );
+    });
+    _composerFocus.requestFocus();
+  }
+
+  void _cancelEdit() {
+    setState(_restoreComposerAfterEdit);
+  }
+
+  void _restoreComposerAfterEdit() {
+    _editing = null;
+    _composer.text = _composerBeforeEdit ?? '';
+    _composer.selection = TextSelection.collapsed(
+      offset: _composer.text.length,
+    );
+    _replyTo = _replyBeforeEdit;
+    _media = _mediaBeforeEdit;
+    _composerBeforeEdit = null;
+    _replyBeforeEdit = null;
+    _mediaBeforeEdit = null;
   }
 
   void _goBack() {
@@ -305,6 +369,9 @@ class _SpacePostCommentsScreenState
                             repliedComment: byRef[comment.replyTo],
                             isSelf: comment.author == service.selfId,
                             onReply: canWrite ? () => _reply(comment) : null,
+                            onEdit: canWrite && comment.author == service.selfId
+                                ? () => _edit(comment)
+                                : null,
                           );
                         },
                       ),
@@ -315,12 +382,14 @@ class _SpacePostCommentsScreenState
                       controller: _composer,
                       focusNode: _composerFocus,
                       replyTo: _replyTo,
+                      editing: _editing,
                       media: _media,
                       sending: _sending,
                       canSend: _canSend,
                       tooLong: _tooLong,
                       onChanged: () => setState(() {}),
                       onCancelReply: () => setState(() => _replyTo = null),
+                      onCancelEdit: _cancelEdit,
                       onPickMedia: _pickMedia,
                       onRemoveMedia: () => setState(() => _media = null),
                       onSend: _send,
@@ -362,7 +431,7 @@ class _CommentsProjection {
 
   final GroupState? state;
   final SpacePostView? post;
-  final List<GroupMessage> comments;
+  final List<SpacePostCommentView> comments;
 }
 
 class _PublicationHeader extends StatelessWidget {
@@ -418,13 +487,15 @@ class _CommentBubble extends StatelessWidget {
     required this.repliedComment,
     required this.isSelf,
     required this.onReply,
+    required this.onEdit,
   });
 
   final NodeId spaceId;
-  final GroupMessage comment;
-  final GroupMessage? repliedComment;
+  final SpacePostCommentView comment;
+  final SpacePostCommentView? repliedComment;
   final bool isSelf;
   final VoidCallback? onReply;
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -462,6 +533,15 @@ class _CommentBubble extends StatelessWidget {
                       color: colors.onSurfaceVariant,
                     ),
                   ),
+                  if (comment.edited) ...[
+                    const SizedBox(width: 6),
+                    Text(
+                      l.spacePostCommentEdited,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ],
               ),
               if (repliedComment != null) ...[
@@ -498,17 +578,37 @@ class _CommentBubble extends StatelessWidget {
                   media: [comment.attachment!],
                   compact: true,
                 ),
-              if (onReply != null)
+              if (onReply != null || onEdit != null)
                 Align(
                   alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    key: ValueKey('space-post-comment-reply-${comment.ref}'),
-                    onPressed: onReply,
-                    icon: const Icon(Icons.reply, size: 16),
-                    label: Text(l.spacePostCommentReply),
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                    ),
+                  child: Wrap(
+                    spacing: 4,
+                    children: [
+                      if (onEdit != null)
+                        TextButton.icon(
+                          key: ValueKey(
+                            'space-post-comment-edit-${comment.ref}',
+                          ),
+                          onPressed: onEdit,
+                          icon: const Icon(Icons.edit_outlined, size: 16),
+                          label: Text(l.spacePostCommentEdit),
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                      if (onReply != null)
+                        TextButton.icon(
+                          key: ValueKey(
+                            'space-post-comment-reply-${comment.ref}',
+                          ),
+                          onPressed: onReply,
+                          icon: const Icon(Icons.reply, size: 16),
+                          label: Text(l.spacePostCommentReply),
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
             ],
@@ -524,12 +624,14 @@ class _Composer extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.replyTo,
+    required this.editing,
     required this.media,
     required this.sending,
     required this.canSend,
     required this.tooLong,
     required this.onChanged,
     required this.onCancelReply,
+    required this.onCancelEdit,
     required this.onPickMedia,
     required this.onRemoveMedia,
     required this.onSend,
@@ -537,13 +639,15 @@ class _Composer extends StatelessWidget {
 
   final TextEditingController controller;
   final FocusNode focusNode;
-  final GroupMessage? replyTo;
+  final SpacePostCommentView? replyTo;
+  final SpacePostCommentView? editing;
   final MediaObject? media;
   final bool sending;
   final bool canSend;
   final bool tooLong;
   final VoidCallback onChanged;
   final VoidCallback onCancelReply;
+  final VoidCallback onCancelEdit;
   final VoidCallback onPickMedia;
   final VoidCallback onRemoveMedia;
   final VoidCallback onSend;
@@ -582,6 +686,21 @@ class _Composer extends StatelessWidget {
                     ),
                   ],
                 ),
+              if (editing != null)
+                Row(
+                  children: [
+                    const Icon(Icons.edit_outlined, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(l.spacePostCommentEditing)),
+                    IconButton(
+                      key: const ValueKey('space-post-comment-cancel-edit'),
+                      tooltip: l.spacePostCommentCancelEdit,
+                      visualDensity: VisualDensity.compact,
+                      onPressed: sending ? null : onCancelEdit,
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
               if (media != null)
                 Align(
                   alignment: Alignment.centerLeft,
@@ -605,7 +724,9 @@ class _Composer extends StatelessWidget {
                   IconButton(
                     key: const ValueKey('space-post-comment-attach'),
                     tooltip: l.spacePostMediaAttach,
-                    onPressed: sending || media != null ? null : onPickMedia,
+                    onPressed: sending || media != null || editing != null
+                        ? null
+                        : onPickMedia,
                     icon: const Icon(Icons.attach_file),
                   ),
                   const SizedBox(width: 4),
@@ -630,14 +751,16 @@ class _Composer extends StatelessWidget {
                   const SizedBox(width: 8),
                   IconButton.filled(
                     key: const ValueKey('space-post-comment-send'),
-                    tooltip: l.spacePostCommentSend,
+                    tooltip: editing == null
+                        ? l.spacePostCommentSend
+                        : l.spacePostCommentSaveEdit,
                     onPressed: canSend ? onSend : null,
                     icon: sending
                         ? const SizedBox.square(
                             dimension: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.send),
+                        : Icon(editing == null ? Icons.send : Icons.check),
                   ),
                 ],
               ),
@@ -656,7 +779,7 @@ String _preview(String value) {
       : '${normalized.substring(0, 117)}…';
 }
 
-String _commentPreview(GroupMessage comment) {
+String _commentPreview(SpacePostCommentView comment) {
   final body = _preview(comment.body);
   if (body.isNotEmpty) return body;
   return comment.attachment?.name ?? comment.attachment?.kind ?? '';

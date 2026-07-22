@@ -161,6 +161,38 @@ void main() {
     );
   });
 
+  test('comment edit cleartext is a strict metadata-only v3 revision', () {
+    final target = '${_id(4).hex}:7';
+    final encoded = GroupMessageCleartext(
+      body: 'corrected',
+      editOf: target,
+    ).encode();
+    final wire = jsonDecode(utf8.decode(encoded)) as Map;
+    expect(wire, {'v': 3, 'body': 'corrected', 'edit': target});
+
+    final decoded = GroupMessageCleartext.decode(encoded);
+    expect(decoded?.body, 'corrected');
+    expect(decoded?.editOf, target);
+    expect(decoded?.attachment, isNull);
+    expect(decoded?.replyTo, isNull);
+
+    expect(
+      GroupMessageCleartext.decode(
+        Uint8List.fromList(
+          utf8.encode(
+            jsonEncode({
+              'v': 3,
+              'body': 'forged',
+              'edit': target,
+              'rt': '${_id(3).hex}:1',
+            }),
+          ),
+        ),
+      ),
+      isNull,
+    );
+  });
+
   test(
     'v2 stores only authenticated ciphertext and materializes in RAM',
     () async {
