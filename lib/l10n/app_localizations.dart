@@ -637,6 +637,36 @@ abstract class AppL10n {
   /// **'Edited'**
   String get spacePostEdited;
 
+  /// No description provided for @spacePostPin.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin'**
+  String get spacePostPin;
+
+  /// No description provided for @spacePostUnpin.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin'**
+  String get spacePostUnpin;
+
+  /// No description provided for @spacePostPinned.
+  ///
+  /// In en, this message translates to:
+  /// **'Pinned'**
+  String get spacePostPinned;
+
+  /// No description provided for @feedPinnedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pinned'**
+  String get feedPinnedTitle;
+
+  /// No description provided for @feedRecentTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent'**
+  String get feedRecentTitle;
+
   /// No description provided for @spacePostDelete.
   ///
   /// In en, this message translates to:

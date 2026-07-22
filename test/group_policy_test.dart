@@ -820,6 +820,67 @@ void main() {
     },
   );
 
+  test('Space post pin V12 is strict, admin-only and folds by root id', () {
+    final spaceId = _id(7);
+    final pin = SpacePostPin(
+      spaceId: spaceId,
+      postAuthor: _bob,
+      postSeq: 4,
+      rootHash: 'ab' * 32,
+      pinned: true,
+      changedAtMs: 1200,
+    );
+    final entry = ControlEntry(
+      version: 12,
+      groupId: spaceId,
+      author: _owner,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.setPostPin,
+      target: null,
+      role: null,
+      postPin: pin,
+      policyVersion: 0,
+      createdAtMs: 1200,
+      signature: Uint8List(64),
+      authorPubKey: Uint8List(32),
+    );
+
+    expect(entry.isStructurallyValid, isTrue);
+    expect(ControlEntry.fromJson(entry.toJson())?.postPin?.postId, pin.postId);
+    final folded = foldControlLog(owner: _owner, entries: [entry], verify: _ok);
+    expect(folded.rejected, isEmpty);
+    expect(folded.state.postPinFor(pin.postId)?.pinned, isTrue);
+    expect(
+      canApply(authorRole: GroupRole.admin, op: ControlOp.setPostPin),
+      isTrue,
+    );
+    expect(
+      canApply(authorRole: GroupRole.member, op: ControlOp.setPostPin),
+      isFalse,
+    );
+
+    final extraPayload = {...pin.toJson(), 'unexpected': true};
+    expect(SpacePostPin.fromJson(extraPayload), isNull);
+    expect(
+      ControlEntry(
+        version: 11,
+        groupId: spaceId,
+        author: _owner,
+        seq: 0,
+        prevHash: '',
+        op: ControlOp.setPostPin,
+        target: null,
+        role: null,
+        postPin: pin,
+        policyVersion: 0,
+        createdAtMs: 1200,
+        signature: Uint8List(64),
+      ).isStructurallyValid,
+      isFalse,
+    );
+  });
+
   test('withSignature fills sig + pubKey, leaving canonicalBytes stable', () {
     final unsigned = _e(
       _owner,

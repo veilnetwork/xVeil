@@ -106,14 +106,24 @@ void main() {
       body: 'A post, not a channel message',
       broadcast: false,
     );
+    expect(
+      await service.setSpacePostPinned(spaceId, post!.postId, true),
+      isTrue,
+    );
 
     await tester.pumpWidget(_host(service, const SpaceFeedScreen()));
     await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(SpaceFeedScreen)));
+    expect(find.text(l.feedPinnedTitle), findsNWidgets(2));
     expect(find.text('Protocol lab'), findsOneWidget);
-    expect(find.text('Release'), findsOneWidget);
+    expect(
+      find.text('Release'),
+      findsOneWidget,
+      reason: 'pin must not duplicate',
+    );
     expect(find.text('A post, not a channel message'), findsOneWidget);
     await tester.tap(
-      find.byKey(ValueKey('space-post-add-reaction-${post!.postId}')),
+      find.byKey(ValueKey('space-post-add-reaction-${post.postId}')),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('👍'));
@@ -122,7 +132,6 @@ void main() {
     expect((await service.spacePostReactionsOf(spaceId))[post.postId]?['👍'], [
       _id(1),
     ]);
-    final l = AppL10n.of(tester.element(find.byType(SpaceFeedScreen)));
     await tester.tap(
       find.byKey(ValueKey('space-feed-post-menu-${post.postId}')),
     );
@@ -238,6 +247,15 @@ void main() {
     expect(find.text('Corrected update'), findsOneWidget);
     expect(find.text(l.spacePostEdited), findsOneWidget);
     expect((await service.load(spaceId))!.posts, hasLength(2));
+
+    await tester.ensureVisible(menu);
+    await tester.pumpAndSettle();
+    await tester.tap(menu);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.spacePostPin));
+    await tester.pumpAndSettle();
+    expect(find.text(l.spacePostPinned), findsOneWidget);
+    expect((await service.postsOf(spaceId)).single.pinned, isTrue);
 
     await tester.ensureVisible(menu);
     await tester.pumpAndSettle();

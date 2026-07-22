@@ -23,6 +23,7 @@ import 'group_epoch.dart';
 import 'space_channel.dart';
 import 'space_lifecycle.dart';
 import 'space_moderation.dart';
+import 'space_post.dart';
 import 'space_retention.dart';
 import 'space_rules.dart';
 
@@ -41,6 +42,7 @@ class GroupState {
     this.rulesAcceptances,
     this.moderationRecords,
     this.retentionHistory,
+    this.postPins,
     this.lifecycleState,
     this.lifecycleTransition,
     this.lifecycleTransitionHash,
@@ -90,6 +92,11 @@ class GroupState {
   /// expiry evaluation. A later relaxed policy cannot resurrect an item that
   /// expired while an earlier destructive revision was active.
   final List<SpaceRetentionRevision> retentionHistory;
+
+  /// Latest accepted community-wide pin state keyed by publication root id.
+  /// The payload also binds the exact root hash; materialization must verify it
+  /// before exposing a pin so a stale control row cannot attach to new content.
+  final Map<String, SpacePostPin> postPins;
 
   /// Signed Space lifecycle state. Group chats never author lifecycle ops and
   /// therefore remain [SpaceLifecycleState.active].
@@ -172,6 +179,7 @@ class GroupState {
   GroupMember? memberOf(NodeId id) => members[id.hex];
   bool isMember(NodeId id) => members.containsKey(id.hex);
   GroupRole? roleOf(NodeId id) => members[id.hex]?.role;
+  SpacePostPin? postPinFor(String postId) => postPins[postId];
 
   /// The initial state of a group: the owner (genesis) is the sole member.
   factory GroupState.genesis(NodeId owner, [String name = '']) => GroupState._(
@@ -187,6 +195,7 @@ class GroupState {
     const {},
     const {},
     const [],
+    const {},
     SpaceLifecycleState.active,
     null,
     null,
@@ -201,6 +210,7 @@ enum SpacePermission {
   distributeContent,
   publishMessages,
   publishPosts,
+  managePosts,
   enterVoice,
   manageMembers,
   manageRoles,
@@ -258,6 +268,7 @@ final class SpaceAcl {
       SpacePermission.view || SpacePermission.distributeContent => true,
       SpacePermission.publishMessages => !member.muted && !blocksMessages,
       SpacePermission.publishPosts => !member.muted && !blocksPosts,
+      SpacePermission.managePosts => member.role.rank >= GroupRole.admin.rank,
       SpacePermission.enterVoice => !blocksVoice,
       SpacePermission.manageMembers ||
       SpacePermission.manageRoles ||
@@ -296,6 +307,7 @@ final class SpaceAcl {
       case ControlOp.rotateEpoch:
       case ControlOp.createChannel:
       case ControlOp.updateChannel:
+      case ControlOp.setPostPin:
         return authorRole.rank >= GroupRole.admin.rank;
       case ControlOp.publishRules:
         return authorRole == GroupRole.owner;
@@ -394,6 +406,7 @@ GroupFoldResult foldControlLog({
   final rulesAcceptances = <String, SpaceRulesAcceptance>{};
   final moderationRecords = <String, SpaceModerationRecord>{};
   final retentionHistory = <SpaceRetentionRevision>[];
+  final postPins = <String, SpacePostPin>{};
   var lifecycleState = SpaceLifecycleState.active;
   SpaceLifecycleTransition? lifecycleTransition;
   String? lifecycleTransitionHash;
@@ -861,6 +874,9 @@ GroupFoldResult foldControlLog({
             authorSeq: e.seq,
           ),
         );
+      case ControlOp.setPostPin:
+        final pin = e.postPin!;
+        postPins[pin.postId] = pin;
       case ControlOp.archiveSpace:
       case ControlOp.deleteSpace:
       case ControlOp.restoreSpace:
@@ -1017,6 +1033,7 @@ GroupFoldResult foldControlLog({
       Map.unmodifiable(rulesAcceptances),
       Map.unmodifiable(moderationRecords),
       List.unmodifiable(retentionHistory),
+      Map.unmodifiable(postPins),
       lifecycleState,
       lifecycleTransition,
       lifecycleTransitionHash,

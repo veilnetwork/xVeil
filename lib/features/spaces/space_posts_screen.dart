@@ -171,6 +171,25 @@ class SpacePostsScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _setPinned(
+    BuildContext context,
+    WidgetRef ref,
+    NodeId spaceId,
+    SpacePostView post,
+    bool pinned,
+  ) async {
+    final updated =
+        await ref
+            .read(groupServiceProvider)
+            ?.setSpacePostPinned(spaceId, post.postId, pinned) ??
+        false;
+    if (!updated && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).spaceOperationFailed)),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
@@ -212,6 +231,16 @@ class SpacePostsScreen extends ConsumerWidget {
           final canModerate = SpaceAcl(
             state,
           ).allows(service.selfId, SpacePermission.moderate);
+          final canManagePosts = SpaceAcl(
+            state,
+          ).allows(service.selfId, SpacePermission.managePosts);
+          final displayPosts = [
+            ...posts.where((post) => !post.pinned),
+            ...posts.where((post) => post.pinned).toList()..sort(
+              (left, right) => (left.pinnedAtMs ?? left.publishedAtMs)
+                  .compareTo(right.pinnedAtMs ?? right.publishedAtMs),
+            ),
+          ];
           WidgetsBinding.instance.addPostFrameCallback((_) {
             unawaited(service.markSpaceFeedSeen(spaceId));
           });
@@ -244,10 +273,10 @@ class SpacePostsScreen extends ConsumerWidget {
                 : ListView.separated(
                     reverse: true,
                     padding: const EdgeInsets.only(top: 8, bottom: 96),
-                    itemCount: posts.length,
+                    itemCount: displayPosts.length,
                     separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, index) {
-                      final post = posts[index];
+                      final post = displayPosts[index];
                       return ListTile(
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 20,
@@ -257,6 +286,23 @@ class SpacePostsScreen extends ConsumerWidget {
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            if (post.pinned)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.push_pin, size: 14),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      l.spacePostPinned,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.labelSmall,
+                                    ),
+                                  ],
+                                ),
+                              ),
                             if (post.body.isNotEmpty) Text(post.body),
                             if (post.edited)
                               Padding(
@@ -284,7 +330,10 @@ class SpacePostsScreen extends ConsumerWidget {
                               ? Icons.article_outlined
                               : Icons.campaign_outlined,
                         ),
-                        trailing: post.author == service.selfId || canModerate
+                        trailing:
+                            post.author == service.selfId ||
+                                canModerate ||
+                                canManagePosts
                             ? PopupMenuButton<_PostAction>(
                                 key: ValueKey('space-post-menu-${post.postId}'),
                                 onSelected: (action) {
@@ -306,9 +355,40 @@ class SpacePostsScreen extends ConsumerWidget {
                                           post,
                                         ),
                                       );
+                                    case _PostAction.pin:
+                                      unawaited(
+                                        _setPinned(
+                                          context,
+                                          ref,
+                                          spaceId,
+                                          post,
+                                          true,
+                                        ),
+                                      );
+                                    case _PostAction.unpin:
+                                      unawaited(
+                                        _setPinned(
+                                          context,
+                                          ref,
+                                          spaceId,
+                                          post,
+                                          false,
+                                        ),
+                                      );
                                   }
                                 },
                                 itemBuilder: (_) => [
+                                  if (canManagePosts)
+                                    PopupMenuItem(
+                                      value: post.pinned
+                                          ? _PostAction.unpin
+                                          : _PostAction.pin,
+                                      child: Text(
+                                        post.pinned
+                                            ? l.spacePostUnpin
+                                            : l.spacePostPin,
+                                      ),
+                                    ),
                                   if (post.author == service.selfId) ...[
                                     PopupMenuItem(
                                       value: _PostAction.edit,
@@ -336,7 +416,7 @@ class SpacePostsScreen extends ConsumerWidget {
   }
 }
 
-enum _PostAction { edit, delete, moderateDelete }
+enum _PostAction { pin, unpin, edit, delete, moderateDelete }
 
 class _PostComposerDialog extends StatefulWidget {
   const _PostComposerDialog({

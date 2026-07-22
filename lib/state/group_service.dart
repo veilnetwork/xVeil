@@ -3757,6 +3757,7 @@ class GroupService {
     SpaceModerationRevocation? moderationRevocation,
     SpaceRetentionPolicy? retentionPolicy,
     SpaceLifecycleTransition? lifecycleTransition,
+    SpacePostPin? postPin,
     int? createdAtMs,
   }) async {
     final b = await load(groupId);
@@ -3768,6 +3769,7 @@ class GroupService {
             op == ControlOp.moderate ||
             op == ControlOp.revokeModeration ||
             op == ControlOp.setRetention ||
+            op == ControlOp.setPostPin ||
             op == ControlOp.archiveSpace ||
             op == ControlOp.deleteSpace ||
             op == ControlOp.restoreSpace) &&
@@ -3860,6 +3862,8 @@ class GroupService {
               ? lifecycleTransition.recoveryDeadlineMs == null
                     ? 10
                     : 11
+              : postPin != null
+              ? 12
               : retentionPolicy != null
               ? 9
               : moderationAction != null || moderationRevocation != null
@@ -3886,6 +3890,7 @@ class GroupService {
           moderationRevocation: moderationRevocation,
           retentionPolicy: retentionPolicy,
           lifecycleTransition: lifecycleTransition,
+          postPin: postPin,
           policyVersion: pv,
           createdAtMs: createdAt,
           signature: Uint8List(0),
@@ -5018,6 +5023,53 @@ class GroupService {
         null,
   );
 
+  /// Pin or unpin one exact visible publication for the whole community.
+  /// This is an admin control-log mutation, deliberately separate from the
+  /// author's edit chain so moderators can manage another member's post
+  /// without impersonating its author or rewriting its signed content.
+  Future<bool> setSpacePostPinned(NodeId spaceId, String postId, bool pinned) =>
+      _serialized(spaceId, () async {
+        if (!_spacePostIdPattern.hasMatch(postId)) return false;
+        final bundle = await load(spaceId);
+        if (bundle == null || !bundle.manifest.isSpace) return false;
+        final fold = foldControlLog(
+          owner: bundle.manifest.owner,
+          entries: bundle.control,
+          verify: (entry) => _validControlFor(bundle.manifest, entry),
+          initialName: bundle.manifest.name,
+          initialDescription: bundle.manifest.description ?? '',
+        );
+        if (!SpaceAcl(
+          fold.state,
+        ).allows(_signer.selfId, SpacePermission.managePosts)) {
+          return false;
+        }
+        SpacePostView? target;
+        for (final post in await _postsOfBundle(bundle)) {
+          if (post.postId == postId) {
+            target = post;
+            break;
+          }
+        }
+        if (target == null) return false;
+        if (target.pinned == pinned) return true;
+        final changedAt = _now();
+        final payload = SpacePostPin(
+          spaceId: spaceId,
+          postAuthor: target.author,
+          postSeq: target.seq,
+          rootHash: _spacePostHash(target.root),
+          pinned: pinned,
+          changedAtMs: changedAt,
+        );
+        return _addControlOp(
+          spaceId,
+          ControlOp.setPostPin,
+          postPin: payload,
+          createdAtMs: changedAt,
+        );
+      });
+
   Future<SpacePost?> _mutateSpacePost(
     NodeId spaceId,
     String postId, {
@@ -5928,6 +5980,7 @@ class GroupService {
         case ControlOp.archiveSpace:
         case ControlOp.deleteSpace:
         case ControlOp.restoreSpace:
+        case ControlOp.setPostPin:
         case ControlOp.checkpoint:
           break;
       }
@@ -5994,6 +6047,7 @@ class GroupService {
         case ControlOp.archiveSpace:
         case ControlOp.deleteSpace:
         case ControlOp.restoreSpace:
+        case ControlOp.setPostPin:
         case ControlOp.checkpoint:
           break;
       }
@@ -6233,25 +6287,30 @@ class GroupService {
         }
         if (!semanticValid) break;
       }
-      visiblePosts.addAll(
-        roots.entries
-            .where(
-              (entry) =>
-                  !deletedRoots.contains(entry.key) &&
-                  !state.isModeratedContentRemoved(
-                    kind: SpaceModerationReferenceKind.spacePost,
-                    author: entry.value.root.author,
-                    seq: entry.value.root.seq,
-                    atMs: readAt,
-                  ) &&
-                  !state.isRetentionExpired(
-                    createdAtMs: entry.value.root.createdAtMs,
-                    atMs: readAt,
-                  ) &&
-                  entry.value.root.createdAtMs > localCutoff,
-            )
-            .map((entry) => entry.value),
-      );
+      for (final entry in roots.entries) {
+        final view = entry.value;
+        final pin = state.postPinFor(view.postId);
+        final pinned =
+            pin?.pinned == true && pin!.rootHash == _spacePostHash(view.root);
+        if (deletedRoots.contains(entry.key) ||
+            state.isModeratedContentRemoved(
+              kind: SpaceModerationReferenceKind.spacePost,
+              author: view.root.author,
+              seq: view.root.seq,
+              atMs: readAt,
+            ) ||
+            (!pinned &&
+                state.isRetentionExpired(
+                  createdAtMs: view.root.createdAtMs,
+                  atMs: readAt,
+                )) ||
+            (!pinned && view.root.createdAtMs <= localCutoff)) {
+          continue;
+        }
+        visiblePosts.add(
+          view.withPin(pinned: pinned, pinnedAtMs: pin?.changedAtMs),
+        );
+      }
     }
     visiblePosts.sort((left, right) {
       final time = left.publishedAtMs.compareTo(right.publishedAtMs);
@@ -6525,6 +6584,7 @@ class GroupService {
     SpaceFeedCursor? before,
     int limit = 50,
     Set<SpacePostType>? types,
+    bool? pinned,
   }) async {
     final boundedLimit = limit.clamp(1, 200);
     final selectedTypes = types ?? await spaceFeedTypeFilter();
@@ -6568,6 +6628,7 @@ class GroupService {
       );
       for (final post in feedPosts) {
         if (!selectedTypes.contains(post.type)) continue;
+        if (pinned != null && post.pinned != pinned) continue;
         final cursor = SpaceFeedCursor.fromView(post);
         if (before != null && cursor.compareTo(before) >= 0) continue;
         if (!seen.add('${spaceId.hex}:${post.postId}')) continue;

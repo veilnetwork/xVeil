@@ -88,14 +88,19 @@ class SpaceFeedScreen extends ConsumerWidget {
       stream: service.changes.stream,
       builder: (context, _) =>
           FutureBuilder<
-            ({Set<SpacePostType> types, List<SpaceFeedItem> items})
+            ({
+              Set<SpacePostType> types,
+              List<SpaceFeedItem> pinnedItems,
+              List<SpaceFeedItem> items,
+            })
           >(
             future: () async {
               final types = await service.spaceFeedTypeFilter();
-              return (
-                types: types,
-                items: await service.spaceFeed(limit: 100, types: types),
-              );
+              final pages = await Future.wait([
+                service.spaceFeed(limit: 100, types: types, pinned: true),
+                service.spaceFeed(limit: 100, types: types, pinned: false),
+              ]);
+              return (types: types, pinnedItems: pages[0], items: pages[1]);
             }(),
             builder: (context, snapshot) {
               final selectedTypes = snapshot.data?.types;
@@ -129,8 +134,9 @@ class SpaceFeedScreen extends ConsumerWidget {
                     if (!snapshot.hasData) {
                       return const Center(child: CircularProgressIndicator());
                     }
+                    final pinnedItems = snapshot.data!.pinnedItems;
                     final items = snapshot.data!.items;
-                    if (items.isEmpty) {
+                    if (pinnedItems.isEmpty && items.isEmpty) {
                       return Center(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -156,7 +162,10 @@ class SpaceFeedScreen extends ConsumerWidget {
                         ),
                       );
                     }
-                    final spaces = {for (final item in items) item.spaceId};
+                    final spaces = {
+                      for (final item in pinnedItems) item.spaceId,
+                      for (final item in items) item.spaceId,
+                    };
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       for (final spaceId in spaces) {
                         unawaited(service.markSpaceFeedSeen(spaceId));
@@ -166,27 +175,56 @@ class SpaceFeedScreen extends ConsumerWidget {
                       onRefresh: () async {
                         await service.nudgeGroupSyncAll();
                       },
-                      child: ListView.separated(
+                      child: ListView(
                         physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.symmetric(vertical: 8),
-                        itemCount: items.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 4),
-                        itemBuilder: (context, index) {
-                          final item = items[index];
-                          return _PostCard(
-                            item: item,
-                            onTap: () => context.push(
-                              '/space/${item.spaceId.hex}/posts',
+                        children: [
+                          if (pinnedItems.isNotEmpty) ...[
+                            _FeedSectionHeader(
+                              icon: Icons.push_pin,
+                              label: l.feedPinnedTitle,
                             ),
-                            onReact: (emoji) => service.reactToSpacePost(
-                              item.spaceId,
-                              item.post.postId,
-                              emoji,
-                            ),
-                            onHide: () => hidePost(item),
-                            selfId: service.selfId,
-                          );
-                        },
+                            for (final item in pinnedItems) ...[
+                              _PostCard(
+                                item: item,
+                                onTap: () => context.push(
+                                  '/space/${item.spaceId.hex}/posts',
+                                ),
+                                onReact: (emoji) => service.reactToSpacePost(
+                                  item.spaceId,
+                                  item.post.postId,
+                                  emoji,
+                                ),
+                                onHide: () => hidePost(item),
+                                selfId: service.selfId,
+                              ),
+                              const SizedBox(height: 4),
+                            ],
+                          ],
+                          if (items.isNotEmpty) ...[
+                            if (pinnedItems.isNotEmpty)
+                              _FeedSectionHeader(
+                                icon: Icons.schedule,
+                                label: l.feedRecentTitle,
+                              ),
+                            for (final item in items) ...[
+                              _PostCard(
+                                item: item,
+                                onTap: () => context.push(
+                                  '/space/${item.spaceId.hex}/posts',
+                                ),
+                                onReact: (emoji) => service.reactToSpacePost(
+                                  item.spaceId,
+                                  item.post.postId,
+                                  emoji,
+                                ),
+                                onHide: () => hidePost(item),
+                                selfId: service.selfId,
+                              ),
+                              const SizedBox(height: 4),
+                            ],
+                          ],
+                        ],
                       ),
                     );
                   },
@@ -196,6 +234,25 @@ class SpaceFeedScreen extends ConsumerWidget {
           ),
     );
   }
+}
+
+class _FeedSectionHeader extends StatelessWidget {
+  const _FeedSectionHeader({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(18, 10, 18, 8),
+    child: Row(
+      children: [
+        Icon(icon, size: 18),
+        const SizedBox(width: 8),
+        Text(label, style: Theme.of(context).textTheme.titleSmall),
+      ],
+    ),
+  );
 }
 
 class _PostTypeFilterSheet extends StatefulWidget {
@@ -361,6 +418,19 @@ class _PostCard extends StatelessWidget {
                   ),
                 ],
               ),
+              if (post.pinned) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    const Icon(Icons.push_pin, size: 15),
+                    const SizedBox(width: 4),
+                    Text(
+                      AppL10n.of(context).spacePostPinned,
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ],
+                ),
+              ],
               if (post.title.isNotEmpty) ...[
                 const SizedBox(height: 14),
                 Text(post.title, style: Theme.of(context).textTheme.titleLarge),

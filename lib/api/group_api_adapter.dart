@@ -458,6 +458,8 @@ final class GroupApiAdapter {
     'publishedAt': post.publishedAtMs,
     'updatedAt': post.updatedAtMs,
     'edited': post.edited,
+    'pinned': post.pinned,
+    if (post.pinnedAtMs != null) 'pinnedAt': post.pinnedAtMs,
     'reactions': {
       for (final entry in reactions.entries)
         entry.key: [for (final reactor in entry.value) reactor.hex],
@@ -549,6 +551,18 @@ final class GroupApiAdapter {
         : 'post deletion rejected';
   }
 
+  Future<String?> setPostPinned(
+    String spaceHex,
+    String postId,
+    bool pinned,
+  ) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    return await _groups.setSpacePostPinned(visible.$1, postId, pinned)
+        ? null
+        : 'post pin rejected';
+  }
+
   Future<String?> reactToPost(
     String spaceHex,
     String postId,
@@ -561,9 +575,17 @@ final class GroupApiAdapter {
         : 'post reaction rejected';
   }
 
-  Future<Map<String, dynamic>> feed(int limit, String? before) async {
+  Future<Map<String, dynamic>> feed(
+    int limit,
+    String? before, [
+    bool? pinned,
+  ]) async {
     final cursor = SpaceFeedCursor.decode(before);
-    final items = await _groups.spaceFeed(before: cursor, limit: limit);
+    final items = await _groups.spaceFeed(
+      before: cursor,
+      limit: limit,
+      pinned: pinned,
+    );
     return {
       'posts': [
         for (final item in items)

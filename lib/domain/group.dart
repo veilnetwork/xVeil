@@ -348,6 +348,7 @@ enum ControlOp {
   archiveSpace,
   deleteSpace,
   restoreSpace,
+  setPostPin,
   checkpoint,
   leave; // the author removes THEMSELVES (any member may leave)
 
@@ -415,6 +416,7 @@ class ControlEntry {
     this.moderationRevocation,
     this.retentionPolicy,
     this.lifecycleTransition,
+    this.postPin,
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
@@ -428,7 +430,8 @@ class ControlEntry {
   /// carries an immutable moderation action or a signed revocation of one. V9
   /// carries a typed Space retention policy revision. V10 carries an exact
   /// causal Space archive/restore boundary. V11 adds recoverable deletion and
-  /// restoration bound to a signed recovery deadline.
+  /// restoration bound to a signed recovery deadline. V12 carries one
+  /// community-wide Space publication pin/unpin state.
   final int version;
 
   /// Group binding for replay resistance. Legacy entries omit it and retain
@@ -452,6 +455,7 @@ class ControlEntry {
   final SpaceModerationRevocation? moderationRevocation;
   final SpaceRetentionPolicy? retentionPolicy;
   final SpaceLifecycleTransition? lifecycleTransition;
+  final SpacePostPin? postPin;
 
   /// Optional scale-free recipient-envelope root for the epoch established by
   /// this control entry. Legacy entries omit it and keep identical bytes.
@@ -476,7 +480,8 @@ class ControlEntry {
           version == 8 ||
           version == 9 ||
           version == 10 ||
-          version == 11) &&
+          version == 11 ||
+          version == 12) &&
       seq >= 0 &&
       policyVersion >= 0 &&
       createdAtMs >= 0 &&
@@ -621,6 +626,27 @@ class ControlEntry {
                 op != ControlOp.archiveSpace &&
                 op != ControlOp.deleteSpace &&
                 op != ControlOp.restoreSpace) &&
+      (version == 12
+          ? op == ControlOp.setPostPin &&
+                postPin != null &&
+                postPin!.isStructurallyValid &&
+                groupId == postPin!.spaceId &&
+                postPin!.changedAtMs == createdAtMs &&
+                target == null &&
+                role == null &&
+                text == null &&
+                epochDescriptor == null &&
+                channel == null &&
+                channelControl == null &&
+                postBoundary == null &&
+                controlCheckpoint == null &&
+                rules == null &&
+                rulesAcceptance == null &&
+                moderationAction == null &&
+                moderationRevocation == null &&
+                retentionPolicy == null &&
+                lifecycleTransition == null
+          : postPin == null && op != ControlOp.setPostPin) &&
       (controlCheckpoint == null
           ? op != ControlOp.checkpoint
           : version == 4 &&
@@ -665,6 +691,7 @@ class ControlEntry {
     moderationRevocation: moderationRevocation,
     retentionPolicy: retentionPolicy,
     lifecycleTransition: lifecycleTransition,
+    postPin: postPin,
     policyVersion: policyVersion,
     createdAtMs: createdAtMs,
     signature: sig,
@@ -700,6 +727,7 @@ class ControlEntry {
       if (retentionPolicy != null) 'retentionPolicy': retentionPolicy!.toJson(),
       if (lifecycleTransition != null)
         'lifecycleTransition': lifecycleTransition!.toJson(),
+      if (postPin != null) 'postPin': postPin!.toJson(),
       'pv': policyVersion,
       'ts': createdAtMs,
     };
@@ -731,6 +759,7 @@ class ControlEntry {
     if (retentionPolicy != null) 'retentionPolicy': retentionPolicy!.toJson(),
     if (lifecycleTransition != null)
       'lifecycleTransition': lifecycleTransition!.toJson(),
+    if (postPin != null) 'postPin': postPin!.toJson(),
     'pv': policyVersion,
     'ts': createdAtMs,
     'sig': base64Encode(signature),
@@ -753,7 +782,8 @@ class ControlEntry {
             version != 8 &&
             version != 9 &&
             version != 10 &&
-            version != 11) ||
+            version != 11 &&
+            version != 12) ||
         author is! String ||
         seq is! int ||
         prev is! String ||
@@ -825,6 +855,10 @@ class ControlEntry {
       if (j.containsKey('lifecycleTransition') && lifecycleTransition == null) {
         return null;
       }
+      final postPin = j.containsKey('postPin')
+          ? SpacePostPin.fromJson(j['postPin'])
+          : null;
+      if (j.containsKey('postPin') && postPin == null) return null;
       final entry = ControlEntry(
         version: version,
         groupId: j['gid'] is String ? NodeId.fromHex(j['gid'] as String) : null,
@@ -848,6 +882,7 @@ class ControlEntry {
         moderationRevocation: moderationRevocation,
         retentionPolicy: retentionPolicy,
         lifecycleTransition: lifecycleTransition,
+        postPin: postPin,
         policyVersion: pv,
         createdAtMs: ts,
         signature: Uint8List.fromList(base64Decode(sig)),

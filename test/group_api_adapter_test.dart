@@ -469,6 +469,13 @@ void main() {
         expect(result.post?['title'], 'Headline');
         final posts = await api.posts(spaceId.hex, 10, null);
         expect((posts?['posts'] as List).single['body'], 'Body');
+        expect((posts?['posts'] as List).single['pinned'], isFalse);
+        final postId = result.post!['postId'] as String;
+        expect(await api.setPostPinned(spaceId.hex, postId, true), isNull);
+        final pinnedPosts = await api.posts(spaceId.hex, 10, null);
+        expect((pinnedPosts?['posts'] as List).single['pinned'], isTrue);
+        expect((await api.feed(10, null, true))['posts'], hasLength(1));
+        expect((await api.feed(10, null, false))['posts'], isEmpty);
         final feed = await api.feed(10, null);
         expect((feed['posts'] as List).single['spaceName'], 'Public API');
         expect(
@@ -483,7 +490,6 @@ void main() {
         );
         expect((await api.feed(10, null))['posts'], hasLength(1));
         expect(await api.setFeedTypeFilter(['unknown']), 'invalid post type');
-        final postId = result.post!['postId'] as String;
         expect(await api.setFeedPostHidden(spaceId.hex, postId, true), isNull);
         expect((await api.feed(10, null))['posts'], isEmpty);
         expect(
@@ -495,6 +501,11 @@ void main() {
         expect((await service.load(spaceId))!.messages, isEmpty);
         expect(await api.setFeedEnabled(spaceId.hex, false), isNull);
         expect((await api.feed(10, null))['posts'], isEmpty);
+        final groupId = await service.createGroup('Still a group chat');
+        expect(
+          await service.setSpacePostPinned(groupId, postId, true),
+          isFalse,
+        );
       } finally {
         await service.dispose();
       }
