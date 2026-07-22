@@ -353,6 +353,15 @@ class AppL10nEn extends AppL10n {
   String get spacePostMediaRejected => 'Some files couldn\'t be attached';
 
   @override
+  String get spacePostRecordVoice => 'Record voice message';
+
+  @override
+  String get spacePostRecordShortVideo => 'Record short video';
+
+  @override
+  String get spacePostUseRecording => 'Use recording';
+
+  @override
   String get spacePostEdit => 'Edit publication';
 
   @override

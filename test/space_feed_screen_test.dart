@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/data/storage/storage.dart';
@@ -21,6 +22,8 @@ import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/group_epoch_service.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/state/vnote_record_controller.dart';
+import 'package:xveil/state/voice_record_controller.dart';
 
 import 'support/fake_hv_container.dart';
 
@@ -87,18 +90,77 @@ class _Signer implements GroupSigner {
   }) => false;
 }
 
-Widget _host(GroupService service, Widget child, {Storage? storage}) =>
-    ProviderScope(
-      overrides: [
-        groupServiceProvider.overrideWithValue(service),
-        if (storage != null) storageProvider.overrideWithValue(storage),
-      ],
-      child: MaterialApp(
-        localizationsDelegates: AppL10n.localizationsDelegates,
-        supportedLocales: AppL10n.supportedLocales,
-        home: child,
-      ),
-    );
+class _SpaceVoiceRecorder implements VoiceRecorder {
+  bool disposed = false;
+
+  @override
+  int get elapsedMs => 1750;
+
+  @override
+  double get level => 0.6;
+
+  @override
+  bool start() => true;
+
+  @override
+  VoiceClip? stop({int waveformBars = 48}) => VoiceClip(
+    bytes: Uint8List.fromList([1, 3, 5, 7]),
+    durationMs: elapsedMs,
+    waveform: List<double>.filled(waveformBars, 0.6),
+  );
+
+  @override
+  void dispose() => disposed = true;
+}
+
+class _SpaceVnoteRecorder implements VnoteRecorder {
+  bool disposed = false;
+
+  @override
+  int get elapsedMs => 2400;
+
+  @override
+  double get level => 0.4;
+
+  @override
+  VeilVideoFrame? frame() => null;
+
+  @override
+  Future<bool> start() async => true;
+
+  @override
+  VnoteClip? stop() =>
+      VnoteClip(bytes: Uint8List.fromList([2, 4, 6, 8]), durationMs: elapsedMs);
+
+  @override
+  void dispose() => disposed = true;
+}
+
+Widget _host(
+  GroupService service,
+  Widget child, {
+  Storage? storage,
+  VoiceRecorderFactory? voiceRecorderFactory,
+  VnoteRecorderFactory? vnoteRecorderFactory,
+}) => ProviderScope(
+  overrides: [
+    groupServiceProvider.overrideWithValue(service),
+    if (storage != null) storageProvider.overrideWithValue(storage),
+    if (voiceRecorderFactory != null)
+      voiceRecorderFactoryProvider.overrideWithValue(voiceRecorderFactory),
+    if (vnoteRecorderFactory != null)
+      vnoteRecorderFactoryProvider.overrideWithValue(vnoteRecorderFactory),
+    if (voiceRecorderFactory != null || vnoteRecorderFactory != null)
+      micPermissionProvider.overrideWithValue(() async => true),
+    if (vnoteRecorderFactory != null)
+      cameraPermissionProvider.overrideWithValue(() async => true),
+  ],
+  child: MaterialApp(
+    localizationsDelegates: AppL10n.localizationsDelegates,
+    supportedLocales: AppL10n.supportedLocales,
+    home: child,
+  ),
+);
 
 Widget _routerHost(GroupService service, GoRouter router, {Storage? storage}) =>
     ProviderScope(
@@ -680,6 +742,162 @@ void main() {
       expect(edited.body, 'Text replacement');
       expect(edited.media, isEmpty);
       expect(await service.referencedContentIds(spaceId), isEmpty);
+    },
+  );
+
+  testWidgets(
+    'Space voice composer records into MediaObject and keeps it in the draft',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _Signer(_id(13)));
+      final spaceId = await service.createSpace(
+        'Voice writers',
+        visibility: SpaceVisibility.public,
+      );
+      VoiceClip? captured;
+      final recorders = <_SpaceVoiceRecorder>[];
+      final screen = SpacePostsScreen(
+        spaceIdHex: spaceId.hex,
+        voiceMediaRegistrar: (clip) async {
+          captured = clip;
+          return MediaObject(
+            contentId: 'b' * 64,
+            kind: 'voice',
+            name: 'voice.vop1',
+            mimeType: 'audio/x-veil-vop1',
+            size: clip.bytes.length,
+            durationMs: clip.durationMs,
+          );
+        },
+      );
+
+      await tester.pumpWidget(
+        _host(
+          service,
+          screen,
+          storage: storage,
+          voiceRecorderFactory: () {
+            final recorder = _SpaceVoiceRecorder();
+            recorders.add(recorder);
+            return recorder;
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(SpacePostsScreen)));
+      await tester.tap(find.byKey(const ValueKey('space-post-type-field')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l.spacePostTypeVoiceMessage));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('space-post-record-voice')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('space-post-record-voice')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        find.byKey(const ValueKey('space-post-use-voice-recording')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('space-post-use-voice-recording')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(captured?.bytes, [1, 3, 5, 7]);
+      expect(captured?.durationMs, 1750);
+      expect(recorders.single.disposed, isTrue);
+      expect(find.text('voice.vop1'), findsOneWidget);
+      await tester.tap(find.text(l.actionCancel));
+      await tester.pumpAndSettle();
+      final draft = await service.spacePostDraft(spaceId);
+      expect(draft?.type, SpacePostType.voiceMessage);
+      expect(draft?.media.single.kind, 'voice');
+      expect(draft?.media.single.durationMs, 1750);
+    },
+  );
+
+  testWidgets(
+    'Space short-video composer cancels cleanly then attaches a video note',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _Signer(_id(14)));
+      final spaceId = await service.createSpace(
+        'Short video writers',
+        visibility: SpaceVisibility.public,
+      );
+      var registrations = 0;
+      final recorders = <_SpaceVnoteRecorder>[];
+      final screen = SpacePostsScreen(
+        spaceIdHex: spaceId.hex,
+        vnoteMediaRegistrar: (clip) async {
+          registrations++;
+          return MediaObject(
+            contentId: 'c' * 64,
+            kind: 'vnote',
+            name: 'vnote.vn01',
+            mimeType: 'video/x-veil-vnote',
+            size: clip.bytes.length,
+            durationMs: clip.durationMs,
+          );
+        },
+      );
+
+      await tester.pumpWidget(
+        _host(
+          service,
+          screen,
+          storage: storage,
+          vnoteRecorderFactory: () {
+            final recorder = _SpaceVnoteRecorder();
+            recorders.add(recorder);
+            return recorder;
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(SpacePostsScreen)));
+      await tester.tap(find.byKey(const ValueKey('space-post-type-field')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l.spacePostTypeShortVideo));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('space-post-record-vnote')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(
+        find.byKey(const ValueKey('space-post-cancel-vnote-recording')),
+      );
+      await tester.pumpAndSettle();
+      expect(registrations, 0);
+      expect(recorders.single.disposed, isTrue);
+
+      await tester.tap(find.byKey(const ValueKey('space-post-record-vnote')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(
+        find.byKey(const ValueKey('space-post-use-vnote-recording')),
+      );
+      await tester.pumpAndSettle();
+      expect(registrations, 1);
+      expect(recorders, hasLength(2));
+      expect(recorders.last.disposed, isTrue);
+      expect(find.text('vnote.vn01'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('space-post-publish')));
+      await tester.pumpAndSettle();
+      final post = (await service.postsOf(spaceId)).single;
+      expect(post.type, SpacePostType.shortVideo);
+      expect(post.media.single.kind, 'vnote');
+      expect(post.media.single.durationMs, 2400);
     },
   );
 }
