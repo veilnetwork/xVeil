@@ -187,11 +187,12 @@ scripts/build-ios-simulator.sh
 
 Output: `build/ios/iphonesimulator/Runner.app`.
 
-The helper temporarily replaces the scanner package with a simulator-compatible
-stub, builds the ARM64 simulator native slices, and restores the production
-dependency graph when it exits. Device and simulator `veilclient-ffi` slices
-share one staging path, so rerun `scripts/build-mobile.sh ios` before the next
-physical-device build.
+The helper builds the production dependency graph, including `mobile_scanner 7`
+and its Apple Vision implementation; dependency overrides are rejected so a
+simulator-only scanner cannot accidentally enter a verified build. It also
+checks that the resulting Runner contains an ARM64 slice. Device and simulator
+`veilclient-ffi` slices share one staging path, so rerun
+`scripts/build-mobile.sh ios` before the next physical-device build.
 
 ### Linux
 
@@ -470,11 +471,12 @@ scripts/build-ios-simulator.sh
 
 Результат: `build/ios/iphonesimulator/Runner.app`.
 
-Скрипт временно заменяет пакет сканера совместимой с симулятором заглушкой,
-собирает ARM64 simulator slices и восстанавливает production-граф зависимостей
-при завершении. Device- и simulator-варианты `veilclient-ffi` используют один
-путь staging, поэтому перед следующей сборкой для физического устройства снова
-выполните `scripts/build-mobile.sh ios`.
+Скрипт собирает production-граф зависимостей, включая `mobile_scanner 7` и его
+реализацию на Apple Vision; dependency overrides запрещены, чтобы в проверенную
+сборку случайно не попал simulator-only сканер. Также проверяется наличие ARM64
+slice в готовом Runner. Device- и simulator-варианты `veilclient-ffi` используют
+один путь staging, поэтому перед следующей сборкой для физического устройства
+снова выполните `scripts/build-mobile.sh ios`.
 
 ### Linux
 

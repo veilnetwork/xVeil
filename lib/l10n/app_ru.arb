@@ -804,7 +804,8 @@
   "scanHint": "Наведите камеру на QR-код инвайта собеседника",
   "scanUnavailable": "Камера недоступна — вставьте инвайт вручную",
   "scanNotInvite": "Этот QR не является инвайтом xVeil",
-  "scanTorch": "Подсветка",
+  "scanTorchOn": "Включить подсветку",
+  "scanTorchOff": "Выключить подсветку",
   "inviteAddButton": "Добавить контакт",
   "inviteInvalid": "Это не похоже на инвайт xVeil",
 
