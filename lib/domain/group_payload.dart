@@ -440,6 +440,114 @@ Future<Uint8List> decryptGroupReactionPayload({
   }
 }
 
+/// Encrypt a reaction to a restricted Space-channel message under that
+/// channel's epoch key. The target ref and emoji stay inside the ciphertext;
+/// the signed outer scope contains only the channel id/epoch needed for
+/// recipient filtering and key selection.
+Future<GroupEncryptedPayload> encryptSpaceChannelReactionPayload({
+  required NodeId spaceId,
+  required NodeId channelId,
+  required int channelEpoch,
+  required NodeId author,
+  required int seq,
+  required int createdAtMs,
+  required Uint8List clearText,
+  required Uint8List channelKey,
+  int reactionVersion = 7,
+  String lifecycleGeneration = '',
+  Random? random,
+}) async {
+  if (channelEpoch <= 0 ||
+      channelEpoch > 0xffffffff ||
+      seq < 0 ||
+      (reactionVersion != 7 && reactionVersion != 8) ||
+      (reactionVersion == 8) !=
+          RegExp(r'^[0-9a-f]{64}$').hasMatch(lifecycleGeneration) ||
+      (reactionVersion == 7 && lifecycleGeneration.isNotEmpty) ||
+      createdAtMs < 0 ||
+      clearText.length > maxGroupEncryptedPayloadBytes ||
+      channelKey.length != 32) {
+    throw ArgumentError('invalid Space channel reaction payload input');
+  }
+  final nonce = Uint8List(12);
+  final rng = random ?? Random.secure();
+  for (var index = 0; index < nonce.length; index++) {
+    nonce[index] = rng.nextInt(256);
+  }
+  final box = await _groupAead.encrypt(
+    clearText,
+    secretKey: SecretKey(channelKey),
+    nonce: nonce,
+    aad: spaceChannelReactionPayloadAad(
+      spaceId: spaceId,
+      channelId: channelId,
+      channelEpoch: channelEpoch,
+      author: author,
+      seq: seq,
+      reactionVersion: reactionVersion,
+      lifecycleGeneration: lifecycleGeneration,
+      createdAtMs: createdAtMs,
+    ),
+  );
+  return GroupEncryptedPayload(
+    nonce: nonce,
+    cipherText: Uint8List.fromList(box.cipherText),
+    mac: Uint8List.fromList(box.mac.bytes),
+  );
+}
+
+Future<Uint8List> decryptSpaceChannelReactionPayload({
+  required NodeId spaceId,
+  required NodeId channelId,
+  required int channelEpoch,
+  required NodeId author,
+  required int seq,
+  required int createdAtMs,
+  required GroupEncryptedPayload payload,
+  required Uint8List channelKey,
+  int reactionVersion = 7,
+  String lifecycleGeneration = '',
+}) async {
+  if (channelEpoch <= 0 ||
+      channelEpoch > 0xffffffff ||
+      seq < 0 ||
+      (reactionVersion != 7 && reactionVersion != 8) ||
+      (reactionVersion == 8) !=
+          RegExp(r'^[0-9a-f]{64}$').hasMatch(lifecycleGeneration) ||
+      (reactionVersion == 7 && lifecycleGeneration.isNotEmpty) ||
+      createdAtMs < 0 ||
+      !payload.isStructurallyValid ||
+      channelKey.length != 32) {
+    throw const FormatException('Space channel reaction payload rejected');
+  }
+  try {
+    final clear = await _groupAead.decrypt(
+      SecretBox(
+        payload.cipherText,
+        nonce: payload.nonce,
+        mac: Mac(payload.mac),
+      ),
+      secretKey: SecretKey(channelKey),
+      aad: spaceChannelReactionPayloadAad(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: channelEpoch,
+        author: author,
+        seq: seq,
+        reactionVersion: reactionVersion,
+        lifecycleGeneration: lifecycleGeneration,
+        createdAtMs: createdAtMs,
+      ),
+    );
+    if (clear.length > maxGroupEncryptedPayloadBytes) {
+      throw const FormatException('Space channel reaction payload rejected');
+    }
+    return Uint8List.fromList(clear);
+  } on SecretBoxAuthenticationError {
+    throw const FormatException('Space channel reaction payload rejected');
+  }
+}
+
 Future<GroupEncryptedPayload> encryptSpacePostPayload({
   required NodeId spaceId,
   required int membershipEpoch,
@@ -757,6 +865,31 @@ Uint8List groupReactionPayloadAad({
       'epoch': membershipEpoch,
       'author': author.hex,
       'seq': seq,
+      'ts': createdAtMs,
+    }),
+  ),
+]);
+
+Uint8List spaceChannelReactionPayloadAad({
+  required NodeId spaceId,
+  required NodeId channelId,
+  required int channelEpoch,
+  required NodeId author,
+  required int seq,
+  required int reactionVersion,
+  required String lifecycleGeneration,
+  required int createdAtMs,
+}) => Uint8List.fromList([
+  ...utf8.encode('xveil.space-channel.reaction-aad.v1\u0000'),
+  ...utf8.encode(
+    jsonEncode({
+      'sid': spaceId.hex,
+      'cid': channelId.hex,
+      'epoch': channelEpoch,
+      'author': author.hex,
+      'seq': seq,
+      'rv': reactionVersion,
+      if (reactionVersion == 8) 'lifecycle': lifecycleGeneration,
       'ts': createdAtMs,
     }),
   ),

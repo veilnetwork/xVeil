@@ -203,6 +203,15 @@ void main() {
       members: const [],
     );
     expect(channelId, isNotNull);
+    expect(
+      await service.postMessage(
+        spaceId,
+        'private reaction target',
+        channelId: channelId,
+        broadcast: false,
+      ),
+      isTrue,
+    );
 
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -230,6 +239,17 @@ void main() {
     );
     expect(find.byKey(const ValueKey('composer-video-note')), findsOneWidget);
     expect(find.byKey(const ValueKey('composer-voice-note')), findsOneWidget);
+    await tester.longPress(find.text('private reaction target'));
+    await tester.pumpAndSettle();
+    expect(find.text('👍'), findsOneWidget);
+    await tester.tap(find.text('👍'));
+    await tester.pumpAndSettle();
+    final target = (await service.messagesOf(
+      spaceId,
+      channelId: channelId,
+    )).single;
+    expect((await service.reactionsOf(spaceId))[target.ref]?['👍'], [self]);
+    expect((await service.load(spaceId))!.reactions.single.version, 7);
     await tester.tap(find.byKey(const ValueKey('composer-attachment-button')));
     await tester.pumpAndSettle();
     expect(find.text('Upload photo'), findsOneWidget);

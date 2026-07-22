@@ -10,6 +10,29 @@ NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
 String _hash(String nibble) => List.filled(64, nibble).join();
 
 void main() {
+  test(
+    'reaction lifecycle heads optionally bind a hidden visibility scope',
+    () {
+      final scoped = SpaceReactionLifecycleHead(
+        generationHash: _hash('a'),
+        scopeHash: _hash('b'),
+        author: _id(2),
+        seq: 3,
+        hash: _hash('c'),
+      );
+      final parsed = SpaceReactionLifecycleHead.fromJson(scoped.toJson())!;
+      expect(parsed.scopeHash, _hash('b'));
+      expect(parsed.identity, '${_hash('a')}|${_hash('b')}|${_id(2).hex}');
+
+      final legacy = Map<String, dynamic>.from(scoped.toJson())
+        ..remove('scope');
+      expect(SpaceReactionLifecycleHead.fromJson(legacy)?.scopeHash, isNull);
+      final malformed = Map<String, dynamic>.from(scoped.toJson())
+        ..['scope'] = 'short';
+      expect(SpaceReactionLifecycleHead.fromJson(malformed), isNull);
+    },
+  );
+
   test('recoverable deletion and restoration have a strict v2 wire shape', () {
     final spaceId = _id(1);
     final owner = _id(2);
