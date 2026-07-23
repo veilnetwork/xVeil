@@ -349,11 +349,29 @@ void main() {
 
     expect(acl.allows(_bob, SpacePermission.view), isTrue);
     expect(acl.allows(_bob, SpacePermission.distributeContent), isTrue);
-    expect(acl.allows(_bob, SpacePermission.publishMessages), isFalse);
+    expect(
+      acl.authorize(_bob, SpacePermission.publishMessages).denial,
+      SpaceAuthorizationDenial.muted,
+    );
     expect(acl.allows(_admin, SpacePermission.manageMembers), isTrue);
     expect(acl.allows(_admin, SpacePermission.manageSettings), isFalse);
     expect(acl.allows(_owner, SpacePermission.manageSettings), isTrue);
-    expect(acl.allows(_eve, SpacePermission.view), isFalse);
+    expect(
+      acl.authorize(_eve, SpacePermission.view).denial,
+      SpaceAuthorizationDenial.notMember,
+    );
+    expect(
+      acl
+          .authorizeControl(_admin, ControlOp.removeMember, target: _owner)
+          .denial,
+      SpaceAuthorizationDenial.protectedTarget,
+    );
+    expect(
+      acl
+          .authorizeControl(_admin, ControlOp.removeMember, target: _bob)
+          .allowed,
+      isTrue,
+    );
   });
 
   test(

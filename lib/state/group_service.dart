@@ -772,21 +772,13 @@ class GroupService {
       verify: (entry) => _validControlFor(bundle.manifest, entry),
       initialName: bundle.manifest.name,
     ).state;
-    final authorRole = state.roleOf(selfId);
-    if (authorRole == null ||
-        state.isMember(invitee) ||
-        (!canApply(
-              authorRole: authorRole,
-              op: ControlOp.addMember,
-              newRole: role,
-            ) &&
-            !SpaceAcl.customPolicyAllowsControl(
-              policy: state.accessPolicy,
-              author: selfId,
-              op: ControlOp.addMember,
-              newRole: role,
-              target: invitee,
-            ))) {
+    if (state.isMember(invitee) ||
+        !SpaceAcl(state).allowsControl(
+          selfId,
+          ControlOp.addMember,
+          target: invitee,
+          newRole: role,
+        )) {
       return false;
     }
     final sender = sendSpaceInvite;
@@ -1087,14 +1079,9 @@ class GroupService {
       initialName: bundle.manifest.name,
       initialDescription: bundle.manifest.description ?? '',
     ).state;
-    final role = state.roleOf(selfId);
-    if (!state.isActive ||
-        role == null ||
-        !canApply(
-          authorRole: role,
-          op: ControlOp.addMember,
-          newRole: GroupRole.member,
-        )) {
+    if (!SpaceAcl(
+      state,
+    ).allowsControl(selfId, ControlOp.addMember, newRole: GroupRole.member)) {
       return null;
     }
     return _serializeSpaceJoins(() async {
@@ -1828,13 +1815,11 @@ class GroupService {
       initialName: bundle.manifest.name,
       initialDescription: bundle.manifest.description ?? '',
     ).state;
-    final role = state.roleOf(selfId);
-    if (!state.isActive ||
-        role == null ||
-        state.isMember(peer) ||
-        !canApply(
-          authorRole: role,
-          op: ControlOp.addMember,
+    if (state.isMember(peer) ||
+        !SpaceAcl(state).allowsControl(
+          selfId,
+          ControlOp.addMember,
+          target: peer,
           newRole: GroupRole.member,
         )) {
       return false;
@@ -3502,7 +3487,8 @@ class GroupService {
     GroupBundle bundle,
     GroupState state,
   ) async {
-    if (state.protectedModeration.isEmpty || !state.isMember(_signer.selfId)) {
+    if (state.protectedModeration.isEmpty ||
+        !SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
       return const [];
     }
     final currentChannels = await _protectedChannelsOf(bundle, state);
@@ -3591,13 +3577,16 @@ class GroupService {
         final targetRole = historical.roleOf(action.target);
         final authorized =
             actorRole != null &&
-            (targetRole == null
-                ? actorRole == GroupRole.owner
-                : SpaceAcl.roleAllowsControl(
-                    authorRole: actorRole,
-                    op: ControlOp.moderate,
-                    targetRole: targetRole,
-                  ));
+            SpaceAcl.authorizeControlContext(
+              author: entry.author,
+              authorRole: actorRole,
+              policy: historical.accessPolicy,
+              op: ControlOp.moderate,
+              targetRole: targetRole,
+              target: action.target,
+              channelId: action.channelId,
+              moderationTargetsRemovedContent: true,
+            ).allowed;
         if (!authorized) continue;
         final actionId = '${entry.author.hex}:${entry.seq}';
         records.add(
@@ -5454,8 +5443,7 @@ class GroupService {
       initialName: bundle.manifest.name,
       initialDescription: bundle.manifest.description ?? '',
     ).state;
-    if (!state.isActive ||
-        state.roleOf(selfId) != GroupRole.owner ||
+    if (!SpaceAcl(state).allowsControl(selfId, ControlOp.setPolicy) ||
         (state.accessPolicy?.revision ?? 0) != expectedRevision) {
       return null;
     }
@@ -5516,7 +5504,9 @@ class GroupService {
       verify: (entry) => _validControlFor(bundle.manifest, entry),
       initialName: bundle.manifest.name,
     ).state;
-    if (state.isDeleted) return const [];
+    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
+      return const [];
+    }
     final protected = await _protectedChannelsOf(bundle, state);
     final channels = [
       for (final channel in state.channels.values)
@@ -6564,7 +6554,9 @@ class GroupService {
       initialName: bundle.manifest.name,
       initialDescription: bundle.manifest.description ?? '',
     ).state;
-    if (!state.isMember(_signer.selfId) || state.isDeleted) return null;
+    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
+      return null;
+    }
     if (channelId == null || state.channels.containsKey(channelId.hex)) {
       return state.effectiveRetentionPolicy(channelId);
     }
@@ -6595,7 +6587,9 @@ class GroupService {
       initialName: bundle.manifest.name,
       initialDescription: bundle.manifest.description ?? '',
     ).state;
-    if (!state.isMember(_signer.selfId) || state.isDeleted) return const [];
+    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
+      return const [];
+    }
     return (await _materializedRetentionHistory(bundle, state)).revisions;
   }
 
@@ -6728,7 +6722,12 @@ class GroupService {
           initialDescription: bundle.manifest.description ?? '',
         ).state;
         final rules = state.currentRules;
-        if (rules == null || !state.isMember(_signer.selfId)) return false;
+        if (rules == null ||
+            !SpaceAcl(
+              state,
+            ).allowsControl(_signer.selfId, ControlOp.acceptRules)) {
+          return false;
+        }
         if (!state.requiresRulesAcceptance(_signer.selfId)) return true;
         final acceptedAt = _now();
         return _addControlOp(
@@ -6768,29 +6767,13 @@ class GroupService {
       SpaceModerationKind.deleteMessage,
       SpaceModerationKind.deletePost,
     }.contains(kind);
-    final actorRole = state.roleOf(_signer.selfId);
-    final targetRole = state.roleOf(target);
-    final customCanModerate =
-        state.accessPolicy?.allows(
-          _signer.selfId,
-          SpacePermission.moderate,
-          channelId: channelId,
-        ) ??
-        false;
-    final targetAllowed = targetRole == null
-        ? removesContent && actorRole == GroupRole.owner
-        : actorRole != null && actorRole.rank >= GroupRole.admin.rank
-        ? targetRole.rank < actorRole.rank
-        : customCanModerate &&
-              target != _signer.selfId &&
-              targetRole == GroupRole.member;
-    if (actorRole == null ||
-        !SpaceAcl(state).allows(
-          _signer.selfId,
-          SpacePermission.moderate,
-          channelId: channelId,
-        ) ||
-        !targetAllowed) {
+    if (!SpaceAcl(state).allowsControl(
+      _signer.selfId,
+      ControlOp.moderate,
+      target: target,
+      channelId: channelId,
+      moderationTargetsRemovedContent: removesContent,
+    )) {
       return null;
     }
     final createdAt = _now();
@@ -6963,7 +6946,9 @@ class GroupService {
       initialName: bundle.manifest.name,
       initialDescription: bundle.manifest.description ?? '',
     ).state;
-    if (!state.isMember(_signer.selfId)) return const [];
+    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
+      return const [];
+    }
     return _moderationRecordsOfBundle(bundle, state);
   }
 
@@ -6986,7 +6971,12 @@ class GroupService {
     );
     final state = folded.state;
     if (state.lifecycleState == targetState) return true;
-    if (state.roleOf(_signer.selfId) != GroupRole.owner) return false;
+    final operation = switch (targetState) {
+      SpaceLifecycleState.active => ControlOp.restoreSpace,
+      SpaceLifecycleState.archived => ControlOp.archiveSpace,
+      SpaceLifecycleState.deleted => ControlOp.deleteSpace,
+    };
+    if (!SpaceAcl(state).allowsControl(_signer.selfId, operation)) return false;
     if ((targetState == SpaceLifecycleState.archived && !state.isActive) ||
         (targetState == SpaceLifecycleState.active && state.isActive) ||
         (targetState == SpaceLifecycleState.deleted && state.isDeleted) ||
@@ -7033,11 +7023,6 @@ class GroupService {
       recoveryDeadlineMs: recoveryDeadline,
     );
     if (!transition.isStructurallyValid) return false;
-    final operation = switch (targetState) {
-      SpaceLifecycleState.archived => ControlOp.archiveSpace,
-      SpaceLifecycleState.deleted => ControlOp.deleteSpace,
-      SpaceLifecycleState.active => ControlOp.restoreSpace,
-    };
     return _addControlOp(
       spaceId,
       operation,
@@ -7097,7 +7082,9 @@ class GroupService {
     ).state;
     final me = state.memberOf(_signer.selfId);
     if (me == null) return true; // already gone
-    if (me.role == GroupRole.owner) return false; // owner can't leave (v1)
+    if (!SpaceAcl(state).allowsControl(_signer.selfId, ControlOp.leave)) {
+      return false;
+    }
     final link = _nextControlLink(b.manifest, b.control, _signer.selfId);
     if (link.blocked) return false;
     final unsigned = ControlEntry(
@@ -7568,7 +7555,7 @@ class GroupService {
       initialName: bundle.manifest.name,
       initialDescription: bundle.manifest.description ?? '',
     ).state;
-    return !state.isDeleted && state.isMember(_signer.selfId);
+    return SpaceAcl(state).allows(_signer.selfId, SpacePermission.view);
   }
 
   /// Load this identity's local draft for [spaceId]. The encrypted blob is
@@ -9959,7 +9946,7 @@ class GroupService {
       initialName: bundle.manifest.name,
       initialDescription: bundle.manifest.description ?? '',
     ).state;
-    if (!state.isMember(_signer.selfId)) {
+    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
       throw StateError('Space subscription requires active membership');
     }
     final current = await spaceSubscription(spaceId);
@@ -10053,7 +10040,9 @@ class GroupService {
         verify: (entry) => _validControlFor(bundle.manifest, entry),
         initialName: bundle.manifest.name,
       ).state;
-      if (!state.isMember(_signer.selfId)) continue;
+      if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
+        continue;
+      }
       final visiblePosts = await _postsOfBundle(
         bundle,
         applyLocalRetention: true,
@@ -11697,7 +11686,9 @@ class GroupService {
     final scope = await _contentGrantScope(bundle, st, req);
     final denial = authorizeGroupContentRequest(
       req,
-      state: st,
+      decision: SpaceAcl(
+        st,
+      ).authorize(req.requester, SpacePermission.distributeContent),
       referenced: scope.referenced,
       nowMs: _now(),
       seenNonces: _seenContentNonces,
@@ -11791,7 +11782,8 @@ class GroupService {
       return false;
     }
     final st = await stateOf(gid);
-    return st != null && st.isMember(peer);
+    return st != null &&
+        SpaceAcl(st).allows(peer, SpacePermission.distributeContent);
   }
 
   /// Ingest a snapshot from a NON-contact sender: merge ONLY into a group we
@@ -12178,7 +12170,11 @@ class GroupService {
       initialName: b.manifest.name,
       initialDescription: b.manifest.description ?? '',
     ).state;
-    final distributesContent = !lifecycleState.isDeleted;
+    final distributesContent = recipient == null
+        ? !lifecycleState.isDeleted
+        : SpaceAcl(
+            lifecycleState,
+          ).allows(recipient, SpacePermission.distributeContent);
     final epochEnvelopes = recipient == null || !distributesContent
         ? const <GroupEpochRecipientEnvelope>[]
         : _epochEnvelopesFor(b, recipient);

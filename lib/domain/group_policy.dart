@@ -253,15 +253,43 @@ class GroupState {
   );
 }
 
-/// Deterministic Space authorization evaluated by every local node. V1 keeps
-/// the existing owner/admin/member roles; channel overrides and explicit deny
-/// entries can extend this class without bypassing callers.
+/// Stable, local reason for an authorization refusal.
+///
+/// The reason is deliberately not sent to an untrusted peer: node ingress
+/// keeps its silent-drop behaviour and may only use this value for local logs
+/// and tests.
+enum SpaceAuthorizationDenial {
+  notMember,
+  deleted,
+  archived,
+  muted,
+  moderated,
+  insufficientPermission,
+  protectedTarget,
+}
+
+/// Typed result shared by API, background work, log folding and media grants.
+final class SpaceAuthorizationDecision {
+  const SpaceAuthorizationDecision.allow() : allowed = true, denial = null;
+
+  const SpaceAuthorizationDecision.deny(this.denial) : allowed = false;
+
+  final bool allowed;
+  final SpaceAuthorizationDenial? denial;
+}
+
+/// Deterministic Space authorization gate evaluated by every local node.
+///
+/// UI affordances may consult it, but authority belongs here: API/service
+/// mutations, background work, sync/materialization and media delivery all
+/// call the same evaluator. Protocol-specific signature, freshness and replay
+/// checks remain layered around this decision.
 final class SpaceAcl {
   const SpaceAcl(this.state);
 
   final GroupState state;
 
-  bool allows(
+  SpaceAuthorizationDecision authorize(
     NodeId actor,
     SpacePermission permission, {
     int? atMs,
@@ -269,10 +297,18 @@ final class SpaceAcl {
     NodeId? categoryId,
   }) {
     final member = state.memberOf(actor);
-    if (member == null) return false;
+    if (member == null) {
+      return const SpaceAuthorizationDecision.deny(
+        SpaceAuthorizationDenial.notMember,
+      );
+    }
     // Recoverable deletion keeps the signed roster only so the owner can
     // restore it. Current content and mutation APIs must reveal nothing.
-    if (state.isDeleted && atMs == null) return false;
+    if (state.isDeleted && atMs == null) {
+      return const SpaceAuthorizationDecision.deny(
+        SpaceAuthorizationDenial.deleted,
+      );
+    }
     // A current mutation has no historical timestamp and is closed while the
     // Space is archived. Read/materialization paths deliberately evaluate the
     // author's permission at the signed content timestamp; the lifecycle head
@@ -281,7 +317,9 @@ final class SpaceAcl {
         atMs == null &&
         permission != SpacePermission.view &&
         permission != SpacePermission.distributeContent) {
-      return false;
+      return const SpaceAuthorizationDecision.deny(
+        SpaceAuthorizationDenial.archived,
+      );
     }
     final effectiveAt = atMs ?? DateTime.now().millisecondsSinceEpoch;
     final actions = state.activeModerationFor(actor, effectiveAt);
@@ -315,34 +353,63 @@ final class SpaceAcl {
         false;
     bool builtInOrCustom(bool builtIn, SpacePermission permission) =>
         builtIn || customAllows(permission);
-    return switch (permission) {
-      SpacePermission.view || SpacePermission.distributeContent => true,
-      SpacePermission.publishMessages => !member.muted && !blocksMessages,
-      SpacePermission.publishPosts => !member.muted && !blocksPosts,
-      SpacePermission.managePosts => builtInOrCustom(
-        member.role.rank >= GroupRole.admin.rank,
-        permission,
-      ),
-      SpacePermission.manageRecommendations => builtInOrCustom(
-        member.role.rank >= GroupRole.admin.rank,
-        permission,
-      ),
-      SpacePermission.enterVoice => !blocksVoice,
+    final denial = switch (permission) {
+      SpacePermission.view || SpacePermission.distributeContent => null,
+      SpacePermission.publishMessages when member.muted =>
+        SpaceAuthorizationDenial.muted,
+      SpacePermission.publishMessages when blocksMessages =>
+        SpaceAuthorizationDenial.moderated,
+      SpacePermission.publishMessages => null,
+      SpacePermission.publishPosts when member.muted =>
+        SpaceAuthorizationDenial.muted,
+      SpacePermission.publishPosts when blocksPosts =>
+        SpaceAuthorizationDenial.moderated,
+      SpacePermission.publishPosts => null,
+      SpacePermission.managePosts =>
+        builtInOrCustom(member.role.rank >= GroupRole.admin.rank, permission)
+            ? null
+            : SpaceAuthorizationDenial.insufficientPermission,
+      SpacePermission.manageRecommendations =>
+        builtInOrCustom(member.role.rank >= GroupRole.admin.rank, permission)
+            ? null
+            : SpaceAuthorizationDenial.insufficientPermission,
+      SpacePermission.enterVoice when blocksVoice =>
+        SpaceAuthorizationDenial.moderated,
+      SpacePermission.enterVoice => null,
       SpacePermission.manageMembers ||
       SpacePermission.manageRoles ||
       SpacePermission.moderate ||
-      SpacePermission.manageEncryption => builtInOrCustom(
-        member.role.rank >= GroupRole.admin.rank,
-        permission,
-      ),
-      SpacePermission.manageChannels => builtInOrCustom(
-        member.role.rank >= GroupRole.admin.rank,
-        permission,
-      ),
+      SpacePermission.manageEncryption =>
+        builtInOrCustom(member.role.rank >= GroupRole.admin.rank, permission)
+            ? null
+            : SpaceAuthorizationDenial.insufficientPermission,
+      SpacePermission.manageChannels =>
+        builtInOrCustom(member.role.rank >= GroupRole.admin.rank, permission)
+            ? null
+            : SpaceAuthorizationDenial.insufficientPermission,
       SpacePermission.manageSettings || SpacePermission.manageStorage =>
-        builtInOrCustom(member.role == GroupRole.owner, permission),
+        builtInOrCustom(member.role == GroupRole.owner, permission)
+            ? null
+            : SpaceAuthorizationDenial.insufficientPermission,
     };
+    return denial == null
+        ? const SpaceAuthorizationDecision.allow()
+        : SpaceAuthorizationDecision.deny(denial);
   }
+
+  bool allows(
+    NodeId actor,
+    SpacePermission permission, {
+    int? atMs,
+    NodeId? channelId,
+    NodeId? categoryId,
+  }) => authorize(
+    actor,
+    permission,
+    atMs: atMs,
+    channelId: channelId,
+    categoryId: categoryId,
+  ).allowed;
 
   /// Whether a management surface has at least one usable target. This is for
   /// showing category/channel-scoped controls; the eventual mutation must call
@@ -353,6 +420,170 @@ final class SpaceAcl {
       return false;
     }
     return state.accessPolicy?.hasAnyGrant(actor, permission) ?? false;
+  }
+
+  /// Authorize a current control mutation against this complete folded state.
+  ///
+  /// Moving a channel crosses both its old and new scopes. A scoped delegate
+  /// therefore needs a grant on both sides, while a built-in admin remains
+  /// authorized by the rank model.
+  SpaceAuthorizationDecision authorizeControl(
+    NodeId author,
+    ControlOp op, {
+    NodeId? target,
+    GroupRole? newRole,
+    NodeId? channelId,
+    NodeId? categoryId,
+    NodeId? previousChannelId,
+    NodeId? previousCategoryId,
+    bool protectedModeration = false,
+    bool moderationTargetsRemovedContent = false,
+    bool revokesRemovedMember = false,
+  }) {
+    final member = state.memberOf(author);
+    if (member == null) {
+      return const SpaceAuthorizationDecision.deny(
+        SpaceAuthorizationDenial.notMember,
+      );
+    }
+    if (state.isDeleted && op != ControlOp.restoreSpace) {
+      return const SpaceAuthorizationDecision.deny(
+        SpaceAuthorizationDenial.deleted,
+      );
+    }
+    if (state.isArchived &&
+        op != ControlOp.restoreSpace &&
+        op != ControlOp.deleteSpace) {
+      return const SpaceAuthorizationDecision.deny(
+        SpaceAuthorizationDenial.archived,
+      );
+    }
+    if (state.isActive && op == ControlOp.restoreSpace) {
+      return const SpaceAuthorizationDecision.deny(
+        SpaceAuthorizationDenial.insufficientPermission,
+      );
+    }
+    return authorizeControlContext(
+      author: author,
+      authorRole: member.role,
+      policy: state.accessPolicy,
+      op: op,
+      targetRole: target == null ? null : state.roleOf(target),
+      newRole: newRole,
+      target: target,
+      channelId: channelId,
+      categoryId: categoryId,
+      previousChannelId: previousChannelId,
+      previousCategoryId: previousCategoryId,
+      protectedModeration: protectedModeration,
+      moderationTargetsRemovedContent: moderationTargetsRemovedContent,
+      revokesRemovedMember: revokesRemovedMember,
+    );
+  }
+
+  bool allowsControl(
+    NodeId author,
+    ControlOp op, {
+    NodeId? target,
+    GroupRole? newRole,
+    NodeId? channelId,
+    NodeId? categoryId,
+    NodeId? previousChannelId,
+    NodeId? previousCategoryId,
+    bool protectedModeration = false,
+    bool moderationTargetsRemovedContent = false,
+    bool revokesRemovedMember = false,
+  }) => authorizeControl(
+    author,
+    op,
+    target: target,
+    newRole: newRole,
+    channelId: channelId,
+    categoryId: categoryId,
+    previousChannelId: previousChannelId,
+    previousCategoryId: previousCategoryId,
+    protectedModeration: protectedModeration,
+    moderationTargetsRemovedContent: moderationTargetsRemovedContent,
+    revokesRemovedMember: revokesRemovedMember,
+  ).allowed;
+
+  /// Low-level form used while the control log is being folded and no complete
+  /// [GroupState] exists yet. All rank, custom-policy and protected-target
+  /// decisions still converge here.
+  static SpaceAuthorizationDecision authorizeControlContext({
+    required NodeId author,
+    required GroupRole authorRole,
+    required SpaceAccessPolicy? policy,
+    required ControlOp op,
+    GroupRole? targetRole,
+    GroupRole? newRole,
+    NodeId? target,
+    NodeId? channelId,
+    NodeId? categoryId,
+    NodeId? previousChannelId,
+    NodeId? previousCategoryId,
+    bool protectedModeration = false,
+    bool moderationTargetsRemovedContent = false,
+    bool revokesRemovedMember = false,
+  }) {
+    final builtIn = roleAllowsControl(
+      authorRole: authorRole,
+      op: op,
+      targetRole: targetRole,
+      newRole: newRole,
+    );
+    final custom = customPolicyAllowsControl(
+      policy: policy,
+      author: author,
+      op: op,
+      targetRole: targetRole,
+      newRole: newRole,
+      target: target,
+      channelId: channelId,
+      categoryId: categoryId,
+    );
+    final sourceScopeAllows =
+        op != ControlOp.updateChannel ||
+        previousChannelId == null ||
+        (policy?.allows(
+              author,
+              SpacePermission.manageChannels,
+              channelId: previousChannelId,
+              categoryId: previousCategoryId,
+            ) ??
+            false);
+    final allowed = protectedModeration
+        ? authorRole.rank >= GroupRole.admin.rank ||
+              (policy?.allows(
+                    author,
+                    SpacePermission.moderate,
+                    channelId: channelId,
+                    categoryId: categoryId,
+                  ) ??
+                  false)
+        : moderationTargetsRemovedContent && targetRole == null
+        ? authorRole == GroupRole.owner
+        : op == ControlOp.revokeModeration && targetRole == null
+        ? revokesRemovedMember && authorRole == GroupRole.owner
+        : builtIn || (custom && sourceScopeAllows);
+    if (allowed) return const SpaceAuthorizationDecision.allow();
+    final rankProtected =
+        targetRole != null && targetRole.rank >= authorRole.rank ||
+        newRole != null && newRole.rank >= authorRole.rank ||
+        target == author &&
+            {
+              ControlOp.removeMember,
+              ControlOp.ban,
+              ControlOp.mute,
+              ControlOp.unmute,
+              ControlOp.moderate,
+              ControlOp.revokeModeration,
+            }.contains(op);
+    return SpaceAuthorizationDecision.deny(
+      rankProtected
+          ? SpaceAuthorizationDenial.protectedTarget
+          : SpaceAuthorizationDenial.insufficientPermission,
+    );
   }
 
   /// Custom-role control authorization. The owner-authored policy may delegate
@@ -707,32 +938,29 @@ GroupFoldResult foldControlLog({
         e.op == ControlOp.moderate &&
         e.version == 14 &&
         e.channelModeration != null;
-    final customControlAuthorized =
-        SpaceAcl.customPolicyAllowsControl(
-          policy: accessPolicy,
-          author: e.author,
-          op: e.op,
-          targetRole: targetRole,
-          newRole: e.role,
-          target: e.target,
-          channelId: controlChannelId,
-          categoryId: controlCategoryId,
-        ) &&
-        // Moving a channel crosses two authorization boundaries. Requiring
-        // both prevents a category steward from pulling an unrelated root or
-        // sibling channel into the category they control.
-        (e.op != ControlOp.updateChannel ||
-            currentControlChannel == null ||
-            (accessPolicy?.allows(
-                  e.author,
-                  SpacePermission.manageChannels,
-                  channelId: currentControlChannel.channelId,
-                  categoryId:
-                      currentControlChannel.kind == SpaceChannelKind.category
-                      ? currentControlChannel.channelId
-                      : currentControlChannel.categoryId,
-                ) ??
-                false));
+    final controlDecision = SpaceAcl.authorizeControlContext(
+      author: e.author,
+      authorRole: authorRole,
+      policy: accessPolicy,
+      op: e.op,
+      targetRole: targetRole,
+      newRole: e.role,
+      target: e.target,
+      channelId: controlChannelId,
+      categoryId: controlCategoryId,
+      previousChannelId: e.op == ControlOp.updateChannel
+          ? currentControlChannel?.channelId
+          : null,
+      previousCategoryId: e.op != ControlOp.updateChannel
+          ? null
+          : currentControlChannel?.kind == SpaceChannelKind.category
+          ? currentControlChannel?.channelId
+          : currentControlChannel?.categoryId,
+      protectedModeration: protectsModeration,
+      moderationTargetsRemovedContent: moderationTargetsRemovedContent,
+      revokesRemovedMember:
+          revocationRecord?.action.kind.removesMembership == true,
+    );
     final authorized = e.op == ControlOp.revokeModeration
         ? revocationRecord != null &&
               revocationRecord.revokedAtMs == null &&
@@ -741,41 +969,8 @@ GroupFoldResult foldControlLog({
                 SpaceModerationKind.deleteMessage,
                 SpaceModerationKind.deletePost,
               }.contains(revocationRecord.action.kind) &&
-              (targetRole == null
-                  ? authorRole == GroupRole.owner &&
-                        revocationRecord.action.kind.removesMembership
-                  : canApply(
-                          authorRole: authorRole,
-                          op: ControlOp.revokeModeration,
-                          targetRole: targetRole,
-                        ) ||
-                        SpaceAcl.customPolicyAllowsControl(
-                          policy: accessPolicy,
-                          author: e.author,
-                          op: ControlOp.revokeModeration,
-                          targetRole: targetRole,
-                          target: e.target,
-                          channelId: controlChannelId,
-                          categoryId: controlCategoryId,
-                        ))
-        : protectsModeration
-        ? authorRole.rank >= GroupRole.admin.rank ||
-              (accessPolicy?.allows(
-                    e.author,
-                    SpacePermission.moderate,
-                    channelId: controlChannelId,
-                    categoryId: controlCategoryId,
-                  ) ??
-                  false)
-        : moderationTargetsRemovedContent && targetRole == null
-        ? authorRole == GroupRole.owner
-        : canApply(
-                authorRole: authorRole,
-                op: e.op,
-                targetRole: targetRole,
-                newRole: e.role,
-              ) ||
-              customControlAuthorized;
+              controlDecision.allowed
+        : controlDecision.allowed;
     if (!authorized) {
       rejected.add(e);
       continue;

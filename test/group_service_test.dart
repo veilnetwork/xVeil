@@ -1351,6 +1351,38 @@ void main() {
   );
 
   test(
+    'snapshot content is gated even for an internal non-member caller',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final svc = GroupService(storage, _FakeSigner(owner));
+      addTearDown(svc.dispose);
+      final spaceId = await svc.createSpace(
+        'Public but membership-scoped wire',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await svc.publishSpacePost(
+          spaceId,
+          body: 'must not ride an unauthorized member snapshot',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+
+      final wire =
+          jsonDecode(
+                svc.snapshotJson((await svc.load(spaceId))!, recipient: _id(7)),
+              )
+              as Map<String, dynamic>;
+      expect(wire['p'], isEmpty);
+      expect(wire['g'], isEmpty);
+      expect(wire['r'], isEmpty);
+      expect(wire, isNot(contains('ke')));
+    },
+  );
+
+  test(
     'stranger sync: member delta merges into a held group; others drop',
     () async {
       Future<void> drain() async {
@@ -7989,6 +8021,12 @@ void main() {
           spaceId,
           'retained until purge',
           channelId: channel.channelId,
+          attachment: MediaObject(
+            kind: 'file',
+            contentId: 'd' * 64,
+            name: 'retained.bin',
+            size: 4,
+          ),
           broadcast: false,
         ),
         isTrue,
@@ -7997,6 +8035,14 @@ void main() {
         await service.publishSpacePost(
           spaceId,
           body: 'recoverable publication',
+          media: [
+            MediaObject(
+              kind: 'file',
+              contentId: 'd' * 64,
+              name: 'retained.bin',
+              size: 4,
+            ),
+          ],
           broadcast: false,
         ),
         isNotNull,
@@ -8008,6 +8054,24 @@ void main() {
             recipient: owner,
           ),
         ),
+        isTrue,
+      );
+      String contentRequest(String nonce) => jsonEncode(
+        _FakeSigner(owner)
+            .signContentRequest(
+              GroupContentRequest(
+                groupId: spaceId,
+                contentId: 'd' * 64,
+                requester: owner,
+                nonce: nonce,
+                tsMs: DateTime.now().millisecondsSinceEpoch,
+                signature: Uint8List(0),
+              ),
+            )
+            .toJson(),
+      );
+      expect(
+        await service.handleContentRequest(contentRequest('before-delete')),
         isTrue,
       );
 
@@ -8040,6 +8104,11 @@ void main() {
           broadcast: false,
         ),
         isFalse,
+      );
+      expect(
+        await service.handleContentRequest(contentRequest('after-delete')),
+        isFalse,
+        reason: 'the holder consumes the shared deleted-state denial',
       );
 
       final deletedSnapshot = service.snapshotJson(
