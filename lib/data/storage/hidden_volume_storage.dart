@@ -45,6 +45,22 @@ bool _bytesEqual(List<int>? a, List<int> b) {
   return true;
 }
 
+/// One message-log record together with the namespace that owns its log id.
+///
+/// The namespace matters for in-place tombstone/void rewrites: legacy rows
+/// stay in namespace 3, while post-upgrade rows live in deterministic shards.
+class _MessageLogEntry {
+  const _MessageLogEntry({
+    required this.namespace,
+    required this.logId,
+    required this.payload,
+  });
+
+  final int namespace;
+  final int logId;
+  final Uint8List payload;
+}
+
 /// Opener for [HiddenVolumeStorage.fromStore], where the store is already open
 /// and [HiddenVolumeStorage.open] is never called.
 Future<AsyncKvLogStore?> _noOpener({
@@ -55,8 +71,9 @@ Future<AsyncKvLogStore?> _noOpener({
 /// Domain [Storage] mapped onto a single hidden-volume space:
 /// - SETTINGS (KV): identity blob, app settings, the message-log counter
 /// - CONTACTS (KV): one entry per peer, keyed by node id bytes
-/// - MESSAGE_LOG (append-log): every message, payload tagged with its
-///   conversation id so a single log serves all conversations
+/// - MESSAGE_LOG (append-log family): legacy namespace 3 plus deterministic
+///   capacity shards; every payload carries its conversation id and all shards
+///   merge back into one globally ordered event stream
 ///
 /// Backed by an [AsyncKvLogStore] obtained from an [AsyncSpaceOpener], so the
 /// same mapping runs over the in-memory fake (dev/tests, sync-wrapped) and the
@@ -802,9 +819,9 @@ class HiddenVolumeStorage implements Storage {
             author: author,
             seq: seq,
           );
-    await _commitAtNextLogId(
-      (logId) => [
-        AppendLogOp(Ns.messageLog, logId, _sk(_encodeMessage(stored))),
+    await _commitAtNextMessageLogId(
+      (namespace, logId) => [
+        AppendLogOp(namespace, logId, _sk(_encodeMessage(stored))),
         // Advance the per-(conv,author) seq cursor ONLY when we ALLOCATED it (a
         // wire event with its own seq must not bump our local counter — the two
         // streams are independent and reconciled by the fold/sync, not here).
@@ -842,10 +859,7 @@ class HiddenVolumeStorage implements Storage {
   /// composite-keyed fold), so a deleted-but-still-tombstoned seq still counts.
   Future<ConversationSync> _conversationSyncCritical(String conv) async {
     final seqsByAuthor = <String, Set<int>>{};
-    final entries = await _as.iterLogRange(
-      namespace: Ns.messageLog,
-      limit: _logScanLimit,
-    );
+    final entries = await _messageLogEntries();
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['c'] != conv) continue;
@@ -930,10 +944,7 @@ class HiddenVolumeStorage implements Storage {
         // Lowest own event still stored → floor is one below it; nothing stored
         // at all → everything ever emitted (next-seq counter − 1) is gone.
         int? minSeq;
-        final entries = await _as.iterLogRange(
-          namespace: Ns.messageLog,
-          limit: _logScanLimit,
-        );
+        final entries = await _messageLogEntries();
         for (final e in entries) {
           final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
           if (m['c'] != conversationId ||
@@ -972,10 +983,7 @@ class HiddenVolumeStorage implements Storage {
     int fromSeq,
     int limit,
   ) async {
-    final entries = await _as.iterLogRange(
-      namespace: Ns.messageLog,
-      limit: _logScanLimit,
-    );
+    final entries = await _messageLogEntries();
     final events = <LogEvent>[];
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
@@ -1053,10 +1061,7 @@ class HiddenVolumeStorage implements Storage {
     // Idempotent: if any row already occupies this (author, seq) slot — a post,
     // edit, void, or tombstone — the high-water already accounts for it, so a
     // duplicate void would only bloat the log. Skip it.
-    final entries = await _as.iterLogRange(
-      namespace: Ns.messageLog,
-      limit: _logScanLimit,
-    );
+    final entries = await _messageLogEntries();
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['c'] == conversationId &&
@@ -1067,10 +1072,10 @@ class HiddenVolumeStorage implements Storage {
         return; // slot present — nothing to do
       }
     }
-    await _commitAtNextLogId(
-      (logId) => [
+    await _commitAtNextMessageLogId(
+      (namespace, logId) => [
         AppendLogOp(
-          Ns.messageLog,
+          namespace,
           logId,
           // An inert void slot: no id/tg/body (§12.1) — the fold renders nothing,
           // conversationSync counts (au, sq) so the per-author high-water advances.
@@ -1139,6 +1144,84 @@ class HiddenVolumeStorage implements Storage {
     return int.tryParse(utf8.decode(raw)) ?? 1;
   }
 
+  static const _messageLogNamespaceMarkerPrefix = 'msglog_ns:v1:';
+
+  /// Discover every namespace that may contain message rows.
+  ///
+  /// One tiny, monotonic marker is committed BEFORE the first record in each
+  /// shard. Reading only marked shards avoids probing hundreds of empty
+  /// namespaces when the shared global log-id counter grew mostly through the
+  /// outbox/call journal. Markers contain only a namespace byte — no
+  /// conversation or message metadata.
+  Future<void> _ensureMessageLogNamespacesLoaded() async {
+    final existing = _messageLogNamespacesInit;
+    if (existing != null) return existing;
+    final load = () async {
+      final keys = await _as.kvKeys(Ns.settings);
+      for (final raw in keys) {
+        final key = utf8.decode(raw, allowMalformed: true);
+        if (!key.startsWith(_messageLogNamespaceMarkerPrefix)) continue;
+        final ns = int.tryParse(
+          key.substring(_messageLogNamespaceMarkerPrefix.length),
+        );
+        if (ns == null ||
+            ns < Ns.messageLogShardFirst ||
+            ns > Ns.messageLogShardLast) {
+          continue;
+        }
+        _messageLogNamespaces.add(ns);
+        _messageLogNamespaceMarkers.add(ns);
+      }
+    }();
+    _messageLogNamespacesInit = load;
+    try {
+      await load;
+    } catch (_) {
+      if (identical(_messageLogNamespacesInit, load)) {
+        _messageLogNamespacesInit = null;
+      }
+      rethrow;
+    }
+  }
+
+  /// Read legacy + sharded message logs as one globally ordered stream.
+  Future<List<_MessageLogEntry>> _messageLogEntries({int? start}) async {
+    await _ensureMessageLogNamespacesLoaded();
+
+    final namespaces = _messageLogNamespaces.toList()..sort();
+    final entries = <_MessageLogEntry>[];
+    for (final namespace in namespaces) {
+      // A deterministic shard wholly below an incremental scan's lower bound
+      // cannot contribute. The legacy namespace is intentionally unbounded:
+      // profiles upgraded in place may contain any pre-upgrade global log id.
+      if (start != null && namespace != Ns.messageLog) {
+        final segment =
+            (namespace - Ns.messageLogShardFirst) * Ns.messageLogShardSize;
+        final shardLastId = segment + Ns.messageLogShardSize;
+        if (shardLastId < start) continue;
+      }
+      final part = await _as.iterLogRange(
+        namespace: namespace,
+        start: start,
+        limit: _logScanLimit,
+      );
+      for (final entry in part) {
+        entries.add(
+          _MessageLogEntry(
+            namespace: namespace,
+            logId: entry.logId,
+            payload: entry.payload,
+          ),
+        );
+      }
+    }
+    entries.sort((a, b) {
+      final byId = a.logId.compareTo(b.logId);
+      return byId != 0 ? byId : a.namespace.compareTo(b.namespace);
+    });
+    return entries;
+  }
+
   /// Resolve the log_id (and decoded body) of a LIVE message in a SPECIFIC
   /// conversation by scanning the message log, scoped by BOTH `conversationId`
   /// and `messageId`. Returns null when no such live message exists (unknown
@@ -1149,16 +1232,16 @@ class HiddenVolumeStorage implements Storage {
   /// let a peer rewrite/erase a message belonging to someone else's chat. The
   /// conversationId is server-authenticated (it is the sender's node id), so a
   /// peer can only ever name records inside its own conversation.
-  Future<({int logId, Message message})?> _liveEntryFor(
+  Future<({int namespace, int logId, Message message})?> _liveEntryFor(
     String conversationId,
     String messageId,
   ) => _serialized(() async {
     await _foldCritical(); // warm, incremental — not a fresh full-log scan
     final k = _msgKey(conversationId, messageId);
     final msg = _scanById[k];
-    final logId = _scanLogIds[k];
-    if (msg == null || logId == null) return null;
-    return (logId: logId, message: msg);
+    final location = _scanLogIds[k];
+    if (msg == null || location == null) return null;
+    return (namespace: location.namespace, logId: location.logId, message: msg);
   });
 
   @override
@@ -1193,10 +1276,7 @@ class HiddenVolumeStorage implements Storage {
     // plus a duplicated version in loadMessageHistory. Slot occupied ⇒ applied.
     // (A LOCAL edit allocates a fresh seq above, so it can never collide.)
     if (seq != null) {
-      final entries = await _as.iterLogRange(
-        namespace: Ns.messageLog,
-        limit: _logScanLimit,
-      );
+      final entries = await _messageLogEntries();
       for (final e in entries) {
         final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
         if (m['c'] == conversationId &&
@@ -1208,10 +1288,10 @@ class HiddenVolumeStorage implements Storage {
         }
       }
     }
-    await _commitAtNextLogId(
-      (logId) => [
+    await _commitAtNextMessageLogId(
+      (namespace, logId) => [
         AppendLogOp(
-          Ns.messageLog,
+          namespace,
           logId,
           _sk(
             jsonEncode({
@@ -1256,10 +1336,7 @@ class HiddenVolumeStorage implements Storage {
     // every retained k:edit row targeting this message, oldest-first. O(log) for
     // one message's on-demand history — acceptable; the prefix range scan would
     // bound it once the §15.4 layout lands.
-    final entries = await _as.iterLogRange(
-      namespace: Ns.messageLog,
-      limit: _logScanLimit,
-    );
+    final entries = await _messageLogEntries();
     final versions = <MessageVersion>[];
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
@@ -1346,7 +1423,7 @@ class HiddenVolumeStorage implements Storage {
       blobOps.addAll(await _deleteContentBlobOps(blobId, blobNames));
     }
     await _as.commit([
-      AppendLogOp(Ns.messageLog, hit.logId, _sk(tomb)),
+      AppendLogOp(hit.namespace, hit.logId, _sk(tomb)),
       ...blobOps,
       ...editVoids,
     ]);
@@ -1391,10 +1468,7 @@ class HiddenVolumeStorage implements Storage {
     String conv, {
     Set<String>? targets,
   }) async {
-    final entries = await _as.iterLogRange(
-      namespace: Ns.messageLog,
-      limit: _logScanLimit,
-    );
+    final entries = await _messageLogEntries();
     final ops = <KvLogOp>[];
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
@@ -1403,7 +1477,7 @@ class HiddenVolumeStorage implements Storage {
       if (targets != null && !targets.contains(m['tg'])) continue;
       ops.add(
         AppendLogOp(
-          Ns.messageLog,
+          e.namespace,
           e.logId,
           _sk(
             jsonEncode({
@@ -1456,7 +1530,7 @@ class HiddenVolumeStorage implements Storage {
       candidateBlobIds.addAll(_messageBlobIds(hit.message));
       ops.add(
         AppendLogOp(
-          Ns.messageLog,
+          hit.namespace,
           hit.logId,
           // Preserve (author, seq) so the seq slot survives the tombstone (R4) —
           // same gap-free rule as deleteMessage.
@@ -1526,10 +1600,7 @@ class HiddenVolumeStorage implements Storage {
     // ONE raw scan: tombstone each old post (+ purge its file), and void-rewrite
     // each retained edit row of an old post (orphaning its body chunk) so the
     // scrub reclaims ALL of its plaintext — not just the current version.
-    final entries = await _as.iterLogRange(
-      namespace: Ns.messageLog,
-      limit: _logScanLimit,
-    );
+    final entries = await _messageLogEntries();
     final ops = <KvLogOp>[];
     final blobNames = <String>[];
     for (final e in entries) {
@@ -1540,7 +1611,7 @@ class HiddenVolumeStorage implements Storage {
       if (k == EventKind.edit.index && old.contains(m['tg'])) {
         ops.add(
           AppendLogOp(
-            Ns.messageLog,
+            e.namespace,
             e.logId,
             _sk(
               jsonEncode({
@@ -1561,7 +1632,7 @@ class HiddenVolumeStorage implements Storage {
               k == EventKind.filePost.index)) {
         ops.add(
           AppendLogOp(
-            Ns.messageLog,
+            e.namespace,
             e.logId,
             // Preserve (author, seq) so the seq slot survives the tombstone (R4).
             _sk(
@@ -1623,10 +1694,10 @@ class HiddenVolumeStorage implements Storage {
       blobNamesOut: blobNames,
     );
     final seq = await _nextConvSeq(conv, selfHex);
-    await _commitAtNextLogId(
-      (logId) => [
+    await _commitAtNextMessageLogId(
+      (namespace, logId) => [
         AppendLogOp(
-          Ns.messageLog,
+          namespace,
           logId,
           // ONLY the watermark travels/persists — never a cleared id or text.
           _sk(
@@ -1663,10 +1734,7 @@ class HiddenVolumeStorage implements Storage {
     // Idempotent on (author, seq). The caller (messaging) decides WHETHER to apply
     // a peer's clear (policy); this is the apply mechanism.
     final conv = peer.hex;
-    final entries = await _as.iterLogRange(
-      namespace: Ns.messageLog,
-      limit: _logScanLimit,
-    );
+    final entries = await _messageLogEntries();
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['c'] == conv &&
@@ -1685,10 +1753,10 @@ class HiddenVolumeStorage implements Storage {
       upTo: watermark,
       blobNamesOut: blobNames,
     );
-    await _commitAtNextLogId(
-      (logId) => [
+    await _commitAtNextMessageLogId(
+      (namespace, logId) => [
         AppendLogOp(
-          Ns.messageLog,
+          namespace,
           logId,
           _sk(
             jsonEncode({
@@ -1736,10 +1804,16 @@ class HiddenVolumeStorage implements Storage {
     // Erase EVERY namespace this app uses, then scrub orphaned chunks — the
     // identity's data (its keypair, contacts, message log, file blobs) is gone
     // forensically, not merely unlinked. Irreversible.
+    await _as.eraseNamespace(Ns.messageLog);
+    // Erase the full reserved range, not merely namespaces discoverable from
+    // settings: forensic identity deletion must remain complete even if a
+    // marker/counter was damaged.
+    for (var ns = Ns.messageLogShardFirst; ns <= Ns.messageLogShardLast; ns++) {
+      await _as.eraseNamespace(ns);
+    }
     for (final ns in const [
       Ns.settings,
       Ns.contacts,
-      Ns.messageLog,
       Ns.media,
       Ns.fileChunks,
       Ns.outbox,
@@ -2096,15 +2170,27 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
-  Future<Map<String, int>> namespaceCounts() async => {
-    'settings': await _as.count(Ns.settings),
-    'contacts': await _as.count(Ns.contacts),
-    'messageLog': await _as.count(Ns.messageLog),
-    'media': await _as.count(Ns.media),
-    'fileChunks': await _as.count(Ns.fileChunks),
-    'outbox': await _as.count(Ns.outbox),
-    'callLog': await _as.count(Ns.callLog),
-  };
+  Future<Map<String, int>> namespaceCounts() async {
+    await _ensureMessageLogNamespacesLoaded();
+    final legacyMessageCount = await _as.count(Ns.messageLog);
+    var shardedMessageCount = 0;
+    for (final namespace in _messageLogNamespaces) {
+      if (namespace == Ns.messageLog) continue;
+      shardedMessageCount += await _as.count(namespace);
+    }
+    return {
+      'settings': await _as.count(Ns.settings),
+      'contacts': await _as.count(Ns.contacts),
+      'messageLog': legacyMessageCount + shardedMessageCount,
+      'messageLogLegacy': legacyMessageCount,
+      'messageLogSharded': shardedMessageCount,
+      'messageLogShardNamespaces': _messageLogNamespaces.length - 1,
+      'media': await _as.count(Ns.media),
+      'fileChunks': await _as.count(Ns.fileChunks),
+      'outbox': await _as.count(Ns.outbox),
+      'callLog': await _as.count(Ns.callLog),
+    };
+  }
 
   @override
   Future<int> purgeMessageLog() async {
@@ -2113,7 +2199,10 @@ class HiddenVolumeStorage implements Storage {
     // tombstones never free index slots. Per-author `conv_seq` cursors live in
     // the settings KV and keep advancing across the erase, so the peer never
     // sees a seq reuse or a gap (our next event is simply high-water + 1).
-    final erased = await _as.eraseNamespace(Ns.messageLog);
+    var erased = await _as.eraseNamespace(Ns.messageLog);
+    for (var ns = Ns.messageLogShardFirst; ns <= Ns.messageLogShardLast; ns++) {
+      erased += await _as.eraseNamespace(ns);
+    }
     await _as.scrub();
     await _invalidateScanCache();
     return erased;
@@ -2150,8 +2239,8 @@ class HiddenVolumeStorage implements Storage {
       'c': conversationId,
       's': status.index,
     });
-    await _commitAtNextLogId(
-      (logId) => [AppendLogOp(Ns.messageLog, logId, _sk(payload))],
+    await _commitAtNextMessageLogId(
+      (namespace, logId) => [AppendLogOp(namespace, logId, _sk(payload))],
     );
   }
 
@@ -2179,8 +2268,8 @@ class HiddenVolumeStorage implements Storage {
       'c': conversationId,
       'sig': signature.index,
     });
-    await _commitAtNextLogId(
-      (logId) => [AppendLogOp(Ns.messageLog, logId, _sk(payload))],
+    await _commitAtNextMessageLogId(
+      (namespace, logId) => [AppendLogOp(namespace, logId, _sk(payload))],
     );
   }
 
@@ -2648,9 +2737,10 @@ class HiddenVolumeStorage implements Storage {
   // keeps them distinct.
   final List<String> _scanOrder = []; // composite keys, in arrival order
   final Map<String, Message> _scanById = {}; // composite key -> message
-  // Composite key -> the log_id the live message was written under, so edit/
-  // delete can rewrite the SAME record without an independent full scan.
-  final Map<String, int> _scanLogIds = {};
+  // Composite key -> the namespace + log_id the live message was written
+  // under, so delete can rewrite the SAME legacy/sharded record without an
+  // independent full scan.
+  final Map<String, ({int namespace, int logId})> _scanLogIds = {};
   // Composite keys (and legacy bare ids) that have been tombstoned — lets
   // isMessageDeleted answer in O(1) off the warm fold instead of re-scanning.
   final Set<String> _scanDeletedKeys = {};
@@ -2675,6 +2765,14 @@ class HiddenVolumeStorage implements Storage {
   int _scanFoldedUpTo = 0; // next log_id not yet folded into the state above
   List<Message>?
   _scanResult; // materialised; valid while _scanFoldedUpTo == nextId
+
+  // Namespace discovery is lazy and per-open-space. Namespace 3 is always
+  // included for pre-sharding history; marker keys make recovery robust when a
+  // concurrent commit persisted a slightly stale global next-id.
+  final Set<int> _messageLogNamespaces = {Ns.messageLog};
+  final Set<int> _messageLogNamespaceMarkers = {};
+  Future<void>? _messageLogNamespacesInit;
+  final Map<int, Future<void>> _messageLogMarkerWrites = {};
 
   // Single-flight gate serializing all scan-cache access (scan + invalidate).
   Future<void> _scanGate = Future<void>.value();
@@ -2739,6 +2837,61 @@ class HiddenVolumeStorage implements Storage {
     return logId;
   }
 
+  /// Append one or more message-log operations at a fresh global id, routing
+  /// them to the deterministic shard for that id. [opsFor] receives the owning
+  /// namespace so callers cannot accidentally put the payload back into the
+  /// full legacy namespace.
+  Future<int> _commitAtNextMessageLogId(
+    List<KvLogOp> Function(int namespace, int logId) opsFor,
+  ) async {
+    final logId = await _allocLogId();
+    final namespace = Ns.messageLogNamespaceFor(logId);
+    await _ensureMessageLogNamespacesLoaded();
+    final messageOps = opsFor(namespace, logId);
+
+    Future<void> commit({required bool withMarker}) async {
+      await _as.commit([
+        ...messageOps,
+        if (withMarker)
+          PutOp(
+            Ns.settings,
+            _sk('$_messageLogNamespaceMarkerPrefix$namespace'),
+            _sk('1'),
+          ),
+        PutOp(Ns.settings, _sk('msg_next_id'), _sk('${_nextIdCache!}')),
+      ]);
+    }
+
+    if (_messageLogNamespaceMarkers.contains(namespace)) {
+      await commit(withMarker: false);
+    } else {
+      final firstCommit = _messageLogMarkerWrites[namespace];
+      if (firstCommit != null) {
+        // Only the first record of a never-used shard waits: its atomic commit
+        // publishes the durable discovery marker before followers can land.
+        await firstCommit;
+        await commit(withMarker: false);
+      } else {
+        late final Future<void> publish;
+        publish = () async {
+          await commit(withMarker: true);
+          _messageLogNamespaces.add(namespace);
+          _messageLogNamespaceMarkers.add(namespace);
+        }();
+        _messageLogMarkerWrites[namespace] = publish;
+        try {
+          await publish;
+        } finally {
+          if (identical(_messageLogMarkerWrites[namespace], publish)) {
+            _messageLogMarkerWrites.remove(namespace);
+          }
+        }
+      }
+    }
+    _messageLogNamespaces.add(namespace);
+    return logId;
+  }
+
   /// Composite key for the scan maps: a conversation + a message id, joined by
   /// the Unit Separator (U+001F). `conv` is a server-authenticated 64-hex node id
   /// containing no separator, so even a hostile peer-chosen `id` (which sits
@@ -2758,6 +2911,12 @@ class HiddenVolumeStorage implements Storage {
     _clearedWatermark.clear();
     _scanFoldedUpTo = 0;
     _scanResult = null;
+    _messageLogNamespaces
+      ..clear()
+      ..add(Ns.messageLog);
+    _messageLogNamespaceMarkers.clear();
+    _messageLogNamespacesInit = null;
+    _messageLogMarkerWrites.clear();
     // Drop the log-id counter too: adopting a different space (open), or a
     // scrub/vacuum that may renumber the log, invalidates it — re-read lazily.
     _nextIdCache = null;
@@ -2828,11 +2987,7 @@ class HiddenVolumeStorage implements Storage {
     final start = _scanFoldedUpTo == 0 ? null : _scanFoldedUpTo - 1;
     final scanT0 = DateTime.now();
     var scanned = 0;
-    final entries = await _as.iterLogRange(
-      namespace: Ns.messageLog,
-      start: start,
-      limit: _logScanLimit,
-    );
+    final entries = await _messageLogEntries(start: start);
     for (final e in entries) {
       scanned++;
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
@@ -2987,7 +3142,7 @@ class HiddenVolumeStorage implements Storage {
         forwardedFrom: m['fw'] as String?,
         signature: _sigFromIndex(m['sig']),
       );
-      _scanLogIds[k] = e.logId;
+      _scanLogIds[k] = (namespace: e.namespace, logId: e.logId);
       _scanDeletedKeys.remove(
         k,
       ); // a live record supersedes an earlier tombstone

@@ -329,7 +329,8 @@ abstract interface class Storage {
   Future<int> purgeFileStore();
 
   /// Bench/debug: entry counts per storage namespace, for diagnosing which
-  /// namespace is approaching the log-index cap.
+  /// namespace is approaching the log-index cap. Message-log diagnostics also
+  /// split the total into legacy/sharded rows and report the active shard count.
   Future<Map<String, int>> namespaceCounts();
 
   /// Raw keys of the settings namespace (every key family: `set:*`, `file:*`,

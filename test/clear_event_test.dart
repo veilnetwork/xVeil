@@ -95,10 +95,12 @@ void main() {
       await mA.sendText(b, 'from A one');
       await mA.sendText(b, 'from A two');
       await mB.sendText(a, 'from B one');
-      // Both sides hold the exchanged messages.
+      // Both sides hold all three exchanged messages before the clear. Waiting
+      // for only A's two local rows made this assertion scheduling-dependent:
+      // B's in-flight row could legitimately arrive after the clear watermark.
       await _until(() async =>
-          (await sB.loadMessages(a.hex)).isNotEmpty &&
-          (await sA.loadMessages(b.hex)).length >= 2);
+          (await sB.loadMessages(a.hex)).length >= 3 &&
+          (await sA.loadMessages(b.hex)).length >= 3);
       expect(await sB.loadMessages(a.hex), isNotEmpty);
 
       await mA.clearConversation(b);
