@@ -100,7 +100,7 @@ class _MessagingGroupContent {
         await _owner._loadPersistedManifest(cid);
     if (manifest == null || manifest.contentId != cid) return;
     try {
-      await _owner._sendContentManifest(
+      await _owner._sendGroupContentManifest(
         peer,
         _owner._baseContentManifest(manifest),
       );
@@ -208,6 +208,13 @@ class _MessagingGroupContent {
       await _owner._storage.storeFile(cid, bytes, name: name);
     }
     await persistRequiredGroupManifest(m);
+    final previous = _owner._serving[cid];
+    if (previous?.source != null) {
+      _owner._retireServeSourceForContent(cid, previous!.source!);
+    }
+    _owner._serving[cid] = (manifest: m, source: null, servedAt: _owner._now());
+    _owner._evictServing();
+    _owner._ensureContentTimer();
     devLog(
       () =>
           'xVeil[content]: group content registered '

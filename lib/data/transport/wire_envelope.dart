@@ -180,6 +180,14 @@ enum WireKind {
   /// requester while the matching request remains in bounded RAM. Appended
   /// immediately before [unknown] so every prior wire index stays unchanged.
   groupContentReceipt,
+
+  /// Live-only holder advertisement for one membership-scoped group content
+  /// pull. Unlike [contentManifest], receiving it must never create a direct
+  /// chat row, auto-download bytes, or emit an ACK/read oracle. Admission is
+  /// the receiver's bounded `(peer, contentId)` pull scope established before
+  /// its signed [groupContentRequest] leaves. Appended immediately before
+  /// [unknown] so every prior wire index stays unchanged.
+  groupContentManifest,
   unknown,
 }
 
@@ -585,6 +593,13 @@ FileMetaFrame parseFileMeta(String body) {
 /// one datagram (adaptive piece size keeps the manifest small).
 WireEnvelope contentManifestEnvelope(String manifestJson) =>
     WireEnvelope(WireKind.contentManifest, manifestJson);
+
+/// Advertise a holder only inside an already-authorized group content pull.
+/// The body uses the same full-manifest/compact-ref representation as
+/// [contentManifestEnvelope], while the distinct kind keeps it out of the
+/// direct-chat file-offer and automatic-download path.
+WireEnvelope groupContentManifestEnvelope(String manifestJson) =>
+    WireEnvelope(WireKind.groupContentManifest, manifestJson);
 
 /// Ask the sender to RE-ADVERTISE [contentId]'s manifest — the receiver has the
 /// OFFER (synced via the event log) but lost the in-memory manifest handle (app
