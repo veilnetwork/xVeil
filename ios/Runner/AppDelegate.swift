@@ -1,6 +1,7 @@
 import Flutter
 import UIKit
 import AVFoundation
+import UserNotifications
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -11,6 +12,9 @@ import AVFoundation
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // Required by flutter_local_notifications for foreground presentation and
+    // tap delivery. FlutterAppDelegate already implements the delegate.
+    UNUserNotificationCenter.current().delegate = self
     excludeAppDataFromBackup()
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
