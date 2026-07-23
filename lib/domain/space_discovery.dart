@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart' as crypto;
 
 import '../core/ids.dart';
 import 'group.dart';
+import 'space_discovery_search.dart' show normalizeSpaceDiscoverySearchText;
 import 'space_join_request.dart';
 
 const Duration kSpacePublicDescriptorLifetime = Duration(days: 7);
@@ -384,6 +385,61 @@ class SpacePublicHolderAnnouncement {
   }
 }
 
+/// Exact application payload carried inside one native `XS` DHT record.
+///
+/// The native layer authenticates the short-lived holder carrier; this layer
+/// independently authenticates both the owner descriptor and the holder's
+/// attestation of its exact hash.
+class SpacePublicDiscoveryPayload {
+  const SpacePublicDiscoveryPayload({
+    required this.descriptor,
+    required this.holder,
+  });
+
+  final SpacePublicDescriptor descriptor;
+  final SpacePublicHolderAnnouncement holder;
+
+  Map<String, dynamic> toJson() => {
+    'v': 1,
+    'descriptor': descriptor.toJson(),
+    'holder': holder.toJson(),
+  };
+
+  Uint8List toBytes() => Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
+
+  bool verifyAt(int nowMs, SpacePublicSignatureVerifier verify) =>
+      descriptor.verifyAt(nowMs, verify) &&
+      holder.spaceId == descriptor.spaceId &&
+      holder.descriptorHash == descriptor.descriptorHash &&
+      holder.verifyAt(nowMs, verify);
+
+  static SpacePublicDiscoveryPayload? fromJson(Object? value) {
+    if (value is! Map ||
+        !_hasOnlyKeys(value, const {'v', 'descriptor', 'holder'}) ||
+        value['v'] != 1) {
+      return null;
+    }
+    final descriptor = SpacePublicDescriptor.fromJson(value['descriptor']);
+    final holder = SpacePublicHolderAnnouncement.fromJson(value['holder']);
+    if (descriptor == null ||
+        holder == null ||
+        holder.spaceId != descriptor.spaceId ||
+        holder.descriptorHash != descriptor.descriptorHash) {
+      return null;
+    }
+    return SpacePublicDiscoveryPayload(descriptor: descriptor, holder: holder);
+  }
+
+  static SpacePublicDiscoveryPayload? fromBytes(Uint8List bytes) {
+    if (bytes.isEmpty || bytes.length > 16 * 1024) return null;
+    try {
+      return fromJson(jsonDecode(utf8.decode(bytes, allowMalformed: false)));
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 /// Verifies and merges independently fetched descriptor/holder candidates.
 ///
 /// The merge never trusts a descriptor just because it occupied a DHT key.
@@ -422,7 +478,7 @@ List<SpacePublicDescriptor> mergeSpacePublicDiscovery({
         .putIfAbsent(holder.descriptorHash, () => <NodeId>{})
         .add(holder.holder);
   }
-  final normalizedQuery = query.trim().toLowerCase();
+  final normalizedQuery = normalizeSpaceDiscoverySearchText(query);
   final bestBySpace = <NodeId, SpacePublicDescriptor>{};
   for (final entry in validDescriptors.entries) {
     if ((holdersByDescriptor[entry.key]?.length ?? 0) <
@@ -431,8 +487,12 @@ List<SpacePublicDescriptor> mergeSpacePublicDiscovery({
     }
     final descriptor = entry.value;
     if (normalizedQuery.isNotEmpty &&
-        !descriptor.name.toLowerCase().contains(normalizedQuery) &&
-        !descriptor.description.toLowerCase().contains(normalizedQuery)) {
+        !normalizeSpaceDiscoverySearchText(
+          descriptor.name,
+        ).contains(normalizedQuery) &&
+        !normalizeSpaceDiscoverySearchText(
+          descriptor.description,
+        ).contains(normalizedQuery)) {
       continue;
     }
     final current = bestBySpace[descriptor.spaceId];

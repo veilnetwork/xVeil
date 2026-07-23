@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/crypto/blake3.dart';
+import 'package:xveil/data/node/space_discovery_transport.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
@@ -24,6 +26,9 @@ import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/message_mention.dart';
 import 'package:xveil/domain/space_channel.dart';
+import 'package:xveil/domain/space_discovery.dart';
+import 'package:xveil/domain/space_discovery_carrier.dart';
+import 'package:xveil/domain/space_discovery_search.dart';
 import 'package:xveil/domain/space_invite.dart';
 import 'package:xveil/domain/space_lifecycle.dart';
 import 'package:xveil/domain/space_join_request.dart';
@@ -122,6 +127,22 @@ class _FakeSigner implements GroupSigner {
         value.signature,
       );
   @override
+  ({Uint8List signature, Uint8List publicKey}) signDetached(
+    Uint8List message,
+  ) => (
+    signature: _fakeSovereignSignature(selfPubKey, message),
+    publicKey: selfPubKey,
+  );
+  @override
+  bool verifyDetached({
+    required NodeId signer,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+  }) =>
+      signer == NodeId(Uint8List.fromList(publicKey)) &&
+      _bytesEqual(_fakeSovereignSignature(publicKey, message), signature);
+  @override
   bool verifySovereign({
     required String algorithm,
     required NodeId nodeId,
@@ -151,6 +172,74 @@ class _NativeSovereignVerifier extends _FakeSigner {
     message: message,
     signature: signature,
   );
+}
+
+class _DiscoveryFakeSigner extends _FakeSigner {
+  _DiscoveryFakeSigner._(this._publicKey, NodeId self) : super(self);
+
+  factory _DiscoveryFakeSigner(int seed) {
+    final publicKey = Uint8List.fromList(
+      List<int>.generate(32, (index) => seed + index),
+    );
+    return _DiscoveryFakeSigner._(publicKey, NodeId(blake3Hash(publicKey)));
+  }
+
+  final Uint8List _publicKey;
+
+  @override
+  Uint8List get selfPubKey => _publicKey;
+
+  @override
+  bool verifySpaceManifest(SpaceManifest value) =>
+      value.owner == NodeId(blake3Hash(value.genesisPubKey)) &&
+      _bytesEqual(
+        _fakeSovereignSignature(value.genesisPubKey, value.canonicalBytes()),
+        value.signature,
+      );
+
+  @override
+  bool verifyDetached({
+    required NodeId signer,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+  }) =>
+      signer == NodeId(blake3Hash(publicKey)) &&
+      _bytesEqual(_fakeSovereignSignature(publicKey, message), signature);
+
+  @override
+  bool verifySovereign({
+    required String algorithm,
+    required NodeId nodeId,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+  }) =>
+      algorithm == 'ed25519' &&
+      nodeId == NodeId(blake3Hash(publicKey)) &&
+      _bytesEqual(_fakeSovereignSignature(publicKey, message), signature);
+}
+
+class _FakeSpaceDiscoveryTransport implements SpaceDiscoveryTransport {
+  final List<Uint8List> records = <Uint8List>[];
+  bool returnUnrelatedRecords = true;
+
+  @override
+  Future<void> publish(Uint8List record) async {
+    records.add(Uint8List.fromList(record));
+  }
+
+  @override
+  Future<List<Uint8List>> resolve(
+    SpaceDiscoveryCarrierRoute route, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async => [
+    for (final record in records)
+      if (returnUnrelatedRecords ||
+          (SpaceDiscoveryCarrier.fromBytes(record)?.route.sameAs(route) ??
+              false))
+        Uint8List.fromList(record),
+  ];
 }
 
 bool _bytesEqual(Uint8List a, Uint8List b) {
@@ -4185,6 +4274,223 @@ void main() {
         reason: 'a late grant cannot revive consent after blocking the inviter',
       );
       expect(await bobService.load(acceptedSpace), isNull);
+    },
+  );
+
+  test(
+    'public discovery payload is signed, allowlisted and stops after transfer',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'owner', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner));
+      addTearDown(service.dispose);
+
+      final privateSpace = await service.createSpace('Private');
+      expect(
+        await service.buildSpacePublicDiscoveryPayload(privateSpace),
+        isNull,
+      );
+      final hiddenPublic = await service.createSpace(
+        'Not indexed',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await service.buildSpacePublicDiscoveryPayload(hiddenPublic),
+        isNull,
+      );
+
+      final spaceId = await service.createSpace(
+        'Public index',
+        description: 'Genesis summary',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      final initial = await service.buildSpacePublicDiscoveryPayload(spaceId);
+      expect(initial, isNotNull);
+      expect(
+        initial!.verifyAt(
+          initial.descriptor.issuedAtMs,
+          _FakeSigner(owner).verifyDetached,
+        ),
+        isTrue,
+      );
+      expect(initial.descriptor.genesisManifest.groupId, spaceId);
+      expect(initial.descriptor.genesisManifest.discoverable, isTrue);
+      expect(initial.descriptor.name, 'Public index');
+      expect(initial.holder.descriptorHash, initial.descriptor.descriptorHash);
+      final wire = utf8.decode(initial.toBytes());
+      for (final forbidden in const [
+        '"members"',
+        '"roles"',
+        '"channels"',
+        '"categoryId"',
+        '"epochEnvelopes"',
+      ]) {
+        expect(wire, isNot(contains(forbidden)));
+      }
+      expect(
+        SpacePublicDiscoveryPayload.fromBytes(initial.toBytes())?.toJson(),
+        initial.toJson(),
+      );
+      final refreshed = await service.buildSpacePublicDiscoveryPayload(spaceId);
+      expect(refreshed, isNotNull);
+      expect(
+        refreshed!.descriptor.descriptorHash,
+        initial.descriptor.descriptorHash,
+        reason:
+            'periodic holder refresh must not split descriptor quorum by hash',
+      );
+      expect(
+        refreshed.holder.issuedAtMs,
+        greaterThan(initial.holder.issuedAtMs),
+      );
+
+      expect(
+        await service.renameGroup(spaceId, 'Current public index'),
+        isTrue,
+      );
+      expect(
+        await service.setSpaceDescription(spaceId, 'Current summary'),
+        isTrue,
+      );
+      final updated = await service.buildSpacePublicDiscoveryPayload(spaceId);
+      expect(updated, isNotNull);
+      expect(updated!.descriptor.name, 'Current public index');
+      expect(updated.descriptor.description, 'Current summary');
+      expect(
+        updated.descriptor.revision,
+        greaterThan(initial.descriptor.revision),
+      );
+      expect(
+        updated.descriptor.descriptorHash,
+        isNot(initial.descriptor.descriptorHash),
+      );
+
+      expect(
+        await service.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(await service.transferSpaceOwnership(spaceId, bob), isTrue);
+      expect(
+        await service.buildSpacePublicDiscoveryPayload(spaceId),
+        isNull,
+        reason:
+            'v1 fails closed after transfer until a public authority chain '
+            'can prove the new owner',
+      );
+    },
+  );
+
+  test(
+    'public discovery publishes native routes and keeps global search quorum',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'owner', createIfMissing: true);
+      final signer = _DiscoveryFakeSigner(17);
+      final transport = _FakeSpaceDiscoveryTransport();
+      final service = GroupService(
+        storage,
+        signer,
+        spaceDiscoveryTransport: transport,
+      );
+      addTearDown(service.dispose);
+
+      final spaceId = await service.createSpace(
+        'Открытый Сад',
+        description: 'Проверенное публичное сообщество',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      final sweep = await service.publishPublicSpaceDiscovery();
+      expect(sweep.available, isTrue);
+      expect(sweep.spacesScanned, 1);
+      expect(sweep.spacesPublished, 1);
+      expect(sweep.recordsPublished, greaterThan(2));
+      expect(sweep.failures, 0);
+      expect(
+        transport.records
+            .map(SpaceDiscoveryCarrier.fromBytes)
+            .whereType<SpaceDiscoveryCarrier>()
+            .where(
+              (record) =>
+                  record.route.kind == SpaceDiscoveryCarrierRouteKind.direct,
+            ),
+        hasLength(1),
+      );
+
+      final exact = await service.resolvePublicSpace(spaceId);
+      expect(exact?.spaceId, spaceId);
+      expect(exact?.name, 'Открытый Сад');
+
+      final prefixRoute = SpaceDiscoveryCarrierRoute.search(
+        spaceDiscoverySearchTokenHash('откр'),
+      );
+      final prefixRecord = transport.records
+          .map(SpaceDiscoveryCarrier.fromBytes)
+          .whereType<SpaceDiscoveryCarrier>()
+          .firstWhere((record) => record.route.sameAs(prefixRoute));
+      expect(
+        prefixRecord.verifyAt(
+          DateTime.now().millisecondsSinceEpoch,
+          signer.verifyDetached,
+        ),
+        isTrue,
+      );
+      expect(
+        await service.searchPublicSpaces('откр', minimumIndependentHolders: 1),
+        hasLength(1),
+      );
+      expect(
+        await service.searchPublicSpaces('откр'),
+        isEmpty,
+        reason:
+            'one publishing identity must not satisfy global discovery quorum',
+      );
+
+      final second = await service.publishPublicSpaceDiscovery();
+      expect(second.complete, isTrue);
+      final directRecords = transport.records
+          .map(SpaceDiscoveryCarrier.fromBytes)
+          .whereType<SpaceDiscoveryCarrier>()
+          .where(
+            (record) =>
+                record.route.kind == SpaceDiscoveryCarrierRouteKind.direct,
+          )
+          .toList();
+      expect(directRecords, hasLength(2));
+      final firstPayload = SpacePublicDiscoveryPayload.fromBytes(
+        directRecords.first.payload,
+      );
+      final refreshedPayload = SpacePublicDiscoveryPayload.fromBytes(
+        directRecords.last.payload,
+      );
+      expect(
+        refreshedPayload?.descriptor.descriptorHash,
+        firstPayload?.descriptor.descriptorHash,
+      );
+      expect(
+        refreshedPayload!.holder.issuedAtMs,
+        greaterThan(firstPayload!.holder.issuedAtMs),
+      );
+
+      final beforeSuppressedRefresh = transport.records.length;
+      final suppressed = await service.publishPublicSpaceDiscovery(
+        forceHolderRefresh: false,
+      );
+      expect(suppressed.spacesPublished, 0);
+      expect(transport.records, hasLength(beforeSuppressedRefresh));
+
+      expect(await service.renameGroup(spaceId, 'Открытый Сад 2'), isTrue);
+      final changed = await service.publishPublicSpaceDiscovery(
+        forceHolderRefresh: false,
+      );
+      expect(changed.spacesPublished, 1);
+      expect(transport.records.length, greaterThan(beforeSuppressedRefresh));
     },
   );
 

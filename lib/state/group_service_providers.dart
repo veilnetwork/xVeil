@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
 import '../data/node/embedded_node.dart';
+import '../data/node/space_discovery_transport.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_mailbox.dart';
 import '../domain/chat.dart' show MessageDirection;
@@ -136,10 +137,12 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       for (final peer in await transport.peers())
         if (peer.isActive) peer.nodeId,
     },
+    spaceDiscoveryTransport: NativeSpaceDiscoveryTransport(signer.selfId),
   );
   ref.onDispose(() => unawaited(service.dispose()));
   service.startSpaceLifecycleMaintenance();
   service.startScheduledSpacePostMaintenance();
+  service.startPublicSpaceDiscoveryMaintenance();
 
   messaging.onGroupEntry = (peer, bundleJson) async {
     await service.ingestGroupEntry(peer, bundleJson);
