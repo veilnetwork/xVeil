@@ -196,11 +196,13 @@ class SpacePostMediaList extends StatelessWidget {
     required this.spaceId,
     required this.post,
     this.compact = false,
+    this.publicOnly = false,
   });
 
   final NodeId spaceId;
   final SpacePostView post;
   final bool compact;
+  final bool publicOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -226,6 +228,7 @@ class SpacePostMediaList extends StatelessWidget {
       author: post.author,
       media: post.media,
       compact: compact,
+      publicOnly: publicOnly,
     );
   }
 }
@@ -240,12 +243,14 @@ class MediaObjectList extends StatelessWidget {
     required this.author,
     required this.media,
     this.compact = false,
+    this.publicOnly = false,
   });
 
   final NodeId spaceId;
   final NodeId author;
   final List<MediaObject> media;
   final bool compact;
+  final bool publicOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -263,6 +268,7 @@ class MediaObjectList extends StatelessWidget {
               author: author,
               media: item,
               compact: compact,
+              publicOnly: publicOnly,
             ),
         ],
       ),
@@ -277,12 +283,14 @@ class _SpacePostMediaTile extends ConsumerStatefulWidget {
     required this.author,
     required this.media,
     required this.compact,
+    required this.publicOnly,
   });
 
   final NodeId spaceId;
   final NodeId author;
   final MediaObject media;
   final bool compact;
+  final bool publicOnly;
 
   @override
   ConsumerState<_SpacePostMediaTile> createState() =>
@@ -446,7 +454,16 @@ class _SpacePostMediaTileState extends ConsumerState<_SpacePostMediaTile> {
     final service = ref.read(groupServiceProvider);
     final started =
         service != null &&
-        await service.fetchGroupContent(widget.spaceId, _cid, widget.author);
+        (widget.publicOnly
+            ? await service.requestSubscribedPublicSpaceMedia(
+                widget.spaceId,
+                _cid,
+              )
+            : await service.fetchGroupContent(
+                widget.spaceId,
+                _cid,
+                widget.author,
+              ));
     if (!started && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppL10n.of(context).spaceOperationFailed)),

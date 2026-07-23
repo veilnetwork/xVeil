@@ -73,6 +73,32 @@ final spaceListProvider = StreamProvider<List<GroupListEntry>>((ref) async* {
   }
 });
 
+/// Read-only public subscriptions are intentionally separate from member
+/// Spaces: consumers can render them together, but no UI accidentally gains a
+/// [GroupBundle] or membership action by treating them as [GroupListEntry].
+final publicSpaceSubscriptionListProvider =
+    StreamProvider<List<SpacePublicSubscriptionView>>((ref) async* {
+      final service = ref.watch(groupServiceProvider);
+      if (service == null) {
+        yield const [];
+        return;
+      }
+      final ticks = StreamController<void>();
+      void onTick() {
+        if (!ticks.isClosed) ticks.add(null);
+      }
+
+      service.changes.addListener(onTick);
+      ref.onDispose(() {
+        service.changes.removeListener(onTick);
+        unawaited(ticks.close());
+      });
+      yield await service.publicSpaceSubscriptions();
+      await for (final _ in ticks.stream) {
+        yield await service.publicSpaceSubscriptions();
+      }
+    });
+
 /// Builds the real signer from the GUI app's active deniable identity.
 final groupSignerProvider = FutureProvider<GroupSigner?>((ref) async {
   final selfId = ref.watch(

@@ -188,6 +188,13 @@ void main() {
       expect(notificationPayloadSupportsReply(payload), isFalse);
       expect(notificationRouteForPayload('mention:not-base64'), isNull);
     });
+
+    test('public Space mention opens the exact signed publication', () {
+      const route = '/space/abc/public-posts?post=def%3A7';
+      final payload = notificationMentionPayload(route);
+      expect(notificationRouteForPayload(payload), route);
+      expect(notificationPayloadSupportsReply(payload), isFalse);
+    });
   });
 
   group('Space discussion notification relevance', () {

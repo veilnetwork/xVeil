@@ -36,6 +36,7 @@ import 'package:xveil/domain/space_membership.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_policy_audit.dart';
+import 'package:xveil/domain/space_public_feed.dart';
 import 'package:xveil/domain/space_rules.dart';
 import 'package:xveil/domain/space_recommendation.dart';
 import 'package:xveil/domain/space_retention.dart';
@@ -4608,6 +4609,243 @@ void main() {
   );
 
   test(
+    'public-only subscription persists verified feed without membership authority',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final readerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await readerStorage.open(password: 'reader', createIfMissing: true);
+      late GroupService readerService;
+      final ownerService = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        sendPublicFeedChunk: (requester, chunkJson) async {
+          expect(requester, bob);
+          readerService.handlePublicFeedObjectChunk(owner, chunkJson);
+        },
+      );
+      readerService = GroupService(
+        readerStorage,
+        _FakeSigner(bob),
+        sendPublicFeedRequest: (holder, requestJson) async {
+          expect(holder, owner);
+          await ownerService.handlePublicFeedObjectRequest(bob, requestJson);
+        },
+      );
+      addTearDown(ownerService.dispose);
+      final publicNotices = <({NodeId spaceId, SpacePostView post})>[];
+      final publicNoticeSub = readerService.incomingPublicPosts.listen(
+        publicNotices.add,
+      );
+      addTearDown(publicNoticeSub.cancel);
+      addTearDown(() async {
+        if (!identical(readerService, ownerService)) {
+          await readerService.dispose();
+        }
+      });
+
+      const mediaCid =
+          'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+      final spaceId = await ownerService.createSpace(
+        'Read-only public Space',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      final root = await ownerService.publishSpacePost(
+        spaceId,
+        body: 'Signed public publication for an outsider',
+        media: [
+          const MediaObject(
+            kind: 'image',
+            contentId: mediaCid,
+            name: 'public.png',
+            size: 3,
+          ),
+        ],
+        broadcast: false,
+      );
+      expect(root, isNotNull);
+      final first = await ownerService.buildSpacePublicDiscoveryPublication(
+        spaceId,
+      );
+      expect(first, isNotNull);
+      expect(
+        await ownerService.editSpacePost(
+          spaceId,
+          root!.postId,
+          title: '',
+          body: 'Latest owner-committed public publication',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      final current = await ownerService.buildSpacePublicDiscoveryPublication(
+        spaceId,
+      );
+      expect(current, isNotNull);
+
+      final subscribed = await readerService.subscribeToPublicSpace(
+        current!.discovery.descriptor,
+        [current.discovery.holder],
+      );
+      expect(subscribed, isNotNull);
+      expect(subscribed!.subscription.publicOnly, isTrue);
+      expect(
+        publicNotices,
+        isEmpty,
+        reason: 'initial imported history must not create an alert storm',
+      );
+      expect(subscribed.feed.posts.single.body, contains('Latest'));
+      expect(await readerService.load(spaceId), isNull);
+      expect(
+        await readerStorage.getSetting('groups.index'),
+        anyOf(isNull, isNot(contains(spaceId.hex))),
+        reason: 'read-only subscription must not create a GroupBundle index',
+      );
+      expect(
+        (await readerService.spaceFeed()).every((item) => item.publicOnly),
+        isTrue,
+      );
+      expect((await readerService.spaceFeed()).single.canManagePosts, isFalse);
+      expect(await readerService.unreadSpacePosts(spaceId), 1);
+      await readerService.markSpaceFeedSeen(spaceId);
+      expect(await readerService.unreadSpacePosts(spaceId), 0);
+
+      await readerService.updateSpaceSubscription(
+        spaceId,
+        feedEnabled: false,
+        notificationsEnabled: false,
+        commentNotifications: SpaceCommentNotificationMode.all,
+        hiddenFromRecommendations: true,
+      );
+      expect(await readerService.spaceFeed(), isEmpty);
+      final preferences = await readerService.spaceSubscription(spaceId);
+      expect(preferences.publicOnly, isTrue);
+      expect(preferences.feedEnabled, isFalse);
+      expect(preferences.notificationsEnabled, isFalse);
+      expect(
+        preferences.commentNotifications,
+        SpaceCommentNotificationMode.all,
+      );
+      expect(preferences.hiddenFromRecommendations, isTrue);
+      await readerService.setSpaceFeedEnabled(spaceId, true);
+      await readerService.setSpaceFeedPostHidden(spaceId, root.postId, true);
+      expect(await readerService.spaceFeed(), isEmpty);
+      await readerService.setSpaceFeedPostHidden(spaceId, root.postId, false);
+      expect(await readerService.spaceFeed(), hasLength(1));
+
+      final mentioned = await ownerService.publishSpacePost(
+        spaceId,
+        body: 'New verified root for ${encodeMessageMention(bob)}',
+        broadcast: false,
+      );
+      expect(mentioned, isNotNull);
+      final refreshed = await ownerService.buildSpacePublicDiscoveryPublication(
+        spaceId,
+      );
+      expect(refreshed, isNotNull);
+      expect(
+        await readerService.subscribeToPublicSpace(
+          refreshed!.discovery.descriptor,
+          [refreshed.discovery.holder],
+        ),
+        isNotNull,
+      );
+      await pump();
+      expect(publicNotices, hasLength(1));
+      expect(publicNotices.single.spaceId, spaceId);
+      expect(publicNotices.single.post.postId, mentioned!.postId);
+      expect(await readerService.unreadSpacePosts(spaceId), 1);
+
+      expect(
+        await readerService.subscribeToPublicSpace(
+          first!.discovery.descriptor,
+          [first.discovery.holder],
+        ),
+        isNull,
+        reason: 'a still-valid signed older feed must not roll back the view',
+      );
+
+      final snapshotBytes = await readerStorage.loadFile(
+        'space-public-subscription:${spaceId.hex}',
+      );
+      final snapshot = SpacePublicSubscriptionSnapshot.fromBytes(
+        snapshotBytes!,
+      );
+      expect(snapshot, isNotNull);
+      final persisted = snapshot!.toJson();
+      expect(persisted.keys, {'v', 'kind', 'verifiedAt', 'package'});
+      final package = persisted['package'] as Map;
+      expect(package.keys, {'v', 'kind', 'descriptor', 'manifest', 'pages'});
+      final wire = jsonEncode(persisted);
+      for (final privateField in [
+        '"members"',
+        '"roles"',
+        '"channels"',
+        '"epochEnvelopes"',
+        '"channelEpoch"',
+      ]) {
+        expect(wire, isNot(contains(privateField)));
+      }
+
+      await readerStorage.storeFile(
+        mediaCid,
+        Uint8List.fromList([1, 2, 3]),
+        name: 'public.png',
+      );
+      expect(
+        (await readerService.sweepSharedContentGarbage(
+          gracePeriod: Duration.zero,
+        )).purged,
+        0,
+        reason: 'active public projection is a shared-CID GC root',
+      );
+
+      await readerService.dispose();
+      readerService = GroupService(readerStorage, _FakeSigner(bob));
+      final reopened = await readerService.publicSpaceSubscription(spaceId);
+      expect(reopened, isNotNull);
+      expect(reopened!.subscription.publicOnly, isTrue);
+      expect(reopened.subscription.notificationsEnabled, isFalse);
+      expect(
+        reopened.feed.posts.any((post) => post.body.contains('Latest')),
+        isTrue,
+      );
+      expect(
+        (await readerService.spaceFeed()).every((item) => item.publicOnly),
+        isTrue,
+      );
+      expect(await readerService.load(spaceId), isNull);
+
+      final tamperedJson =
+          jsonDecode(utf8.decode(snapshotBytes)) as Map<String, dynamic>;
+      final tamperedPackage = tamperedJson['package'] as Map;
+      final pages = tamperedPackage['pages'] as List;
+      final projected = ((pages.single as Map)['posts'] as List).first as Map;
+      (projected['effective'] as Map)['body'] = 'forged offline body';
+      await readerStorage.storeFile(
+        'space-public-subscription:${spaceId.hex}',
+        Uint8List.fromList(utf8.encode(jsonEncode(tamperedJson))),
+        name: 'tampered-public-space-subscription',
+      );
+      await readerService.dispose();
+      readerService = GroupService(readerStorage, _FakeSigner(bob));
+      expect(await readerService.publicSpaceSubscription(spaceId), isNull);
+      expect(await readerService.spaceFeed(), isEmpty);
+
+      expect(await readerService.unsubscribeFromPublicSpace(spaceId), isTrue);
+      expect(await readerService.publicSpaceSubscriptions(), isEmpty);
+      expect(
+        (await readerService.sweepSharedContentGarbage(
+          gracePeriod: Duration.zero,
+        )).purged,
+        1,
+      );
+      expect(await readerStorage.hasFile(mediaCid), isFalse);
+    },
+  );
+
+  test(
     'public media grant requires an exact cached verified projection',
     () async {
       final ownerStorage = FakeHvContainer().storage();
@@ -4765,6 +5003,10 @@ void main() {
       final exact = await service.resolvePublicSpace(spaceId);
       expect(exact?.spaceId, spaceId);
       expect(exact?.name, 'Открытый Сад');
+      final exactResult = await service.resolvePublicSpaceDiscovery(spaceId);
+      expect(exactResult?.descriptor.descriptorHash, exact?.descriptorHash);
+      expect(exactResult?.holders, hasLength(1));
+      expect(exactResult?.holders.single.holder, signer.selfId);
 
       final prefixRoute = SpaceDiscoveryCarrierRoute.search(
         spaceDiscoverySearchTokenHash('откр'),
@@ -4784,6 +5026,12 @@ void main() {
         await service.searchPublicSpaces('откр', minimumIndependentHolders: 1),
         hasLength(1),
       );
+      final searchable = await service.searchPublicSpaceDiscovery(
+        'откр',
+        minimumIndependentHolders: 1,
+      );
+      expect(searchable, hasLength(1));
+      expect(searchable.single.holders, hasLength(1));
       expect(
         await service.searchPublicSpaces('откр'),
         isEmpty,
