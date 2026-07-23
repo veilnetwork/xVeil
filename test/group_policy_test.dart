@@ -4,7 +4,10 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/group.dart';
+import 'package:xveil/domain/group_epoch.dart';
+import 'package:xveil/domain/group_payload.dart';
 import 'package:xveil/domain/group_policy.dart';
+import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_recommendation.dart';
@@ -881,6 +884,104 @@ void main() {
       ).isStructurallyValid,
       isFalse,
     );
+  });
+
+  test('restricted moderation V14 is opaque and bound to current epoch', () {
+    final spaceId = _id(7);
+    final channelId = _id(8);
+    final encrypted = GroupEncryptedPayload(
+      nonce: Uint8List(12),
+      cipherText: Uint8List.fromList([1, 2, 3]),
+      mac: Uint8List(16),
+    );
+    final descriptor = GroupEpochDescriptor(
+      groupId: channelId,
+      epoch: 1,
+      keyCommitment: 'ab' * 32,
+      envelopeRoot: 'cd' * 32,
+      recipientCount: 1,
+    );
+    final create = ControlEntry(
+      version: 5,
+      groupId: spaceId,
+      author: _owner,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.createChannel,
+      target: null,
+      role: null,
+      channelControl: SpaceChannelControlEnvelope(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: 1,
+        keyDescriptor: descriptor,
+        encryptedControl: encrypted,
+      ),
+      policyVersion: 0,
+      createdAtMs: 1000,
+      signature: Uint8List(64),
+    );
+    final moderation = ControlEntry(
+      version: 14,
+      groupId: spaceId,
+      author: _owner,
+      seq: 1,
+      prevHash: controlEntryHash(create),
+      op: ControlOp.moderate,
+      target: null,
+      role: null,
+      channelModeration: SpaceChannelModerationEnvelope(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: 1,
+        encryptedAction: encrypted,
+      ),
+      policyVersion: 0,
+      createdAtMs: 1001,
+      signature: Uint8List(64),
+    );
+    expect(moderation.isStructurallyValid, isTrue);
+    expect(moderation.target, isNull);
+    expect(moderation.moderationAction, isNull);
+    expect(
+      ControlEntry.fromJson(moderation.toJson())?.channelModeration?.channelId,
+      channelId,
+    );
+    final folded = foldControlLog(
+      owner: _owner,
+      entries: [create, moderation],
+      verify: _ok,
+    );
+    expect(folded.rejected, isEmpty);
+    expect(folded.state.protectedModeration, contains('${_owner.hex}:1'));
+    expect(folded.state.moderationRecords, isEmpty);
+
+    final staleEpoch = ControlEntry(
+      version: 14,
+      groupId: spaceId,
+      author: _owner,
+      seq: 2,
+      prevHash: controlEntryHash(moderation),
+      op: ControlOp.moderate,
+      target: null,
+      role: null,
+      channelModeration: SpaceChannelModerationEnvelope(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: 2,
+        encryptedAction: encrypted,
+      ),
+      policyVersion: 0,
+      createdAtMs: 1002,
+      signature: Uint8List(64),
+    );
+    final failClosed = foldControlLog(
+      owner: _owner,
+      entries: [create, moderation, staleEpoch],
+      verify: _ok,
+    );
+    expect(failClosed.rejected, contains(staleEpoch));
+    expect(failClosed.state.protectedModeration, hasLength(1));
   });
 
   test('Space recommendation campaign V13 creates once and only revokes', () {

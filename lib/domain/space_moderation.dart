@@ -345,6 +345,23 @@ class SpaceModerationRecord {
   );
 }
 
+bool spaceModerationRemovesContent(
+  Iterable<SpaceModerationRecord> records, {
+  required SpaceModerationReferenceKind kind,
+  required NodeId author,
+  required int seq,
+  required int atMs,
+  NodeId? channelId,
+}) => records.any((record) {
+  if (!record.isActiveAt(atMs)) return false;
+  final reference = record.action.reference;
+  return reference != null &&
+      reference.kind == kind &&
+      reference.author == author &&
+      reference.seq == seq &&
+      (reference.channelId == null || reference.channelId == channelId);
+});
+
 /// Reserved domain shape for a future appeal transport/UI. A banned peer is no
 /// longer a control-log member, so pretending it can append this to the Space
 /// log would be a security bug; the eventual delivery protocol must be an

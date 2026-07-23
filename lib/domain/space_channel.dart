@@ -364,6 +364,64 @@ class SpaceChannelControlEnvelope {
   }
 }
 
+/// Opaque moderation evidence for one restricted channel.
+///
+/// The channel id and epoch are already public in the restricted-channel V1
+/// control shape. The target, reason and referenced message remain encrypted
+/// under that channel epoch key and are authenticated by the enclosing signed
+/// [ControlEntry].
+class SpaceChannelModerationEnvelope {
+  const SpaceChannelModerationEnvelope({
+    required this.spaceId,
+    required this.channelId,
+    required this.channelEpoch,
+    required this.encryptedAction,
+  });
+
+  final NodeId spaceId;
+  final NodeId channelId;
+  final int channelEpoch;
+  final GroupEncryptedPayload encryptedAction;
+
+  bool get isStructurallyValid =>
+      channelEpoch > 0 &&
+      channelEpoch <= 0xffffffff &&
+      encryptedAction.isStructurallyValid;
+
+  Map<String, dynamic> toJson() => {
+    'v': 1,
+    'sid': spaceId.hex,
+    'cid': channelId.hex,
+    'epoch': channelEpoch,
+    'enc': encryptedAction.toJson(),
+  };
+
+  static SpaceChannelModerationEnvelope? fromJson(Object? value) {
+    if (value is! Map || value['v'] != 1) return null;
+    final sid = value['sid'];
+    final cid = value['cid'];
+    final epoch = value['epoch'];
+    final encrypted = GroupEncryptedPayload.fromJson(value['enc']);
+    if (sid is! String ||
+        cid is! String ||
+        epoch is! int ||
+        encrypted == null) {
+      return null;
+    }
+    try {
+      final envelope = SpaceChannelModerationEnvelope(
+        spaceId: NodeId.fromHex(sid),
+        channelId: NodeId.fromHex(cid),
+        channelEpoch: epoch,
+        encryptedAction: encrypted,
+      );
+      return envelope.isStructurallyValid ? envelope : null;
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 bool _sameStrings(List<String> left, List<String> right) {
   if (left.length != right.length) return false;
   for (var index = 0; index < left.length; index++) {
