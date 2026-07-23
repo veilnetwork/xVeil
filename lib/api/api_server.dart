@@ -1529,7 +1529,8 @@ Map<String, dynamic> openApiSpec() {
         'get': {
           'summary':
               'Read bounded runtime-only community counters, delivery timing '
-              'and identifier-free replication estimates',
+              'exact missing-object totals, receipt latency and '
+              'identifier-free estimated/confirmed replication aggregates',
           'responses': ok({'type': obj}),
         },
       },

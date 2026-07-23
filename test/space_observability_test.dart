@@ -62,6 +62,14 @@ void main() {
         'containsSecrets': false,
         'arbitraryLabels': false,
       });
+      final replication = json['replication'] as Map;
+      expect(
+        replication['confirmedBasis'],
+        'sourceBoundReceiptAndCaughtUpSyncVector',
+      );
+      expect(replication['confirmedScope'], 'authorizedSyncFrontier');
+      expect(replication['confirmedRuntimeOnly'], isTrue);
+      expect(replication['confirmedRemoteHolderSlots'], 0);
       final encoded = jsonEncode(json);
       expect(encoded, isNot(contains('nodeId')));
       expect(encoded, isNot(contains('spaceId')));

@@ -188,8 +188,18 @@ void main() {
       expect((observations['counters'] as Map)['spaceCreated.succeeded'], 1);
       final replication = observations['replication'] as Map;
       expect(replication['basis'], 'activeAuthorizedMembers');
+      expect(
+        replication['confirmedBasis'],
+        'sourceBoundReceiptAndCaughtUpSyncVector',
+      );
+      expect(replication['confirmedScope'], 'authorizedSyncFrontier');
+      expect(replication['confirmedRuntimeOnly'], isTrue);
       expect(replication['liveSourceAvailable'], isFalse);
       expect(replication.containsKey('availableRemoteSpreaders'), isFalse);
+      expect(
+        replication.containsKey('availableConfirmedRemoteHolderSlots'),
+        isFalse,
+      );
       expect(observations.toString(), isNot(contains(space)));
       expect(observations.toString(), isNot(contains('Field lab')));
     } finally {
