@@ -23,6 +23,8 @@ enum SpaceObservationType {
   p2pSnapshotDelivery,
   p2pDeltaDelivery,
   p2pBackfill,
+  p2pMissingObjects,
+  p2pReceipt,
   revokedDeliveryPrevented,
 }
 
@@ -81,13 +83,26 @@ final class SpaceObservation {
 /// totals useful for capacity/health checks without exposing which peer is in
 /// which Space. Live factors are explicitly estimates: transport liveness plus
 /// current ACL does not prove that a peer has already converged every object.
+///
+/// Confirmed factors are narrower protocol confirmations, not cryptographic
+/// proof of durable remote storage: a current member echoed a source-bound
+/// one-time receipt and its authenticated sync vector then showed no objects
+/// missing from the frontier it is authorized to receive. Proofs are RAM-only,
+/// expire, and are invalidated by any subsequent local frontier change.
 final class SpaceReplicationObservability {
   const SpaceReplicationObservability({
     required this.liveSourceAvailable,
     required this.spaces,
     required this.eligibleRemoteSpreaders,
     required this.targetReplicationFactorTotal,
+    this.confirmedProofTtlMs = 86400000,
+    this.confirmedRemoteHolderSlots = 0,
+    this.confirmedReplicationFactorTotal = 0,
+    this.confirmedReplicationFactorMin = 0,
+    this.confirmedReplicationFactorMax = 0,
+    this.confirmedUnderReplicatedSpaces = 0,
     this.availableRemoteSpreaders,
+    this.availableConfirmedRemoteHolderSlots,
     this.estimatedLiveReplicationFactorTotal,
     this.estimatedLiveReplicationFactorMin,
     this.estimatedLiveReplicationFactorMax,
@@ -98,7 +113,14 @@ final class SpaceReplicationObservability {
   final int spaces;
   final int eligibleRemoteSpreaders;
   final int targetReplicationFactorTotal;
+  final int confirmedProofTtlMs;
+  final int confirmedRemoteHolderSlots;
+  final int confirmedReplicationFactorTotal;
+  final int confirmedReplicationFactorMin;
+  final int confirmedReplicationFactorMax;
+  final int confirmedUnderReplicatedSpaces;
   final int? availableRemoteSpreaders;
+  final int? availableConfirmedRemoteHolderSlots;
   final int? estimatedLiveReplicationFactorTotal;
   final int? estimatedLiveReplicationFactorMin;
   final int? estimatedLiveReplicationFactorMax;
@@ -106,11 +128,21 @@ final class SpaceReplicationObservability {
 
   Map<String, Object> toJson() => {
     'basis': 'activeAuthorizedMembers',
+    'confirmedBasis': 'sourceBoundReceiptAndCaughtUpSyncVector',
+    'confirmedScope': 'authorizedSyncFrontier',
+    'confirmedRuntimeOnly': true,
+    'confirmedProofTtlMs': confirmedProofTtlMs,
     'liveSourceAvailable': liveSourceAvailable,
     'spaces': spaces,
     'eligibleRemoteSpreaders': eligibleRemoteSpreaders,
     'targetReplicationFactorTotal': targetReplicationFactorTotal,
+    'confirmedRemoteHolderSlots': confirmedRemoteHolderSlots,
+    'confirmedReplicationFactorTotal': confirmedReplicationFactorTotal,
+    'confirmedReplicationFactorMin': confirmedReplicationFactorMin,
+    'confirmedReplicationFactorMax': confirmedReplicationFactorMax,
+    'confirmedUnderReplicatedSpaces': confirmedUnderReplicatedSpaces,
     'availableRemoteSpreaders': ?availableRemoteSpreaders,
+    'availableConfirmedRemoteHolderSlots': ?availableConfirmedRemoteHolderSlots,
     'estimatedLiveReplicationFactorTotal': ?estimatedLiveReplicationFactorTotal,
     'estimatedLiveReplicationFactorMin': ?estimatedLiveReplicationFactorMin,
     'estimatedLiveReplicationFactorMax': ?estimatedLiveReplicationFactorMax,

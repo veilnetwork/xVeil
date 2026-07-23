@@ -435,11 +435,181 @@ void main() {
       expect(snapshot.replication.estimatedLiveReplicationFactorMin, 2);
       expect(snapshot.replication.estimatedLiveReplicationFactorMax, 2);
       expect(snapshot.replication.estimatedUnderReplicatedSpaces, 0);
+      expect(snapshot.replication.confirmedRemoteHolderSlots, 0);
+      expect(snapshot.replication.availableConfirmedRemoteHolderSlots, 0);
+      expect(snapshot.replication.confirmedReplicationFactorTotal, 1);
+      expect(snapshot.replication.confirmedReplicationFactorMin, 1);
+      expect(snapshot.replication.confirmedReplicationFactorMax, 1);
+      expect(snapshot.replication.confirmedUnderReplicatedSpaces, 1);
       final encoded = jsonEncode(snapshot.toJson());
       expect(encoded, isNot(contains(spaceId.hex)));
       expect(encoded, isNot(contains(bob.hex)));
       expect(encoded, isNot(contains('Private telemetry')));
       expect(encoded, isNot(contains('secret publication body')));
+    },
+  );
+
+  test(
+    'Space receipts are source-bound, loop-free and confirm only a caught-up '
+    'authorized sync frontier',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final ownerOutbound = <(NodeId, String)>[];
+      final bobOutbound = <(NodeId, String)>[];
+      final ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        send: (peer, _, json) async => ownerOutbound.add((peer, json)),
+        activePeers: () async => {bob, carol},
+      );
+      final bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        send: (peer, _, json) async => bobOutbound.add((peer, json)),
+      );
+      addTearDown(ownerSvc.dispose);
+      addTearDown(bobSvc.dispose);
+
+      final spaceId = await ownerSvc.createSpace(
+        'Receipt scope',
+        visibility: SpaceVisibility.public,
+      );
+      for (final peer in [bob, carol]) {
+        expect(
+          await ownerSvc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: peer,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+      }
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+
+      ownerOutbound.clear();
+      expect(await ownerSvc.broadcast(spaceId), 2);
+      final bobWire = ownerOutbound.singleWhere((entry) => entry.$1 == bob).$2;
+      final receipt = (jsonDecode(bobWire) as Map)['rcpt'] as String;
+      expect(receipt, hasLength(64));
+      final currentVector = (await bobSvc.buildGroupSyncRequest(spaceId))!;
+      final sendsBeforeForgeries = ownerOutbound.length;
+
+      final unknown = Map<String, dynamic>.of(currentVector)
+        ..['rack'] = List.filled(64, '0').join();
+      expect(await ownerSvc.handleGroupSyncRequest(bob, unknown), isFalse);
+      final wrongSource = Map<String, dynamic>.of(currentVector)
+        ..['rack'] = receipt;
+      expect(
+        await ownerSvc.handleGroupSyncRequest(carol, wrongSource),
+        isFalse,
+      );
+      expect(
+        ownerOutbound,
+        hasLength(sendsBeforeForgeries),
+        reason: 'a caught-up sync vector and rejected receipt emit no reply',
+      );
+      var replication =
+          (await ownerSvc.spaceObservabilitySnapshot()).replication;
+      expect(replication.confirmedRemoteHolderSlots, 0);
+
+      bobOutbound.clear();
+      expect(await bobSvc.ingestGroupEntry(owner, bobWire), isTrue);
+      final acknowledgement = bobOutbound.singleWhere((entry) {
+        final wire = jsonDecode(entry.$2);
+        return entry.$1 == owner &&
+            wire is Map &&
+            wire['sreq'] == 1 &&
+            wire['rack'] == receipt;
+      }).$2;
+      final ownerSendsBeforeAck = ownerOutbound.length;
+      expect(await ownerSvc.ingestGroupEntry(bob, acknowledgement), isFalse);
+      expect(
+        ownerOutbound,
+        hasLength(ownerSendsBeforeAck),
+        reason: 'a caught-up receipt request is terminal, not ACKed again',
+      );
+
+      replication = (await ownerSvc.spaceObservabilitySnapshot()).replication;
+      expect(replication.confirmedRemoteHolderSlots, 1);
+      expect(replication.availableConfirmedRemoteHolderSlots, 1);
+      expect(replication.confirmedReplicationFactorTotal, 2);
+      expect(replication.confirmedUnderReplicatedSpaces, 1);
+
+      expect(
+        await ownerSvc.ingestGroupEntry(bob, acknowledgement),
+        isFalse,
+        reason: 'a receipt is single-use even when replayed by its source',
+      );
+      expect(
+        await ownerSvc.publishSpacePost(
+          spaceId,
+          body: 'temporarily missing',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      replication = (await ownerSvc.spaceObservabilitySnapshot()).replication;
+      expect(
+        replication.confirmedRemoteHolderSlots,
+        0,
+        reason: 'any local frontier change invalidates the previous proof',
+      );
+
+      ownerOutbound.clear();
+      bobOutbound.clear();
+      final behindVector = (await bobSvc.buildGroupSyncRequest(spaceId))!;
+      expect(await ownerSvc.handleGroupSyncRequest(bob, behindVector), isTrue);
+      final repair = ownerOutbound.singleWhere((entry) => entry.$1 == bob).$2;
+      final repairWire = jsonDecode(repair) as Map;
+      final missingObjects = ['c', 'g', 'r', 'p', 'ke', 'cke'].fold<int>(
+        0,
+        (count, key) =>
+            count +
+            (repairWire[key] is List ? (repairWire[key] as List).length : 0),
+      );
+      expect(missingObjects, greaterThan(0));
+      expect(repairWire['rcpt'], isA<String>());
+
+      expect(await bobSvc.ingestGroupEntry(owner, repair), isTrue);
+      final repairReceipt = repairWire['rcpt'];
+      final repairAck = bobOutbound.singleWhere((entry) {
+        final wire = jsonDecode(entry.$2);
+        return entry.$1 == owner &&
+            wire is Map &&
+            wire['rack'] == repairReceipt;
+      }).$2;
+      final backfillSends = ownerOutbound.length;
+      expect(await ownerSvc.ingestGroupEntry(bob, repairAck), isFalse);
+      expect(
+        ownerOutbound,
+        hasLength(backfillSends),
+        reason: 'the caught-up repair receipt also terminates the exchange',
+      );
+
+      final observations = await ownerSvc.spaceObservabilitySnapshot();
+      expect(observations.amounts['p2pMissingObjects'], missingObjects);
+      expect(observations.counters['p2pMissingObjects.succeeded'], 1);
+      expect(observations.counters['p2pReceipt.succeeded'], 2);
+      expect(observations.counters['p2pReceipt.rejected'], 3);
+      expect(observations.durationsMs['p2pReceipt']?['samples'], 2);
+      expect(observations.replication.confirmedRemoteHolderSlots, 1);
+      expect(
+        jsonEncode(observations.toJson()),
+        isNot(contains(receipt)),
+        reason: 'receipt challenges never enter the exported diagnostics',
+      );
     },
   );
 
@@ -7146,6 +7316,8 @@ void main() {
       final observations = await ownerSvc.spaceObservabilitySnapshot();
       expect(observations.counters['p2pBackfill.succeeded'], 1);
       expect(observations.amounts['p2pBackfill'], 3);
+      expect(observations.counters['p2pMissingObjects.succeeded'], 1);
+      expect(observations.amounts['p2pMissingObjects'], 3);
       expect(observations.counters['aclDenied.reason.notMember'], 1);
       expect(observations.counters['p2pBackfill.reason.notMember'], 1);
       expect(await bobSvc.ingestSnapshot(toBob.single), isTrue);
