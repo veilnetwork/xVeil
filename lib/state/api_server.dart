@@ -617,6 +617,7 @@ class ApiServerController extends Notifier<ApiConfig> {
           : groupApi.memberAction,
       spaceAccess: groupApi?.spaceAccess,
       spaceAccessAction: groupApi?.spaceAccessAction,
+      spacePolicyAudit: groupApi?.policyAudit,
       renameGroup: groupApi == null
           ? (_, _, _) async => 'groups unavailable'
           : groupApi.rename,

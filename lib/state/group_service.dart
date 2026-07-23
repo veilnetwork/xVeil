@@ -46,6 +46,7 @@ import '../domain/space_lifecycle.dart';
 import '../domain/space_membership.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
+import '../domain/space_policy_audit.dart';
 import '../domain/space_recommendation.dart';
 import '../domain/space_retention.dart';
 import '../domain/space_rules.dart';
@@ -6944,6 +6945,30 @@ class GroupService {
       return const [];
     }
     return (await _materializedRetentionHistory(bundle, state)).revisions;
+  }
+
+  /// One newest-first, typed view over immutable accepted policy evidence.
+  ///
+  /// Access snapshots are already clear to Space members. Retention rows are
+  /// materialized through [spaceRetentionHistoryOf], so a restricted-channel
+  /// policy is included only when this device can authenticate and decrypt it.
+  Future<List<SpacePolicyAuditEntry>> spacePolicyAudit(NodeId spaceId) async {
+    final state = await stateOf(spaceId);
+    if (state == null ||
+        !SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
+      return const [];
+    }
+    final entries = <SpacePolicyAuditEntry>[
+      for (final policy in state.accessPolicyHistory)
+        SpaceAccessPolicyAuditEntry(policy),
+      for (final revision in await spaceRetentionHistoryOf(spaceId))
+        SpaceRetentionPolicyAuditEntry(revision),
+    ];
+    entries.sort((left, right) {
+      final changed = right.changedAtMs.compareTo(left.changedAtMs);
+      return changed != 0 ? changed : right.stableId.compareTo(left.stableId);
+    });
+    return List.unmodifiable(entries);
   }
 
   String _localSpaceRetentionKey(NodeId spaceId) =>

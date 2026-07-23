@@ -16,6 +16,7 @@ import '../domain/space_channel.dart';
 import '../domain/space_join_request.dart';
 import '../domain/space_membership.dart';
 import '../domain/space_moderation.dart';
+import '../domain/space_policy_audit.dart';
 import '../domain/space_post.dart';
 import '../domain/space_retention.dart';
 import '../domain/space_recommendation.dart';
@@ -225,6 +226,38 @@ final class GroupApiAdapter {
             'activatedAt': revision.activatedAtMs,
             'author': revision.author.hex,
             'authorSeq': revision.authorSeq,
+          },
+      ],
+    };
+  }
+
+  /// Unified chronological projection of typed signed policy evidence.
+  Future<Map<String, dynamic>?> policyAudit(String spaceHex) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return null;
+    final bundle = await _groups.load(visible.$1);
+    if (bundle == null || !bundle.manifest.isSpace) return null;
+    final entries = await _groups.spacePolicyAudit(visible.$1);
+    return {
+      'spaceId': visible.$1.hex,
+      'entries': [
+        for (final entry in entries)
+          switch (entry) {
+            SpaceAccessPolicyAuditEntry(:final policy) => {
+              'kind': 'access',
+              'id': entry.stableId,
+              'changedAt': entry.changedAtMs,
+              'author': entry.author.hex,
+              'policy': policy.toJson(),
+            },
+            SpaceRetentionPolicyAuditEntry(:final revision) => {
+              'kind': 'retention',
+              'id': entry.stableId,
+              'changedAt': entry.changedAtMs,
+              'author': entry.author.hex,
+              'authorSeq': revision.authorSeq,
+              'policy': revision.policy.toJson(),
+            },
           },
       ],
     };

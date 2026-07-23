@@ -1802,6 +1802,82 @@ void main() {
     expect(find.text('Editorial'), findsOneWidget);
   });
 
+  testWidgets('Space settings expose immutable typed policy audit', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(94);
+    final service = GroupService(storage, _Signer(owner));
+    addTearDown(service.dispose);
+    final spaceId = await service.createSpace('Policy audit');
+    expect(
+      await service.setSpaceRetentionPolicy(
+        spaceId,
+        SpaceRetentionPolicy(
+          mode: SpaceRetentionMode.deleteAfter,
+          retentionMs: const Duration(days: 30).inMilliseconds,
+        ),
+      ),
+      isTrue,
+    );
+    expect(
+      await service.replaceSpaceAccessPolicy(
+        spaceId,
+        expectedRevision: 0,
+        roles: [
+          SpaceRoleDefinition(
+            roleId: service.newSpaceAccessObjectId(),
+            name: 'Publisher',
+            permissions: const {SpacePermission.publishPosts},
+          ),
+        ],
+        groups: const <SpaceMemberGroup>[],
+        directAssignments: const <SpaceMemberRoleAssignment>[],
+      ),
+      isNotNull,
+    );
+    await tester.binding.setSurfaceSize(const Size(800, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          groupServiceProvider.overrideWithValue(service),
+          conversationsProvider.overrideWith((ref) => Stream.value(const [])),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final auditTile = find.byKey(const ValueKey('space-policy-audit-tile'));
+    await tester.scrollUntilVisible(
+      auditTile,
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(auditTile);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('space-policy-audit-list')),
+      findsOneWidget,
+    );
+    expect(find.text('Access policy'), findsOneWidget);
+    expect(find.text('Retention policy'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('space-policy-audit-back')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('space-policy-audit-back')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('space-policy-audit-list')), findsNothing);
+  });
+
   testWidgets(
     'manageRoles delegate sees only lower roles, targets and permission scopes',
     (tester) async {
