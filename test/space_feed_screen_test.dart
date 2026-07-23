@@ -1172,6 +1172,33 @@ void main() {
         isEmpty,
       );
       expect((await service.listGroups()), isEmpty);
+
+      final deletedRef = comments.first.ref;
+      final menu = find.byKey(ValueKey('space-post-comment-menu-$deletedRef'));
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l.spacePostCommentDelete).last);
+      await tester.pumpAndSettle();
+      expect(find.text(l.spacePostCommentDeleteTitle), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey('space-post-comment-delete-confirm')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        (await service.spacePostCommentsOf(
+          spaceId,
+          post.postId,
+        )).map((comment) => comment.ref),
+        isNot(contains(deletedRef)),
+      );
+      expect(
+        (await service.spacePostCommentsOf(
+          spaceId,
+          post.postId,
+        )).map((comment) => comment.body),
+        ['Threaded reply', ''],
+      );
+      expect(find.text('Corrected first comment'), findsNothing);
     },
   );
 

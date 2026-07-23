@@ -62,7 +62,8 @@ enum SpaceModerationScope {
 
 enum SpaceModerationReferenceKind {
   message,
-  spacePost;
+  spacePost,
+  spacePostComment;
 
   static SpaceModerationReferenceKind? fromName(String? value) {
     for (final kind in values) {
@@ -164,10 +165,15 @@ class SpaceModerationAction {
             reference == null;
       case SpaceModerationKind.deleteMessage:
         return expiresAtMs == null &&
-            reference?.kind == SpaceModerationReferenceKind.message &&
             reference?.author == target &&
-            (scope == SpaceModerationScope.space ||
-                scope == SpaceModerationScope.channel);
+            switch (reference?.kind) {
+              SpaceModerationReferenceKind.message =>
+                scope == SpaceModerationScope.space ||
+                    scope == SpaceModerationScope.channel,
+              SpaceModerationReferenceKind.spacePostComment =>
+                scope == SpaceModerationScope.posts && channelId == null,
+              _ => false,
+            };
       case SpaceModerationKind.deletePost:
         return scope == SpaceModerationScope.posts &&
             expiresAtMs == null &&

@@ -1015,6 +1015,54 @@ abstract class AppL10n {
   /// **'Could not save the comment changes'**
   String get spacePostCommentEditFailed;
 
+  /// No description provided for @spacePostCommentDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get spacePostCommentDelete;
+
+  /// No description provided for @spacePostCommentDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete comment?'**
+  String get spacePostCommentDeleteTitle;
+
+  /// No description provided for @spacePostCommentDeleteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The comment will disappear for members and, if it was public, from the public feed. This cannot be undone.'**
+  String get spacePostCommentDeleteBody;
+
+  /// No description provided for @spaceModerationDeleteComment.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove comment'**
+  String get spaceModerationDeleteComment;
+
+  /// No description provided for @spacePostCommentBlockAuthor.
+  ///
+  /// In en, this message translates to:
+  /// **'Block author'**
+  String get spacePostCommentBlockAuthor;
+
+  /// No description provided for @spacePostCommentBlockAuthorTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Block this author?'**
+  String get spacePostCommentBlockAuthorTitle;
+
+  /// No description provided for @spacePostCommentBlockAuthorBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Their posts, comments, mentions and direct messages will be hidden on this identity. They will not be notified.'**
+  String get spacePostCommentBlockAuthorBody;
+
+  /// No description provided for @spacePostCommentParentUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Original comment deleted or hidden'**
+  String get spacePostCommentParentUnavailable;
+
   /// No description provided for @spacePostCommentReplyingTo.
   ///
   /// In en, this message translates to:

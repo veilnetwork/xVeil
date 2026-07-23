@@ -9,10 +9,12 @@ import '../../domain/space_post.dart';
 import '../../domain/space_public_discussion.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
+import '../../state/messaging.dart' show messagingServiceProvider;
 import '../../state/notifications.dart' show activeConversationProvider;
 import '../chat/message_markdown.dart';
 import '../chat/message_mentions.dart';
 import 'space_post_body.dart';
+import 'space_post_actions.dart';
 import 'space_post_media.dart';
 import 'space_post_reactions.dart';
 
@@ -139,6 +141,15 @@ class _PublicSpacePostCommentsScreenState
       '/space/${widget.spaceIdHex}/public-posts?post='
       '${Uri.encodeQueryComponent(widget.postId)}',
     );
+  }
+
+  Future<void> _blockCommentAuthor(NodeId author) async {
+    final blocked = await confirmAndBlockSpaceAuthor(
+      context,
+      author,
+      ref.read(messagingServiceProvider).blockContact,
+    );
+    if (mounted && blocked) setState(() {});
   }
 
   @override
@@ -288,6 +299,9 @@ class _PublicSpacePostCommentsScreenState
                             comment: comment,
                             repliedComment: byRef[comment.replyTo],
                             isSelf: comment.author == service.selfId,
+                            onBlock: comment.author == service.selfId
+                                ? null
+                                : () => _blockCommentAuthor(comment.author),
                           ),
                     ],
                   ),
@@ -374,12 +388,14 @@ class _PublicCommentBubble extends StatelessWidget {
     required this.comment,
     required this.repliedComment,
     required this.isSelf,
+    required this.onBlock,
   });
 
   final NodeId spaceId;
   final SpacePublicCommentView comment;
   final SpacePublicCommentView? repliedComment;
   final bool isSelf;
+  final VoidCallback? onBlock;
 
   @override
   Widget build(BuildContext context) {
@@ -423,9 +439,28 @@ class _PublicCommentBubble extends StatelessWidget {
                       style: Theme.of(context).textTheme.labelSmall,
                     ),
                   ],
+                  if (onBlock != null)
+                    PopupMenuButton<_PublicCommentAction>(
+                      key: ValueKey('public-space-comment-menu-${comment.ref}'),
+                      tooltip: MaterialLocalizations.of(
+                        context,
+                      ).showMenuTooltip,
+                      icon: const Icon(Icons.more_horiz, size: 20),
+                      onSelected: (_) => onBlock?.call(),
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: _PublicCommentAction.block,
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.block_outlined),
+                            title: Text(l.spacePostCommentBlockAuthor),
+                          ),
+                        ),
+                      ],
+                    ),
                 ],
               ),
-              if (repliedComment != null) ...[
+              if (comment.replyTo != null) ...[
                 const SizedBox(height: 7),
                 Container(
                   width: double.infinity,
@@ -441,7 +476,9 @@ class _PublicCommentBubble extends StatelessWidget {
                     ),
                   ),
                   child: Text(
-                    messageMentionsFallbackText(repliedComment!.body),
+                    repliedComment == null
+                        ? l.spacePostCommentParentUnavailable
+                        : messageMentionsFallbackText(repliedComment!.body),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall,
@@ -467,6 +504,8 @@ class _PublicCommentBubble extends StatelessWidget {
     );
   }
 }
+
+enum _PublicCommentAction { block }
 
 String _publicCommentTime(BuildContext context, int milliseconds) {
   final value = DateTime.fromMillisecondsSinceEpoch(milliseconds);

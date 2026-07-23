@@ -33,6 +33,7 @@ class GroupMessageCleartext {
     this.attachment,
     this.replyTo,
     this.editOf,
+    this.deleteOf,
     this.customEmoji = const [],
   });
 
@@ -40,15 +41,28 @@ class GroupMessageCleartext {
   final MediaObject? attachment;
   final String? replyTo;
   final String? editOf;
+  final String? deleteOf;
   final List<InlineCustomEmoji> customEmoji;
 
   Uint8List encode() {
     final isEdit = editOf != null;
+    final isDelete = deleteOf != null;
+    if (isEdit && isDelete) {
+      throw ArgumentError('comment edit and delete are mutually exclusive');
+    }
     if (isEdit &&
         (!_spacePostCommentTargetPattern.hasMatch(editOf!) ||
             attachment != null ||
             replyTo != null)) {
       throw ArgumentError.value(editOf, 'editOf', 'invalid comment edit');
+    }
+    if (isDelete &&
+        (!_spacePostCommentTargetPattern.hasMatch(deleteOf!) ||
+            body.isNotEmpty ||
+            attachment != null ||
+            replyTo != null ||
+            customEmoji.isNotEmpty)) {
+      throw ArgumentError.value(deleteOf, 'deleteOf', 'invalid comment delete');
     }
     final referenceMedia =
         attachment != null &&
@@ -57,18 +71,22 @@ class GroupMessageCleartext {
     return Uint8List.fromList(
       utf8.encode(
         jsonEncode({
-          'v': isEdit
+          'v': isDelete
+              ? 4
+              : isEdit
               ? 3
               : referenceMedia
               ? 2
               : 1,
           'body': body,
-          if (!isEdit && referenceMedia) 'media': attachment!.toReferenceJson(),
-          if (!isEdit && !referenceMedia && attachment != null)
+          if (!isEdit && !isDelete && referenceMedia)
+            'media': attachment!.toReferenceJson(),
+          if (!isEdit && !isDelete && !referenceMedia && attachment != null)
             'att': attachment!.toLegacyAttachmentCanonical(),
-          if (!isEdit && replyTo != null) 'rt': replyTo,
+          if (!isEdit && !isDelete && replyTo != null) 'rt': replyTo,
           if (isEdit) 'edit': editOf,
-          if (customEmoji.isNotEmpty)
+          if (isDelete) 'delete': deleteOf,
+          if (!isDelete && customEmoji.isNotEmpty)
             'ce': encodeInlineCustomEmoji(customEmoji),
         }),
       ),
@@ -80,11 +98,15 @@ class GroupMessageCleartext {
     try {
       final value = jsonDecode(utf8.decode(bytes, allowMalformed: false));
       if (value is! Map ||
-          (value['v'] != 1 && value['v'] != 2 && value['v'] != 3) ||
+          (value['v'] != 1 &&
+              value['v'] != 2 &&
+              value['v'] != 3 &&
+              value['v'] != 4) ||
           value['body'] is! String) {
         return null;
       }
       final isEdit = value['v'] == 3;
+      final isDelete = value['v'] == 4;
       final referenceMedia = value['v'] == 2;
       if ((referenceMedia && value.containsKey('att')) ||
           (!referenceMedia && value.containsKey('media')) ||
@@ -92,7 +114,15 @@ class GroupMessageCleartext {
               (value.containsKey('att') ||
                   value.containsKey('media') ||
                   value.containsKey('rt'))) ||
-          (!isEdit && value.containsKey('edit'))) {
+          (!isEdit && value.containsKey('edit')) ||
+          (isDelete &&
+              (value['body'] != '' ||
+                  value.containsKey('att') ||
+                  value.containsKey('media') ||
+                  value.containsKey('rt') ||
+                  value.containsKey('edit') ||
+                  value.containsKey('ce'))) ||
+          (!isDelete && value.containsKey('delete'))) {
         return null;
       }
       final attachment = referenceMedia
@@ -111,11 +141,18 @@ class GroupMessageCleartext {
               !_spacePostCommentTargetPattern.hasMatch(editOf))) {
         return null;
       }
+      final deleteOf = value['delete'];
+      if (isDelete &&
+          (deleteOf is! String ||
+              !_spacePostCommentTargetPattern.hasMatch(deleteOf))) {
+        return null;
+      }
       return GroupMessageCleartext(
         body: value['body'] as String,
         attachment: attachment,
         replyTo: replyTo as String?,
         editOf: editOf as String?,
+        deleteOf: deleteOf as String?,
         customEmoji: parseInlineCustomEmoji(
           value['body'] as String,
           value['ce'],
@@ -146,6 +183,7 @@ class GroupMessage {
     MediaObject? attachment,
     this.replyTo,
     this.editOf,
+    this.deleteOf,
     this.customEmoji = const [],
     this.lifecycleGeneration,
     this.mediaHiddenByRetention = false,
@@ -193,6 +231,11 @@ class GroupMessage {
   /// Stable root-comment reference changed by this immutable row. It is kept
   /// inside the encrypted cleartext, so observers cannot correlate edits.
   final String? editOf;
+
+  /// Stable root-comment reference removed by this immutable tombstone. Like
+  /// [editOf], it exists only after authenticated decryption and is never
+  /// serialized by an encrypted outer [GroupMessage].
+  final String? deleteOf;
   final Uint8List authorPubKey; // bound via node_id == BLAKE3(pk), not signed
 
   /// This message's own stable reference, for another message to [replyTo].
@@ -287,6 +330,7 @@ class GroupMessage {
     attachment: _attachment,
     replyTo: replyTo,
     editOf: editOf,
+    deleteOf: deleteOf,
     customEmoji: customEmoji,
     lifecycleGeneration: lifecycleGeneration,
     mediaHiddenByRetention: mediaHiddenByRetention,
@@ -312,6 +356,7 @@ class GroupMessage {
         attachment: cleartext.attachment,
         replyTo: cleartext.replyTo,
         editOf: cleartext.editOf,
+        deleteOf: cleartext.deleteOf,
         customEmoji: cleartext.customEmoji,
         lifecycleGeneration: lifecycleGeneration,
         authorPubKey: authorPubKey,
@@ -337,6 +382,7 @@ class GroupMessage {
           attachment: _attachment,
           replyTo: replyTo,
           editOf: editOf,
+          deleteOf: deleteOf,
           customEmoji: customEmoji,
           lifecycleGeneration: lifecycleGeneration,
           mediaHiddenByRetention: true,

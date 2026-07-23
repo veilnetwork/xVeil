@@ -1,16 +1,32 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/message_mention.dart';
 import 'package:xveil/domain/space_public_discussion.dart';
 import 'package:xveil/features/chat/chat_actions.dart';
 import 'package:xveil/features/chat/mentions_screen.dart';
+import 'package:xveil/features/spaces/space_post_actions.dart';
 import 'package:xveil/l10n/app_localizations.dart';
+import 'package:xveil/state/app_controller.dart';
+import 'package:xveil/state/group_service_providers.dart';
+import 'package:xveil/state/messaging_providers.dart';
+import 'package:xveil/state/providers.dart';
+
+import 'support/fake_hv_container.dart';
 
 NodeId _id(int byte) => NodeId(Uint8List.fromList(List.filled(32, byte)));
+
+late Identity _mentionIdentity;
+
+class _MentionAppController extends AppController {
+  @override
+  AppState build() => AppState(AppPhase.ready, identity: _mentionIdentity);
+}
 
 void main() {
   test('notification modes have truthful, distinct icons', () {
@@ -84,6 +100,44 @@ void main() {
         lessThan(const Duration(hours: 8, minutes: 1)),
       ),
     );
+  });
+
+  testWidgets('comment block confirmation targets only the canonical node id', (
+    tester,
+  ) async {
+    final author = _id(6);
+    NodeId? blocked;
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: FilledButton(
+              onPressed: () => confirmAndBlockSpaceAuthor(
+                context,
+                author,
+                (nodeId) async => blocked = nodeId,
+              ),
+              child: const Text('open block'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open block'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('space-post-comment-block-confirm')),
+      findsOneWidget,
+    );
+    expect(find.textContaining(author.hex), findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey('space-post-comment-block-confirm')),
+    );
+    await tester.pumpAndSettle();
+    expect(blocked, author);
   });
 
   test('mention inbox is newest-first and retains exact destinations', () {
@@ -165,6 +219,82 @@ void main() {
       ),
       isNull,
       reason: 'an author must not create a mention entry for themselves',
+    );
+  });
+
+  test('a relationship block removes direct mentions from the inbox', () async {
+    final self = _id(13);
+    final author = _id(14);
+    _mentionIdentity = Identity(nodeId: self);
+    final storage = FakeHvContainer().storage();
+    expect(await storage.open(password: 'pw', createIfMissing: true), isTrue);
+    addTearDown(storage.close);
+    await storage.upsertContact(
+      Contact(
+        nodeId: author,
+        name: 'Local alias',
+        status: ContactStatus.blocked,
+      ),
+    );
+    await storage.appendMessage(
+      Message(
+        id: 'blocked-mention',
+        conversationId: author.hex,
+        direction: MessageDirection.incoming,
+        body: 'Hello ${encodeMessageMention(self)}',
+        timestamp: DateTime(2026, 7, 24, 10),
+      ),
+    );
+    final conversation = Conversation(
+      peer: (await storage.getContact(author))!,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        appControllerProvider.overrideWith(_MentionAppController.new),
+        storageProvider.overrideWithValue(storage),
+        groupServiceProvider.overrideWithValue(null),
+        conversationsProvider.overrideWith(
+          (ref) => Stream.value([conversation]),
+        ),
+        groupListProvider.overrideWith((ref) => Stream.value(const [])),
+        spaceListProvider.overrideWith((ref) => Stream.value(const [])),
+        publicSpaceSubscriptionListProvider.overrideWith(
+          (ref) => Stream.value(const []),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await Future.wait([
+      container.read(conversationsProvider.future),
+      container.read(groupListProvider.future),
+      container.read(spaceListProvider.future),
+      container.read(publicSpaceSubscriptionListProvider.future),
+    ]);
+    final inboxSubscription = container.listen(
+      mentionInboxProvider,
+      (_, _) {},
+      fireImmediately: true,
+    );
+    addTearDown(inboxSubscription.close);
+
+    expect(await container.read(mentionInboxProvider.future), isEmpty);
+
+    await storage.upsertContact(
+      Contact(
+        nodeId: author,
+        name: 'Local alias',
+        status: ContactStatus.accepted,
+      ),
+    );
+    container.invalidate(mentionInboxProvider);
+    final restored = await container.read(mentionInboxProvider.future);
+    expect(restored, hasLength(1));
+    expect(restored.single.author, author);
+    expect(restored.single.body, contains(self.hex));
+    expect(
+      restored.single.body,
+      isNot(contains('Local alias')),
+      reason: 'the wire mention keeps node_id as its only authority',
     );
   });
 }

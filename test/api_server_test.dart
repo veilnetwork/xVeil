@@ -30,6 +30,7 @@ void main() {
   final spaceScheduledPublishes = <(String, String)>[];
   final spacePostCommentWrites = <(String, String, String, String?, String?)>[];
   final spacePostCommentEdits = <(String, String, String, String)>[];
+  final spacePostCommentDeletes = <(String, String, String)>[];
   final spaceRecommendationShares = <(String, String, String)>[];
   final spaceRecommendationPolicyWrites = <(String, int, bool)>[];
   final spaceRecommendationShareRevokes = <(String, String)>[];
@@ -86,6 +87,7 @@ void main() {
     spaceScheduledPublishes.clear();
     spacePostCommentWrites.clear();
     spacePostCommentEdits.clear();
+    spacePostCommentDeletes.clear();
     localSpacePostDraft = null;
     localScheduledSpacePost = null;
     spaceRecommendationShares.clear();
@@ -360,6 +362,11 @@ void main() {
       editSpacePostComment: (space, postId, commentId, body) async {
         if (space == 'denied') return 'comment edit rejected';
         spacePostCommentEdits.add((space, postId, commentId, body));
+        return null;
+      },
+      deleteSpacePostComment: (space, postId, commentId) async {
+        if (space == 'denied') return 'comment delete rejected';
+        spacePostCommentDeletes.add((space, postId, commentId));
         return null;
       },
       publishSpacePost: (space, title, body, type, media) async {
@@ -2170,6 +2177,16 @@ void main() {
       ));
       expect(
         (await h.handle(
+          'DELETE',
+          u('/v1/spaces/posts/comments'),
+          auth,
+          body: {'space': 'aa', 'postId': postId, 'commentId': replyTo},
+        )).status,
+        200,
+      );
+      expect(spacePostCommentDeletes.single, ('aa', postId, replyTo));
+      expect(
+        (await h.handle(
           'PATCH',
           u('/v1/spaces/posts/comments'),
           auth,
@@ -2179,6 +2196,15 @@ void main() {
             'commentId': 'bad',
             'body': 'x',
           },
+        )).status,
+        400,
+      );
+      expect(
+        (await h.handle(
+          'DELETE',
+          u('/v1/spaces/posts/comments'),
+          auth,
+          body: {'space': 'aa', 'postId': postId, 'commentId': 'bad'},
         )).status,
         400,
       );
@@ -3480,6 +3506,7 @@ void main() {
         'get',
         'post',
         'patch',
+        'delete',
       });
       final commentRequest =
           (((((pathMap['/spaces/posts/comments'] as Map)['post']
@@ -3505,6 +3532,18 @@ void main() {
         'postId',
         'commentId',
         'body',
+      ]);
+      final commentDeleteRequest =
+          (((((pathMap['/spaces/posts/comments'] as Map)['delete']
+                              as Map)['requestBody']
+                          as Map)['content']
+                      as Map)['application/json']
+                  as Map)['schema']
+              as Map;
+      expect(commentDeleteRequest['required'], [
+        'space',
+        'postId',
+        'commentId',
       ]);
       expect((pathMap['/spaces/channels'] as Map).keys.toSet(), {
         'get',

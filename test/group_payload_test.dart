@@ -194,6 +194,41 @@ void main() {
     );
   });
 
+  test('comment delete cleartext is a strict metadata-only v4 tombstone', () {
+    final target = '${_id(5).hex}:8';
+    final encoded = GroupMessageCleartext(body: '', deleteOf: target).encode();
+    final wire = jsonDecode(utf8.decode(encoded)) as Map;
+    expect(wire, {'v': 4, 'body': '', 'delete': target});
+
+    final decoded = GroupMessageCleartext.decode(encoded);
+    expect(decoded?.body, isEmpty);
+    expect(decoded?.deleteOf, target);
+    expect(decoded?.editOf, isNull);
+    expect(decoded?.attachment, isNull);
+    expect(decoded?.replyTo, isNull);
+
+    for (final invalid in [
+      {'v': 4, 'body': 'resurrection', 'delete': target},
+      {'v': 4, 'body': '', 'delete': target, 'rt': '${_id(3).hex}:1'},
+      {'v': 4, 'body': '', 'delete': target, 'edit': target},
+    ]) {
+      expect(
+        GroupMessageCleartext.decode(
+          Uint8List.fromList(utf8.encode(jsonEncode(invalid))),
+        ),
+        isNull,
+      );
+    }
+    expect(
+      () => GroupMessageCleartext(
+        body: '',
+        editOf: target,
+        deleteOf: target,
+      ).encode(),
+      throwsArgumentError,
+    );
+  });
+
   test(
     'v2 stores only authenticated ciphertext and materializes in RAM',
     () async {

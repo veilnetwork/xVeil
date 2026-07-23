@@ -89,8 +89,24 @@ final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>
   final storage = ref.watch(storageProvider);
   final service = ref.watch(groupServiceProvider);
   final entries = <MentionInboxEntry>[];
+  final blockedAuthors = <String, Future<bool>>{};
+  Future<bool> isBlocked(NodeId author) {
+    if (author == self) return Future<bool>.value(false);
+    return blockedAuthors.putIfAbsent(author.hex, () async {
+      try {
+        return (await storage.getContact(author))?.status ==
+            ContactStatus.blocked;
+      } catch (_) {
+        // A relationship block is an identity-local privacy boundary. If its
+        // encrypted status cannot be read, do not flash the author's old
+        // mentions back into the aggregate inbox.
+        return true;
+      }
+    });
+  }
 
   for (final conversation in conversations) {
+    if (await isBlocked(conversation.peer.nodeId)) continue;
     final messages = await storage.loadMessages(conversation.id);
     for (final message in messages) {
       if (message.direction != MessageDirection.incoming ||
@@ -118,6 +134,7 @@ final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>
       final messages = await service.messagesOf(group.groupId);
       for (final message in messages) {
         if (message.author == self ||
+            await isBlocked(message.author) ||
             !messageMentionsNode(message.body, self)) {
           continue;
         }
@@ -142,6 +159,7 @@ final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>
       final messages = await messagesFuture;
       for (final message in messages) {
         if (message.author == self ||
+            await isBlocked(message.author) ||
             !messageMentionsNode(message.body, self)) {
           continue;
         }
@@ -167,7 +185,9 @@ final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>
           if (post.title.trim().isNotEmpty) post.title,
           if (post.body.trim().isNotEmpty) post.body,
         ].join('\n');
-        if (post.author != self && messageMentionsNode(postText, self)) {
+        if (post.author != self &&
+            !await isBlocked(post.author) &&
+            messageMentionsNode(postText, self)) {
           entries.add(
             MentionInboxEntry(
               id: 'space-post:${space.groupId.hex}:${post.postId}',
@@ -186,6 +206,7 @@ final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>
             const <SpacePostCommentView>[];
         for (final comment in comments) {
           if (comment.author == self ||
+              await isBlocked(comment.author) ||
               !messageMentionsNode(comment.body, self)) {
             continue;
           }
@@ -211,7 +232,9 @@ final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>
           if (post.title.trim().isNotEmpty) post.title,
           if (post.body.trim().isNotEmpty) post.body,
         ].join('\n');
-        if (post.author != self && messageMentionsNode(postText, self)) {
+        if (post.author != self &&
+            !await isBlocked(post.author) &&
+            messageMentionsNode(postText, self)) {
           entries.add(
             MentionInboxEntry(
               id: 'public-space-post:${public.descriptor.spaceId.hex}:${post.postId}',
@@ -230,6 +253,7 @@ final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>
           post.postId,
         );
         for (final comment in comments) {
+          if (await isBlocked(comment.author)) continue;
           final entry = publicSpaceCommentMentionInboxEntry(
             self: self,
             spaceId: public.descriptor.spaceId,

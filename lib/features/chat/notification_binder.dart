@@ -360,6 +360,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     var mode = SpaceCommentNotificationMode.none;
     SpacePostView? post;
     SpacePublicCommentView? replyTarget;
+    List<SpacePublicCommentView> visibleComments = const [];
     try {
       subscription = await service.publicSpaceSubscription(n.spaceId);
       if (subscription == null) return;
@@ -369,11 +370,17 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       post = subscription.feed.posts
           .where((candidate) => candidate.postId == postId)
           .firstOrNull;
+      visibleComments = await service.publicSpacePostComments(
+        n.spaceId,
+        postId,
+      );
+      if (!visibleComments.any((candidate) => candidate.ref == n.comment.ref)) {
+        return;
+      }
       if (n.comment.replyTo != null) {
-        replyTarget = (await service.publicSpacePostComments(
-          n.spaceId,
-          postId,
-        )).where((candidate) => candidate.ref == n.comment.replyTo).firstOrNull;
+        replyTarget = visibleComments
+            .where((candidate) => candidate.ref == n.comment.replyTo)
+            .firstOrNull;
       }
     } catch (_) {
       return;
@@ -469,6 +476,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           .where((candidate) => candidate.postId == postId)
           .firstOrNull;
       comments = results[2] as List<SpacePostCommentView>;
+      if (!comments.any((comment) => comment.ref == n.message.ref)) return;
     } catch (_) {
       return;
     }

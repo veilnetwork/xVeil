@@ -497,7 +497,13 @@ List<SpacePublicCommentView> foldSpacePublicComments({
     final root = roots[rootRef];
     if (root == null || root.author != comment.author) continue;
     final current = revisions[rootRef];
-    if (current == null || comment.seq > current.seq) {
+    // A valid delete is terminal. Even a later author-signed edit must not
+    // resurrect the root, and arrival/timestamp order must not affect that
+    // decision.
+    if (current?.operation == SpacePublicCommentOperation.delete) continue;
+    if (comment.operation == SpacePublicCommentOperation.delete ||
+        current == null ||
+        comment.seq > current.seq) {
       revisions[rootRef] = comment;
     }
   }

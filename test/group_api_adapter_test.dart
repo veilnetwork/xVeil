@@ -798,7 +798,7 @@ void main() {
         expect(lastComment['body'], 'API reply');
         expect(lastComment['replyTo'], firstComment['id']);
         final commentMedia = MediaObject(
-          contentId: 'e' * 64,
+          contentId: '9' * 64,
           kind: 'audio',
           name: 'comment.opus',
           mimeType: 'audio/opus',
@@ -817,7 +817,33 @@ void main() {
         expect(mediaComment['body'], isEmpty);
         expect(mediaComment['media'], commentMedia.toReferenceJson());
         expect(mediaComment.containsKey('attachment'), isFalse);
-        expect(await service.referencedContentIds(spaceId), contains('e' * 64));
+        expect(await service.referencedContentIds(spaceId), contains('9' * 64));
+        expect(
+          await api.deletePostComment(
+            spaceId.hex,
+            postId,
+            mediaComment['id'] as String,
+          ),
+          isNull,
+        );
+        expect(
+          ((await api.postComments(spaceId.hex, postId, 10))!['comments']
+                  as List)
+              .map((comment) => comment['id']),
+          isNot(contains(mediaComment['id'])),
+        );
+        expect(
+          await service.referencedContentIds(spaceId),
+          isNot(contains('9' * 64)),
+        );
+        expect(
+          await api.deletePostComment(
+            spaceId.hex,
+            postId,
+            mediaComment['id'] as String,
+          ),
+          isNotNull,
+        );
         final defaultChannel =
             (await api.channels(spaceId.hex))!.single['channelId'] as String;
         expect(
