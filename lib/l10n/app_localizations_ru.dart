@@ -890,6 +890,44 @@ class AppL10nRu extends AppL10n {
       'Разрешить принятым контактам отправлять карточки сообществ. При отключении новые рекомендации будут молча отбрасываться.';
 
   @override
+  String get spaceRecommendationPolicyEnabled =>
+      'Разрешить рекомендации сообщества';
+
+  @override
+  String get spaceRecommendationPolicyDisabled =>
+      'Рекомендации сообщества отключены';
+
+  @override
+  String get spaceRecommendationPolicyHint =>
+      'Подписанная настройка для всего сообщества. Антиспам-лимиты фиксированы, их нельзя ослабить.';
+
+  @override
+  String get spaceRecommendationSentAuditTitle => 'Отправленные рекомендации';
+
+  @override
+  String get spaceRecommendationSentAuditHint =>
+      'Локальный зашифрованный аудит. Отзыв удалит выбранную карточку у обеих сторон.';
+
+  @override
+  String get spaceRecommendationSentAuditEmpty =>
+      'С этого устройства рекомендаций не отправляли';
+
+  @override
+  String spaceRecommendationSentTo(String recipient) {
+    return 'Отправлено: $recipient';
+  }
+
+  @override
+  String get spaceRecommendationSentRevoked => 'отозвано';
+
+  @override
+  String get spaceRecommendationSentRevoke =>
+      'Отозвать отправленную рекомендацию';
+
+  @override
+  String get spacePolicyAuditRecommendations => 'Политика рекомендаций';
+
+  @override
   String get spaceRoleLabel => 'Роль в сообществе';
 
   @override

@@ -279,6 +279,23 @@
   "spaceRecommendationEmpty": "Нет активных кампаний рекомендаций",
   "spaceRecommendationReceive": "Рекомендации сообществ",
   "spaceRecommendationReceiveHint": "Разрешить принятым контактам отправлять карточки сообществ. При отключении новые рекомендации будут молча отбрасываться.",
+  "spaceRecommendationPolicyEnabled": "Разрешить рекомендации сообщества",
+  "spaceRecommendationPolicyDisabled": "Рекомендации сообщества отключены",
+  "spaceRecommendationPolicyHint": "Подписанная настройка для всего сообщества. Антиспам-лимиты фиксированы, их нельзя ослабить.",
+  "spaceRecommendationSentAuditTitle": "Отправленные рекомендации",
+  "spaceRecommendationSentAuditHint": "Локальный зашифрованный аудит. Отзыв удалит выбранную карточку у обеих сторон.",
+  "spaceRecommendationSentAuditEmpty": "С этого устройства рекомендаций не отправляли",
+  "spaceRecommendationSentTo": "Отправлено: {recipient}",
+  "@spaceRecommendationSentTo": {
+    "placeholders": {
+      "recipient": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceRecommendationSentRevoked": "отозвано",
+  "spaceRecommendationSentRevoke": "Отозвать отправленную рекомендацию",
+  "spacePolicyAuditRecommendations": "Политика рекомендаций",
   "spaceRoleLabel": "Роль в сообществе",
   "spaceRoleOwner": "Владелец",
   "spaceRoleAdmin": "Администратор",

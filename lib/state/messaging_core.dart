@@ -1170,23 +1170,23 @@ class MessagingService {
 
   /// Send one recommendation card after the caller's explicit recipient
   /// selection. There is intentionally no bulk/broadcast primitive here.
-  Future<bool> sendSpaceRecommendation(
+  Future<String?> sendSpaceRecommendation(
     NodeId dst,
     SpaceRecommendationCard card,
   ) async {
-    if (!card.isStructurallyValid) return false;
+    if (!card.isStructurallyValid) return null;
     try {
       final ticket = SpaceJoinCode.parse(card.joinCode);
       if (ticket.spaceId != card.spaceId ||
           ticket.isExpiredAt(_now().millisecondsSinceEpoch)) {
-        return false;
+        return null;
       }
     } catch (_) {
-      return false;
+      return null;
     }
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) {
-      return false;
+      return null;
     }
     final sentAt = _now();
     final stored = await _store(
@@ -1206,23 +1206,56 @@ class MessagingService {
     _mailboxDelivery.noteActivity();
     await _send(dst, wire, wantReply: true);
     _stashInBackground(dst, stored.id, wire);
-    return true;
+    return stored.id;
   }
 
   static const _spaceRecommendationsEnabledSetting =
       'privacy.space_recommendations.enabled.v1';
 
-  Future<bool> spaceRecommendationsEnabled() async =>
-      (await _storage.getSetting(_spaceRecommendationsEnabledSetting)) !=
-      'false';
+  Future<SpaceRecommendationRecipientPolicy>
+  spaceRecommendationRecipientPolicy() async {
+    final raw = await _storage.getSetting(_spaceRecommendationsEnabledSetting);
+    if (raw == null || raw.isEmpty || raw == 'true') {
+      return const SpaceRecommendationRecipientPolicy();
+    }
+    if (raw == 'false') {
+      return const SpaceRecommendationRecipientPolicy(
+        mode: SpaceRecommendationRecipientMode.blockAll,
+      );
+    }
+    try {
+      return SpaceRecommendationRecipientPolicy.fromJson(jsonDecode(raw)) ??
+          const SpaceRecommendationRecipientPolicy();
+    } catch (_) {
+      return const SpaceRecommendationRecipientPolicy();
+    }
+  }
 
-  Future<void> setSpaceRecommendationsEnabled(bool enabled) async {
+  Future<bool> spaceRecommendationsEnabled() async =>
+      (await spaceRecommendationRecipientPolicy()).acceptsCards;
+
+  Future<void> setSpaceRecommendationRecipientPolicy(
+    SpaceRecommendationRecipientPolicy policy,
+  ) async {
     await _storage.putSetting(
       _spaceRecommendationsEnabledSetting,
-      enabled ? 'true' : 'false',
+      jsonEncode(policy.toJson()),
     );
     _signal();
   }
+
+  Future<void> setSpaceRecommendationsEnabled(bool enabled) =>
+      setSpaceRecommendationRecipientPolicy(
+        SpaceRecommendationRecipientPolicy(
+          mode: enabled
+              ? SpaceRecommendationRecipientMode.acceptedContacts
+              : SpaceRecommendationRecipientMode.blockAll,
+        ),
+      );
+
+  /// Retract a typed recommendation from exactly one accepted conversation.
+  Future<bool> revokeSpaceRecommendation(NodeId peer, String messageId) =>
+      _mutations.revokeSpaceRecommendation(peer, messageId);
 
   /// Re-send every outgoing text message still awaiting a delivery ack (i.e.
   /// `sent`, not yet `delivered`) to accepted contacts. Driven on node-connect /

@@ -279,6 +279,23 @@
   "spaceRecommendationEmpty": "No active recommendation campaigns",
   "spaceRecommendationReceive": "Community recommendations",
   "spaceRecommendationReceiveHint": "Allow accepted contacts to send community cards. Turning this off silently discards new recommendations.",
+  "spaceRecommendationPolicyEnabled": "Allow community recommendations",
+  "spaceRecommendationPolicyDisabled": "Community recommendations disabled",
+  "spaceRecommendationPolicyHint": "Signed community-wide setting. Anti-spam limits remain fixed and cannot be weakened.",
+  "spaceRecommendationSentAuditTitle": "Sent recommendations",
+  "spaceRecommendationSentAuditHint": "Local encrypted audit. Revoke removes the selected card from both sides.",
+  "spaceRecommendationSentAuditEmpty": "No recommendations sent from this device",
+  "spaceRecommendationSentTo": "Sent to {recipient}",
+  "@spaceRecommendationSentTo": {
+    "placeholders": {
+      "recipient": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceRecommendationSentRevoked": "revoked",
+  "spaceRecommendationSentRevoke": "Revoke sent recommendation",
+  "spacePolicyAuditRecommendations": "Recommendation policy",
   "spaceRoleLabel": "Community role",
   "spaceRoleOwner": "Owner",
   "spaceRoleAdmin": "Administrator",

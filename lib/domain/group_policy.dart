@@ -55,6 +55,8 @@ class GroupState {
     this.retentionHistory,
     this.postPins,
     this.recommendationCampaigns,
+    this.recommendationPolicy,
+    this.recommendationPolicyHistory,
     this.lifecycleState,
     this.lifecycleTransition,
     this.lifecycleTransitionHash,
@@ -128,6 +130,13 @@ class GroupState {
   /// Latest signed state for every recommendation campaign. Revoked rows stay
   /// present as audit evidence but are never distributable.
   final Map<String, SpaceRecommendationCampaign> recommendationCampaigns;
+
+  /// Latest accepted signed distribution posture and its immutable history.
+  /// Null means the compatible V1 default: explicit recommendations enabled.
+  final SpaceRecommendationPolicy? recommendationPolicy;
+  final List<SpaceRecommendationPolicy> recommendationPolicyHistory;
+
+  bool get recommendationsEnabled => recommendationPolicy?.enabled ?? true;
 
   /// Signed Space lifecycle state. Group chats never author lifecycle ops and
   /// therefore remain [SpaceLifecycleState.active].
@@ -251,6 +260,8 @@ class GroupState {
     const [],
     const {},
     const {},
+    null,
+    const [],
     SpaceLifecycleState.active,
     null,
     null,
@@ -831,7 +842,8 @@ final class SpaceAcl {
       ControlOp.updateChannel => denied(SpacePermission.manageChannels),
       ControlOp.setRetention => denied(SpacePermission.manageStorage),
       ControlOp.setPostPin => denied(SpacePermission.managePosts),
-      ControlOp.setRecommendationCampaign => denied(
+      ControlOp.setRecommendationCampaign ||
+      ControlOp.setRecommendationPolicy => denied(
         SpacePermission.manageRecommendations,
       ),
       ControlOp.rotateEpoch => denied(SpacePermission.manageEncryption),
@@ -887,6 +899,7 @@ final class SpaceAcl {
       case ControlOp.setPostPin:
         return has(SpacePermission.managePosts);
       case ControlOp.setRecommendationCampaign:
+      case ControlOp.setRecommendationPolicy:
         return has(SpacePermission.manageRecommendations);
       case ControlOp.rotateEpoch:
         return has(SpacePermission.manageEncryption);
@@ -945,6 +958,7 @@ final class SpaceAcl {
       case ControlOp.updateChannel:
       case ControlOp.setPostPin:
       case ControlOp.setRecommendationCampaign:
+      case ControlOp.setRecommendationPolicy:
         return authorRole.rank >= GroupRole.admin.rank;
       case ControlOp.publishRules:
         return authorRole == GroupRole.owner;
@@ -1295,6 +1309,8 @@ GroupFoldResult foldControlLog({
   final retentionHistory = <SpaceRetentionRevision>[];
   final postPins = <String, SpacePostPin>{};
   final recommendationCampaigns = <String, SpaceRecommendationCampaign>{};
+  SpaceRecommendationPolicy? recommendationPolicy;
+  final recommendationPolicyHistory = <SpaceRecommendationPolicy>[];
   var lifecycleState = SpaceLifecycleState.active;
   SpaceLifecycleTransition? lifecycleTransition;
   String? lifecycleTransitionHash;
@@ -1764,6 +1780,22 @@ GroupFoldResult foldControlLog({
       rejected.add(e);
       continue;
     }
+    if (e.op == ControlOp.setRecommendationPolicy) {
+      final next = e.recommendationPolicy;
+      if (e.version != 21 ||
+          next == null ||
+          next.spaceId != e.groupId ||
+          next.revision != (recommendationPolicy?.revision ?? 0) + 1 ||
+          next.previousPolicyHash != (recommendationPolicy?.policyHash ?? '') ||
+          next.changedBy != e.author ||
+          next.changedAtMs != e.createdAtMs) {
+        rejected.add(e);
+        continue;
+      }
+    } else if (e.recommendationPolicy != null) {
+      rejected.add(e);
+      continue;
+    }
     if (e.op == ControlOp.setPolicy &&
         (e.version == 17 ||
             e.version == 18 ||
@@ -1932,6 +1964,10 @@ GroupFoldResult foldControlLog({
       case ControlOp.setRecommendationCampaign:
         final campaign = e.recommendationCampaign!;
         recommendationCampaigns[campaign.campaignId] = campaign;
+      case ControlOp.setRecommendationPolicy:
+        final next = e.recommendationPolicy!;
+        recommendationPolicy = next;
+        recommendationPolicyHistory.add(next);
       case ControlOp.archiveSpace:
       case ControlOp.deleteSpace:
       case ControlOp.restoreSpace:
@@ -2106,6 +2142,8 @@ GroupFoldResult foldControlLog({
       List.unmodifiable(retentionHistory),
       Map.unmodifiable(postPins),
       Map.unmodifiable(recommendationCampaigns),
+      recommendationPolicy,
+      List.unmodifiable(recommendationPolicyHistory),
       lifecycleState,
       lifecycleTransition,
       lifecycleTransitionHash,

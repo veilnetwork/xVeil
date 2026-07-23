@@ -555,7 +555,9 @@ typedef SpaceModerationAppealSender =
 typedef SpaceModerationAppealDecisionSender =
     Future<void> Function(NodeId peer, String appealId, String decisionJson);
 typedef SpaceRecommendationSender =
-    Future<bool> Function(NodeId peer, SpaceRecommendationCard card);
+    Future<String?> Function(NodeId peer, SpaceRecommendationCard card);
+typedef SpaceRecommendationRevoker =
+    Future<bool> Function(NodeId peer, String messageId);
 
 typedef GroupCallFrameSender =
     Future<void> Function(
@@ -576,6 +578,7 @@ class GroupService {
     this.sendSpaceModerationAppeal,
     this.sendSpaceModerationAppealDecision,
     this.sendSpaceRecommendation,
+    this.revokeSpaceRecommendation,
     this._epochService,
     this.ourCertVersion = 1,
     this.sendContentRequest,
@@ -596,6 +599,7 @@ class GroupService {
   final SpaceModerationAppealSender? sendSpaceModerationAppeal;
   final SpaceModerationAppealDecisionSender? sendSpaceModerationAppealDecision;
   final SpaceRecommendationSender? sendSpaceRecommendation;
+  final SpaceRecommendationRevoker? revokeSpaceRecommendation;
   final GroupEpochService? _epochService;
   final int ourCertVersion;
 
@@ -1237,14 +1241,6 @@ class GroupService {
   ) async {
     final normalized = text.trim();
     if (normalized.isEmpty || normalized.length > 1000) return null;
-    final joinCode = await createSpaceJoinCode(spaceId);
-    if (joinCode == null) return null;
-    try {
-      final ticket = SpaceJoinCode.parse(joinCode);
-      if (ticket.isExpiredAt(_now())) return null;
-    } catch (_) {
-      return null;
-    }
     return _serialized(spaceId, () async {
       final bundle = await load(spaceId);
       if (bundle == null ||
@@ -1260,9 +1256,18 @@ class GroupService {
         initialDescription: bundle.manifest.description ?? '',
       ).state;
       if (!state.isActive ||
+          !state.recommendationsEnabled ||
           !SpaceAcl(
             state,
           ).allows(selfId, SpacePermission.manageRecommendations)) {
+        return null;
+      }
+      final joinCode = await createSpaceJoinCode(spaceId);
+      if (joinCode == null) return null;
+      try {
+        final ticket = SpaceJoinCode.parse(joinCode);
+        if (ticket.isExpiredAt(_now())) return null;
+      } catch (_) {
         return null;
       }
       final now = _now();
@@ -1285,6 +1290,50 @@ class GroupService {
       return applied ? campaign : null;
     });
   }
+
+  /// Publish one complete signed Space-wide recommendation posture.
+  ///
+  /// The optimistic revision prevents two administrative devices from
+  /// silently overwriting each other. Fixed sender rate limits deliberately
+  /// remain outside this policy and cannot be weakened by a Space admin.
+  Future<SpaceRecommendationPolicy?> setSpaceRecommendationPolicy(
+    NodeId spaceId, {
+    required int expectedRevision,
+    required bool enabled,
+  }) => _serialized(spaceId, () async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return null;
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    final current = state.recommendationPolicy;
+    if (!state.isActive ||
+        (current?.revision ?? 0) != expectedRevision ||
+        !SpaceAcl(
+          state,
+        ).allows(selfId, SpacePermission.manageRecommendations)) {
+      return null;
+    }
+    final policy = SpaceRecommendationPolicy(
+      spaceId: spaceId,
+      revision: expectedRevision + 1,
+      previousPolicyHash: current?.policyHash ?? '',
+      changedBy: selfId,
+      changedAtMs: _now(),
+      enabled: enabled,
+    );
+    final applied = await _addControlOp(
+      spaceId,
+      ControlOp.setRecommendationPolicy,
+      recommendationPolicy: policy,
+      createdAtMs: policy.changedAtMs,
+    );
+    return applied ? policy : null;
+  });
 
   Future<List<SpaceRecommendationCampaign>> spaceRecommendationCampaigns(
     NodeId spaceId, {
@@ -1377,19 +1426,23 @@ class GroupService {
     }
   }
 
-  Future<List<SpaceRecommendationShareAudit>>
-  spaceRecommendationShareAudit() async {
+  Future<List<SpaceRecommendationShareAudit>> spaceRecommendationShareAudit({
+    NodeId? spaceId,
+  }) async {
     final raw = await _storage.getSetting(_spaceRecommendationAuditSetting);
     if (raw == null || raw.isEmpty) return const [];
     try {
       final value = jsonDecode(raw);
-      if (value is! Map || value['v'] != 1 || value['records'] is! List) {
+      if (value is! Map ||
+          (value['v'] != 1 && value['v'] != 2) ||
+          value['records'] is! List) {
         return const [];
       }
       return List.unmodifiable(
         (value['records'] as List)
             .map(SpaceRecommendationShareAudit.fromJson)
             .whereType<SpaceRecommendationShareAudit>()
+            .where((record) => spaceId == null || record.spaceId == spaceId)
             .take(_maxSpaceRecommendationAudit),
       );
     } catch (_) {
@@ -1402,7 +1455,7 @@ class GroupService {
   ) => _storage.putSetting(
     _spaceRecommendationAuditSetting,
     jsonEncode({
-      'v': 1,
+      'v': 2,
       'records': [
         for (final record in records.take(_maxSpaceRecommendationAudit))
           record.toJson(),
@@ -1440,6 +1493,7 @@ class GroupService {
       initialDescription: bundle.manifest.description ?? '',
     ).state;
     if (!state.isActive ||
+        !state.recommendationsEnabled ||
         !SpaceAcl(state).allows(selfId, SpacePermission.distributeContent)) {
       return SpaceRecommendationShareResult.notAllowed;
     }
@@ -1492,8 +1546,10 @@ class GroupService {
       text: campaign.text,
       joinCode: campaign.joinCode,
     );
+    final String? messageId;
     try {
-      if (!await sender(recipient, card)) {
+      messageId = await sender(recipient, card);
+      if (messageId == null || messageId.isEmpty || messageId.length > 256) {
         return SpaceRecommendationShareResult.failed;
       }
     } catch (_) {
@@ -1505,6 +1561,7 @@ class GroupService {
         spaceId: spaceId,
         recipient: recipient,
         sentAtMs: now,
+        messageId: messageId,
       ),
       for (final record in records)
         if (record.sentAtMs >= duplicateCutoff) record,
@@ -1512,6 +1569,41 @@ class GroupService {
     await _saveSpaceRecommendationShareAudit(updated);
     changes.value++;
     return SpaceRecommendationShareResult.sent;
+  });
+
+  /// Revoke one already-sent recommendation by its durable message id.
+  ///
+  /// Revocation is intentionally independent of current Space membership or
+  /// campaign state: the sender still owns the 1:1 message and must be able to
+  /// retract it after leaving, archiving or deleting the Space. Legacy v1
+  /// audit rows have no message id and therefore remain visible but unavailable
+  /// for addressable revocation.
+  Future<SpaceRecommendationRevokeResult> revokeSentSpaceRecommendation(
+    String auditId,
+  ) => _serializeSpaceRecommendations(() async {
+    final records = await spaceRecommendationShareAudit();
+    final index = records.indexWhere((record) => record.stableId == auditId);
+    if (index < 0) return SpaceRecommendationRevokeResult.notFound;
+    final record = records[index];
+    if (record.revokedAtMs != null) {
+      return SpaceRecommendationRevokeResult.alreadyRevoked;
+    }
+    final revoker = revokeSpaceRecommendation;
+    if (record.messageId == null || revoker == null) {
+      return SpaceRecommendationRevokeResult.unavailable;
+    }
+    try {
+      if (!await revoker(record.recipient, record.messageId!)) {
+        return SpaceRecommendationRevokeResult.failed;
+      }
+    } catch (_) {
+      return SpaceRecommendationRevokeResult.failed;
+    }
+    final updated = List<SpaceRecommendationShareAudit>.of(records);
+    updated[index] = record.revokedAt(_now());
+    await _saveSpaceRecommendationShareAudit(updated);
+    changes.value++;
+    return SpaceRecommendationRevokeResult.revoked;
   });
 
   /// Receiver-side card suppression. A current or restricted membership cannot
@@ -6388,6 +6480,7 @@ class GroupService {
     SpaceLifecycleTransition? lifecycleTransition,
     SpacePostPin? postPin,
     SpaceRecommendationCampaign? recommendationCampaign,
+    SpaceRecommendationPolicy? recommendationPolicy,
     SpaceAccessPolicy? accessPolicy,
     int? createdAtMs,
     Future<bool> Function()? commitGuard,
@@ -6403,6 +6496,7 @@ class GroupService {
             op == ControlOp.setRetention ||
             op == ControlOp.setPostPin ||
             op == ControlOp.setRecommendationCampaign ||
+            op == ControlOp.setRecommendationPolicy ||
             op == ControlOp.archiveSpace ||
             op == ControlOp.deleteSpace ||
             op == ControlOp.restoreSpace) &&
@@ -6504,6 +6598,8 @@ class GroupService {
                   ? 12
                   : recommendationCampaign != null
                   ? 13
+                  : recommendationPolicy != null
+                  ? 21
                   : accessPolicy != null
                   ? state.roleOf(_signer.selfId) != GroupRole.owner
                         ? 20
@@ -6548,6 +6644,7 @@ class GroupService {
               lifecycleTransition: lifecycleTransition,
               postPin: postPin,
               recommendationCampaign: recommendationCampaign,
+              recommendationPolicy: recommendationPolicy,
               accessPolicy: accessPolicy,
               policyVersion: pv,
               createdAtMs: createdAt,
@@ -6963,6 +7060,8 @@ class GroupService {
         SpaceAccessPolicyAuditEntry(policy),
       for (final revision in await spaceRetentionHistoryOf(spaceId))
         SpaceRetentionPolicyAuditEntry(revision),
+      for (final policy in state.recommendationPolicyHistory)
+        SpaceRecommendationPolicyAuditEntry(policy),
     ];
     entries.sort((left, right) {
       final changed = right.changedAtMs.compareTo(left.changedAtMs);
@@ -9770,6 +9869,7 @@ class GroupService {
         case ControlOp.restoreSpace:
         case ControlOp.setPostPin:
         case ControlOp.setRecommendationCampaign:
+        case ControlOp.setRecommendationPolicy:
         case ControlOp.checkpoint:
           break;
       }
@@ -9838,6 +9938,7 @@ class GroupService {
         case ControlOp.restoreSpace:
         case ControlOp.setPostPin:
         case ControlOp.setRecommendationCampaign:
+        case ControlOp.setRecommendationPolicy:
         case ControlOp.checkpoint:
           break;
       }

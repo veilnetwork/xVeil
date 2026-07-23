@@ -141,6 +141,23 @@ class _MessagingMutations {
     );
   }
 
+  /// Revoke only the recommendation card originally sent to [peer].
+  ///
+  /// Binding both the authenticated conversation and the reserved typed body
+  /// prevents an audit row (or an API caller) from turning this into an
+  /// arbitrary-message deletion primitive.
+  Future<bool> revokeSpaceRecommendation(NodeId peer, String messageId) async {
+    final message = await _find(messageId);
+    if (message == null ||
+        message.direction != MessageDirection.outgoing ||
+        message.conversationId != peer.hex ||
+        parseSpaceRecommendationMessage(message.body) == null) {
+      return false;
+    }
+    await deleteForEveryone(messageId);
+    return true;
+  }
+
   /// Edit one of our sent messages and durably propagate the new version.
   Future<void> editOwnMessage(
     String messageId,

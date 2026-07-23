@@ -66,6 +66,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     service.groupNotificationPolicy(spaceId),
     service.channelsOf(spaceId, includeArchived: true),
     service.spacePolicyAudit(spaceId),
+    service.spaceRecommendationShareAudit(spaceId: spaceId),
   ]);
 
   Future<List<Object?>> _settingsSnapshot(
@@ -236,6 +237,10 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
       '${revision.policy.channelId == null ? l.spacePolicyAuditScopeSpace : l.spacePolicyAuditScopeChannel(_channelAuditLabel(revision.policy.channelId!, channels))} · '
           '${_retentionAuditRule(l, revision.policy)}'
           '${revision.policy.mediaOnly ? ' · ${l.spacePolicyAuditMediaOnly}' : ''}',
+    SpaceRecommendationPolicyAuditEntry(:final policy) =>
+      policy.enabled
+          ? l.spaceRecommendationPolicyEnabled
+          : l.spaceRecommendationPolicyDisabled,
   };
 
   String _channelAuditLabel(NodeId channelId, List<SpaceChannel> channels) {
@@ -306,11 +311,15 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                           leading: Icon(
                             entry is SpaceAccessPolicyAuditEntry
                                 ? Icons.admin_panel_settings_outlined
+                                : entry is SpaceRecommendationPolicyAuditEntry
+                                ? Icons.share_outlined
                                 : Icons.inventory_2_outlined,
                           ),
                           title: Text(
                             entry is SpaceAccessPolicyAuditEntry
                                 ? l.spacePolicyAuditAccess
+                                : entry is SpaceRecommendationPolicyAuditEntry
+                                ? l.spacePolicyAuditRecommendations
                                 : l.spacePolicyAuditRetention,
                           ),
                           subtitle: Text(
@@ -817,6 +826,28 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     }
   }
 
+  Future<void> _setRecommendationPolicy(
+    GroupService service,
+    NodeId spaceId,
+    SpaceRecommendationPolicy? current,
+    bool enabled,
+  ) async {
+    final applied = await service.setSpaceRecommendationPolicy(
+      spaceId,
+      expectedRevision: current?.revision ?? 0,
+      enabled: enabled,
+    );
+    if (applied == null) _failure();
+  }
+
+  Future<void> _revokeSentRecommendation(
+    GroupService service,
+    SpaceRecommendationShareAudit record,
+  ) async {
+    final result = await service.revokeSentSpaceRecommendation(record.stableId);
+    if (result != SpaceRecommendationRevokeResult.revoked) _failure();
+  }
+
   Future<void> _decideJoinRequest(
     GroupService service,
     SpaceJoinInboxEntry entry, {
@@ -1163,6 +1194,8 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
             final channels = snapshot.data![8] as List<SpaceChannel>;
             final policyAudit =
                 snapshot.data![9] as List<SpacePolicyAuditEntry>;
+            final recommendationShares =
+                snapshot.data![10] as List<SpaceRecommendationShareAudit>;
             final myRole = state.roleOf(service.selfId)!;
             final acl = SpaceAcl(state);
             final canRename =
@@ -1190,10 +1223,13 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
             );
             final canManageRecommendations =
                 bundle?.manifest.visibility == SpaceVisibility.public &&
+                state.isActive &&
                 acl.allows(
                   service.selfId,
                   SpacePermission.manageRecommendations,
                 );
+            final showRecommendations =
+                bundle?.manifest.visibility == SpaceVisibility.public;
             final canManageAccess =
                 state.isActive &&
                 acl.allowsControl(service.selfId, ControlOp.setPolicy);
@@ -1576,28 +1612,52 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                         ),
                         const SizedBox(height: 20),
                       ],
-                      if (canManageRecommendations) ...[
+                      if (showRecommendations) ...[
                         Card(
                           child: Column(
                             children: [
+                              SwitchListTile(
+                                key: const ValueKey(
+                                  'space-recommendation-policy-enabled',
+                                ),
+                                secondary: const Icon(Icons.share_outlined),
+                                title: Text(l.spaceRecommendationPolicyEnabled),
+                                subtitle: Text(l.spaceRecommendationPolicyHint),
+                                value: state.recommendationsEnabled,
+                                onChanged: canManageRecommendations
+                                    ? (enabled) => _setRecommendationPolicy(
+                                        service,
+                                        spaceId,
+                                        state.recommendationPolicy,
+                                        enabled,
+                                      )
+                                    : null,
+                              ),
+                              const Divider(height: 1, indent: 56),
                               ListTile(
                                 key: const ValueKey(
                                   'space-recommendations-tile',
                                 ),
-                                leading: const Icon(Icons.share_outlined),
+                                leading: const Icon(Icons.campaign_outlined),
                                 title: Text(l.spaceRecommendationsTitle),
                                 subtitle: Text(l.spaceRecommendationsHint),
-                                trailing: FilledButton.tonal(
-                                  key: const ValueKey(
-                                    'space-recommendation-create',
-                                  ),
-                                  onPressed: () =>
-                                      _createRecommendationCampaign(
-                                        service,
-                                        spaceId,
-                                      ),
-                                  child: Text(l.spaceRecommendationCreate),
-                                ),
+                                trailing: canManageRecommendations
+                                    ? FilledButton.tonal(
+                                        key: const ValueKey(
+                                          'space-recommendation-create',
+                                        ),
+                                        onPressed: state.recommendationsEnabled
+                                            ? () =>
+                                                  _createRecommendationCampaign(
+                                                    service,
+                                                    spaceId,
+                                                  )
+                                            : null,
+                                        child: Text(
+                                          l.spaceRecommendationCreate,
+                                        ),
+                                      )
+                                    : null,
                               ),
                               if (recommendationCampaigns.isEmpty)
                                 Padding(
@@ -1633,16 +1693,92 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                   subtitle: Text(
                                     _date(context, campaign.createdAtMs),
                                   ),
-                                  trailing: IconButton(
-                                    tooltip: l.spaceRecommendationRevoke,
-                                    onPressed: () =>
-                                        _revokeRecommendationCampaign(
-                                          service,
-                                          spaceId,
-                                          campaign.campaignId,
-                                        ),
-                                    icon: const Icon(Icons.campaign_outlined),
+                                  trailing: canManageRecommendations
+                                      ? IconButton(
+                                          tooltip: l.spaceRecommendationRevoke,
+                                          onPressed: () =>
+                                              _revokeRecommendationCampaign(
+                                                service,
+                                                spaceId,
+                                                campaign.campaignId,
+                                              ),
+                                          icon: const Icon(
+                                            Icons.campaign_outlined,
+                                          ),
+                                        )
+                                      : null,
+                                ),
+                              ],
+                              const Divider(height: 1),
+                              ListTile(
+                                leading: const Icon(Icons.outbox_outlined),
+                                title: Text(
+                                  l.spaceRecommendationSentAuditTitle,
+                                ),
+                                subtitle: Text(
+                                  l.spaceRecommendationSentAuditHint,
+                                ),
+                              ),
+                              if (recommendationShares.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    0,
+                                    16,
+                                    16,
                                   ),
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      l.spaceRecommendationSentAuditEmpty,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                  ),
+                                ),
+                              for (final record in recommendationShares) ...[
+                                const Divider(height: 1, indent: 56),
+                                ListTile(
+                                  key: ValueKey(
+                                    'space-recommendation-share-${record.stableId}',
+                                  ),
+                                  leading: Icon(
+                                    record.revokedAtMs == null
+                                        ? Icons.send_outlined
+                                        : Icons.undo_outlined,
+                                  ),
+                                  title: Text(
+                                    l.spaceRecommendationSentTo(
+                                      _memberLabel(
+                                        l,
+                                        service,
+                                        record.recipient,
+                                        conversations,
+                                      ),
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    record.revokedAtMs == null
+                                        ? _date(context, record.sentAtMs)
+                                        : '${_date(context, record.sentAtMs)} · '
+                                              '${l.spaceRecommendationSentRevoked}',
+                                  ),
+                                  trailing: record.canRevoke
+                                      ? IconButton(
+                                          key: ValueKey(
+                                            'space-recommendation-share-revoke-${record.stableId}',
+                                          ),
+                                          tooltip:
+                                              l.spaceRecommendationSentRevoke,
+                                          onPressed: () =>
+                                              _revokeSentRecommendation(
+                                                service,
+                                                record,
+                                              ),
+                                          icon: const Icon(Icons.undo_outlined),
+                                        )
+                                      : null,
                                 ),
                               ],
                             ],

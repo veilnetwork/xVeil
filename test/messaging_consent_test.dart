@@ -143,13 +143,13 @@ void main() {
       text: 'Take a look',
       joinCode: _joinCode(_id(8), a, '11' * 32),
     );
-    expect(await mA.sendSpaceRecommendation(b, card), isFalse);
+    expect(await mA.sendSpaceRecommendation(b, card), isNull);
 
     await mA.sendRequest(b, 'hi');
     await _pump();
     await mB.acceptContact(a);
     await _pump();
-    expect(await mA.sendSpaceRecommendation(b, card), isTrue);
+    expect(await mA.sendSpaceRecommendation(b, card), isNotNull);
     await _pump();
 
     final incoming = (await sB.loadMessages(a.hex)).where(
@@ -190,7 +190,7 @@ void main() {
       isEmpty,
     );
 
-    expect(await mA.sendSpaceRecommendation(b, card), isTrue);
+    expect(await mA.sendSpaceRecommendation(b, card), isNotNull);
     await _pump();
     final outgoing = (await sA.loadMessages(b.hex)).singleWhere(
       (message) => parseSpaceRecommendationMessage(message.body) != null,
@@ -204,6 +204,40 @@ void main() {
       )?.text,
       card.text,
     );
+  });
+
+  test('typed recommendation revocation removes exactly that card', () async {
+    final card = SpaceRecommendationCard(
+      campaignId: 'bd' * 32,
+      spaceId: _id(8),
+      name: 'Public lab',
+      description: '',
+      text: 'Take a look',
+      joinCode: _joinCode(_id(8), a, '13' * 32),
+    );
+    await mA.sendRequest(b, 'hi');
+    await _pump();
+    await mB.acceptContact(a);
+    await _pump();
+
+    final messageId = await mA.sendSpaceRecommendation(b, card);
+    expect(messageId, isNotNull);
+    await _pump();
+    expect(await mA.revokeSpaceRecommendation(b, messageId!), isTrue);
+    await _pump();
+    expect(
+      (await sA.loadMessages(
+        b.hex,
+      )).where((message) => message.id == messageId),
+      isEmpty,
+    );
+    expect(
+      (await sB.loadMessages(
+        a.hex,
+      )).where((message) => message.id == messageId),
+      isEmpty,
+    );
+    expect(await mA.revokeSpaceRecommendation(b, 'ordinary-message'), isFalse);
   });
 
   test('recommendation receiver opt-out silently discards the card', () async {
@@ -220,8 +254,16 @@ void main() {
     await mB.acceptContact(a);
     await _pump();
     await mB.setSpaceRecommendationsEnabled(false);
+    expect(
+      (await mB.spaceRecommendationRecipientPolicy()).mode,
+      SpaceRecommendationRecipientMode.blockAll,
+    );
+    expect(
+      await sB.getSetting('privacy.space_recommendations.enabled.v1'),
+      contains('"mode":"blockAll"'),
+    );
 
-    expect(await mA.sendSpaceRecommendation(b, card), isTrue);
+    expect(await mA.sendSpaceRecommendation(b, card), isNotNull);
     await _pump();
     expect(
       (await sB.loadMessages(a.hex)).where(
