@@ -3157,6 +3157,7 @@ void main() {
           '/spaces/channels',
           '/spaces/channels/action',
           '/spaces/channels/messages',
+          '/spaces/access',
           '/groups',
           '/groups/messages',
           '/groups/files',
@@ -3198,6 +3199,32 @@ void main() {
       expect((pathMap['/spaces/posts/scheduled/publish'] as Map).keys.toSet(), {
         'post',
       });
+      final accessRequestProperties =
+          ((((((pathMap['/spaces/access'] as Map)['post'] as Map)['requestBody']
+                              as Map)['content']
+                          as Map)['application/json']
+                      as Map)['schema']
+                  as Map)['properties']
+              as Map;
+      final grantItem =
+          (((accessRequestProperties['grants'] as Map)['items']) as Map);
+      expect(grantItem['required'], ['permission', 'scope']);
+      expect(
+        (((grantItem['properties'] as Map)['scope'] as Map)['properties']
+            as Map)['kind']['enum'],
+        containsAll(<String>[
+          'space',
+          'category',
+          'channel',
+          'posts',
+          'moderation',
+          'members',
+          'roles',
+          'settings',
+          'encryption',
+          'storage',
+        ]),
+      );
       final scheduleResponses =
           (((pathMap['/spaces/posts/scheduled'] as Map)['post']
                   as Map)['responses']
