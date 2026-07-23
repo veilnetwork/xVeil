@@ -124,6 +124,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
         messaging.sendGroupContentRequest(holder, json),
     sendContentReceipt: (holder, json) =>
         messaging.sendGroupContentReceipt(holder, json),
+    sendPublicFeedRequest: messaging.sendSpacePublicFeedRequest,
+    sendPublicFeedChunk: messaging.sendSpacePublicFeedChunk,
     sendGroupCallFrame: (peer, signal, json) =>
         messaging.sendGroupCallSignal(peer, signal, json),
     grantContentServe: messaging.grantGroupContentServe,
@@ -165,6 +167,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   messaging.onGroupContentReceipt = (peer, receiptJson) {
     unawaited(service.handleContentReceipt(peer, receiptJson));
   };
+  messaging.onSpacePublicFeedRequest = service.handlePublicFeedObjectRequest;
+  messaging.onSpacePublicFeedChunk = service.handlePublicFeedObjectChunk;
   messaging.onGroupContentVerifiedSources =
       service.handleVerifiedContentSources;
   messaging.onGroupCallSignal = service.ingestGroupCallFrame;

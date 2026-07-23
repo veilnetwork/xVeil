@@ -608,4 +608,26 @@ void main() {
     expect(roundTrip.kind, WireKind.groupContentManifest);
     expect(roundTrip.body, '{"id":"abc","name":"x"}');
   });
+
+  test('public feed request/chunk are append-only live-only v:2 frames', () {
+    expect(
+      WireKind.groupContentManifest.index,
+      40,
+      reason: 'existing wire indices cannot shift',
+    );
+    expect(WireKind.spacePublicFeedRequest.index, 41);
+    expect(WireKind.spacePublicFeedChunk.index, 42);
+
+    for (final env in const [
+      WireEnvelope.spacePublicFeedRequest('{"nonce":"aa"}'),
+      WireEnvelope.spacePublicFeedChunk('{"nonce":"aa","index":0}'),
+    ]) {
+      final bytes = env.encode();
+      expect(jsonDecode(utf8.decode(bytes))['v'], 2);
+      final roundTrip = WireEnvelope.decode(bytes);
+      expect(roundTrip.kind, env.kind);
+      expect(roundTrip.body, env.body);
+      expect(roundTrip.frameId, isNull);
+    }
+  });
 }

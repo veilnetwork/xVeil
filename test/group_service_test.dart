@@ -4484,6 +4484,130 @@ void main() {
   );
 
   test(
+    'independent holder fetches exact feed objects before signing availability',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final holderStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await holderStorage.open(password: 'holder', createIfMissing: true);
+      late final GroupService holderService;
+      final ownerService = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        sendPublicFeedChunk: (requester, chunkJson) async {
+          expect(requester, bob);
+          holderService.handlePublicFeedObjectChunk(owner, chunkJson);
+        },
+      );
+      holderService = GroupService(
+        holderStorage,
+        _FakeSigner(bob),
+        sendPublicFeedRequest: (requestedHolder, requestJson) async {
+          expect(requestedHolder, owner);
+          await ownerService.handlePublicFeedObjectRequest(bob, requestJson);
+        },
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(holderService.dispose);
+
+      final spaceId = await ownerService.createSpace(
+        'Replicated public feed',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      expect(
+        await ownerService.publishSpacePost(
+          spaceId,
+          title: 'Verified',
+          body: 'Fetched without a private bundle',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      final ownerPublication = await ownerService
+          .buildSpacePublicDiscoveryPublication(spaceId);
+      expect(ownerPublication, isNotNull);
+
+      final replicated = await holderService
+          .replicateVerifiedPublicSpaceDiscovery(
+            ownerPublication!.discovery.descriptor,
+            [ownerPublication.discovery.holder],
+          );
+      expect(replicated, isNotNull);
+      expect(replicated!.discovery.holder.holder, bob);
+      expect(
+        replicated.discovery.holder.descriptorHash,
+        ownerPublication.discovery.descriptor.descriptorHash,
+      );
+      expect(
+        replicated.discovery.holder.publicFeedManifestHash,
+        ownerPublication.feed.manifest.manifestHash,
+      );
+      expect(
+        replicated.feed.posts.single.body,
+        'Fetched without a private bundle',
+      );
+      expect(await holderService.load(spaceId), isNull);
+      expect(
+        mergeSpacePublicDiscovery(
+          descriptors: [ownerPublication.discovery.descriptor],
+          holders: [
+            ownerPublication.discovery.holder,
+            replicated.discovery.holder,
+          ],
+          nowMs: DateTime.now().millisecondsSinceEpoch,
+          verify: _FakeSigner(owner).verifyDetached,
+          minimumIndependentHolders: 2,
+        ),
+        hasLength(1),
+      );
+
+      final restartedStorage = holderStorage;
+      final downstreamStorage = FakeHvContainer().storage();
+      await downstreamStorage.open(
+        password: 'downstream',
+        createIfMissing: true,
+      );
+      late final GroupService downstreamService;
+      final restartedHolder = GroupService(
+        restartedStorage,
+        _FakeSigner(bob),
+        sendPublicFeedChunk: (requester, chunkJson) async {
+          expect(requester, carol);
+          downstreamService.handlePublicFeedObjectChunk(bob, chunkJson);
+        },
+      );
+      downstreamService = GroupService(
+        downstreamStorage,
+        _FakeSigner(carol),
+        sendPublicFeedRequest: (requestedHolder, requestJson) async {
+          expect(requestedHolder, bob);
+          await restartedHolder.handlePublicFeedObjectRequest(
+            carol,
+            requestJson,
+          );
+        },
+      );
+      addTearDown(restartedHolder.dispose);
+      addTearDown(downstreamService.dispose);
+
+      final downstream = await downstreamService
+          .replicateVerifiedPublicSpaceDiscovery(
+            ownerPublication.discovery.descriptor,
+            [replicated.discovery.holder],
+          );
+      expect(downstream, isNotNull);
+      expect(downstream!.discovery.holder.holder, carol);
+      expect(
+        downstream.feed.manifest.manifestHash,
+        ownerPublication.feed.manifest.manifestHash,
+        reason:
+            'a fresh holder process must serve its still-live durable package',
+      );
+    },
+  );
+
+  test(
     'public discovery publishes native routes and keeps global search quorum',
     () async {
       final storage = FakeHvContainer().storage();

@@ -162,6 +162,8 @@ class HeadlessRuntime {
         revokeSpaceRecommendation: messaging.revokeSpaceRecommendation,
         sendContentRequest: (holder, json) =>
             messaging!.sendGroupContentRequest(holder, json),
+        sendPublicFeedRequest: messaging.sendSpacePublicFeedRequest,
+        sendPublicFeedChunk: messaging.sendSpacePublicFeedChunk,
         sendGroupCallFrame: (peer, signal, json) =>
             messaging!.sendGroupCallSignal(peer, signal, json),
         grantContentServe: messaging.grantGroupContentServe,
@@ -405,6 +407,8 @@ class HeadlessRuntime {
     messaging.onGroupContentRequest = (peer, requestJson) {
       unawaited(groups.handleContentRequest(requestJson));
     };
+    messaging.onSpacePublicFeedRequest = groups.handlePublicFeedObjectRequest;
+    messaging.onSpacePublicFeedChunk = groups.handlePublicFeedObjectChunk;
     messaging.onGroupCallSignal = groups.ingestGroupCallFrame;
     messaging.onGroupEntryFromStranger = (peer, bundleJson) {
       unawaited(groups.ingestGroupEntryFromStranger(peer, bundleJson));

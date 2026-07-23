@@ -615,6 +615,41 @@ void main() {
       );
     },
   );
+
+  test(
+    'public feed object frames cross the contact boundary without chat or ACK',
+    () async {
+      final requestSeen = Completer<(NodeId, String)>();
+      final chunkSeen = Completer<(NodeId, String)>();
+      mB.onSpacePublicFeedRequest = (peer, body) async {
+        if (!requestSeen.isCompleted) requestSeen.complete((peer, body));
+      };
+      mA.onSpacePublicFeedChunk = (peer, body) {
+        if (!chunkSeen.isCompleted) chunkSeen.complete((peer, body));
+      };
+
+      const request = '{"kind":"request","nonce":"aa"}';
+      const chunk = '{"kind":"chunk","nonce":"aa","index":0}';
+      await mA.sendSpacePublicFeedRequest(b, request);
+      expect(await requestSeen.future.timeout(const Duration(seconds: 2)), (
+        a,
+        request,
+      ));
+      await mB.sendSpacePublicFeedChunk(a, chunk);
+      expect(await chunkSeen.future.timeout(const Duration(seconds: 2)), (
+        b,
+        chunk,
+      ));
+      await _pump();
+
+      expect(await sA.getContact(b), isNull);
+      expect(await sB.getContact(a), isNull);
+      expect(await sA.loadMessages(b.hex), isEmpty);
+      expect(await sB.loadMessages(a.hex), isEmpty);
+      expect(await sA.pendingOutboxFrames(), isEmpty);
+      expect(await sB.pendingOutboxFrames(), isEmpty);
+    },
+  );
 }
 
 /// Tiny helper to craft a raw message payload in the stranger test.

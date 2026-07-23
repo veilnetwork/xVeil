@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import '../core/ids.dart';
 import 'space_discovery.dart'
     show
+        SpacePublicDescriptor,
         SpacePublicSignatureVerifier,
         kSpacePublicClockSkew,
         kSpacePublicDescriptorLifetime;
@@ -14,6 +15,9 @@ import 'space_post.dart';
 const int kSpacePublicFeedPageSize = 32;
 const int kSpacePublicFeedPageMaxBytes = 1024 * 1024;
 const int kSpacePublicFeedPageMaxCount = 4096;
+const int kSpacePublicFeedProjectionMaxBytes = 64 * 1024 * 1024;
+const int kSpacePublicFeedPackageMaxBytes =
+    kSpacePublicFeedProjectionMaxBytes + 2 * 1024 * 1024;
 
 final RegExp _publicFeedHashPattern = RegExp(r'^[0-9a-f]{64}$');
 
@@ -452,6 +456,93 @@ class SpacePublicFeedProjection {
         if (!post.mediaHiddenByRetention)
           for (final media in post.effective.media) media.contentId!,
   });
+}
+
+/// Durable/cache wire unit for one exact descriptor revision. Keeping the
+/// descriptor alongside its committed manifest lets a restarted holder serve
+/// a still-live attestation without reconstructing any private GroupBundle.
+class SpacePublicFeedPackage {
+  const SpacePublicFeedPackage({
+    required this.descriptor,
+    required this.projection,
+  });
+
+  final SpacePublicDescriptor descriptor;
+  final SpacePublicFeedProjection projection;
+
+  bool verifyAt({
+    required int nowMs,
+    required SpacePublicSignatureVerifier verifySignature,
+    required SpacePublicPostVerifier verifyPost,
+  }) =>
+      descriptor.verifyAt(nowMs, verifySignature) &&
+      projection.manifest.revision == descriptor.publicFeedRevision &&
+      projection.manifest.updatedAtMs == descriptor.publicFeedUpdatedAtMs &&
+      projection.manifest.itemCount == descriptor.publicPostCount &&
+      projection.verifyAt(
+        nowMs: nowMs,
+        expectedManifestHash: descriptor.publicFeedManifestHash,
+        expectedSpaceId: descriptor.spaceId,
+        expectedPublisher: descriptor.publisher,
+        publisherPublicKey: descriptor.genesisManifest.genesisPubKey,
+        expectedControlHeadHash: descriptor.controlHeadHash,
+        verifySignature: verifySignature,
+        verifyPost: verifyPost,
+      );
+
+  Map<String, dynamic> toJson() => {
+    'v': 1,
+    'kind': 'xveil.space.public-feed-package',
+    'descriptor': descriptor.toJson(),
+    'manifest': projection.manifest.toJson(),
+    'pages': [for (final page in projection.pages) page.toJson()],
+  };
+
+  Uint8List toBytes() => Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
+
+  static SpacePublicFeedPackage? fromJson(Object? value) {
+    if (value is! Map ||
+        !_hasOnlyKeys(value, const {
+          'v',
+          'kind',
+          'descriptor',
+          'manifest',
+          'pages',
+        }) ||
+        value['v'] != 1 ||
+        value['kind'] != 'xveil.space.public-feed-package' ||
+        value['pages'] is! List) {
+      return null;
+    }
+    final descriptor = SpacePublicDescriptor.fromJson(value['descriptor']);
+    final manifest = SpacePublicFeedManifest.fromJson(value['manifest']);
+    final rawPages = value['pages'] as List;
+    if (descriptor == null ||
+        manifest == null ||
+        rawPages.length > kSpacePublicFeedPageMaxCount) {
+      return null;
+    }
+    final pages = rawPages
+        .map(SpacePublicFeedPage.fromJson)
+        .whereType<SpacePublicFeedPage>()
+        .toList(growable: false);
+    if (pages.length != rawPages.length) return null;
+    return SpacePublicFeedPackage(
+      descriptor: descriptor,
+      projection: SpacePublicFeedProjection(manifest: manifest, pages: pages),
+    );
+  }
+
+  static SpacePublicFeedPackage? fromBytes(Uint8List bytes) {
+    if (bytes.isEmpty || bytes.length > kSpacePublicFeedPackageMaxBytes) {
+      return null;
+    }
+    try {
+      return fromJson(jsonDecode(utf8.decode(bytes, allowMalformed: false)));
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 SpacePost? _strictSpacePostFromJson(Object? value) {

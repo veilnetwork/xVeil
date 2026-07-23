@@ -249,6 +249,13 @@ class MessagingService {
   /// drops invalid/non-member sources; no ACK or durable record is created.
   void Function(NodeId peer, String receiptJson)? onGroupContentReceipt;
 
+  /// Live-only public Space feed object path. The group layer performs all
+  /// signature/hash/quota/pending-request checks; messaging only preserves the
+  /// authenticated transport source and keeps these frames out of chat/outbox.
+  Future<void> Function(NodeId peer, String requestJson)?
+  onSpacePublicFeedRequest;
+  void Function(NodeId peer, String chunkJson)? onSpacePublicFeedChunk;
+
   /// Fired only after a membership-scoped blob is fully hash-verified and
   /// durably stored. [sources] contains the actual stream sources that supplied
   /// verified bytes, not every member that was merely eligible.
@@ -425,6 +432,12 @@ class MessagingService {
     String groupIdHex,
     String bundleJson,
   ) => _replication.sendGroupSnapshot(dst, groupIdHex, bundleJson);
+
+  Future<void> sendSpacePublicFeedRequest(NodeId dst, String requestJson) =>
+      _send(dst, WireEnvelope.spacePublicFeedRequest(requestJson).encode());
+
+  Future<void> sendSpacePublicFeedChunk(NodeId dst, String chunkJson) =>
+      _send(dst, WireEnvelope.spacePublicFeedChunk(chunkJson).encode());
 
   Future<void> sendSpaceInvite(
     NodeId dst,

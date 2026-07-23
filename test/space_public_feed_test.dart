@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/space_public_feed.dart';
+import 'package:xveil/domain/space_public_feed_transport.dart';
 import 'package:xveil/domain/space_post.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
@@ -278,6 +279,70 @@ void main() {
       ),
       isFalse,
     );
+  });
+
+  test('object request is signed, source-bound, fresh and strictly parsed', () {
+    const now = 5000;
+    final requester = _id(9);
+    final unsigned = SpacePublicFeedObjectRequest(
+      spaceId: _id(10),
+      descriptorHash: '11' * 32,
+      manifestHash: '22' * 32,
+      objectHash: '33' * 32,
+      requester: requester,
+      requesterPublicKey: requester.bytes,
+      nonce: '44' * 32,
+      createdAtMs: now,
+    );
+    final request = unsigned.withSignature(
+      _signature(requester, requester.bytes, unsigned.canonicalBytes()),
+    );
+
+    expect(request.verifyAt(now, requester, _verifyDetached), isTrue);
+    expect(request.verifyAt(now, _id(11), _verifyDetached), isFalse);
+    expect(
+      request.verifyAt(
+        now + kSpacePublicFeedRequestWindow.inMilliseconds + 1,
+        requester,
+        _verifyDetached,
+      ),
+      isFalse,
+    );
+    expect(
+      SpacePublicFeedObjectRequest.fromJson(
+        jsonDecode(jsonEncode(request.toJson())),
+      )?.toJson(),
+      request.toJson(),
+    );
+    final injected = request.toJson()..['page'] = {'privateEpoch': 2};
+    expect(SpacePublicFeedObjectRequest.fromJson(injected), isNull);
+  });
+
+  test('object chunks are bounded, exact and losslessly reassembled', () {
+    final bytes = Uint8List.fromList(
+      List<int>.generate(5000, (index) => index & 0xff),
+    );
+    final chunks = chunkSpacePublicFeedObject(
+      spaceId: _id(12),
+      manifestHash: '55' * 32,
+      objectHash: '66' * 32,
+      nonce: '77' * 32,
+      bytes: bytes,
+    ).toList();
+    expect(chunks, hasLength(3));
+    expect(chunks.every((chunk) => chunk.isStructurallyValid), isTrue);
+    final joined = BytesBuilder(copy: false);
+    for (final chunk in chunks) {
+      final decoded = SpacePublicFeedObjectChunk.fromJson(
+        jsonDecode(jsonEncode(chunk.toJson())),
+      );
+      expect(decoded, isNotNull);
+      joined.add(decoded!.data);
+    }
+    expect(joined.toBytes(), bytes);
+
+    final malformed = chunks.last.toJson()..['totalBytes'] = 4999;
+    expect(SpacePublicFeedObjectChunk.fromJson(malformed), isNull);
   });
 }
 
