@@ -194,10 +194,20 @@ void main() {
       );
       expect(replication['confirmedScope'], 'authorizedSyncFrontier');
       expect(replication['confirmedRuntimeOnly'], isTrue);
+      expect(
+        replication['confirmedContentBasis'],
+        'verifiedStoreAndSourceBoundRequestReceipt',
+      );
+      expect(replication['confirmedContentRuntimeOnly'], isTrue);
+      expect(replication['referencedContentBlobs'], 0);
       expect(replication['liveSourceAvailable'], isFalse);
       expect(replication.containsKey('availableRemoteSpreaders'), isFalse);
       expect(
         replication.containsKey('availableConfirmedRemoteHolderSlots'),
+        isFalse,
+      );
+      expect(
+        replication.containsKey('availableConfirmedRemoteContentHolderSlots'),
         isFalse,
       );
       expect(observations.toString(), isNot(contains(space)));

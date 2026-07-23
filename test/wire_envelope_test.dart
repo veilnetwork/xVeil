@@ -575,4 +575,21 @@ void main() {
     expect(rt.kind, WireKind.groupContentRequest);
     expect(rt.body, '{"gid":"aa","cid":"bb"}');
   });
+
+  test('groupContentReceipt is a distinct v:2 live-only frame', () {
+    expect(
+      WireKind.spaceModerationAppealDecision.index,
+      38,
+      reason: 'new wire kinds are append-only; existing indices cannot shift',
+    );
+    expect(WireKind.groupContentReceipt.index, 39);
+    const env = WireEnvelope.groupContentReceipt(
+      '{"gid":"aa","cid":"bb","n":"cc"}',
+    );
+    final bytes = env.encode();
+    expect(jsonDecode(utf8.decode(bytes))['v'], 2);
+    final roundTrip = WireEnvelope.decode(bytes);
+    expect(roundTrip.kind, WireKind.groupContentReceipt);
+    expect(roundTrip.body, '{"gid":"aa","cid":"bb","n":"cc"}');
+  });
 }

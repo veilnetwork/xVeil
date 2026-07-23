@@ -74,6 +74,40 @@ void main() {
     }
   });
 
+  test('live content receipt round-trips and rejects malformed bindings', () {
+    final receipt = GroupContentReceipt(
+      groupId: _id(2),
+      contentId: 'ab' * 32,
+      requester: owner,
+      requestNonce: 'cd' * 12,
+      tsMs: 1_000_001,
+    );
+    final roundTrip = GroupContentReceipt.fromJson(receipt.toJson())!;
+    expect(roundTrip.groupId, receipt.groupId);
+    expect(roundTrip.contentId, receipt.contentId);
+    expect(roundTrip.requester, owner);
+    expect(roundTrip.requestNonce, receipt.requestNonce);
+    expect(roundTrip.tsMs, receipt.tsMs);
+
+    final good = receipt.toJson();
+    for (final broken in [
+      null,
+      'not-json',
+      {...good}..remove('gid'),
+      {...good, 'gid': 'not-hex'},
+      {...good, 'cid': ''},
+      {...good, 'req': 'not-hex'},
+      {...good, 'n': ''},
+      {...good, 'ts': 'later'},
+    ]) {
+      expect(
+        GroupContentReceipt.fromJson(broken),
+        isNull,
+        reason: 'must reject $broken',
+      );
+    }
+  });
+
   test('authorize: the full denial matrix, silent-drop semantics aside', () {
     final state = GroupState.genesis(owner); // owner is the only member
     final referenced = {'c0ffee'};

@@ -823,7 +823,13 @@ extension _MessagingContentPull on MessagingService {
     }
     if (pending.isEmpty) {
       if (!await _storage.hasFile(cid)) return false;
-      if (!await _finishReceived(sourceList().first, manifest, null, null)) {
+      if (!await _finishReceived(
+        sourceList().first,
+        manifest,
+        null,
+        null,
+        verifiedSources: const <NodeId>[],
+      )) {
         return false;
       }
       if (!_contentProgress.isClosed) {
@@ -851,6 +857,7 @@ extension _MessagingContentPull on MessagingService {
     var failed = false;
     NodeId? completionPeer;
     ContentManifest? completionManifest;
+    final verifiedSources = <String, NodeId>{};
     Future<void> sinkWriteTail = Future<void>.value();
 
     Future<void> writePiece(int pieceIndex, Uint8List piece) {
@@ -1067,6 +1074,7 @@ extension _MessagingContentPull on MessagingService {
     ) {
       completionPeer = pulled.peer;
       completionManifest = pulled.manifest;
+      verifiedSources[pulled.peer.hex] = pulled.peer;
       for (final piece in pulled.pieces) {
         if (!completed.add(piece)) continue;
         completedBytes += manifest.pieceLength(piece);
@@ -1227,6 +1235,7 @@ extension _MessagingContentPull on MessagingService {
       completionManifest ?? manifest,
       sink,
       savedPath,
+      verifiedSources: verifiedSources.values,
     )) {
       return false;
     }
@@ -1935,8 +1944,9 @@ extension _MessagingContentPull on MessagingService {
     NodeId peer,
     ContentManifest m,
     _FetchSink? sink,
-    String? savedPath,
-  ) async {
+    String? savedPath, {
+    Iterable<NodeId>? verifiedSources,
+  }) async {
     final ackId = m.msgId ?? m.contentId;
     if (sink != null) {
       try {
@@ -2001,6 +2011,12 @@ extension _MessagingContentPull on MessagingService {
     );
     final persisted = await _persistReceivedContent(peer, m);
     if (persisted) await _send(peer, WireEnvelope.ack(ackId).encode());
+    if (persisted) {
+      await _groupContent.reportVerifiedSources(
+        m.contentId,
+        verifiedSources ?? <NodeId>[peer],
+      );
+    }
     if (persisted) _clearGroupPullSources(m.contentId);
     if (persisted && await _consumeParkedPlainFileSave(m.contentId)) {
       return true;

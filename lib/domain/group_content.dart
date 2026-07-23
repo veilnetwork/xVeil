@@ -17,6 +17,68 @@ import 'group_policy.dart'
 /// folds), long enough for clock skew between devices.
 const Duration kGroupContentRequestWindow = Duration(minutes: 10);
 
+/// A live-only completion receipt for one already-authorized content request.
+///
+/// This is deliberately not another signed/persisted event. The holder keeps
+/// the original node-id-signed [GroupContentRequest] in a bounded RAM table,
+/// while the authenticated transport source must equal [requester]. Echoing
+/// the request nonce after the requester has verified and durably stored the
+/// blob therefore proves completion to that exact source without creating a
+/// durable read-receipt log. The holder already knew [contentId] from the
+/// request it accepted, so this frame discloses no new CID relationship.
+class GroupContentReceipt {
+  const GroupContentReceipt({
+    required this.groupId,
+    required this.contentId,
+    required this.requester,
+    required this.requestNonce,
+    required this.tsMs,
+  });
+
+  final NodeId groupId;
+  final String contentId;
+  final NodeId requester;
+  final String requestNonce;
+  final int tsMs;
+
+  Map<String, dynamic> toJson() => {
+    'gid': groupId.hex,
+    'cid': contentId,
+    'req': requester.hex,
+    'n': requestNonce,
+    'ts': tsMs,
+  };
+
+  static GroupContentReceipt? fromJson(Object? value) {
+    if (value is! Map) return null;
+    final gid = value['gid'];
+    final cid = value['cid'];
+    final requester = value['req'];
+    final nonce = value['n'];
+    final tsMs = value['ts'];
+    if (gid is! String ||
+        cid is! String ||
+        requester is! String ||
+        nonce is! String ||
+        tsMs is! int ||
+        cid.isEmpty ||
+        nonce.isEmpty) {
+      return null;
+    }
+    try {
+      return GroupContentReceipt(
+        groupId: NodeId.fromHex(gid),
+        contentId: cid,
+        requester: NodeId.fromHex(requester),
+        requestNonce: nonce,
+        tsMs: tsMs,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 /// A member's signed claim "I, [requester], may fetch [contentId] of
 /// [groupId]". Signed with the same node-id-bound ed25519 identity that signs
 /// the member's group messages.

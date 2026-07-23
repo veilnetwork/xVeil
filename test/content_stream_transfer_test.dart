@@ -1405,6 +1405,13 @@ void main() {
       await holderAdvertised.future.timeout(const Duration(seconds: 2));
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
+      final verifiedSources = Completer<Set<NodeId>>();
+      mC.onGroupContentVerifiedSources = (contentId, sources) async {
+        expect(contentId, cid);
+        if (!verifiedSources.isCompleted) {
+          verifiedSources.complete(sources);
+        }
+      };
       final gotC = mC.contentReceived.firstWhere((e) => e.contentId == cid);
       final sw = Stopwatch()..start();
       expect(
@@ -1424,7 +1431,40 @@ void main() {
       final event = await gotC.timeout(const Duration(seconds: 20));
       expect(event.contentId, cid);
       expect(await sC.loadFile(cid), data);
+      expect(
+        await verifiedSources.future.timeout(const Duration(seconds: 2)),
+        {b},
+        reason:
+            'only the actual verified byte source, never offline candidates, '
+            'may become receipt/proof material',
+      );
       expect(await sC.getContact(b), isNull, reason: 'no 1:1 gate was created');
+
+      final receiptSeen = Completer<(NodeId, String)>();
+      mB.onGroupContentReceipt = (peer, body) {
+        if (!receiptSeen.isCompleted) receiptSeen.complete((peer, body));
+      };
+      final pendingBefore = [
+        for (final frame in await sC.pendingOutboxFrames()) frame.frameId,
+      ];
+      final repliesBefore = tB.sentPayloads.length;
+      const receiptJson = '{"gid":"09","cid":"verified","n":"01"}';
+      await mC.sendGroupContentReceipt(b, receiptJson);
+      expect(await receiptSeen.future.timeout(const Duration(seconds: 2)), (
+        c,
+        receiptJson,
+      ));
+      expect(
+        [for (final frame in await sC.pendingOutboxFrames()) frame.frameId],
+        pendingBefore,
+        reason: 'completion receipts are never persisted into the outbox',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        tB.sentPayloads,
+        hasLength(repliesBefore),
+        reason: 'the holder must not ACK a completion receipt',
+      );
     },
   );
 

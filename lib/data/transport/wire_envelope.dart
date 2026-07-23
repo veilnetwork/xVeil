@@ -172,6 +172,14 @@ enum WireKind {
   /// outcome is informational until the ordinary signed control-log revocation
   /// arrives and folds successfully.
   spaceModerationAppealDecision,
+
+  /// Live-only completion of one accepted [groupContentRequest]. The body is a
+  /// [GroupContentReceipt]: it echoes the original signed request nonce only
+  /// after verified durable storage. It is never ACKed, outboxed, stashed or
+  /// written to a Space log; the holder accepts it only from the authenticated
+  /// requester while the matching request remains in bounded RAM. Appended
+  /// immediately before [unknown] so every prior wire index stays unchanged.
+  groupContentReceipt,
   unknown,
 }
 
@@ -353,6 +361,10 @@ class WireEnvelope {
   /// A signed group content-fetch request — see [WireKind.groupContentRequest].
   const WireEnvelope.groupContentRequest(String requestJson)
     : this(WireKind.groupContentRequest, requestJson);
+
+  /// A live-only verified-store receipt — see [WireKind.groupContentReceipt].
+  const WireEnvelope.groupContentReceipt(String receiptJson)
+    : this(WireKind.groupContentReceipt, receiptJson);
 
   const WireEnvelope.groupCallSignal(String frameJson, {int? sentAtMs})
     : this(WireKind.groupCallSignal, frameJson, sentAtMs: sentAtMs);

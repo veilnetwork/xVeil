@@ -70,11 +70,23 @@ void main() {
       expect(replication['confirmedScope'], 'authorizedSyncFrontier');
       expect(replication['confirmedRuntimeOnly'], isTrue);
       expect(replication['confirmedRemoteHolderSlots'], 0);
+      expect(
+        replication['confirmedContentBasis'],
+        'verifiedStoreAndSourceBoundRequestReceipt',
+      );
+      expect(
+        replication['confirmedContentScope'],
+        'referencedContentAddressedBlobs',
+      );
+      expect(replication['confirmedContentRuntimeOnly'], isTrue);
+      expect(replication['referencedContentBlobs'], 0);
+      expect(replication['confirmedContentDeficitSlots'], 0);
       final encoded = jsonEncode(json);
       expect(encoded, isNot(contains('nodeId')));
       expect(encoded, isNot(contains('spaceId')));
       expect(encoded, isNot(contains('message')));
       expect(encoded, isNot(contains('token')));
+      expect(encoded, isNot(contains('contentId')));
       expect(
         RegExp(r'[0-9a-f]{64}').hasMatch(encoded),
         isFalse,
