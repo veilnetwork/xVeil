@@ -529,6 +529,20 @@ class AppL10nRu extends AppL10n {
       'Обсуждение доступно только для чтения.';
 
   @override
+  String get spacePostCommentPublic => 'Виден в публичной ленте';
+
+  @override
+  String get spacePostCommentPublicHint =>
+      'Создаёт отдельно подписанную автором публичную копию. Её увидят пользователи без членства.';
+
+  @override
+  String get spacePostPublicReaction => 'Добавить публичную реакцию';
+
+  @override
+  String get spacePostPublicDiscussionReadOnly =>
+      'Показаны только комментарии и реакции, которые их авторы явно сделали публичными.';
+
+  @override
   String get feedPinnedTitle => 'Закреплённые';
 
   @override

@@ -11,10 +11,14 @@ import 'space_discovery.dart'
         kSpacePublicClockSkew,
         kSpacePublicDescriptorLifetime;
 import 'space_post.dart';
+import 'space_public_discussion.dart';
 
 const int kSpacePublicFeedPageSize = 32;
 const int kSpacePublicFeedPageMaxBytes = 1024 * 1024;
 const int kSpacePublicFeedPageMaxCount = 4096;
+const int kSpacePublicDiscussionPageSize = 64;
+const int kSpacePublicDiscussionPageMaxBytes = 1024 * 1024;
+const int kSpacePublicDiscussionPageMaxCount = 4096;
 const int kSpacePublicFeedProjectionMaxBytes = 64 * 1024 * 1024;
 const int kSpacePublicFeedPackageMaxBytes =
     kSpacePublicFeedProjectionMaxBytes + 2 * 1024 * 1024;
@@ -222,6 +226,126 @@ class SpacePublicFeedPage {
   }
 }
 
+/// A bounded page of independently author-signed public discussion records.
+///
+/// The owner-signed feed manifest commits the page hash, but every comment and
+/// reaction still verifies against its own author. Member-private message and
+/// reaction logs are never decoded into this boundary.
+class SpacePublicDiscussionPage {
+  SpacePublicDiscussionPage({
+    required this.spaceId,
+    required this.index,
+    required Iterable<SpacePublicComment> comments,
+    required Iterable<SpacePublicReaction> reactions,
+  }) : comments = List<SpacePublicComment>.unmodifiable(comments),
+       reactions = List<SpacePublicReaction>.unmodifiable(reactions);
+
+  final NodeId spaceId;
+  final int index;
+  final List<SpacePublicComment> comments;
+  final List<SpacePublicReaction> reactions;
+
+  int get itemCount => comments.length + reactions.length;
+
+  bool get isStructurallyValid =>
+      index >= 0 &&
+      itemCount > 0 &&
+      itemCount <= kSpacePublicDiscussionPageSize &&
+      comments.every(
+        (comment) => comment.spaceId == spaceId && comment.isStructurallyValid,
+      ) &&
+      reactions.every(
+        (reaction) =>
+            reaction.spaceId == spaceId && reaction.isStructurallyValid,
+      ) &&
+      canonicalBytes().length <= kSpacePublicDiscussionPageMaxBytes;
+
+  Map<String, dynamic> toJson() => {
+    'v': 1,
+    'kind': 'xveil.space.public-discussion-page',
+    'space': spaceId.hex,
+    'index': index,
+    'comments': [for (final comment in comments) comment.toJson()],
+    'reactions': [for (final reaction in reactions) reaction.toJson()],
+  };
+
+  Uint8List canonicalBytes() =>
+      Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
+
+  String get contentHash => crypto.sha256.convert(canonicalBytes()).toString();
+
+  bool verify({
+    required String expectedHash,
+    required SpacePublicSignatureVerifier verifySignature,
+  }) =>
+      isStructurallyValid &&
+      contentHash == expectedHash &&
+      comments.every((comment) => comment.verify(verifySignature)) &&
+      reactions.every((reaction) => reaction.verify(verifySignature));
+
+  static SpacePublicDiscussionPage? fromJson(Object? value) {
+    if (value is! Map ||
+        !_hasOnlyKeys(value, const {
+          'v',
+          'kind',
+          'space',
+          'index',
+          'comments',
+          'reactions',
+        }) ||
+        value.length != 6 ||
+        value['v'] != 1 ||
+        value['kind'] != 'xveil.space.public-discussion-page' ||
+        value['space'] is! String ||
+        value['index'] is! int ||
+        value['comments'] is! List ||
+        value['reactions'] is! List) {
+      return null;
+    }
+    final rawComments = value['comments'] as List;
+    final rawReactions = value['reactions'] as List;
+    if (rawComments.length + rawReactions.length == 0 ||
+        rawComments.length + rawReactions.length >
+            kSpacePublicDiscussionPageSize) {
+      return null;
+    }
+    final comments = rawComments
+        .map(SpacePublicComment.fromJson)
+        .whereType<SpacePublicComment>()
+        .toList(growable: false);
+    final reactions = rawReactions
+        .map(SpacePublicReaction.fromJson)
+        .whereType<SpacePublicReaction>()
+        .toList(growable: false);
+    if (comments.length != rawComments.length ||
+        reactions.length != rawReactions.length) {
+      return null;
+    }
+    try {
+      final page = SpacePublicDiscussionPage(
+        spaceId: NodeId.fromHex(value['space'] as String),
+        index: value['index'] as int,
+        comments: comments,
+        reactions: reactions,
+      );
+      return page.isStructurallyValid ? page : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static SpacePublicDiscussionPage? fromBytes(Uint8List bytes) {
+    if (bytes.isEmpty || bytes.length > kSpacePublicDiscussionPageMaxBytes) {
+      return null;
+    }
+    try {
+      return fromJson(jsonDecode(utf8.decode(bytes, allowMalformed: false)));
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 /// Owner-signed commitment to the complete current public publication view.
 ///
 /// A descriptor commits [manifestHash], and this manifest commits every page.
@@ -239,13 +363,19 @@ class SpacePublicFeedManifest {
     required this.expiresAtMs,
     required this.itemCount,
     required Iterable<String> pageHashes,
+    this.wireVersion = version,
+    this.discussionItemCount = 0,
+    Iterable<String> discussionPageHashes = const [],
     Uint8List? signature,
   }) : pageHashes = List<String>.unmodifiable(pageHashes),
+       discussionPageHashes = List<String>.unmodifiable(discussionPageHashes),
        signature = signature ?? Uint8List(0);
 
   static const int version = 1;
+  static const int discussionVersion = 2;
   static const String kind = 'xveil.space.public-feed';
 
+  final int wireVersion;
   final NodeId spaceId;
   final NodeId publisher;
   final String controlHeadHash;
@@ -255,10 +385,13 @@ class SpacePublicFeedManifest {
   final int expiresAtMs;
   final int itemCount;
   final List<String> pageHashes;
+  final int discussionItemCount;
+  final List<String> discussionPageHashes;
   final Uint8List signature;
 
   bool isStructurallyValidAt(int nowMs) {
-    if (!_publicFeedHashPattern.hasMatch(controlHeadHash) ||
+    if ((wireVersion != version && wireVersion != discussionVersion) ||
+        !_publicFeedHashPattern.hasMatch(controlHeadHash) ||
         revision < 0 ||
         updatedAtMs < 0 ||
         issuedAtMs < updatedAtMs ||
@@ -267,25 +400,30 @@ class SpacePublicFeedManifest {
             kSpacePublicDescriptorLifetime.inMilliseconds ||
         issuedAtMs > nowMs + kSpacePublicClockSkew.inMilliseconds ||
         expiresAtMs <= nowMs ||
-        itemCount < 0 ||
-        pageHashes.length > kSpacePublicFeedPageMaxCount ||
         signature.length != 64 ||
-        pageHashes.any((hash) => !_publicFeedHashPattern.hasMatch(hash))) {
+        !_validPageCommitment(
+          itemCount: itemCount,
+          pageSize: kSpacePublicFeedPageSize,
+          maxPageCount: kSpacePublicFeedPageMaxCount,
+          pageHashes: pageHashes,
+        ) ||
+        (wireVersion == version
+            ? discussionItemCount != 0 || discussionPageHashes.isNotEmpty
+            : !_validPageCommitment(
+                itemCount: discussionItemCount,
+                pageSize: kSpacePublicDiscussionPageSize,
+                maxPageCount: kSpacePublicDiscussionPageMaxCount,
+                pageHashes: discussionPageHashes,
+              ))) {
       return false;
     }
-    if (itemCount == 0) return pageHashes.isEmpty;
-    if (pageHashes.isEmpty ||
-        itemCount > pageHashes.length * kSpacePublicFeedPageSize ||
-        itemCount <= (pageHashes.length - 1) * kSpacePublicFeedPageSize) {
-      return false;
-    }
-    return pageHashes.toSet().length == pageHashes.length;
+    return true;
   }
 
   Uint8List canonicalBytes() => Uint8List.fromList(
     utf8.encode(
       jsonEncode({
-        'v': version,
+        'v': wireVersion,
         'kind': kind,
         'space': spaceId.hex,
         'publisher': publisher.hex,
@@ -296,6 +434,10 @@ class SpacePublicFeedManifest {
         'expiresAt': expiresAtMs,
         'itemCount': itemCount,
         'pageHashes': pageHashes,
+        if (wireVersion >= discussionVersion) ...{
+          'discussionItemCount': discussionItemCount,
+          'discussionPageHashes': discussionPageHashes,
+        },
       }),
     ),
   );
@@ -335,6 +477,9 @@ class SpacePublicFeedManifest {
         expiresAtMs: expiresAtMs,
         itemCount: itemCount,
         pageHashes: pageHashes,
+        wireVersion: wireVersion,
+        discussionItemCount: discussionItemCount,
+        discussionPageHashes: discussionPageHashes,
         signature: value,
       );
 
@@ -357,9 +502,11 @@ class SpacePublicFeedManifest {
           'expiresAt',
           'itemCount',
           'pageHashes',
+          'discussionItemCount',
+          'discussionPageHashes',
           'signature',
         }) ||
-        value['v'] != version ||
+        (value['v'] != version && value['v'] != discussionVersion) ||
         value['kind'] != kind ||
         value['space'] is! String ||
         value['publisher'] is! String ||
@@ -373,13 +520,26 @@ class SpacePublicFeedManifest {
         value['signature'] is! String) {
       return null;
     }
+    final wireVersion = value['v'] as int;
+    if (wireVersion == version
+        ? value.containsKey('discussionItemCount') ||
+              value.containsKey('discussionPageHashes')
+        : value['discussionItemCount'] is! int ||
+              value['discussionPageHashes'] is! List) {
+      return null;
+    }
     final rawHashes = value['pageHashes'] as List;
+    final rawDiscussionHashes =
+        value['discussionPageHashes'] as List? ?? const [];
     if (rawHashes.length > kSpacePublicFeedPageMaxCount ||
-        rawHashes.any((hash) => hash is! String)) {
+        rawHashes.any((hash) => hash is! String) ||
+        rawDiscussionHashes.length > kSpacePublicDiscussionPageMaxCount ||
+        rawDiscussionHashes.any((hash) => hash is! String)) {
       return null;
     }
     try {
       return SpacePublicFeedManifest(
+        wireVersion: wireVersion,
         spaceId: NodeId.fromHex(value['space'] as String),
         publisher: NodeId.fromHex(value['publisher'] as String),
         controlHeadHash: value['controlHeadHash'] as String,
@@ -389,6 +549,8 @@ class SpacePublicFeedManifest {
         expiresAtMs: value['expiresAt'] as int,
         itemCount: value['itemCount'] as int,
         pageHashes: rawHashes.cast<String>(),
+        discussionItemCount: value['discussionItemCount'] as int? ?? 0,
+        discussionPageHashes: rawDiscussionHashes.cast<String>(),
         signature: Uint8List.fromList(
           base64Decode(value['signature'] as String),
         ),
@@ -404,10 +566,15 @@ class SpacePublicFeedProjection {
   SpacePublicFeedProjection({
     required this.manifest,
     required Iterable<SpacePublicFeedPage> pages,
-  }) : pages = List<SpacePublicFeedPage>.unmodifiable(pages);
+    Iterable<SpacePublicDiscussionPage> discussionPages = const [],
+  }) : pages = List<SpacePublicFeedPage>.unmodifiable(pages),
+       discussionPages = List<SpacePublicDiscussionPage>.unmodifiable(
+         discussionPages,
+       );
 
   final SpacePublicFeedManifest manifest;
   final List<SpacePublicFeedPage> pages;
+  final List<SpacePublicDiscussionPage> discussionPages;
 
   bool verifyAt({
     required int nowMs,
@@ -428,7 +595,8 @@ class SpacePublicFeedProjection {
           publisherPublicKey: publisherPublicKey,
           verify: verifySignature,
         ) ||
-        pages.length != manifest.pageHashes.length) {
+        pages.length != manifest.pageHashes.length ||
+        discussionPages.length != manifest.discussionPageHashes.length) {
       return false;
     }
     var itemCount = 0;
@@ -444,7 +612,40 @@ class SpacePublicFeedProjection {
       }
       itemCount += page.posts.length;
     }
-    return itemCount == manifest.itemCount;
+    if (itemCount != manifest.itemCount) return false;
+
+    final postLifecycles = <String, String?>{
+      for (final page in pages)
+        for (final post in page.posts)
+          post.root.postId: _publicPostLifecycle(post.root),
+    };
+    final recordHashes = <String>{};
+    var discussionItemCount = 0;
+    for (var index = 0; index < discussionPages.length; index++) {
+      final page = discussionPages[index];
+      if (page.index != index ||
+          page.spaceId != expectedSpaceId ||
+          !page.verify(
+            expectedHash: manifest.discussionPageHashes[index],
+            verifySignature: verifySignature,
+          )) {
+        return false;
+      }
+      for (final comment in page.comments) {
+        if (postLifecycles[comment.postId] != comment.lifecycleGeneration ||
+            !recordHashes.add(comment.recordHash)) {
+          return false;
+        }
+      }
+      for (final reaction in page.reactions) {
+        if (postLifecycles[reaction.postId] != reaction.lifecycleGeneration ||
+            !recordHashes.add(reaction.recordHash)) {
+          return false;
+        }
+      }
+      discussionItemCount += page.itemCount;
+    }
+    return discussionItemCount == manifest.discussionItemCount;
   }
 
   List<SpacePostView> get posts => List<SpacePostView>.unmodifiable([
@@ -452,11 +653,39 @@ class SpacePublicFeedProjection {
       for (final post in page.posts) post.toView(),
   ]);
 
+  List<SpacePublicCommentView> commentsFor(
+    String postId,
+    SpacePublicSignatureVerifier verifySignature,
+  ) => foldSpacePublicComments(
+    comments: [for (final page in discussionPages) ...page.comments],
+    spaceId: manifest.spaceId,
+    postId: postId,
+    verifySignature: verifySignature,
+  );
+
+  SpacePublicReactions reactionsFor(
+    String postId,
+    SpacePublicSignatureVerifier verifySignature,
+  ) => foldSpacePublicReactions(
+    reactions: [for (final page in discussionPages) ...page.reactions],
+    spaceId: manifest.spaceId,
+    postId: postId,
+    verifySignature: verifySignature,
+  );
+
   Set<String> get referencedContentIds => Set<String>.unmodifiable({
     for (final page in pages)
       for (final post in page.posts)
         if (!post.mediaHiddenByRetention)
           for (final media in post.effective.media) media.contentId!,
+    // Public comment media is an independently author-signed reference. It
+    // must be part of the verified allowlist too, otherwise a public reader
+    // can verify the comment but can never request its attachment.
+    for (final page in discussionPages)
+      for (final comment in page.comments)
+        if (comment.operation == SpacePublicCommentOperation.create &&
+            comment.media != null)
+          comment.media!.contentId!,
   });
 }
 
@@ -498,6 +727,11 @@ class SpacePublicFeedPackage {
     'descriptor': descriptor.toJson(),
     'manifest': projection.manifest.toJson(),
     'pages': [for (final page in projection.pages) page.toJson()],
+    if (projection.manifest.wireVersion >=
+        SpacePublicFeedManifest.discussionVersion)
+      'discussionPages': [
+        for (final page in projection.discussionPages) page.toJson(),
+      ],
   };
 
   Uint8List toBytes() => Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
@@ -510,18 +744,26 @@ class SpacePublicFeedPackage {
           'descriptor',
           'manifest',
           'pages',
+          'discussionPages',
         }) ||
         value['v'] != 1 ||
         value['kind'] != 'xveil.space.public-feed-package' ||
-        value['pages'] is! List) {
+        value['pages'] is! List ||
+        (value.containsKey('discussionPages') &&
+            value['discussionPages'] is! List)) {
       return null;
     }
     final descriptor = SpacePublicDescriptor.fromJson(value['descriptor']);
     final manifest = SpacePublicFeedManifest.fromJson(value['manifest']);
     final rawPages = value['pages'] as List;
+    final rawDiscussionPages = value['discussionPages'] as List? ?? const [];
     if (descriptor == null ||
         manifest == null ||
-        rawPages.length > kSpacePublicFeedPageMaxCount) {
+        rawPages.length > kSpacePublicFeedPageMaxCount ||
+        rawDiscussionPages.length > kSpacePublicDiscussionPageMaxCount ||
+        (manifest.wireVersion == SpacePublicFeedManifest.version
+            ? value.containsKey('discussionPages')
+            : value['discussionPages'] is! List)) {
       return null;
     }
     final pages = rawPages
@@ -529,9 +771,18 @@ class SpacePublicFeedPackage {
         .whereType<SpacePublicFeedPage>()
         .toList(growable: false);
     if (pages.length != rawPages.length) return null;
+    final discussionPages = rawDiscussionPages
+        .map(SpacePublicDiscussionPage.fromJson)
+        .whereType<SpacePublicDiscussionPage>()
+        .toList(growable: false);
+    if (discussionPages.length != rawDiscussionPages.length) return null;
     return SpacePublicFeedPackage(
       descriptor: descriptor,
-      projection: SpacePublicFeedProjection(manifest: manifest, pages: pages),
+      projection: SpacePublicFeedProjection(
+        manifest: manifest,
+        pages: pages,
+        discussionPages: discussionPages,
+      ),
     );
   }
 
@@ -635,6 +886,16 @@ SpacePost? _strictSpacePostFromJson(Object? value) {
 String _spacePostWireHash(SpacePost post) =>
     crypto.sha256.convert(utf8.encode(jsonEncode(post.toJson()))).toString();
 
+String _publicPostLifecycle(SpacePost post) =>
+    post.lifecycleGeneration ??
+    crypto.sha256
+        .convert(
+          utf8.encode(
+            'xveil.space-post-lifecycle.genesis.v1|${post.spaceId.hex}',
+          ),
+        )
+        .toString();
+
 String _deepCanonicalJson(Object? value) => jsonEncode(_canonicalize(value));
 
 Object? _canonicalize(Object? value) {
@@ -652,4 +913,22 @@ bool _hasOnlyKeys(Map<dynamic, dynamic> value, Set<String> allowed) {
     if (key is! String || !allowed.contains(key)) return false;
   }
   return true;
+}
+
+bool _validPageCommitment({
+  required int itemCount,
+  required int pageSize,
+  required int maxPageCount,
+  required List<String> pageHashes,
+}) {
+  if (itemCount < 0 ||
+      pageHashes.length > maxPageCount ||
+      pageHashes.any((hash) => !_publicFeedHashPattern.hasMatch(hash)) ||
+      pageHashes.toSet().length != pageHashes.length) {
+    return false;
+  }
+  if (itemCount == 0) return pageHashes.isEmpty;
+  return pageHashes.isNotEmpty &&
+      itemCount <= pageHashes.length * pageSize &&
+      itemCount > (pageHashes.length - 1) * pageSize;
 }

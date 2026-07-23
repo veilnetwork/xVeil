@@ -31,6 +31,7 @@ import '../features/settings/settings_screen.dart';
 import '../features/settings/storage_settings_screen.dart';
 import '../features/splash/splash_screen.dart';
 import '../features/spaces/public_space_posts_screen.dart';
+import '../features/spaces/public_space_post_comments_screen.dart';
 import '../features/spaces/space_list_screen.dart';
 import '../features/spaces/space_moderation_screen.dart';
 import '../features/spaces/space_post_comments_screen.dart';
@@ -183,6 +184,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/space/:id/comments',
         builder: (_, state) => SpacePostCommentsScreen(
+          spaceIdHex: state.pathParameters['id']!,
+          postId: state.uri.queryParameters['post'] ?? '',
+          initialCommentRef: state.uri.queryParameters['comment'],
+        ),
+      ),
+      GoRoute(
+        path: '/space/:id/public-comments',
+        builder: (_, state) => PublicSpacePostCommentsScreen(
           spaceIdHex: state.pathParameters['id']!,
           postId: state.uri.queryParameters['post'] ?? '',
           initialCommentRef: state.uri.queryParameters['comment'],

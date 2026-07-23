@@ -9,6 +9,7 @@ import 'package:xveil/domain/space_discovery.dart';
 import 'package:xveil/domain/space_join_request.dart';
 import 'package:xveil/domain/space_public_feed.dart';
 import 'package:xveil/domain/space_public_feed_transport.dart';
+import 'package:xveil/domain/space_public_discussion.dart';
 import 'package:xveil/domain/space_post.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
@@ -36,6 +37,7 @@ SpacePost _signedPost({
   int? targetSeq,
   String prevHash = '',
   List<MediaObject> media = const [],
+  String? lifecycleGeneration,
 }) {
   final unsigned = SpacePost(
     spaceId: space,
@@ -50,8 +52,13 @@ SpacePost _signedPost({
     policyVersion: 0,
     createdAtMs: 1000 + seq,
     publishedAtMs: 1000 + seq,
-    version: operation == SpacePostOperation.publish ? 5 : 7,
+    version: lifecycleGeneration != null
+        ? 9
+        : operation == SpacePostOperation.publish
+        ? 5
+        : 7,
     controlCheckpointHash: '11' * 32,
+    lifecycleGeneration: lifecycleGeneration,
     operation: operation,
     targetSeq: targetSeq,
     signature: Uint8List(0),
@@ -73,6 +80,7 @@ SpacePublicFeedProjection _projection({
   required NodeId space,
   required NodeId owner,
   required List<SpacePublicPostProjection> posts,
+  List<SpacePublicDiscussionPage> discussionPages = const [],
   int revision = 1,
 }) {
   final pages = posts.isEmpty
@@ -88,11 +96,78 @@ SpacePublicFeedProjection _projection({
     expiresAtMs: 3000,
     itemCount: posts.length,
     pageHashes: [for (final page in pages) page.contentHash],
+    wireVersion: discussionPages.isEmpty
+        ? SpacePublicFeedManifest.version
+        : SpacePublicFeedManifest.discussionVersion,
+    discussionItemCount: discussionPages.fold(
+      0,
+      (total, page) => total + page.itemCount,
+    ),
+    discussionPageHashes: [
+      for (final page in discussionPages) page.contentHash,
+    ],
   );
   final manifest = unsigned.withSignature(
     _signature(owner, owner.bytes, unsigned.canonicalBytes()),
   );
-  return SpacePublicFeedProjection(manifest: manifest, pages: pages);
+  return SpacePublicFeedProjection(
+    manifest: manifest,
+    pages: pages,
+    discussionPages: discussionPages,
+  );
+}
+
+SpacePublicComment _signedComment({
+  required NodeId space,
+  required String postId,
+  required NodeId author,
+  required String lifecycle,
+  required String body,
+  MediaObject? media,
+}) {
+  final unsigned = SpacePublicComment(
+    spaceId: space,
+    postId: postId,
+    author: author,
+    seq: 0,
+    prevHash: '',
+    operation: SpacePublicCommentOperation.create,
+    body: body,
+    media: media,
+    lifecycleGeneration: lifecycle,
+    createdAtMs: 1200,
+    signature: Uint8List(0),
+    authorPubKey: Uint8List(0),
+  );
+  return unsigned.withSignature(
+    _signature(author, author.bytes, unsigned.canonicalBytes()),
+    author.bytes,
+  );
+}
+
+SpacePublicReaction _signedReaction({
+  required NodeId space,
+  required String postId,
+  required NodeId author,
+  required String lifecycle,
+  required String emoji,
+}) {
+  final unsigned = SpacePublicReaction(
+    spaceId: space,
+    postId: postId,
+    author: author,
+    seq: 0,
+    prevHash: '',
+    emoji: emoji,
+    lifecycleGeneration: lifecycle,
+    createdAtMs: 1300,
+    signature: Uint8List(0),
+    authorPubKey: Uint8List(0),
+  );
+  return unsigned.withSignature(
+    _signature(author, author.bytes, unsigned.canonicalBytes()),
+    author.bytes,
+  );
 }
 
 SpacePublicFeedPackage _package({
@@ -325,6 +400,164 @@ void main() {
     );
     expect(
       spliced.verifyAt(
+        nowMs: 2500,
+        expectedManifestHash: projection.manifest.manifestHash,
+        expectedSpaceId: space,
+        expectedPublisher: owner,
+        publisherPublicKey: owner.bytes,
+        expectedControlHeadHash: '22' * 32,
+        verifySignature: _verifyDetached,
+        verifyPost: _verifyPost,
+      ),
+      isFalse,
+    );
+  });
+
+  test('v2 manifest commits independently signed discussion pages', () {
+    final space = _id(24);
+    final owner = _id(25);
+    final postAuthor = _id(26);
+    final commenter = _id(27);
+    final reactor = _id(28);
+    final lifecycle = 'cc' * 32;
+    final root = _signedPost(
+      space: space,
+      author: postAuthor,
+      seq: 0,
+      body: 'Discussable',
+      lifecycleGeneration: lifecycle,
+    );
+    final comment = _signedComment(
+      space: space,
+      postId: root.postId,
+      author: commenter,
+      lifecycle: lifecycle,
+      body: 'Author signed',
+      media: MediaObject(kind: 'image', contentId: 'ab' * 32),
+    );
+    final reaction = _signedReaction(
+      space: space,
+      postId: root.postId,
+      author: reactor,
+      lifecycle: lifecycle,
+      emoji: '👍',
+    );
+    final discussionPage = SpacePublicDiscussionPage(
+      spaceId: space,
+      index: 0,
+      comments: [comment],
+      reactions: [reaction],
+    );
+    final projection = _projection(
+      space: space,
+      owner: owner,
+      posts: [
+        SpacePublicPostProjection(
+          root: root,
+          effective: root,
+          pinned: false,
+          mediaHiddenByRetention: false,
+        ),
+      ],
+      discussionPages: [discussionPage],
+      revision: 3,
+    );
+
+    expect(projection.manifest.wireVersion, 2);
+    expect(
+      projection.verifyAt(
+        nowMs: 2500,
+        expectedManifestHash: projection.manifest.manifestHash,
+        expectedSpaceId: space,
+        expectedPublisher: owner,
+        publisherPublicKey: owner.bytes,
+        expectedControlHeadHash: '22' * 32,
+        verifySignature: _verifyDetached,
+        verifyPost: _verifyPost,
+      ),
+      isTrue,
+    );
+    expect(
+      projection.commentsFor(root.postId, _verifyDetached).single.body,
+      'Author signed',
+    );
+    expect(projection.reactionsFor(root.postId, _verifyDetached), {
+      '👍': [reactor],
+    });
+    expect(projection.referencedContentIds, {'ab' * 32});
+
+    final package = _package(
+      space: space,
+      owner: owner,
+      projection: projection,
+    );
+    final decoded = SpacePublicFeedPackage.fromBytes(package.toBytes());
+    expect(decoded, isNotNull);
+    expect(
+      decoded!.verifyAt(
+        nowMs: 2500,
+        verifySignature: _verifyDetached,
+        verifyPost: _verifyPost,
+      ),
+      isTrue,
+    );
+
+    final tampered = package.toJson();
+    final discussionPages = tampered['discussionPages'] as List;
+    final comments = ((discussionPages.single as Map)['comments'] as List);
+    (comments.single as Map)['body'] = 'Publisher rewrite';
+    final decodedTamper = SpacePublicFeedPackage.fromJson(tampered);
+    expect(decodedTamper, isNotNull);
+    expect(
+      decodedTamper!.verifyAt(
+        nowMs: 2500,
+        verifySignature: _verifyDetached,
+        verifyPost: _verifyPost,
+      ),
+      isFalse,
+    );
+  });
+
+  test('discussion records cannot cross a post lifecycle boundary', () {
+    final space = _id(29);
+    final owner = _id(30);
+    final author = _id(31);
+    final root = _signedPost(
+      space: space,
+      author: author,
+      seq: 0,
+      body: 'Restored generation',
+      lifecycleGeneration: 'dd' * 32,
+    );
+    final stale = _signedComment(
+      space: space,
+      postId: root.postId,
+      author: _id(32),
+      lifecycle: 'ee' * 32,
+      body: 'Stale generation',
+    );
+    final page = SpacePublicDiscussionPage(
+      spaceId: space,
+      index: 0,
+      comments: [stale],
+      reactions: const [],
+    );
+    final projection = _projection(
+      space: space,
+      owner: owner,
+      posts: [
+        SpacePublicPostProjection(
+          root: root,
+          effective: root,
+          pinned: false,
+          mediaHiddenByRetention: false,
+        ),
+      ],
+      discussionPages: [page],
+    );
+
+    expect(
+      projection.verifyAt(
         nowMs: 2500,
         expectedManifestHash: projection.manifest.manifestHash,
         expectedSpaceId: space,

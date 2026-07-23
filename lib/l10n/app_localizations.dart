@@ -1045,6 +1045,30 @@ abstract class AppL10n {
   /// **'This discussion is read-only.'**
   String get spacePostCommentReadOnly;
 
+  /// No description provided for @spacePostCommentPublic.
+  ///
+  /// In en, this message translates to:
+  /// **'Visible in the public feed'**
+  String get spacePostCommentPublic;
+
+  /// No description provided for @spacePostCommentPublicHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Creates a separate author-signed public copy. Non-members can read it.'**
+  String get spacePostCommentPublicHint;
+
+  /// No description provided for @spacePostPublicReaction.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a public reaction'**
+  String get spacePostPublicReaction;
+
+  /// No description provided for @spacePostPublicDiscussionReadOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Only comments and reactions their authors explicitly made public are shown.'**
+  String get spacePostPublicDiscussionReadOnly;
+
   /// No description provided for @feedPinnedTitle.
   ///
   /// In en, this message translates to:

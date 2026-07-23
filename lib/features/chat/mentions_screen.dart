@@ -8,6 +8,7 @@ import '../../data/transport/wire_envelope.dart' show isServiceEchoBody;
 import '../../domain/chat.dart';
 import '../../domain/group_message.dart';
 import '../../domain/space_channel.dart';
+import '../../domain/space_public_discussion.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/group_service_providers.dart';
@@ -48,6 +49,27 @@ List<MentionInboxEntry> sortMentionInboxEntriesNewestFirst(
     return time != 0 ? time : left.id.compareTo(right.id);
   });
   return List.unmodifiable(sorted);
+}
+
+MentionInboxEntry? publicSpaceCommentMentionInboxEntry({
+  required NodeId self,
+  required NodeId spaceId,
+  required String spaceName,
+  required SpacePublicCommentView comment,
+}) {
+  if (comment.author == self || !messageMentionsNode(comment.body, self)) {
+    return null;
+  }
+  return MentionInboxEntry(
+    id: 'public-space-comment:${spaceId.hex}:${comment.ref}',
+    kind: MentionSourceKind.spaceComment,
+    author: comment.author,
+    contextName: spaceName,
+    body: comment.body,
+    timestampMs: comment.createdAtMs,
+    route:
+        '/space/${spaceId.hex}/public-comments?post=${Uri.encodeQueryComponent(comment.root.postId)}&comment=${Uri.encodeQueryComponent(comment.ref)}',
+  );
 }
 
 final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>((
@@ -189,21 +211,33 @@ final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>
           if (post.title.trim().isNotEmpty) post.title,
           if (post.body.trim().isNotEmpty) post.body,
         ].join('\n');
-        if (post.author == self || !messageMentionsNode(postText, self)) {
-          continue;
+        if (post.author != self && messageMentionsNode(postText, self)) {
+          entries.add(
+            MentionInboxEntry(
+              id: 'public-space-post:${public.descriptor.spaceId.hex}:${post.postId}',
+              kind: MentionSourceKind.spacePost,
+              author: post.author,
+              contextName: public.descriptor.name,
+              body: postText,
+              timestampMs: post.publishedAtMs,
+              route:
+                  '/space/${public.descriptor.spaceId.hex}/public-posts?post=${Uri.encodeQueryComponent(post.postId)}',
+            ),
+          );
         }
-        entries.add(
-          MentionInboxEntry(
-            id: 'public-space-post:${public.descriptor.spaceId.hex}:${post.postId}',
-            kind: MentionSourceKind.spacePost,
-            author: post.author,
-            contextName: public.descriptor.name,
-            body: postText,
-            timestampMs: post.publishedAtMs,
-            route:
-                '/space/${public.descriptor.spaceId.hex}/public-posts?post=${Uri.encodeQueryComponent(post.postId)}',
-          ),
+        final comments = await service.publicSpacePostComments(
+          public.descriptor.spaceId,
+          post.postId,
         );
+        for (final comment in comments) {
+          final entry = publicSpaceCommentMentionInboxEntry(
+            self: self,
+            spaceId: public.descriptor.spaceId,
+            spaceName: public.descriptor.name,
+            comment: comment,
+          );
+          if (entry != null) entries.add(entry);
+        }
       }
     }
   }

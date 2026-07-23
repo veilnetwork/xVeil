@@ -1257,6 +1257,7 @@ class SpaceFeedFilter {
     SpacePostView post, {
     required NodeId viewer,
     required int nowMs,
+    bool relatedMention = false,
   }) {
     if (!types.contains(post.type) ||
         (spaceIds.isNotEmpty && !spaceIds.contains(post.spaceId))) {
@@ -1272,6 +1273,7 @@ class SpaceFeedFilter {
       return false;
     }
     if (mentionsOnly &&
+        !relatedMention &&
         (post.author == viewer ||
             !messageMentionsNode('${post.title}\n${post.body}', viewer))) {
       return false;
@@ -1394,8 +1396,9 @@ class SpaceSubscription {
     spaceId: spaceId,
     feedEnabled: true,
     notificationsEnabled: true,
-    // Public comments are not projected yet. Mentions in owner/author-signed
-    // public posts still follow the publication notification policy.
+    // Public discussion defaults to mention-only behavior: `none` suppresses
+    // ordinary comment alerts, while canonical mentions still pass through
+    // the shared NotificationMutePolicy unless the user selected "nothing".
     commentNotifications: SpaceCommentNotificationMode.none,
     hiddenFromRecommendations: false,
     publicOnly: true,

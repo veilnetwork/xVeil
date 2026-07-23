@@ -24,6 +24,7 @@ import 'package:xveil/features/spaces/space_list_screen.dart';
 import 'package:xveil/features/spaces/space_post_comments_screen.dart';
 import 'package:xveil/features/spaces/space_posts_screen.dart';
 import 'package:xveil/features/spaces/public_space_posts_screen.dart';
+import 'package:xveil/features/spaces/public_space_post_comments_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/state/group_service_providers.dart';
@@ -540,6 +541,9 @@ void main() {
       final ownerService = GroupService(
         ownerStorage,
         _Signer(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
         sendPublicFeedChunk: (requester, chunkJson) async {
           expect(requester, reader);
           readerService.handlePublicFeedObjectChunk(owner, chunkJson);
@@ -566,6 +570,26 @@ void main() {
         body: 'Hello ${encodeMessageMention(reader)}',
         broadcast: false,
       );
+      expect(
+        await ownerService.commentOnSpacePost(
+          spaceId,
+          post!.postId,
+          'Explicitly public answer',
+          publiclyVisible: true,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerService.reactToSpacePost(
+          spaceId,
+          post.postId,
+          '👍',
+          publiclyVisible: true,
+          broadcast: false,
+        ),
+        isTrue,
+      );
       final publication = await ownerService
           .buildSpacePublicDiscoveryPublication(spaceId);
       expect(publication, isNotNull);
@@ -583,12 +607,16 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Exact public mention'), findsOneWidget);
       expect(
-        find.byKey(ValueKey('space-post-add-reaction-${post!.postId}')),
+        find.byKey(ValueKey('space-post-add-reaction-${post.postId}')),
         findsNothing,
       );
       expect(
         find.byKey(ValueKey('space-feed-comments-${post.postId}')),
-        findsNothing,
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(ValueKey('space-post-reaction-${post.postId}-👍')),
+        findsOneWidget,
       );
 
       late final GoRouter router;
@@ -601,6 +629,14 @@ void main() {
             builder: (_, state) => PublicSpacePostsScreen(
               spaceIdHex: state.pathParameters['id']!,
               initialPostId: state.uri.queryParameters['post'],
+            ),
+          ),
+          GoRoute(
+            path: '/space/:id/public-comments',
+            builder: (_, state) => PublicSpacePostCommentsScreen(
+              spaceIdHex: state.pathParameters['id']!,
+              postId: state.uri.queryParameters['post'] ?? '',
+              initialCommentRef: state.uri.queryParameters['comment'],
             ),
           ),
         ],
@@ -649,7 +685,29 @@ void main() {
       );
       expect(find.byKey(const ValueKey('public-space-join')), findsOneWidget);
       expect(find.byIcon(Icons.edit_outlined), findsNothing);
-      expect(find.byIcon(Icons.forum_outlined), findsNothing);
+      expect(
+        find.byKey(ValueKey('public-space-comments-${post.postId}')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(ValueKey('public-space-comments-${post.postId}')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(PublicSpacePostCommentsScreen), findsOneWidget);
+      expect(find.text('Explicitly public answer'), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('space-post-reaction-${post.postId}-👍')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(ValueKey('space-post-add-reaction-${post.postId}')),
+        findsNothing,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('public-space-comments-back')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(PublicSpacePostsScreen), findsOneWidget);
     },
   );
 
@@ -989,6 +1047,10 @@ void main() {
       );
       expect(find.text(l.spacePostCommentsEmpty), findsOneWidget);
       expect(
+        find.byKey(const ValueKey('space-post-comment-public')),
+        findsOneWidget,
+      );
+      expect(
         tester
             .widget<IconButton>(
               find.byKey(const ValueKey('space-post-comment-send')),
@@ -1001,6 +1063,8 @@ void main() {
         find.byKey(const ValueKey('space-post-comment-composer')),
         'First comment',
       );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('space-post-comment-public')));
       await tester.pump();
       await tester.tap(find.byKey(const ValueKey('space-post-comment-send')));
       await tester.pumpAndSettle();
@@ -1057,6 +1121,8 @@ void main() {
         'Threaded reply',
       );
       await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('space-post-comment-public')));
+      await tester.pump();
       await tester.tap(find.byKey(const ValueKey('space-post-comment-send')));
       await tester.pumpAndSettle();
 
@@ -1077,6 +1143,10 @@ void main() {
         '',
       ]);
       expect(comments[1].replyTo, comments.first.ref);
+      expect(await service.publicSpacePostCommentRefs(spaceId, post.postId), {
+        comments[0].ref,
+        comments[1].ref,
+      });
       expect(
         comments.last.attachment?.toReferenceJson(),
         commentMedia.toReferenceJson(),
