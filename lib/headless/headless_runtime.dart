@@ -11,6 +11,7 @@ import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/node/embedded_node.dart';
 import '../data/node/node_controller.dart';
+import '../data/node/space_discovery_transport.dart';
 import '../data/native_libs.dart';
 import '../data/serve_source.dart';
 import '../data/storage/async_kv_log_store.dart';
@@ -171,9 +172,11 @@ class HeadlessRuntime {
           for (final peer in await activePeerTransport.peers())
             if (peer.isActive) peer.nodeId,
         },
+        spaceDiscoveryTransport: NativeSpaceDiscoveryTransport(nodeId),
       );
       groups.startSpaceLifecycleMaintenance();
       groups.startScheduledSpacePostMaintenance();
+      groups.startPublicSpaceDiscoveryMaintenance();
       _wireGroupIngress(messaging, groups);
 
       final relays = mailboxRelayCandidates(config.bootstrapPeers);

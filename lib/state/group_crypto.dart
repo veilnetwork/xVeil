@@ -6,7 +6,9 @@
 // cannot impersonate a member.
 
 import 'dart:ffi';
+import 'dart:typed_data';
 
+import '../core/ids.dart';
 import '../data/node/embedded_node.dart';
 import '../domain/group.dart';
 import '../domain/group_call.dart';
@@ -15,6 +17,32 @@ import '../domain/group_message.dart';
 import '../domain/group_reaction.dart';
 import '../domain/space_post.dart';
 import '../domain/space_moderation.dart';
+
+({Uint8List signature, Uint8List publicKey}) signDetachedIdentity({
+  required String identityToml,
+  required Uint8List message,
+  DynamicLibrary? lib,
+}) => EmbeddedNode.signMessage(identityToml, message, lib: lib);
+
+bool verifyDetachedIdentity({
+  required NodeId signer,
+  required Uint8List publicKey,
+  required Uint8List message,
+  required Uint8List signature,
+  DynamicLibrary? lib,
+}) {
+  try {
+    return EmbeddedNode.verifyMessage(
+      nodeId: signer.bytes,
+      publicKey: publicKey,
+      message: message,
+      signature: signature,
+      lib: lib,
+    );
+  } catch (_) {
+    return false;
+  }
+}
 
 /// Sign a Space genesis manifest with the owner's deniable identity key.
 /// Legacy v1 manifests are deliberately never signed through this path.

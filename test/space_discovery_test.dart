@@ -4,8 +4,11 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/crypto/blake3.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/space_discovery.dart';
+import 'package:xveil/domain/space_discovery_carrier.dart';
+import 'package:xveil/domain/space_discovery_search.dart';
 import 'package:xveil/domain/space_join_request.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
@@ -90,6 +93,31 @@ SpacePublicHolderAnnouncement _holder({
   );
   return unsigned.withSignature(
     _signature(holder, holder.bytes, unsigned.canonicalBytes()),
+  );
+}
+
+({NodeId nodeId, Uint8List publicKey, SpacePublicHolderAnnouncement holder})
+_boundHolder({
+  required SpacePublicDescriptor descriptor,
+  required int now,
+  int seed = 7,
+}) {
+  final publicKey = Uint8List.fromList(List<int>.generate(32, (i) => seed + i));
+  final nodeId = NodeId(blake3Hash(publicKey));
+  final unsigned = SpacePublicHolderAnnouncement(
+    spaceId: descriptor.spaceId,
+    descriptorHash: descriptor.descriptorHash,
+    holder: nodeId,
+    holderPublicKey: publicKey,
+    issuedAtMs: now,
+    expiresAtMs: now + const Duration(hours: 1).inMilliseconds,
+  );
+  return (
+    nodeId: nodeId,
+    publicKey: publicKey,
+    holder: unsigned.withSignature(
+      _signature(nodeId, publicKey, unsigned.canonicalBytes()),
+    ),
   );
 }
 
@@ -213,6 +241,84 @@ void main() {
       isEmpty,
     );
   });
+
+  test(
+    'native XS carrier round-trips and rejects tampering or wrong route',
+    () {
+      const now = 4000000;
+      final descriptor = _descriptor(now: now);
+      final bound = _boundHolder(descriptor: descriptor, now: now);
+      final payload = SpacePublicDiscoveryPayload(
+        descriptor: descriptor,
+        holder: bound.holder,
+      );
+      final direct = SpaceDiscoveryCarrierRoute.direct(descriptor.spaceId);
+      final carrier = SpaceDiscoveryCarrier.sign(
+        route: direct,
+        payload: payload,
+        holder: bound.nodeId,
+        holderPublicKey: bound.publicKey,
+        sign: (message) => (
+          signature: _signature(bound.nodeId, bound.publicKey, message),
+          publicKey: bound.publicKey,
+        ),
+      );
+
+      final wire = carrier.toBytes();
+      expect(wire.sublist(0, 2), [0x58, 0x53]);
+      final parsed = SpaceDiscoveryCarrier.fromBytes(wire);
+      expect(parsed, isNotNull);
+      expect(parsed!.route.sameAs(direct), isTrue);
+      expect(parsed.verifyAt(now, _verify), isTrue);
+
+      final tampered = Uint8List.fromList(wire)..[wire.length - 1] ^= 0x01;
+      expect(
+        SpaceDiscoveryCarrier.fromBytes(tampered)!.verifyAt(now, _verify),
+        isFalse,
+      );
+      expect(
+        SpaceDiscoveryCarrier.fromBytes(Uint8List.fromList([...wire, 0])),
+        isNull,
+      );
+
+      final wrongDirect = SpaceDiscoveryCarrier(
+        route: SpaceDiscoveryCarrierRoute.direct(_id(99)),
+        spaceId: descriptor.spaceId,
+        holder: carrier.holder,
+        holderPublicKey: carrier.holderPublicKey,
+        issuedAtUnixMs: carrier.issuedAtUnixMs,
+        expiresAtUnixMs: carrier.expiresAtUnixMs,
+        payload: carrier.payload,
+        signature: carrier.signature,
+      );
+      expect(wrongDirect.verifyAt(now, _verify), isFalse);
+    },
+  );
+
+  test(
+    'public search terms are Unicode-aware, bounded and prefix-friendly',
+    () {
+      expect(
+        normalizeSpaceDiscoverySearchText('  ТЕСТовое-сообщество  2026! '),
+        'тестовое сообщество 2026',
+      );
+      final terms = spaceDiscoveryPublishedSearchTerms(
+        'Тестовое Сообщество 2026',
+      );
+      expect(terms.first, 'тестовое сообщество 2026');
+      expect(terms, containsAll(<String>['те', 'тес', 'со', 'соо', '2026']));
+      expect(
+        terms.length,
+        lessThanOrEqualTo(kSpaceDiscoveryPublishedSearchTermLimit),
+      );
+      expect(spaceDiscoveryQueryTerms('ТЕС соо'), ['тес соо', 'тес', 'соо']);
+      expect(spaceDiscoverySearchTokenHash('тес'), hasLength(32));
+      expect(
+        utf8.decode(spaceDiscoverySearchTokenHash('тес'), allowMalformed: true),
+        isNot(contains('тес')),
+      );
+    },
+  );
 }
 
 bool _same(List<int> left, List<int> right) {
