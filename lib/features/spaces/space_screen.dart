@@ -894,15 +894,10 @@ class SpaceScreen extends ConsumerWidget {
             );
           }
           final acl = SpaceAcl(state);
-          final canCreateChannel =
-              acl.allows(service.selfId, SpacePermission.manageChannels) ||
-              state
-                  .customGrantsOf(service.selfId)
-                  .any(
-                    (grant) =>
-                        grant.permission == SpacePermission.manageChannels &&
-                        grant.scope.kind == SpacePermissionScopeKind.category,
-                  );
+          final canCreateChannel = acl.allowsAnyScope(
+            service.selfId,
+            SpacePermission.manageChannels,
+          );
           final archived = state.isArchived;
           return Scaffold(
             appBar: AppBar(

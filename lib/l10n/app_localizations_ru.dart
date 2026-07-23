@@ -973,6 +973,12 @@ class AppL10nRu extends AppL10n {
   String get spaceAccessAddArea => 'Добавить область';
 
   @override
+  String get spaceAccessAddDenyArea => 'Запретить область';
+
+  @override
+  String get spaceAccessDenyScopeLabel => 'Запрещённая область';
+
+  @override
   String get spaceAccessScopeLabel => 'Область';
 
   @override

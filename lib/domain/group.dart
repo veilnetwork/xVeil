@@ -447,7 +447,10 @@ class ControlEntry {
   /// history deletion. V17 carries one complete, atomic Space access-policy
   /// snapshot containing legacy Space-wide custom-role grants, participant
   /// groups and direct roles. V18 carries schema-2 access snapshots whose
-  /// positive grants bind a functional area or an exact signed category/channel.
+  /// positive grants bind a functional area or an exact signed
+  /// category/channel. V19 carries schema-3 access snapshots with explicit
+  /// denials; applicable denials override positive and built-in non-owner
+  /// grants without changing any V17/V18 canonical bytes.
   final int version;
 
   /// Group binding for replay resistance. Legacy entries omit it and retain
@@ -507,7 +510,8 @@ class ControlEntry {
           version == 15 ||
           version == 16 ||
           version == 17 ||
-          version == 18) &&
+          version == 18 ||
+          version == 19) &&
       seq >= 0 &&
       policyVersion >= 0 &&
       createdAtMs >= 0 &&
@@ -749,11 +753,16 @@ class ControlEntry {
                 postPin == null &&
                 recommendationCampaign == null
           : channelRetention == null) &&
-      (version == 17 || version == 18
+      (version == 17 || version == 18 || version == 19
           ? op == ControlOp.setPolicy &&
                 accessPolicy != null &&
                 accessPolicy!.isStructurallyValid &&
-                accessPolicy!.schemaVersion == (version == 17 ? 1 : 2) &&
+                accessPolicy!.schemaVersion ==
+                    (version == 17
+                        ? 1
+                        : version == 18
+                        ? 2
+                        : 3) &&
                 groupId == accessPolicy!.spaceId &&
                 accessPolicy!.changedBy == author &&
                 accessPolicy!.changedAtMs == createdAtMs &&
@@ -936,7 +945,8 @@ class ControlEntry {
             version != 15 &&
             version != 16 &&
             version != 17 &&
-            version != 18) ||
+            version != 18 &&
+            version != 19) ||
         author is! String ||
         seq is! int ||
         prev is! String ||

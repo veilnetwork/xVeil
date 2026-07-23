@@ -8749,6 +8749,79 @@ void main() {
         ControlEntry.fromJson(accessEntry.toJson())?.canonicalBytes(),
         accessEntry.canonicalBytes(),
       );
+
+      final deniedRole = SpaceRoleDefinition(
+        roleId: roleId,
+        name: 'All except Operations',
+        grants: const [
+          SpacePermissionGrant(
+            permission: SpacePermission.manageChannels,
+            scope: SpacePermissionScope.space(),
+          ),
+        ],
+        denials: [
+          SpacePermissionDenial(
+            permission: SpacePermission.manageChannels,
+            scope: SpacePermissionScope(
+              kind: SpacePermissionScopeKind.category,
+              targetId: categoryId,
+            ),
+          ),
+        ],
+      );
+      final deniedPolicy = await ownerService.replaceSpaceAccessPolicy(
+        spaceId,
+        expectedRevision: 1,
+        roles: [deniedRole],
+        groups: const <SpaceMemberGroup>[],
+        directAssignments: [
+          SpaceMemberRoleAssignment(member: bob, roleIds: [roleId]),
+          SpaceMemberRoleAssignment(member: owner, roleIds: [roleId]),
+        ],
+      );
+      expect(deniedPolicy?.schemaVersion, 3);
+      expect(
+        (await ownerService.load(spaceId))!.control
+            .lastWhere((entry) => entry.op == ControlOp.setPolicy)
+            .version,
+        19,
+      );
+      expect(
+        await bobService.updateChannel(
+          spaceId,
+          outside.copyWith(name: 'Outside allowed'),
+        ),
+        isTrue,
+      );
+      expect(
+        await bobService.updateChannel(
+          spaceId,
+          inside.copyWith(name: 'Inside denied'),
+        ),
+        isFalse,
+      );
+      expect(
+        await ownerService.updateChannel(
+          spaceId,
+          inside.copyWith(name: 'Owner protected'),
+        ),
+        isTrue,
+      );
+
+      final monotonic = await ownerService.replaceSpaceAccessPolicy(
+        spaceId,
+        expectedRevision: 2,
+        roles: [scopedRole],
+        groups: const <SpaceMemberGroup>[],
+        directAssignments: [
+          SpaceMemberRoleAssignment(member: bob, roleIds: [roleId]),
+        ],
+      );
+      expect(
+        monotonic?.schemaVersion,
+        3,
+        reason: 'signed policy schemas never downgrade after V19 is observed',
+      );
     },
   );
 }

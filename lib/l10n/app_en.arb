@@ -297,6 +297,8 @@
   "spaceAccessRoleGrantSummary": "{permissions, plural, =1{1 permission} other{{permissions} permissions}} · {areas, plural, =1{1 area} other{{areas} areas}}",
   "spaceAccessPermissionAreas": "Permission areas",
   "spaceAccessAddArea": "Add another area",
+  "spaceAccessAddDenyArea": "Deny area",
+  "spaceAccessDenyScopeLabel": "Denied area",
   "spaceAccessScopeLabel": "Area",
   "spaceAccessScopeTarget": "Category or channel",
   "spaceAccessScopeSpace": "Entire community",

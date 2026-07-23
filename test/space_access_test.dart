@@ -612,4 +612,354 @@ void main() {
       isFalse,
     );
   });
+
+  test('V19 denial snapshots are canonical without changing V17/V18 bytes', () {
+    final category = _id(4);
+    final legacyV18 = SpaceAccessPolicy(
+      spaceId: space,
+      schemaVersion: 2,
+      revision: 1,
+      previousPolicyHash: '',
+      changedBy: owner,
+      changedAtMs: 20,
+      roles: [
+        SpaceRoleDefinition(
+          roleId: roleId,
+          name: 'Scoped',
+          grants: [
+            const SpacePermissionGrant(
+              permission: SpacePermission.manageChannels,
+              scope: SpacePermissionScope.space(),
+            ),
+          ],
+        ),
+      ],
+      groups: const [],
+      directAssignments: [
+        SpaceMemberRoleAssignment(member: bob, roleIds: const [roleId]),
+      ],
+    );
+    final legacyBytes = jsonEncode(legacyV18.toJson());
+    expect(legacyBytes, isNot(contains('"denies"')));
+    expect(
+      jsonEncode(SpaceAccessPolicy.fromJson(jsonDecode(legacyBytes))!.toJson()),
+      legacyBytes,
+    );
+
+    final denied = SpaceAccessPolicy(
+      spaceId: space,
+      schemaVersion: 3,
+      revision: 1,
+      previousPolicyHash: '',
+      changedBy: owner,
+      changedAtMs: 21,
+      roles: [
+        SpaceRoleDefinition(
+          roleId: roleId,
+          name: 'Scoped',
+          grants: [
+            const SpacePermissionGrant(
+              permission: SpacePermission.manageChannels,
+              scope: SpacePermissionScope.space(),
+            ),
+          ],
+          denials: [
+            SpacePermissionDenial(
+              permission: SpacePermission.manageChannels,
+              scope: SpacePermissionScope(
+                kind: SpacePermissionScopeKind.category,
+                targetId: category,
+              ),
+            ),
+          ],
+        ),
+      ],
+      groups: const [],
+      directAssignments: [
+        SpaceMemberRoleAssignment(member: bob, roleIds: const [roleId]),
+      ],
+    );
+    final deniedJson = jsonEncode(denied.toJson());
+    final decoded = SpaceAccessPolicy.fromJson(jsonDecode(deniedJson));
+    final v19 = ControlEntry(
+      version: 19,
+      groupId: space,
+      author: owner,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.setPolicy,
+      target: null,
+      role: null,
+      accessPolicy: denied,
+      policyVersion: 0,
+      createdAtMs: denied.changedAtMs,
+      signature: Uint8List(0),
+    );
+    final wrongVersion = ControlEntry(
+      version: 18,
+      groupId: space,
+      author: owner,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.setPolicy,
+      target: null,
+      role: null,
+      accessPolicy: denied,
+      policyVersion: 0,
+      createdAtMs: denied.changedAtMs,
+      signature: Uint8List(0),
+    );
+    final wrongSchema = SpaceAccessPolicy(
+      spaceId: space,
+      schemaVersion: 2,
+      revision: denied.revision,
+      previousPolicyHash: denied.previousPolicyHash,
+      changedBy: denied.changedBy,
+      changedAtMs: denied.changedAtMs,
+      roles: denied.roles,
+      groups: denied.groups,
+      directAssignments: denied.directAssignments,
+    );
+
+    expect(denied.isStructurallyValid, isTrue);
+    expect(decoded?.policyHash, denied.policyHash);
+    expect(jsonEncode(decoded?.toJson()), deniedJson);
+    expect(v19.isStructurallyValid, isTrue);
+    expect(
+      ControlEntry.fromJson(
+        jsonDecode(jsonEncode(v19.toJson())),
+      )?.canonicalBytes(),
+      v19.canonicalBytes(),
+    );
+    expect(wrongVersion.isStructurallyValid, isFalse);
+    expect(wrongSchema.isStructurallyValid, isFalse);
+  });
+
+  test(
+    'V19 deny wins across inherited group/direct roles except for owner',
+    () {
+      final admin = _id(7);
+      final categoryId = _id(4);
+      final insideId = _id(5);
+      final outsideId = _id(6);
+      const denialRoleId =
+          'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+      final category = SpaceChannel(
+        spaceId: space,
+        channelId: categoryId,
+        kind: SpaceChannelKind.category,
+        name: 'Operations',
+        description: '',
+        position: 0,
+        isDefault: false,
+        archived: false,
+        history: SpaceChannelHistory.full,
+        createdBy: owner,
+        createdAtMs: 12,
+      );
+      final inside = SpaceChannel(
+        spaceId: space,
+        channelId: insideId,
+        kind: SpaceChannelKind.text,
+        name: 'Inside',
+        description: '',
+        categoryId: categoryId,
+        position: 1,
+        isDefault: true,
+        archived: false,
+        history: SpaceChannelHistory.full,
+        createdBy: owner,
+        createdAtMs: 13,
+      );
+      final outside = SpaceChannel(
+        spaceId: space,
+        channelId: outsideId,
+        kind: SpaceChannelKind.text,
+        name: 'Outside',
+        description: '',
+        position: 2,
+        isDefault: false,
+        archived: false,
+        history: SpaceChannelHistory.full,
+        createdBy: owner,
+        createdAtMs: 14,
+      );
+      ControlEntry ownerEntry(
+        int seq,
+        ControlOp op, {
+        NodeId? target,
+        GroupRole? role,
+        SpaceChannel? channel,
+        SpaceAccessPolicy? accessPolicy,
+        required String previous,
+        required int policyVersion,
+      }) => ControlEntry(
+        version: accessPolicy == null ? 2 : 19,
+        groupId: space,
+        author: owner,
+        seq: seq,
+        prevHash: previous,
+        op: op,
+        target: target,
+        role: role,
+        channel: channel,
+        accessPolicy: accessPolicy,
+        policyVersion: policyVersion,
+        createdAtMs: accessPolicy?.changedAtMs ?? channel?.createdAtMs ?? 10,
+        signature: Uint8List(0),
+      );
+
+      final addAdmin = ownerEntry(
+        0,
+        ControlOp.addMember,
+        target: admin,
+        role: GroupRole.admin,
+        previous: '',
+        policyVersion: 0,
+      );
+      final addBob = ownerEntry(
+        1,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+        previous: controlEntryHash(addAdmin),
+        policyVersion: 0,
+      );
+      final createCategory = ownerEntry(
+        2,
+        ControlOp.createChannel,
+        channel: category,
+        previous: controlEntryHash(addBob),
+        policyVersion: 0,
+      );
+      final createInside = ownerEntry(
+        3,
+        ControlOp.createChannel,
+        channel: inside,
+        previous: controlEntryHash(createCategory),
+        policyVersion: 0,
+      );
+      final createOutside = ownerEntry(
+        4,
+        ControlOp.createChannel,
+        channel: outside,
+        previous: controlEntryHash(createInside),
+        policyVersion: 0,
+      );
+      final access = SpaceAccessPolicy(
+        spaceId: space,
+        schemaVersion: 3,
+        revision: 1,
+        previousPolicyHash: '',
+        changedBy: owner,
+        changedAtMs: 20,
+        roles: [
+          SpaceRoleDefinition(
+            roleId: roleId,
+            name: 'All channels',
+            grants: [
+              const SpacePermissionGrant(
+                permission: SpacePermission.manageChannels,
+                scope: SpacePermissionScope.space(),
+              ),
+            ],
+          ),
+          SpaceRoleDefinition(
+            roleId: denialRoleId,
+            name: 'Operations blocked',
+            grants: const [],
+            denials: [
+              SpacePermissionDenial(
+                permission: SpacePermission.manageChannels,
+                scope: SpacePermissionScope(
+                  kind: SpacePermissionScopeKind.category,
+                  targetId: categoryId,
+                ),
+              ),
+            ],
+          ),
+        ],
+        groups: [
+          SpaceMemberGroup(
+            groupId: groupId,
+            name: 'Channel managers',
+            members: [admin, bob],
+            roleIds: const [roleId],
+          ),
+        ],
+        directAssignments: [
+          SpaceMemberRoleAssignment(
+            member: admin,
+            roleIds: const [denialRoleId],
+          ),
+          SpaceMemberRoleAssignment(member: bob, roleIds: const [denialRoleId]),
+          SpaceMemberRoleAssignment(
+            member: owner,
+            roleIds: const [denialRoleId],
+          ),
+        ],
+      );
+      final setPolicy = ownerEntry(
+        5,
+        ControlOp.setPolicy,
+        accessPolicy: access,
+        previous: controlEntryHash(createOutside),
+        policyVersion: 0,
+      );
+      final deniedEdit = ControlEntry(
+        version: 2,
+        groupId: space,
+        author: admin,
+        seq: 0,
+        prevHash: '',
+        op: ControlOp.updateChannel,
+        target: null,
+        role: null,
+        channel: inside.copyWith(name: 'Forbidden edit'),
+        policyVersion: 1,
+        createdAtMs: 21,
+        signature: Uint8List(0),
+      );
+      final folded = foldControlLog(
+        owner: owner,
+        entries: [
+          addAdmin,
+          addBob,
+          createCategory,
+          createInside,
+          createOutside,
+          setPolicy,
+          deniedEdit,
+        ],
+        verify: (_) => true,
+      );
+      final acl = SpaceAcl(folded.state);
+
+      expect(setPolicy.isStructurallyValid, isTrue);
+      expect(folded.rejected, contains(deniedEdit));
+      expect(
+        acl
+            .authorize(
+              admin,
+              SpacePermission.manageChannels,
+              channelId: insideId,
+            )
+            .denial,
+        SpaceAuthorizationDenial.explicitlyDenied,
+      );
+      expect(
+        acl.allows(bob, SpacePermission.manageChannels, channelId: insideId),
+        isFalse,
+      );
+      expect(
+        acl.allows(bob, SpacePermission.manageChannels, channelId: outsideId),
+        isTrue,
+      );
+      expect(
+        acl.allows(owner, SpacePermission.manageChannels, channelId: insideId),
+        isTrue,
+      );
+      expect(acl.allowsAnyScope(bob, SpacePermission.manageChannels), isTrue);
+    },
+  );
 }

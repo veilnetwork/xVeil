@@ -1612,6 +1612,16 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text(l.spaceAccessScopePosts).last);
     await tester.pumpAndSettle();
+    final denyPublish = find.byKey(
+      const ValueKey('space-access-add-deny-publishPosts'),
+    );
+    await tester.ensureVisible(denyPublish);
+    await tester.tap(denyPublish);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('space-access-deny-scope-publishPosts-0')),
+      findsOneWidget,
+    );
     final manageChannels = find.byKey(
       const ValueKey('space-access-permission-manageChannels'),
     );
@@ -1638,6 +1648,12 @@ void main() {
       SpacePermission.manageChannels,
     });
     expect(role.grants, hasLength(2));
+    expect(role.denials, [
+      const SpacePermissionDenial(
+        permission: SpacePermission.publishPosts,
+        scope: SpacePermissionScope.space(),
+      ),
+    ]);
     expect(
       role.grants,
       contains(
@@ -1650,12 +1666,12 @@ void main() {
         ),
       ),
     );
-    expect(state.accessPolicy?.schemaVersion, 2);
+    expect(state.accessPolicy?.schemaVersion, 3);
     expect(
       (await service.load(
         spaceId,
       ))!.control.lastWhere((entry) => entry.op == ControlOp.setPolicy).version,
-      18,
+      19,
     );
     expect(find.text('Publisher'), findsOneWidget);
 
