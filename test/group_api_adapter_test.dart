@@ -183,6 +183,11 @@ void main() {
       expect((await api.lifecycle(space))!['state'], 'active');
       expect(await api.setLifecycle(space, 'invalid'), isNotNull);
       expect(await api.createSpace('Bad', '', 'unknown'), isNull);
+      final observations = api.spaceObservability();
+      expect((observations['privacy'] as Map)['containsIdentifiers'], isFalse);
+      expect((observations['counters'] as Map)['spaceCreated.succeeded'], 1);
+      expect(observations.toString(), isNot(contains(space)));
+      expect(observations.toString(), isNot(contains('Field lab')));
     } finally {
       await service.dispose();
     }
