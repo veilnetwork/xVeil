@@ -10,6 +10,7 @@ import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
+import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/domain/space_moderation.dart';
@@ -1483,6 +1484,125 @@ void main() {
         }),
         'access policy revision conflict',
       );
+    },
+  );
+
+  test(
+    'Space access API reports delegated privilege-ceiling failures',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final owner = _id(80);
+      final manager = _id(81);
+      final member = _id(82);
+      final ownerService = GroupService(storage, _Signer(owner));
+      final managerService = GroupService(storage, _Signer(manager));
+      GroupApiAdapter adapter(GroupService service) => GroupApiAdapter(
+        service,
+        registerContentSource:
+            (name, size, read, {required close, sourcePath}) async {
+              await close();
+              return 'unused';
+            },
+        loadContent: storage.loadFile,
+      );
+
+      addTearDown(ownerService.dispose);
+      addTearDown(managerService.dispose);
+      final ownerApi = adapter(ownerService);
+      final managerApi = adapter(managerService);
+      final space = (await ownerApi.createSpace(
+        'Delegated API',
+        '',
+        'private',
+      ))!;
+      final spaceId = NodeId.fromHex(space);
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: manager,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: member,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final managerRoleId = ownerService.newSpaceAccessObjectId();
+      final publisherRoleId = ownerService.newSpaceAccessObjectId();
+      final managerRole = SpaceRoleDefinition(
+        roleId: managerRoleId,
+        name: 'Role manager',
+        permissions: const {
+          SpacePermission.manageRoles,
+          SpacePermission.managePosts,
+        },
+      );
+      final publisherRole = SpaceRoleDefinition(
+        roleId: publisherRoleId,
+        name: 'Publisher',
+        permissions: const {SpacePermission.publishPosts},
+      );
+      expect(
+        await ownerService.replaceSpaceAccessPolicy(
+          spaceId,
+          expectedRevision: 0,
+          roles: [managerRole, publisherRole],
+          groups: const <SpaceMemberGroup>[],
+          directAssignments: [
+            SpaceMemberRoleAssignment(
+              member: manager,
+              roleIds: [managerRoleId],
+            ),
+          ],
+        ),
+        isNotNull,
+      );
+
+      expect(
+        await managerApi.spaceAccessAction(space, {
+          'action': 'set_member_roles',
+          'expectedRevision': 1,
+          'peer': member.hex,
+          'roles': [publisherRoleId],
+        }),
+        isNull,
+      );
+      expect(
+        await managerApi.spaceAccessAction(space, {
+          'action': 'set_member_roles',
+          'expectedRevision': 2,
+          'peer': manager.hex,
+          'roles': [managerRoleId, publisherRoleId],
+        }),
+        'access policy cannot change your own effective roles',
+      );
+      expect(
+        await managerApi.spaceAccessAction(space, {
+          'action': 'set_member_roles',
+          'expectedRevision': 2,
+          'peer': member.hex,
+          'roles': [managerRoleId],
+        }),
+        'member has equal or higher role-management authority',
+      );
+      expect(
+        await managerApi.spaceAccessAction(space, {
+          'action': 'upsert_role',
+          'expectedRevision': 2,
+          'name': 'Storage manager',
+          'permissions': ['manageStorage'],
+        }),
+        'role reaches or exceeds your permission ceiling',
+      );
+      expect((await managerApi.spaceAccess(space))?['revision'], 2);
     },
   );
 }

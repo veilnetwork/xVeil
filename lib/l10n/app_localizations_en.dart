@@ -903,6 +903,10 @@ class AppL10nEn extends AppL10n {
       'Reusable permission sets, participant groups, and direct member roles. Every change is signed and audited.';
 
   @override
+  String get spaceAccessDelegatedHint =>
+      'You can manage only roles below your current permission ceiling. Your own roles and peer managers are locked.';
+
+  @override
   String get spaceAccessEmpty =>
       'No custom roles yet. Built-in community roles continue to apply.';
 

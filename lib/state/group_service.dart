@@ -2683,7 +2683,10 @@ class GroupService {
 
   bool _validControlFor(GroupManifest manifest, ControlEntry e) {
     if (!e.isStructurallyValid) return false;
-    if ((e.version == 17 || e.version == 18 || e.version == 19) &&
+    if ((e.version == 17 ||
+            e.version == 18 ||
+            e.version == 19 ||
+            e.version == 20) &&
         !manifest.isSpace) {
       return false;
     }
@@ -5425,9 +5428,10 @@ class GroupService {
   String newSpaceAccessObjectId() => _newSpaceInviteId();
 
   /// Atomically replace custom roles, participant groups and direct role
-  /// assignments. Optimistic [expectedRevision] prevents two owner devices
-  /// from silently overwriting each other. The fold remains the final
-  /// authorization boundary and permits this operation only to the owner.
+  /// assignments. Optimistic [expectedRevision] prevents two editors from
+  /// silently overwriting each other. Owners are unrestricted; a manageRoles
+  /// delegate signs V20 and is constrained by the same capability ceiling in
+  /// this service and the final causal-fold authorization boundary.
   Future<SpaceAccessPolicy?> replaceSpaceAccessPolicy(
     NodeId spaceId, {
     required int expectedRevision,
@@ -5484,6 +5488,9 @@ class GroupService {
       directAssignments: currentDirectAssignments,
     );
     if (!policy.isStructurallyValid) {
+      return null;
+    }
+    if (!SpaceAcl(state).authorizePolicyChange(selfId, policy).allowed) {
       return null;
     }
     final applied = await _addControlOp(
@@ -6247,7 +6254,9 @@ class GroupService {
               : recommendationCampaign != null
               ? 13
               : accessPolicy != null
-              ? accessPolicy.schemaVersion >= 3
+              ? state.roleOf(_signer.selfId) != GroupRole.owner
+                    ? 20
+                    : accessPolicy.schemaVersion >= 3
                     ? 19
                     : accessPolicy.schemaVersion >= 2
                     ? 18

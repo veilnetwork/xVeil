@@ -115,6 +115,9 @@ final class SpacePermissionScope {
   bool get isStructurallyValid =>
       kind.requiresTarget ? targetId != null : targetId == null;
 
+  bool appliesTo({NodeId? channelId, NodeId? categoryId}) =>
+      _scopeApplies(this, channelId: channelId, categoryId: categoryId);
+
   Map<String, dynamic> toJson() => {
     'kind': kind.name,
     if (targetId != null) 'target': targetId!.hex,
@@ -279,6 +282,28 @@ final class SpaceRoleDefinition {
       Set.unmodifiable(grants.map((grant) => grant.permission));
   Set<SpacePermission> get deniedPermissions =>
       Set.unmodifiable(denials.map((denial) => denial.permission));
+
+  bool denies(
+    SpacePermission permission, {
+    NodeId? channelId,
+    NodeId? categoryId,
+  }) => denials.any(
+    (denial) =>
+        denial.permission == permission &&
+        denial.scope.appliesTo(channelId: channelId, categoryId: categoryId),
+  );
+
+  bool allows(
+    SpacePermission permission, {
+    NodeId? channelId,
+    NodeId? categoryId,
+  }) =>
+      !denies(permission, channelId: channelId, categoryId: categoryId) &&
+      grants.any(
+        (grant) =>
+            grant.permission == permission &&
+            grant.scope.appliesTo(channelId: channelId, categoryId: categoryId),
+      );
 
   /// V17 used the `permissions` array. Any role authored with `grants` needs
   /// V18 even when its selected scopes happen to be Space-wide.

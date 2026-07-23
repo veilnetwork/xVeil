@@ -285,6 +285,7 @@
   "spaceRoleMember": "Member",
   "spaceAccessTitle": "Roles and access",
   "spaceAccessHint": "Reusable permission sets, participant groups, and direct member roles. Every change is signed and audited.",
+  "spaceAccessDelegatedHint": "You can manage only roles below your current permission ceiling. Your own roles and peer managers are locked.",
   "spaceAccessEmpty": "No custom roles yet. Built-in community roles continue to apply.",
   "spaceAccessRoles": "Custom roles",
   "spaceAccessGroups": "Participant groups",
