@@ -19,6 +19,7 @@ import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_payload.dart';
 import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/group_reaction.dart';
+import 'package:xveil/domain/message_mention.dart';
 import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/domain/space_lifecycle.dart';
 import 'package:xveil/domain/space_join_request.dart';
@@ -5634,6 +5635,74 @@ void main() {
         SpacePostType.values.toSet(),
       );
       expect(await reopened.spaceFeed(), hasLength(2));
+    },
+  );
+
+  test(
+    'feed filter combines canonical mentions, time and communities',
+    () async {
+      final (ownerService, member) = await setup();
+      final first = await ownerService.createSpace(
+        'First community',
+        visibility: SpaceVisibility.public,
+      );
+      final second = await ownerService.createSpace(
+        'Second community',
+        visibility: SpaceVisibility.public,
+      );
+      for (final spaceId in [first, second]) {
+        expect(
+          await ownerService.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: bob,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+      }
+      await ownerService.publishSpacePost(
+        first,
+        body: 'ordinary publication',
+        broadcast: false,
+      );
+      await ownerService.publishSpacePost(
+        first,
+        body: 'hello ${encodeMessageMention(bob, dhtName: 'bob_public')}',
+        broadcast: false,
+      );
+      await ownerService.publishSpacePost(
+        second,
+        body: 'second ${encodeMessageMention(bob)}',
+        broadcast: false,
+      );
+
+      final bobService = member(bob) as GroupService;
+      await bobService.setSpaceFeedFilter(
+        SpaceFeedFilter(
+          types: SpacePostType.values.toSet(),
+          mentionsOnly: true,
+          timePreset: SpaceFeedTimePreset.lastHour,
+          spaceIds: {first},
+        ),
+      );
+      final filtered = await bobService.spaceFeed();
+      expect(filtered, hasLength(1));
+      expect(filtered.single.spaceId, first);
+      expect(filtered.single.post.body, contains(bob.hex));
+
+      final reopened = member(bob) as GroupService;
+      final restored = await reopened.spaceFeedFilter();
+      expect(restored.mentionsOnly, isTrue);
+      expect(restored.timePreset, SpaceFeedTimePreset.lastHour);
+      expect(restored.spaceIds, {first});
+      expect(await reopened.spaceFeed(), hasLength(1));
+
+      await reopened.setSpaceFeedTypeFilter({SpacePostType.article});
+      final afterTypeOnlyUpdate = await reopened.spaceFeedFilter();
+      expect(afterTypeOnlyUpdate.mentionsOnly, isTrue);
+      expect(afterTypeOnlyUpdate.timePreset, SpaceFeedTimePreset.lastHour);
+      expect(afterTypeOnlyUpdate.spaceIds, {first});
     },
   );
 

@@ -232,6 +232,12 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
       onSearchClose: _closeSearch,
       onSearchChanged: (value) => setState(() => _query = value),
       contextActions: [
+        IconButton(
+          key: const ValueKey('space-mentions-open'),
+          icon: const Icon(Icons.alternate_email),
+          tooltip: l.mentionsOpenTooltip,
+          onPressed: () => context.push('/mentions'),
+        ),
         if (service != null)
           IconButton(
             key: const ValueKey('space-join-link-action'),
