@@ -40,6 +40,9 @@ import '../domain/group_policy.dart';
 import '../domain/group_reaction.dart';
 import '../domain/inline_custom_emoji.dart';
 import '../domain/space_channel.dart';
+import '../domain/space_discovery.dart';
+import '../domain/space_discovery_carrier.dart';
+import '../domain/space_discovery_search.dart';
 import '../domain/space_invite.dart';
 import '../domain/space_join_request.dart';
 import '../domain/space_lifecycle.dart';
@@ -51,6 +54,7 @@ import '../domain/space_recommendation.dart';
 import '../domain/space_retention.dart';
 import '../domain/space_rules.dart';
 import '../data/transport/bootstrap_invite.dart';
+import '../data/node/space_discovery_transport.dart';
 import '../data/storage/storage.dart';
 import 'group_crypto.dart';
 import 'group_epoch_service.dart';
@@ -186,6 +190,21 @@ abstract class GroupSigner {
   bool verifyModerationAppeal(SpaceModerationAppeal appeal);
   bool verifyModerationAppealDecision(SpaceModerationAppealDecision decision);
   bool verifySpaceManifest(SpaceManifest manifest);
+  ({Uint8List signature, Uint8List publicKey}) signDetached(
+    Uint8List message,
+  ) => throw UnsupportedError('detached identity signing is unavailable');
+  bool verifyDetached({
+    required NodeId signer,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+  }) => verifySovereign(
+    algorithm: 'ed25519',
+    nodeId: signer,
+    publicKey: publicKey,
+    message: message,
+    signature: signature,
+  );
   bool verifySovereign({
     required String algorithm,
     required NodeId nodeId,
@@ -338,6 +357,27 @@ class NativeGroupSigner implements GroupSigner {
   @override
   bool verifySpaceManifest(SpaceManifest manifest) =>
       verifySpaceGenesisManifest(manifest, lib: lib);
+  @override
+  ({Uint8List signature, Uint8List publicKey}) signDetached(
+    Uint8List message,
+  ) => signDetachedIdentity(
+    identityToml: identityToml,
+    message: message,
+    lib: lib,
+  );
+  @override
+  bool verifyDetached({
+    required NodeId signer,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+  }) => verifyDetachedIdentity(
+    signer: signer,
+    publicKey: publicKey,
+    message: message,
+    signature: signature,
+    lib: lib,
+  );
   @override
   bool verifySovereign({
     required String algorithm,
@@ -681,6 +721,24 @@ typedef GroupCallFrameSender =
       String frameJson,
     );
 
+class SpaceDiscoveryPublishSweep {
+  const SpaceDiscoveryPublishSweep({
+    required this.spacesScanned,
+    required this.spacesPublished,
+    required this.recordsPublished,
+    required this.failures,
+    required this.available,
+  });
+
+  final int spacesScanned;
+  final int spacesPublished;
+  final int recordsPublished;
+  final int failures;
+  final bool available;
+
+  bool get complete => available && failures == 0;
+}
+
 class GroupService {
   GroupService(
     this._storage,
@@ -703,6 +761,7 @@ class GroupService {
     this.startContentPull,
     this.startContentPullFromAny,
     this._activePeers,
+    this._spaceDiscoveryTransport,
     this.contentRequestFanoutTimeout = const Duration(seconds: 8),
     this.contentGrantDelay = const Duration(seconds: 4),
     SpaceObservability? observability,
@@ -721,6 +780,7 @@ class GroupService {
   final GroupEpochService? _epochService;
   final SpaceObservability _observability;
   final ActivePeerSnapshotReader? _activePeers;
+  final SpaceDiscoveryTransport? _spaceDiscoveryTransport;
   final int ourCertVersion;
 
   /// Ships a signed content-fetch request to the holder (wire layer).
@@ -788,6 +848,14 @@ class GroupService {
   Timer? _spaceDeletionMaintenanceTimer;
   bool _spaceDeletionMaintenanceRunning = false;
   Timer? _scheduledSpacePostTimer;
+  Timer? _spaceDiscoveryPublishTimer;
+  Timer? _spaceDiscoveryNudgeTimer;
+  bool _spaceDiscoveryPublishRunning = false;
+  bool _spaceDiscoveryPublishWakeRequested = false;
+  bool _spaceDiscoveryChangesBound = false;
+  final Map<String, ({String descriptorHash, int publishedAtMs})>
+  _publishedPublicSpaceDescriptors =
+      <String, ({String descriptorHash, int publishedAtMs})>{};
   bool _scheduledSpacePostMaintenanceStarted = false;
   bool _scheduledSpacePostMaintenanceRunning = false;
   bool _scheduledSpacePostWakeRequested = false;
@@ -1843,11 +1911,28 @@ class GroupService {
         createdAtMs: now,
         expiresAtMs: now + kSpaceJoinTicketLifetime.inMilliseconds,
       );
+      if (current.spaceName != state.name) {
+        current = SpaceJoinTicket(
+          ticketId: current.ticketId,
+          spaceId: current.spaceId,
+          approver: current.approver,
+          spaceName: state.name,
+          createdAtMs: current.createdAtMs,
+          expiresAtMs: current.expiresAtMs,
+        );
+      }
       final tickets = <SpaceJoinTicket>[
         current,
         for (final ticket in store.tickets)
           if (ticket.spaceId != spaceId && !ticket.isExpiredAt(now)) ticket,
       ];
+      final oldTickets = jsonEncode([
+        for (final ticket in store.tickets) ticket.toJson(),
+      ]);
+      final newTickets = jsonEncode([
+        for (final ticket in tickets) ticket.toJson(),
+      ]);
+      if (oldTickets == newTickets) return SpaceJoinCode.encode(current);
       await _saveSpaceJoins(
         tickets: tickets,
         incoming: store.incoming,
@@ -1856,6 +1941,378 @@ class GroupService {
       changes.value++;
       return SpaceJoinCode.encode(current);
     });
+  }
+
+  /// Build the strict public descriptor + holder attestation carried by the
+  /// native discovery DHT. V1 deliberately publishes only from the immutable
+  /// genesis owner: after ownership transfer it fails closed until the public
+  /// authority-chain revision lands, rather than letting an unprovable actor
+  /// rewrite a global search result.
+  Future<SpacePublicDiscoveryPayload?> buildSpacePublicDiscoveryPayload(
+    NodeId spaceId,
+  ) async {
+    final bundle = await load(spaceId);
+    if (bundle == null ||
+        !bundle.manifest.isSpace ||
+        bundle.manifest.visibility != SpaceVisibility.public ||
+        bundle.manifest.discoverable != true ||
+        bundle.manifest.owner != selfId) {
+      return null;
+    }
+    final folded = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    );
+    final state = folded.state;
+    final owners = [
+      for (final member in state.members.values)
+        if (member.role == GroupRole.owner) member.nodeId,
+    ];
+    if (!state.isActive || owners.length != 1 || owners.single != selfId) {
+      return null;
+    }
+    final joinCode = await createSpaceJoinCode(spaceId);
+    if (joinCode == null) return null;
+    final ticket = SpaceJoinCode.parse(joinCode);
+    final wallNow = _now();
+    final updatedAt = folded.accepted.fold<int>(
+      bundle.manifest.createdAtMs,
+      (latest, entry) =>
+          entry.createdAtMs > latest ? entry.createdAtMs : latest,
+    );
+    if (updatedAt > wallNow + kSpacePublicClockSkew.inMilliseconds) {
+      return null;
+    }
+    // Keep the owner descriptor stable across periodic DHT refreshes so
+    // independent holders can attest the same hash. Availability freshness
+    // belongs to the short-lived holder record below, not to owner metadata.
+    final issuedAt = max(updatedAt, ticket.createdAtMs);
+    final expiresAt = min(
+      ticket.expiresAtMs,
+      issuedAt + kSpacePublicDescriptorLifetime.inMilliseconds,
+    );
+    if (expiresAt <= wallNow || expiresAt <= issuedAt) return null;
+    final controlHeadHash = crypto.sha256
+        .convert(
+          utf8.encode(
+            jsonEncode([
+              for (final entry in folded.accepted) controlEntryHash(entry),
+            ]),
+          ),
+        )
+        .toString();
+    final unsignedDescriptor = SpacePublicDescriptor(
+      spaceId: spaceId,
+      publisher: selfId,
+      genesisManifest: bundle.manifest,
+      controlHeadHash: controlHeadHash,
+      revision: folded.accepted.length,
+      name: state.name,
+      description: state.description,
+      avatarContentId: bundle.manifest.avatarContentId,
+      coverContentId: bundle.manifest.coverContentId,
+      createdAtMs: bundle.manifest.createdAtMs,
+      updatedAtMs: updatedAt,
+      issuedAtMs: issuedAt,
+      expiresAtMs: expiresAt,
+      joinCode: joinCode,
+    );
+    final descriptorSignature = _signer.signDetached(
+      unsignedDescriptor.canonicalBytes(),
+    );
+    if (!_listEquals(
+      descriptorSignature.publicKey,
+      bundle.manifest.genesisPubKey,
+    )) {
+      return null;
+    }
+    final descriptor = unsignedDescriptor.withSignature(
+      descriptorSignature.signature,
+    );
+    if (!descriptor.verifyAt(issuedAt, _signer.verifyDetached)) return null;
+
+    final holderIssuedAt = wallNow;
+    final holderExpiresAt = min(
+      descriptor.expiresAtMs,
+      holderIssuedAt + kSpacePublicHolderLifetime.inMilliseconds,
+    );
+    if (holderExpiresAt <= holderIssuedAt) return null;
+    final unsignedHolder = SpacePublicHolderAnnouncement(
+      spaceId: spaceId,
+      descriptorHash: descriptor.descriptorHash,
+      holder: selfId,
+      holderPublicKey: descriptorSignature.publicKey,
+      issuedAtMs: holderIssuedAt,
+      expiresAtMs: holderExpiresAt,
+    );
+    final holderSignature = _signer.signDetached(
+      unsignedHolder.canonicalBytes(),
+    );
+    if (!_listEquals(
+      holderSignature.publicKey,
+      descriptorSignature.publicKey,
+    )) {
+      return null;
+    }
+    final holder = unsignedHolder.withSignature(holderSignature.signature);
+    final payload = SpacePublicDiscoveryPayload(
+      descriptor: descriptor,
+      holder: holder,
+    );
+    return payload.verifyAt(wallNow, _signer.verifyDetached) ? payload : null;
+  }
+
+  /// Publish every locally owned `public + discoverable` Space through the
+  /// native bounded DHT carrier. A direct route supports exact links; hashed
+  /// name/prefix routes support interactive search without publishing a
+  /// plaintext side index.
+  Future<SpaceDiscoveryPublishSweep> publishPublicSpaceDiscovery({
+    bool forceHolderRefresh = true,
+  }) async {
+    final transport = _spaceDiscoveryTransport;
+    if (transport == null) {
+      return const SpaceDiscoveryPublishSweep(
+        spacesScanned: 0,
+        spacesPublished: 0,
+        recordsPublished: 0,
+        failures: 0,
+        available: false,
+      );
+    }
+    var spacesScanned = 0;
+    var spacesPublished = 0;
+    var recordsPublished = 0;
+    var failures = 0;
+    for (final entry in await listSpaces()) {
+      spacesScanned++;
+      final payload = await buildSpacePublicDiscoveryPayload(entry.groupId);
+      if (payload == null) continue;
+      final lastPublished =
+          _publishedPublicSpaceDescriptors[payload.descriptor.spaceId.hex];
+      final publishNow = DateTime.now().millisecondsSinceEpoch;
+      if (!forceHolderRefresh &&
+          lastPublished?.descriptorHash == payload.descriptor.descriptorHash &&
+          publishNow - lastPublished!.publishedAtMs <
+              const Duration(minutes: 25).inMilliseconds) {
+        continue;
+      }
+      final routes = <SpaceDiscoveryCarrierRoute>[
+        SpaceDiscoveryCarrierRoute.direct(payload.descriptor.spaceId),
+        for (final term in spaceDiscoveryPublishedSearchTerms(
+          payload.descriptor.name,
+        ))
+          SpaceDiscoveryCarrierRoute.search(
+            spaceDiscoverySearchTokenHash(term),
+          ),
+      ];
+      final records = <Uint8List>[];
+      try {
+        for (final route in routes) {
+          records.add(
+            SpaceDiscoveryCarrier.sign(
+              route: route,
+              payload: payload,
+              holder: selfId,
+              holderPublicKey: _signer.selfPubKey,
+              sign: _signer.signDetached,
+            ).toBytes(),
+          );
+        }
+      } catch (_) {
+        failures += routes.length;
+        continue;
+      }
+      var publishedForSpace = 0;
+      // Four concurrent native calls keep the first publication responsive
+      // without opening one runtime/fan-out for every prefix at once.
+      for (var offset = 0; offset < records.length; offset += 4) {
+        final end = min(offset + 4, records.length);
+        final results = await Future.wait<bool>([
+          for (final record in records.sublist(offset, end))
+            () async {
+              try {
+                await transport.publish(record);
+                return true;
+              } catch (_) {
+                return false;
+              }
+            }(),
+        ]);
+        for (final result in results) {
+          if (result) {
+            recordsPublished++;
+            publishedForSpace++;
+          } else {
+            failures++;
+          }
+        }
+      }
+      if (publishedForSpace > 0) spacesPublished++;
+      if (publishedForSpace == records.length) {
+        _publishedPublicSpaceDescriptors[payload.descriptor.spaceId.hex] = (
+          descriptorHash: payload.descriptor.descriptorHash,
+          publishedAtMs: publishNow,
+        );
+      }
+    }
+    return SpaceDiscoveryPublishSweep(
+      spacesScanned: spacesScanned,
+      spacesPublished: spacesPublished,
+      recordsPublished: recordsPublished,
+      failures: failures,
+      available: true,
+    );
+  }
+
+  /// Resolve a public Space by its exact id. Exact-link bootstrap needs one
+  /// valid holder because the immutable owner signature is still authoritative.
+  Future<SpacePublicDescriptor?> resolvePublicSpace(
+    NodeId spaceId, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final route = SpaceDiscoveryCarrierRoute.direct(spaceId);
+    final records = await _resolvePublicDiscoveryRoute(route, timeout: timeout);
+    final merged = mergeSpacePublicDiscovery(
+      descriptors: [for (final payload in records) payload.descriptor],
+      holders: [for (final payload in records) payload.holder],
+      nowMs: DateTime.now().millisecondsSinceEpoch,
+      verify: _signer.verifyDetached,
+      minimumIndependentHolders: 1,
+    );
+    for (final descriptor in merged) {
+      if (descriptor.spaceId == spaceId) return descriptor;
+    }
+    return null;
+  }
+
+  /// Search the public index. Global results require the same owner descriptor
+  /// hash to be observed from at least two independent holder identities.
+  Future<List<SpacePublicDescriptor>> searchPublicSpaces(
+    String query, {
+    Duration timeout = const Duration(seconds: 8),
+    int minimumIndependentHolders = 2,
+  }) async {
+    final terms = spaceDiscoveryQueryTerms(query);
+    if (terms.isEmpty || _spaceDiscoveryTransport == null) return const [];
+    final payloads = <SpacePublicDiscoveryPayload>[];
+    for (var offset = 0; offset < terms.length; offset += 2) {
+      final end = min(offset + 2, terms.length);
+      final batches = await Future.wait([
+        for (final term in terms.sublist(offset, end))
+          _resolvePublicDiscoveryRoute(
+            SpaceDiscoveryCarrierRoute.search(
+              spaceDiscoverySearchTokenHash(term),
+            ),
+            timeout: timeout,
+          ),
+      ]);
+      for (final batch in batches) {
+        payloads.addAll(batch);
+      }
+    }
+    return mergeSpacePublicDiscovery(
+      descriptors: [for (final payload in payloads) payload.descriptor],
+      holders: [for (final payload in payloads) payload.holder],
+      nowMs: DateTime.now().millisecondsSinceEpoch,
+      verify: _signer.verifyDetached,
+      minimumIndependentHolders: minimumIndependentHolders,
+      query: query,
+    );
+  }
+
+  Future<List<SpacePublicDiscoveryPayload>> _resolvePublicDiscoveryRoute(
+    SpaceDiscoveryCarrierRoute route, {
+    required Duration timeout,
+  }) async {
+    final transport = _spaceDiscoveryTransport;
+    if (transport == null) return const [];
+    final List<Uint8List> records;
+    try {
+      records = await transport.resolve(route, timeout: timeout);
+    } catch (_) {
+      return const [];
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final payloads = <SpacePublicDiscoveryPayload>[];
+    final seen = <String>{};
+    for (final bytes in records) {
+      final carrier = SpaceDiscoveryCarrier.fromBytes(bytes);
+      if (carrier == null ||
+          !carrier.route.sameAs(route) ||
+          !carrier.verifyAt(now, _signer.verifyDetached)) {
+        continue;
+      }
+      final payload = SpacePublicDiscoveryPayload.fromBytes(carrier.payload);
+      if (payload == null) continue;
+      final identity =
+          '${payload.descriptor.descriptorHash}:${payload.holder.holder.hex}';
+      if (seen.add(identity)) payloads.add(payload);
+      if (payloads.length >= 5) break;
+    }
+    return List<SpacePublicDiscoveryPayload>.unmodifiable(payloads);
+  }
+
+  /// Periodically refresh only the short holder layer. The owner descriptor is
+  /// stable until signed profile/control state changes, preserving quorum.
+  void startPublicSpaceDiscoveryMaintenance() {
+    if (_spaceDiscoveryTransport == null ||
+        _spaceDiscoveryPublishTimer != null ||
+        _disposed) {
+      return;
+    }
+    if (!_spaceDiscoveryChangesBound) {
+      _spaceDiscoveryChangesBound = true;
+      changes.addListener(_nudgePublicSpaceDiscovery);
+    }
+    unawaited(_runPublicSpaceDiscoveryMaintenance());
+    _spaceDiscoveryPublishTimer = Timer.periodic(
+      const Duration(minutes: 30),
+      (_) => unawaited(_runPublicSpaceDiscoveryMaintenance()),
+    );
+  }
+
+  void _nudgePublicSpaceDiscovery() {
+    if (_disposed || _spaceDiscoveryTransport == null) return;
+    _spaceDiscoveryNudgeTimer?.cancel();
+    _spaceDiscoveryNudgeTimer = Timer(
+      const Duration(seconds: 2),
+      () => unawaited(
+        _runPublicSpaceDiscoveryMaintenance(forceHolderRefresh: false),
+      ),
+    );
+  }
+
+  Future<void> _runPublicSpaceDiscoveryMaintenance({
+    bool forceHolderRefresh = true,
+  }) async {
+    if (_spaceDiscoveryPublishRunning) {
+      _spaceDiscoveryPublishWakeRequested = true;
+      return;
+    }
+    if (_disposed) return;
+    _spaceDiscoveryPublishRunning = true;
+    try {
+      final sweep = await publishPublicSpaceDiscovery(
+        forceHolderRefresh: forceHolderRefresh,
+      );
+      devLog(
+        () =>
+            'xVeil[space-discovery]: scanned=${sweep.spacesScanned} '
+            'spaces=${sweep.spacesPublished} records=${sweep.recordsPublished} '
+            'failures=${sweep.failures}',
+      );
+    } catch (_) {
+      devLog(() => 'xVeil[space-discovery]: publication sweep failed');
+    } finally {
+      _spaceDiscoveryPublishRunning = false;
+    }
+    if (_spaceDiscoveryPublishWakeRequested && !_disposed) {
+      _spaceDiscoveryPublishWakeRequested = false;
+      unawaited(_runPublicSpaceDiscoveryMaintenance(forceHolderRefresh: false));
+    }
   }
 
   Future<bool> revokeSpaceJoinCode(NodeId spaceId) => _serializeSpaceJoins(
@@ -15872,6 +16329,15 @@ class GroupService {
     _spaceDeletionMaintenanceTimer = null;
     _scheduledSpacePostTimer?.cancel();
     _scheduledSpacePostTimer = null;
+    _spaceDiscoveryPublishTimer?.cancel();
+    _spaceDiscoveryPublishTimer = null;
+    _spaceDiscoveryNudgeTimer?.cancel();
+    _spaceDiscoveryNudgeTimer = null;
+    if (_spaceDiscoveryChangesBound) {
+      changes.removeListener(_nudgePublicSpaceDiscovery);
+      _spaceDiscoveryChangesBound = false;
+    }
+    _publishedPublicSpaceDescriptors.clear();
     for (final pending in _pendingSpaceReceipts.values) {
       pending.elapsed.stop();
     }
