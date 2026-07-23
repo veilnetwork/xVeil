@@ -1753,6 +1753,26 @@ final class GroupApiAdapter {
       ];
     }
 
+    List<Map<String, dynamic>> denialsJson(
+      Iterable<SpacePermissionDenial> denials,
+    ) {
+      final sorted = denials.toList()
+        ..sort((left, right) {
+          final permission = left.permission.index.compareTo(
+            right.permission.index,
+          );
+          if (permission != 0) return permission;
+          final kind = left.scope.kind.index.compareTo(right.scope.kind.index);
+          if (kind != 0) return kind;
+          return (left.scope.targetId?.hex ?? '').compareTo(
+            right.scope.targetId?.hex ?? '',
+          );
+        });
+      return [
+        for (final denial in sorted) Map<String, dynamic>.from(denial.toJson()),
+      ];
+    }
+
     return {
       'spaceId': visible.$1.hex,
       'schemaVersion': policy?.schemaVersion ?? 1,
@@ -1772,6 +1792,7 @@ final class GroupApiAdapter {
                     .map((permission) => permission.name)
                     .toList(growable: false),
             'grants': grantsJson(role.grants),
+            'denies': denialsJson(role.denials),
           },
       ],
       'groups': [
@@ -1796,6 +1817,7 @@ final class GroupApiAdapter {
                     .map((permission) => permission.name)
                     .toList(growable: false),
             'grants': grantsJson(state.customGrantsOf(member.nodeId)),
+            'denies': denialsJson(state.customDenialsOf(member.nodeId)),
           },
       ],
     };
@@ -1855,12 +1877,15 @@ final class GroupApiAdapter {
         final name = body['name'];
         final rawPermissions = body['permissions'];
         final rawGrants = body['grants'];
+        final rawDenials = body['denies'];
         if (roleId == null ||
             name is! String ||
             ((rawPermissions is List) == (rawGrants is List)) ||
+            (rawDenials != null && rawDenials is! List) ||
+            (rawPermissions is List && rawDenials != null) ||
             name.trim() != name ||
             name.isEmpty) {
-          return 'valid roleId, name and exactly one of permissions/grants required';
+          return 'valid roleId, name, exactly one of permissions/grants, and optional denies required';
         }
         late final SpaceRoleDefinition role;
         if (rawPermissions is List) {
@@ -1887,6 +1912,14 @@ final class GroupApiAdapter {
             }
             grants.add(grant);
           }
+          final denials = <SpacePermissionDenial>[];
+          for (final raw in rawDenials as List? ?? const []) {
+            final denial = SpacePermissionDenial.fromJson(raw);
+            if (denial == null || denials.contains(denial)) {
+              return 'unknown, invalid or duplicate permission denial';
+            }
+            denials.add(denial);
+          }
           final channels = await _groups.channelsOf(
             visible.$1,
             includeArchived: true,
@@ -1901,21 +1934,26 @@ final class GroupApiAdapter {
               if (channel.kind != SpaceChannelKind.category)
                 channel.channelId.hex,
           };
-          final targetsValid = grants.every((grant) {
-            final target = grant.scope.targetId?.hex;
-            return switch (grant.scope.kind) {
+          bool scopeTargetValid(SpacePermissionScope scope) {
+            final target = scope.targetId?.hex;
+            return switch (scope.kind) {
               SpacePermissionScopeKind.category =>
                 target != null && categoryIds.contains(target),
               SpacePermissionScopeKind.channel =>
                 target != null && channelIds.contains(target),
               _ => true,
             };
-          });
+          }
+
+          final targetsValid =
+              grants.every((grant) => scopeTargetValid(grant.scope)) &&
+              denials.every((denial) => scopeTargetValid(denial.scope));
           if (!targetsValid) return 'permission scope target not found';
           role = SpaceRoleDefinition(
             roleId: roleId,
             name: name,
             grants: grants,
+            denials: denials,
           );
         }
         if (!role.isStructurallyValid) return 'invalid role';

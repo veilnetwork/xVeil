@@ -1416,26 +1416,65 @@ void main() {
               },
             },
           ],
+          'denies': [
+            {
+              'permission': 'manageStorage',
+              'scope': {
+                'kind': 'channel',
+                'target': defaultChannel.channelId.hex,
+              },
+            },
+          ],
         }),
         isNull,
       );
       final scoped = (await api.spaceAccess(space))!;
-      expect(scoped['schemaVersion'], 2);
+      expect(scoped['schemaVersion'], 3);
       expect(scoped['revision'], 3);
       expect(
         (((scoped['roles'] as List).single as Map)['grants'] as List),
         hasLength(3),
       );
       expect(
+        (((scoped['roles'] as List).single as Map)['denies'] as List),
+        hasLength(1),
+      );
+      expect(
         (((scoped['effective'] as List).single as Map)['grants'] as List),
         hasLength(3),
+      );
+      expect(
+        (((scoped['effective'] as List).single as Map)['denies'] as List),
+        hasLength(1),
       );
       expect(
         (await service.load(NodeId.fromHex(space)))!.control
             .lastWhere((entry) => entry.op == ControlOp.setPolicy)
             .version,
-        18,
+        19,
       );
+      expect(
+        await api.spaceAccessAction(space, {
+          'action': 'upsert_role',
+          'expectedRevision': 3,
+          'roleId': role['id'],
+          'name': 'Invalid denial target',
+          'grants': [
+            {
+              'permission': 'manageStorage',
+              'scope': {'kind': 'storage'},
+            },
+          ],
+          'denies': [
+            {
+              'permission': 'manageStorage',
+              'scope': {'kind': 'channel', 'target': _id(99).hex},
+            },
+          ],
+        }),
+        'permission scope target not found',
+      );
+      expect((await api.spaceAccess(space))!['revision'], 3);
       expect(
         await api.spaceAccessAction(space, {
           'action': 'delete_role',

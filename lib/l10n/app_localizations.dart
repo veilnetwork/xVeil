@@ -1783,6 +1783,18 @@ abstract class AppL10n {
   /// **'Add another area'**
   String get spaceAccessAddArea;
 
+  /// No description provided for @spaceAccessAddDenyArea.
+  ///
+  /// In en, this message translates to:
+  /// **'Deny area'**
+  String get spaceAccessAddDenyArea;
+
+  /// No description provided for @spaceAccessDenyScopeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Denied area'**
+  String get spaceAccessDenyScopeLabel;
+
   /// No description provided for @spaceAccessScopeLabel.
   ///
   /// In en, this message translates to:

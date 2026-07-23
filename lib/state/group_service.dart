@@ -2683,7 +2683,8 @@ class GroupService {
 
   bool _validControlFor(GroupManifest manifest, ControlEntry e) {
     if (!e.isStructurallyValid) return false;
-    if ((e.version == 17 || e.version == 18) && !manifest.isSpace) {
+    if ((e.version == 17 || e.version == 18 || e.version == 19) &&
+        !manifest.isSpace) {
       return false;
     }
     if ((e.op == ControlOp.transferOwnership ||
@@ -5467,8 +5468,11 @@ class GroupService {
     final policy = SpaceAccessPolicy(
       spaceId: spaceId,
       schemaVersion:
-          state.accessPolicy?.schemaVersion == 2 ||
-              roles.any((role) => role.usesScopedEncoding)
+          state.accessPolicy?.schemaVersion == 3 ||
+              roles.any((role) => role.usesDenyEncoding)
+          ? 3
+          : state.accessPolicy?.schemaVersion == 2 ||
+                roles.any((role) => role.usesScopedEncoding)
           ? 2
           : 1,
       revision: expectedRevision + 1,
@@ -6243,7 +6247,9 @@ class GroupService {
               : recommendationCampaign != null
               ? 13
               : accessPolicy != null
-              ? accessPolicy.schemaVersion >= 2
+              ? accessPolicy.schemaVersion >= 3
+                    ? 19
+                    : accessPolicy.schemaVersion >= 2
                     ? 18
                     : 17
               : channelRetention != null

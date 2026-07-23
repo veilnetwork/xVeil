@@ -297,6 +297,8 @@
   "spaceAccessRoleGrantSummary": "{permissions, plural, =1{1 право} few{{permissions} права} other{{permissions} прав}} · {areas, plural, =1{1 область} few{{areas} области} other{{areas} областей}}",
   "spaceAccessPermissionAreas": "Области прав",
   "spaceAccessAddArea": "Добавить область",
+  "spaceAccessAddDenyArea": "Запретить область",
+  "spaceAccessDenyScopeLabel": "Запрещённая область",
   "spaceAccessScopeLabel": "Область",
   "spaceAccessScopeTarget": "Категория или канал",
   "spaceAccessScopeSpace": "Всё сообщество",
