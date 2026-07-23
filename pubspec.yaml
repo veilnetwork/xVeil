@@ -98,7 +98,7 @@ dependencies:
   veil_media:
     path: third_party/veil/flutter/veil_media
   file_picker: ^11.0.2
-  flutter_local_notifications: ^18.0.1
+  flutter_local_notifications: ^22.1.0
   # Desktop (macOS/Linux/Windows) system-tray + window control: close-to-tray so
   # the node keeps running (and delivering notifications) with the window hidden.
   # No-op on mobile — guarded by Platform.isMacOS/Linux/Windows at every call.

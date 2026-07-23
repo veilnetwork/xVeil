@@ -19,12 +19,14 @@ class NotificationService {
   bool _ready = false;
 
   /// Whether the running platform has a notification backend the plugin
-  /// supports. Windows is unsupported by the plugin — never touch it there.
+  /// supports. Web is intentionally out of scope while xVeil remains a native
+  /// deniable client.
   static bool get _supported =>
       Platform.isAndroid ||
       Platform.isIOS ||
       Platform.isMacOS ||
-      Platform.isLinux;
+      Platform.isLinux ||
+      Platform.isWindows;
 
   static const _channelId = 'xveil_messages';
   static const _channelName = 'Messages';
@@ -44,6 +46,20 @@ class NotificationService {
     void Function(String payload, String text)? onReply,
   }) async {
     if (_ready || !_supported) return;
+    void handleResponse(NotificationResponse response) {
+      // An inline reply (RemoteInput) carries the typed text in `input` under
+      // our reply action id; anything else is a plain tap → open the chat.
+      if (response.actionId == replyActionId) {
+        final text = response.input?.trim() ?? '';
+        final payload = response.payload;
+        if (text.isNotEmpty && payload != null && payload.isNotEmpty) {
+          onReply?.call(payload, text);
+        }
+        return;
+      }
+      onTap(response.payload);
+    }
+
     try {
       // The Android launcher icon doubles as the notification icon.
       const android = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -55,32 +71,42 @@ class NotificationService {
         requestSoundPermission: false,
       );
       const linux = LinuxInitializationSettings(defaultActionName: 'Open');
+      const windows = WindowsInitializationSettings(
+        appName: 'xVeil',
+        appUserModelId: 'VeilNetwork.xVeil',
+        guid: 'c83f7894-6540-4f51-9d67-03cb858d9f6f',
+      );
       await _plugin.initialize(
-        const InitializationSettings(
+        settings: const InitializationSettings(
           android: android,
           iOS: darwin,
           macOS: darwin,
           linux: linux,
+          windows: windows,
         ),
-        onDidReceiveNotificationResponse: (resp) {
-          // An inline reply (RemoteInput) carries the typed text in `input` under
-          // our reply action id; anything else is a plain tap → open the chat.
-          if (resp.actionId == replyActionId) {
-            final text = resp.input?.trim() ?? '';
-            final payload = resp.payload;
-            if (text.isNotEmpty && payload != null && payload.isNotEmpty) {
-              onReply?.call(payload, text);
-            }
-            return;
-          }
-          onTap(resp.payload);
-        },
+        onDidReceiveNotificationResponse: handleResponse,
         onDidReceiveBackgroundNotificationResponse:
             _notificationBackgroundHandler,
       );
       _ready = true;
     } catch (e) {
       devLog(() => 'xVeil[notify]: init failed: $e');
+      return;
+    }
+    // Since plugin v4, initialize() deliberately does not replay a tap that
+    // launched a terminated app. Read the one-shot launch response explicitly
+    // after initialization so notification deep links work from a cold start,
+    // including mention links to an exact message/comment.
+    try {
+      final launch = await _plugin.getNotificationAppLaunchDetails();
+      final response = launch?.notificationResponse;
+      if (launch?.didNotificationLaunchApp == true && response != null) {
+        handleResponse(response);
+      }
+    } catch (e) {
+      // Displaying future notifications is still valid even if a platform
+      // cannot recover the launch response.
+      devLog(() => 'xVeil[notify]: launch response unavailable: $e');
     }
   }
 
@@ -158,10 +184,10 @@ class NotificationService {
             ]
           : null;
       await _plugin.show(
-        id,
-        title,
-        body,
-        NotificationDetails(
+        id: id,
+        title: title,
+        body: body,
+        notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
             _channelId,
             _channelName,
@@ -172,6 +198,7 @@ class NotificationService {
           iOS: const DarwinNotificationDetails(),
           macOS: const DarwinNotificationDetails(),
           linux: const LinuxNotificationDetails(),
+          windows: const WindowsNotificationDetails(),
         ),
         payload: payload,
       );
