@@ -336,6 +336,7 @@ void main() {
     final context = tester.element(find.byType(SpaceListScreen));
     final l = AppL10n.of(context);
 
+    expect(find.byKey(const ValueKey('space-mentions-open')), findsOneWidget);
     expect(
       find.byKey(ValueKey('space-notification-mentionsOnly-${spaceId.hex}')),
       findsOneWidget,

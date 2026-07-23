@@ -55,6 +55,11 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final service = ref.watch(groupServiceProvider);
+    final availableSpaces =
+        (ref.watch(spaceListProvider).valueOrNull ?? const <GroupListEntry>[])
+            .map((space) => (id: space.groupId, name: space.name))
+            .toList(growable: false)
+          ..sort((left, right) => left.name.compareTo(right.name));
     if (service == null) {
       return HomeSectionScaffold(
         title: l.navFeed,
@@ -65,6 +70,12 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
         onSearchClose: _closeSearch,
         onSearchChanged: (value) => setState(() => _query = value),
         contextActions: [
+          IconButton(
+            key: const ValueKey('space-feed-mentions-open'),
+            icon: const Icon(Icons.alternate_email),
+            tooltip: l.mentionsOpenTooltip,
+            onPressed: () => context.push('/mentions'),
+          ),
           IconButton(
             key: const ValueKey('space-feed-type-filter'),
             tooltip: l.feedFilterTitle,
@@ -120,16 +131,19 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
       );
     }
 
-    Future<void> chooseTypes(Set<SpacePostType> current) async {
-      final selected = await showModalBottomSheet<Set<SpacePostType>>(
+    Future<void> chooseFilter(SpaceFeedFilter current) async {
+      final selected = await showModalBottomSheet<SpaceFeedFilter>(
         context: context,
         showDragHandle: true,
         isScrollControlled: true,
-        builder: (_) => _PostTypeFilterSheet(initial: current),
+        builder: (_) => _SpaceFeedFilterSheet(
+          initial: current,
+          availableSpaces: availableSpaces,
+        ),
       );
       if (selected == null) return;
       try {
-        await service.setSpaceFeedTypeFilter(selected);
+        await service.setSpaceFeedFilter(selected);
       } catch (_) {
         if (context.mounted) {
           ScaffoldMessenger.of(
@@ -145,25 +159,23 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
       builder: (context, _) =>
           FutureBuilder<
             ({
-              Set<SpacePostType> types,
+              SpaceFeedFilter filter,
               List<SpaceFeedItem> pinnedItems,
               List<SpaceFeedItem> items,
             })
           >(
             key: ValueKey(('space-feed', service.feedAccessChanges.value)),
             future: () async {
-              final types = await service.spaceFeedTypeFilter();
+              final filter = await service.spaceFeedFilter();
               final pages = await Future.wait([
-                service.spaceFeed(limit: 100, types: types, pinned: true),
-                service.spaceFeed(limit: 100, types: types, pinned: false),
+                service.spaceFeed(limit: 100, filter: filter, pinned: true),
+                service.spaceFeed(limit: 100, filter: filter, pinned: false),
               ]);
-              return (types: types, pinnedItems: pages[0], items: pages[1]);
+              return (filter: filter, pinnedItems: pages[0], items: pages[1]);
             }(),
             builder: (context, snapshot) {
-              final selectedTypes = snapshot.data?.types;
-              final filtering =
-                  selectedTypes != null &&
-                  selectedTypes.length != SpacePostType.values.length;
+              final filter = snapshot.data?.filter;
+              final filtering = filter != null && !filter.isDefault;
               return HomeSectionScaffold(
                 title: l.navFeed,
                 searching: _searching,
@@ -174,14 +186,20 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
                 onSearchChanged: (value) => setState(() => _query = value),
                 contextActions: [
                   IconButton(
+                    key: const ValueKey('space-feed-mentions-open'),
+                    icon: const Icon(Icons.alternate_email),
+                    tooltip: l.mentionsOpenTooltip,
+                    onPressed: () => context.push('/mentions'),
+                  ),
+                  IconButton(
                     key: const ValueKey('space-feed-type-filter'),
                     tooltip: l.feedFilterTitle,
-                    onPressed: selectedTypes == null
+                    onPressed: filter == null
                         ? null
-                        : () => chooseTypes(selectedTypes),
+                        : () => chooseFilter(filter),
                     icon: Badge(
                       isLabelVisible: filtering,
-                      label: Text('${selectedTypes?.length ?? 0}'),
+                      label: Text('${filter?.activeDimensionCount ?? 0}'),
                       child: Icon(
                         filtering
                             ? Icons.filter_alt
@@ -330,72 +348,282 @@ class _FeedSectionHeader extends StatelessWidget {
   );
 }
 
-class _PostTypeFilterSheet extends StatefulWidget {
-  const _PostTypeFilterSheet({required this.initial});
+class _SpaceFeedFilterSheet extends StatefulWidget {
+  const _SpaceFeedFilterSheet({
+    required this.initial,
+    required this.availableSpaces,
+  });
 
-  final Set<SpacePostType> initial;
+  final SpaceFeedFilter initial;
+  final List<({NodeId id, String name})> availableSpaces;
 
   @override
-  State<_PostTypeFilterSheet> createState() => _PostTypeFilterSheetState();
+  State<_SpaceFeedFilterSheet> createState() => _SpaceFeedFilterSheetState();
 }
 
-class _PostTypeFilterSheetState extends State<_PostTypeFilterSheet> {
-  late final Set<SpacePostType> _selected = widget.initial.toSet();
+class _SpaceFeedFilterSheetState extends State<_SpaceFeedFilterSheet> {
+  late final Set<SpacePostType> _types = widget.initial.types.toSet();
+  late bool _mentionsOnly = widget.initial.mentionsOnly;
+  late SpaceFeedTimePreset _timePreset = widget.initial.timePreset;
+  late int? _customFromMs = widget.initial.customFromMs;
+  late int? _customToMs = widget.initial.customToMs;
+  late final Set<NodeId> _spaces = widget.initial.spaceIds.toSet();
+
+  void _reset() => setState(() {
+    _types
+      ..clear()
+      ..addAll(SpacePostType.values);
+    _mentionsOnly = false;
+    _timePreset = SpaceFeedTimePreset.all;
+    _customFromMs = null;
+    _customToMs = null;
+    _spaces.clear();
+  });
+
+  Future<void> _selectTimePreset(SpaceFeedTimePreset preset) async {
+    if (preset != SpaceFeedTimePreset.custom) {
+      setState(() => _timePreset = preset);
+      return;
+    }
+    final now = DateTime.now();
+    final firstDate = DateTime(2000);
+    final storedStart = _customFromMs == null
+        ? now.subtract(const Duration(days: 7))
+        : DateTime.fromMillisecondsSinceEpoch(_customFromMs!);
+    final storedEnd = _customToMs == null
+        ? now
+        : DateTime.fromMillisecondsSinceEpoch(_customToMs!);
+    final initialStart = storedStart.isBefore(firstDate)
+        ? firstDate
+        : storedStart.isAfter(now)
+        ? now
+        : storedStart;
+    final initialEnd =
+        storedEnd.isBefore(initialStart) || storedEnd.isAfter(now)
+        ? now
+        : storedEnd;
+    final dates = await showDateRangePicker(
+      context: context,
+      firstDate: firstDate,
+      lastDate: now,
+      initialDateRange: DateTimeRange(
+        start: DateUtils.dateOnly(initialStart),
+        end: DateUtils.dateOnly(initialEnd),
+      ),
+    );
+    if (dates == null || !mounted) return;
+    final startTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initialStart),
+    );
+    if (startTime == null || !mounted) return;
+    final endTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initialEnd),
+    );
+    if (endTime == null || !mounted) return;
+    final start = DateTime(
+      dates.start.year,
+      dates.start.month,
+      dates.start.day,
+      startTime.hour,
+      startTime.minute,
+    );
+    final end = DateTime(
+      dates.end.year,
+      dates.end.month,
+      dates.end.day,
+      endTime.hour,
+      endTime.minute,
+      59,
+      999,
+    );
+    if (end.isBefore(start)) return;
+    setState(() {
+      _timePreset = SpaceFeedTimePreset.custom;
+      _customFromMs = start.millisecondsSinceEpoch;
+      _customToMs = end.millisecondsSinceEpoch;
+    });
+  }
+
+  String _dateTimeLabel(BuildContext context, int milliseconds) {
+    final value = DateTime.fromMillisecondsSinceEpoch(milliseconds);
+    final material = MaterialLocalizations.of(context);
+    return '${material.formatCompactDate(value)}, '
+        '${material.formatTimeOfDay(TimeOfDay.fromDateTime(value))}';
+  }
+
+  void _toggleSpace(NodeId id, bool selected) {
+    final all = {for (final space in widget.availableSpaces) space.id};
+    setState(() {
+      if (_spaces.isEmpty && !selected) {
+        _spaces
+          ..addAll(all)
+          ..remove(id);
+      } else if (selected) {
+        _spaces.add(id);
+      } else {
+        _spaces.remove(id);
+      }
+      if (_spaces.length == all.length && _spaces.containsAll(all)) {
+        _spaces.clear();
+      }
+    });
+  }
+
+  SpaceFeedFilter _result() => SpaceFeedFilter(
+    types: _types,
+    mentionsOnly: _mentionsOnly,
+    timePreset: _timePreset,
+    customFromMs: _customFromMs,
+    customToMs: _customToMs,
+    spaceIds: _spaces,
+  );
 
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
+    final customRange =
+        _timePreset == SpaceFeedTimePreset.custom &&
+            _customFromMs != null &&
+            _customToMs != null
+        ? '${_dateTimeLabel(context, _customFromMs!)} — '
+              '${_dateTimeLabel(context, _customToMs!)}'
+        : null;
     return SafeArea(
-      child: Align(
-        alignment: Alignment.topCenter,
-        heightFactor: 1,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: FractionallySizedBox(
+        heightFactor: 0.9,
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        l.feedFilterTitle,
-                        style: Theme.of(context).textTheme.titleLarge,
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          l.feedFilterTitle,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
                       ),
-                    ),
-                    TextButton(
-                      key: const ValueKey('space-feed-filter-all'),
-                      onPressed: () => setState(() {
-                        _selected
-                          ..clear()
-                          ..addAll(SpacePostType.values);
-                      }),
-                      child: Text(l.feedFilterAll),
-                    ),
-                  ],
-                ),
-                for (final type in SpacePostType.values)
-                  CheckboxListTile(
-                    key: ValueKey('space-feed-filter-${type.name}'),
-                    value: _selected.contains(type),
-                    secondary: Icon(_postTypeIcon(type)),
-                    title: Text(_postTypeLabel(l, type)),
-                    onChanged: (checked) => setState(() {
-                      if (checked ?? false) {
-                        _selected.add(type);
-                      } else if (_selected.length > 1) {
-                        _selected.remove(type);
-                      }
-                    }),
+                      TextButton(
+                        key: const ValueKey('space-feed-filter-all'),
+                        onPressed: _reset,
+                        child: Text(l.feedFilterAll),
+                      ),
+                    ],
                   ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    key: const ValueKey('space-feed-filter-apply'),
-                    onPressed: () => Navigator.of(context).pop(_selected),
-                    child: Text(l.feedFilterApply),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: SingleChildScrollView(
+                    key: const ValueKey('space-feed-filter-scroll'),
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SwitchListTile(
+                          key: const ValueKey('space-feed-filter-mentions'),
+                          value: _mentionsOnly,
+                          secondary: const Icon(Icons.alternate_email),
+                          title: Text(l.feedFilterMentionsOnly),
+                          subtitle: Text(l.feedFilterMentionsOnlyHint),
+                          onChanged: (value) =>
+                              setState(() => _mentionsOnly = value),
+                        ),
+                        _FilterSectionTitle(label: l.feedFilterTypesTitle),
+                        for (final type in SpacePostType.values)
+                          CheckboxListTile(
+                            key: ValueKey('space-feed-filter-${type.name}'),
+                            value: _types.contains(type),
+                            secondary: Icon(_postTypeIcon(type)),
+                            title: Text(_postTypeLabel(l, type)),
+                            onChanged: (checked) => setState(() {
+                              if (checked ?? false) {
+                                _types.add(type);
+                              } else if (_types.length > 1) {
+                                _types.remove(type);
+                              }
+                            }),
+                          ),
+                        _FilterSectionTitle(label: l.feedFilterTimeTitle),
+                        RadioGroup<SpaceFeedTimePreset>(
+                          groupValue: _timePreset,
+                          onChanged: (value) {
+                            if (value != null) {
+                              unawaited(_selectTimePreset(value));
+                            }
+                          },
+                          child: Column(
+                            children: [
+                              for (final preset in SpaceFeedTimePreset.values)
+                                RadioListTile<SpaceFeedTimePreset>(
+                                  key: ValueKey(
+                                    'space-feed-filter-time-${preset.name}',
+                                  ),
+                                  value: preset,
+                                  title: Text(_timePresetLabel(l, preset)),
+                                  subtitle:
+                                      preset == SpaceFeedTimePreset.custom &&
+                                          customRange != null
+                                      ? Text(customRange)
+                                      : null,
+                                ),
+                            ],
+                          ),
+                        ),
+                        if (widget.availableSpaces.isNotEmpty) ...[
+                          _FilterSectionTitle(
+                            label: l.feedFilterCommunitiesTitle,
+                          ),
+                          CheckboxListTile(
+                            key: const ValueKey(
+                              'space-feed-filter-community-all',
+                            ),
+                            value: _spaces.isEmpty,
+                            secondary: const Icon(Icons.groups_outlined),
+                            title: Text(l.feedFilterAllCommunities),
+                            onChanged: (_) => setState(() => _spaces.clear()),
+                          ),
+                          for (final space in widget.availableSpaces)
+                            CheckboxListTile(
+                              key: ValueKey(
+                                'space-feed-filter-community-${space.id.hex}',
+                              ),
+                              value:
+                                  _spaces.isEmpty || _spaces.contains(space.id),
+                              secondary: CircleAvatar(
+                                radius: 14,
+                                child: Text(
+                                  space.name.isEmpty
+                                      ? '#'
+                                      : space.name.characters.first
+                                            .toUpperCase(),
+                                ),
+                              ),
+                              title: Text(space.name),
+                              subtitle: Text(space.id.short),
+                              onChanged: (checked) =>
+                                  _toggleSpace(space.id, checked ?? false),
+                            ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      key: const ValueKey('space-feed-filter-apply'),
+                      onPressed: () => Navigator.of(context).pop(_result()),
+                      child: Text(l.feedFilterApply),
+                    ),
                   ),
                 ),
               ],
@@ -406,6 +634,28 @@ class _PostTypeFilterSheetState extends State<_PostTypeFilterSheet> {
     );
   }
 }
+
+class _FilterSectionTitle extends StatelessWidget {
+  const _FilterSectionTitle({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
+    child: Text(label, style: Theme.of(context).textTheme.titleSmall),
+  );
+}
+
+String _timePresetLabel(AppL10n l, SpaceFeedTimePreset preset) =>
+    switch (preset) {
+      SpaceFeedTimePreset.all => l.feedFilterTimeAll,
+      SpaceFeedTimePreset.lastHour => l.feedFilterTimeHour,
+      SpaceFeedTimePreset.lastDay => l.feedFilterTimeDay,
+      SpaceFeedTimePreset.lastWeek => l.feedFilterTimeWeek,
+      SpaceFeedTimePreset.lastMonth => l.feedFilterTimeMonth,
+      SpaceFeedTimePreset.custom => l.feedFilterTimeCustom,
+    };
 
 String _postTypeLabel(AppL10n l, SpacePostType type) => switch (type) {
   SpacePostType.post => l.spacePostTypePost,

@@ -9818,54 +9818,48 @@ class GroupService {
     );
   }
 
-  /// Device-local content types shown in the merged Feed. Selecting every
-  /// type (or passing an empty set to the setter) is stored as the compact
-  /// default, so newly introduced post types remain visible after upgrades.
-  Future<Set<SpacePostType>> spaceFeedTypeFilter() async {
-    final all = Set<SpacePostType>.unmodifiable(SpacePostType.values);
+  /// Complete device-local Feed filter. The original v1 value contained only
+  /// publication types; [SpaceFeedFilter.fromJson] migrates it in place.
+  Future<SpaceFeedFilter> spaceFeedFilter() async {
     final stored = await _storage.getSetting(_spaceFeedTypesKey);
-    if (stored == null || stored.isEmpty) return all;
+    if (stored == null || stored.isEmpty) return SpaceFeedFilter.defaults();
     try {
-      final value = jsonDecode(stored);
-      if (value is! Map || value['v'] != 1 || value['types'] is! List) {
-        return all;
-      }
-      final selected = <SpacePostType>{};
-      for (final name in value['types'] as List) {
-        if (name is! String) return all;
-        final type = SpacePostType.fromName(name);
-        if (type == null) return all;
-        selected.add(type);
-      }
-      return selected.isEmpty ? all : Set<SpacePostType>.unmodifiable(selected);
+      return SpaceFeedFilter.fromJson(jsonDecode(stored)) ??
+          SpaceFeedFilter.defaults();
     } catch (_) {
       // Corrupt local UI state must never make the user's Feed disappear.
-      return all;
+      return SpaceFeedFilter.defaults();
     }
   }
 
+  Future<Set<SpacePostType>> spaceFeedTypeFilter() async =>
+      (await spaceFeedFilter()).types;
+
+  Future<void> _writeSpaceFeedFilter(SpaceFeedFilter next) async {
+    final current = await spaceFeedFilter();
+    if (jsonEncode(current.toJson()) == jsonEncode(next.toJson())) return;
+    await _storage.putSetting(
+      _spaceFeedTypesKey,
+      next.isDefault ? '' : jsonEncode(next.toJson()),
+    );
+    changes.value++;
+  }
+
+  Future<void> setSpaceFeedFilter(SpaceFeedFilter filter) {
+    if (!filter.isStructurallyValid) {
+      return Future<void>.error(
+        ArgumentError.value(filter, 'filter', 'invalid Feed filter'),
+      );
+    }
+    return _serializeSpaceFeedPreferences(() => _writeSpaceFeedFilter(filter));
+  }
+
+  /// Compatibility surface for the REST type-filter endpoint. Updating types
+  /// preserves the mention, time and community dimensions selected in the UI.
   Future<void> setSpaceFeedTypeFilter(Set<SpacePostType> types) =>
       _serializeSpaceFeedPreferences(() async {
-        final all = SpacePostType.values.toSet();
-        final normalized = types.isEmpty || types.length == all.length
-            ? all
-            : types.toSet();
-        final current = await spaceFeedTypeFilter();
-        if (current.length == normalized.length &&
-            current.every(normalized.contains)) {
-          return;
-        }
-        final encoded = normalized.length == all.length
-            ? ''
-            : jsonEncode({
-                'v': 1,
-                'types': [
-                  for (final type in SpacePostType.values)
-                    if (normalized.contains(type)) type.name,
-                ],
-              });
-        await _storage.putSetting(_spaceFeedTypesKey, encoded);
-        changes.value++;
+        final current = await spaceFeedFilter();
+        await _writeSpaceFeedFilter(current.copyWith(types: types));
       });
 
   Future<bool> isSpaceFeedPostHidden(NodeId spaceId, String postId) async {
@@ -10018,10 +10012,13 @@ class GroupService {
     SpaceFeedCursor? before,
     int limit = 50,
     Set<SpacePostType>? types,
+    SpaceFeedFilter? filter,
     bool? pinned,
   }) async {
     final boundedLimit = limit.clamp(1, 200);
-    final selectedTypes = types ?? await spaceFeedTypeFilter();
+    var selectedFilter = filter ?? await spaceFeedFilter();
+    if (types != null) selectedFilter = selectedFilter.copyWith(types: types);
+    final readAt = DateTime.now().millisecondsSinceEpoch;
     final items = <SpaceFeedItem>[];
     final seen = <String>{};
     final hidden = await _hiddenSpaceFeedPosts();
@@ -10041,6 +10038,10 @@ class GroupService {
       try {
         spaceId = NodeId.fromHex(id);
       } catch (_) {
+        continue;
+      }
+      if (selectedFilter.spaceIds.isNotEmpty &&
+          !selectedFilter.spaceIds.contains(spaceId)) {
         continue;
       }
       final bundle = await load(spaceId);
@@ -10075,7 +10076,13 @@ class GroupService {
         visiblePostIds: {for (final post in feedPosts) post.postId},
       );
       for (final post in feedPosts) {
-        if (!selectedTypes.contains(post.type)) continue;
+        if (!selectedFilter.allowsPost(
+          post,
+          viewer: _signer.selfId,
+          nowMs: readAt,
+        )) {
+          continue;
+        }
         if (pinned != null && post.pinned != pinned) continue;
         final cursor = SpaceFeedCursor.fromView(post);
         if (before != null && cursor.compareTo(before) >= 0) continue;
