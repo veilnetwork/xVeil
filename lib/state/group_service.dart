@@ -1932,8 +1932,10 @@ class GroupService {
     }
   }
 
-  /// Sign, epoch-encrypt and fan one ephemeral call-control event to every
-  /// other CURRENT member. No call plaintext or key is persisted.
+  /// Sign, epoch-encrypt and fan one ephemeral call-control event. Open rooms
+  /// use the Space membership epoch and every current member; restricted voice
+  /// rooms use their independent channel epoch and explicit current ACL. No
+  /// call plaintext or key is persisted.
   Future<GroupCallSignal?> broadcastGroupCallSignal(
     NodeId groupId, {
     NodeId? channelId,
@@ -1953,20 +1955,35 @@ class GroupService {
       verify: (entry) => _validControlFor(bundle.manifest, entry),
       initialName: bundle.manifest.name,
     ).state;
-    if (bundle.manifest.isSpace) {
-      if (channelId != null) {
-        final channel = state.channels[channelId.hex];
-        if (channel == null ||
-            channel.kind != SpaceChannelKind.voice ||
-            channel.archived) {
+    SpaceChannelControlCleartext? protectedChannel;
+    SpaceChannelControlEnvelope? protectedEnvelope;
+    if (bundle.manifest.isSpace && channelId != null) {
+      final channel = state.channels[channelId.hex];
+      if (channel != null) {
+        if (channel.kind != SpaceChannelKind.voice || channel.archived) {
+          return null;
+        }
+      } else {
+        protectedEnvelope = state.protectedChannels[channelId.hex];
+        if (protectedEnvelope == null) return null;
+        protectedChannel = await _materializeProtectedChannel(
+          bundle,
+          state,
+          protectedEnvelope,
+        );
+        if (protectedChannel == null ||
+            protectedChannel.channel.kind != SpaceChannelKind.voice ||
+            protectedChannel.channel.archived ||
+            !protectedChannel.recipients.contains(_signer.selfId)) {
           return null;
         }
       }
-    } else if (channelId != null) {
+    } else if (!bundle.manifest.isSpace && channelId != null) {
       return null;
     }
-    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view) ||
-        !SpaceAcl(state).allows(
+    final acl = SpaceAcl(state);
+    if (!acl.allows(_signer.selfId, SpacePermission.view) ||
+        !acl.allows(
           _signer.selfId,
           SpacePermission.enterVoice,
           channelId: channelId,
@@ -1974,22 +1991,42 @@ class GroupService {
         !_encryptionEstablished(bundle.manifest, bundle.control)) {
       return null;
     }
-    final descriptor = state.epochDescriptor;
-    final key = bundle.localEpochKeys[state.epoch];
-    if (descriptor == null ||
-        descriptor.epoch != state.epoch ||
-        key == null ||
-        !_validLocalEpochKey(
-          bundle.manifest,
-          bundle.control,
-          state.epoch,
-          key,
-        )) {
-      return null;
+    Uint8List? key;
+    if (protectedEnvelope == null) {
+      final descriptor = state.epochDescriptor;
+      key = bundle.localEpochKeys[state.epoch];
+      if (descriptor == null ||
+          descriptor.epoch != state.epoch ||
+          key == null ||
+          !_validLocalEpochKey(
+            bundle.manifest,
+            bundle.control,
+            state.epoch,
+            key,
+          )) {
+        return null;
+      }
+    } else {
+      key =
+          bundle.localChannelEpochKeys[_channelKeyId(
+            channelId!,
+            protectedEnvelope.channelEpoch,
+          )];
+      if (key == null ||
+          !_validLocalChannelEpochKey(
+            bundle.manifest,
+            bundle.control,
+            channelId,
+            protectedEnvelope.channelEpoch,
+            key,
+          )) {
+        return null;
+      }
     }
     final unsigned = GroupCallSignal(
       groupId: groupId,
       channelId: channelId,
+      channelEpoch: protectedEnvelope?.channelEpoch,
       callId: callId,
       author: _signer.selfId,
       membershipEpoch: state.epoch,
@@ -2000,7 +2037,9 @@ class GroupService {
       nonce: _freshGroupCallNonce(),
       signature: Uint8List(0),
       authorPubKey: Uint8List(0),
-      protocolVersion: channelId == null
+      protocolVersion: protectedEnvelope != null
+          ? kProtectedSpaceVoiceSessionProtocolVersion
+          : channelId == null
           ? kLegacyGroupCallProtocolVersion
           : kSpaceVoiceSessionProtocolVersion,
     );
@@ -2011,21 +2050,53 @@ class GroupService {
     }
     final clear = Uint8List.fromList(utf8.encode(signed.encode()));
     try {
-      final encrypted = await encryptGroupCallPayload(
-        groupId: groupId,
-        membershipEpoch: state.epoch,
-        author: _signer.selfId,
-        clearText: clear,
-        epochKey: key,
-      );
-      final frame = GroupCallWireFrame(
-        groupId: groupId,
-        membershipEpoch: state.epoch,
-        payload: encrypted,
-      ).encode();
-      for (final member in state.members.values) {
-        if (member.nodeId == _signer.selfId) continue;
-        await sender(member.nodeId, signed, frame);
+      late final GroupEncryptedPayload encrypted;
+      late final GroupCallWireFrame frame;
+      if (protectedEnvelope != null) {
+        encrypted = await encryptSpaceChannelCallPayload(
+          spaceId: groupId,
+          channelId: channelId!,
+          channelEpoch: protectedEnvelope.channelEpoch,
+          author: _signer.selfId,
+          clearText: clear,
+          channelKey: key,
+        );
+        frame = GroupCallWireFrame(
+          groupId: groupId,
+          channelId: channelId,
+          channelEpoch: protectedEnvelope.channelEpoch,
+          payload: encrypted,
+        );
+      } else {
+        encrypted = await encryptGroupCallPayload(
+          groupId: groupId,
+          membershipEpoch: state.epoch,
+          author: _signer.selfId,
+          clearText: clear,
+          epochKey: key,
+        );
+        frame = GroupCallWireFrame(
+          groupId: groupId,
+          membershipEpoch: state.epoch,
+          payload: encrypted,
+        );
+      }
+      final frameJson = frame.encode();
+      final recipients = protectedChannel == null
+          ? state.members.values.map((member) => member.nodeId)
+          : protectedChannel.recipients.where(
+              (recipient) =>
+                  state.isMember(recipient) &&
+                  acl.allows(recipient, SpacePermission.view) &&
+                  acl.allows(
+                    recipient,
+                    SpacePermission.enterVoice,
+                    channelId: channelId,
+                  ),
+            );
+      for (final recipient in recipients) {
+        if (recipient == _signer.selfId) continue;
+        await sender(recipient, signed, frameJson);
       }
       return signed;
     } catch (_) {
@@ -2049,36 +2120,97 @@ class GroupService {
         verify: (entry) => _validControlFor(bundle.manifest, entry),
         initialName: bundle.manifest.name,
       ).state;
-      if (!SpaceAcl(state).allows(peer, SpacePermission.view) ||
-          frame.membershipEpoch != state.epoch ||
-          state.epochDescriptor?.epoch != state.epoch) {
-        return false;
-      }
-      final key = bundle.localEpochKeys[state.epoch];
-      if (key == null ||
-          !_validLocalEpochKey(
-            bundle.manifest,
-            bundle.control,
-            state.epoch,
-            key,
-          )) {
-        return false;
+      if (!SpaceAcl(state).allows(peer, SpacePermission.view)) return false;
+      SpaceChannelControlCleartext? protectedChannel;
+      late final Uint8List key;
+      if (frame.isChannelEncrypted) {
+        if (!bundle.manifest.isSpace) return false;
+        final channelId = frame.channelId!;
+        final opaque = state.protectedChannels[channelId.hex];
+        if (opaque == null || opaque.channelEpoch != frame.channelEpoch) {
+          return false;
+        }
+        protectedChannel = await _materializeProtectedChannel(
+          bundle,
+          state,
+          opaque,
+        );
+        if (protectedChannel == null ||
+            protectedChannel.channel.kind != SpaceChannelKind.voice ||
+            protectedChannel.channel.archived ||
+            !protectedChannel.recipients.contains(peer) ||
+            !protectedChannel.recipients.contains(_signer.selfId)) {
+          return false;
+        }
+        final candidate =
+            bundle.localChannelEpochKeys[_channelKeyId(
+              channelId,
+              frame.channelEpoch!,
+            )];
+        if (candidate == null ||
+            !_validLocalChannelEpochKey(
+              bundle.manifest,
+              bundle.control,
+              channelId,
+              frame.channelEpoch!,
+              candidate,
+            )) {
+          return false;
+        }
+        key = candidate;
+      } else {
+        if (!frame.isMembershipEncrypted ||
+            frame.membershipEpoch != state.epoch ||
+            state.epochDescriptor?.epoch != state.epoch) {
+          return false;
+        }
+        final candidate = bundle.localEpochKeys[state.epoch];
+        if (candidate == null ||
+            !_validLocalEpochKey(
+              bundle.manifest,
+              bundle.control,
+              state.epoch,
+              candidate,
+            )) {
+          return false;
+        }
+        key = candidate;
       }
       Uint8List? clear;
       try {
-        clear = await decryptGroupCallPayload(
-          groupId: frame.groupId,
-          membershipEpoch: frame.membershipEpoch,
-          author: peer,
-          payload: frame.payload,
-          epochKey: key,
-        );
+        clear = frame.isChannelEncrypted
+            ? await decryptSpaceChannelCallPayload(
+                spaceId: frame.groupId,
+                channelId: frame.channelId!,
+                channelEpoch: frame.channelEpoch!,
+                author: peer,
+                payload: frame.payload,
+                channelKey: key,
+              )
+            : await decryptGroupCallPayload(
+                groupId: frame.groupId,
+                membershipEpoch: frame.membershipEpoch!,
+                author: peer,
+                payload: frame.payload,
+                epochKey: key,
+              );
         if (clear.length > maxGroupCallSignalBytes) return false;
         final signal = GroupCallSignal.tryDecode(utf8.decode(clear));
+        final signalAcl = SpaceAcl(state);
         if (signal == null ||
             signal.groupId != frame.groupId ||
-            signal.membershipEpoch != frame.membershipEpoch ||
+            signal.membershipEpoch != state.epoch ||
             signal.author != peer ||
+            !signalAcl.allows(
+              peer,
+              SpacePermission.enterVoice,
+              channelId: signal.channelId,
+            ) ||
+            !signalAcl.allows(
+              _signer.selfId,
+              SpacePermission.enterVoice,
+              channelId: signal.channelId,
+            ) ||
             !_validGroupCallShape(signal) ||
             !_signer.verifyCallSignal(signal) ||
             !SpaceAcl(state).allows(
@@ -2090,7 +2222,16 @@ class GroupService {
           return false;
         }
         if (bundle.manifest.isSpace) {
-          if (signal.channelId == null) {
+          if (frame.isChannelEncrypted) {
+            if (signal.protocolVersion !=
+                    kProtectedSpaceVoiceSessionProtocolVersion ||
+                signal.channelId != frame.channelId ||
+                signal.channelEpoch != frame.channelEpoch ||
+                protectedChannel == null ||
+                !protectedChannel.recipients.contains(signal.author)) {
+              return false;
+            }
+          } else if (signal.channelId == null) {
             if (signal.protocolVersion != kLegacyGroupCallProtocolVersion) {
               return false;
             }
@@ -2103,7 +2244,8 @@ class GroupService {
               return false;
             }
           }
-        } else if (signal.channelId != null ||
+        } else if (frame.isChannelEncrypted ||
+            signal.channelId != null ||
             signal.protocolVersion != kLegacyGroupCallProtocolVersion) {
           return false;
         }
@@ -2445,7 +2587,7 @@ class GroupService {
       if (decoded == null ||
           decoded.channel.spaceId != bundle.manifest.groupId ||
           decoded.channel.channelId != envelope.channelId ||
-          decoded.channel.kind != SpaceChannelKind.text ||
+          decoded.channel.kind == SpaceChannelKind.category ||
           decoded.channel.categoryId != null ||
           decoded.channel.isDefault ||
           !decoded.recipients.contains(_signer.selfId) ||
@@ -3790,6 +3932,71 @@ class GroupService {
     return channels;
   }
 
+  /// Current participants allowed into one voice scope. Resolving this once
+  /// lets the call FSM reconcile an N-party room without decrypting the same
+  /// protected channel control separately for every participant.
+  Future<({Set<NodeId> recipients, int? channelEpoch})?>
+  currentVoiceChannelAdmission(NodeId groupId, NodeId? channelId) async {
+    final bundle = await load(groupId);
+    if (bundle == null || bundle.manifest.isSovereignDevice) return null;
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    ).state;
+    Iterable<NodeId> candidates = state.members.values.map(
+      (member) => member.nodeId,
+    );
+    int? channelEpoch;
+    if (channelId != null) {
+      if (!bundle.manifest.isSpace) return null;
+      final open = state.channels[channelId.hex];
+      if (open != null) {
+        if (open.kind != SpaceChannelKind.voice || open.archived) return null;
+      } else {
+        final opaque = state.protectedChannels[channelId.hex];
+        if (opaque == null) return null;
+        final clear = await _materializeProtectedChannel(bundle, state, opaque);
+        if (clear == null ||
+            clear.channel.kind != SpaceChannelKind.voice ||
+            clear.channel.archived) {
+          return null;
+        }
+        candidates = clear.recipients;
+        channelEpoch = opaque.channelEpoch;
+      }
+    }
+    final acl = SpaceAcl(state);
+    return (
+      recipients: {
+        for (final member in candidates)
+          if (state.isMember(member) &&
+              acl.allows(member, SpacePermission.view) &&
+              acl.allows(
+                member,
+                SpacePermission.enterVoice,
+                channelId: channelId,
+              ))
+            member,
+      },
+      channelEpoch: channelEpoch,
+    );
+  }
+
+  /// Authoritative current admission for a voice room. Restricted channels
+  /// fail closed when their rotated control/key is unavailable locally.
+  Future<bool> canEnterVoiceChannel(
+    NodeId groupId,
+    NodeId? channelId,
+    NodeId member,
+  ) async =>
+      (await currentVoiceChannelAdmission(
+        groupId,
+        channelId,
+      ))?.recipients.contains(member) ??
+      false;
+
   Future<NodeId?> createChannel(
     NodeId spaceId, {
     required String name,
@@ -3842,7 +4049,7 @@ class GroupService {
     );
     if (!channel.isValid) return null;
     if (access != SpaceChannelAccess.space) {
-      if (kind != SpaceChannelKind.text ||
+      if (kind == SpaceChannelKind.category ||
           categoryId != null ||
           isDefault ||
           _epochService == null) {
@@ -3998,7 +4205,7 @@ class GroupService {
     final epochService = _epochService;
     if (epochService == null ||
         channel.access != SpaceChannelAccess.restricted ||
-        channel.kind != SpaceChannelKind.text ||
+        channel.kind == SpaceChannelKind.category ||
         channel.categoryId != null ||
         channel.isDefault) {
       return false;
