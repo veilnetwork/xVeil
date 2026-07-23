@@ -278,6 +278,22 @@ class _ControlledGroupWriteStorage extends HiddenVolumeStorage {
   }
 }
 
+class _CountingGroupReadStorage extends HiddenVolumeStorage {
+  _CountingGroupReadStorage()
+    : super(
+        ({required Uint8List password, required bool create}) =>
+            FakeKvLogStore(),
+      );
+
+  int groupBundleReads = 0;
+
+  @override
+  Future<Uint8List?> loadFile(String fileId) async {
+    if (fileId.startsWith('group:')) groupBundleReads++;
+    return super.loadFile(fileId);
+  }
+}
+
 void main() {
   final hasVeilFfi = (Platform.environment['VEIL_FFI_DYLIB'] ?? '').isNotEmpty;
   final owner = _id(1);
@@ -450,6 +466,49 @@ void main() {
   );
 
   test(
+    'Space replication snapshot reads each durable bundle once per call',
+    () async {
+      final storage = _CountingGroupReadStorage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(
+        storage,
+        _FakeSigner(owner),
+        activePeers: () async => const <NodeId>{},
+      );
+      addTearDown(service.dispose);
+
+      await service.createSpace(
+        'Single coherent observability read',
+        visibility: SpaceVisibility.public,
+      );
+      storage.groupBundleReads = 0;
+
+      expect(
+        (await service.spaceObservabilitySnapshot()).replication.spaces,
+        1,
+      );
+      expect(
+        storage.groupBundleReads,
+        1,
+        reason:
+            'frontier and message materialization must reuse the validated '
+            'bundle loaded by the snapshot',
+      );
+
+      storage.groupBundleReads = 0;
+      expect(
+        (await service.spaceObservabilitySnapshot()).replication.spaces,
+        1,
+      );
+      expect(
+        storage.groupBundleReads,
+        1,
+        reason: 'a later snapshot must still perform one fresh durable read',
+      );
+    },
+  );
+
+  test(
     'Space receipts are source-bound, loop-free and confirm only a caught-up '
     'authorized sync frontier',
     () async {
@@ -612,6 +671,170 @@ void main() {
       );
     },
   );
+
+  test('content receipts are source-bound, replay-safe and expose distinct '
+      'per-blob deficits without ids', () async {
+    final ownerStorage = FakeHvContainer().storage();
+    final bobStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'pw', createIfMissing: true);
+    await bobStorage.open(password: 'pw', createIfMissing: true);
+    late GroupService ownerSvc;
+    final receiptWires = <(NodeId, String)>[];
+    final bobSvc = GroupService(
+      bobStorage,
+      _FakeSigner(bob),
+      sendContentRequest: (holder, requestJson) async {
+        expect(holder, owner);
+        expect(await ownerSvc.handleContentRequest(requestJson), isTrue);
+      },
+      sendContentReceipt: (holder, receiptJson) async {
+        receiptWires.add((holder, receiptJson));
+      },
+      activePeers: () async => {owner},
+    );
+    ownerSvc = GroupService(
+      ownerStorage,
+      _FakeSigner(owner),
+      grantContentServe: (_, _) {},
+      activePeers: () async => {bob},
+    );
+    addTearDown(ownerSvc.dispose);
+    addTearDown(bobSvc.dispose);
+
+    final spaceId = await ownerSvc.createSpace(
+      'Blob receipt scope must stay private',
+      visibility: SpaceVisibility.public,
+    );
+    expect(
+      await ownerSvc.addControlOp(
+        spaceId,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    final cids = [
+      sha256.convert(const [1]).toString(),
+      sha256.convert(const [2]).toString(),
+    ];
+    for (var i = 0; i < cids.length; i++) {
+      expect(
+        await ownerSvc.publishSpacePost(
+          spaceId,
+          body: 'blob ${i + 1}',
+          media: [MediaObjectRef(contentId: cids[i], kind: 'image', size: 1)],
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      await ownerStorage.storeFile(
+        cids[i],
+        Uint8List.fromList([i + 1]),
+        name: 'owner-$i',
+      );
+    }
+    expect(
+      await bobSvc.ingestSnapshot(
+        ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!, recipient: bob),
+      ),
+      isTrue,
+    );
+
+    var replication = (await ownerSvc.spaceObservabilitySnapshot()).replication;
+    expect(replication.referencedContentBlobs, 2);
+    expect(replication.locallyHeldContentBlobs, 2);
+    expect(replication.targetContentHolderSlots, 4);
+    expect(replication.confirmedRemoteContentHolderSlots, 0);
+    expect(replication.confirmedContentHolderSlots, 2);
+    expect(replication.confirmedContentDeficitSlots, 2);
+    expect(replication.confirmedUnderReplicatedContentBlobs, 2);
+
+    Future<String> completeFromOwner(String cid, int byte) async {
+      expect(await bobSvc.requestGroupContent(spaceId, cid, owner), isTrue);
+      if (!await bobStorage.hasFile(cid)) {
+        await bobStorage.storeFile(
+          cid,
+          Uint8List.fromList([byte]),
+          name: 'bob',
+        );
+      }
+      final before = receiptWires.length;
+      await bobSvc.handleVerifiedContentSources(cid, {owner});
+      for (var i = 0; i < 20 && receiptWires.length == before; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(receiptWires, hasLength(before + 1));
+      expect(receiptWires.last.$1, owner);
+      return receiptWires.last.$2;
+    }
+
+    final firstWire = await completeFromOwner(cids.first, 1);
+    final firstJson = jsonDecode(firstWire) as Map<String, dynamic>;
+    expect(
+      await ownerSvc.handleContentReceipt(stranger, firstWire),
+      isFalse,
+      reason: 'authenticated transport source must equal requester',
+    );
+    final forgedNonce = Map<String, dynamic>.of(firstJson)..['n'] = 'f' * 24;
+    expect(
+      await ownerSvc.handleContentReceipt(bob, jsonEncode(forgedNonce)),
+      isFalse,
+    );
+    expect(await ownerSvc.handleContentReceipt(bob, firstWire), isTrue);
+    expect(
+      await ownerSvc.handleContentReceipt(bob, firstWire),
+      isFalse,
+      reason: 'the matching request challenge is single-use',
+    );
+
+    replication = (await ownerSvc.spaceObservabilitySnapshot()).replication;
+    expect(replication.confirmedRemoteContentHolderSlots, 1);
+    expect(replication.confirmedContentHolderSlots, 3);
+    expect(replication.confirmedContentDeficitSlots, 1);
+    expect(replication.confirmedUnderReplicatedContentBlobs, 1);
+
+    final secondWire = await completeFromOwner(cids.last, 2);
+    expect(await ownerSvc.handleContentReceipt(bob, secondWire), isTrue);
+    final completedObservations = await ownerSvc.spaceObservabilitySnapshot();
+    replication = completedObservations.replication;
+    expect(replication.confirmedRemoteContentHolderSlots, 2);
+    expect(replication.availableConfirmedRemoteContentHolderSlots, 2);
+    expect(replication.confirmedContentHolderSlots, 4);
+    expect(replication.confirmedContentDeficitSlots, 0);
+    expect(replication.confirmedUnderReplicatedContentBlobs, 0);
+    expect(completedObservations.counters['p2pContentReceipt.succeeded'], 2);
+    expect(completedObservations.counters['p2pContentReceipt.rejected'], 3);
+    final encoded = jsonEncode(completedObservations.toJson());
+    expect(encoded, isNot(contains(spaceId.hex)));
+    expect(encoded, isNot(contains(owner.hex)));
+    expect(encoded, isNot(contains(bob.hex)));
+    for (final cid in cids) {
+      expect(encoded, isNot(contains(cid)));
+    }
+    expect(encoded, isNot(contains('Blob receipt scope')));
+    expect(encoded, isNot(contains('blob 1')));
+
+    final revokedWire = await completeFromOwner(cids.first, 1);
+    expect(
+      await ownerSvc.addControlOp(spaceId, ControlOp.removeMember, target: bob),
+      isTrue,
+    );
+    expect(
+      await ownerSvc.handleContentReceipt(bob, revokedWire),
+      isFalse,
+      reason:
+          'a request accepted before removal cannot confirm a holder after '
+          'the current ACL changes',
+    );
+    final revokedObservations = await ownerSvc.spaceObservabilitySnapshot();
+    expect(revokedObservations.counters['p2pContentReceipt.rejected'], 4);
+    expect(
+      revokedObservations.replication.confirmedRemoteContentHolderSlots,
+      0,
+      reason: 'ineligible peers are excluded before proof TTL expiry',
+    );
+  });
 
   test(
     'Space rules are signed, versioned and require explicit re-acceptance',

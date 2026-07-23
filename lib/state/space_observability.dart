@@ -25,6 +25,7 @@ enum SpaceObservationType {
   p2pBackfill,
   p2pMissingObjects,
   p2pReceipt,
+  p2pContentReceipt,
   revokedDeliveryPrevented,
 }
 
@@ -101,8 +102,16 @@ final class SpaceReplicationObservability {
     this.confirmedReplicationFactorMin = 0,
     this.confirmedReplicationFactorMax = 0,
     this.confirmedUnderReplicatedSpaces = 0,
+    this.referencedContentBlobs = 0,
+    this.locallyHeldContentBlobs = 0,
+    this.targetContentHolderSlots = 0,
+    this.confirmedRemoteContentHolderSlots = 0,
+    this.confirmedContentHolderSlots = 0,
+    this.confirmedContentDeficitSlots = 0,
+    this.confirmedUnderReplicatedContentBlobs = 0,
     this.availableRemoteSpreaders,
     this.availableConfirmedRemoteHolderSlots,
+    this.availableConfirmedRemoteContentHolderSlots,
     this.estimatedLiveReplicationFactorTotal,
     this.estimatedLiveReplicationFactorMin,
     this.estimatedLiveReplicationFactorMax,
@@ -119,8 +128,16 @@ final class SpaceReplicationObservability {
   final int confirmedReplicationFactorMin;
   final int confirmedReplicationFactorMax;
   final int confirmedUnderReplicatedSpaces;
+  final int referencedContentBlobs;
+  final int locallyHeldContentBlobs;
+  final int targetContentHolderSlots;
+  final int confirmedRemoteContentHolderSlots;
+  final int confirmedContentHolderSlots;
+  final int confirmedContentDeficitSlots;
+  final int confirmedUnderReplicatedContentBlobs;
   final int? availableRemoteSpreaders;
   final int? availableConfirmedRemoteHolderSlots;
+  final int? availableConfirmedRemoteContentHolderSlots;
   final int? estimatedLiveReplicationFactorTotal;
   final int? estimatedLiveReplicationFactorMin;
   final int? estimatedLiveReplicationFactorMax;
@@ -141,8 +158,21 @@ final class SpaceReplicationObservability {
     'confirmedReplicationFactorMin': confirmedReplicationFactorMin,
     'confirmedReplicationFactorMax': confirmedReplicationFactorMax,
     'confirmedUnderReplicatedSpaces': confirmedUnderReplicatedSpaces,
+    'confirmedContentBasis': 'verifiedStoreAndSourceBoundRequestReceipt',
+    'confirmedContentScope': 'referencedContentAddressedBlobs',
+    'confirmedContentRuntimeOnly': true,
+    'referencedContentBlobs': referencedContentBlobs,
+    'locallyHeldContentBlobs': locallyHeldContentBlobs,
+    'targetContentHolderSlots': targetContentHolderSlots,
+    'confirmedRemoteContentHolderSlots': confirmedRemoteContentHolderSlots,
+    'confirmedContentHolderSlots': confirmedContentHolderSlots,
+    'confirmedContentDeficitSlots': confirmedContentDeficitSlots,
+    'confirmedUnderReplicatedContentBlobs':
+        confirmedUnderReplicatedContentBlobs,
     'availableRemoteSpreaders': ?availableRemoteSpreaders,
     'availableConfirmedRemoteHolderSlots': ?availableConfirmedRemoteHolderSlots,
+    'availableConfirmedRemoteContentHolderSlots':
+        ?availableConfirmedRemoteContentHolderSlots,
     'estimatedLiveReplicationFactorTotal': ?estimatedLiveReplicationFactorTotal,
     'estimatedLiveReplicationFactorMin': ?estimatedLiveReplicationFactorMin,
     'estimatedLiveReplicationFactorMax': ?estimatedLiveReplicationFactorMax,
