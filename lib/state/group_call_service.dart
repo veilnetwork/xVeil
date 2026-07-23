@@ -9,8 +9,6 @@ import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call_signal.dart';
 import '../domain/group.dart';
 import '../domain/group_call.dart';
-import '../domain/group_policy.dart';
-import '../domain/space_channel.dart';
 import 'call_service.dart';
 import 'call_slot.dart';
 import 'group_service_providers.dart';
@@ -37,6 +35,7 @@ class ActiveGroupRoom {
   const ActiveGroupRoom({
     required this.groupId,
     this.channelId,
+    this.channelEpoch,
     required this.callId,
     required this.initiator,
     required this.membershipEpoch,
@@ -46,6 +45,7 @@ class ActiveGroupRoom {
 
   final NodeId groupId;
   final NodeId? channelId;
+  final int? channelEpoch;
   final String callId;
   final NodeId initiator;
   final int membershipEpoch;
@@ -79,6 +79,11 @@ class GroupCallService {
     bool Function()? otherCallBusy,
     Duration heartbeatInterval = kGroupCallHeartbeatInterval,
     Duration reannounceInterval = kGroupCallReannounceInterval,
+    List<Duration> channelEpochReannounceDelays = const [
+      Duration(seconds: 2),
+      Duration(seconds: 5),
+      Duration(seconds: 10),
+    ],
   }) : // Named public `media:` parameter intentionally initializes private field.
        // ignore: prefer_initializing_formals
        _media = media,
@@ -89,7 +94,10 @@ class GroupCallService {
        // ignore: prefer_initializing_formals
        _heartbeatInterval = heartbeatInterval,
        // ignore: prefer_initializing_formals
-       _reannounceInterval = reannounceInterval;
+       _reannounceInterval = reannounceInterval,
+       _channelEpochReannounceDelays = List.unmodifiable(
+         channelEpochReannounceDelays,
+       );
 
   final GroupService _groups;
   final GroupCallMediaController? _media;
@@ -98,6 +106,7 @@ class GroupCallService {
   final bool Function() _otherCallBusy;
   final Duration _heartbeatInterval;
   final Duration _reannounceInterval;
+  final List<Duration> _channelEpochReannounceDelays;
   final StreamController<GroupCall?> _changes = StreamController.broadcast();
 
   StreamSubscription<GroupCallSignal>? _subscription;
@@ -105,6 +114,7 @@ class GroupCallService {
   Timer? _ringTimer;
   Timer? _heartbeatTimer;
   Timer? _reannounceTimer;
+  final List<Timer> _channelEpochReannounceTimers = [];
   GroupCall? _current;
   bool _started = false;
 
@@ -154,35 +164,43 @@ class GroupCallService {
     final call = _current;
     if (call == null || !call.isLive) return;
     final state = await _groups.stateOf(call.groupId);
+    final admission = await _groups.currentVoiceChannelAdmission(
+      call.groupId,
+      call.channelId,
+    );
     if (state == null ||
-        !SpaceAcl(state).allows(
-          _groups.selfId,
-          SpacePermission.enterVoice,
-          channelId: call.channelId,
-        )) {
+        admission == null ||
+        !admission.recipients.contains(_groups.selfId)) {
       _end(CallEndReason.error, roomOver: true);
       return;
     }
     final participants = Map<String, GroupCallParticipant>.from(
       call.participants,
     );
-    participants.removeWhere((hex, _) {
-      final participant = state.members[hex];
-      return participant == null ||
-          !SpaceAcl(state).allows(
-            participant.nodeId,
-            SpacePermission.enterVoice,
-            channelId: call.channelId,
-          );
-    });
+    participants.removeWhere(
+      (hex, participant) =>
+          state.members[hex] == null ||
+          !admission.recipients.contains(participant.nodeId),
+    );
     final epochChanged = state.epoch != call.membershipEpoch;
-    if ((participants.length != call.participants.length || epochChanged) &&
+    final channelEpochChanged = admission.channelEpoch != call.channelEpoch;
+    if ((participants.length != call.participants.length ||
+            epochChanged ||
+            channelEpochChanged) &&
         _current?.callId == call.callId) {
       _set(
-        call.copyWith(membershipEpoch: state.epoch, participants: participants),
+        call.copyWith(
+          membershipEpoch: state.epoch,
+          channelEpoch: admission.channelEpoch,
+          participants: participants,
+        ),
       );
       await _syncMedia();
-      if (epochChanged && call.isJoined(_groups.selfId)) {
+      if ((epochChanged || channelEpochChanged) &&
+          call.isJoined(_groups.selfId)) {
+        if (channelEpochChanged) {
+          _scheduleChannelEpochReannounces(call.callId, admission.channelEpoch);
+        }
         await _reannounce();
       }
     }
@@ -198,28 +216,21 @@ class GroupCallService {
     }
     if (!(_callSlot?.acquire(CallSlotOwner.group) ?? true)) return false;
     final state = await _groups.stateOf(groupId);
+    final admission = await _groups.currentVoiceChannelAdmission(
+      groupId,
+      channelId,
+    );
     if (state == null ||
-        !SpaceAcl(state).allows(
-          _groups.selfId,
-          SpacePermission.enterVoice,
-          channelId: channelId,
-        )) {
+        admission == null ||
+        !admission.recipients.contains(_groups.selfId)) {
       _callSlot?.release(CallSlotOwner.group);
       return false;
-    }
-    if (channelId != null) {
-      final channel = state.channels[channelId.hex];
-      if (channel == null ||
-          channel.kind != SpaceChannelKind.voice ||
-          channel.archived) {
-        _callSlot?.release(CallSlotOwner.group);
-        return false;
-      }
     }
     final now = _now();
     final call = GroupCall(
       groupId: groupId,
       channelId: channelId,
+      channelEpoch: admission.channelEpoch,
       callId: _uuid.v4(),
       initiator: _groups.selfId,
       membershipEpoch: state.epoch,
@@ -266,12 +277,13 @@ class GroupCallService {
       return false;
     }
     final state = await _groups.stateOf(call.groupId);
+    final admission = await _groups.currentVoiceChannelAdmission(
+      call.groupId,
+      call.channelId,
+    );
     if (state == null ||
-        !SpaceAcl(state).allows(
-          _groups.selfId,
-          SpacePermission.enterVoice,
-          channelId: call.channelId,
-        )) {
+        admission == null ||
+        !admission.recipients.contains(_groups.selfId)) {
       _end(CallEndReason.error, roomOver: true);
       return false;
     }
@@ -287,6 +299,7 @@ class GroupCallService {
           );
     final joined = call.copyWith(
       membershipEpoch: state.epoch,
+      channelEpoch: admission.channelEpoch,
       status: GroupCallStatus.connecting,
       joinedAt: now,
       participants: participants,
@@ -334,6 +347,7 @@ class GroupCallService {
       GroupCall(
         groupId: room.groupId,
         channelId: room.channelId,
+        channelEpoch: room.channelEpoch,
         callId: room.callId,
         initiator: room.initiator,
         membershipEpoch: room.membershipEpoch,
@@ -505,6 +519,7 @@ class GroupCallService {
         call = GroupCall(
           groupId: signal.groupId,
           channelId: signal.channelId,
+          channelEpoch: signal.channelEpoch,
           callId: signal.callId,
           initiator: signal.author,
           membershipEpoch: signal.membershipEpoch,
@@ -743,6 +758,32 @@ class GroupCallService {
     );
   }
 
+  void _scheduleChannelEpochReannounces(String callId, int? channelEpoch) {
+    _cancelChannelEpochReannounces();
+    for (final delay in _channelEpochReannounceDelays) {
+      if (delay.isNegative) continue;
+      _channelEpochReannounceTimers.add(
+        Timer(delay, () {
+          final call = _current;
+          if (call == null ||
+              !call.isLive ||
+              call.callId != callId ||
+              call.channelEpoch != channelEpoch) {
+            return;
+          }
+          unawaited(_reannounce());
+        }),
+      );
+    }
+  }
+
+  void _cancelChannelEpochReannounces() {
+    for (final timer in _channelEpochReannounceTimers) {
+      timer.cancel();
+    }
+    _channelEpochReannounceTimers.clear();
+  }
+
   void _armRingTimer() {
     _cancelRingTimer();
     _ringTimer = Timer(kGroupCallRingTimeout, () {
@@ -791,6 +832,7 @@ class GroupCallService {
     _heartbeatTimer = null;
     _reannounceTimer?.cancel();
     _reannounceTimer = null;
+    _cancelChannelEpochReannounces();
     if (_media == null) {
       _callSlot?.release(CallSlotOwner.group);
     } else {
@@ -812,6 +854,7 @@ class GroupCallService {
     _knownRooms[_roomKey(signal.groupId, signal.channelId)] = ActiveGroupRoom(
       groupId: signal.groupId,
       channelId: signal.channelId,
+      channelEpoch: signal.channelEpoch,
       callId: signal.callId,
       initiator: signal.author,
       membershipEpoch: signal.membershipEpoch,
@@ -885,6 +928,7 @@ class GroupCallService {
     _cancelRingTimer();
     _heartbeatTimer?.cancel();
     _reannounceTimer?.cancel();
+    _cancelChannelEpochReannounces();
     await _subscription?.cancel();
     await _screenShareStoppedSubscription?.cancel();
     await _stopMediaAndReleaseSlot();

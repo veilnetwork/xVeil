@@ -418,7 +418,13 @@ void main() {
       final storage = FakeHvContainer().storage();
       await storage.open(password: 'pw', createIfMissing: true);
       final owner = _id(7);
-      final service = GroupService(storage, _Signer(owner));
+      final service = GroupService(
+        storage,
+        _Signer(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
       final api = GroupApiAdapter(
         service,
         registerContentSource:
@@ -488,6 +494,42 @@ void main() {
           await api.channelAction(space, channel, 'archive'),
           isNotNull,
           reason: 'the last active default channel cannot be archived',
+        );
+
+        final voiceMember = _id(17);
+        expect(
+          await service.addControlOp(
+            NodeId.fromHex(space),
+            ControlOp.addMember,
+            target: voiceMember,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+        final protectedVoice = await api.createChannel(
+          space,
+          'stewards',
+          'voice',
+          null,
+          30,
+          'fromJoin',
+          null,
+          'restricted',
+          [voiceMember.hex],
+        );
+        expect(protectedVoice.error, isNull);
+        final protectedListed = (await api.channels(space))!.singleWhere(
+          (value) => value['channelId'] == protectedVoice.channelId,
+        );
+        expect(protectedListed['kind'], SpaceChannelKind.voice.name);
+        expect(protectedListed['access'], SpaceChannelAccess.restricted.name);
+        expect(
+          await api.setChannelMembers(
+            space,
+            protectedVoice.channelId!,
+            const [],
+          ),
+          isNull,
         );
         expect(await api.channels('invalid'), isNull);
       } finally {

@@ -146,8 +146,10 @@ Unsolicited snapshot и guessed ACK отклоняются. Этот link-mediat
 * собственный optional ACL/epoch override.
 
 Состояние текущего звонка не входит в channel record. `VoiceSession` и её
-участники — подписанные короткоживущие presence/call frames с TTL; после
-завершения остаётся только журнал вызова/модерационный след, если это разрешено.
+участники — подписанные короткоживущие presence/call frames с TTL. Open voice
+использует wire v2 с signed `channelId`; restricted voice — v3 с signed
+`channelId + channelEpoch` внутри channel-key AEAD. После завершения остаётся
+только журнал вызова/модерационный след, если это разрешено.
 
 ### Публикации
 
@@ -280,8 +282,10 @@ channel-scoped content request. Request связан с `channelId` и теку�
 таким recipients. Legacy unscoped request не может открыть CID, который
 ссылается только из channel-encrypted row, а ротация ACL сразу гасит
 старый epoch. Reactions используют отдельный channel-epoch wire и также
-отзываются ротацией ACL. Live voice всё ещё использует space-wide call
-primitive и потому fail-closed до появления channel-scoped call wire.
+отзываются ротацией ACL. Live voice использует signed inner signal v3 и
+channel-encrypted outer call frame v2: fanout ограничен текущим ACL, stale epoch
+не принимается, а ACL rotation немедленно удаляет отозванные media peers и
+reannounce-ит активную комнату новым получателям.
 
 Скрытость и конфиденциальность различаются, но серверный режим из исходного
 промпта к veil неприменим.
@@ -407,9 +411,11 @@ camera/background/push проверяются дополнительно на ф
 * UI заменил верхнеуровневые «Каналы» на «Сообщества», сохранив групповые чаты
   рядом с личными в «Чатах»;
   текстовые каналы открывают channel-scoped сообщения, а голосовые запускают
-  отдельную ephemeral voice-session v2, где signed `channelId` проверяется как
-  существующий активный voice channel. Состояние сессии не записывается в
-  `SpaceChannel`; legacy group-wide call v1 остаётся только совместимостью;
+  отдельную ephemeral voice-session: v2 для open и channel-epoch v3 для
+  restricted. Signed `channelId` проверяется как существующий активный voice
+  channel, а restricted scope дополнительно требует текущий ACL/key epoch.
+  Состояние сессии не записывается в `SpaceChannel`; legacy group-wide call v1
+  остаётся только совместимостью;
 * `/v1/spaces` и `/v1/groups` являются разными API-проекциями общего
   transport/store и возвращают только свой kind;
 * новые `ControlEntry` используют wire v2: непрерывный per-author `seq` и
@@ -551,9 +557,9 @@ legacy V3/V4 остаётся ограничен 256 авторами, но но
 Сам checkpoint сейчас содержит полный causal cut с защитным пределом 4096
 heads; следующий шаг масштабирования — proof-based частичная доставка leaves,
 а не увеличение каждой публикации. Channel-scoped ACL/epochs для restricted
-text и базовая signed moderation уже реализованы; следующими слоями остаются
-настоящий indistinguishable secret scope, protected-scope
-moderation/voice, appeal transport и retention.
+text/voice и базовая signed moderation уже реализованы; следующими слоями
+остаются настоящий indistinguishable secret scope, protected-scope moderation,
+appeal transport и retention.
 
 Архивирование Space также не должно появляться как локальный UI-флаг. Текущий
 `GroupMessage` не подписывает causal cut состояния Space, поэтому без нового

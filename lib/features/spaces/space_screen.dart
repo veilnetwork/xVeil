@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/ids.dart';
 import '../../domain/call_signal.dart';
 import '../../domain/chat.dart';
+import '../../domain/group.dart';
 import '../../domain/group_policy.dart';
 import '../../domain/space_channel.dart';
 import '../../domain/space_recommendation.dart';
@@ -47,9 +48,15 @@ class SpaceScreen extends ConsumerWidget {
     NodeId spaceId,
     List<SpaceChannel> channels,
   ) async {
-    final result = await _showChannelEditor(context, channels: channels);
-    if (result == null) return;
     final service = ref.read(groupServiceProvider);
+    final state = await service?.stateOf(spaceId);
+    if (!context.mounted) return;
+    final result = await _showChannelEditor(
+      context,
+      channels: channels,
+      members: state?.members.values ?? const <GroupMember>[],
+    );
+    if (result == null) return;
     final created = await service?.createChannel(
       spaceId,
       name: result.name,
@@ -63,6 +70,7 @@ class SpaceScreen extends ConsumerWidget {
       history: result.history,
       historySinceMs: result.historySinceMs,
       access: result.access,
+      members: result.members,
     );
     if (created == null && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -75,6 +83,7 @@ class SpaceScreen extends ConsumerWidget {
     BuildContext context, {
     required List<SpaceChannel> channels,
     SpaceChannel? current,
+    Iterable<GroupMember> members = const <GroupMember>[],
   }) async {
     final l = AppL10n.of(context);
     var name = current?.name ?? '';
@@ -84,6 +93,11 @@ class SpaceScreen extends ConsumerWidget {
     var categoryHex = current?.categoryId?.hex ?? '';
     var history = current?.history ?? SpaceChannelHistory.fromJoin;
     var historySinceMs = current?.historySinceMs;
+    final memberList = members.toList(growable: false);
+    final selectedMembers = {
+      for (final member in memberList)
+        if (member.role.rank >= GroupRole.admin.rank) member.nodeId.hex,
+    };
     final categories = channels
         .where(
           (channel) =>
@@ -146,14 +160,14 @@ class SpaceScreen extends ConsumerWidget {
                         child: Text(l.spaceChannelCategory),
                       ),
                     ],
-                    onChanged:
-                        current != null || access != SpaceChannelAccess.space
+                    onChanged: current != null
                         ? null
                         : (value) {
                             if (value == null) return;
                             setDialogState(() {
                               kind = value;
                               if (kind == SpaceChannelKind.category) {
+                                access = SpaceChannelAccess.space;
                                 categoryHex = '';
                               }
                             });
@@ -183,7 +197,8 @@ class SpaceScreen extends ConsumerWidget {
                             if (value == null) return;
                             setDialogState(() {
                               access = value;
-                              if (access != SpaceChannelAccess.space) {
+                              if (access != SpaceChannelAccess.space &&
+                                  kind == SpaceChannelKind.category) {
                                 kind = SpaceChannelKind.text;
                                 categoryHex = '';
                               }
@@ -214,6 +229,42 @@ class SpaceScreen extends ConsumerWidget {
                       onChanged: (value) =>
                           setDialogState(() => categoryHex = value ?? ''),
                     ),
+                  ],
+                  if (access != SpaceChannelAccess.space &&
+                      current == null &&
+                      memberList.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        l.spaceMembersTooltip,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ),
+                    for (final member in memberList)
+                      CheckboxListTile(
+                        key: ValueKey(
+                          'space-channel-create-member-${member.nodeId.hex}',
+                        ),
+                        contentPadding: EdgeInsets.zero,
+                        value: selectedMembers.contains(member.nodeId.hex),
+                        onChanged: member.role.rank >= GroupRole.admin.rank
+                            ? null
+                            : (value) => setDialogState(() {
+                                if (value ?? false) {
+                                  selectedMembers.add(member.nodeId.hex);
+                                } else {
+                                  selectedMembers.remove(member.nodeId.hex);
+                                }
+                              }),
+                        secondary: Icon(
+                          member.role.rank >= GroupRole.admin.rank
+                              ? Icons.shield_outlined
+                              : Icons.person_outline,
+                        ),
+                        title: Text(member.nodeId.short),
+                        subtitle: Text(member.role.name),
+                      ),
                   ],
                   if (kind == SpaceChannelKind.text) ...[
                     const SizedBox(height: 12),
@@ -278,6 +329,15 @@ class SpaceScreen extends ConsumerWidget {
                         ? historySinceMs ??
                               DateTime.now().millisecondsSinceEpoch
                         : null,
+                    members: access == SpaceChannelAccess.space
+                        ? const <NodeId>[]
+                        : memberList
+                              .where(
+                                (member) =>
+                                    selectedMembers.contains(member.nodeId.hex),
+                              )
+                              .map((member) => member.nodeId)
+                              .toList(growable: false),
                   ),
                 );
               },
@@ -288,6 +348,80 @@ class SpaceScreen extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Future<bool?> _manageProtectedChannelMembers(
+    BuildContext context,
+    GroupService service,
+    NodeId spaceId,
+    SpaceChannel channel,
+  ) async {
+    final state = await service.stateOf(spaceId);
+    final current = await service.channelMembersOf(spaceId, channel.channelId);
+    if (!context.mounted || state == null || current == null) return false;
+    final canManage = SpaceAcl(
+      state,
+    ).allows(service.selfId, SpacePermission.manageChannels);
+    final selected = current.map((member) => member.hex).toSet();
+    final saved = await showDialog<Set<String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(AppL10n.of(context).groupMembers(selected.length)),
+          content: SizedBox(
+            width: 420,
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final member in state.members.values)
+                  CheckboxListTile(
+                    key: ValueKey('space-channel-member-${member.nodeId.hex}'),
+                    value: selected.contains(member.nodeId.hex),
+                    onChanged:
+                        !canManage || member.role.rank >= GroupRole.admin.rank
+                        ? null
+                        : (value) => setDialogState(() {
+                            if (value ?? false) {
+                              selected.add(member.nodeId.hex);
+                            } else {
+                              selected.remove(member.nodeId.hex);
+                            }
+                          }),
+                    secondary: Icon(
+                      member.role.rank >= GroupRole.admin.rank
+                          ? Icons.shield_outlined
+                          : Icons.person_outline,
+                    ),
+                    title: Text(member.nodeId.short),
+                    subtitle: Text(member.role.name),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(AppL10n.of(context).actionCancel),
+            ),
+            if (canManage)
+              FilledButton(
+                key: const ValueKey('space-channel-members-save'),
+                onPressed: () =>
+                    Navigator.of(dialogContext).pop(Set<String>.from(selected)),
+                child: Text(AppL10n.of(context).actionSave),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (saved == null) return null;
+    return service.setChannelMembers(
+      spaceId,
+      channel.channelId,
+      state.members.values
+          .where((member) => saved.contains(member.nodeId.hex))
+          .map((member) => member.nodeId),
     );
   }
 
@@ -310,6 +444,14 @@ class SpaceScreen extends ConsumerWidget {
               title: Text(l.spaceChannelEdit),
               onTap: () => Navigator.of(sheet).pop(_SpaceChannelAction.edit),
             ),
+            if (channel.access != SpaceChannelAccess.space)
+              ListTile(
+                key: const ValueKey('space-channel-members-action'),
+                leading: const Icon(Icons.group_outlined),
+                title: Text(l.spaceMembersTooltip),
+                onTap: () =>
+                    Navigator.of(sheet).pop(_SpaceChannelAction.members),
+              ),
             if (channel.kind == SpaceChannelKind.text &&
                 !channel.archived &&
                 !channel.isDefault)
@@ -343,6 +485,15 @@ class SpaceScreen extends ConsumerWidget {
     if (action == null || !context.mounted) return;
     var applied = false;
     switch (action) {
+      case _SpaceChannelAction.members:
+        final saved = await _manageProtectedChannelMembers(
+          context,
+          service,
+          spaceId,
+          channel,
+        );
+        if (saved == null) return;
+        applied = saved;
       case _SpaceChannelAction.edit:
         final draft = await _showChannelEditor(
           context,
@@ -779,7 +930,7 @@ class SpaceScreen extends ConsumerWidget {
   }
 }
 
-enum _SpaceChannelAction { edit, makeDefault, archive, restore }
+enum _SpaceChannelAction { members, edit, makeDefault, archive, restore }
 
 class _SpaceChannelDraft {
   const _SpaceChannelDraft({
@@ -790,6 +941,7 @@ class _SpaceChannelDraft {
     required this.categoryId,
     required this.history,
     required this.historySinceMs,
+    required this.members,
   });
 
   final String name;
@@ -799,4 +951,5 @@ class _SpaceChannelDraft {
   final NodeId? categoryId;
   final SpaceChannelHistory history;
   final int? historySinceMs;
+  final List<NodeId> members;
 }

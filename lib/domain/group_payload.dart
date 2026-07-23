@@ -770,6 +770,86 @@ Future<Uint8List> decryptGroupCallPayload({
   }
 }
 
+/// Encrypt one ephemeral control signal for a restricted Space voice channel.
+/// The call id, action and media posture stay inside the ciphertext; the outer
+/// wire carries only the channel id/epoch required for recipient filtering and
+/// key selection.
+Future<GroupEncryptedPayload> encryptSpaceChannelCallPayload({
+  required NodeId spaceId,
+  required NodeId channelId,
+  required int channelEpoch,
+  required NodeId author,
+  required Uint8List clearText,
+  required Uint8List channelKey,
+  Random? random,
+}) async {
+  if (channelEpoch <= 0 ||
+      channelEpoch > 0xffffffff ||
+      clearText.length > maxGroupEncryptedPayloadBytes ||
+      channelKey.length != 32) {
+    throw ArgumentError('invalid Space channel call payload input');
+  }
+  final nonce = Uint8List(12);
+  final rng = random ?? Random.secure();
+  for (var index = 0; index < nonce.length; index++) {
+    nonce[index] = rng.nextInt(256);
+  }
+  final box = await _groupAead.encrypt(
+    clearText,
+    secretKey: SecretKey(channelKey),
+    nonce: nonce,
+    aad: spaceChannelCallPayloadAad(
+      spaceId: spaceId,
+      channelId: channelId,
+      channelEpoch: channelEpoch,
+      author: author,
+    ),
+  );
+  return GroupEncryptedPayload(
+    nonce: nonce,
+    cipherText: Uint8List.fromList(box.cipherText),
+    mac: Uint8List.fromList(box.mac.bytes),
+  );
+}
+
+Future<Uint8List> decryptSpaceChannelCallPayload({
+  required NodeId spaceId,
+  required NodeId channelId,
+  required int channelEpoch,
+  required NodeId author,
+  required GroupEncryptedPayload payload,
+  required Uint8List channelKey,
+}) async {
+  if (channelEpoch <= 0 ||
+      channelEpoch > 0xffffffff ||
+      !payload.isStructurallyValid ||
+      channelKey.length != 32) {
+    throw const FormatException('Space channel call payload rejected');
+  }
+  try {
+    final clear = await _groupAead.decrypt(
+      SecretBox(
+        payload.cipherText,
+        nonce: payload.nonce,
+        mac: Mac(payload.mac),
+      ),
+      secretKey: SecretKey(channelKey),
+      aad: spaceChannelCallPayloadAad(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: channelEpoch,
+        author: author,
+      ),
+    );
+    if (clear.length > maxGroupEncryptedPayloadBytes) {
+      throw const FormatException('Space channel call payload rejected');
+    }
+    return Uint8List.fromList(clear);
+  } on SecretBoxAuthenticationError {
+    throw const FormatException('Space channel call payload rejected');
+  }
+}
+
 Uint8List groupPayloadAad({
   required NodeId groupId,
   required int membershipEpoch,
@@ -954,6 +1034,23 @@ Uint8List groupCallPayloadAad({
     jsonEncode({
       'gid': groupId.hex,
       'epoch': membershipEpoch,
+      'author': author.hex,
+    }),
+  ),
+]);
+
+Uint8List spaceChannelCallPayloadAad({
+  required NodeId spaceId,
+  required NodeId channelId,
+  required int channelEpoch,
+  required NodeId author,
+}) => Uint8List.fromList([
+  ...utf8.encode('xveil.space-channel.call-aad.v1\u0000'),
+  ...utf8.encode(
+    jsonEncode({
+      'sid': spaceId.hex,
+      'cid': channelId.hex,
+      'epoch': channelEpoch,
       'author': author.hex,
     }),
   ),
