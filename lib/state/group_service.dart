@@ -7183,7 +7183,19 @@ class GroupService {
       _signer.selfId,
     );
     if (link.blocked) return null;
-    final actionId = '${_signer.selfId.hex}:${link.seq}';
+    Future<String?> committedActionId() async {
+      final committed = await load(spaceId);
+      if (committed == null) return null;
+      for (final entry in committed.control.reversed) {
+        if (entry.op == ControlOp.moderate &&
+            entry.author == _signer.selfId &&
+            entry.createdAtMs == createdAt) {
+          return '${entry.author.hex}:${entry.seq}';
+        }
+      }
+      return null;
+    }
+
     if (protectedEnvelope != null) {
       final key =
           bundle.localChannelEpochKeys[_channelKeyId(
@@ -7226,7 +7238,7 @@ class GroupService {
           ),
           createdAtMs: createdAt,
         );
-        return applied ? actionId : null;
+        return applied ? await committedActionId() : null;
       } catch (_) {
         return null;
       } finally {
@@ -7240,7 +7252,12 @@ class GroupService {
       moderationAction: action,
       createdAtMs: createdAt,
     );
-    return applied ? actionId : null;
+    // A membership-removing moderation action may atomically prepend one or
+    // more protected-channel ACL/key revisions. Those rows consume author
+    // sequence numbers, so the preflight [link] is not necessarily the
+    // committed moderation id. Resolve the signed row after the single durable
+    // write; appeals and audit navigation must bind to its actual sequence.
+    return applied ? await committedActionId() : null;
   });
 
   /// Revoke a reversible moderation action. Content removals are deliberately
