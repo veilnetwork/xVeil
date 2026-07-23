@@ -557,6 +557,20 @@ void main() {
               'localDevice': {'mode': 'keepForever'},
               'history': const [],
             },
+      spacePolicyAudit: (space) async => space == 'missing'
+          ? null
+          : {
+              'spaceId': space,
+              'entries': [
+                {
+                  'kind': 'access',
+                  'id': 'access:hash',
+                  'changedAt': 123,
+                  'author': 'aa',
+                  'policy': {'revision': 1},
+                },
+              ],
+            },
       setSpaceRetention:
           (space, days, localDevice, {bool mediaOnly = false}) async {
             if (space == 'denied') return 'operation rejected by space policy';
@@ -1326,6 +1340,16 @@ void main() {
       expect(
         ((retention.body as Map)['community'] as Map)['mode'],
         'deleteAfter',
+      );
+      final policyAudit = await h.handle(
+        'GET',
+        u('/v1/spaces/policies/audit?space=aa'),
+        auth,
+      );
+      expect(policyAudit.status, 200);
+      expect(
+        (((policyAudit.body as Map)['entries'] as List).single as Map)['kind'],
+        'access',
       );
       expect(
         (await h.handle(

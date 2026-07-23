@@ -903,6 +903,60 @@ class AppL10nEn extends AppL10n {
       'Reusable permission sets, participant groups, and direct member roles. Every change is signed and audited.';
 
   @override
+  String get spacePolicyAuditTitle => 'Policy audit';
+
+  @override
+  String get spacePolicyAuditHint =>
+      'Signed access and retention changes. Entries cannot be edited or deleted.';
+
+  @override
+  String get spacePolicyAuditEmpty => 'No policy changes have been signed yet.';
+
+  @override
+  String get spacePolicyAuditAccess => 'Access policy';
+
+  @override
+  String get spacePolicyAuditRetention => 'Retention policy';
+
+  @override
+  String spacePolicyAuditAccessSummary(
+    int revision,
+    int roles,
+    int groups,
+    int assignments,
+  ) {
+    return 'Revision $revision · $roles roles · $groups groups · $assignments direct assignments';
+  }
+
+  @override
+  String spacePolicyAuditSignedBy(String author) {
+    return 'Signed by $author';
+  }
+
+  @override
+  String get spacePolicyAuditScopeSpace => 'Entire community';
+
+  @override
+  String spacePolicyAuditScopeChannel(String channel) {
+    return 'Channel $channel';
+  }
+
+  @override
+  String get spacePolicyAuditRetentionInherit =>
+      'inherits the community policy';
+
+  @override
+  String get spacePolicyAuditRetentionForever => 'keeps history';
+
+  @override
+  String spacePolicyAuditRetentionDays(int days) {
+    return 'removes after $days days';
+  }
+
+  @override
+  String get spacePolicyAuditMediaOnly => 'media only';
+
+  @override
   String get spaceAccessDelegatedHint =>
       'You can manage only roles below your current permission ceiling. Your own roles and peer managers are locked.';
 

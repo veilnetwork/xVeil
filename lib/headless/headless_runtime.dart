@@ -257,6 +257,7 @@ class HeadlessRuntime {
         groupMemberAction: groupApi.memberAction,
         spaceAccess: groupApi.spaceAccess,
         spaceAccessAction: groupApi.spaceAccessAction,
+        spacePolicyAudit: groupApi.policyAudit,
         renameGroup: groupApi.rename,
         leaveGroup: groupApi.leave,
         spaceChannels: groupApi.channels,
