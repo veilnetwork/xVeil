@@ -352,6 +352,7 @@ enum ControlOp {
   restoreSpace,
   setPostPin,
   setRecommendationCampaign,
+  setRecommendationPolicy,
   checkpoint,
   leave; // the author removes THEMSELVES (any member may leave)
 
@@ -423,6 +424,7 @@ class ControlEntry {
     this.lifecycleTransition,
     this.postPin,
     this.recommendationCampaign,
+    this.recommendationPolicy,
     this.accessPolicy,
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
@@ -450,7 +452,9 @@ class ControlEntry {
   /// positive grants bind a functional area or an exact signed
   /// category/channel. V19 carries schema-3 access snapshots with explicit
   /// denials; applicable denials override positive and built-in non-owner
-  /// grants without changing any V17/V18 canonical bytes.
+  /// grants without changing any V17/V18 canonical bytes. V20 lets a bounded
+  /// manageRoles delegate author a transition-checked access snapshot. V21
+  /// carries one complete Space recommendation-policy revision.
   final int version;
 
   /// Group binding for replay resistance. Legacy entries omit it and retain
@@ -478,6 +482,7 @@ class ControlEntry {
   final SpaceLifecycleTransition? lifecycleTransition;
   final SpacePostPin? postPin;
   final SpaceRecommendationCampaign? recommendationCampaign;
+  final SpaceRecommendationPolicy? recommendationPolicy;
   final SpaceAccessPolicy? accessPolicy;
 
   /// Optional scale-free recipient-envelope root for the epoch established by
@@ -512,7 +517,8 @@ class ControlEntry {
           version == 17 ||
           version == 18 ||
           version == 19 ||
-          version == 20) &&
+          version == 20 ||
+          version == 21) &&
       seq >= 0 &&
       policyVersion >= 0 &&
       createdAtMs >= 0 &&
@@ -709,6 +715,34 @@ class ControlEntry {
                 postPin == null
           : recommendationCampaign == null &&
                 op != ControlOp.setRecommendationCampaign) &&
+      (version == 21
+          ? op == ControlOp.setRecommendationPolicy &&
+                recommendationPolicy != null &&
+                recommendationPolicy!.isStructurallyValid &&
+                groupId == recommendationPolicy!.spaceId &&
+                recommendationPolicy!.changedBy == author &&
+                recommendationPolicy!.changedAtMs == createdAtMs &&
+                target == null &&
+                role == null &&
+                text == null &&
+                epochDescriptor == null &&
+                channel == null &&
+                channelControl == null &&
+                postBoundary == null &&
+                controlCheckpoint == null &&
+                rules == null &&
+                rulesAcceptance == null &&
+                moderationAction == null &&
+                moderationRevocation == null &&
+                channelModeration == null &&
+                channelRetention == null &&
+                retentionPolicy == null &&
+                lifecycleTransition == null &&
+                postPin == null &&
+                recommendationCampaign == null &&
+                accessPolicy == null
+          : recommendationPolicy == null &&
+                op != ControlOp.setRecommendationPolicy) &&
       (version == 14
           ? op == ControlOp.moderate &&
                 channelModeration != null &&
@@ -837,6 +871,7 @@ class ControlEntry {
     lifecycleTransition: lifecycleTransition,
     postPin: postPin,
     recommendationCampaign: recommendationCampaign,
+    recommendationPolicy: recommendationPolicy,
     accessPolicy: accessPolicy,
     policyVersion: policyVersion,
     createdAtMs: createdAtMs,
@@ -880,6 +915,8 @@ class ControlEntry {
       if (postPin != null) 'postPin': postPin!.toJson(),
       if (recommendationCampaign != null)
         'recommendationCampaign': recommendationCampaign!.toJson(),
+      if (recommendationPolicy != null)
+        'recommendationPolicy': recommendationPolicy!.toJson(),
       if (accessPolicy != null) 'accessPolicy': accessPolicy!.toJson(),
       'pv': policyVersion,
       'ts': createdAtMs,
@@ -919,6 +956,8 @@ class ControlEntry {
     if (postPin != null) 'postPin': postPin!.toJson(),
     if (recommendationCampaign != null)
       'recommendationCampaign': recommendationCampaign!.toJson(),
+    if (recommendationPolicy != null)
+      'recommendationPolicy': recommendationPolicy!.toJson(),
     if (accessPolicy != null) 'accessPolicy': accessPolicy!.toJson(),
     'pv': policyVersion,
     'ts': createdAtMs,
@@ -951,7 +990,8 @@ class ControlEntry {
             version != 17 &&
             version != 18 &&
             version != 19 &&
-            version != 20) ||
+            version != 20 &&
+            version != 21) ||
         author is! String ||
         seq is! int ||
         prev is! String ||
@@ -1046,6 +1086,13 @@ class ControlEntry {
           recommendationCampaign == null) {
         return null;
       }
+      final recommendationPolicy = j.containsKey('recommendationPolicy')
+          ? SpaceRecommendationPolicy.fromJson(j['recommendationPolicy'])
+          : null;
+      if (j.containsKey('recommendationPolicy') &&
+          recommendationPolicy == null) {
+        return null;
+      }
       final accessPolicy = j.containsKey('accessPolicy')
           ? SpaceAccessPolicy.fromJson(j['accessPolicy'])
           : null;
@@ -1077,6 +1124,7 @@ class ControlEntry {
         lifecycleTransition: lifecycleTransition,
         postPin: postPin,
         recommendationCampaign: recommendationCampaign,
+        recommendationPolicy: recommendationPolicy,
         accessPolicy: accessPolicy,
         policyVersion: pv,
         createdAtMs: ts,

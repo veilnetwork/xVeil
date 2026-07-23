@@ -20,6 +20,7 @@ import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_join_request.dart';
 import 'package:xveil/domain/space_post.dart';
+import 'package:xveil/domain/space_recommendation.dart';
 import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/domain/space_retention.dart';
 import 'package:xveil/features/chat/chat_actions.dart';
@@ -1433,7 +1434,17 @@ void main() {
     final storage = FakeHvContainer().storage();
     await storage.open(password: 'pw', createIfMissing: true);
     final owner = _id(29);
-    final service = GroupService(storage, _Signer(owner));
+    final recipient = _id(30);
+    final revoked = <String>[];
+    final service = GroupService(
+      storage,
+      _Signer(owner),
+      sendSpaceRecommendation: (_, _) async => 'recommendation-message-1',
+      revokeSpaceRecommendation: (_, messageId) async {
+        revoked.add(messageId);
+        return true;
+      },
+    );
     addTearDown(service.dispose);
     final spaceId = await service.createSpace(
       'Public lab',
@@ -1453,6 +1464,21 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    final policySwitch = find.byKey(
+      const ValueKey('space-recommendation-policy-enabled'),
+    );
+    for (var i = 0; i < 6 && policySwitch.evaluate().isEmpty; i++) {
+      await tester.drag(find.byType(ListView).first, const Offset(0, -500));
+      await tester.pumpAndSettle();
+    }
+    await tester.ensureVisible(policySwitch);
+    await tester.tap(policySwitch);
+    await tester.pumpAndSettle();
+    expect((await service.stateOf(spaceId))!.recommendationsEnabled, isFalse);
+    await tester.tap(policySwitch);
+    await tester.pumpAndSettle();
+    expect((await service.stateOf(spaceId))!.recommendationsEnabled, isTrue);
+
     final create = find.byKey(const ValueKey('space-recommendation-create'));
     for (var i = 0; i < 6 && create.evaluate().isEmpty; i++) {
       await tester.drag(find.byType(ListView).first, const Offset(0, -500));
@@ -1485,6 +1511,40 @@ void main() {
       await tester.pumpAndSettle();
     }
     expect(row, findsOneWidget);
+
+    await storage.upsertContact(
+      Contact(nodeId: recipient, status: ContactStatus.accepted),
+    );
+    expect(
+      await service.shareSpaceRecommendation(
+        spaceId,
+        campaigns.single.campaignId,
+        recipient,
+      ),
+      SpaceRecommendationShareResult.sent,
+    );
+    await tester.pumpAndSettle();
+    final revokeShare = find.byKey(
+      const ValueKey(
+        'space-recommendation-share-revoke-recommendation-message-1',
+      ),
+    );
+    expect(revokeShare, findsOneWidget);
+    await tester.dragUntilVisible(
+      revokeShare,
+      find.byType(ListView).first,
+      const Offset(0, -300),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(revokeShare);
+    await tester.pumpAndSettle();
+    expect(revoked, ['recommendation-message-1']);
+    expect(
+      (await service.spaceRecommendationShareAudit(
+        spaceId: spaceId,
+      )).single.revokedAtMs,
+      isNotNull,
+    );
   });
 
   testWidgets('Space rules publish, display history and require acceptance', (

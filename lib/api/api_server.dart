@@ -1459,6 +1459,72 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
       },
+      '/spaces/recommendations/policy': {
+        'get': {
+          'summary': 'Read the signed community recommendation policy',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': ok({'type': obj}),
+        },
+        'post': {
+          'summary': 'Publish a signed community recommendation policy',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space', 'expectedRevision', 'enabled'],
+                  'properties': {
+                    'space': {'type': 'string'},
+                    'expectedRevision': {'type': 'integer', 'minimum': 0},
+                    'enabled': {'type': 'boolean'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/spaces/recommendations/shares': {
+        'get': {
+          'summary': 'List local sent-recommendation audit records',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': ok({'type': obj}),
+        },
+        'delete': {
+          'summary': 'Durably revoke one already-sent recommendation',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+            {
+              'name': 'id',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string', 'maxLength': 256},
+            },
+          ],
+          'responses': ok({'type': obj}),
+        },
+      },
       '/spaces/subscription': {
         'get': {
           'summary': 'Read device-local community subscription preferences',
@@ -2825,6 +2891,10 @@ class ApiHandler {
     this.createSpaceRecommendationCampaign,
     this.revokeSpaceRecommendationCampaign,
     this.shareSpaceRecommendation,
+    this.spaceRecommendationPolicy,
+    this.setSpaceRecommendationPolicy,
+    this.spaceRecommendationShares,
+    this.revokeSpaceRecommendationShare,
     this.spaceFeed,
     this.spaceFeedTypeFilter,
     this.setSpaceFeedTypeFilter,
@@ -3060,6 +3130,18 @@ class ApiHandler {
     String recipientHex,
   )?
   shareSpaceRecommendation;
+  final Future<Map<String, dynamic>?> Function(String spaceHex)?
+  spaceRecommendationPolicy;
+  final Future<String?> Function(
+    String spaceHex,
+    int expectedRevision,
+    bool enabled,
+  )?
+  setSpaceRecommendationPolicy;
+  final Future<Map<String, dynamic>?> Function(String spaceHex)?
+  spaceRecommendationShares;
+  final Future<String?> Function(String spaceHex, String auditId)?
+  revokeSpaceRecommendationShare;
   final Future<Map<String, dynamic>> Function(
     int limit,
     String? before,
@@ -4213,6 +4295,79 @@ class ApiHandler {
       return _spaceMutationResponse(
         await handler(space, campaignId, recipient),
       );
+    }
+    if (method == 'GET' && path == '/v1/spaces/recommendations/policy') {
+      final handler = spaceRecommendationPolicy;
+      final space = uri.queryParameters['space'];
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space recommendation policy unavailable',
+        });
+      }
+      if (space == null || space.isEmpty) {
+        return const ApiResponse(400, {'error': 'space required'});
+      }
+      final result = await handler(space);
+      return result == null
+          ? const ApiResponse(404, {'error': 'space not found'})
+          : ApiResponse(200, result);
+    }
+    if (method == 'POST' && path == '/v1/spaces/recommendations/policy') {
+      final handler = setSpaceRecommendationPolicy;
+      final space = body?['space'];
+      final expectedRevision = body?['expectedRevision'];
+      final enabled = body?['enabled'];
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space recommendation policy unavailable',
+        });
+      }
+      if (space is! String ||
+          space.isEmpty ||
+          expectedRevision is! int ||
+          expectedRevision < 0 ||
+          enabled is! bool) {
+        return const ApiResponse(400, {
+          'error': 'valid space + expectedRevision + enabled required',
+        });
+      }
+      return _spaceMutationResponse(
+        await handler(space, expectedRevision, enabled),
+      );
+    }
+    if (method == 'GET' && path == '/v1/spaces/recommendations/shares') {
+      final handler = spaceRecommendationShares;
+      final space = uri.queryParameters['space'];
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space recommendation shares unavailable',
+        });
+      }
+      if (space == null || space.isEmpty) {
+        return const ApiResponse(400, {'error': 'space required'});
+      }
+      final result = await handler(space);
+      return result == null
+          ? const ApiResponse(404, {'error': 'space not found'})
+          : ApiResponse(200, result);
+    }
+    if (method == 'DELETE' && path == '/v1/spaces/recommendations/shares') {
+      final handler = revokeSpaceRecommendationShare;
+      final space = uri.queryParameters['space'];
+      final auditId = uri.queryParameters['id'];
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space recommendation shares unavailable',
+        });
+      }
+      if (space == null ||
+          space.isEmpty ||
+          auditId == null ||
+          auditId.isEmpty ||
+          auditId.length > 256) {
+        return const ApiResponse(400, {'error': 'valid space + id required'});
+      }
+      return _spaceMutationResponse(await handler(space, auditId));
     }
     if (method == 'GET' && path == '/v1/spaces/subscription') {
       final handler = spaceSubscription;

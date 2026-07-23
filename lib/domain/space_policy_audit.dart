@@ -1,5 +1,6 @@
 import '../core/ids.dart';
 import 'space_access.dart';
+import 'space_recommendation.dart';
 import 'space_retention.dart';
 
 /// A typed, immutable policy event exposed to authorized Space members.
@@ -38,4 +39,14 @@ final class SpaceRetentionPolicyAuditEntry extends SpacePolicyAuditEntry {
   @override
   String get stableId =>
       'retention:${revision.author.hex}:${revision.authorSeq}';
+}
+
+final class SpaceRecommendationPolicyAuditEntry extends SpacePolicyAuditEntry {
+  SpaceRecommendationPolicyAuditEntry(this.policy)
+    : super(author: policy.changedBy, changedAtMs: policy.changedAtMs);
+
+  final SpaceRecommendationPolicy policy;
+
+  @override
+  String get stableId => 'recommendation:${policy.policyHash}';
 }

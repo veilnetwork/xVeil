@@ -31,6 +31,8 @@ void main() {
   final spacePostCommentWrites = <(String, String, String, String?, String?)>[];
   final spacePostCommentEdits = <(String, String, String, String)>[];
   final spaceRecommendationShares = <(String, String, String)>[];
+  final spaceRecommendationPolicyWrites = <(String, int, bool)>[];
+  final spaceRecommendationShareRevokes = <(String, String)>[];
   final subscriptions = <(String, bool)>[];
   final subscriptionUpdates = <(String, bool?, bool?, String?, bool?)>[];
   final feedPostPreferences = <(String, String, bool)>[];
@@ -86,6 +88,8 @@ void main() {
     localSpacePostDraft = null;
     localScheduledSpacePost = null;
     spaceRecommendationShares.clear();
+    spaceRecommendationPolicyWrites.clear();
+    spaceRecommendationShareRevokes.clear();
     subscriptions.clear();
     subscriptionUpdates.clear();
     feedPostPreferences.clear();
@@ -439,6 +443,30 @@ void main() {
       shareSpaceRecommendation: (space, campaignId, recipient) async {
         if (space == 'denied') return 'rateLimited';
         spaceRecommendationShares.add((space, campaignId, recipient));
+        return null;
+      },
+      spaceRecommendationPolicy: (space) async =>
+          space == 'missing' ? null : {'v': 1, 'revision': 2, 'enabled': true},
+      setSpaceRecommendationPolicy: (space, revision, enabled) async {
+        if (space == 'denied') return 'recommendation policy rejected';
+        spaceRecommendationPolicyWrites.add((space, revision, enabled));
+        return null;
+      },
+      spaceRecommendationShares: (space) async => space == 'missing'
+          ? null
+          : {
+              'shares': [
+                {
+                  'id': 'message-1',
+                  'spaceId': space,
+                  'recipient': 'cd' * 32,
+                  'canRevoke': true,
+                },
+              ],
+            },
+      revokeSpaceRecommendationShare: (space, auditId) async {
+        if (space == 'denied') return 'failed';
+        spaceRecommendationShareRevokes.add((space, auditId));
         return null;
       },
       spaceFeed: (limit, before, pinned) async => {
@@ -2371,6 +2399,39 @@ void main() {
         200,
       );
       expect(spaceRecommendationShares.single, ('aa', campaignId, recipient));
+      final policy = await h.handle(
+        'GET',
+        u('/v1/spaces/recommendations/policy?space=aa'),
+        auth,
+      );
+      expect(policy.status, 200);
+      expect((policy.body as Map)['revision'], 2);
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/recommendations/policy'),
+          auth,
+          body: {'space': 'aa', 'expectedRevision': 2, 'enabled': false},
+        )).status,
+        200,
+      );
+      expect(spaceRecommendationPolicyWrites.single, ('aa', 2, false));
+      final shares = await h.handle(
+        'GET',
+        u('/v1/spaces/recommendations/shares?space=aa'),
+        auth,
+      );
+      expect(shares.status, 200);
+      expect(((shares.body as Map)['shares'] as List), hasLength(1));
+      expect(
+        (await h.handle(
+          'DELETE',
+          u('/v1/spaces/recommendations/shares?space=aa&id=message-1'),
+          auth,
+        )).status,
+        200,
+      );
+      expect(spaceRecommendationShareRevokes.single, ('aa', 'message-1'));
       expect(
         (await h.handle(
           'DELETE',

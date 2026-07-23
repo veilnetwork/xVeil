@@ -15,6 +15,7 @@ import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
+import 'package:xveil/domain/space_recommendation.dart';
 import 'package:xveil/state/group_service.dart';
 import 'package:xveil/state/group_epoch_service.dart';
 
@@ -1422,12 +1423,17 @@ void main() {
     final owner = _id(72);
     final recipient = _id(73);
     final sent = <NodeId>[];
+    final revoked = <String>[];
     final service = GroupService(
       storage,
       _Signer(owner),
       sendSpaceRecommendation: (peer, card) async {
         sent.add(peer);
-        return true;
+        return 'message-${sent.length}';
+      },
+      revokeSpaceRecommendation: (peer, messageId) async {
+        revoked.add(messageId);
+        return peer == recipient;
       },
     );
     final api = GroupApiAdapter(
@@ -1455,11 +1461,38 @@ void main() {
       (await api.recommendationCampaigns(space))!['campaigns'],
       hasLength(1),
     );
+    expect((await api.recommendationPolicy(space))!['enabled'], isTrue);
+    expect(await api.setRecommendationPolicy(space, 0, false), isNull);
+    expect(
+      (await api.recommendationCampaigns(space))!['policy']['enabled'],
+      isFalse,
+    );
+    expect(
+      await api.shareRecommendation(space, campaignId, recipient.hex),
+      SpaceRecommendationShareResult.notAllowed.name,
+    );
+    expect(await api.setRecommendationPolicy(space, 1, true), isNull);
     expect(
       await api.shareRecommendation(space, campaignId, recipient.hex),
       isNull,
     );
     expect(sent, [recipient]);
+    final shares = (await api.recommendationShares(space))!['shares'] as List;
+    expect(shares, hasLength(1));
+    expect((shares.single as Map)['canRevoke'], isTrue);
+    expect(
+      await api.revokeRecommendationShare(
+        space,
+        (shares.single as Map)['id'] as String,
+      ),
+      isNull,
+    );
+    expect(revoked, ['message-1']);
+    expect(
+      ((await api.recommendationShares(space))!['shares'] as List)
+          .single['canRevoke'],
+      isFalse,
+    );
     expect(await api.revokeRecommendationCampaign(space, campaignId), isNull);
     expect((await api.recommendationCampaigns(space))!['campaigns'], isEmpty);
   });
