@@ -58,6 +58,13 @@ final class _Signer implements GroupSigner {
   @override
   GroupCallSignal signCallSignal(GroupCallSignal unsigned) =>
       unsigned.withSignature(Uint8List(64), selfPubKey);
+  @override
+  SpaceModerationAppeal signModerationAppeal(SpaceModerationAppeal unsigned) =>
+      unsigned.withSignature(Uint8List(64), selfPubKey);
+  @override
+  SpaceModerationAppealDecision signModerationAppealDecision(
+    SpaceModerationAppealDecision unsigned,
+  ) => unsigned.withSignature(Uint8List(64), selfPubKey);
 
   @override
   bool verifyControl(ControlEntry entry) =>
@@ -82,6 +89,12 @@ final class _Signer implements GroupSigner {
   @override
   bool verifyCallSignal(GroupCallSignal signal) =>
       signal.signature.length == 64 && signal.authorPubKey.length == 32;
+  @override
+  bool verifyModerationAppeal(SpaceModerationAppeal appeal) =>
+      appeal.signature.length == 64 && appeal.authorPubKey.length == 32;
+  @override
+  bool verifyModerationAppealDecision(SpaceModerationAppealDecision decision) =>
+      decision.signature.length == 64 && decision.authorPubKey.length == 32;
 
   @override
   bool verifySpaceManifest(SpaceManifest value) => value.signature.length == 64;
@@ -1089,6 +1102,44 @@ void main() {
       final revoked = (await api.moderationAudit(space))!.single;
       expect(revoked['active'], isFalse);
       expect(revoked['revocationReason'], 'resolved');
+
+      final sentAppeals = <String>[];
+      final memberService = GroupService(
+        storage,
+        _Signer(member),
+        sendSpaceModerationAppeal: (peer, appealId, json) async {
+          expect(peer, owner);
+          expect(appealId, hasLength(64));
+          sentAppeals.add(json);
+        },
+      );
+      final memberApi = GroupApiAdapter(
+        memberService,
+        registerContentSource:
+            (name, size, read, {required close, sourcePath}) async {
+              await close();
+              return 'unused';
+            },
+        loadContent: storage.loadFile,
+      );
+      final candidates = await memberApi.moderationAppeals(space);
+      expect(candidates['candidates'], hasLength(1));
+      expect(
+        await memberApi.moderationAppealAction(
+          'appeal',
+          space,
+          created.actionId,
+          null,
+          'Review the full context.',
+          null,
+        ),
+        isNull,
+      );
+      expect(sentAppeals, hasLength(1));
+      final appeals = await memberApi.moderationAppeals(space);
+      expect(appeals['candidates'], isEmpty);
+      expect(appeals['outgoing'], hasLength(1));
+      await memberService.dispose();
     } finally {
       await service.dispose();
     }

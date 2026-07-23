@@ -8,6 +8,7 @@ import '../../domain/group.dart';
 import '../../domain/space_invite.dart';
 import '../../domain/space_join_request.dart';
 import '../../domain/space_lifecycle.dart';
+import '../../domain/space_moderation.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../chat/chat_actions.dart';
@@ -100,6 +101,89 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
     );
   }
 
+  String _moderationKindLabel(AppL10n l, SpaceModerationKind kind) =>
+      switch (kind) {
+        SpaceModerationKind.warning => l.spaceModerationWarning,
+        SpaceModerationKind.deleteMessage => l.spaceModerationDeleteMessage,
+        SpaceModerationKind.deletePost => l.spaceModerationDeletePost,
+        SpaceModerationKind.restrictPublishing =>
+          l.spaceModerationRestrictPublishing,
+        SpaceModerationKind.restrictMessages =>
+          l.spaceModerationRestrictMessages,
+        SpaceModerationKind.restrictVoice => l.spaceModerationRestrictVoice,
+        SpaceModerationKind.mute => l.spaceModerationMute,
+        SpaceModerationKind.timeout => l.spaceModerationTimeout,
+        SpaceModerationKind.temporaryBan => l.spaceModerationTemporaryBan,
+        SpaceModerationKind.permanentBan => l.spaceModerationPermanentBan,
+      };
+
+  String _appealStatus(AppL10n l, SpaceModerationAppealOutboxEntry entry) =>
+      switch (entry.decision?.outcome) {
+        null => l.spaceModerationAppealPending,
+        SpaceModerationAppealOutcome.rejected =>
+          l.spaceModerationAppealRejected,
+        SpaceModerationAppealOutcome.actionRevoked =>
+          l.spaceModerationAppealRevoked,
+        SpaceModerationAppealOutcome.acknowledgedIrreversible =>
+          l.spaceModerationAppealAcknowledged,
+      };
+
+  Future<void> _appeal(
+    BuildContext context,
+    GroupService service,
+    SpaceModerationAppealCandidate candidate,
+  ) async {
+    var draftText = '';
+    final text = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(AppL10n.of(context).spaceModerationAppealDialogTitle),
+        content: TextField(
+          key: const ValueKey('space-moderation-appeal-text'),
+          autofocus: true,
+          minLines: 3,
+          maxLines: 8,
+          maxLength: kSpaceModerationAppealMax,
+          decoration: InputDecoration(
+            labelText: AppL10n.of(context).spaceModerationAppealText,
+            alignLabelWithHint: true,
+          ),
+          onChanged: (value) => draftText = value,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(AppL10n.of(context).actionCancel),
+          ),
+          FilledButton(
+            key: const ValueKey('space-moderation-appeal-submit'),
+            onPressed: () {
+              final value = draftText.trim();
+              if (value.isNotEmpty) Navigator.of(dialogContext).pop(value);
+            },
+            child: Text(AppL10n.of(context).spaceModerationAppealAction),
+          ),
+        ],
+      ),
+    );
+    if (text == null) return;
+    final ok = await service.appealSpaceModeration(
+      candidate.spaceId,
+      candidate.record.actionId,
+      text: text,
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? AppL10n.of(context).spaceModerationAppealSent
+              : AppL10n.of(context).spaceOperationFailed,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -151,10 +235,16 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                 ? Future.value(const <Object?>[
                     <PendingSpaceInvite>[],
                     <SpaceJoinOutboxEntry>[],
+                    <SpaceModerationAppealCandidate>[],
+                    <SpaceModerationAppealOutboxEntry>[],
+                    <String, String>{},
                   ])
                 : Future.wait<Object?>([
                     service.pendingSpaceInvites(),
                     service.outgoingSpaceJoinRequests(),
+                    service.appealableSpaceModerationActions(),
+                    service.outgoingSpaceModerationAppeals(),
+                    service.moderationAppealSpaceNames(),
                   ]),
             builder: (context, inviteSnapshot) {
               if (service != null && !inviteSnapshot.hasData) {
@@ -167,6 +257,15 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
               final allJoinRequests = data == null
                   ? const <SpaceJoinOutboxEntry>[]
                   : data[1] as List<SpaceJoinOutboxEntry>;
+              final allAppealCandidates = data == null
+                  ? const <SpaceModerationAppealCandidate>[]
+                  : data[2] as List<SpaceModerationAppealCandidate>;
+              final allAppeals = data == null
+                  ? const <SpaceModerationAppealOutboxEntry>[]
+                  : data[3] as List<SpaceModerationAppealOutboxEntry>;
+              final appealSpaceNames = data == null
+                  ? const <String, String>{}
+                  : data[4] as Map<String, String>;
               final invites = searching
                   ? allInvites
                         .where(
@@ -181,7 +280,29 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                         .where((entry) => _matches(entry.ticket.spaceName))
                         .toList(growable: false)
                   : allJoinRequests;
-              if (items.isEmpty && invites.isEmpty && joinRequests.isEmpty) {
+              final appealCandidates = searching
+                  ? allAppealCandidates
+                        .where(
+                          (candidate) =>
+                              _matches(candidate.spaceName) ||
+                              _matches(candidate.record.action.reason),
+                        )
+                        .toList(growable: false)
+                  : allAppealCandidates;
+              final appeals = searching
+                  ? allAppeals
+                        .where(
+                          (entry) =>
+                              _matches(entry.appeal.spaceId.hex) ||
+                              _matches(entry.appeal.text),
+                        )
+                        .toList(growable: false)
+                  : allAppeals;
+              if (items.isEmpty &&
+                  invites.isEmpty &&
+                  joinRequests.isEmpty &&
+                  appealCandidates.isEmpty &&
+                  appeals.isEmpty) {
                 return Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -312,6 +433,80 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                                     strokeWidth: 2,
                                   ),
                                 ),
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (appealCandidates.isNotEmpty || appeals.isNotEmpty) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      child: Text(
+                        l.spaceModerationAppealsTitle,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    for (final candidate in appealCandidates)
+                      Card(
+                        key: ValueKey(
+                          'space-moderation-appealable-${candidate.record.actionId}',
+                        ),
+                        margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                        child: ListTile(
+                          leading: const CircleAvatar(
+                            child: Icon(Icons.balance_outlined),
+                          ),
+                          title: Text(candidate.spaceName),
+                          subtitle: Text(
+                            '${_moderationKindLabel(l, candidate.record.action.kind)} · '
+                            '${candidate.record.action.reason}',
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: FilledButton.tonal(
+                            key: ValueKey(
+                              'space-moderation-appeal-${candidate.record.actionId}',
+                            ),
+                            onPressed: service == null
+                                ? null
+                                : () => _appeal(context, service, candidate),
+                            child: Text(l.spaceModerationAppealAction),
+                          ),
+                        ),
+                      ),
+                    for (final entry in appeals)
+                      Card(
+                        key: ValueKey(
+                          'space-moderation-appeal-outgoing-${entry.appeal.appealId}',
+                        ),
+                        margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            child: Icon(
+                              entry.pending
+                                  ? Icons.hourglass_top_outlined
+                                  : Icons.fact_check_outlined,
+                            ),
+                          ),
+                          title: Text(
+                            appealSpaceNames[entry.appeal.spaceId.hex] ??
+                                entry.appeal.spaceId.short,
+                          ),
+                          subtitle: Text(
+                            [
+                              _appealStatus(l, entry),
+                              if (entry.decision?.reason != null)
+                                entry.decision!.reason,
+                            ].join('\n'),
+                          ),
+                          trailing: entry.pending
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : null,
                         ),
                       ),
                     const SizedBox(height: 8),

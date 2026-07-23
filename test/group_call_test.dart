@@ -61,6 +61,13 @@ class _Signer implements GroupSigner {
   @override
   GroupCallSignal signCallSignal(GroupCallSignal unsigned) =>
       unsigned.withSignature(Uint8List(64), unsigned.author.bytes);
+  @override
+  SpaceModerationAppeal signModerationAppeal(SpaceModerationAppeal unsigned) =>
+      unsigned.withSignature(Uint8List(64), unsigned.appellant.bytes);
+  @override
+  SpaceModerationAppealDecision signModerationAppealDecision(
+    SpaceModerationAppealDecision unsigned,
+  ) => unsigned.withSignature(Uint8List(64), unsigned.reviewer.bytes);
 
   bool _valid(List<int> signature, List<int> publicKey) =>
       signature.length == 64 && publicKey.length == 32;
@@ -88,6 +95,12 @@ class _Signer implements GroupSigner {
   bool verifyCallSignal(GroupCallSignal signal) =>
       _valid(signal.signature, signal.authorPubKey) &&
       signal.authorPubKey.every((byte) => byte == signal.author.bytes.first);
+  @override
+  bool verifyModerationAppeal(SpaceModerationAppeal appeal) =>
+      _valid(appeal.signature, appeal.authorPubKey);
+  @override
+  bool verifyModerationAppealDecision(SpaceModerationAppealDecision decision) =>
+      _valid(decision.signature, decision.authorPubKey);
 
   @override
   bool verifySpaceManifest(SpaceManifest value) =>

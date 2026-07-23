@@ -4409,4 +4409,56 @@ class AppL10nRu extends AppL10n {
   String spaceModerationUntil(String date) {
     return 'До $date';
   }
+
+  @override
+  String get spaceModerationAppealsTitle => 'Апелляции по модерации';
+
+  @override
+  String get spaceModerationAppealAction => 'Обжаловать';
+
+  @override
+  String get spaceModerationAppealDialogTitle =>
+      'Обжаловать действие модерации';
+
+  @override
+  String get spaceModerationAppealText =>
+      'Объясните, почему действие нужно пересмотреть';
+
+  @override
+  String get spaceModerationAppealSent => 'Апелляция отправлена';
+
+  @override
+  String get spaceModerationAppealPending => 'Ожидает рассмотрения';
+
+  @override
+  String get spaceModerationAppealRejected => 'Апелляция отклонена';
+
+  @override
+  String get spaceModerationAppealRevoked =>
+      'Действие отменено после рассмотрения';
+
+  @override
+  String get spaceModerationAppealAcknowledged =>
+      'Апелляция принята; удалённый материал восстановить нельзя';
+
+  @override
+  String spaceModerationAppealFrom(String node) {
+    return 'Апелляция от $node';
+  }
+
+  @override
+  String get spaceModerationAppealReview => 'Рассмотреть апелляцию';
+
+  @override
+  String get spaceModerationAppealDecisionReason => 'Обоснование решения';
+
+  @override
+  String get spaceModerationAppealDecisionReject => 'Оставить действие в силе';
+
+  @override
+  String get spaceModerationAppealDecisionRevoke => 'Отменить действие';
+
+  @override
+  String get spaceModerationAppealDecisionAcknowledge =>
+      'Принять без восстановления';
 }

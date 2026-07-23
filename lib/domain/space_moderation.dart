@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import '../core/ids.dart';
 
 const int kSpaceModerationReasonMax = 4096;
@@ -362,29 +365,320 @@ bool spaceModerationRemovesContent(
       (reference.channelId == null || reference.channelId == channelId);
 });
 
-/// Reserved domain shape for a future appeal transport/UI. A banned peer is no
-/// longer a control-log member, so pretending it can append this to the Space
-/// log would be a security bug; the eventual delivery protocol must be an
-/// explicitly rate-limited external proposal, like consent-first invites.
+final RegExp _spaceModerationAppealIdPattern = RegExp(r'^[0-9a-f]{64}$');
+
+/// External, node-id-bound proposal addressed to the immutable Space owner.
+///
+/// A banned peer is no longer a control-log member, so this is deliberately
+/// transported outside the Space log. The receiver admits at most one appeal
+/// for the immutable `(space, action, appellant)` tuple; durable retries reuse
+/// [appealId] and are idempotent.
 class SpaceModerationAppeal {
-  const SpaceModerationAppeal({
+  SpaceModerationAppeal({
+    required this.appealId,
+    required this.spaceId,
     required this.actionAuthor,
     required this.actionSeq,
     required this.appellant,
+    required this.reviewer,
     required this.text,
     required this.createdAtMs,
+    required this.signature,
+    required this.authorPubKey,
   });
 
+  final String appealId;
+  final NodeId spaceId;
   final NodeId actionAuthor;
   final int actionSeq;
   final NodeId appellant;
+  final NodeId reviewer;
   final String text;
   final int createdAtMs;
+  final Uint8List signature;
+  final Uint8List authorPubKey;
+
+  String get actionId => '${actionAuthor.hex}:$actionSeq';
 
   bool get isStructurallyValid =>
+      _spaceModerationAppealIdPattern.hasMatch(appealId) &&
       actionSeq >= 0 &&
       createdAtMs >= 0 &&
+      appellant != reviewer &&
       text.isNotEmpty &&
       text == text.trim() &&
-      text.length <= kSpaceModerationAppealMax;
+      utf8.encode(text).length <= kSpaceModerationAppealMax &&
+      (signature.isEmpty || signature.length == 64) &&
+      (authorPubKey.isEmpty || authorPubKey.length == 32);
+
+  Map<String, dynamic> _unsignedJson() => {
+    'v': 1,
+    'id': appealId,
+    'space': spaceId.hex,
+    'author': actionAuthor.hex,
+    'seq': actionSeq,
+    'appellant': appellant.hex,
+    'reviewer': reviewer.hex,
+    'text': text,
+    'createdAt': createdAtMs,
+  };
+
+  Uint8List canonicalBytes() => Uint8List.fromList([
+    ...utf8.encode('xveil.space.moderation-appeal.v1\u0000'),
+    ...utf8.encode(jsonEncode(_unsignedJson())),
+  ]);
+
+  SpaceModerationAppeal withSignature(
+    Uint8List nextSignature,
+    Uint8List publicKey,
+  ) => SpaceModerationAppeal(
+    appealId: appealId,
+    spaceId: spaceId,
+    actionAuthor: actionAuthor,
+    actionSeq: actionSeq,
+    appellant: appellant,
+    reviewer: reviewer,
+    text: text,
+    createdAtMs: createdAtMs,
+    signature: Uint8List.fromList(nextSignature),
+    authorPubKey: Uint8List.fromList(publicKey),
+  );
+
+  Map<String, dynamic> toJson() => {
+    ..._unsignedJson(),
+    'sig': base64Encode(signature),
+    'pk': base64Encode(authorPubKey),
+  };
+
+  static SpaceModerationAppeal? fromJson(Object? value) {
+    if (value is! Map || value['v'] != 1) return null;
+    try {
+      final appeal = SpaceModerationAppeal(
+        appealId: value['id'] as String,
+        spaceId: NodeId.fromHex(value['space'] as String),
+        actionAuthor: NodeId.fromHex(value['author'] as String),
+        actionSeq: value['seq'] as int,
+        appellant: NodeId.fromHex(value['appellant'] as String),
+        reviewer: NodeId.fromHex(value['reviewer'] as String),
+        text: value['text'] as String,
+        createdAtMs: value['createdAt'] as int,
+        signature: Uint8List.fromList(base64Decode(value['sig'] as String)),
+        authorPubKey: Uint8List.fromList(base64Decode(value['pk'] as String)),
+      );
+      return appeal.isStructurallyValid &&
+              appeal.signature.length == 64 &&
+              appeal.authorPubKey.length == 32
+          ? appeal
+          : null;
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+enum SpaceModerationAppealOutcome {
+  rejected,
+  actionRevoked,
+  acknowledgedIrreversible;
+
+  static SpaceModerationAppealOutcome? fromName(String? value) {
+    for (final outcome in values) {
+      if (outcome.name == value) return outcome;
+    }
+    return null;
+  }
+}
+
+/// Signed owner response. This row reports review status only: the actual
+/// authority for [SpaceModerationAppealOutcome.actionRevoked] remains the
+/// independently signed revocation in the Space control log.
+class SpaceModerationAppealDecision {
+  SpaceModerationAppealDecision({
+    required this.appealId,
+    required this.spaceId,
+    required this.appellant,
+    required this.reviewer,
+    required this.outcome,
+    required this.reason,
+    required this.decidedAtMs,
+    required this.signature,
+    required this.authorPubKey,
+  });
+
+  final String appealId;
+  final NodeId spaceId;
+  final NodeId appellant;
+  final NodeId reviewer;
+  final SpaceModerationAppealOutcome outcome;
+  final String reason;
+  final int decidedAtMs;
+  final Uint8List signature;
+  final Uint8List authorPubKey;
+
+  bool get isStructurallyValid =>
+      _spaceModerationAppealIdPattern.hasMatch(appealId) &&
+      appellant != reviewer &&
+      decidedAtMs >= 0 &&
+      reason.isNotEmpty &&
+      reason == reason.trim() &&
+      utf8.encode(reason).length <= kSpaceModerationReasonMax &&
+      (signature.isEmpty || signature.length == 64) &&
+      (authorPubKey.isEmpty || authorPubKey.length == 32);
+
+  Map<String, dynamic> _unsignedJson() => {
+    'v': 1,
+    'id': appealId,
+    'space': spaceId.hex,
+    'appellant': appellant.hex,
+    'reviewer': reviewer.hex,
+    'outcome': outcome.name,
+    'reason': reason,
+    'decidedAt': decidedAtMs,
+  };
+
+  Uint8List canonicalBytes() => Uint8List.fromList([
+    ...utf8.encode('xveil.space.moderation-appeal-decision.v1\u0000'),
+    ...utf8.encode(jsonEncode(_unsignedJson())),
+  ]);
+
+  SpaceModerationAppealDecision withSignature(
+    Uint8List nextSignature,
+    Uint8List publicKey,
+  ) => SpaceModerationAppealDecision(
+    appealId: appealId,
+    spaceId: spaceId,
+    appellant: appellant,
+    reviewer: reviewer,
+    outcome: outcome,
+    reason: reason,
+    decidedAtMs: decidedAtMs,
+    signature: Uint8List.fromList(nextSignature),
+    authorPubKey: Uint8List.fromList(publicKey),
+  );
+
+  Map<String, dynamic> toJson() => {
+    ..._unsignedJson(),
+    'sig': base64Encode(signature),
+    'pk': base64Encode(authorPubKey),
+  };
+
+  static SpaceModerationAppealDecision? fromJson(Object? value) {
+    if (value is! Map || value['v'] != 1) return null;
+    try {
+      final outcome = SpaceModerationAppealOutcome.fromName(
+        value['outcome'] as String?,
+      );
+      if (outcome == null) return null;
+      final decision = SpaceModerationAppealDecision(
+        appealId: value['id'] as String,
+        spaceId: NodeId.fromHex(value['space'] as String),
+        appellant: NodeId.fromHex(value['appellant'] as String),
+        reviewer: NodeId.fromHex(value['reviewer'] as String),
+        outcome: outcome,
+        reason: value['reason'] as String,
+        decidedAtMs: value['decidedAt'] as int,
+        signature: Uint8List.fromList(base64Decode(value['sig'] as String)),
+        authorPubKey: Uint8List.fromList(base64Decode(value['pk'] as String)),
+      );
+      return decision.isStructurallyValid &&
+              decision.signature.length == 64 &&
+              decision.authorPubKey.length == 32
+          ? decision
+          : null;
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+class SpaceModerationAppealInboxEntry {
+  const SpaceModerationAppealInboxEntry({
+    required this.appeal,
+    required this.receivedAtMs,
+    this.decision,
+  });
+
+  final SpaceModerationAppeal appeal;
+  final int receivedAtMs;
+  final SpaceModerationAppealDecision? decision;
+
+  bool get pending => decision == null;
+
+  bool get isStructurallyValid =>
+      appeal.isStructurallyValid &&
+      appeal.signature.length == 64 &&
+      appeal.authorPubKey.length == 32 &&
+      receivedAtMs >= appeal.createdAtMs &&
+      (decision == null ||
+          (decision!.isStructurallyValid &&
+              decision!.appealId == appeal.appealId &&
+              decision!.spaceId == appeal.spaceId &&
+              decision!.appellant == appeal.appellant &&
+              decision!.reviewer == appeal.reviewer &&
+              decision!.decidedAtMs >= receivedAtMs));
+
+  Map<String, dynamic> toJson() => {
+    'appeal': appeal.toJson(),
+    'receivedAt': receivedAtMs,
+    if (decision != null) 'decision': decision!.toJson(),
+  };
+
+  static SpaceModerationAppealInboxEntry? fromJson(Object? value) {
+    if (value is! Map || value['receivedAt'] is! int) return null;
+    final appeal = SpaceModerationAppeal.fromJson(value['appeal']);
+    final decision = value['decision'] == null
+        ? null
+        : SpaceModerationAppealDecision.fromJson(value['decision']);
+    if (appeal == null || (value['decision'] != null && decision == null)) {
+      return null;
+    }
+    final entry = SpaceModerationAppealInboxEntry(
+      appeal: appeal,
+      receivedAtMs: value['receivedAt'] as int,
+      decision: decision,
+    );
+    return entry.isStructurallyValid ? entry : null;
+  }
+}
+
+class SpaceModerationAppealOutboxEntry {
+  const SpaceModerationAppealOutboxEntry({required this.appeal, this.decision});
+
+  final SpaceModerationAppeal appeal;
+  final SpaceModerationAppealDecision? decision;
+
+  bool get pending => decision == null;
+
+  bool get isStructurallyValid =>
+      appeal.isStructurallyValid &&
+      appeal.signature.length == 64 &&
+      appeal.authorPubKey.length == 32 &&
+      (decision == null ||
+          (decision!.isStructurallyValid &&
+              decision!.appealId == appeal.appealId &&
+              decision!.spaceId == appeal.spaceId &&
+              decision!.appellant == appeal.appellant &&
+              decision!.reviewer == appeal.reviewer &&
+              decision!.decidedAtMs >= appeal.createdAtMs));
+
+  Map<String, dynamic> toJson() => {
+    'appeal': appeal.toJson(),
+    if (decision != null) 'decision': decision!.toJson(),
+  };
+
+  static SpaceModerationAppealOutboxEntry? fromJson(Object? value) {
+    if (value is! Map) return null;
+    final appeal = SpaceModerationAppeal.fromJson(value['appeal']);
+    final decision = value['decision'] == null
+        ? null
+        : SpaceModerationAppealDecision.fromJson(value['decision']);
+    if (appeal == null || (value['decision'] != null && decision == null)) {
+      return null;
+    }
+    final entry = SpaceModerationAppealOutboxEntry(
+      appeal: appeal,
+      decision: decision,
+    );
+    return entry.isStructurallyValid ? entry : null;
+  }
 }

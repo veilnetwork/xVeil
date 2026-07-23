@@ -63,6 +63,21 @@ void main() {
     expect(decision.kind, WireKind.spaceJoinDecision);
   });
 
+  test('Space moderation appeal and decision use distinct v2 frames', () {
+    final appeal = WireEnvelope.decode(
+      const WireEnvelope.spaceModerationAppeal(
+        '{"v":1,"id":"appeal"}',
+      ).encode(),
+    );
+    final decision = WireEnvelope.decode(
+      const WireEnvelope.spaceModerationAppealDecision(
+        '{"v":1,"id":"appeal","outcome":"rejected"}',
+      ).encode(),
+    );
+    expect(appeal.kind, WireKind.spaceModerationAppeal);
+    expect(decision.kind, WireKind.spaceModerationAppealDecision);
+  });
+
   test('Space recommendation is a typed forward-compatible frame', () {
     final card = SpaceRecommendationCard(
       campaignId: 'ab' * 32,

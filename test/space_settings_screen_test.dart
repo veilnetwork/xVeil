@@ -66,6 +66,13 @@ class _Signer implements GroupSigner {
   GroupCallSignal signCallSignal(GroupCallSignal value) =>
       value.withSignature(Uint8List(64), value.author.bytes);
   @override
+  SpaceModerationAppeal signModerationAppeal(SpaceModerationAppeal value) =>
+      value.withSignature(Uint8List(64), value.appellant.bytes);
+  @override
+  SpaceModerationAppealDecision signModerationAppealDecision(
+    SpaceModerationAppealDecision value,
+  ) => value.withSignature(Uint8List(64), value.reviewer.bytes);
+  @override
   bool verifyControl(ControlEntry value) => true;
   @override
   bool verifyMessage(GroupMessage value) => true;
@@ -77,6 +84,11 @@ class _Signer implements GroupSigner {
   bool verifyContentRequest(GroupContentRequest value) => true;
   @override
   bool verifyCallSignal(GroupCallSignal value) => true;
+  @override
+  bool verifyModerationAppeal(SpaceModerationAppeal value) => true;
+  @override
+  bool verifyModerationAppealDecision(SpaceModerationAppealDecision value) =>
+      true;
   @override
   bool verifySpaceManifest(SpaceManifest value) => value.signature.length == 64;
   @override
@@ -329,6 +341,90 @@ void main() {
     expect(find.text(l.spaceJoinRequestSent), findsOneWidget);
     expect(await service.outgoingSpaceJoinRequests(), hasLength(1));
   });
+
+  testWidgets(
+    'banned member can appeal from Communities after Space is hidden',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final owner = _id(64);
+      final member = _id(65);
+      final ownerService = GroupService(storage, _Signer(owner));
+      final sent = <String>[];
+      final memberService = GroupService(
+        storage,
+        _Signer(member),
+        sendSpaceModerationAppeal: (peer, appealId, appealJson) async {
+          expect(peer, owner);
+          expect(appealId, hasLength(64));
+          sent.add(appealJson);
+        },
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(memberService.dispose);
+      final spaceId = await ownerService.createSpace('Hidden after ban');
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: member,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final actionId = await ownerService.moderateSpace(
+        spaceId,
+        kind: SpaceModerationKind.permanentBan,
+        target: member,
+        scope: SpaceModerationScope.space,
+        reason: 'reviewable incident',
+      );
+      expect(actionId, isNotNull);
+      expect(await memberService.listSpaces(), isEmpty);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [groupServiceProvider.overrideWithValue(memberService)],
+          child: MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: const SpaceListScreen(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      final appealButton = find.byKey(
+        ValueKey('space-moderation-appeal-$actionId'),
+      );
+      expect(find.text('Hidden after ban'), findsOneWidget);
+      expect(appealButton, findsOneWidget);
+      await tester.tap(appealButton);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('space-moderation-appeal-text')),
+        'Please review the complete context.',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('space-moderation-appeal-submit')),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(sent, hasLength(1));
+      final outgoing =
+          (await memberService.outgoingSpaceModerationAppeals()).single;
+      expect(outgoing.appeal.actionId, actionId);
+      expect(
+        find.byKey(
+          ValueKey(
+            'space-moderation-appeal-outgoing-${outgoing.appeal.appealId}',
+          ),
+        ),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('Space channels support categories, history and restore', (
     tester,

@@ -19,6 +19,7 @@ import 'package:xveil/state/group_epoch_service.dart';
 import 'package:xveil/state/providers.dart';
 
 import 'support/fake_hv_container.dart';
+import 'package:xveil/domain/space_moderation.dart';
 
 class _Signer implements GroupSigner {
   _Signer(this.selfId);
@@ -56,6 +57,13 @@ class _Signer implements GroupSigner {
   @override
   GroupCallSignal signCallSignal(GroupCallSignal value) =>
       value.withSignature(Uint8List(64), value.author.bytes);
+  @override
+  SpaceModerationAppeal signModerationAppeal(SpaceModerationAppeal value) =>
+      value.withSignature(Uint8List(64), value.appellant.bytes);
+  @override
+  SpaceModerationAppealDecision signModerationAppealDecision(
+    SpaceModerationAppealDecision value,
+  ) => value.withSignature(Uint8List(64), value.reviewer.bytes);
 
   @override
   bool verifyControl(ControlEntry value) => true;
@@ -74,6 +82,11 @@ class _Signer implements GroupSigner {
 
   @override
   bool verifyCallSignal(GroupCallSignal value) => true;
+  @override
+  bool verifyModerationAppeal(SpaceModerationAppeal value) => true;
+  @override
+  bool verifyModerationAppealDecision(SpaceModerationAppealDecision value) =>
+      true;
 
   @override
   bool verifySpaceManifest(SpaceManifest value) => value.signature.length == 64;

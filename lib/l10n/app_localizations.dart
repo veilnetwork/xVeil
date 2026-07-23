@@ -8040,6 +8040,96 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Until {date}'**
   String spaceModerationUntil(String date);
+
+  /// No description provided for @spaceModerationAppealsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Moderation appeals'**
+  String get spaceModerationAppealsTitle;
+
+  /// No description provided for @spaceModerationAppealAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal'**
+  String get spaceModerationAppealAction;
+
+  /// No description provided for @spaceModerationAppealDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal moderation action'**
+  String get spaceModerationAppealDialogTitle;
+
+  /// No description provided for @spaceModerationAppealText.
+  ///
+  /// In en, this message translates to:
+  /// **'Explain why this action should be reviewed'**
+  String get spaceModerationAppealText;
+
+  /// No description provided for @spaceModerationAppealSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal sent'**
+  String get spaceModerationAppealSent;
+
+  /// No description provided for @spaceModerationAppealPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Awaiting review'**
+  String get spaceModerationAppealPending;
+
+  /// No description provided for @spaceModerationAppealRejected.
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal rejected'**
+  String get spaceModerationAppealRejected;
+
+  /// No description provided for @spaceModerationAppealRevoked.
+  ///
+  /// In en, this message translates to:
+  /// **'Action revoked after review'**
+  String get spaceModerationAppealRevoked;
+
+  /// No description provided for @spaceModerationAppealAcknowledged.
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal accepted; removed content cannot be restored'**
+  String get spaceModerationAppealAcknowledged;
+
+  /// No description provided for @spaceModerationAppealFrom.
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal from {node}'**
+  String spaceModerationAppealFrom(String node);
+
+  /// No description provided for @spaceModerationAppealReview.
+  ///
+  /// In en, this message translates to:
+  /// **'Review appeal'**
+  String get spaceModerationAppealReview;
+
+  /// No description provided for @spaceModerationAppealDecisionReason.
+  ///
+  /// In en, this message translates to:
+  /// **'Decision explanation'**
+  String get spaceModerationAppealDecisionReason;
+
+  /// No description provided for @spaceModerationAppealDecisionReject.
+  ///
+  /// In en, this message translates to:
+  /// **'Uphold action'**
+  String get spaceModerationAppealDecisionReject;
+
+  /// No description provided for @spaceModerationAppealDecisionRevoke.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke action'**
+  String get spaceModerationAppealDecisionRevoke;
+
+  /// No description provided for @spaceModerationAppealDecisionAcknowledge.
+  ///
+  /// In en, this message translates to:
+  /// **'Accept without restoration'**
+  String get spaceModerationAppealDecisionAcknowledge;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

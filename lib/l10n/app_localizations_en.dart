@@ -4380,4 +4380,54 @@ class AppL10nEn extends AppL10n {
   String spaceModerationUntil(String date) {
     return 'Until $date';
   }
+
+  @override
+  String get spaceModerationAppealsTitle => 'Moderation appeals';
+
+  @override
+  String get spaceModerationAppealAction => 'Appeal';
+
+  @override
+  String get spaceModerationAppealDialogTitle => 'Appeal moderation action';
+
+  @override
+  String get spaceModerationAppealText =>
+      'Explain why this action should be reviewed';
+
+  @override
+  String get spaceModerationAppealSent => 'Appeal sent';
+
+  @override
+  String get spaceModerationAppealPending => 'Awaiting review';
+
+  @override
+  String get spaceModerationAppealRejected => 'Appeal rejected';
+
+  @override
+  String get spaceModerationAppealRevoked => 'Action revoked after review';
+
+  @override
+  String get spaceModerationAppealAcknowledged =>
+      'Appeal accepted; removed content cannot be restored';
+
+  @override
+  String spaceModerationAppealFrom(String node) {
+    return 'Appeal from $node';
+  }
+
+  @override
+  String get spaceModerationAppealReview => 'Review appeal';
+
+  @override
+  String get spaceModerationAppealDecisionReason => 'Decision explanation';
+
+  @override
+  String get spaceModerationAppealDecisionReject => 'Uphold action';
+
+  @override
+  String get spaceModerationAppealDecisionRevoke => 'Revoke action';
+
+  @override
+  String get spaceModerationAppealDecisionAcknowledge =>
+      'Accept without restoration';
 }

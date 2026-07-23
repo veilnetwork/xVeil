@@ -1409,5 +1409,21 @@
   "spaceModerationTemporaryBan": "Temporary ban",
   "spaceModerationPermanentBan": "Permanent ban",
   "spaceModerationUntil": "Until {date}",
-  "@spaceModerationUntil": {"placeholders": {"date": {"type": "String"}}}
+  "@spaceModerationUntil": {"placeholders": {"date": {"type": "String"}}},
+  "spaceModerationAppealsTitle": "Moderation appeals",
+  "spaceModerationAppealAction": "Appeal",
+  "spaceModerationAppealDialogTitle": "Appeal moderation action",
+  "spaceModerationAppealText": "Explain why this action should be reviewed",
+  "spaceModerationAppealSent": "Appeal sent",
+  "spaceModerationAppealPending": "Awaiting review",
+  "spaceModerationAppealRejected": "Appeal rejected",
+  "spaceModerationAppealRevoked": "Action revoked after review",
+  "spaceModerationAppealAcknowledged": "Appeal accepted; removed content cannot be restored",
+  "spaceModerationAppealFrom": "Appeal from {node}",
+  "@spaceModerationAppealFrom": {"placeholders": {"node": {"type": "String"}}},
+  "spaceModerationAppealReview": "Review appeal",
+  "spaceModerationAppealDecisionReason": "Decision explanation",
+  "spaceModerationAppealDecisionReject": "Uphold action",
+  "spaceModerationAppealDecisionRevoke": "Revoke action",
+  "spaceModerationAppealDecisionAcknowledge": "Accept without restoration"
 }

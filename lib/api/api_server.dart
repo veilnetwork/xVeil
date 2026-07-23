@@ -16,6 +16,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../domain/group_message.dart';
+import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
 
 /// The loopback port the automation API binds when enabled. Distinct from the
@@ -806,6 +807,46 @@ Map<String, dynamic> openApiSpec() {
                   'properties': {
                     'space': {'type': 'string'},
                     'actionId': {'type': 'string'},
+                    'reason': {'type': 'string', 'maxLength': 4096},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/spaces/moderation/appeals': {
+        'get': {
+          'summary': 'List appealable actions and moderation appeal inboxes',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': false,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': ok({'type': obj}),
+        },
+        'post': {
+          'summary': 'Submit or decide a signed moderation appeal',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['action'],
+                  'properties': {
+                    'action': {
+                      'type': 'string',
+                      'enum': ['appeal', 'reject', 'revoke', 'acknowledge'],
+                    },
+                    'space': {'type': 'string'},
+                    'actionId': {'type': 'string'},
+                    'appealId': {'type': 'string'},
+                    'text': {'type': 'string', 'maxLength': 16384},
                     'reason': {'type': 'string', 'maxLength': 4096},
                   },
                 },
@@ -2599,6 +2640,8 @@ class ApiHandler {
     this.spaceModerationAudit,
     this.moderateSpace,
     this.revokeSpaceModeration,
+    this.spaceModerationAppeals,
+    this.spaceModerationAppealAction,
     this.createSpaceChannel,
     this.updateSpaceChannel,
     this.spaceChannelAction,
@@ -2889,6 +2932,17 @@ class ApiHandler {
     String reason,
   )?
   revokeSpaceModeration;
+  final Future<Map<String, dynamic>> Function(String? spaceHex)?
+  spaceModerationAppeals;
+  final Future<String?> Function(
+    String action,
+    String? spaceHex,
+    String? actionId,
+    String? appealId,
+    String? text,
+    String? reason,
+  )?
+  spaceModerationAppealAction;
   final Future<({String? error, String? channelId})> Function(
     String spaceHex,
     String name,
@@ -3390,6 +3444,70 @@ class ApiHandler {
       }
       return _spaceMutationResponse(
         await handler(space, actionId, reason.trim()),
+      );
+    }
+    if (method == 'GET' && path == '/v1/spaces/moderation/appeals') {
+      final handler = spaceModerationAppeals;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space moderation appeals unavailable',
+        });
+      }
+      final result = await handler(uri.queryParameters['space']);
+      return result['error'] == null
+          ? ApiResponse(200, result)
+          : ApiResponse(400, result);
+    }
+    if (method == 'POST' && path == '/v1/spaces/moderation/appeals') {
+      final handler = spaceModerationAppealAction;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space moderation appeals unavailable',
+        });
+      }
+      final action = body?['action'];
+      final space = body?['space'];
+      final actionId = body?['actionId'];
+      final appealId = body?['appealId'];
+      final text = body?['text'];
+      final reason = body?['reason'];
+      final validActionId =
+          actionId is String &&
+          RegExp(r'^[0-9a-f]{64}:[0-9]+$').hasMatch(actionId);
+      final validAppealId =
+          appealId is String && RegExp(r'^[0-9a-f]{64}$').hasMatch(appealId);
+      if (action is! String ||
+          !const {
+            'appeal',
+            'reject',
+            'revoke',
+            'acknowledge',
+          }.contains(action) ||
+          (action == 'appeal' &&
+              (space is! String ||
+                  space.isEmpty ||
+                  !validActionId ||
+                  text is! String ||
+                  text.trim().isEmpty ||
+                  utf8.encode(text).length > kSpaceModerationAppealMax)) ||
+          (action != 'appeal' &&
+              (!validAppealId ||
+                  reason is! String ||
+                  reason.trim().isEmpty ||
+                  utf8.encode(reason).length > kSpaceModerationReasonMax))) {
+        return const ApiResponse(400, {
+          'error': 'valid moderation appeal action required',
+        });
+      }
+      return _spaceMutationResponse(
+        await handler(
+          action,
+          space as String?,
+          actionId as String?,
+          appealId as String?,
+          text is String ? text.trim() : null,
+          reason is String ? reason.trim() : null,
+        ),
       );
     }
     if (method == 'GET' && path == '/v1/spaces/posts') {
