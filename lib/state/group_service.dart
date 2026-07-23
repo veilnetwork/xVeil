@@ -8580,7 +8580,10 @@ class GroupService {
       initialName: bundle.manifest.name,
     );
     final state = currentFold.state;
-    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.publishPosts)) {
+    final requiredPermission = operation == SpacePostOperation.delete
+        ? SpacePermission.view
+        : SpacePermission.publishPosts;
+    if (!SpaceAcl(state).allows(_signer.selfId, requiredPermission)) {
       return null;
     }
     final lifecycleGeneration = state.lifecycleTransitionHash;
@@ -8612,6 +8615,7 @@ class GroupService {
       preferredCheckpointHash: authored.isEmpty
           ? null
           : authored.last.controlCheckpointHash,
+      removal: operation == SpacePostOperation.delete,
     );
     if (checkpointResult == null) return null;
     final checkpointHash = controlEntryHash(checkpointResult.entry);
@@ -8735,13 +8739,19 @@ class GroupService {
     GroupBundle bundle,
     GroupFoldResult currentFold, {
     String? preferredCheckpointHash,
+    bool removal = false,
   }) {
     final currentGeneration = _postGrantAt(
       bundle.manifest,
       currentFold.accepted,
       _signer.selfId,
     );
-    if (currentGeneration == null) return null;
+    final currentAcl = SpaceAcl(currentFold.state);
+    if (removal) {
+      if (!currentAcl.allows(_signer.selfId, SpacePermission.view)) return null;
+    } else if (currentGeneration == null) {
+      return null;
+    }
     const reuseScanMax = 8;
     final candidates = <ControlEntry>[];
     if (preferredCheckpointHash != null) {
@@ -8773,11 +8783,17 @@ class GroupService {
       );
       if (historical != null &&
           historical.state.policyVersion == currentFold.state.policyVersion &&
-          SpaceAcl(
-            historical.state,
-          ).allows(_signer.selfId, SpacePermission.publishPosts) &&
-          _postGrantAt(bundle.manifest, historical.accepted, _signer.selfId) ==
-              currentGeneration) {
+          SpaceAcl(historical.state).allows(
+            _signer.selfId,
+            removal ? SpacePermission.view : SpacePermission.publishPosts,
+          ) &&
+          (removal ||
+              _postGrantAt(
+                    bundle.manifest,
+                    historical.accepted,
+                    _signer.selfId,
+                  ) ==
+                  currentGeneration)) {
         return (bundle: bundle, entry: entry, created: null);
       }
     }
@@ -9607,14 +9623,16 @@ class GroupService {
       }
       historicalCache[historicalKey] = historical;
     }
+    final removal = post.operation == SpacePostOperation.delete;
     if (historical.state.policyVersion != post.policyVersion ||
         !SpaceAcl(historical.state).allows(
           post.author,
-          SpacePermission.publishPosts,
+          removal ? SpacePermission.view : SpacePermission.publishPosts,
           atMs: post.createdAtMs,
         )) {
       return false;
     }
+    if (removal) return true;
     final generation = _postGrantAt(
       bundle.manifest,
       historical.accepted,
@@ -9653,13 +9671,19 @@ class GroupService {
       post,
       accepted,
     );
-    return historical != null &&
-        historical.state.policyVersion == post.policyVersion &&
-        SpaceAcl(historical.state).allows(
-          post.author,
-          SpacePermission.publishPosts,
-          atMs: post.createdAtMs,
-        ) &&
+    if (historical == null ||
+        historical.state.policyVersion != post.policyVersion) {
+      return false;
+    }
+    final removal = post.operation == SpacePostOperation.delete;
+    if (!SpaceAcl(historical.state).allows(
+      post.author,
+      removal ? SpacePermission.view : SpacePermission.publishPosts,
+      atMs: post.createdAtMs,
+    )) {
+      return false;
+    }
+    return removal ||
         _postGrantAt(manifest, historical.accepted, post.author) != null;
   }
 
@@ -10153,15 +10177,21 @@ class GroupService {
           !await isSpaceFeedEnabled(spaceId)) {
         continue;
       }
-      final state = foldControlLog(
+      final folded = foldControlLog(
         owner: bundle.manifest.owner,
         entries: bundle.control,
         verify: (entry) => _validControlFor(bundle.manifest, entry),
         initialName: bundle.manifest.name,
-      ).state;
-      if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
+      );
+      final state = folded.state;
+      final acl = SpaceAcl(state);
+      if (!acl.allows(_signer.selfId, SpacePermission.view)) {
         continue;
       }
+      final canManagePosts = acl.allows(
+        _signer.selfId,
+        SpacePermission.managePosts,
+      );
       final visiblePosts = await _postsOfBundle(
         bundle,
         applyLocalRetention: true,
@@ -10196,6 +10226,20 @@ class GroupService {
             spaceName: state.name,
             post: post,
             reactions: reactions[post.postId] ?? const {},
+            canDeletePost:
+                post.author == _signer.selfId &&
+                state.isActive &&
+                post.effective.lifecycleGeneration ==
+                    state.lifecycleTransitionHash,
+            canModeratePost:
+                post.author != _signer.selfId &&
+                acl.allowsControl(
+                  _signer.selfId,
+                  ControlOp.moderate,
+                  target: post.author,
+                  moderationTargetsRemovedContent: true,
+                ),
+            canManagePosts: canManagePosts,
           ),
         );
       }
@@ -14034,12 +14078,18 @@ class SpaceFeedItem {
     required this.spaceName,
     required this.post,
     required this.reactions,
+    required this.canDeletePost,
+    required this.canModeratePost,
+    required this.canManagePosts,
   });
 
   final NodeId spaceId;
   final String spaceName;
   final SpacePostView post;
   final MessageReactions reactions;
+  final bool canDeletePost;
+  final bool canModeratePost;
+  final bool canManagePosts;
 }
 
 /// One row of the user-facing group list (the shape [GroupService.listGroups]

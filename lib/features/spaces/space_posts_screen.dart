@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 import '../../core/ids.dart';
 import '../../domain/group_policy.dart';
 import '../../domain/group_reaction.dart';
-import '../../domain/space_moderation.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
@@ -20,6 +19,7 @@ import '../chat/vnote_preview.dart';
 import '../chat/voice_waveform.dart';
 import 'space_post_body.dart';
 import 'space_post_body_editor.dart';
+import 'space_post_actions.dart';
 import 'space_post_media.dart';
 import 'space_post_reactions.dart';
 
@@ -205,120 +205,6 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(l.spaceOperationFailed)));
-    }
-  }
-
-  Future<void> _delete(
-    BuildContext context,
-    WidgetRef ref,
-    NodeId spaceId,
-    SpacePostView post,
-  ) async {
-    final l = AppL10n.of(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(l.spacePostDeleteTitle),
-        content: Text(l.spacePostDeleteBody),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(l.actionCancel),
-          ),
-          FilledButton(
-            key: const ValueKey('space-post-delete-confirm'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(l.spacePostDelete),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    final deleted =
-        await ref
-            .read(groupServiceProvider)
-            ?.deleteSpacePost(spaceId, post.postId) ??
-        false;
-    if (!deleted && context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l.spaceOperationFailed)));
-    }
-  }
-
-  Future<void> _moderateDelete(
-    BuildContext context,
-    WidgetRef ref,
-    NodeId spaceId,
-    SpacePostView post,
-  ) async {
-    final l = AppL10n.of(context);
-    final controller = TextEditingController();
-    final reason = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(l.spaceModerationDeletePost),
-        content: TextField(
-          key: const ValueKey('space-post-moderation-reason'),
-          controller: controller,
-          autofocus: true,
-          maxLength: kSpaceModerationReasonMax,
-          decoration: InputDecoration(labelText: l.spaceModerationReason),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(l.actionCancel),
-          ),
-          FilledButton(
-            onPressed: () {
-              final value = controller.text.trim();
-              if (value.isNotEmpty) Navigator.of(dialogContext).pop(value);
-            },
-            child: Text(l.spaceModerationDeletePost),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (reason == null) return;
-    final actionId = await ref
-        .read(groupServiceProvider)
-        ?.moderateSpace(
-          spaceId,
-          kind: SpaceModerationKind.deletePost,
-          target: post.author,
-          scope: SpaceModerationScope.posts,
-          reason: reason,
-          reference: SpaceModerationReference(
-            kind: SpaceModerationReferenceKind.spacePost,
-            author: post.author,
-            seq: post.seq,
-          ),
-        );
-    if (actionId == null && context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l.spaceOperationFailed)));
-    }
-  }
-
-  Future<void> _setPinned(
-    BuildContext context,
-    WidgetRef ref,
-    NodeId spaceId,
-    SpacePostView post,
-    bool pinned,
-  ) async {
-    final updated =
-        await ref
-            .read(groupServiceProvider)
-            ?.setSpacePostPinned(spaceId, post.postId, pinned) ??
-        false;
-    if (!updated && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppL10n.of(context).spaceOperationFailed)),
-      );
     }
   }
 
@@ -666,27 +552,27 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
                                             );
                                           case _PostAction.delete:
                                             unawaited(
-                                              _delete(
+                                              confirmAndDeleteOwnSpacePost(
                                                 context,
-                                                ref,
+                                                service,
                                                 spaceId,
                                                 post,
                                               ),
                                             );
                                           case _PostAction.moderateDelete:
                                             unawaited(
-                                              _moderateDelete(
+                                              promptAndModerateDeleteSpacePost(
                                                 context,
-                                                ref,
+                                                service,
                                                 spaceId,
                                                 post,
                                               ),
                                             );
                                           case _PostAction.pin:
                                             unawaited(
-                                              _setPinned(
+                                              updateSpacePostPinned(
                                                 context,
-                                                ref,
+                                                service,
                                                 spaceId,
                                                 post,
                                                 true,
@@ -694,9 +580,9 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
                                             );
                                           case _PostAction.unpin:
                                             unawaited(
-                                              _setPinned(
+                                              updateSpacePostPinned(
                                                 context,
-                                                ref,
+                                                service,
                                                 spaceId,
                                                 post,
                                                 false,
