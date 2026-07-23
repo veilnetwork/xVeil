@@ -13,6 +13,7 @@ import '../../domain/space_channel.dart';
 import '../../domain/space_retention.dart';
 import '../../domain/space_join_request.dart';
 import '../../domain/space_moderation.dart';
+import '../../domain/space_policy_audit.dart';
 import '../../domain/space_recommendation.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
@@ -64,6 +65,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     service.spaceRecommendationCampaigns(spaceId),
     service.groupNotificationPolicy(spaceId),
     service.channelsOf(spaceId, includeArchived: true),
+    service.spacePolicyAudit(spaceId),
   ]);
 
   Future<List<Object?>> _settingsSnapshot(
@@ -217,6 +219,115 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     }
     return member.short;
   }
+
+  String _policyAuditSummary(
+    AppL10n l,
+    SpacePolicyAuditEntry entry,
+    List<SpaceChannel> channels,
+  ) => switch (entry) {
+    SpaceAccessPolicyAuditEntry(:final policy) =>
+      l.spacePolicyAuditAccessSummary(
+        policy.revision,
+        policy.roles.length,
+        policy.groups.length,
+        policy.directAssignments.length,
+      ),
+    SpaceRetentionPolicyAuditEntry(:final revision) =>
+      '${revision.policy.channelId == null ? l.spacePolicyAuditScopeSpace : l.spacePolicyAuditScopeChannel(_channelAuditLabel(revision.policy.channelId!, channels))} · '
+          '${_retentionAuditRule(l, revision.policy)}'
+          '${revision.policy.mediaOnly ? ' · ${l.spacePolicyAuditMediaOnly}' : ''}',
+  };
+
+  String _channelAuditLabel(NodeId channelId, List<SpaceChannel> channels) {
+    for (final channel in channels) {
+      if (channel.channelId == channelId) return channel.name;
+    }
+    return channelId.short;
+  }
+
+  String _retentionAuditRule(AppL10n l, SpaceRetentionPolicy policy) =>
+      switch (policy.mode) {
+        SpaceRetentionMode.inherit => l.spacePolicyAuditRetentionInherit,
+        SpaceRetentionMode.keepForever => l.spacePolicyAuditRetentionForever,
+        SpaceRetentionMode.deleteAfter => l.spacePolicyAuditRetentionDays(
+          policy.retentionMs! ~/ const Duration(days: 1).inMilliseconds,
+        ),
+      };
+
+  Future<void> _showPolicyAudit(
+    List<SpacePolicyAuditEntry> audit,
+    List<SpaceChannel> channels,
+    GroupService service,
+    List<Conversation> conversations,
+  ) => showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (sheetContext) {
+      final l = AppL10n.of(sheetContext);
+      return FractionallySizedBox(
+        heightFactor: .85,
+        child: Column(
+          children: [
+            ListTile(
+              leading: IconButton(
+                key: const ValueKey('space-policy-audit-back'),
+                tooltip: MaterialLocalizations.of(
+                  sheetContext,
+                ).backButtonTooltip,
+                onPressed: () => Navigator.of(sheetContext).pop(),
+                icon: const Icon(Icons.arrow_back),
+              ),
+              title: Text(l.spacePolicyAuditTitle),
+              subtitle: Text(l.spacePolicyAuditHint),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: audit.isEmpty
+                  ? Center(child: Text(l.spacePolicyAuditEmpty))
+                  : ListView.separated(
+                      key: const ValueKey('space-policy-audit-list'),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      itemCount: audit.length,
+                      separatorBuilder: (_, _) =>
+                          const Divider(height: 1, indent: 72),
+                      itemBuilder: (context, index) {
+                        final entry = audit[index];
+                        final author = _memberLabel(
+                          l,
+                          service,
+                          entry.author,
+                          conversations,
+                        );
+                        return ListTile(
+                          key: ValueKey(
+                            'space-policy-audit-entry-${entry.stableId}',
+                          ),
+                          leading: Icon(
+                            entry is SpaceAccessPolicyAuditEntry
+                                ? Icons.admin_panel_settings_outlined
+                                : Icons.inventory_2_outlined,
+                          ),
+                          title: Text(
+                            entry is SpaceAccessPolicyAuditEntry
+                                ? l.spacePolicyAuditAccess
+                                : l.spacePolicyAuditRetention,
+                          ),
+                          subtitle: Text(
+                            '${_policyAuditSummary(l, entry, channels)}\n'
+                            '${_date(sheetContext, entry.changedAtMs)} · '
+                            '${l.spacePolicyAuditSignedBy(author)}',
+                          ),
+                          isThreeLine: true,
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
 
   Future<void> _rename(
     GroupService service,
@@ -1050,6 +1161,8 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
             final notificationPolicy =
                 snapshot.data![7] as NotificationMutePolicy;
             final channels = snapshot.data![8] as List<SpaceChannel>;
+            final policyAudit =
+                snapshot.data![9] as List<SpacePolicyAuditEntry>;
             final myRole = state.roleOf(service.selfId)!;
             final acl = SpaceAcl(state);
             final canRename =
@@ -2068,6 +2181,24 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                 onTap: () => _deleteSpace(service, spaceId),
                               ),
                           ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Card(
+                        child: ListTile(
+                          key: const ValueKey('space-policy-audit-tile'),
+                          leading: const Icon(Icons.fact_check_outlined),
+                          title: Text(
+                            '${l.spacePolicyAuditTitle} (${policyAudit.length})',
+                          ),
+                          subtitle: Text(l.spacePolicyAuditHint),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _showPolicyAudit(
+                            policyAudit,
+                            channels,
+                            service,
+                            conversations,
+                          ),
                         ),
                       ),
                     ],

@@ -1898,6 +1898,21 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
       },
+      '/spaces/policies/audit': {
+        'get': {
+          'summary':
+              'Read newest-first typed evidence for signed access and retention policy changes',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': ok({'type': obj}),
+        },
+      },
       '/spaces/invites': {
         'get': {
           'summary': 'Pending consent-first community invitations',
@@ -2786,6 +2801,7 @@ class ApiHandler {
     required this.groupMemberAction,
     this.spaceAccess,
     this.spaceAccessAction,
+    this.spacePolicyAudit,
     required this.renameGroup,
     required this.leaveGroup,
     this.spaceChannels,
@@ -2943,6 +2959,8 @@ class ApiHandler {
   final Future<Map<String, dynamic>?> Function(String spaceHex)? spaceAccess;
   final Future<String?> Function(String spaceHex, Map<String, dynamic> body)?
   spaceAccessAction;
+  final Future<Map<String, dynamic>?> Function(String spaceHex)?
+  spacePolicyAudit;
   final Future<String?> Function(String groupHex, String name, bool isSpace)
   renameGroup;
   final Future<String?> Function(String groupHex, bool isSpace) leaveGroup;
@@ -4825,6 +4843,21 @@ class ApiHandler {
         Map<String, dynamic>.from(body),
       );
       return _spaceMutationResponse(error);
+    }
+    if (method == 'GET' && path == '/v1/spaces/policies/audit') {
+      if (spacePolicyAudit == null) {
+        return const ApiResponse(501, {
+          'error': 'Space policy audit unavailable',
+        });
+      }
+      final space = uri.queryParameters['space'];
+      if (space == null || space.isEmpty) {
+        return const ApiResponse(400, {'error': 'space required'});
+      }
+      final audit = await spacePolicyAudit!(space);
+      return audit == null
+          ? const ApiResponse(404, {'error': 'space not found'})
+          : ApiResponse(200, audit);
     }
     if (method == 'POST' &&
         (path == '/v1/spaces/name' || path == '/v1/groups/name')) {

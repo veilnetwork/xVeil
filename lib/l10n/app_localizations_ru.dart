@@ -909,6 +909,60 @@ class AppL10nRu extends AppL10n {
       'Переиспользуемые наборы прав, группы участников и прямые роли. Каждое изменение подписано и доступно для аудита.';
 
   @override
+  String get spacePolicyAuditTitle => 'Аудит политик';
+
+  @override
+  String get spacePolicyAuditHint =>
+      'Подписанные изменения доступа и хранения. Записи нельзя изменить или удалить.';
+
+  @override
+  String get spacePolicyAuditEmpty => 'Подписанных изменений политик пока нет.';
+
+  @override
+  String get spacePolicyAuditAccess => 'Политика доступа';
+
+  @override
+  String get spacePolicyAuditRetention => 'Политика хранения';
+
+  @override
+  String spacePolicyAuditAccessSummary(
+    int revision,
+    int roles,
+    int groups,
+    int assignments,
+  ) {
+    return 'Ревизия $revision · ролей: $roles · групп: $groups · прямых назначений: $assignments';
+  }
+
+  @override
+  String spacePolicyAuditSignedBy(String author) {
+    return 'Подписал: $author';
+  }
+
+  @override
+  String get spacePolicyAuditScopeSpace => 'Всё сообщество';
+
+  @override
+  String spacePolicyAuditScopeChannel(String channel) {
+    return 'Канал $channel';
+  }
+
+  @override
+  String get spacePolicyAuditRetentionInherit =>
+      'наследует политику сообщества';
+
+  @override
+  String get spacePolicyAuditRetentionForever => 'хранит историю';
+
+  @override
+  String spacePolicyAuditRetentionDays(int days) {
+    return 'удаляет через $days дн.';
+  }
+
+  @override
+  String get spacePolicyAuditMediaOnly => 'только медиа';
+
+  @override
   String get spaceAccessDelegatedHint =>
       'Можно управлять только ролями ниже текущего потолка прав. Собственные роли и равные управляющие защищены.';
 

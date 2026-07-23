@@ -1381,6 +1381,35 @@ void main() {
         );
         expect((channelValue['policy'] as Map)['mediaOnly'], isTrue);
         expect(channelValue['history'], hasLength(1));
+
+        expect(
+          await api.spaceAccessAction(space, {
+            'action': 'upsert_role',
+            'expectedRevision': 0,
+            'name': 'Audited publisher',
+            'permissions': ['publishPosts'],
+          }),
+          isNull,
+        );
+        final audit = (await api.policyAudit(space))!;
+        final auditEntries = audit['entries'] as List;
+        expect(auditEntries, hasLength(3));
+        expect(auditEntries.map((entry) => (entry as Map)['kind']).toSet(), {
+          'access',
+          'retention',
+        });
+        expect(
+          auditEntries
+              .where((entry) => (entry as Map)['kind'] == 'access')
+              .single['policy']['revision'],
+          1,
+        );
+        expect(
+          auditEntries
+              .where((entry) => (entry as Map)['kind'] == 'retention')
+              .map((entry) => (entry as Map)['id']),
+          everyElement(startsWith('retention:')),
+        );
       } finally {
         await service.dispose();
       }

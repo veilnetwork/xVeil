@@ -1711,6 +1711,89 @@ abstract class AppL10n {
   /// **'Reusable permission sets, participant groups, and direct member roles. Every change is signed and audited.'**
   String get spaceAccessHint;
 
+  /// No description provided for @spacePolicyAuditTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Policy audit'**
+  String get spacePolicyAuditTitle;
+
+  /// No description provided for @spacePolicyAuditHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed access and retention changes. Entries cannot be edited or deleted.'**
+  String get spacePolicyAuditHint;
+
+  /// No description provided for @spacePolicyAuditEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No policy changes have been signed yet.'**
+  String get spacePolicyAuditEmpty;
+
+  /// No description provided for @spacePolicyAuditAccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Access policy'**
+  String get spacePolicyAuditAccess;
+
+  /// No description provided for @spacePolicyAuditRetention.
+  ///
+  /// In en, this message translates to:
+  /// **'Retention policy'**
+  String get spacePolicyAuditRetention;
+
+  /// No description provided for @spacePolicyAuditAccessSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'Revision {revision} · {roles} roles · {groups} groups · {assignments} direct assignments'**
+  String spacePolicyAuditAccessSummary(
+    int revision,
+    int roles,
+    int groups,
+    int assignments,
+  );
+
+  /// No description provided for @spacePolicyAuditSignedBy.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed by {author}'**
+  String spacePolicyAuditSignedBy(String author);
+
+  /// No description provided for @spacePolicyAuditScopeSpace.
+  ///
+  /// In en, this message translates to:
+  /// **'Entire community'**
+  String get spacePolicyAuditScopeSpace;
+
+  /// No description provided for @spacePolicyAuditScopeChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'Channel {channel}'**
+  String spacePolicyAuditScopeChannel(String channel);
+
+  /// No description provided for @spacePolicyAuditRetentionInherit.
+  ///
+  /// In en, this message translates to:
+  /// **'inherits the community policy'**
+  String get spacePolicyAuditRetentionInherit;
+
+  /// No description provided for @spacePolicyAuditRetentionForever.
+  ///
+  /// In en, this message translates to:
+  /// **'keeps history'**
+  String get spacePolicyAuditRetentionForever;
+
+  /// No description provided for @spacePolicyAuditRetentionDays.
+  ///
+  /// In en, this message translates to:
+  /// **'removes after {days} days'**
+  String spacePolicyAuditRetentionDays(int days);
+
+  /// No description provided for @spacePolicyAuditMediaOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'media only'**
+  String get spacePolicyAuditMediaOnly;
+
   /// No description provided for @spaceAccessDelegatedHint.
   ///
   /// In en, this message translates to:
