@@ -63,6 +63,10 @@ SpacePublicDescriptor _descriptor({
     genesisManifest: genesis,
     controlHeadHash: '33' * 32,
     revision: revision,
+    publicFeedManifestHash: '55' * 32,
+    publicFeedRevision: revision,
+    publicFeedUpdatedAtMs: now - 1500 + revision,
+    publicPostCount: revision,
     name: name,
     description: 'A searchable description',
     avatarContentId: '44' * 32,
@@ -86,6 +90,7 @@ SpacePublicHolderAnnouncement _holder({
   final unsigned = SpacePublicHolderAnnouncement(
     spaceId: descriptor.spaceId,
     descriptorHash: descriptor.descriptorHash,
+    publicFeedManifestHash: descriptor.publicFeedManifestHash,
     holder: holder,
     holderPublicKey: holder.bytes,
     issuedAtMs: now,
@@ -107,6 +112,7 @@ _boundHolder({
   final unsigned = SpacePublicHolderAnnouncement(
     spaceId: descriptor.spaceId,
     descriptorHash: descriptor.descriptorHash,
+    publicFeedManifestHash: descriptor.publicFeedManifestHash,
     holder: nodeId,
     holderPublicKey: publicKey,
     issuedAtMs: now,
@@ -218,6 +224,7 @@ void main() {
     final wrongSpaceUnsigned = SpacePublicHolderAnnouncement(
       spaceId: _id(8),
       descriptorHash: current.descriptorHash,
+      publicFeedManifestHash: current.publicFeedManifestHash,
       holder: _id(6),
       holderPublicKey: _id(6).bytes,
       issuedAtMs: now,

@@ -49,6 +49,7 @@ import '../domain/space_lifecycle.dart';
 import '../domain/space_membership.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
+import '../domain/space_public_feed.dart';
 import '../domain/space_policy_audit.dart';
 import '../domain/space_recommendation.dart';
 import '../domain/space_retention.dart';
@@ -739,6 +740,19 @@ class SpaceDiscoveryPublishSweep {
   bool get complete => available && failures == 0;
 }
 
+/// Exact material prepared by an owner before it may advertise itself as a
+/// public holder. The DHT payload is small; the content-addressed feed pages
+/// remain on the holder and are served by the dedicated public-feed path.
+class SpacePublicDiscoveryPublication {
+  const SpacePublicDiscoveryPublication({
+    required this.discovery,
+    required this.feed,
+  });
+
+  final SpacePublicDiscoveryPayload discovery;
+  final SpacePublicFeedProjection feed;
+}
+
 class GroupService {
   GroupService(
     this._storage,
@@ -856,6 +870,8 @@ class GroupService {
   final Map<String, ({String descriptorHash, int publishedAtMs})>
   _publishedPublicSpaceDescriptors =
       <String, ({String descriptorHash, int publishedAtMs})>{};
+  final Map<String, SpacePublicFeedProjection> _publishedPublicSpaceFeeds =
+      <String, SpacePublicFeedProjection>{};
   bool _scheduledSpacePostMaintenanceStarted = false;
   bool _scheduledSpacePostMaintenanceRunning = false;
   bool _scheduledSpacePostWakeRequested = false;
@@ -1943,12 +1959,119 @@ class GroupService {
     });
   }
 
+  Future<({List<SpacePostView> posts, int revision, int updatedAtMs})?>
+  _spacePublicFeedMaterial(GroupBundle bundle) async {
+    final visible = [
+      for (final post in await _postsOfBundle(bundle))
+        if (post.visibility == SpacePostVisibility.public) post,
+    ];
+    if (visible.length >
+        kSpacePublicFeedPageSize * kSpacePublicFeedPageMaxCount) {
+      return null;
+    }
+    visible.sort(
+      (left, right) => SpaceFeedCursor.fromView(
+        right,
+      ).compareTo(SpaceFeedCursor.fromView(left)),
+    );
+
+    var updatedAtMs = bundle.manifest.createdAtMs;
+    final retainedPublicRows = [
+      for (final post in _retainedPostRows(
+        bundle.manifest.groupId,
+        bundle.posts,
+      ))
+        if (post.visibility == SpacePostVisibility.public) post,
+    ];
+    for (final post in retainedPublicRows) {
+      updatedAtMs = max(updatedAtMs, post.createdAtMs);
+    }
+    return (
+      posts: List<SpacePostView>.unmodifiable(visible),
+      // Distinct valid rows include fork evidence. This count therefore never
+      // rolls back when a newly received equivocation quarantines a formerly
+      // visible suffix; the newer fail-closed descriptor still supersedes the
+      // older snapshot instead of losing a "highest revision" comparison.
+      revision: retainedPublicRows.length,
+      updatedAtMs: updatedAtMs,
+    );
+  }
+
+  SpacePublicFeedProjection? _signSpacePublicFeedProjection({
+    required GroupBundle bundle,
+    required String controlHeadHash,
+    required List<SpacePostView> posts,
+    required int revision,
+    required int updatedAtMs,
+    required int issuedAtMs,
+    required int expiresAtMs,
+  }) {
+    final pages = <SpacePublicFeedPage>[];
+    for (
+      var offset = 0;
+      offset < posts.length;
+      offset += kSpacePublicFeedPageSize
+    ) {
+      final end = min(offset + kSpacePublicFeedPageSize, posts.length);
+      pages.add(
+        SpacePublicFeedPage(
+          spaceId: bundle.manifest.groupId,
+          index: pages.length,
+          posts: [
+            for (final post in posts.sublist(offset, end))
+              SpacePublicPostProjection.fromView(post),
+          ],
+        ),
+      );
+    }
+    if (pages.any((page) => !page.isStructurallyValid)) return null;
+    final unsigned = SpacePublicFeedManifest(
+      spaceId: bundle.manifest.groupId,
+      publisher: selfId,
+      controlHeadHash: controlHeadHash,
+      revision: revision,
+      updatedAtMs: updatedAtMs,
+      issuedAtMs: issuedAtMs,
+      expiresAtMs: expiresAtMs,
+      itemCount: posts.length,
+      pageHashes: [for (final page in pages) page.contentHash],
+    );
+    final signed = _signer.signDetached(unsigned.canonicalBytes());
+    if (!_listEquals(signed.publicKey, bundle.manifest.genesisPubKey)) {
+      return null;
+    }
+    final manifest = unsigned.withSignature(signed.signature);
+    final projection = SpacePublicFeedProjection(
+      manifest: manifest,
+      pages: pages,
+    );
+    return projection.verifyAt(
+          nowMs: issuedAtMs,
+          expectedManifestHash: manifest.manifestHash,
+          expectedSpaceId: bundle.manifest.groupId,
+          expectedPublisher: selfId,
+          publisherPublicKey: bundle.manifest.genesisPubKey,
+          expectedControlHeadHash: controlHeadHash,
+          verifySignature: _signer.verifyDetached,
+          verifyPost: _signer.verifyPost,
+        )
+        ? projection
+        : null;
+  }
+
   /// Build the strict public descriptor + holder attestation carried by the
-  /// native discovery DHT. V1 deliberately publishes only from the immutable
-  /// genesis owner: after ownership transfer it fails closed until the public
-  /// authority-chain revision lands, rather than letting an unprovable actor
-  /// rewrite a global search result.
+  /// native discovery DHT. V2 advertises only after the same owner has built
+  /// and re-verified a complete content-addressed public feed projection.
+  ///
+  /// It deliberately publishes only from the immutable genesis owner: after
+  /// ownership transfer it fails closed until the public authority-chain
+  /// revision lands, rather than letting an unprovable actor rewrite a global
+  /// search result.
   Future<SpacePublicDiscoveryPayload?> buildSpacePublicDiscoveryPayload(
+    NodeId spaceId,
+  ) async => (await buildSpacePublicDiscoveryPublication(spaceId))?.discovery;
+
+  Future<SpacePublicDiscoveryPublication?> buildSpacePublicDiscoveryPublication(
     NodeId spaceId,
   ) async {
     final bundle = await load(spaceId);
@@ -1974,6 +2097,8 @@ class GroupService {
     if (!state.isActive || owners.length != 1 || owners.single != selfId) {
       return null;
     }
+    final feedMaterial = await _spacePublicFeedMaterial(bundle);
+    if (feedMaterial == null) return null;
     final joinCode = await createSpaceJoinCode(spaceId);
     if (joinCode == null) return null;
     final ticket = SpaceJoinCode.parse(joinCode);
@@ -1989,7 +2114,10 @@ class GroupService {
     // Keep the owner descriptor stable across periodic DHT refreshes so
     // independent holders can attest the same hash. Availability freshness
     // belongs to the short-lived holder record below, not to owner metadata.
-    final issuedAt = max(updatedAt, ticket.createdAtMs);
+    final issuedAt = max(
+      max(updatedAt, ticket.createdAtMs),
+      feedMaterial.updatedAtMs,
+    );
     final expiresAt = min(
       ticket.expiresAtMs,
       issuedAt + kSpacePublicDescriptorLifetime.inMilliseconds,
@@ -2004,12 +2132,26 @@ class GroupService {
           ),
         )
         .toString();
+    final feed = _signSpacePublicFeedProjection(
+      bundle: bundle,
+      controlHeadHash: controlHeadHash,
+      posts: feedMaterial.posts,
+      revision: feedMaterial.revision,
+      updatedAtMs: feedMaterial.updatedAtMs,
+      issuedAtMs: issuedAt,
+      expiresAtMs: expiresAt,
+    );
+    if (feed == null) return null;
     final unsignedDescriptor = SpacePublicDescriptor(
       spaceId: spaceId,
       publisher: selfId,
       genesisManifest: bundle.manifest,
       controlHeadHash: controlHeadHash,
       revision: folded.accepted.length,
+      publicFeedManifestHash: feed.manifest.manifestHash,
+      publicFeedRevision: feed.manifest.revision,
+      publicFeedUpdatedAtMs: feed.manifest.updatedAtMs,
+      publicPostCount: feed.manifest.itemCount,
       name: state.name,
       description: state.description,
       avatarContentId: bundle.manifest.avatarContentId,
@@ -2043,6 +2185,7 @@ class GroupService {
     final unsignedHolder = SpacePublicHolderAnnouncement(
       spaceId: spaceId,
       descriptorHash: descriptor.descriptorHash,
+      publicFeedManifestHash: descriptor.publicFeedManifestHash,
       holder: selfId,
       holderPublicKey: descriptorSignature.publicKey,
       issuedAtMs: holderIssuedAt,
@@ -2062,7 +2205,20 @@ class GroupService {
       descriptor: descriptor,
       holder: holder,
     );
-    return payload.verifyAt(wallNow, _signer.verifyDetached) ? payload : null;
+    if (!payload.verifyAt(wallNow, _signer.verifyDetached) ||
+        !feed.verifyAt(
+          nowMs: wallNow,
+          expectedManifestHash: descriptor.publicFeedManifestHash,
+          expectedSpaceId: descriptor.spaceId,
+          expectedPublisher: descriptor.publisher,
+          publisherPublicKey: descriptor.genesisManifest.genesisPubKey,
+          expectedControlHeadHash: descriptor.controlHeadHash,
+          verifySignature: _signer.verifyDetached,
+          verifyPost: _signer.verifyPost,
+        )) {
+      return null;
+    }
+    return SpacePublicDiscoveryPublication(discovery: payload, feed: feed);
   }
 
   /// Publish every locally owned `public + discoverable` Space through the
@@ -2088,8 +2244,11 @@ class GroupService {
     var failures = 0;
     for (final entry in await listSpaces()) {
       spacesScanned++;
-      final payload = await buildSpacePublicDiscoveryPayload(entry.groupId);
-      if (payload == null) continue;
+      final publication = await buildSpacePublicDiscoveryPublication(
+        entry.groupId,
+      );
+      if (publication == null) continue;
+      final payload = publication.discovery;
       final lastPublished =
           _publishedPublicSpaceDescriptors[payload.descriptor.spaceId.hex];
       final publishNow = DateTime.now().millisecondsSinceEpoch;
@@ -2156,6 +2315,8 @@ class GroupService {
           descriptorHash: payload.descriptor.descriptorHash,
           publishedAtMs: publishNow,
         );
+        _publishedPublicSpaceFeeds[payload.descriptor.spaceId.hex] =
+            publication.feed;
       }
     }
     return SpaceDiscoveryPublishSweep(
@@ -16338,6 +16499,7 @@ class GroupService {
       _spaceDiscoveryChangesBound = false;
     }
     _publishedPublicSpaceDescriptors.clear();
+    _publishedPublicSpaceFeeds.clear();
     for (final pending in _pendingSpaceReceipts.values) {
       pending.elapsed.stop();
     }
