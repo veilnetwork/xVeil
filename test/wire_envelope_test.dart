@@ -609,7 +609,7 @@ void main() {
     expect(roundTrip.body, '{"id":"abc","name":"x"}');
   });
 
-  test('public feed request/chunk are append-only live-only v:2 frames', () {
+  test('public feed/media frames are append-only live-only v:2 frames', () {
     expect(
       WireKind.groupContentManifest.index,
       40,
@@ -617,10 +617,12 @@ void main() {
     );
     expect(WireKind.spacePublicFeedRequest.index, 41);
     expect(WireKind.spacePublicFeedChunk.index, 42);
+    expect(WireKind.spacePublicMediaGrantRequest.index, 43);
 
     for (final env in const [
       WireEnvelope.spacePublicFeedRequest('{"nonce":"aa"}'),
       WireEnvelope.spacePublicFeedChunk('{"nonce":"aa","index":0}'),
+      WireEnvelope.spacePublicMediaGrantRequest('{"nonce":"aa","cid":"bb"}'),
     ]) {
       final bytes = env.encode();
       expect(jsonDecode(utf8.decode(bytes))['v'], 2);

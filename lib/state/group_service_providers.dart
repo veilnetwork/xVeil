@@ -12,6 +12,7 @@ import '../domain/chat.dart' show MessageDirection;
 import '../domain/device_sync.dart';
 import '../domain/group_message.dart';
 import '../domain/inline_custom_emoji.dart';
+import '../domain/space_public_feed_transport.dart';
 import 'app_controller.dart';
 import 'cloud_document_providers.dart';
 import 'group_epoch_service.dart';
@@ -126,14 +127,24 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
         messaging.sendGroupContentReceipt(holder, json),
     sendPublicFeedRequest: messaging.sendSpacePublicFeedRequest,
     sendPublicFeedChunk: messaging.sendSpacePublicFeedChunk,
+    sendPublicMediaGrantRequest: messaging.sendSpacePublicMediaGrantRequest,
     sendGroupCallFrame: (peer, signal, json) =>
         messaging.sendGroupCallSignal(peer, signal, json),
     grantContentServe: messaging.grantGroupContentServe,
+    grantPublicContentServe: (peer, contentId) =>
+        messaging.grantGroupContentServe(
+          peer,
+          contentId,
+          ttl: kSpacePublicMediaGrantRequestWindow,
+        ),
     startContentPull: (holder, contentId) async {
       await messaging.downloadContent(holder, contentId);
     },
     startContentPullFromAny: (holders, contentId) async {
       await messaging.downloadGroupContentFromAny(holders, contentId);
+    },
+    startPublicContentPullFromAny: (holders, contentId) async {
+      await messaging.downloadPublicSpaceContentFromAny(holders, contentId);
     },
     activePeers: () async => {
       for (final peer in await transport.peers())
@@ -169,6 +180,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   };
   messaging.onSpacePublicFeedRequest = service.handlePublicFeedObjectRequest;
   messaging.onSpacePublicFeedChunk = service.handlePublicFeedObjectChunk;
+  messaging.onSpacePublicMediaGrantRequest =
+      service.handlePublicMediaGrantRequest;
   messaging.onGroupContentVerifiedSources =
       service.handleVerifiedContentSources;
   messaging.onGroupCallSignal = service.ingestGroupCallFrame;

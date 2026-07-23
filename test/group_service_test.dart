@@ -4608,6 +4608,124 @@ void main() {
   );
 
   test(
+    'public media grant requires an exact cached verified projection',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final readerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await readerStorage.open(password: 'reader', createIfMissing: true);
+      final grants = <(NodeId, String)>[];
+      final pulls = <(List<NodeId>, String)>[];
+      final sentMediaRequests = <String>[];
+      late final GroupService readerService;
+      final ownerService = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        sendPublicFeedChunk: (requester, chunkJson) async {
+          expect(requester, bob);
+          readerService.handlePublicFeedObjectChunk(owner, chunkJson);
+        },
+        grantPublicContentServe: (peer, contentId) =>
+            grants.add((peer, contentId)),
+      );
+      readerService = GroupService(
+        readerStorage,
+        _FakeSigner(bob),
+        sendPublicFeedRequest: (holder, requestJson) async {
+          expect(holder, owner);
+          await ownerService.handlePublicFeedObjectRequest(bob, requestJson);
+        },
+        sendPublicMediaGrantRequest: (holder, requestJson) async {
+          expect(holder, owner);
+          sentMediaRequests.add(requestJson);
+          await ownerService.handlePublicMediaGrantRequest(bob, requestJson);
+        },
+        startPublicContentPullFromAny: (holders, contentId) async {
+          pulls.add((holders, contentId));
+        },
+        contentGrantDelay: Duration.zero,
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(readerService.dispose);
+
+      const mediaCid =
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      final spaceId = await ownerService.createSpace(
+        'Public media',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      expect(
+        await ownerService.publishSpacePost(
+          spaceId,
+          body: 'The exact public reference',
+          media: [
+            const MediaObject(
+              kind: 'image',
+              contentId: mediaCid,
+              name: 'public.png',
+              size: 64,
+            ),
+          ],
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      final ownerPublication = await ownerService
+          .buildSpacePublicDiscoveryPublication(spaceId);
+      expect(ownerPublication, isNotNull);
+      expect(
+        await readerService.replicateVerifiedPublicSpaceDiscovery(
+          ownerPublication!.discovery.descriptor,
+          [ownerPublication.discovery.holder],
+        ),
+        isNotNull,
+      );
+      expect(await readerService.load(spaceId), isNull);
+
+      expect(
+        await readerService.requestPublicSpaceMedia(
+          ownerPublication.discovery.descriptor,
+          [ownerPublication.discovery.holder],
+          mediaCid,
+        ),
+        isTrue,
+      );
+      expect(grants, [(bob, mediaCid)]);
+      expect(pulls, hasLength(1));
+      expect(pulls.single.$1, [owner]);
+      expect(pulls.single.$2, mediaCid);
+      expect(sentMediaRequests, hasLength(1));
+
+      await ownerService.handlePublicMediaGrantRequest(
+        carol,
+        sentMediaRequests.single,
+      );
+      await ownerService.handlePublicMediaGrantRequest(
+        bob,
+        sentMediaRequests.single,
+      );
+      expect(grants, [
+        (bob, mediaCid),
+      ], reason: 'wrong-source and replayed requests must stay silent');
+
+      expect(
+        await readerService.requestPublicSpaceMedia(
+          ownerPublication.discovery.descriptor,
+          [ownerPublication.discovery.holder],
+          'b' * 64,
+        ),
+        isFalse,
+      );
+      expect(
+        sentMediaRequests,
+        hasLength(1),
+        reason: 'an uncommitted CID must be rejected before network disclosure',
+      );
+    },
+  );
+
+  test(
     'public discovery publishes native routes and keeps global search quorum',
     () async {
       final storage = FakeHvContainer().storage();
