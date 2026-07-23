@@ -25,6 +25,7 @@ import 'package:xveil/domain/group_payload.dart';
 import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/message_mention.dart';
+import 'package:xveil/domain/space_abuse_report.dart';
 import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/domain/space_discovery.dart';
 import 'package:xveil/domain/space_discovery_carrier.dart';
@@ -4853,6 +4854,13 @@ void main() {
           expect(holder, owner);
           await ownerService.handlePublicFeedObjectRequest(bob, requestJson);
         },
+        sendSpaceAbuseReport: (reviewer, reportId, reportJson) async {
+          expect(reviewer, owner);
+          expect(reportId, isNotEmpty);
+          if (!await ownerService.receiveSpaceAbuseReport(bob, reportJson)) {
+            throw StateError('public-only abuse report rejected');
+          }
+        },
       );
       addTearDown(ownerService.dispose);
       final publicNotices = <({NodeId spaceId, SpacePostView post})>[];
@@ -4937,6 +4945,23 @@ void main() {
       expect(await readerService.unreadSpacePosts(spaceId), 1);
       await readerService.markSpaceFeedSeen(spaceId);
       expect(await readerService.unreadSpacePosts(spaceId), 0);
+      expect(
+        await readerService.reportSpaceContent(
+          spaceId,
+          root.postId,
+          category: SpaceAbuseCategory.misinformation,
+          details: 'Please review this public-only projection.',
+        ),
+        isTrue,
+      );
+      final publicOnlyReports = await ownerService.incomingSpaceAbuseReports(
+        spaceId: spaceId,
+        pendingOnly: true,
+      );
+      expect(publicOnlyReports, hasLength(1));
+      expect(publicOnlyReports.single.report.reporter, bob);
+      expect(publicOnlyReports.single.report.reviewer, owner);
+      expect(publicOnlyReports.single.report.postId, root.postId);
 
       expect(
         await ownerService.commentOnSpacePost(
@@ -11566,6 +11591,252 @@ void main() {
       );
       expect(recipient, carol);
       expect(recipient, isNot(owner));
+    },
+  );
+
+  test(
+    'signed abuse report is deduplicated, reviewed and removes exact content through audit',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final bobStorage = FakeHvContainer().storage();
+      final carolStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      await carolStorage.open(password: 'pw', createIfMissing: true);
+
+      late final GroupService ownerSvc;
+      late final GroupService bobSvc;
+      ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        sendSpaceAbuseReportDecision: (peer, reportId, decisionJson) async {
+          expect(peer, bob);
+          expect(reportId, isNotEmpty);
+          if (!await bobSvc.receiveSpaceAbuseReportDecision(
+            owner,
+            decisionJson,
+          )) {
+            throw StateError('abuse-report decision rejected');
+          }
+        },
+      );
+      bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        sendSpaceAbuseReport: (peer, reportId, reportJson) async {
+          expect(peer, owner);
+          expect(reportId, isNotEmpty);
+          if (!await ownerSvc.receiveSpaceAbuseReport(bob, reportJson)) {
+            throw StateError('abuse report rejected');
+          }
+        },
+      );
+      final carolSvc = GroupService(carolStorage, _FakeSigner(carol));
+      addTearDown(ownerSvc.dispose);
+      addTearDown(bobSvc.dispose);
+      addTearDown(carolSvc.dispose);
+
+      final spaceId = await ownerSvc.createSpace(
+        'Report lab',
+        visibility: SpaceVisibility.public,
+      );
+      for (final member in [bob, carol]) {
+        expect(
+          await ownerSvc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: member,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+      }
+      final ownerBundle = (await ownerSvc.load(spaceId))!;
+      for (final pair in [(bobSvc, bob), (carolSvc, carol)]) {
+        expect(
+          await pair.$1.ingestSnapshot(
+            ownerSvc.snapshotJson(ownerBundle, recipient: pair.$2),
+          ),
+          isTrue,
+        );
+      }
+      final post = await carolSvc.publishSpacePost(
+        spaceId,
+        body: 'content requiring moderator review',
+        broadcast: false,
+      );
+      expect(post, isNotNull);
+      final carolBundle = (await carolSvc.load(spaceId))!;
+      for (final pair in [(ownerSvc, owner), (bobSvc, bob)]) {
+        expect(
+          await pair.$1.ingestSnapshot(
+            carolSvc.snapshotJson(carolBundle, recipient: pair.$2),
+          ),
+          isTrue,
+        );
+      }
+
+      expect(
+        await bobSvc.reportSpaceContent(
+          spaceId,
+          post!.postId,
+          category: SpaceAbuseCategory.harassment,
+          details: 'Please review this exact publication.',
+        ),
+        isTrue,
+      );
+      final incoming = await ownerSvc.incomingSpaceAbuseReports(
+        spaceId: spaceId,
+        pendingOnly: true,
+      );
+      expect(incoming, hasLength(1));
+      expect(incoming.single.report.reporter, bob);
+      expect(incoming.single.report.target.author, carol);
+      expect(incoming.single.report.postId, post.postId);
+
+      // A retry reuses the exact signed proposal and never creates another row.
+      expect(
+        await bobSvc.reportSpaceContent(
+          spaceId,
+          post.postId,
+          category: SpaceAbuseCategory.spam,
+          details: 'Changed text must not create a duplicate.',
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.incomingSpaceAbuseReports(spaceId: spaceId),
+        hasLength(1),
+      );
+
+      expect(
+        await ownerSvc.decideSpaceAbuseReport(
+          incoming.single.report.reportId,
+          outcome: SpaceAbuseReportOutcome.contentRemoved,
+          reason: 'The report is confirmed.',
+        ),
+        isTrue,
+      );
+      expect(await ownerSvc.postsOf(spaceId), isEmpty);
+      final audit = await ownerSvc.spaceModerationAudit(spaceId);
+      expect(audit, hasLength(1));
+      expect(
+        audit.single.action.reference?.contentId,
+        incoming.single.report.target.contentId,
+      );
+      final reviewed = (await ownerSvc.incomingSpaceAbuseReports(
+        spaceId: spaceId,
+      )).single;
+      expect(reviewed.decision?.moderationActionId, audit.single.actionId);
+      final outgoing = (await bobSvc.outgoingSpaceAbuseReports()).single;
+      expect(
+        outgoing.decision?.outcome,
+        SpaceAbuseReportOutcome.contentRemoved,
+      );
+      expect(outgoing.decision?.moderationActionId, audit.single.actionId);
+    },
+  );
+
+  test(
+    'abuse inbox binds source, rejects poisoned rows and caps pending reports per reporter',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(ownerStorage, _FakeSigner(owner));
+      addTearDown(ownerSvc.dispose);
+
+      final spaceId = await ownerSvc.createSpace(
+        'Bounded reports',
+        visibility: SpaceVisibility.public,
+      );
+      final posts = <SpacePost>[];
+      for (var index = 0; index < 17; index++) {
+        final post = await ownerSvc.publishSpacePost(
+          spaceId,
+          body: 'report target $index',
+          broadcast: false,
+        );
+        expect(post, isNotNull);
+        posts.add(post!);
+      }
+
+      SpaceAbuseReport signedReport(int index) {
+        final post = posts[index];
+        final reference = SpaceModerationReference(
+          kind: SpaceModerationReferenceKind.spacePost,
+          author: post.author,
+          seq: post.seq,
+        );
+        final unsigned = SpaceAbuseReport(
+          reportId: (index + 1).toRadixString(16).padLeft(64, '0'),
+          spaceId: spaceId,
+          post: reference,
+          target: reference,
+          reporter: bob,
+          reviewer: owner,
+          category: SpaceAbuseCategory.spam,
+          details: '',
+          createdAtMs: DateTime.now().millisecondsSinceEpoch,
+          signature: Uint8List(0),
+          authorPubKey: Uint8List(0),
+        );
+        return unsigned.withSignature(
+          _fakeSovereignSignature(bob.bytes, unsigned.canonicalBytes()),
+          bob.bytes,
+        );
+      }
+
+      final reports = [
+        for (var index = 0; index < posts.length; index++) signedReport(index),
+      ];
+      for (final report in reports.take(16)) {
+        expect(
+          await ownerSvc.receiveSpaceAbuseReport(
+            bob,
+            jsonEncode(report.toJson()),
+          ),
+          isTrue,
+        );
+      }
+      expect(
+        await ownerSvc.receiveSpaceAbuseReport(
+          bob,
+          jsonEncode(reports.first.toJson()),
+        ),
+        isTrue,
+        reason:
+            'an exact replay is idempotently admitted for lost ACK recovery',
+      );
+      expect(
+        await ownerSvc.receiveSpaceAbuseReport(
+          carol,
+          jsonEncode(reports.last.toJson()),
+        ),
+        isFalse,
+        reason: 'the authenticated transport source is the reporter authority',
+      );
+      final poisoned = Map<String, dynamic>.from(reports.last.toJson())
+        ..['unexpected'] = true;
+      expect(
+        await ownerSvc.receiveSpaceAbuseReport(bob, jsonEncode(poisoned)),
+        isFalse,
+        reason: 'unknown signed-envelope fields are rejected fail-closed',
+      );
+      expect(
+        await ownerSvc.receiveSpaceAbuseReport(
+          bob,
+          jsonEncode(reports.last.toJson()),
+        ),
+        isFalse,
+        reason: 'one reporter may keep at most 16 unresolved reports',
+      );
+      expect(
+        await ownerSvc.incomingSpaceAbuseReports(
+          spaceId: spaceId,
+          pendingOnly: true,
+        ),
+        hasLength(16),
+      );
     },
   );
 

@@ -16,6 +16,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../domain/group_message.dart';
+import '../domain/space_abuse_report.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
 
@@ -975,6 +976,65 @@ Map<String, dynamic> openApiSpec() {
                     'appealId': {'type': 'string'},
                     'text': {'type': 'string', 'maxLength': 16384},
                     'reason': {'type': 'string', 'maxLength': 4096},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/spaces/moderation/reports': {
+        'get': {
+          'summary': 'List signed abuse report inboxes and outgoing statuses',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': false,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': ok({'type': obj}),
+        },
+        'post': {
+          'summary': 'Submit or decide a signed Space abuse report',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['action'],
+                  'properties': {
+                    'action': {
+                      'type': 'string',
+                      'enum': ['report', 'dismiss', 'resolve', 'remove'],
+                    },
+                    'space': {'type': 'string'},
+                    'postId': {'type': 'string'},
+                    'commentId': {'type': 'string'},
+                    'category': {
+                      'type': 'string',
+                      'enum': [
+                        'spam',
+                        'harassment',
+                        'violence',
+                        'sexualContent',
+                        'illegalContent',
+                        'misinformation',
+                        'other',
+                      ],
+                    },
+                    'details': {
+                      'type': 'string',
+                      'maxLength': kSpaceAbuseReportDetailsMaxBytes,
+                    },
+                    'reportId': {'type': 'string'},
+                    'reason': {
+                      'type': 'string',
+                      'maxLength': kSpaceAbuseReportDecisionReasonMaxBytes,
+                    },
                   },
                 },
               },
@@ -3119,6 +3179,8 @@ class ApiHandler {
     this.revokeSpaceModeration,
     this.spaceModerationAppeals,
     this.spaceModerationAppealAction,
+    this.spaceAbuseReports,
+    this.spaceAbuseReportAction,
     this.createSpaceChannel,
     this.updateSpaceChannel,
     this.spaceChannelAction,
@@ -3455,6 +3517,19 @@ class ApiHandler {
     String? reason,
   )?
   spaceModerationAppealAction;
+  final Future<Map<String, dynamic>> Function(String? spaceHex)?
+  spaceAbuseReports;
+  final Future<String?> Function(
+    String action,
+    String? spaceHex,
+    String? postId,
+    String? commentId,
+    String? category,
+    String? details,
+    String? reportId,
+    String? reason,
+  )?
+  spaceAbuseReportAction;
   final Future<({String? error, String? channelId})> Function(
     String spaceHex,
     String name,
@@ -4027,6 +4102,77 @@ class ApiHandler {
           actionId as String?,
           appealId as String?,
           text is String ? text.trim() : null,
+          reason is String ? reason.trim() : null,
+        ),
+      );
+    }
+    if (method == 'GET' && path == '/v1/spaces/moderation/reports') {
+      final handler = spaceAbuseReports;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space abuse reports unavailable',
+        });
+      }
+      final result = await handler(uri.queryParameters['space']);
+      return result['error'] == null
+          ? ApiResponse(200, result)
+          : ApiResponse(400, result);
+    }
+    if (method == 'POST' && path == '/v1/spaces/moderation/reports') {
+      final handler = spaceAbuseReportAction;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space abuse reports unavailable',
+        });
+      }
+      final action = body?['action'];
+      final space = body?['space'];
+      final postId = body?['postId'];
+      final commentId = body?['commentId'];
+      final category = body?['category'];
+      final details = body?['details'];
+      final reportId = body?['reportId'];
+      final reason = body?['reason'];
+      final validContentId = RegExp(r'^[0-9a-f]{64}:[0-9]+$');
+      final parsedCategory = category is String
+          ? SpaceAbuseCategory.fromName(category)
+          : null;
+      final validReport =
+          space is String &&
+          space.isNotEmpty &&
+          postId is String &&
+          validContentId.hasMatch(postId) &&
+          (commentId == null ||
+              commentId is String && validContentId.hasMatch(commentId)) &&
+          parsedCategory != null &&
+          (details == null ||
+              details is String &&
+                  utf8.encode(details.trim()).length <=
+                      kSpaceAbuseReportDetailsMaxBytes) &&
+          (parsedCategory != SpaceAbuseCategory.other ||
+              details is String && details.trim().isNotEmpty);
+      final validDecision =
+          reportId is String &&
+          RegExp(r'^[0-9a-f]{64}$').hasMatch(reportId) &&
+          reason is String &&
+          reason.trim().isNotEmpty &&
+          utf8.encode(reason).length <= kSpaceAbuseReportDecisionReasonMaxBytes;
+      if (action is! String ||
+          !const {'report', 'dismiss', 'resolve', 'remove'}.contains(action) ||
+          (action == 'report' ? !validReport : !validDecision)) {
+        return const ApiResponse(400, {
+          'error': 'valid Space abuse report action required',
+        });
+      }
+      return _spaceMutationResponse(
+        await handler(
+          action,
+          space is String ? space : null,
+          postId is String ? postId : null,
+          commentId is String ? commentId : null,
+          category is String ? category : null,
+          details is String ? details.trim() : null,
+          reportId is String ? reportId : null,
           reason is String ? reason.trim() : null,
         ),
       );

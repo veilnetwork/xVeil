@@ -8861,6 +8861,168 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Accept without restoration'**
   String get spaceModerationAppealDecisionAcknowledge;
+
+  /// No description provided for @spaceAbuseReportAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Report'**
+  String get spaceAbuseReportAction;
+
+  /// No description provided for @spaceAbuseReportDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Report a violation'**
+  String get spaceAbuseReportDialogTitle;
+
+  /// No description provided for @spaceAbuseReportCategory.
+  ///
+  /// In en, this message translates to:
+  /// **'Report reason'**
+  String get spaceAbuseReportCategory;
+
+  /// No description provided for @spaceAbuseReportCategorySpam.
+  ///
+  /// In en, this message translates to:
+  /// **'Spam or fraud'**
+  String get spaceAbuseReportCategorySpam;
+
+  /// No description provided for @spaceAbuseReportCategoryHarassment.
+  ///
+  /// In en, this message translates to:
+  /// **'Harassment or abuse'**
+  String get spaceAbuseReportCategoryHarassment;
+
+  /// No description provided for @spaceAbuseReportCategoryViolence.
+  ///
+  /// In en, this message translates to:
+  /// **'Violence or threats'**
+  String get spaceAbuseReportCategoryViolence;
+
+  /// No description provided for @spaceAbuseReportCategorySexualContent.
+  ///
+  /// In en, this message translates to:
+  /// **'Sexual content'**
+  String get spaceAbuseReportCategorySexualContent;
+
+  /// No description provided for @spaceAbuseReportCategoryIllegalContent.
+  ///
+  /// In en, this message translates to:
+  /// **'Illegal content'**
+  String get spaceAbuseReportCategoryIllegalContent;
+
+  /// No description provided for @spaceAbuseReportCategoryMisinformation.
+  ///
+  /// In en, this message translates to:
+  /// **'Harmful misinformation'**
+  String get spaceAbuseReportCategoryMisinformation;
+
+  /// No description provided for @spaceAbuseReportCategoryOther.
+  ///
+  /// In en, this message translates to:
+  /// **'Other'**
+  String get spaceAbuseReportCategoryOther;
+
+  /// No description provided for @spaceAbuseReportDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'Details (optional)'**
+  String get spaceAbuseReportDetails;
+
+  /// No description provided for @spaceAbuseReportDetailsRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Add details when choosing Other'**
+  String get spaceAbuseReportDetailsRequired;
+
+  /// No description provided for @spaceAbuseReportSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Report sent to moderators'**
+  String get spaceAbuseReportSent;
+
+  /// No description provided for @spaceAbuseReportsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Reports'**
+  String get spaceAbuseReportsTitle;
+
+  /// No description provided for @spaceAbuseReportFrom.
+  ///
+  /// In en, this message translates to:
+  /// **'Report from {node}'**
+  String spaceAbuseReportFrom(String node);
+
+  /// No description provided for @spaceAbuseReportPost.
+  ///
+  /// In en, this message translates to:
+  /// **'Publication'**
+  String get spaceAbuseReportPost;
+
+  /// No description provided for @spaceAbuseReportComment.
+  ///
+  /// In en, this message translates to:
+  /// **'Comment'**
+  String get spaceAbuseReportComment;
+
+  /// No description provided for @spaceAbuseReportOpenContent.
+  ///
+  /// In en, this message translates to:
+  /// **'Open content'**
+  String get spaceAbuseReportOpenContent;
+
+  /// No description provided for @spaceAbuseReportReview.
+  ///
+  /// In en, this message translates to:
+  /// **'Review report'**
+  String get spaceAbuseReportReview;
+
+  /// No description provided for @spaceAbuseReportDecisionReason.
+  ///
+  /// In en, this message translates to:
+  /// **'Decision explanation'**
+  String get spaceAbuseReportDecisionReason;
+
+  /// No description provided for @spaceAbuseReportDecisionDismiss.
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss report'**
+  String get spaceAbuseReportDecisionDismiss;
+
+  /// No description provided for @spaceAbuseReportDecisionResolve.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark resolved'**
+  String get spaceAbuseReportDecisionResolve;
+
+  /// No description provided for @spaceAbuseReportDecisionRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove content'**
+  String get spaceAbuseReportDecisionRemove;
+
+  /// No description provided for @spaceAbuseReportPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Awaiting review'**
+  String get spaceAbuseReportPending;
+
+  /// No description provided for @spaceAbuseReportDismissed.
+  ///
+  /// In en, this message translates to:
+  /// **'No violation found'**
+  String get spaceAbuseReportDismissed;
+
+  /// No description provided for @spaceAbuseReportResolved.
+  ///
+  /// In en, this message translates to:
+  /// **'Resolved'**
+  String get spaceAbuseReportResolved;
+
+  /// No description provided for @spaceAbuseReportRemoved.
+  ///
+  /// In en, this message translates to:
+  /// **'Content removed'**
+  String get spaceAbuseReportRemoved;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

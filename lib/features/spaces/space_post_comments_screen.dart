@@ -372,6 +372,19 @@ class _SpacePostCommentsScreenState
     });
   }
 
+  Future<void> _reportComment(SpacePostCommentView comment) async {
+    final service = _boundService;
+    final spaceId = _boundSpaceId;
+    if (_sending || service == null || spaceId == null) return;
+    await promptAndReportSpaceContent(
+      context,
+      service,
+      spaceId,
+      postId: widget.postId,
+      commentRef: comment.ref,
+    );
+  }
+
   void _restoreComposerAfterEdit() {
     _editing = null;
     _composer.loadWireValue(_composerBeforeEdit ?? '', const []);
@@ -544,6 +557,9 @@ class _SpacePostCommentsScreenState
                               onBlock: !isSelf
                                   ? () => _blockCommentAuthor(comment)
                                   : null,
+                              onReport: !isSelf
+                                  ? () => _reportComment(comment)
+                                  : null,
                             ),
                           );
                         },
@@ -679,6 +695,7 @@ class _CommentBubble extends StatelessWidget {
     required this.onDelete,
     required this.onModerate,
     required this.onBlock,
+    required this.onReport,
   });
 
   final NodeId spaceId;
@@ -690,6 +707,7 @@ class _CommentBubble extends StatelessWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onModerate;
   final VoidCallback? onBlock;
+  final VoidCallback? onReport;
 
   @override
   Widget build(BuildContext context) {
@@ -794,7 +812,8 @@ class _CommentBubble extends StatelessWidget {
                   onEdit != null ||
                   onDelete != null ||
                   onModerate != null ||
-                  onBlock != null)
+                  onBlock != null ||
+                  onReport != null)
                 Align(
                   alignment: Alignment.centerRight,
                   child: Wrap(
@@ -826,7 +845,8 @@ class _CommentBubble extends StatelessWidget {
                         ),
                       if (onDelete != null ||
                           onModerate != null ||
-                          onBlock != null)
+                          onBlock != null ||
+                          onReport != null)
                         PopupMenuButton<_CommentMenuAction>(
                           key: ValueKey(
                             'space-post-comment-menu-${comment.ref}',
@@ -843,6 +863,8 @@ class _CommentBubble extends StatelessWidget {
                                 onModerate?.call();
                               case _CommentMenuAction.block:
                                 onBlock?.call();
+                              case _CommentMenuAction.report:
+                                onReport?.call();
                             }
                           },
                           itemBuilder: (context) => [
@@ -873,6 +895,15 @@ class _CommentBubble extends StatelessWidget {
                                   title: Text(l.spacePostCommentBlockAuthor),
                                 ),
                               ),
+                            if (onReport != null)
+                              PopupMenuItem(
+                                value: _CommentMenuAction.report,
+                                child: ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: const Icon(Icons.flag_outlined),
+                                  title: Text(l.spaceAbuseReportAction),
+                                ),
+                              ),
                           ],
                         ),
                     ],
@@ -886,7 +917,7 @@ class _CommentBubble extends StatelessWidget {
   }
 }
 
-enum _CommentMenuAction { delete, moderate, block }
+enum _CommentMenuAction { delete, moderate, block, report }
 
 class _Composer extends StatelessWidget {
   const _Composer({

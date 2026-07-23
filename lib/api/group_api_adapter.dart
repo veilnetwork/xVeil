@@ -12,6 +12,7 @@ import '../domain/group_message.dart';
 import '../domain/media_file_name.dart';
 import '../domain/group_policy.dart';
 import '../domain/group_reaction.dart';
+import '../domain/space_abuse_report.dart';
 import '../domain/space_channel.dart';
 import '../domain/space_join_request.dart';
 import '../domain/space_membership.dart';
@@ -609,6 +610,103 @@ final class GroupApiAdapter {
         )
         ? null
         : 'moderation appeal decision rejected';
+  }
+
+  static Map<String, dynamic> _spaceAbuseReportJson(
+    SpaceAbuseReport report, {
+    SpaceAbuseReportDecision? decision,
+    int? receivedAtMs,
+  }) => {
+    'reportId': report.reportId,
+    'spaceId': report.spaceId.hex,
+    'postId': report.postId,
+    if (report.commentRef != null) 'commentId': report.commentRef,
+    'target': report.target.contentId,
+    'targetKind': report.target.kind.name,
+    'reporter': report.reporter.hex,
+    'reviewer': report.reviewer.hex,
+    'category': report.category.name,
+    'details': report.details,
+    'createdAt': report.createdAtMs,
+    'receivedAt': ?receivedAtMs,
+    'status': decision?.outcome.name ?? 'pending',
+    if (decision != null) ...{
+      'decisionReason': decision.reason,
+      'decidedAt': decision.decidedAtMs,
+      if (decision.moderationActionId != null)
+        'moderationActionId': decision.moderationActionId,
+    },
+  };
+
+  Future<Map<String, dynamic>> abuseReports(String? spaceHex) async {
+    final NodeId? spaceId;
+    if (spaceHex == null) {
+      spaceId = null;
+    } else {
+      spaceId = _parseId(spaceHex);
+      if (spaceId == null) return {'error': 'invalid space'};
+    }
+    final incoming = await _groups.incomingSpaceAbuseReports(spaceId: spaceId);
+    final outgoing = await _groups.outgoingSpaceAbuseReports();
+    return {
+      'incoming': [
+        for (final entry in incoming)
+          _spaceAbuseReportJson(
+            entry.report,
+            decision: entry.decision,
+            receivedAtMs: entry.receivedAtMs,
+          ),
+      ],
+      'outgoing': [
+        for (final entry in outgoing)
+          if (spaceId == null || entry.report.spaceId == spaceId)
+            _spaceAbuseReportJson(entry.report, decision: entry.decision),
+      ],
+    };
+  }
+
+  Future<String?> abuseReportAction(
+    String action,
+    String? spaceHex,
+    String? postId,
+    String? commentId,
+    String? categoryName,
+    String? details,
+    String? reportId,
+    String? reason,
+  ) async {
+    if (action == 'report') {
+      final spaceId = spaceHex == null ? null : _parseId(spaceHex);
+      final category = SpaceAbuseCategory.fromName(categoryName);
+      if (spaceId == null || postId == null || category == null) {
+        return 'space, postId and category required';
+      }
+      return await _groups.reportSpaceContent(
+            spaceId,
+            postId,
+            commentRef: commentId,
+            category: category,
+            details: details ?? '',
+          )
+          ? null
+          : 'abuse report rejected';
+    }
+    final outcome = switch (action) {
+      'dismiss' => SpaceAbuseReportOutcome.dismissed,
+      'resolve' => SpaceAbuseReportOutcome.resolved,
+      'remove' => SpaceAbuseReportOutcome.contentRemoved,
+      _ => null,
+    };
+    if (outcome == null || reportId == null || reason == null) {
+      return 'valid abuse report decision required';
+    }
+    return await _groups.decideSpaceAbuseReport(
+          reportId,
+          outcome: outcome,
+          reason: reason,
+        )
+        ? null
+        : 'abuse report decision rejected';
   }
 
   Future<({String? error, String? actionId})> moderate(

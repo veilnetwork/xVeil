@@ -221,7 +221,9 @@ class _MessagingOutbox {
           frame.frameId.startsWith('space-join-request:') ||
           frame.frameId.startsWith('space-join-decision:') ||
           frame.frameId.startsWith('space-moderation-appeal:') ||
-          frame.frameId.startsWith('space-moderation-appeal-decision:');
+          frame.frameId.startsWith('space-moderation-appeal-decision:') ||
+          frame.frameId.startsWith('space-abuse-report:') ||
+          frame.frameId.startsWith('space-abuse-report-decision:');
       if (contact == null || contact.status != ContactStatus.accepted) {
         final parts = frame.frameId.split(':');
         if (parts.length >= 3 &&
@@ -349,7 +351,9 @@ class _MessagingOutbox {
     if (!frameId.startsWith('space-join-request:') &&
         !frameId.startsWith('space-join-decision:') &&
         !frameId.startsWith('space-moderation-appeal:') &&
-        !frameId.startsWith('space-moderation-appeal-decision:')) {
+        !frameId.startsWith('space-moderation-appeal-decision:') &&
+        !frameId.startsWith('space-abuse-report:') &&
+        !frameId.startsWith('space-abuse-report-decision:')) {
       return false;
     }
     try {

@@ -10,6 +10,7 @@ import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/notifications.dart' show activeConversationProvider;
+import 'space_post_actions.dart';
 import 'space_post_body.dart';
 import 'space_post_media.dart';
 import 'space_post_reactions.dart';
@@ -361,6 +362,34 @@ class _PublicSpacePostsScreenState
                                           context,
                                         ).textTheme.bodySmall,
                                       ),
+                                      if (post.author != service.selfId)
+                                        PopupMenuButton<String>(
+                                          key: ValueKey(
+                                            'public-space-post-menu-${post.postId}',
+                                          ),
+                                          onSelected: (_) => unawaited(
+                                            promptAndReportSpaceContent(
+                                              context,
+                                              service,
+                                              spaceId,
+                                              postId: post.postId,
+                                            ),
+                                          ),
+                                          itemBuilder: (_) => [
+                                            PopupMenuItem(
+                                              value: 'report',
+                                              child: ListTile(
+                                                contentPadding: EdgeInsets.zero,
+                                                leading: const Icon(
+                                                  Icons.flag_outlined,
+                                                ),
+                                                title: Text(
+                                                  l.spaceAbuseReportAction,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                     ],
                                   ),
                                   if (post.pinned) ...[

@@ -16,11 +16,13 @@ import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/message_mention.dart';
+import 'package:xveil/domain/space_abuse_report.dart';
 import 'package:xveil/domain/space_discovery_carrier.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/features/spaces/space_feed_screen.dart';
 import 'package:xveil/features/spaces/space_list_screen.dart';
+import 'package:xveil/features/spaces/space_moderation_screen.dart';
 import 'package:xveil/features/spaces/space_post_comments_screen.dart';
 import 'package:xveil/features/spaces/space_posts_screen.dart';
 import 'package:xveil/features/spaces/public_space_posts_screen.dart';
@@ -1624,6 +1626,203 @@ void main() {
       expect(post.type, SpacePostType.shortVideo);
       expect(post.media.single.kind, 'vnote');
       expect(post.media.single.durationMs, 2400);
+    },
+  );
+
+  testWidgets(
+    'non-author can submit a signed report from the publication menu',
+    (tester) async {
+      final owner = _id(30);
+      final reporter = _id(31);
+      final ownerStorage = FakeHvContainer().storage();
+      final reporterStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      await reporterStorage.open(password: 'pw', createIfMissing: true);
+      final ownerService = GroupService(ownerStorage, _Signer(owner));
+      var sent = 0;
+      final reporterService = GroupService(
+        reporterStorage,
+        _Signer(reporter),
+        sendSpaceAbuseReport: (peer, reportId, reportJson) async {
+          expect(peer, owner);
+          expect(reportId, isNotEmpty);
+          expect(reportJson, contains('xveil.space.abuse-report'));
+          sent++;
+        },
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(reporterService.dispose);
+
+      final spaceId = await ownerService.createSpace(
+        'Reportable posts',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: reporter,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final post = await ownerService.publishSpacePost(
+        spaceId,
+        body: 'Review this publication',
+        broadcast: false,
+      );
+      expect(post, isNotNull);
+      expect(
+        await reporterService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: reporter,
+          ),
+        ),
+        isTrue,
+      );
+
+      await tester.pumpWidget(
+        _host(
+          reporterService,
+          SpacePostsScreen(spaceIdHex: spaceId.hex),
+          storage: reporterStorage,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('space-post-menu-${post!.postId}')));
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(SpacePostsScreen)));
+      await tester.tap(find.text(l.spaceAbuseReportAction));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('space-abuse-report-category')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('space-abuse-report-submit')));
+      await tester.pumpAndSettle();
+
+      expect(sent, 1);
+      final outgoing =
+          (await reporterService.outgoingSpaceAbuseReports()).single;
+      expect(outgoing.report.postId, post.postId);
+      expect(outgoing.report.target.author, owner);
+      expect(find.text(l.spaceAbuseReportSent), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'moderation inbox renders and signs an immutable report decision',
+    (tester) async {
+      final owner = _id(32);
+      final reporter = _id(33);
+      final ownerStorage = FakeHvContainer().storage();
+      final reporterStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      await reporterStorage.open(password: 'pw', createIfMissing: true);
+      var decisionsSent = 0;
+      final ownerService = GroupService(
+        ownerStorage,
+        _Signer(owner),
+        sendSpaceAbuseReportDecision: (peer, reportId, decisionJson) async {
+          expect(peer, reporter);
+          expect(reportId, isNotEmpty);
+          expect(decisionJson, contains('xveil.space.abuse-report-decision'));
+          decisionsSent++;
+        },
+      );
+      late final GroupService reporterService;
+      reporterService = GroupService(
+        reporterStorage,
+        _Signer(reporter),
+        sendSpaceAbuseReport: (peer, reportId, reportJson) async {
+          expect(
+            await ownerService.receiveSpaceAbuseReport(reporter, reportJson),
+            isTrue,
+          );
+        },
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(reporterService.dispose);
+
+      final spaceId = await ownerService.createSpace(
+        'Moderator inbox',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: reporter,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final post = await ownerService.publishSpacePost(
+        spaceId,
+        body: 'Reported material',
+        broadcast: false,
+      );
+      expect(post, isNotNull);
+      expect(
+        await reporterService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: reporter,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        await reporterService.reportSpaceContent(
+          spaceId,
+          post!.postId,
+          category: SpaceAbuseCategory.spam,
+          details: 'Repeated promotion',
+        ),
+        isTrue,
+      );
+      final incoming = (await ownerService.incomingSpaceAbuseReports()).single;
+
+      await tester.pumpWidget(
+        _host(
+          ownerService,
+          SpaceModerationScreen(spaceIdHex: spaceId.hex),
+          storage: ownerStorage,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(
+          ValueKey('space-abuse-report-incoming-${incoming.report.reportId}'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(
+          ValueKey('space-abuse-report-open-${incoming.report.reportId}'),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(
+          ValueKey('space-abuse-report-review-${incoming.report.reportId}'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('space-abuse-report-decision-reason')),
+        'No policy violation',
+      );
+      await tester.tap(find.byKey(const ValueKey('space-abuse-report-decide')));
+      await tester.pumpAndSettle();
+
+      expect(decisionsSent, 1);
+      final reviewed = (await ownerService.incomingSpaceAbuseReports()).single;
+      expect(reviewed.decision?.outcome, SpaceAbuseReportOutcome.dismissed);
+      expect(reviewed.decision?.reason, 'No policy violation');
+      final l = AppL10n.of(tester.element(find.byType(SpaceModerationScreen)));
+      expect(find.textContaining(l.spaceAbuseReportDismissed), findsOneWidget);
     },
   );
 }

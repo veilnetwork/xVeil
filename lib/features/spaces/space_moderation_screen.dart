@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/ids.dart';
 import '../../domain/group.dart';
 import '../../domain/group_policy.dart';
+import '../../domain/space_abuse_report.dart';
 import '../../domain/space_moderation.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
@@ -32,6 +34,41 @@ class SpaceModerationScreen extends ConsumerWidget {
     final material = MaterialLocalizations.of(context);
     return '${material.formatMediumDate(date)} '
         '${material.formatTimeOfDay(TimeOfDay.fromDateTime(date))}';
+  }
+
+  String _abuseCategoryLabel(AppL10n l, SpaceAbuseCategory category) =>
+      switch (category) {
+        SpaceAbuseCategory.spam => l.spaceAbuseReportCategorySpam,
+        SpaceAbuseCategory.harassment => l.spaceAbuseReportCategoryHarassment,
+        SpaceAbuseCategory.violence => l.spaceAbuseReportCategoryViolence,
+        SpaceAbuseCategory.sexualContent =>
+          l.spaceAbuseReportCategorySexualContent,
+        SpaceAbuseCategory.illegalContent =>
+          l.spaceAbuseReportCategoryIllegalContent,
+        SpaceAbuseCategory.misinformation =>
+          l.spaceAbuseReportCategoryMisinformation,
+        SpaceAbuseCategory.other => l.spaceAbuseReportCategoryOther,
+      };
+
+  String _abuseStatus(AppL10n l, SpaceAbuseReportInboxEntry entry) =>
+      switch (entry.decision?.outcome) {
+        null => l.spaceAbuseReportPending,
+        SpaceAbuseReportOutcome.dismissed => l.spaceAbuseReportDismissed,
+        SpaceAbuseReportOutcome.resolved => l.spaceAbuseReportResolved,
+        SpaceAbuseReportOutcome.contentRemoved => l.spaceAbuseReportRemoved,
+      };
+
+  void _openReportedContent(BuildContext context, SpaceAbuseReport report) {
+    final post = Uri.encodeQueryComponent(report.postId);
+    final comment = report.commentRef;
+    if (comment == null) {
+      context.push('/space/${report.spaceId.hex}/posts?post=$post');
+      return;
+    }
+    context.push(
+      '/space/${report.spaceId.hex}/comments?post=$post&comment='
+      '${Uri.encodeQueryComponent(comment)}',
+    );
   }
 
   Future<void> _createAction(
@@ -239,6 +276,117 @@ class SpaceModerationScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _reviewAbuseReport(
+    BuildContext context,
+    GroupService service,
+    SpaceAbuseReportInboxEntry entry,
+  ) async {
+    var draftReason = '';
+    var outcome = SpaceAbuseReportOutcome.dismissed;
+    final result =
+        await showDialog<({SpaceAbuseReportOutcome outcome, String reason})>(
+          context: context,
+          builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              title: Text(AppL10n.of(context).spaceAbuseReportReview),
+              content: SizedBox(
+                width: 480,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _abuseCategoryLabel(
+                        AppL10n.of(context),
+                        entry.report.category,
+                      ),
+                    ),
+                    if (entry.report.details.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(entry.report.details),
+                    ],
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<SpaceAbuseReportOutcome>(
+                      key: const ValueKey('space-abuse-report-outcome'),
+                      initialValue: outcome,
+                      isExpanded: true,
+                      items: [
+                        DropdownMenuItem(
+                          value: SpaceAbuseReportOutcome.dismissed,
+                          child: Text(
+                            AppL10n.of(context).spaceAbuseReportDecisionDismiss,
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: SpaceAbuseReportOutcome.resolved,
+                          child: Text(
+                            AppL10n.of(context).spaceAbuseReportDecisionResolve,
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: SpaceAbuseReportOutcome.contentRemoved,
+                          child: Text(
+                            AppL10n.of(context).spaceAbuseReportDecisionRemove,
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setDialogState(() => outcome = value);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const ValueKey('space-abuse-report-decision-reason'),
+                      minLines: 2,
+                      maxLines: 6,
+                      maxLength: kSpaceAbuseReportDecisionReasonMaxBytes,
+                      decoration: InputDecoration(
+                        labelText: AppL10n.of(
+                          context,
+                        ).spaceAbuseReportDecisionReason,
+                        alignLabelWithHint: true,
+                      ),
+                      onChanged: (value) => draftReason = value,
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: Text(AppL10n.of(context).actionCancel),
+                ),
+                FilledButton(
+                  key: const ValueKey('space-abuse-report-decide'),
+                  onPressed: () {
+                    final reason = draftReason.trim();
+                    if (reason.isNotEmpty) {
+                      Navigator.of(
+                        dialogContext,
+                      ).pop((outcome: outcome, reason: reason));
+                    }
+                  },
+                  child: Text(AppL10n.of(context).spaceAbuseReportReview),
+                ),
+              ],
+            ),
+          ),
+        );
+    if (result == null) return;
+    final ok = await service.decideSpaceAbuseReport(
+      entry.report.reportId,
+      outcome: result.outcome,
+      reason: result.reason,
+    );
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).spaceOperationFailed)),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
@@ -259,6 +407,7 @@ class SpaceModerationScreen extends ConsumerWidget {
           service.stateOf(spaceId),
           service.spaceModerationAudit(spaceId),
           service.incomingSpaceModerationAppeals(spaceId: spaceId),
+          service.incomingSpaceAbuseReports(spaceId: spaceId),
         ]),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
@@ -270,6 +419,8 @@ class SpaceModerationScreen extends ConsumerWidget {
           final records = snapshot.data![1] as List<SpaceModerationRecord>;
           final appeals =
               snapshot.data![2] as List<SpaceModerationAppealInboxEntry>;
+          final abuseReports =
+              snapshot.data![3] as List<SpaceAbuseReportInboxEntry>;
           if (state == null || !state.isMember(service.selfId)) {
             return Scaffold(body: Center(child: Text(l.spaceOperationFailed)));
           }
@@ -288,7 +439,7 @@ class SpaceModerationScreen extends ConsumerWidget {
                     label: Text(l.spaceModerationAdd),
                   )
                 : null,
-            body: records.isEmpty && appeals.isEmpty
+            body: records.isEmpty && appeals.isEmpty && abuseReports.isEmpty
                 ? Center(child: Text(l.spaceModerationEmpty))
                 : Center(
                     child: ConstrainedBox(
@@ -296,6 +447,86 @@ class SpaceModerationScreen extends ConsumerWidget {
                       child: ListView(
                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
                         children: [
+                          if (abuseReports.isNotEmpty) ...[
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Text(
+                                l.spaceAbuseReportsTitle,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                            ),
+                            for (final entry in abuseReports) ...[
+                              Card(
+                                key: ValueKey(
+                                  'space-abuse-report-incoming-${entry.report.reportId}',
+                                ),
+                                child: ListTile(
+                                  leading: const Icon(Icons.flag_outlined),
+                                  title: Text(
+                                    l.spaceAbuseReportFrom(
+                                      entry.report.reporter.short,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    [
+                                      entry.report.commentRef == null
+                                          ? l.spaceAbuseReportPost
+                                          : l.spaceAbuseReportComment,
+                                      _abuseCategoryLabel(
+                                        l,
+                                        entry.report.category,
+                                      ),
+                                      if (entry.report.details.isNotEmpty)
+                                        entry.report.details,
+                                      _abuseStatus(l, entry),
+                                      if (entry.decision != null)
+                                        entry.decision!.reason,
+                                      _date(context, entry.receivedAtMs),
+                                    ].join('\n'),
+                                    maxLines: 8,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  trailing: Wrap(
+                                    spacing: 4,
+                                    children: [
+                                      IconButton(
+                                        key: ValueKey(
+                                          'space-abuse-report-open-${entry.report.reportId}',
+                                        ),
+                                        tooltip: l.spaceAbuseReportOpenContent,
+                                        onPressed: () => _openReportedContent(
+                                          context,
+                                          entry.report,
+                                        ),
+                                        icon: const Icon(
+                                          Icons.open_in_new_outlined,
+                                        ),
+                                      ),
+                                      if (entry.pending &&
+                                          state.roleOf(service.selfId) ==
+                                              GroupRole.owner)
+                                        IconButton(
+                                          key: ValueKey(
+                                            'space-abuse-report-review-${entry.report.reportId}',
+                                          ),
+                                          tooltip: l.spaceAbuseReportReview,
+                                          onPressed: () => _reviewAbuseReport(
+                                            context,
+                                            service,
+                                            entry,
+                                          ),
+                                          icon: const Icon(
+                                            Icons.rate_review_outlined,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+                            const SizedBox(height: 8),
+                          ],
                           if (appeals.isNotEmpty) ...[
                             Padding(
                               padding: const EdgeInsets.only(bottom: 8),

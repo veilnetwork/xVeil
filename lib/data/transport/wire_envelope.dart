@@ -206,6 +206,16 @@ enum WireKind {
   /// replay/quota and public reference before minting a `(peer, CID)` grant.
   /// Appended immediately before [unknown]; all older indices stay unchanged.
   spacePublicMediaGrantRequest,
+
+  /// Reporter-signed complaint about one exact Space post or comment. It may
+  /// cross the contact boundary, but is ACKed only after the current owner has
+  /// verified the signature, content reference and bounded inbox quota.
+  spaceAbuseReport,
+
+  /// Owner-signed immutable review status for [spaceAbuseReport]. A content
+  /// removal outcome references, but never replaces, the ordinary signed
+  /// moderation action that performed the deletion.
+  spaceAbuseReportDecision,
   unknown,
 }
 
@@ -431,6 +441,12 @@ class WireEnvelope {
 
   const WireEnvelope.spaceModerationAppealDecision(String bodyJson)
     : this(WireKind.spaceModerationAppealDecision, bodyJson);
+
+  const WireEnvelope.spaceAbuseReport(String bodyJson)
+    : this(WireKind.spaceAbuseReport, bodyJson);
+
+  const WireEnvelope.spaceAbuseReportDecision(String bodyJson)
+    : this(WireKind.spaceAbuseReportDecision, bodyJson);
 
   WireEnvelope.spaceRecommendation(
     SpaceRecommendationCard card, {

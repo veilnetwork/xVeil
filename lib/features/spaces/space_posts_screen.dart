@@ -538,99 +538,104 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
                                     ? Icons.article_outlined
                                     : Icons.campaign_outlined,
                               ),
-                              trailing:
-                                  post.author == service.selfId ||
-                                      canModerate ||
-                                      canManagePosts
-                                  ? PopupMenuButton<_PostAction>(
-                                      key: ValueKey(
-                                        'space-post-menu-${post.postId}',
+                              trailing: PopupMenuButton<_PostAction>(
+                                key: ValueKey('space-post-menu-${post.postId}'),
+                                onSelected: (action) {
+                                  switch (action) {
+                                    case _PostAction.edit:
+                                      unawaited(
+                                        _edit(
+                                          context,
+                                          ref,
+                                          spaceId,
+                                          post,
+                                          state.members.values.map(
+                                            (member) => member.nodeId,
+                                          ),
+                                        ),
+                                      );
+                                    case _PostAction.delete:
+                                      unawaited(
+                                        confirmAndDeleteOwnSpacePost(
+                                          context,
+                                          service,
+                                          spaceId,
+                                          post,
+                                        ),
+                                      );
+                                    case _PostAction.moderateDelete:
+                                      unawaited(
+                                        promptAndModerateDeleteSpacePost(
+                                          context,
+                                          service,
+                                          spaceId,
+                                          post,
+                                        ),
+                                      );
+                                    case _PostAction.pin:
+                                      unawaited(
+                                        updateSpacePostPinned(
+                                          context,
+                                          service,
+                                          spaceId,
+                                          post,
+                                          true,
+                                        ),
+                                      );
+                                    case _PostAction.unpin:
+                                      unawaited(
+                                        updateSpacePostPinned(
+                                          context,
+                                          service,
+                                          spaceId,
+                                          post,
+                                          false,
+                                        ),
+                                      );
+                                    case _PostAction.report:
+                                      unawaited(
+                                        promptAndReportSpaceContent(
+                                          context,
+                                          service,
+                                          spaceId,
+                                          postId: post.postId,
+                                        ),
+                                      );
+                                  }
+                                },
+                                itemBuilder: (_) => [
+                                  if (canManagePosts)
+                                    PopupMenuItem(
+                                      value: post.pinned
+                                          ? _PostAction.unpin
+                                          : _PostAction.pin,
+                                      child: Text(
+                                        post.pinned
+                                            ? l.spacePostUnpin
+                                            : l.spacePostPin,
                                       ),
-                                      onSelected: (action) {
-                                        switch (action) {
-                                          case _PostAction.edit:
-                                            unawaited(
-                                              _edit(
-                                                context,
-                                                ref,
-                                                spaceId,
-                                                post,
-                                                state.members.values.map(
-                                                  (member) => member.nodeId,
-                                                ),
-                                              ),
-                                            );
-                                          case _PostAction.delete:
-                                            unawaited(
-                                              confirmAndDeleteOwnSpacePost(
-                                                context,
-                                                service,
-                                                spaceId,
-                                                post,
-                                              ),
-                                            );
-                                          case _PostAction.moderateDelete:
-                                            unawaited(
-                                              promptAndModerateDeleteSpacePost(
-                                                context,
-                                                service,
-                                                spaceId,
-                                                post,
-                                              ),
-                                            );
-                                          case _PostAction.pin:
-                                            unawaited(
-                                              updateSpacePostPinned(
-                                                context,
-                                                service,
-                                                spaceId,
-                                                post,
-                                                true,
-                                              ),
-                                            );
-                                          case _PostAction.unpin:
-                                            unawaited(
-                                              updateSpacePostPinned(
-                                                context,
-                                                service,
-                                                spaceId,
-                                                post,
-                                                false,
-                                              ),
-                                            );
-                                        }
-                                      },
-                                      itemBuilder: (_) => [
-                                        if (canManagePosts)
-                                          PopupMenuItem(
-                                            value: post.pinned
-                                                ? _PostAction.unpin
-                                                : _PostAction.pin,
-                                            child: Text(
-                                              post.pinned
-                                                  ? l.spacePostUnpin
-                                                  : l.spacePostPin,
-                                            ),
-                                          ),
-                                        if (post.author == service.selfId) ...[
-                                          PopupMenuItem(
-                                            value: _PostAction.edit,
-                                            child: Text(l.spacePostEdit),
-                                          ),
-                                          PopupMenuItem(
-                                            value: _PostAction.delete,
-                                            child: Text(l.spacePostDelete),
-                                          ),
-                                        ] else if (canModerate)
-                                          PopupMenuItem(
-                                            value: _PostAction.moderateDelete,
-                                            child: Text(
-                                              l.spaceModerationDeletePost,
-                                            ),
-                                          ),
-                                      ],
-                                    )
-                                  : null,
+                                    ),
+                                  if (post.author == service.selfId) ...[
+                                    PopupMenuItem(
+                                      value: _PostAction.edit,
+                                      child: Text(l.spacePostEdit),
+                                    ),
+                                    PopupMenuItem(
+                                      value: _PostAction.delete,
+                                      child: Text(l.spacePostDelete),
+                                    ),
+                                  ] else if (canModerate)
+                                    PopupMenuItem(
+                                      value: _PostAction.moderateDelete,
+                                      child: Text(l.spaceModerationDeletePost),
+                                    ),
+                                  if (post.author != service.selfId)
+                                    PopupMenuItem(
+                                      value: _PostAction.report,
+                                      child: Text(l.spaceAbuseReportAction),
+                                    ),
+                                ],
+                              ),
                             );
                           },
                         ),
@@ -644,7 +649,7 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
   }
 }
 
-enum _PostAction { pin, unpin, edit, delete, moderateDelete }
+enum _PostAction { pin, unpin, edit, delete, moderateDelete, report }
 
 enum _ScheduledPostAction { publishNow, cancel }
 

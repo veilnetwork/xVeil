@@ -572,6 +572,56 @@ void main() {
   );
 
   test(
+    'non-contact abuse report ACK waits for durable owner validation',
+    () async {
+      final x = _id(25);
+      final y = _id(26);
+      final tx = _FakeTransport(x);
+      final ty = _FakeTransport(y);
+      tx.peer = ty;
+      ty.peer = tx;
+      final sx = HiddenVolumeStorage(_memOpener());
+      final sy = HiddenVolumeStorage(_memOpener());
+      await sx.open(password: 'x', createIfMissing: true);
+      await sy.open(password: 'y', createIfMissing: true);
+      final mx = MessagingService(tx, sx)..start();
+      final my = MessagingService(ty, sy)..start();
+      addTearDown(() async {
+        await mx.dispose();
+        await my.dispose();
+        await sx.close();
+        await sy.close();
+        await tx.dispose();
+        await ty.dispose();
+      });
+
+      my.onSpaceAbuseReport = (peer, json) async => json == 'valid';
+      await mx.sendSpaceAbuseReport(y, 'ae' * 32, 'valid');
+      await _pump();
+      expect(
+        (await sx.pendingOutboxFrames()).map((frame) => frame.frameId),
+        isNot(contains('space-abuse-report:${'ae' * 32}')),
+      );
+
+      await mx.sendSpaceAbuseReport(y, 'af' * 32, 'invalid');
+      await _pump();
+      expect(
+        (await sx.pendingOutboxFrames()).map((frame) => frame.frameId),
+        contains('space-abuse-report:${'af' * 32}'),
+        reason: 'invalid reports must remain durable and unacknowledged',
+      );
+
+      mx.onSpaceAbuseReportDecision = (peer, json) async => json == 'decision';
+      await my.sendSpaceAbuseReportDecision(x, 'ae' * 32, 'decision');
+      await _pump();
+      expect(
+        (await sy.pendingOutboxFrames()).map((frame) => frame.frameId),
+        isNot(contains('space-abuse-report-decision:${'ae' * 32}')),
+      );
+    },
+  );
+
+  test(
     're-sending an already-delivered message does not duplicate it',
     () async {
       await mA.sendText(b, 'hello');

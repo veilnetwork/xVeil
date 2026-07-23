@@ -78,6 +78,24 @@ void main() {
     expect(decision.kind, WireKind.spaceModerationAppealDecision);
   });
 
+  test('Space abuse report and decision are append-only v2 frames', () {
+    expect(WireKind.spacePublicMediaGrantRequest.index, 43);
+    expect(WireKind.spaceAbuseReport.index, 44);
+    expect(WireKind.spaceAbuseReportDecision.index, 45);
+    expect(WireKind.unknown.index, 46);
+
+    final report = WireEnvelope.decode(
+      const WireEnvelope.spaceAbuseReport('{"kind":"report"}').encode(),
+    );
+    final decision = WireEnvelope.decode(
+      const WireEnvelope.spaceAbuseReportDecision(
+        '{"kind":"decision"}',
+      ).encode(),
+    );
+    expect(report.kind, WireKind.spaceAbuseReport);
+    expect(decision.kind, WireKind.spaceAbuseReportDecision);
+  });
+
   test('Space recommendation is a typed forward-compatible frame', () {
     final card = SpaceRecommendationCard(
       campaignId: 'ab' * 32,

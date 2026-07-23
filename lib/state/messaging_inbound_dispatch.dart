@@ -28,7 +28,9 @@ extension _MessagingInboundDispatch on MessagingService {
         env.kind == WireKind.spaceJoinRequest ||
         env.kind == WireKind.spaceJoinDecision ||
         env.kind == WireKind.spaceModerationAppeal ||
-        env.kind == WireKind.spaceModerationAppealDecision;
+        env.kind == WireKind.spaceModerationAppealDecision ||
+        env.kind == WireKind.spaceAbuseReport ||
+        env.kind == WireKind.spaceAbuseReportDecision;
     final deferredGroupCallAck = env.kind == WireKind.groupCallSignal;
     final liveOnlyNoAck =
         env.kind == WireKind.groupContentReceipt ||
@@ -488,6 +490,39 @@ extension _MessagingInboundDispatch on MessagingService {
         final appealDecisionHandler = onSpaceModerationAppealDecision;
         if (appealDecisionHandler == null ||
             !await appealDecisionHandler(m.src, env.body)) {
+          return;
+        }
+        if (fid != null) {
+          _outbox.remember(fid);
+          await _ackFrame(m, fid);
+        }
+        return;
+      case WireKind.spaceAbuseReport:
+        // This external proposal is deliberately not contact-gated. The
+        // Space layer binds it to the authenticated reporter, exact retained
+        // content, current owner route and per-reporter quota before ACK.
+        if (fid != null && _outbox.hasSeen(fid)) {
+          await _ackFrame(m, fid);
+          return;
+        }
+        final abuseReportHandler = onSpaceAbuseReport;
+        if (abuseReportHandler == null ||
+            !await abuseReportHandler(m.src, env.body)) {
+          return;
+        }
+        if (fid != null) {
+          _outbox.remember(fid);
+          await _ackFrame(m, fid);
+        }
+        return;
+      case WireKind.spaceAbuseReportDecision:
+        if (fid != null && _outbox.hasSeen(fid)) {
+          await _ackFrame(m, fid);
+          return;
+        }
+        final abuseDecisionHandler = onSpaceAbuseReportDecision;
+        if (abuseDecisionHandler == null ||
+            !await abuseDecisionHandler(m.src, env.body)) {
           return;
         }
         if (fid != null) {

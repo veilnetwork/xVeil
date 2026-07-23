@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/ids.dart';
 import '../../domain/group_message.dart';
+import '../../domain/space_abuse_report.dart';
 import '../../domain/space_moderation.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
@@ -230,6 +231,121 @@ Future<bool> confirmAndBlockSpaceAuthor(
     return false;
   }
 }
+
+Future<bool> promptAndReportSpaceContent(
+  BuildContext context,
+  GroupService service,
+  NodeId spaceId, {
+  required String postId,
+  String? commentRef,
+}) async {
+  final l = AppL10n.of(context);
+  var category = SpaceAbuseCategory.spam;
+  var detailsDraft = '';
+  final result =
+      await showDialog<({SpaceAbuseCategory category, String details})>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text(l.spaceAbuseReportDialogTitle),
+            content: SizedBox(
+              width: 480,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<SpaceAbuseCategory>(
+                    key: const ValueKey('space-abuse-report-category'),
+                    initialValue: category,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: l.spaceAbuseReportCategory,
+                    ),
+                    items: [
+                      for (final value in SpaceAbuseCategory.values)
+                        DropdownMenuItem(
+                          value: value,
+                          child: Text(_spaceAbuseCategoryLabel(l, value)),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setDialogState(() => category = value);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    key: const ValueKey('space-abuse-report-details'),
+                    minLines: 2,
+                    maxLines: 6,
+                    maxLength: kSpaceAbuseReportDetailsMaxBytes,
+                    decoration: InputDecoration(
+                      labelText: l.spaceAbuseReportDetails,
+                      helperText: category == SpaceAbuseCategory.other
+                          ? l.spaceAbuseReportDetailsRequired
+                          : null,
+                      alignLabelWithHint: true,
+                    ),
+                    onChanged: (value) {
+                      detailsDraft = value;
+                      if (category == SpaceAbuseCategory.other) {
+                        setDialogState(() {});
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: Text(l.actionCancel),
+              ),
+              FilledButton(
+                key: const ValueKey('space-abuse-report-submit'),
+                onPressed:
+                    category == SpaceAbuseCategory.other &&
+                        detailsDraft.trim().isEmpty
+                    ? null
+                    : () => Navigator.of(
+                        dialogContext,
+                      ).pop((category: category, details: detailsDraft.trim())),
+                child: Text(l.spaceAbuseReportAction),
+              ),
+            ],
+          ),
+        ),
+      );
+  if (result == null) return false;
+  final sent = await service.reportSpaceContent(
+    spaceId,
+    postId,
+    commentRef: commentRef,
+    category: result.category,
+    details: result.details,
+  );
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(sent ? l.spaceAbuseReportSent : l.spaceOperationFailed),
+      ),
+    );
+  }
+  return sent;
+}
+
+String _spaceAbuseCategoryLabel(
+  AppL10n l,
+  SpaceAbuseCategory category,
+) => switch (category) {
+  SpaceAbuseCategory.spam => l.spaceAbuseReportCategorySpam,
+  SpaceAbuseCategory.harassment => l.spaceAbuseReportCategoryHarassment,
+  SpaceAbuseCategory.violence => l.spaceAbuseReportCategoryViolence,
+  SpaceAbuseCategory.sexualContent => l.spaceAbuseReportCategorySexualContent,
+  SpaceAbuseCategory.illegalContent => l.spaceAbuseReportCategoryIllegalContent,
+  SpaceAbuseCategory.misinformation => l.spaceAbuseReportCategoryMisinformation,
+  SpaceAbuseCategory.other => l.spaceAbuseReportCategoryOther,
+};
 
 Future<bool> updateSpacePostPinned(
   BuildContext context,

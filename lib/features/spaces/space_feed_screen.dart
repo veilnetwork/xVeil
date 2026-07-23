@@ -334,6 +334,16 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
                                         );
                                       }
                                     : null,
+                                onReport: item.post.author == service.selfId
+                                    ? null
+                                    : () async {
+                                        await promptAndReportSpaceContent(
+                                          context,
+                                          service,
+                                          item.spaceId,
+                                          postId: item.post.postId,
+                                        );
+                                      },
                                 onSetPinned: item.canManagePosts
                                     ? (pinned) async {
                                         await updateSpacePostPinned(
@@ -410,6 +420,16 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
                                         );
                                       }
                                     : null,
+                                onReport: item.post.author == service.selfId
+                                    ? null
+                                    : () async {
+                                        await promptAndReportSpaceContent(
+                                          context,
+                                          service,
+                                          item.spaceId,
+                                          postId: item.post.postId,
+                                        );
+                                      },
                                 onSetPinned: item.canManagePosts
                                     ? (pinned) async {
                                         await updateSpacePostPinned(
@@ -794,6 +814,7 @@ class _PostCard extends StatelessWidget {
     required this.onHide,
     required this.onDelete,
     required this.onModerateDelete,
+    required this.onReport,
     required this.onSetPinned,
     required this.selfId,
   });
@@ -806,6 +827,7 @@ class _PostCard extends StatelessWidget {
   final Future<void> Function() onHide;
   final Future<void> Function()? onDelete;
   final Future<void> Function()? onModerateDelete;
+  final Future<void> Function()? onReport;
   final Future<void> Function(bool pinned)? onSetPinned;
   final NodeId selfId;
 
@@ -857,6 +879,8 @@ class _PostCard extends StatelessWidget {
                           unawaited(onModerateDelete!());
                         case _FeedPostAction.hide:
                           unawaited(onHide());
+                        case _FeedPostAction.report:
+                          unawaited(onReport!());
                       }
                     },
                     itemBuilder: (context) => [
@@ -897,6 +921,14 @@ class _PostCard extends StatelessWidget {
                           label: AppL10n.of(context).feedPostHide,
                         ),
                       ),
+                      if (onReport != null)
+                        PopupMenuItem(
+                          value: _FeedPostAction.report,
+                          child: _FeedPostMenuLabel(
+                            icon: Icons.flag_outlined,
+                            label: AppL10n.of(context).spaceAbuseReportAction,
+                          ),
+                        ),
                     ],
                   ),
                 ],
@@ -954,7 +986,7 @@ class _PostCard extends StatelessWidget {
   }
 }
 
-enum _FeedPostAction { pin, unpin, delete, moderateDelete, hide }
+enum _FeedPostAction { pin, unpin, delete, moderateDelete, hide, report }
 
 class _FeedPostMenuLabel extends StatelessWidget {
   const _FeedPostMenuLabel({required this.icon, required this.label});

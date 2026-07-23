@@ -4891,4 +4891,88 @@ class AppL10nEn extends AppL10n {
   @override
   String get spaceModerationAppealDecisionAcknowledge =>
       'Accept without restoration';
+
+  @override
+  String get spaceAbuseReportAction => 'Report';
+
+  @override
+  String get spaceAbuseReportDialogTitle => 'Report a violation';
+
+  @override
+  String get spaceAbuseReportCategory => 'Report reason';
+
+  @override
+  String get spaceAbuseReportCategorySpam => 'Spam or fraud';
+
+  @override
+  String get spaceAbuseReportCategoryHarassment => 'Harassment or abuse';
+
+  @override
+  String get spaceAbuseReportCategoryViolence => 'Violence or threats';
+
+  @override
+  String get spaceAbuseReportCategorySexualContent => 'Sexual content';
+
+  @override
+  String get spaceAbuseReportCategoryIllegalContent => 'Illegal content';
+
+  @override
+  String get spaceAbuseReportCategoryMisinformation => 'Harmful misinformation';
+
+  @override
+  String get spaceAbuseReportCategoryOther => 'Other';
+
+  @override
+  String get spaceAbuseReportDetails => 'Details (optional)';
+
+  @override
+  String get spaceAbuseReportDetailsRequired =>
+      'Add details when choosing Other';
+
+  @override
+  String get spaceAbuseReportSent => 'Report sent to moderators';
+
+  @override
+  String get spaceAbuseReportsTitle => 'Reports';
+
+  @override
+  String spaceAbuseReportFrom(String node) {
+    return 'Report from $node';
+  }
+
+  @override
+  String get spaceAbuseReportPost => 'Publication';
+
+  @override
+  String get spaceAbuseReportComment => 'Comment';
+
+  @override
+  String get spaceAbuseReportOpenContent => 'Open content';
+
+  @override
+  String get spaceAbuseReportReview => 'Review report';
+
+  @override
+  String get spaceAbuseReportDecisionReason => 'Decision explanation';
+
+  @override
+  String get spaceAbuseReportDecisionDismiss => 'Dismiss report';
+
+  @override
+  String get spaceAbuseReportDecisionResolve => 'Mark resolved';
+
+  @override
+  String get spaceAbuseReportDecisionRemove => 'Remove content';
+
+  @override
+  String get spaceAbuseReportPending => 'Awaiting review';
+
+  @override
+  String get spaceAbuseReportDismissed => 'No violation found';
+
+  @override
+  String get spaceAbuseReportResolved => 'Resolved';
+
+  @override
+  String get spaceAbuseReportRemoved => 'Content removed';
 }
