@@ -415,6 +415,21 @@ class GroupBundle {
   );
 }
 
+/// A protected-channel revision prepared entirely in memory. The caller owns
+/// [transientKey] and must wipe it after the containing bundle is committed or
+/// abandoned; [bundle] keeps its own copy for deniable local persistence.
+final class _PreparedProtectedChannelRevision {
+  const _PreparedProtectedChannelRevision({
+    required this.bundle,
+    required this.controls,
+    required this.transientKey,
+  });
+
+  final GroupBundle bundle;
+  final List<ControlEntry> controls;
+  final Uint8List transientKey;
+}
+
 class GroupLogCompaction {
   const GroupLogCompaction({
     required this.messagesBefore,
@@ -5976,12 +5991,14 @@ class GroupService {
     return ordered;
   }
 
-  Future<bool> _writeProtectedChannel(
+  Future<_PreparedProtectedChannelRevision?> _prepareProtectedChannel(
     GroupBundle bundle,
     GroupState state,
     SpaceChannel channel, {
     required Iterable<NodeId> requestedRecipients,
     required bool create,
+    GroupState? recipientState,
+    int? createdAtMs,
   }) async {
     final epochService = _epochService;
     if (epochService == null ||
@@ -5989,13 +6006,16 @@ class GroupService {
         channel.kind == SpaceChannelKind.category ||
         channel.categoryId != null ||
         channel.isDefault) {
-      return false;
+      return null;
     }
-    final recipients = _protectedChannelRecipients(state, requestedRecipients);
-    if (recipients == null) return false;
+    final recipients = _protectedChannelRecipients(
+      recipientState ?? state,
+      requestedRecipients,
+    );
+    if (recipients == null) return null;
     final previous = state.protectedChannels[channel.channelId.hex];
     if ((create && previous != null) || (!create && previous == null)) {
-      return false;
+      return null;
     }
     SpaceRetentionPolicy? currentRetentionPolicy;
     var hasCurrentRetentionPolicy = false;
@@ -6007,7 +6027,7 @@ class GroupService {
         previous,
         requireCurrentAcl: false,
       );
-      if (previousClear == null) return false;
+      if (previousClear == null) return null;
       final retention = await _materializedRetentionHistory(
         bundle,
         state,
@@ -6015,7 +6035,7 @@ class GroupService {
       );
       if (retention.hiddenThroughMs[channel.channelId.hex] ==
           0x7fffffffffffffff) {
-        return false;
+        return null;
       }
       for (final revision in retention.revisions) {
         final policy = revision.policy;
@@ -6031,7 +6051,7 @@ class GroupService {
           state.roleOf(_signer.selfId) != GroupRole.owner) {
         // Only the owner can preserve a manageStorage decision in the new
         // epoch. Never grant an old content key merely to reveal policy.
-        return false;
+        return null;
       }
     }
     final link = _nextControlLink(
@@ -6039,11 +6059,12 @@ class GroupService {
       bundle.control,
       _signer.selfId,
     );
-    if (link.blocked) return false;
+    if (link.blocked) return null;
     final channelEpoch = create ? 1 : previous!.channelEpoch + 1;
     final key = _randomEpochKey();
     Uint8List? clear;
     Uint8List? retentionClear;
+    var transferredKey = false;
     try {
       final sealed = await epochService.sealEpoch(
         groupId: channel.channelId,
@@ -6055,9 +6076,9 @@ class GroupService {
         channel: channel,
         recipients: recipients,
       );
-      if (!controlClear.isStructurallyValid) return false;
+      if (!controlClear.isStructurallyValid) return null;
       clear = controlClear.encode();
-      final createdAtMs = _now();
+      final revisionCreatedAtMs = createdAtMs ?? _now();
       final encrypted = await encryptSpaceChannelControlPayload(
         spaceId: bundle.manifest.groupId,
         channelId: channel.channelId,
@@ -6065,7 +6086,7 @@ class GroupService {
         keyCommitment: sealed.descriptor.keyCommitment,
         author: _signer.selfId,
         policyVersion: state.policyVersion,
-        createdAtMs: createdAtMs,
+        createdAtMs: revisionCreatedAtMs,
         clearText: clear,
         channelKey: key,
       );
@@ -6087,7 +6108,7 @@ class GroupService {
           target: null,
           role: null,
           policyVersion: state.policyVersion,
-          createdAtMs: createdAtMs,
+          createdAtMs: revisionCreatedAtMs,
           signature: Uint8List(0),
           channelControl: opaque,
         ),
@@ -6097,7 +6118,7 @@ class GroupService {
       if (hasCurrentRetentionPolicy &&
           currentRetentionPolicy != null &&
           state.roleOf(_signer.selfId) == GroupRole.owner) {
-        final retentionCreatedAt = createdAtMs;
+        final retentionCreatedAt = revisionCreatedAtMs;
         retentionClear = Uint8List.fromList(
           utf8.encode(jsonEncode(currentRetentionPolicy.toJson())),
         );
@@ -6144,13 +6165,16 @@ class GroupService {
         initialName: bundle.manifest.name,
       );
       if (folded.rejected.any(
-        (entry) => entry.author == signed.author && entry.seq == signed.seq,
+        (entry) => controls.any(
+          (control) =>
+              entry.author == control.author && entry.seq == control.seq,
+        ),
       )) {
-        return false;
+        return null;
       }
       final keyId = _channelKeyId(channel.channelId, channelEpoch);
-      await _save(
-        bundle.copyWith(
+      final result = _PreparedProtectedChannelRevision(
+        bundle: bundle.copyWith(
           control: candidate,
           channelEpochEnvelopes: [
             ...bundle.channelEpochEnvelopes,
@@ -6161,15 +6185,45 @@ class GroupService {
             keyId: Uint8List.fromList(key),
           },
         ),
+        controls: controls,
+        transientKey: key,
       );
-      unawaited(broadcastDelta(bundle.manifest.groupId, control: controls));
+      transferredKey = true;
+      return result;
+    } catch (_) {
+      return null;
+    } finally {
+      clear?.fillRange(0, clear.length, 0);
+      retentionClear?.fillRange(0, retentionClear.length, 0);
+      if (!transferredKey) key.fillRange(0, key.length, 0);
+    }
+  }
+
+  Future<bool> _writeProtectedChannel(
+    GroupBundle bundle,
+    GroupState state,
+    SpaceChannel channel, {
+    required Iterable<NodeId> requestedRecipients,
+    required bool create,
+  }) async {
+    final prepared = await _prepareProtectedChannel(
+      bundle,
+      state,
+      channel,
+      requestedRecipients: requestedRecipients,
+      create: create,
+    );
+    if (prepared == null) return false;
+    try {
+      await _save(prepared.bundle);
+      unawaited(
+        broadcastDelta(bundle.manifest.groupId, control: prepared.controls),
+      );
       return true;
     } catch (_) {
       return false;
     } finally {
-      clear?.fillRange(0, clear.length, 0);
-      retentionClear?.fillRange(0, retentionClear.length, 0);
-      key.fillRange(0, key.length, 0);
+      prepared.transientKey.fillRange(0, prepared.transientKey.length, 0);
     }
   }
 
@@ -6381,7 +6435,11 @@ class GroupService {
           envelope,
           requireCurrentAcl: false,
         );
-        if (clear != null) protectedBefore.add(clear);
+        // A membership/role transaction may not commit while even one current
+        // protected ACL cannot be re-encrypted. Silently skipping it would
+        // recreate the stale-key split this transaction is meant to prevent.
+        if (clear == null) return false;
+        protectedBefore.add(clear);
       }
     }
     final pv = state.policyVersion;
@@ -6434,70 +6492,139 @@ class GroupService {
           b.manifest.isSpace && revokesPublishing && target != null
           ? _postBoundaryFor(b, target)
           : null;
-      final signed = _signer.signControl(
-        ControlEntry(
-          version: lifecycleTransition != null
-              ? lifecycleTransition.recoveryDeadlineMs == null
-                    ? 10
-                    : 11
-              : postPin != null
-              ? 12
-              : recommendationCampaign != null
-              ? 13
-              : accessPolicy != null
-              ? state.roleOf(_signer.selfId) != GroupRole.owner
-                    ? 20
-                    : accessPolicy.schemaVersion >= 3
-                    ? 19
-                    : accessPolicy.schemaVersion >= 2
-                    ? 18
-                    : 17
-              : channelRetention != null
-              ? 15
-              : retentionPolicy != null
-              ? retentionPolicy.mediaOnly
-                    ? 16
-                    : 9
-              : channelModeration != null
-              ? 14
-              : moderationAction != null || moderationRevocation != null
-              ? 8
-              : rules != null || rulesAcceptance != null
-              ? 7
-              : op == ControlOp.transferOwnership
-              ? 6
-              : postBoundary == null
-              ? 2
-              : 3,
-          groupId: groupId,
-          author: _signer.selfId,
-          seq: mySeq,
-          prevHash: initialLink.prevHash,
-          op: op,
-          target: target,
-          role: role,
-          text: text,
-          channel: channel,
-          rules: rules,
-          rulesAcceptance: rulesAcceptance,
-          moderationAction: moderationAction,
-          moderationRevocation: moderationRevocation,
-          channelModeration: channelModeration,
-          channelRetention: channelRetention,
-          retentionPolicy: retentionPolicy,
-          lifecycleTransition: lifecycleTransition,
-          postPin: postPin,
-          recommendationCampaign: recommendationCampaign,
-          accessPolicy: accessPolicy,
-          policyVersion: pv,
-          createdAtMs: createdAt,
-          signature: Uint8List(0),
-          epochDescriptor: prepared?.descriptor,
-          postBoundary: postBoundary,
-        ),
+      ControlEntry signMutation(int seq, String prevHash) =>
+          _signer.signControl(
+            ControlEntry(
+              version: lifecycleTransition != null
+                  ? lifecycleTransition.recoveryDeadlineMs == null
+                        ? 10
+                        : 11
+                  : postPin != null
+                  ? 12
+                  : recommendationCampaign != null
+                  ? 13
+                  : accessPolicy != null
+                  ? state.roleOf(_signer.selfId) != GroupRole.owner
+                        ? 20
+                        : accessPolicy.schemaVersion >= 3
+                        ? 19
+                        : accessPolicy.schemaVersion >= 2
+                        ? 18
+                        : 17
+                  : channelRetention != null
+                  ? 15
+                  : retentionPolicy != null
+                  ? retentionPolicy.mediaOnly
+                        ? 16
+                        : 9
+                  : channelModeration != null
+                  ? 14
+                  : moderationAction != null || moderationRevocation != null
+                  ? 8
+                  : rules != null || rulesAcceptance != null
+                  ? 7
+                  : op == ControlOp.transferOwnership
+                  ? 6
+                  : postBoundary == null
+                  ? 2
+                  : 3,
+              groupId: groupId,
+              author: _signer.selfId,
+              seq: seq,
+              prevHash: prevHash,
+              op: op,
+              target: target,
+              role: role,
+              text: text,
+              channel: channel,
+              rules: rules,
+              rulesAcceptance: rulesAcceptance,
+              moderationAction: moderationAction,
+              moderationRevocation: moderationRevocation,
+              channelModeration: channelModeration,
+              channelRetention: channelRetention,
+              retentionPolicy: retentionPolicy,
+              lifecycleTransition: lifecycleTransition,
+              postPin: postPin,
+              recommendationCampaign: recommendationCampaign,
+              accessPolicy: accessPolicy,
+              policyVersion: pv,
+              createdAtMs: createdAt,
+              signature: Uint8List(0),
+              epochDescriptor: prepared?.descriptor,
+              postBoundary: postBoundary,
+            ),
+          );
+
+      // First project the requested membership/role result. Protected channel
+      // revisions are then appended *before* that mutation, but their encrypted
+      // recipient sets are derived from this future state. This ordering lets
+      // the current owner preserve an owner-only retention decision during an
+      // ownership transfer while the final bundle is still one atomic write.
+      final projected = signMutation(initialLink.seq, initialLink.prevHash);
+      final projectedFold = foldControlLog(
+        owner: b.manifest.owner,
+        entries: [...b.control, projected],
+        verify: (entry) => _validControlFor(b.manifest, entry),
+        initialName: b.manifest.name,
       );
+      if (projectedFold.rejected.any(
+        (entry) =>
+            identical(entry, projected) ||
+            (entry.author == projected.author && entry.seq == projected.seq),
+      )) {
+        return false;
+      }
+
+      var workingBundle = b;
+      var workingState = state;
+      if (protectedAclMayChange) {
+        final demotesProtectedAdmin =
+            op == ControlOp.setRole &&
+            target != null &&
+            (state.roleOf(target)?.rank ?? -1) >= GroupRole.admin.rank &&
+            (projectedFold.state.roleOf(target)?.rank ?? -1) <
+                GroupRole.admin.rank;
+        for (final old in protectedBefore) {
+          final recipients = old.recipients
+              .where(
+                (member) =>
+                    projectedFold.state.isMember(member) &&
+                    !(demotesProtectedAdmin && member == target),
+              )
+              .toList(growable: false);
+          final revision = await _prepareProtectedChannel(
+            workingBundle,
+            workingState,
+            old.channel,
+            requestedRecipients: recipients,
+            create: false,
+            recipientState: projectedFold.state,
+            createdAtMs: createdAt,
+          );
+          if (revision == null) return false;
+          generatedKeys.add(revision.transientKey);
+          controls.addAll(revision.controls);
+          workingBundle = revision.bundle;
+          workingState = foldControlLog(
+            owner: b.manifest.owner,
+            entries: workingBundle.control,
+            verify: (entry) => _validControlFor(b.manifest, entry),
+            initialName: b.manifest.name,
+          ).state;
+        }
+      }
+
+      final mutationLink = _nextControlLink(
+        b.manifest,
+        workingBundle.control,
+        _signer.selfId,
+      );
+      if (mutationLink.blocked) return false;
+      mySeq = mutationLink.seq;
+      final signed = signMutation(mySeq, mutationLink.prevHash);
       controls.add(signed);
-      var candidate = [...b.control, signed];
+      var candidate = [...workingBundle.control, signed];
       var folded = foldControlLog(
         owner: b.manifest.owner,
         entries: candidate,
@@ -6566,7 +6693,7 @@ class GroupService {
         localKeys[sealed.descriptor.epoch] = Uint8List.fromList(key);
       }
 
-      final savedBundle = b.copyWith(
+      final savedBundle = workingBundle.copyWith(
         control: candidate,
         epochEnvelopes: envelopes,
         localEpochKeys: localKeys,
@@ -6619,41 +6746,14 @@ class GroupService {
         }
         return false;
       }
+      // Protected ACL/key revisions and the membership/role mutation became
+      // durable in the same storeFile call. Only now may peers observe them.
       // A join needs the whole log; every other mutation is a bounded delta.
       if (protectedAclMayChange) {
         if (op == ControlOp.addMember) {
           await broadcast(groupId);
         } else {
           await broadcastDelta(groupId, control: controls);
-        }
-        for (final old in protectedBefore) {
-          final latest = await load(groupId);
-          if (latest == null) return false;
-          final latestState = foldControlLog(
-            owner: latest.manifest.owner,
-            entries: latest.control,
-            verify: (entry) => _validControlFor(latest.manifest, entry),
-            initialName: latest.manifest.name,
-          ).state;
-          final recipients = old.recipients
-              .where(latestState.isMember)
-              .toList(growable: false);
-          if (!await _writeProtectedChannel(
-            latest,
-            latestState,
-            old.channel,
-            requestedRecipients: recipients,
-            create: false,
-          )) {
-            // Membership already folded, so the old ACL is unusable by
-            // [requireCurrentAcl]. Keep the channel fail-closed until an admin
-            // with the prior key retries; never resume with a stale epoch.
-            devLog(
-              () =>
-                  'xVeil[spaces]: protected channel rekey failed after ACL '
-                  'mutation (${old.channel.channelId.short})',
-            );
-          }
         }
       } else if (op == ControlOp.addMember) {
         unawaited(broadcast(groupId));
