@@ -243,6 +243,107 @@ Future<Uint8List> decryptSpaceChannelControlPayload({
   }
 }
 
+/// Encrypt one moderation action under the restricted channel epoch. The
+/// outer signed control row supplies the immutable action id and binds every
+/// authorization-relevant field through AEAD AAD.
+Future<GroupEncryptedPayload> encryptSpaceChannelModerationPayload({
+  required NodeId spaceId,
+  required NodeId channelId,
+  required int channelEpoch,
+  required NodeId author,
+  required int seq,
+  required String prevHash,
+  required int policyVersion,
+  required int createdAtMs,
+  required Uint8List clearText,
+  required Uint8List channelKey,
+  Random? random,
+}) async {
+  if (channelEpoch <= 0 ||
+      channelEpoch > 0xffffffff ||
+      seq < 0 ||
+      policyVersion < 0 ||
+      createdAtMs < 0 ||
+      clearText.length > maxGroupEncryptedPayloadBytes ||
+      channelKey.length != 32) {
+    throw ArgumentError('invalid Space channel moderation payload input');
+  }
+  final nonce = Uint8List(12);
+  final rng = random ?? Random.secure();
+  for (var index = 0; index < nonce.length; index++) {
+    nonce[index] = rng.nextInt(256);
+  }
+  final box = await _groupAead.encrypt(
+    clearText,
+    secretKey: SecretKey(channelKey),
+    nonce: nonce,
+    aad: spaceChannelModerationPayloadAad(
+      spaceId: spaceId,
+      channelId: channelId,
+      channelEpoch: channelEpoch,
+      author: author,
+      seq: seq,
+      prevHash: prevHash,
+      policyVersion: policyVersion,
+      createdAtMs: createdAtMs,
+    ),
+  );
+  return GroupEncryptedPayload(
+    nonce: nonce,
+    cipherText: Uint8List.fromList(box.cipherText),
+    mac: Uint8List.fromList(box.mac.bytes),
+  );
+}
+
+Future<Uint8List> decryptSpaceChannelModerationPayload({
+  required NodeId spaceId,
+  required NodeId channelId,
+  required int channelEpoch,
+  required NodeId author,
+  required int seq,
+  required String prevHash,
+  required int policyVersion,
+  required int createdAtMs,
+  required GroupEncryptedPayload payload,
+  required Uint8List channelKey,
+}) async {
+  if (channelEpoch <= 0 ||
+      channelEpoch > 0xffffffff ||
+      seq < 0 ||
+      policyVersion < 0 ||
+      createdAtMs < 0 ||
+      !payload.isStructurallyValid ||
+      channelKey.length != 32) {
+    throw const FormatException('Space channel moderation payload rejected');
+  }
+  try {
+    final clear = await _groupAead.decrypt(
+      SecretBox(
+        payload.cipherText,
+        nonce: payload.nonce,
+        mac: Mac(payload.mac),
+      ),
+      secretKey: SecretKey(channelKey),
+      aad: spaceChannelModerationPayloadAad(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: channelEpoch,
+        author: author,
+        seq: seq,
+        prevHash: prevHash,
+        policyVersion: policyVersion,
+        createdAtMs: createdAtMs,
+      ),
+    );
+    if (clear.length > maxGroupEncryptedPayloadBytes) {
+      throw const FormatException('Space channel moderation payload rejected');
+    }
+    return Uint8List.fromList(clear);
+  } on SecretBoxAuthenticationError {
+    throw const FormatException('Space channel moderation payload rejected');
+  }
+}
+
 /// Encrypt one message under a channel epoch instead of the Space membership
 /// epoch. The channel id is part of AEAD AAD, so even a validly signed outer
 /// row cannot transplant ciphertext between channels.
@@ -890,6 +991,31 @@ Uint8List spaceChannelControlPayloadAad({
       'epoch': channelEpoch,
       'ekc': keyCommitment,
       'author': author.hex,
+      'pv': policyVersion,
+      'ts': createdAtMs,
+    }),
+  ),
+]);
+
+Uint8List spaceChannelModerationPayloadAad({
+  required NodeId spaceId,
+  required NodeId channelId,
+  required int channelEpoch,
+  required NodeId author,
+  required int seq,
+  required String prevHash,
+  required int policyVersion,
+  required int createdAtMs,
+}) => Uint8List.fromList([
+  ...utf8.encode('xveil.space-channel.moderation-aad.v1\u0000'),
+  ...utf8.encode(
+    jsonEncode({
+      'sid': spaceId.hex,
+      'cid': channelId.hex,
+      'epoch': channelEpoch,
+      'author': author.hex,
+      'seq': seq,
+      'prev': prevHash,
       'pv': policyVersion,
       'ts': createdAtMs,
     }),

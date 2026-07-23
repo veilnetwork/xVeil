@@ -9,6 +9,7 @@ import 'package:xveil/domain/group_epoch.dart';
 import 'package:xveil/domain/group_payload.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_channel.dart';
+import 'package:xveil/domain/space_moderation.dart';
 
 String _hash(int byte) => List.filled(
   32,
@@ -772,6 +773,89 @@ void main() {
       );
       expect(GroupMessageCleartext.decode(openedMessage)?.body, 'scoped');
       openedMessage.fillRange(0, openedMessage.length, 0);
+
+      final moderationClear = Uint8List.fromList(
+        utf8.encode(
+          jsonEncode(
+            SpaceModerationAction(
+              kind: SpaceModerationKind.deleteMessage,
+              target: author,
+              scope: SpaceModerationScope.channel,
+              reason: 'encrypted reason',
+              createdAtMs: 1003,
+              channelId: channelId,
+              reference: SpaceModerationReference(
+                kind: SpaceModerationReferenceKind.message,
+                author: author,
+                seq: 3,
+                channelId: channelId,
+              ),
+            ).toJson(),
+          ),
+        ),
+      );
+      final encryptedModeration = await encryptSpaceChannelModerationPayload(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: 1,
+        author: author,
+        seq: 4,
+        prevHash: _hash(8),
+        policyVersion: 2,
+        createdAtMs: 1003,
+        clearText: moderationClear,
+        channelKey: key,
+        random: Random(21),
+      );
+      moderationClear.fillRange(0, moderationClear.length, 0);
+      final moderationEnvelope = SpaceChannelModerationEnvelope(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: 1,
+        encryptedAction: encryptedModeration,
+      );
+      expect(
+        SpaceChannelModerationEnvelope.fromJson(moderationEnvelope.toJson()),
+        isNotNull,
+      );
+      expect(
+        jsonEncode(moderationEnvelope.toJson()),
+        isNot(contains('encrypted reason')),
+      );
+      final openedModeration = await decryptSpaceChannelModerationPayload(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: 1,
+        author: author,
+        seq: 4,
+        prevHash: _hash(8),
+        policyVersion: 2,
+        createdAtMs: 1003,
+        payload: encryptedModeration,
+        channelKey: key,
+      );
+      expect(
+        SpaceModerationAction.fromJson(
+          jsonDecode(utf8.decode(openedModeration)),
+        )?.reason,
+        'encrypted reason',
+      );
+      openedModeration.fillRange(0, openedModeration.length, 0);
+      await expectLater(
+        decryptSpaceChannelModerationPayload(
+          spaceId: spaceId,
+          channelId: channelId,
+          channelEpoch: 1,
+          author: author,
+          seq: 5,
+          prevHash: _hash(8),
+          policyVersion: 2,
+          createdAtMs: 1003,
+          payload: encryptedModeration,
+          channelKey: key,
+        ),
+        throwsFormatException,
+      );
     },
   );
 }

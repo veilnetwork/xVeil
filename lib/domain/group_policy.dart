@@ -43,6 +43,7 @@ class GroupState {
     this.rulesHistory,
     this.rulesAcceptances,
     this.moderationRecords,
+    this.protectedModeration,
     this.retentionHistory,
     this.postPins,
     this.recommendationCampaigns,
@@ -90,6 +91,11 @@ class GroupState {
   /// Immutable signed moderation actions keyed by their control-row id. A
   /// revocation annotates a record but never removes the original evidence.
   final Map<String, SpaceModerationRecord> moderationRecords;
+
+  /// Accepted opaque restricted-channel moderation evidence keyed by the
+  /// enclosing control-row id. Semantic enforcement happens only after an
+  /// authorized device decrypts and validates the action.
+  final Map<String, SpaceChannelModerationEnvelope> protectedModeration;
 
   /// Every accepted signed revision, retained for audit and irreversible
   /// expiry evaluation. A later relaxed policy cannot resurrect an item that
@@ -145,16 +151,14 @@ class GroupState {
     required int seq,
     required int atMs,
     NodeId? channelId,
-  }) => moderationRecords.values.any((record) {
-    if (!record.isActiveAt(atMs)) return false;
-    final action = record.action;
-    final reference = action.reference;
-    return reference != null &&
-        reference.kind == kind &&
-        reference.author == author &&
-        reference.seq == seq &&
-        (reference.channelId == null || reference.channelId == channelId);
-  });
+  }) => spaceModerationRemovesContent(
+    moderationRecords.values,
+    kind: kind,
+    author: author,
+    seq: seq,
+    atMs: atMs,
+    channelId: channelId,
+  );
 
   SpaceRetentionPolicy effectiveRetentionPolicy([NodeId? channelId]) {
     SpaceRetentionPolicy space = const SpaceRetentionPolicy(
@@ -198,6 +202,7 @@ class GroupState {
     name,
     '',
     null,
+    const {},
     const {},
     const {},
     const {},
@@ -419,6 +424,7 @@ GroupFoldResult foldControlLog({
   final rulesHistory = <int, SpaceRulesVersion>{};
   final rulesAcceptances = <String, SpaceRulesAcceptance>{};
   final moderationRecords = <String, SpaceModerationRecord>{};
+  final protectedModeration = <String, SpaceChannelModerationEnvelope>{};
   final retentionHistory = <SpaceRetentionRevision>[];
   final postPins = <String, SpacePostPin>{};
   final recommendationCampaigns = <String, SpaceRecommendationCampaign>{};
@@ -557,6 +563,10 @@ GroupFoldResult foldControlLog({
           SpaceModerationKind.deleteMessage,
           SpaceModerationKind.deletePost,
         }.contains(e.moderationAction?.kind);
+    final protectsModeration =
+        e.op == ControlOp.moderate &&
+        e.version == 14 &&
+        e.channelModeration != null;
     final authorized = e.op == ControlOp.revokeModeration
         ? revocationRecord != null &&
               revocationRecord.revokedAtMs == null &&
@@ -573,6 +583,8 @@ GroupFoldResult foldControlLog({
                       op: ControlOp.revokeModeration,
                       targetRole: targetRole,
                     ))
+        : protectsModeration
+        ? authorRole.rank >= GroupRole.admin.rank
         : moderationTargetsRemovedContent && targetRole == null
         ? authorRole == GroupRole.owner
         : canApply(
@@ -675,33 +687,47 @@ GroupFoldResult foldControlLog({
     }
     if (e.op == ControlOp.moderate) {
       final action = e.moderationAction;
-      final channel = action?.channelId == null
-          ? null
-          : channels[action!.channelId!.hex];
-      final channelKindValid =
-          action?.scope != SpaceModerationScope.channel ||
-          (channel != null &&
-              !channel.archived &&
-              switch (action!.kind) {
-                SpaceModerationKind.restrictVoice =>
-                  channel.kind == SpaceChannelKind.voice,
-                SpaceModerationKind.deleteMessage ||
-                SpaceModerationKind.restrictMessages ||
-                SpaceModerationKind.mute =>
-                  channel.kind == SpaceChannelKind.text,
-                _ => false,
-              });
-      if (action == null ||
-          e.version != 8 ||
-          action.target != e.target ||
-          action.createdAtMs != e.createdAtMs ||
-          !channelKindValid ||
-          (action.kind == SpaceModerationKind.deleteMessage &&
-              action.scope == SpaceModerationScope.channel &&
-              action.reference?.channelId != action.channelId) ||
-          e.moderationRevocation != null) {
-        rejected.add(e);
-        continue;
+      final protected = e.channelModeration;
+      if (protected != null) {
+        final channel = protectedChannels[protected.channelId.hex];
+        if (e.version != 14 ||
+            protected.spaceId != e.groupId ||
+            channel == null ||
+            channel.channelEpoch != protected.channelEpoch ||
+            e.target != null ||
+            e.moderationRevocation != null) {
+          rejected.add(e);
+          continue;
+        }
+      } else {
+        final channel = action?.channelId == null
+            ? null
+            : channels[action!.channelId!.hex];
+        final channelKindValid =
+            action?.scope != SpaceModerationScope.channel ||
+            (channel != null &&
+                !channel.archived &&
+                switch (action!.kind) {
+                  SpaceModerationKind.restrictVoice =>
+                    channel.kind == SpaceChannelKind.voice,
+                  SpaceModerationKind.deleteMessage ||
+                  SpaceModerationKind.restrictMessages ||
+                  SpaceModerationKind.mute =>
+                    channel.kind == SpaceChannelKind.text,
+                  _ => false,
+                });
+        if (action == null ||
+            e.version != 8 ||
+            action.target != e.target ||
+            action.createdAtMs != e.createdAtMs ||
+            !channelKindValid ||
+            (action.kind == SpaceModerationKind.deleteMessage &&
+                action.scope == SpaceModerationScope.channel &&
+                action.reference?.channelId != action.channelId) ||
+            e.moderationRevocation != null) {
+          rejected.add(e);
+          continue;
+        }
       }
     } else if (e.op == ControlOp.revokeModeration) {
       final revocation = e.moderationRevocation;
@@ -713,7 +739,9 @@ GroupFoldResult foldControlLog({
         rejected.add(e);
         continue;
       }
-    } else if (e.moderationAction != null || e.moderationRevocation != null) {
+    } else if (e.moderationAction != null ||
+        e.moderationRevocation != null ||
+        e.channelModeration != null) {
       rejected.add(e);
       continue;
     }
@@ -834,7 +862,7 @@ GroupFoldResult foldControlLog({
     GroupEpochDescriptor? usableDescriptor = descriptor;
     final moderationRemovesMember =
         e.op == ControlOp.moderate &&
-        e.moderationAction!.kind.removesMembership;
+        e.moderationAction?.kind.removesMembership == true;
     final canEstablishEpoch =
         e.op == ControlOp.removeMember ||
         e.op == ControlOp.ban ||
@@ -952,8 +980,13 @@ GroupFoldResult foldControlLog({
       case ControlOp.acceptRules:
         rulesAcceptances[e.author.hex] = e.rulesAcceptance!;
       case ControlOp.moderate:
-        final action = e.moderationAction!;
         final actionId = '${e.author.hex}:${e.seq}';
+        final protected = e.channelModeration;
+        if (protected != null) {
+          protectedModeration[actionId] = protected;
+          break;
+        }
+        final action = e.moderationAction!;
         moderationRecords[actionId] = SpaceModerationRecord(
           actionId: actionId,
           actor: e.author,
@@ -1098,6 +1131,7 @@ GroupFoldResult foldControlLog({
       Map.unmodifiable(rulesHistory),
       Map.unmodifiable(rulesAcceptances),
       Map.unmodifiable(moderationRecords),
+      Map.unmodifiable(protectedModeration),
       List.unmodifiable(retentionHistory),
       Map.unmodifiable(postPins),
       Map.unmodifiable(recommendationCampaigns),

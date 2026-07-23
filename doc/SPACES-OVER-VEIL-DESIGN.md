@@ -206,9 +206,17 @@ Moderator delete исключает контент из выдачи и из д�
 оставляет signed row и действие как audit/fork evidence.
 
 Этот wire разрешён только для `Space`: пользовательские групповые чаты
-сохраняют прежний лёгкий roster-control и остаются в «Чатах». Для
-restricted/secret channel moderator delete пока fail-closed, поскольку
-помещение открытого channel id в общий control-log раскрыло бы скрытую область.
+сохраняют прежний лёгкий roster-control и остаются в «Чатах». Restricted text
+channel moderator delete использует `ControlEntry` v14: снаружи остаются уже
+видимые в restricted V1 `spaceId`, `channelId`, channel epoch и ciphertext, а
+target, причина и `<author>:<seq>` находятся внутри channel-key AEAD. Общий
+fold проверяет подпись, цепочку, policy version, роль admin+ и текущий channel
+epoch; после расшифровки отдельно проверяются text scope и полномочия
+модератора над скрытой целью на точном предшествующем control prefix. Действие
+видят только текущие получатели ACL с историческим ключом; оно исключает
+сообщение из materialized projection, аудита для постороннего и достижимых
+media grants. Настоящий `secret` остаётся fail-closed: его scope не должен
+появляться даже как routing metadata общего control-log.
 `SpaceModerationAppeal` определён как доменная форма, однако заблокированный
 узел не может безопасно писать в member-only control-log; отдельный
 rate-limited proposal transport и UI остаются последующим слоем.
@@ -516,7 +524,10 @@ camera/background/push проверяются дополнительно на ф
   audit. Серверный `SpaceAcl`, message/post выдача, media reachability и voice
   FSM используют один time-aware fold. Экран и REST/OpenAPI
   `/v1/spaces/moderation` показывают тот же журнал; обычный `Group` отвергает
-  этот wire и остаётся групповым чатом;
+  этот wire и остаётся групповым чатом. Удаление сообщения restricted text
+  channel дополняет его ciphertext-only `ControlEntry` v14 с повторной
+  исторической ACL-проверкой скрытой цели и теми же audit/message/media
+  проекциями;
 * экран «Участники и настройки» читает roster из effective `GroupState` и пишет
   rename/invite/remove/mute/role/leave через `GroupService`; invite сначала
   проходит отдельный consent flow, а membership mutation после accept — через
@@ -534,6 +545,12 @@ camera/background/push проверяются дополнительно на ф
   возникает промежуточного состояния с нулём/двумя владельцами. Операция
   запускает ротацию restricted channel-control, чтобы новый owner получил
   управляющий key envelope;
+* restricted text moderator delete использует `ControlEntry` v14 и отдельный
+  channel-bound AEAD domain. Target/reason/reference не попадают в внешний
+  wire; текущий ACL и исторический role prefix проверяются до materialization.
+  Message projection, moderation audit и media reachability используют один
+  расшифрованный набор записей. Domain/service integration покрывает outsider,
+  stale epoch, ciphertext tamper и hidden-target privilege escalation;
 * проверка нового слоя: `flutter analyze` чист, полный `flutter test` — 1343
   passed, 40 conditional skipped. Свежий arm64 Android APK установлен и
   разблокирован; свежий macOS bundle leaf-by-leaf development-signed,
@@ -557,9 +574,9 @@ legacy V3/V4 остаётся ограничен 256 авторами, но но
 Сам checkpoint сейчас содержит полный causal cut с защитным пределом 4096
 heads; следующий шаг масштабирования — proof-based частичная доставка leaves,
 а не увеличение каждой публикации. Channel-scoped ACL/epochs для restricted
-text/voice и базовая signed moderation уже реализованы; следующими слоями
-остаются настоящий indistinguishable secret scope, protected-scope moderation,
-appeal transport и retention.
+text/voice, базовая signed moderation и moderator delete restricted text уже
+реализованы; следующими слоями остаются настоящий indistinguishable secret
+scope, прочие protected-scope moderation/retention policies и appeal transport.
 
 Архивирование Space также не должно появляться как локальный UI-флаг. Текущий
 `GroupMessage` не подписывает causal cut состояния Space, поэтому без нового
