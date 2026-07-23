@@ -41,6 +41,7 @@ void main() {
   final spaceDescriptions = <(String, String)>[];
   final spaceLifecycleActions = <(String, String)>[];
   final spaceRetentionUpdates = <(String, int?, bool)>[];
+  final spaceChannelRetentionUpdates = <(String, String, int?, bool)>[];
   final spaceRulesPublications = <(String, String, String, int?)>[];
   final spaceRulesAcceptances = <String>[];
   final spaceModerationActions = <(String, String, String, String, String)>[];
@@ -93,6 +94,7 @@ void main() {
     spaceDescriptions.clear();
     spaceLifecycleActions.clear();
     spaceRetentionUpdates.clear();
+    spaceChannelRetentionUpdates.clear();
     spaceRulesPublications.clear();
     spaceRulesAcceptances.clear();
     spaceModerationActions.clear();
@@ -540,6 +542,19 @@ void main() {
       setSpaceRetention: (space, days, localDevice) async {
         if (space == 'denied') return 'operation rejected by space policy';
         spaceRetentionUpdates.add((space, days, localDevice));
+        return null;
+      },
+      spaceChannelRetention: (space, channel) async => channel == 'missing'
+          ? null
+          : {
+              'spaceId': space,
+              'channelId': channel,
+              'policy': {'mode': 'deleteAfter', 'retentionMs': 604800000},
+              'history': const [],
+            },
+      setSpaceChannelRetention: (space, channel, days, inherit) async {
+        if (space == 'denied') return 'operation rejected by space policy';
+        spaceChannelRetentionUpdates.add((space, channel, days, inherit));
         return null;
       },
       spaceRules: (space) async => space == 'missing'
@@ -1261,6 +1276,31 @@ void main() {
         200,
       );
       expect(spaceRetentionUpdates.single, ('aa', 90, false));
+      final channelRetention = await h.handle(
+        'GET',
+        u('/v1/spaces/retention?space=aa&channel=bb'),
+        auth,
+      );
+      expect(channelRetention.status, 200);
+      expect(
+        ((channelRetention.body as Map)['policy'] as Map)['retentionMs'],
+        604800000,
+      );
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/retention'),
+          auth,
+          body: {
+            'space': 'aa',
+            'scope': 'channel',
+            'channel': 'bb',
+            'inherit': true,
+          },
+        )).status,
+        200,
+      );
+      expect(spaceChannelRetentionUpdates.single, ('aa', 'bb', null, true));
 
       final rules = await h.handle('GET', u('/v1/spaces/rules?space=aa'), auth);
       expect(rules.status, 200);

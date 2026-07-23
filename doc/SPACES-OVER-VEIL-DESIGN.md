@@ -551,8 +551,19 @@ camera/background/push проверяются дополнительно на ф
   Message projection, moderation audit и media reachability используют один
   расшифрованный набор записей. Domain/service integration покрывает outsider,
   stale epoch, ciphertext tamper и hidden-target privilege escalation;
-* проверка нового слоя: `flutter analyze` чист, полный `flutter test` — 1343
-  passed, 40 conditional skipped. Свежий arm64 Android APK установлен и
+* restricted text retention использует owner-signed `ControlEntry` v15 и
+  отдельный channel-bound AEAD domain: наружу выходят только уже непрозрачные
+  channel id/epoch, а mode/interval остаются ciphertext. Fold принимает запись
+  только для текущего protected epoch, materialization повторно проверяет
+  исторический channel revision/key и объединяет V9/V15 в одну необратимую
+  timeline до расшифровки сообщений и выдачи media grants. Непрочитанный
+  encrypted prefix скрывается fail-closed; при ACL rotation владелец
+  переподписывает текущий override новым ключом, поэтому новый recipient видит
+  только post-rekey history и не получает старый content key. GUI и
+  loopback/headless REST используют те же фиксированные retention presets;
+* проверка нового слоя: `flutter analyze` чист, полный `flutter test` зелёный,
+  включая отдельную проверку неизменных mute-duration presets. Свежий arm64
+  Android APK установлен и
   разблокирован; свежий macOS bundle leaf-by-leaf development-signed,
   strict-verified, запущен единственным экземпляром и разблокирован через debug
   API. Native `/group_selftest` подтвердил sign/verify/tamper/fold/JSON; causal
@@ -574,9 +585,10 @@ legacy V3/V4 остаётся ограничен 256 авторами, но но
 Сам checkpoint сейчас содержит полный causal cut с защитным пределом 4096
 heads; следующий шаг масштабирования — proof-based частичная доставка leaves,
 а не увеличение каждой публикации. Channel-scoped ACL/epochs для restricted
-text/voice, базовая signed moderation и moderator delete restricted text уже
-реализованы; следующими слоями остаются настоящий indistinguishable secret
-scope, прочие protected-scope moderation/retention policies и appeal transport.
+text/voice, базовая signed moderation, moderator delete и retention restricted
+text уже реализованы; следующими слоями остаются настоящий indistinguishable
+secret scope, прочие protected-scope moderation policies,
+media-only/physical retention GC и appeal transport.
 
 Архивирование Space также не должно появляться как локальный UI-флаг. Текущий
 `GroupMessage` не подписывает causal cut состояния Space, поэтому без нового

@@ -20,6 +20,7 @@ import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_join_request.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_channel.dart';
+import 'package:xveil/domain/space_retention.dart';
 import 'package:xveil/features/chat/chat_actions.dart';
 import 'package:xveil/features/spaces/space_list_screen.dart';
 import 'package:xveil/features/spaces/space_moderation_screen.dart';
@@ -424,6 +425,74 @@ void main() {
       isFalse,
     );
   });
+
+  testWidgets(
+    'restricted text channel exposes encrypted retention with fixed presets',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final owner = _id(75);
+      final service = GroupService(
+        storage,
+        _Signer(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(service.dispose);
+      final spaceId = await service.createSpace('Retention UI');
+      final channelId = await service.createChannel(
+        spaceId,
+        name: 'Private history',
+        kind: SpaceChannelKind.text,
+        access: SpaceChannelAccess.restricted,
+      );
+      expect(channelId, isNotNull);
+
+      await tester.binding.setSurfaceSize(const Size(430, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [groupServiceProvider.overrideWithValue(service)],
+          child: MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: SpaceScreen(spaceIdHex: spaceId.hex),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(SpaceScreen)));
+      await tester.tap(
+        find.byKey(ValueKey('space-channel-manage-${channelId!.hex}')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('space-channel-retention-action')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(l.spaceRetentionGlobal), findsOneWidget);
+      expect(find.text(l.retentionUnlimited), findsOneWidget);
+      expect(find.text(l.retention7), findsOneWidget);
+      expect(find.text(l.retention30), findsOneWidget);
+      expect(find.text(l.retention90), findsOneWidget);
+      expect(find.text(l.retention365), findsOneWidget);
+      await tester.tap(find.text(l.retention7));
+      await tester.pumpAndSettle();
+
+      final policy = await service.spaceRetentionPolicyOf(
+        spaceId,
+        channelId: channelId,
+      );
+      expect(policy?.mode, SpaceRetentionMode.deleteAfter);
+      expect(policy?.retentionMs, const Duration(days: 7).inMilliseconds);
+      final row = (await service.load(spaceId))!.control.last;
+      expect(row.version, 15);
+      expect(row.retentionPolicy, isNull);
+      expect(row.channelRetention?.channelId, channelId);
+    },
+  );
 
   testWidgets(
     'restricted voice channel keeps its kind and manages recipients',

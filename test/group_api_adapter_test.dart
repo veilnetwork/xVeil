@@ -1161,6 +1161,22 @@ void main() {
           (await service.stateOf(NodeId.fromHex(space)))!.policyVersion,
           0,
         );
+
+        final channel = (await service.channelsOf(spaceId)).single;
+        expect(
+          await api.setChannelRetention(space, channel.channelId.hex, 7, false),
+          isNull,
+        );
+        final channelValue = (await api.channelRetention(
+          space,
+          channel.channelId.hex,
+        ))!;
+        expect(channelValue['channelId'], channel.channelId.hex);
+        expect(
+          (channelValue['policy'] as Map)['retentionMs'],
+          const Duration(days: 7).inMilliseconds,
+        );
+        expect(channelValue['history'], hasLength(1));
       } finally {
         await service.dispose();
       }
