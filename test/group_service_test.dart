@@ -388,6 +388,8 @@ void main() {
       final service = GroupService(
         storage,
         _FakeSigner(owner),
+        send: (_, _, _) async {},
+        activePeers: () async => {bob},
         observability: SpaceObservability(nowMs: () => now++),
       );
       addTearDown(service.dispose);
@@ -395,6 +397,15 @@ void main() {
       final spaceId = await service.createSpace(
         'Private telemetry must not retain this name',
         visibility: SpaceVisibility.public,
+      );
+      expect(
+        await service.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
       );
       final post = await service.publishSpacePost(
         spaceId,
@@ -406,7 +417,7 @@ void main() {
       expect(await service.archiveSpace(spaceId), isTrue);
       expect(await service.restoreSpace(spaceId), isTrue);
 
-      final snapshot = service.spaceObservabilitySnapshot();
+      final snapshot = await service.spaceObservabilitySnapshot();
       expect(snapshot.counters['spaceCreated.succeeded'], 1);
       expect(snapshot.counters['postPublished.succeeded'], 1);
       expect(snapshot.counters['feedRead.succeeded'], 1);
@@ -414,8 +425,19 @@ void main() {
       expect(snapshot.counters['spaceRestored.succeeded'], 1);
       expect(snapshot.amounts['postPublished'], 1);
       expect(snapshot.amounts['feedRead'], 1);
+      expect(snapshot.durationsMs['p2pSnapshotDelivery']?['samples'], 1);
+      expect(snapshot.replication.liveSourceAvailable, isTrue);
+      expect(snapshot.replication.spaces, 1);
+      expect(snapshot.replication.eligibleRemoteSpreaders, 1);
+      expect(snapshot.replication.availableRemoteSpreaders, 1);
+      expect(snapshot.replication.targetReplicationFactorTotal, 2);
+      expect(snapshot.replication.estimatedLiveReplicationFactorTotal, 2);
+      expect(snapshot.replication.estimatedLiveReplicationFactorMin, 2);
+      expect(snapshot.replication.estimatedLiveReplicationFactorMax, 2);
+      expect(snapshot.replication.estimatedUnderReplicatedSpaces, 0);
       final encoded = jsonEncode(snapshot.toJson());
       expect(encoded, isNot(contains(spaceId.hex)));
+      expect(encoded, isNot(contains(bob.hex)));
       expect(encoded, isNot(contains('Private telemetry')));
       expect(encoded, isNot(contains('secret publication body')));
     },
@@ -4136,7 +4158,7 @@ void main() {
         SpaceRecommendationShareResult.rateLimited,
       );
       expect(sent, hasLength(5));
-      final observations = service.spaceObservabilitySnapshot();
+      final observations = await service.spaceObservabilitySnapshot();
       expect(observations.counters['recommendationShared.succeeded'], 5);
       expect(observations.counters['recommendationShared.rejected'], 3);
       expect(observations.counters['recommendationShared.reason.duplicate'], 1);
@@ -7121,7 +7143,7 @@ void main() {
         isFalse,
         reason: 'observability must not weaken the silent membership gate',
       );
-      final observations = ownerSvc.spaceObservabilitySnapshot();
+      final observations = await ownerSvc.spaceObservabilitySnapshot();
       expect(observations.counters['p2pBackfill.succeeded'], 1);
       expect(observations.amounts['p2pBackfill'], 3);
       expect(observations.counters['aclDenied.reason.notMember'], 1);
@@ -7131,6 +7153,28 @@ void main() {
         'lost seq zero',
         'received seq one',
       ]);
+      toBob.clear();
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.removeMember,
+          target: bob,
+        ),
+        isTrue,
+      );
+      expect(
+        toBob,
+        isEmpty,
+        reason: 'a revoked member is absent from post-fold delivery fanout',
+      );
+      expect(await ownerSvc.handleGroupSyncRequest(bob, request), isFalse);
+      final afterRevoke = await ownerSvc.spaceObservabilitySnapshot();
+      expect(afterRevoke.counters['revokedDeliveryPrevented.rejected'], 1);
+      expect(
+        afterRevoke.counters['revokedDeliveryPrevented.reason.notMember'],
+        1,
+      );
+      expect(afterRevoke.durationsMs['p2pBackfill']?['samples'], 3);
     },
   );
 

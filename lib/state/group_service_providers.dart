@@ -130,6 +130,10 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     startContentPullFromAny: (holders, contentId) async {
       await messaging.downloadGroupContentFromAny(holders, contentId);
     },
+    activePeers: () async => {
+      for (final peer in await transport.peers())
+        if (peer.isActive) peer.nodeId,
+    },
   );
   ref.onDispose(() => unawaited(service.dispose()));
   service.startSpaceLifecycleMaintenance();
