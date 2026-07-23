@@ -1,7 +1,7 @@
 # Groups: media over the content path (design)
 
-Status: DRAFT v1 — brick 1 (this doc + the pure authorization core) landed;
-wire + UI bricks follow.
+Status: IMPLEMENTED v1 — authorization, wire, store/stream path, UI and global
+physical reachability GC are integrated.
 
 ## Problem
 
@@ -111,7 +111,7 @@ completed the fetch MAY serve later (member-swarm), since authorization is
 holder-local — that is a latency/availability optimization, not a
 correctness change.
 
-### 4. Wire (next brick)
+### 4. Wire
 
 * `WireKind.groupContentRequest` (v:2, RULE WC — old builds drop it) carries
   the signed request; the ACCEPT gate for this kind checks group membership
@@ -122,7 +122,33 @@ correctness change.
   under the cap pulls the bytes, progress ring, sha256 verify, then the
   attachment renders from the local file-store.
 
-### 5. Explicitly out of scope for v1
+### 5. Physical lifetime of a shared CID
+
+A 64-hex content id is not owned by the row that happened to create it. The
+same bytes may be referenced by multiple personal chats, cloud items, Groups
+and Spaces, so none of those domains physically deletes a hash-CID directly.
+One hourly identity-scoped mark/sweep derives a global snapshot:
+
+1. storage scans current chat messages, every live cloud item/note head and
+   the payload/manifest inventory;
+2. GroupService strictly parses `groups.index`, cross-checks it against concrete
+   `file:group:*`/legacy bundle roots, and adds signed/decrypted effective Group
+   and Space references, including local/server/media-only retention and
+   pinned-post preservation;
+3. any malformed durable index, unknown bundle or unreadable encrypted row
+   aborts fail-closed;
+4. a CID must remain unreachable in crash-safe A/B quarantine for 24 hours and
+   survive a second full scan before a bounded batch deletes both `cid` and
+   `mf:cid`, followed by encrypted-store scrub.
+
+A recoverable deleted Space retains its media until its heavy bundle has been
+tombstone-first purged. Legacy non-hash exclusive attachments keep the old
+atomic message+blob delete path. The 24-hour quarantine is an internal
+anti-race safety delay; it does not change any 7/30/90/365-day retention or
+notification mute preset. An unchanged quarantine snapshot is not rewritten or
+rotated on every hourly pass.
+
+### 6. Explicitly out of scope for v1
 
 * Persistent/offline encrypted blob relay. Live protected-channel content is
   already scoped by the signed channel epoch grant, encrypted in transit by

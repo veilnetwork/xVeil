@@ -35,6 +35,8 @@ const _outboxIndexMarkerKey = 'outbox:index:v1';
 
 Uint8List _sk(String key) => Uint8List.fromList(utf8.encode(key));
 
+final RegExp _sharedContentIdPattern = RegExp(r'^[0-9a-f]{64}$');
+
 bool _bytesEqual(List<int>? a, List<int> b) {
   if (a == null || a.length != b.length) return false;
   for (var i = 0; i < b.length; i++) {
@@ -1300,10 +1302,9 @@ class HiddenVolumeStorage implements Storage {
   Future<void> deleteMessage(String conversationId, String messageId) async {
     final hit = await _liveEntryFor(conversationId, messageId);
     if (hit == null) return;
-    // Purge attachment blobs only when this is their LAST live reference.
-    // Personal-cloud items and multiple chat posts deliberately deduplicate by
-    // content id, so treating a message as the blob's exclusive owner would
-    // corrupt every other reference to the same bytes.
+    // Legacy attachment ids can be purged only when this is their LAST live
+    // chat/cloud reference. Hash-CIDs are also shared by groups and Spaces, so
+    // [_unreferencedBlobIds] always defers them to the global collector.
     final deletingKey = _msgKey(conversationId, messageId);
     final blobIds = _messageBlobIds(hit.message);
     final purgeBlobIds = await _unreferencedBlobIds(
@@ -1311,10 +1312,10 @@ class HiddenVolumeStorage implements Storage {
       deletingMessageKeys: {deletingKey},
     );
     // One atomic commit: tombstone the SAME log_id (so the body no longer reads
-    // back) AND purge the file blob. Folding the blob ops in here (rather than a
-    // separate FileStore.deleteFile commit) closes the crash window where the
-    // chat row and the blob could disagree. The orphaned chunks are reclaimed by
-    // scrubDeleted() for forensic erasure. The tombstone carries the
+    // back) and purge any eligible legacy-exclusive blob. Shared hash-CIDs stay
+    // quarantined until the global scan. Folding legacy blob ops in here closes
+    // the crash window where the chat row and blob could disagree. Orphaned
+    // chunks are reclaimed by scrubDeleted(). The tombstone carries the
     // conversation id so isMessageDeleted stays conversation-scoped too.
     final tomb = jsonEncode({
       'op': 'del',
@@ -1788,6 +1789,51 @@ class HiddenVolumeStorage implements Storage {
     return [for (final k in keys) utf8.decode(k, allowMalformed: true)];
   }
 
+  @override
+  Future<SharedContentReferenceSnapshot>
+  sharedContentReferenceSnapshot() async {
+    final stored = <String>{};
+    final referenced = <String>{};
+    try {
+      for (final key in await settingsKeys()) {
+        String? fileId;
+        if (key.startsWith('file:')) {
+          fileId = key.substring('file:'.length);
+        } else if (key.startsWith('ondisk:')) {
+          fileId = key.substring('ondisk:'.length);
+        }
+        if (fileId == null) continue;
+        final contentId = fileId.startsWith('mf:')
+            ? fileId.substring('mf:'.length)
+            : fileId;
+        if (_sharedContentIdPattern.hasMatch(contentId)) {
+          stored.add(contentId);
+        }
+      }
+
+      for (final message in await _scanLog()) {
+        for (final contentId in _messageBlobIds(message)) {
+          if (_sharedContentIdPattern.hasMatch(contentId)) {
+            referenced.add(contentId);
+          }
+        }
+      }
+      final cloud = await _cloudIndexContentIds();
+      referenced.addAll(cloud.contentIds);
+      return SharedContentReferenceSnapshot(
+        storedContentIds: Set.unmodifiable(stored),
+        referencedContentIds: Set.unmodifiable(referenced),
+        complete: cloud.complete,
+      );
+    } catch (_) {
+      return SharedContentReferenceSnapshot(
+        storedContentIds: Set.unmodifiable(stored),
+        referencedContentIds: Set.unmodifiable(referenced),
+        complete: false,
+      );
+    }
+  }
+
   /// Key families in the settings namespace that describe content which can
   /// disappear out from under them; everything else (identity, config,
   /// cursors, app settings) is never swept.
@@ -1825,7 +1871,19 @@ class HiddenVolumeStorage implements Storage {
     required Set<String> deletingMessageKeys,
   }) async {
     if (candidates.isEmpty) return const {};
-    final live = await _cloudIndexContentIds();
+    // A 64-hex content id is shared by personal chat, cloud, groups and Spaces.
+    // Storage can validate the first two domains but cannot decrypt/fold the
+    // latter two, so destructive chat operations defer hash-CIDs to the global
+    // GroupService mark/sweep. Legacy non-addressed file ids remain eligible
+    // for the old atomic message+blob erasure path.
+    final immediate = {
+      for (final candidate in candidates)
+        if (!_sharedContentIdPattern.hasMatch(candidate)) candidate,
+    };
+    if (immediate.isEmpty) return const {};
+    final cloud = await _cloudIndexContentIds();
+    if (!cloud.complete) return const {};
+    final live = cloud.contentIds;
     for (final message in await _scanLog()) {
       if (deletingMessageKeys.contains(
         _msgKey(message.conversationId, message.id),
@@ -1834,14 +1892,15 @@ class HiddenVolumeStorage implements Storage {
       }
       live.addAll(_messageBlobIds(message));
     }
-    return candidates.difference(live);
+    return immediate.difference(live);
   }
 
   /// Content referenced by the personal-cloud materialized index is just as
   /// live as a chat attachment. Parse the storage codec locally to keep the
   /// storage layer independent of the cloud domain, and accept only the exact
   /// bounded v1 shape + a 64-hex cid. Malformed rows retain nothing.
-  Future<Set<String>> _cloudIndexContentIds() async {
+  Future<({Set<String> contentIds, bool complete})>
+  _cloudIndexContentIds() async {
     final live = <String>{};
     try {
       // CLOUD-3 materialized views moved out of the ~4 KiB settings record
@@ -1861,17 +1920,19 @@ class HiddenVolumeStorage implements Storage {
           final rows = jsonDecode(utf8.decode(raw, allowMalformed: true));
           if (rows is! List || rows.length > 100000) return false;
           for (final body in rows) {
-            if (body is! String || body.length > 4096) continue;
+            if (body is! String || body.length > 4096) return false;
             final event = jsonDecode(body);
             if (event is! Map ||
                 event['v'] != 1 ||
                 event['k'] != 'cloudEntry') {
-              continue;
+              return false;
             }
             final payload = event['p'];
-            if (payload is! Map || payload['del'] == true) continue;
+            if (payload is! Map) return false;
+            if (payload['del'] == true) continue;
             final cid = payload['cid'];
-            if (cid is String && cidPattern.hasMatch(cid)) live.add(cid);
+            if (cid is! String || !cidPattern.hasMatch(cid)) return false;
+            live.add(cid);
           }
           return true;
         } catch (_) {
@@ -1881,29 +1942,49 @@ class HiddenVolumeStorage implements Storage {
 
       if (active == 'a' || active == 'b') {
         final current = await fileStore.loadFile('cloud.index.v1.$active');
-        if (current != null && collect(current)) return live;
+        if (current != null && collect(current)) {
+          return (contentIds: live, complete: true);
+        }
         final fallback = await fileStore.loadFile(
           'cloud.index.v1.${active == 'a' ? 'b' : 'a'}',
         );
-        if (fallback != null && collect(fallback)) return live;
+        if (fallback != null && collect(fallback)) {
+          // The fallback is enough to recover the UI, but not proof that the
+          // missing authoritative generation named no additional content. Let
+          // CloudService republish/repair before physical deletion resumes.
+          return (contentIds: live, complete: false);
+        }
+        return (contentIds: live, complete: false);
       } else {
+        if (active != null && active.isNotEmpty) {
+          return (contentIds: live, complete: false);
+        }
         // With no trustworthy pointer, retain the union conservatively. The
         // service will publish a fresh generation and repair the pointer.
         var recovered = false;
         for (final slot in const ['a', 'b']) {
           final bytes = await fileStore.loadFile('cloud.index.v1.$slot');
-          if (bytes != null) recovered = collect(bytes) || recovered;
+          if (bytes != null) {
+            if (!collect(bytes)) {
+              return (contentIds: live, complete: false);
+            }
+            recovered = true;
+          }
         }
-        if (recovered) return live;
+        if (recovered) return (contentIds: live, complete: true);
       }
       final unslotted = await fileStore.loadFile('cloud.index.v1');
-      if (unslotted != null && collect(unslotted)) return live;
+      if (unslotted != null) {
+        return (contentIds: live, complete: collect(unslotted));
+      }
       final legacy = await _as.get(Ns.settings, _sk('set:cloud.index.v1'));
-      if (legacy != null) collect(legacy);
+      if (legacy != null) {
+        return (contentIds: live, complete: collect(legacy));
+      }
     } catch (_) {
-      // Fail closed for retention: malformed local index keeps no blob alive.
+      return (contentIds: live, complete: false);
     }
-    return live;
+    return (contentIds: live, complete: true);
   }
 
   @override
@@ -1911,18 +1992,38 @@ class HiddenVolumeStorage implements Storage {
     final keys = await settingsKeys();
     final doomed = <String>[];
     final blobNames = <String>[];
+    final sharedStillStored = <String, bool>{};
+    Future<bool> retainForGlobalCollector(String contentId) async {
+      if (wholesale || !_sharedContentIdPattern.hasMatch(contentId)) {
+        return false;
+      }
+      final cached = sharedStillStored[contentId];
+      if (cached != null) return cached;
+      final stored = await hasFile(contentId) || await hasFile('mf:$contentId');
+      sharedStillStored[contentId] = stored;
+      return stored;
+    }
+
     Set<String>? liveContent;
     if (!wholesale) {
       // Per-content bookkeeping is only reachable through a message that
       // still names its content id; collect the live ids once per sweep.
-      final live = await _cloudIndexContentIds();
-      for (final m in await _scanLog()) {
-        final cid = m.fileContentId;
-        if (cid != null) live.add(cid);
-        final fid = m.fileId;
-        if (fid != null) live.add(fid);
+      final cloud = await _cloudIndexContentIds();
+      // Unknown cloud roots must retain every per-content row. Deleting stale
+      // bookkeeping is optional; deleting the only restart/reoffer manifest is
+      // not. Legacy msgidx rows can still be removed below.
+      if (!cloud.complete) {
+        liveContent = null;
+      } else {
+        final live = cloud.contentIds;
+        for (final m in await _scanLog()) {
+          final cid = m.fileContentId;
+          if (cid != null) live.add(cid);
+          final fid = m.fileId;
+          if (fid != null) live.add(fid);
+        }
+        liveContent = live;
       }
-      liveContent = live;
     }
     // Per-content families keyed `<prefix><cid>`: dead once no live message
     // references the cid. On aged senders `set:served:`/`file:mf:` dominate
@@ -1939,7 +2040,11 @@ class HiddenVolumeStorage implements Storage {
       final prefix = perContent.firstWhere(key.startsWith, orElse: () => '');
       if (prefix.isNotEmpty) {
         final cid = key.substring(prefix.length);
-        if (wholesale || !(liveContent!.contains(cid))) doomed.add(key);
+        final unreferenced =
+            wholesale || (liveContent != null && !liveContent.contains(cid));
+        if (unreferenced && !await retainForGlobalCollector(cid)) {
+          doomed.add(key);
+        }
         continue;
       }
       if (key.startsWith('filepiece:')) {
@@ -1947,7 +2052,11 @@ class HiddenVolumeStorage implements Storage {
         final rest = key.substring('filepiece:'.length);
         final cut = rest.lastIndexOf(':');
         final cid = cut > 0 ? rest.substring(0, cut) : rest;
-        if (wholesale || !(liveContent!.contains(cid))) doomed.add(key);
+        final unreferenced =
+            wholesale || (liveContent != null && !liveContent.contains(cid));
+        if (unreferenced && !await retainForGlobalCollector(cid)) {
+          doomed.add(key);
+        }
         continue;
       }
       if (key.startsWith('ondisk:')) {
@@ -1955,7 +2064,9 @@ class HiddenVolumeStorage implements Storage {
         // message references that id, remove BOTH the in-volume key row and the
         // ciphertext directory so app-private storage does not grow forever.
         final cid = key.substring('ondisk:'.length);
-        if (wholesale || !(liveContent!.contains(cid))) {
+        final unreferenced =
+            wholesale || (liveContent != null && !liveContent.contains(cid));
+        if (unreferenced && !await retainForGlobalCollector(cid)) {
           final meta = await _odMeta(cid);
           final fn = meta?['fn'];
           if (fn is String) blobNames.add(fn);

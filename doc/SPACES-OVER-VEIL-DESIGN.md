@@ -572,6 +572,23 @@ camera/background/push проверяются дополнительно на ф
   timeline; поздний `keepForever` не воскрешает ни удалённую запись, ни уже
   истёкшее вложение. Для edit публикации срок нового media считается от
   immutable edit row, закреплённая публикация сохраняется целиком;
+* физическое удаление общего 64-hex CID выполняет только один identity-scoped
+  mark/sweep. Storage snapshot fail-closed объединяет текущие ссылки личных
+  чатов и всех live cloud/note heads, `GroupService` добавляет валидированную
+  проекцию каждого Group/Space с server/local/media-only retention. Пока
+  recoverable deleted Space ещё имеет bundle, скан сохраняет все его
+  materializable media; после tombstone-first bundle purge ссылка исчезает.
+  Строгий `groups.index` сверяется с concrete `file:group:*`/legacy roots;
+  отсутствующий group bundle без compact tombstone, повреждённый group/cloud
+  index или непрочитанный encrypted row делает весь проход incomplete и
+  запрещает удаление. Впервые недостижимый CID попадает в crash-safe A/B quarantine на
+  24 часа; после срока выполняется второй полный scan, затем bounded batch
+  удаляет payload и `mf:<cid>` вместе и запускает scrub. Отдельный chat/cloud
+  delete больше не может уничтожить дедуплицированный Space blob; legacy
+  non-hash exclusive attachments сохраняют прежнее атомарное удаление. Hourly
+  maintenance пишет агрегированные stored/referenced/unreachable/marked/
+  purged/failed/complete metrics без CID; неизменный quarantine snapshot не
+  ротирует A/B generation и не пишет storage повторно;
 * проверка нового слоя: `flutter analyze` чист, полный `flutter test` зелёный,
   включая отдельную проверку неизменных mute-duration presets. Свежий arm64
   Android APK установлен и
@@ -599,7 +616,7 @@ heads; следующий шаг масштабирования — proof-based 
 text/voice, базовая signed moderation, moderator delete и retention restricted
 text уже реализованы; следующими слоями остаются настоящий indistinguishable
 secret scope, прочие protected-scope moderation policies,
-physical retention GC и appeal transport.
+appeal transport и расширенная observability/pressure policy GC.
 
 Архивирование Space также не должно появляться как локальный UI-флаг. Текущий
 `GroupMessage` не подписывает causal cut состояния Space, поэтому без нового

@@ -695,25 +695,11 @@ class CloudService {
       await _setLocalClaim(previous, present: false);
       return;
     }
-    final sharedByChat = await _chatReferencesContent(cid);
-    if (sharedByChat) {
-      // Chat restart/reoffer uses the same `mf:<cid>` blob as cloud integrity;
-      // both payload and manifest therefore stay live until the last chat post.
-      await _setLocalClaim(previous, present: false);
-      return;
-    }
-    final manifestId = '$_manifestPrefix$cid';
-    final hadContent = await _storage.hasFile(cid);
-    final hadManifest = await _storage.hasFile(manifestId);
-    if (hadContent) {
-      await _storage.deleteStoredFile(cid);
-    }
-    if (hadManifest) {
-      await _storage.deleteStoredFile(manifestId);
-    }
-    if (hadContent || hadManifest) {
-      await _storage.scrubDeleted();
-    }
+    // A hash-CID may simultaneously belong to a personal chat, Group/Space or
+    // another cloud row. No individual domain has enough information to prove
+    // global unreachability. Keep payload+manifest until GroupService's single
+    // fail-closed mark/sweep has observed every durable root for a full grace
+    // period; this also closes the register-then-post race.
     await _setLocalClaim(previous, present: false);
   }
 
@@ -727,17 +713,6 @@ class CloudService {
     return _noteHeads.values
         .expand((heads) => heads)
         .any((head) => !head.deleted && head.contentId == contentId);
-  }
-
-  Future<bool> _chatReferencesContent(String contentId) async {
-    for (final conversation in await _storage.loadConversations()) {
-      for (final message in await _storage.loadMessages(conversation.id)) {
-        if (message.fileId == contentId || message.fileContentId == contentId) {
-          return true;
-        }
-      }
-    }
-    return false;
   }
 
   Future<void> setProfile(CloudReplicationProfile profile) async {

@@ -248,7 +248,9 @@ abstract interface class Storage {
   /// Permanently remove message [messageId] in conversation [conversationId]
   /// (incl. a received one). Tombstones the SAME log record so the body no
   /// longer reads back, then the prior chunk is reclaimed by [scrubDeleted] for
-  /// true (forensic) erasure. No-op if the id is unknown IN THAT CONVERSATION
+  /// true (forensic) erasure. Legacy exclusive blobs are removed atomically;
+  /// shared 64-hex content ids are quarantined for the global chat/cloud/group
+  /// reachability collector. No-op if the id is unknown IN THAT CONVERSATION
   /// (scoped for the same reason as [editMessage]).
   Future<void> deleteMessage(String conversationId, String messageId);
 
@@ -268,15 +270,16 @@ abstract interface class Storage {
   /// post time is older than [retentionDays] days (edits do NOT refresh the
   /// clock — the original send time governs, so a year-old message edited
   /// yesterday is still pruned under a 3-month policy). Tombstones the posts,
-  /// reclaims their file blobs AND voids their retained edit rows, then scrubs —
-  /// so no superseded plaintext survives. No-op when [retentionDays] <= 0
+  /// retires their blob references, voids retained edit rows, then scrubs so no
+  /// superseded text survives; globally shared hash-CIDs follow the delayed
+  /// reachability collector. No-op when [retentionDays] <= 0
   /// (unlimited). Returns how many messages were pruned. Local-only.
   Future<int> pruneConversation(NodeId peer, int retentionDays);
 
-  /// Erase every message of the conversation with [peer] (incl. file blobs) but
-  /// KEEP the contact + chat-list entry — the chat stays, emptied. Tombstones +
-  /// scrubs exactly like [removeConversation], so cleared messages are
-  /// forensically gone and cannot resurrect if the peer re-delivers them.
+  /// Erase every message of the conversation with [peer] but KEEP the contact +
+  /// chat-list entry — the chat stays, emptied. Tombstones + scrubs exactly like
+  /// [removeConversation]; shared hash-CID blobs enter global GC quarantine.
+  /// Cleared messages cannot resurrect if the peer re-delivers them.
   /// Local-only; the peer is not notified. Irreversible.
   Future<void> clearMessages(NodeId peer);
 
@@ -366,6 +369,17 @@ abstract interface class Storage {
   /// by another logical reference before calling this deduplicated-blob API.
   Future<void> deleteStoredFile(String fileId);
 
+  /// One fail-closed snapshot of the shared content-addressed blob namespace.
+  /// [storedContentIds] contains every 64-hex payload with either payload or
+  /// `mf:<cid>` metadata. [referencedContentIds] is the union of live personal
+  /// chat and personal-cloud references. Group/Space references deliberately
+  /// remain in GroupService, which is the only layer able to validate signed
+  /// rows, decrypt protected channels, and apply retention correctly.
+  ///
+  /// When [complete] is false a caller MUST NOT delete anything: a malformed or
+  /// unreadable durable root is uncertainty, not proof that its blobs are dead.
+  Future<SharedContentReferenceSnapshot> sharedContentReferenceSnapshot();
+
   /// True iff a blob is already stored under [fileId] — a cheap existence check
   /// (no chunk reads). Content dedup: a received file whose contentId we already
   /// hold is referenced (a fresh filePost event), not re-fetched over the network.
@@ -392,6 +406,19 @@ abstract interface class Storage {
 
   /// Lock the space and zeroize in-memory key material.
   Future<void> close();
+}
+
+/// Storage-owned half of a global MediaObject reachability scan.
+final class SharedContentReferenceSnapshot {
+  const SharedContentReferenceSnapshot({
+    required this.storedContentIds,
+    required this.referencedContentIds,
+    required this.complete,
+  });
+
+  final Set<String> storedContentIds;
+  final Set<String> referencedContentIds;
+  final bool complete;
 }
 
 /// One persisted, not-yet-delivered control frame in the durable outbox.
