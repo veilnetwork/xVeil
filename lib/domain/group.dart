@@ -511,7 +511,8 @@ class ControlEntry {
           version == 16 ||
           version == 17 ||
           version == 18 ||
-          version == 19) &&
+          version == 19 ||
+          version == 20) &&
       seq >= 0 &&
       policyVersion >= 0 &&
       createdAtMs >= 0 &&
@@ -753,16 +754,19 @@ class ControlEntry {
                 postPin == null &&
                 recommendationCampaign == null
           : channelRetention == null) &&
-      (version == 17 || version == 18 || version == 19
+      (version == 17 || version == 18 || version == 19 || version == 20
           ? op == ControlOp.setPolicy &&
                 accessPolicy != null &&
                 accessPolicy!.isStructurallyValid &&
-                accessPolicy!.schemaVersion ==
-                    (version == 17
-                        ? 1
-                        : version == 18
-                        ? 2
-                        : 3) &&
+                (version == 20
+                    ? accessPolicy!.schemaVersion >= 1 &&
+                          accessPolicy!.schemaVersion <= 3
+                    : accessPolicy!.schemaVersion ==
+                          (version == 17
+                              ? 1
+                              : version == 18
+                              ? 2
+                              : 3)) &&
                 groupId == accessPolicy!.spaceId &&
                 accessPolicy!.changedBy == author &&
                 accessPolicy!.changedAtMs == createdAtMs &&
@@ -946,7 +950,8 @@ class ControlEntry {
             version != 16 &&
             version != 17 &&
             version != 18 &&
-            version != 19) ||
+            version != 19 &&
+            version != 20) ||
         author is! String ||
         seq is! int ||
         prev is! String ||

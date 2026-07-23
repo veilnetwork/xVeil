@@ -13,7 +13,9 @@
 //    member's role up to (but not including) their own rank; cannot touch
 //    a peer of equal-or-higher rank.
 //  - member: no control ops.
-// setPolicy is owner-only. An op an author lacks the rank for is rejected.
+// A V20 setPolicy may be authored by a manageRoles delegate, but only through
+// the capability-ceiling transition check below. Older V17-V19 rows remain
+// owner-only so their deployed authorization meaning never changes.
 
 import 'dart:collection';
 
@@ -269,6 +271,8 @@ enum SpaceAuthorizationDenial {
   explicitlyDenied,
   insufficientPermission,
   protectedTarget,
+  selfEscalation,
+  permissionCeiling,
 }
 
 /// Typed result shared by API, background work, log folding and media grants.
@@ -511,6 +515,165 @@ final class SpaceAcl {
     );
   }
 
+  /// Authorize one complete access-policy transition.
+  ///
+  /// The current policy is always the source of the actor's authority. A
+  /// delegate cannot bootstrap new authority inside [nextPolicy], cannot touch
+  /// their own effective roles, and cannot create, edit, remove or assign a
+  /// role outside their current capability envelope. `manageRoles` itself is
+  /// the strict boundary, so every role a delegate manages is below them.
+  SpaceAuthorizationDecision authorizePolicyChange(
+    NodeId author,
+    SpaceAccessPolicy nextPolicy,
+  ) {
+    final control = authorizeControl(author, ControlOp.setPolicy);
+    if (!control.allowed) return control;
+    final member = state.memberOf(author);
+    if (member == null) {
+      return const SpaceAuthorizationDecision.deny(
+        SpaceAuthorizationDenial.notMember,
+      );
+    }
+    return authorizePolicyChangeContext(
+      author: author,
+      authorRole: member.role,
+      policy: state.accessPolicy,
+      nextPolicy: nextPolicy,
+      members: state.members,
+      channels: state.channels,
+    );
+  }
+
+  /// Whether [role] is strictly below the actor's current management ceiling.
+  /// Used by editors only; [authorizePolicyChange] remains authoritative.
+  bool canDelegateRole(NodeId actor, SpaceRoleDefinition role) {
+    final member = state.memberOf(actor);
+    if (member == null ||
+        !authorizeControl(actor, ControlOp.setPolicy).allowed) {
+      return false;
+    }
+    return member.role == GroupRole.owner ||
+        _roleWithinCeiling(
+          actor: actor,
+          authorRole: member.role,
+          policy: state.accessPolicy,
+          role: role,
+          channels: state.channels,
+        );
+  }
+
+  /// Conservative editor predicate for one grant/deny scope.
+  bool canDelegateRule(
+    NodeId actor,
+    SpacePermission permission,
+    SpacePermissionScope scope,
+  ) {
+    final member = state.memberOf(actor);
+    if (member == null ||
+        !authorizeControl(actor, ControlOp.setPolicy).allowed) {
+      return false;
+    }
+    if (member.role == GroupRole.owner) return true;
+    if (permission == SpacePermission.manageRoles) return false;
+    var applies = false;
+    for (final context in _permissionContexts(state.channels)) {
+      if (!scope.appliesTo(
+        channelId: context.channelId,
+        categoryId: context.categoryId,
+      )) {
+        continue;
+      }
+      applies = true;
+      if (!_allowsPermissionInContext(
+        actor: actor,
+        actorRole: member.role,
+        policy: state.accessPolicy,
+        permission: permission,
+        channelId: context.channelId,
+        categoryId: context.categoryId,
+      )) {
+        return false;
+      }
+    }
+    return applies;
+  }
+
+  bool canManageAccessRole(NodeId actor, SpaceRoleDefinition role) {
+    final member = state.memberOf(actor);
+    if (member == null ||
+        !authorizeControl(actor, ControlOp.setPolicy).allowed) {
+      return false;
+    }
+    if (member.role == GroupRole.owner) return true;
+    if (!canDelegateRole(actor, role)) return false;
+    final policy = state.accessPolicy;
+    if (policy == null) return true;
+    for (final target in state.members.values) {
+      if (!policy.roleIdsFor(target.nodeId).contains(role.roleId)) continue;
+      if (!_canManagePolicyTarget(actor, target, policy)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool canManageAccessGroup(NodeId actor, SpaceMemberGroup group) {
+    final member = state.memberOf(actor);
+    if (member == null ||
+        !authorizeControl(actor, ControlOp.setPolicy).allowed) {
+      return false;
+    }
+    if (member.role == GroupRole.owner) return true;
+    final policy = state.accessPolicy;
+    if (policy == null) return false;
+    for (final roleId in group.roleIds) {
+      final role = policy.role(roleId);
+      if (role == null || !canDelegateRole(actor, role)) return false;
+    }
+    for (final targetId in group.members) {
+      final target = state.memberOf(targetId);
+      if (target == null || !_canManagePolicyTarget(actor, target, policy)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool canManageDirectRolesOf(NodeId actor, NodeId targetId) {
+    final member = state.memberOf(actor);
+    final target = state.memberOf(targetId);
+    if (member == null ||
+        target == null ||
+        !authorizeControl(actor, ControlOp.setPolicy).allowed) {
+      return false;
+    }
+    if (member.role == GroupRole.owner) return true;
+    final policy = state.accessPolicy;
+    if (!_canManagePolicyTarget(actor, target, policy)) {
+      return false;
+    }
+    final direct = policy?.directAssignments
+        .where((assignment) => assignment.member == targetId)
+        .firstOrNull;
+    for (final roleId in direct?.roleIds ?? const <String>[]) {
+      final role = policy?.role(roleId);
+      if (role == null || !canDelegateRole(actor, role)) return false;
+    }
+    return true;
+  }
+
+  bool canManagePolicyTarget(NodeId actor, NodeId targetId) {
+    final member = state.memberOf(actor);
+    final target = state.memberOf(targetId);
+    if (member == null ||
+        target == null ||
+        !authorizeControl(actor, ControlOp.setPolicy).allowed) {
+      return false;
+    }
+    return member.role == GroupRole.owner ||
+        _canManagePolicyTarget(actor, target, state.accessPolicy);
+  }
+
   bool allowsControl(
     NodeId author,
     ControlOp op, {
@@ -555,6 +718,7 @@ final class SpaceAcl {
     bool protectedModeration = false,
     bool moderationTargetsRemovedContent = false,
     bool revokesRemovedMember = false,
+    bool allowDelegatedPolicy = true,
   }) {
     final builtIn = roleAllowsControl(
       authorRole: authorRole,
@@ -602,6 +766,11 @@ final class SpaceAcl {
               categoryId: previousCategoryId,
             ) ??
             false);
+    final delegatedPolicy =
+        allowDelegatedPolicy &&
+        op == ControlOp.setPolicy &&
+        (authorRole.rank >= GroupRole.admin.rank ||
+            (policy?.allows(author, SpacePermission.manageRoles) ?? false));
     final allowed =
         !explicitlyDenied &&
         (protectedModeration
@@ -617,7 +786,7 @@ final class SpaceAcl {
             ? authorRole == GroupRole.owner
             : op == ControlOp.revokeModeration && targetRole == null
             ? revokesRemovedMember && authorRole == GroupRole.owner
-            : builtIn || (custom && sourceScopeAllows));
+            : builtIn || delegatedPolicy || (custom && sourceScopeAllows));
     if (allowed) return const SpaceAuthorizationDecision.allow();
     final rankProtected =
         targetRole != null && targetRole.rank >= authorRole.rank ||
@@ -673,7 +842,7 @@ final class SpaceAcl {
       ControlOp.unmute => denied(SpacePermission.manageMembers),
       ControlOp.moderate ||
       ControlOp.revokeModeration => denied(SpacePermission.moderate),
-      ControlOp.setPolicy ||
+      ControlOp.setPolicy => denied(SpacePermission.manageRoles),
       ControlOp.setRole ||
       ControlOp.transferOwnership ||
       ControlOp.archiveSpace ||
@@ -685,9 +854,9 @@ final class SpaceAcl {
     };
   }
 
-  /// Custom-role control authorization. The owner-authored policy may delegate
-  /// routine work, but never policy edits, ownership/lifecycle changes or
-  /// built-in role promotion. Targets with admin/owner standing stay protected.
+  /// Custom-role control authorization for routine operations. V20 policy
+  /// edits use the stricter transition-aware gate above; ownership/lifecycle
+  /// changes and built-in role promotion remain non-delegable here.
   static bool customPolicyAllowsControl({
     required SpaceAccessPolicy? policy,
     required NodeId author,
@@ -813,6 +982,252 @@ final class SpaceAcl {
         return authorRole != GroupRole.owner;
     }
   }
+
+  /// Pure policy-transition gate used by both the live service and causal fold.
+  static SpaceAuthorizationDecision authorizePolicyChangeContext({
+    required NodeId author,
+    required GroupRole authorRole,
+    required SpaceAccessPolicy? policy,
+    required SpaceAccessPolicy nextPolicy,
+    required Map<String, GroupMember> members,
+    required Map<String, SpaceChannel> channels,
+  }) {
+    if (authorRole == GroupRole.owner) {
+      return const SpaceAuthorizationDecision.allow();
+    }
+    if (!_allowsPermissionInContext(
+      actor: author,
+      actorRole: authorRole,
+      policy: policy,
+      permission: SpacePermission.manageRoles,
+    )) {
+      return const SpaceAuthorizationDecision.deny(
+        SpaceAuthorizationDenial.insufficientPermission,
+      );
+    }
+
+    final currentRoles = {
+      for (final role in policy?.roles ?? const <SpaceRoleDefinition>[])
+        role.roleId: role,
+    };
+    final nextRoles = {for (final role in nextPolicy.roles) role.roleId: role};
+    final changedRoleIds = <String>{...currentRoles.keys, ...nextRoles.keys}
+        .where((roleId) {
+          final current = currentRoles[roleId];
+          final next = nextRoles[roleId];
+          return current == null ||
+              next == null ||
+              !_sameRoleDefinition(current, next);
+        })
+        .toSet();
+
+    bool withinCeiling(SpaceRoleDefinition role) => _roleWithinCeiling(
+      actor: author,
+      authorRole: authorRole,
+      policy: policy,
+      role: role,
+      channels: channels,
+    );
+
+    for (final roleId in changedRoleIds) {
+      final current = currentRoles[roleId];
+      final next = nextRoles[roleId];
+      if ((current != null && !withinCeiling(current)) ||
+          (next != null && !withinCeiling(next))) {
+        return const SpaceAuthorizationDecision.deny(
+          SpaceAuthorizationDenial.permissionCeiling,
+        );
+      }
+      for (final target in members.values) {
+        final affected =
+            (policy?.roleIdsFor(target.nodeId).contains(roleId) ?? false) ||
+            nextPolicy.roleIdsFor(target.nodeId).contains(roleId);
+        if (!affected) continue;
+        if (target.nodeId == author) {
+          return const SpaceAuthorizationDecision.deny(
+            SpaceAuthorizationDenial.selfEscalation,
+          );
+        }
+        if (_policyTargetProtected(
+          target: target,
+          currentPolicy: policy,
+          nextPolicy: nextPolicy,
+        )) {
+          return const SpaceAuthorizationDecision.deny(
+            SpaceAuthorizationDenial.protectedTarget,
+          );
+        }
+      }
+    }
+
+    for (final target in members.values) {
+      final currentIds = policy?.roleIdsFor(target.nodeId) ?? const <String>{};
+      final nextIds = nextPolicy.roleIdsFor(target.nodeId);
+      if (_sameSet(currentIds, nextIds)) continue;
+      if (target.nodeId == author) {
+        return const SpaceAuthorizationDecision.deny(
+          SpaceAuthorizationDenial.selfEscalation,
+        );
+      }
+      if (_policyTargetProtected(
+        target: target,
+        currentPolicy: policy,
+        nextPolicy: nextPolicy,
+      )) {
+        return const SpaceAuthorizationDecision.deny(
+          SpaceAuthorizationDenial.protectedTarget,
+        );
+      }
+      final changedAssignments = <String>{...currentIds, ...nextIds}
+        ..removeWhere(
+          (roleId) => currentIds.contains(roleId) && nextIds.contains(roleId),
+        );
+      for (final roleId in changedAssignments) {
+        final current = currentRoles[roleId];
+        final next = nextRoles[roleId];
+        if ((current != null && !withinCeiling(current)) ||
+            (next != null && !withinCeiling(next))) {
+          return const SpaceAuthorizationDecision.deny(
+            SpaceAuthorizationDenial.permissionCeiling,
+          );
+        }
+      }
+    }
+    return const SpaceAuthorizationDecision.allow();
+  }
+
+  bool _canManagePolicyTarget(
+    NodeId actor,
+    GroupMember target,
+    SpaceAccessPolicy? policy,
+  ) =>
+      target.nodeId != actor &&
+      !_policyTargetProtected(
+        target: target,
+        currentPolicy: policy,
+        nextPolicy: policy,
+      );
+
+  static bool _policyTargetProtected({
+    required GroupMember target,
+    required SpaceAccessPolicy? currentPolicy,
+    required SpaceAccessPolicy? nextPolicy,
+  }) {
+    if (target.role != GroupRole.member) return true;
+    return _allowsPermissionInContext(
+          actor: target.nodeId,
+          actorRole: target.role,
+          policy: currentPolicy,
+          permission: SpacePermission.manageRoles,
+        ) ||
+        _allowsPermissionInContext(
+          actor: target.nodeId,
+          actorRole: target.role,
+          policy: nextPolicy,
+          permission: SpacePermission.manageRoles,
+        );
+  }
+
+  static bool _roleWithinCeiling({
+    required NodeId actor,
+    required GroupRole authorRole,
+    required SpaceAccessPolicy? policy,
+    required SpaceRoleDefinition role,
+    required Map<String, SpaceChannel> channels,
+  }) {
+    for (final context in _permissionContexts(channels)) {
+      for (final permission in SpacePermission.values) {
+        if (!role.allows(
+          permission,
+          channelId: context.channelId,
+          categoryId: context.categoryId,
+        )) {
+          continue;
+        }
+        if (permission == SpacePermission.manageRoles ||
+            !_allowsPermissionInContext(
+              actor: actor,
+              actorRole: authorRole,
+              policy: policy,
+              permission: permission,
+              channelId: context.channelId,
+              categoryId: context.categoryId,
+            )) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  static Iterable<({NodeId? channelId, NodeId? categoryId})>
+  _permissionContexts(Map<String, SpaceChannel> channels) sync* {
+    yield (channelId: null, categoryId: null);
+    for (final channel in channels.values) {
+      yield (
+        channelId: channel.channelId,
+        categoryId: channel.kind == SpaceChannelKind.category
+            ? channel.channelId
+            : channel.categoryId,
+      );
+    }
+  }
+
+  static bool _allowsPermissionInContext({
+    required NodeId actor,
+    required GroupRole actorRole,
+    required SpaceAccessPolicy? policy,
+    required SpacePermission permission,
+    NodeId? channelId,
+    NodeId? categoryId,
+  }) {
+    if (actorRole == GroupRole.owner) return true;
+    if (policy?.denies(
+          actor,
+          permission,
+          channelId: channelId,
+          categoryId: categoryId,
+        ) ??
+        false) {
+      return false;
+    }
+    final builtIn = switch (permission) {
+      SpacePermission.view ||
+      SpacePermission.distributeContent ||
+      SpacePermission.publishMessages ||
+      SpacePermission.publishPosts ||
+      SpacePermission.enterVoice => true,
+      SpacePermission.managePosts ||
+      SpacePermission.manageRecommendations ||
+      SpacePermission.manageMembers ||
+      SpacePermission.manageRoles ||
+      SpacePermission.moderate ||
+      SpacePermission.manageEncryption ||
+      SpacePermission.manageChannels => actorRole.rank >= GroupRole.admin.rank,
+      SpacePermission.manageSettings || SpacePermission.manageStorage => false,
+    };
+    return builtIn ||
+        (policy?.allows(
+              actor,
+              permission,
+              channelId: channelId,
+              categoryId: categoryId,
+            ) ??
+            false);
+  }
+
+  static bool _sameRoleDefinition(
+    SpaceRoleDefinition left,
+    SpaceRoleDefinition right,
+  ) =>
+      left.roleId == right.roleId &&
+      left.name == right.name &&
+      left.usesScopedEncoding == right.usesScopedEncoding &&
+      _sameSet(left.grants.toSet(), right.grants.toSet()) &&
+      _sameSet(left.denials.toSet(), right.denials.toSet());
+
+  static bool _sameSet<T>(Set<T> left, Set<T> right) =>
+      left.length == right.length && left.containsAll(right);
 }
 
 /// Whether [author] (at [authorRole]) may apply [op] to [targetRole] under the
@@ -1059,6 +1474,7 @@ GroupFoldResult foldControlLog({
       moderationTargetsRemovedContent: moderationTargetsRemovedContent,
       revokesRemovedMember:
           revocationRecord?.action.kind.removesMembership == true,
+      allowDelegatedPolicy: e.version == 20,
     );
     final authorized = e.op == ControlOp.revokeModeration
         ? revocationRecord != null &&
@@ -1349,7 +1765,10 @@ GroupFoldResult foldControlLog({
       continue;
     }
     if (e.op == ControlOp.setPolicy &&
-        (e.version == 17 || e.version == 18 || e.version == 19)) {
+        (e.version == 17 ||
+            e.version == 18 ||
+            e.version == 19 ||
+            e.version == 20)) {
       final next = e.accessPolicy;
       final expectedRevision = (accessPolicy?.revision ?? 0) + 1;
       final expectedPrevious = accessPolicy?.policyHash ?? '';
@@ -1366,6 +1785,8 @@ GroupFoldResult foldControlLog({
           (e.version == 17 && next.schemaVersion != 1) ||
           (e.version == 18 && next.schemaVersion != 2) ||
           (e.version == 19 && next.schemaVersion != 3) ||
+          (e.version == 20 &&
+              (next.schemaVersion < 1 || next.schemaVersion > 3)) ||
           next.revision != expectedRevision ||
           next.previousPolicyHash != expectedPrevious ||
           !next.hasValidScopeTargets(
@@ -1379,6 +1800,18 @@ GroupFoldResult foldControlLog({
           next.directAssignments.any(
             (assignment) => !members.containsKey(assignment.member.hex),
           )) {
+        rejected.add(e);
+        continue;
+      }
+      final policyDecision = SpaceAcl.authorizePolicyChangeContext(
+        author: e.author,
+        authorRole: authorRole,
+        policy: accessPolicy,
+        nextPolicy: next,
+        members: members,
+        channels: channels,
+      );
+      if (!policyDecision.allowed) {
         rejected.add(e);
         continue;
       }
