@@ -9,7 +9,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../core/ids.dart';
-import 'group_policy.dart' show GroupState;
+import 'group_policy.dart'
+    show SpaceAuthorizationDecision, SpaceAuthorizationDenial;
 
 /// How long a signed request stays fresh. Short enough that a captured frame
 /// is useless soon after (and immediately after a ban once the control delta
@@ -143,14 +144,14 @@ enum GroupContentDenial {
 }
 
 /// The holder-side gate: authorize [r] against the holder's OWN view — its
-/// folded [state], the set of contentIds actually [referenced] by that group's
-/// messages, the local clock [nowMs], and the bounded [seenNonces] replay
-/// cache (the caller owns it and adds the nonce on success). Deterministic and
-/// local: leave/remove/ban stops authorizing as soon as the control delta
-/// folds at this holder.
+/// folded Space authorization [decision], the set of contentIds actually
+/// [referenced] by that group's messages, the local clock [nowMs], and the
+/// bounded [seenNonces] replay cache (the caller owns it and adds the nonce on
+/// success). Deterministic and local: leave/remove/ban/deletion stops
+/// authorizing as soon as the control delta folds at this holder.
 GroupContentDenial? authorizeGroupContentRequest(
   GroupContentRequest r, {
-  required GroupState state,
+  required SpaceAuthorizationDecision decision,
   required Set<String> referenced,
   required int nowMs,
   required Set<String> seenNonces,
@@ -158,7 +159,11 @@ GroupContentDenial? authorizeGroupContentRequest(
   required bool scopeAuthorized,
 }) {
   if (!verify(r)) return GroupContentDenial.badSignature;
-  if (!state.isMember(r.requester)) return GroupContentDenial.notAMember;
+  if (!decision.allowed) {
+    return decision.denial == SpaceAuthorizationDenial.notMember
+        ? GroupContentDenial.notAMember
+        : GroupContentDenial.notAuthorizedForScope;
+  }
   if (!scopeAuthorized) return GroupContentDenial.notAuthorizedForScope;
   if (!referenced.contains(r.contentId)) {
     return GroupContentDenial.unknownContent;

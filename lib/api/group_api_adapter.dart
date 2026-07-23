@@ -14,7 +14,6 @@ import '../domain/group_policy.dart';
 import '../domain/group_reaction.dart';
 import '../domain/space_channel.dart';
 import '../domain/space_join_request.dart';
-import '../domain/space_lifecycle.dart';
 import '../domain/space_membership.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
@@ -156,22 +155,29 @@ final class GroupApiAdapter {
         if (transition.recoveryDeadlineMs != null)
           'recoveryDeadline': transition.recoveryDeadlineMs,
       },
-      'canArchive':
-          state.lifecycleState == SpaceLifecycleState.active &&
-          state.roleOf(_groups.selfId) == GroupRole.owner,
-      'canRestore':
-          state.lifecycleState != SpaceLifecycleState.active &&
-          state.roleOf(_groups.selfId) == GroupRole.owner,
-      'canDelete':
-          state.lifecycleState != SpaceLifecycleState.deleted &&
-          state.roleOf(_groups.selfId) == GroupRole.owner,
+      'canArchive': SpaceAcl(
+        state,
+      ).allowsControl(_groups.selfId, ControlOp.archiveSpace),
+      'canRestore': SpaceAcl(
+        state,
+      ).allowsControl(_groups.selfId, ControlOp.restoreSpace),
+      'canDelete': SpaceAcl(
+        state,
+      ).allowsControl(_groups.selfId, ControlOp.deleteSpace),
     };
   }
 
   Future<String?> setLifecycle(String spaceHex, String action) async {
     final visible = await _visible(spaceHex);
     if (visible == null) return 'space not found';
-    if (visible.$2.roleOf(_groups.selfId) != GroupRole.owner) {
+    final operation = switch (action) {
+      'archive' => ControlOp.archiveSpace,
+      'delete' => ControlOp.deleteSpace,
+      'restore' => ControlOp.restoreSpace,
+      _ => null,
+    };
+    if (operation == null) return 'invalid lifecycle action';
+    if (!SpaceAcl(visible.$2).allowsControl(_groups.selfId, operation)) {
       return 'operation rejected by space policy';
     }
     final applied = switch (action) {
@@ -180,7 +186,7 @@ final class GroupApiAdapter {
       'restore' => _groups.restoreSpace(visible.$1),
       _ => null,
     };
-    if (applied == null) return 'invalid lifecycle action';
+    if (applied == null) return 'space lifecycle transition failed';
     return await applied ? null : 'space lifecycle transition failed';
   }
 
@@ -1752,7 +1758,9 @@ final class GroupApiAdapter {
       'schemaVersion': policy?.schemaVersion ?? 1,
       'revision': policy?.revision ?? 0,
       'policyVersion': state.policyVersion,
-      'selfCanManage': state.roleOf(_groups.selfId) == GroupRole.owner,
+      'selfCanManage': SpaceAcl(
+        state,
+      ).allowsControl(_groups.selfId, ControlOp.setPolicy),
       'roles': [
         for (final role in policy?.roles ?? const <SpaceRoleDefinition>[])
           {
@@ -1805,7 +1813,7 @@ final class GroupApiAdapter {
     final bundle = await _groups.load(visible.$1);
     if (bundle == null || !bundle.manifest.isSpace) return 'space not found';
     final state = visible.$2;
-    if (state.roleOf(_groups.selfId) != GroupRole.owner) {
+    if (!SpaceAcl(state).allowsControl(_groups.selfId, ControlOp.setPolicy)) {
       return 'operation rejected by space policy';
     }
     final expectedRevision = body['expectedRevision'];
@@ -2039,7 +2047,6 @@ final class GroupApiAdapter {
     final role = roleName == null ? null : GroupRole.fromName(roleName);
 
     final state = visible.$2;
-    final authorRole = state.roleOf(_groups.selfId)!;
     final targetRole = state.roleOf(peer);
     final ControlOp operation;
     final GroupRole? newRole;
@@ -2075,20 +2082,12 @@ final class GroupApiAdapter {
       default:
         return 'invalid member action';
     }
-    if (!canApply(
-          authorRole: authorRole,
-          op: operation,
-          targetRole: targetRole,
-          newRole: newRole,
-        ) &&
-        !SpaceAcl.customPolicyAllowsControl(
-          policy: state.accessPolicy,
-          author: _groups.selfId,
-          op: operation,
-          targetRole: targetRole,
-          newRole: newRole,
-          target: peer,
-        )) {
+    if (!SpaceAcl(state).allowsControl(
+      _groups.selfId,
+      operation,
+      target: peer,
+      newRole: newRole,
+    )) {
       return 'operation rejected by group policy';
     }
 
@@ -2146,9 +2145,7 @@ final class GroupApiAdapter {
     final role = visible.$2.roleOf(_groups.selfId)!;
     final bundle = await _groups.load(visible.$1);
     final allowed = bundle?.manifest.isSpace == true
-        ? SpaceAcl(
-            visible.$2,
-          ).allows(_groups.selfId, SpacePermission.manageSettings)
+        ? SpaceAcl(visible.$2).allowsControl(_groups.selfId, ControlOp.setName)
         : canApply(authorRole: role, op: ControlOp.setName);
     if (!allowed) {
       return 'operation rejected by group policy';
@@ -2161,8 +2158,7 @@ final class GroupApiAdapter {
   Future<String?> leave(String groupHex) async {
     final visible = await _visible(groupHex);
     if (visible == null) return 'group not found';
-    final role = visible.$2.roleOf(_groups.selfId)!;
-    if (!canApply(authorRole: role, op: ControlOp.leave)) {
+    if (!SpaceAcl(visible.$2).allowsControl(_groups.selfId, ControlOp.leave)) {
       return 'operation rejected by group policy';
     }
     return await _groups.leaveGroup(visible.$1)
