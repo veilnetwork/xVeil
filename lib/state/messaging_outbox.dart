@@ -217,9 +217,11 @@ class _MessagingOutbox {
         continue;
       }
       var groupMemberCarrier = false;
-      final spaceJoinCarrier =
+      final externalSpaceProposalCarrier =
           frame.frameId.startsWith('space-join-request:') ||
-          frame.frameId.startsWith('space-join-decision:');
+          frame.frameId.startsWith('space-join-decision:') ||
+          frame.frameId.startsWith('space-moderation-appeal:') ||
+          frame.frameId.startsWith('space-moderation-appeal-decision:');
       if (contact == null || contact.status != ContactStatus.accepted) {
         final parts = frame.frameId.split(':');
         if (parts.length >= 3 &&
@@ -229,7 +231,9 @@ class _MessagingOutbox {
               false;
         }
       }
-      if (contact == null && !groupMemberCarrier && !spaceJoinCarrier) {
+      if (contact == null &&
+          !groupMemberCarrier &&
+          !externalSpaceProposalCarrier) {
         retire(frame.frameId);
         continue;
       }
@@ -334,12 +338,18 @@ class _MessagingOutbox {
     }
   }
 
-  /// A public Space join frame can be addressed to a non-contact. An ACK may
-  /// retire it only when the exact id is still queued for that authenticated
-  /// peer; guessed ids and cross-peer acknowledgements remain inert.
-  Future<bool> authorizedSpaceJoinAck(NodeId peer, String frameId) async {
+  /// A narrowly scoped external Space proposal can address a non-contact. An
+  /// ACK may retire it only when the exact id is still queued for that
+  /// authenticated peer; guessed ids and cross-peer acknowledgements remain
+  /// inert.
+  Future<bool> authorizedExternalSpaceProposalAck(
+    NodeId peer,
+    String frameId,
+  ) async {
     if (!frameId.startsWith('space-join-request:') &&
-        !frameId.startsWith('space-join-decision:')) {
+        !frameId.startsWith('space-join-decision:') &&
+        !frameId.startsWith('space-moderation-appeal:') &&
+        !frameId.startsWith('space-moderation-appeal-decision:')) {
       return false;
     }
     try {

@@ -14,6 +14,7 @@ import '../domain/group_content.dart';
 import '../domain/group_message.dart';
 import '../domain/group_reaction.dart';
 import '../domain/space_post.dart';
+import '../domain/space_moderation.dart';
 
 /// Sign a Space genesis manifest with the owner's deniable identity key.
 /// Legacy v1 manifests are deliberately never signed through this path.
@@ -207,6 +208,76 @@ bool verifyGroupContentRequest(GroupContentRequest r, {DynamicLibrary? lib}) {
       publicKey: r.authorPubKey,
       message: r.canonicalBytes(),
       signature: r.signature,
+      lib: lib,
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+SpaceModerationAppeal signSpaceModerationAppeal({
+  required String identityToml,
+  required SpaceModerationAppeal unsigned,
+  DynamicLibrary? lib,
+}) {
+  final result = EmbeddedNode.signMessage(
+    identityToml,
+    unsigned.canonicalBytes(),
+    lib: lib,
+  );
+  return unsigned.withSignature(result.signature, result.publicKey);
+}
+
+bool verifySpaceModerationAppeal(
+  SpaceModerationAppeal appeal, {
+  DynamicLibrary? lib,
+}) {
+  if (!appeal.isStructurallyValid ||
+      appeal.authorPubKey.length != 32 ||
+      appeal.signature.length != 64) {
+    return false;
+  }
+  try {
+    return EmbeddedNode.verifyMessage(
+      nodeId: appeal.appellant.bytes,
+      publicKey: appeal.authorPubKey,
+      message: appeal.canonicalBytes(),
+      signature: appeal.signature,
+      lib: lib,
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+SpaceModerationAppealDecision signSpaceModerationAppealDecision({
+  required String identityToml,
+  required SpaceModerationAppealDecision unsigned,
+  DynamicLibrary? lib,
+}) {
+  final result = EmbeddedNode.signMessage(
+    identityToml,
+    unsigned.canonicalBytes(),
+    lib: lib,
+  );
+  return unsigned.withSignature(result.signature, result.publicKey);
+}
+
+bool verifySpaceModerationAppealDecision(
+  SpaceModerationAppealDecision decision, {
+  DynamicLibrary? lib,
+}) {
+  if (!decision.isStructurallyValid ||
+      decision.authorPubKey.length != 32 ||
+      decision.signature.length != 64) {
+    return false;
+  }
+  try {
+    return EmbeddedNode.verifyMessage(
+      nodeId: decision.reviewer.bytes,
+      publicKey: decision.authorPubKey,
+      message: decision.canonicalBytes(),
+      signature: decision.signature,
       lib: lib,
     );
   } catch (_) {

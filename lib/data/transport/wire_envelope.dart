@@ -162,6 +162,16 @@ enum WireKind {
   /// as user text. The receiver stores a typed body in the ordinary message
   /// event log, preserving ACK, deletion, retention and gap-fill semantics.
   spaceRecommendation,
+
+  /// Signed, one-per-action moderation appeal addressed to the immutable Space
+  /// owner. It may cross the contact boundary; the Space layer verifies the
+  /// authenticated appellant, signature and exact retained action before ACK.
+  spaceModerationAppeal,
+
+  /// Signed owner review status for [spaceModerationAppeal]. A revocation
+  /// outcome is informational until the ordinary signed control-log revocation
+  /// arrives and folds successfully.
+  spaceModerationAppealDecision,
   unknown,
 }
 
@@ -368,6 +378,12 @@ class WireEnvelope {
 
   const WireEnvelope.spaceJoinDecision(String bodyJson)
     : this(WireKind.spaceJoinDecision, bodyJson);
+
+  const WireEnvelope.spaceModerationAppeal(String bodyJson)
+    : this(WireKind.spaceModerationAppeal, bodyJson);
+
+  const WireEnvelope.spaceModerationAppealDecision(String bodyJson)
+    : this(WireKind.spaceModerationAppealDecision, bodyJson);
 
   WireEnvelope.spaceRecommendation(
     SpaceRecommendationCard card, {

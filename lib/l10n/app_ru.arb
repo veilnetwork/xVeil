@@ -1408,5 +1408,21 @@
   "spaceModerationTemporaryBan": "Временная блокировка",
   "spaceModerationPermanentBan": "Бессрочная блокировка",
   "spaceModerationUntil": "До {date}",
-  "@spaceModerationUntil": {"placeholders": {"date": {"type": "String"}}}
+  "@spaceModerationUntil": {"placeholders": {"date": {"type": "String"}}},
+  "spaceModerationAppealsTitle": "Апелляции по модерации",
+  "spaceModerationAppealAction": "Обжаловать",
+  "spaceModerationAppealDialogTitle": "Обжаловать действие модерации",
+  "spaceModerationAppealText": "Объясните, почему действие нужно пересмотреть",
+  "spaceModerationAppealSent": "Апелляция отправлена",
+  "spaceModerationAppealPending": "Ожидает рассмотрения",
+  "spaceModerationAppealRejected": "Апелляция отклонена",
+  "spaceModerationAppealRevoked": "Действие отменено после рассмотрения",
+  "spaceModerationAppealAcknowledged": "Апелляция принята; удалённый материал восстановить нельзя",
+  "spaceModerationAppealFrom": "Апелляция от {node}",
+  "@spaceModerationAppealFrom": {"placeholders": {"node": {"type": "String"}}},
+  "spaceModerationAppealReview": "Рассмотреть апелляцию",
+  "spaceModerationAppealDecisionReason": "Обоснование решения",
+  "spaceModerationAppealDecisionReject": "Оставить действие в силе",
+  "spaceModerationAppealDecisionRevoke": "Отменить действие",
+  "spaceModerationAppealDecisionAcknowledge": "Принять без восстановления"
 }

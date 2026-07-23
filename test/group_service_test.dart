@@ -76,6 +76,13 @@ class _FakeSigner implements GroupSigner {
   GroupCallSignal signCallSignal(GroupCallSignal u) =>
       u.withSignature(Uint8List(64), u.author.bytes);
   @override
+  SpaceModerationAppeal signModerationAppeal(SpaceModerationAppeal u) =>
+      u.withSignature(Uint8List(64), u.appellant.bytes);
+  @override
+  SpaceModerationAppealDecision signModerationAppealDecision(
+    SpaceModerationAppealDecision u,
+  ) => u.withSignature(Uint8List(64), u.reviewer.bytes);
+  @override
   bool verifyControl(ControlEntry e) =>
       e.signature.length == 64 && e.authorPubKey.length == 32;
   @override
@@ -84,6 +91,12 @@ class _FakeSigner implements GroupSigner {
   @override
   bool verifyCallSignal(GroupCallSignal s) =>
       s.signature.length == 64 && s.authorPubKey.length == 32;
+  @override
+  bool verifyModerationAppeal(SpaceModerationAppeal appeal) =>
+      appeal.signature.length == 64 && appeal.authorPubKey.length == 32;
+  @override
+  bool verifyModerationAppealDecision(SpaceModerationAppealDecision decision) =>
+      decision.signature.length == 64 && decision.authorPubKey.length == 32;
   @override
   bool verifyMessage(GroupMessage m) =>
       m.signature.length == 64 && m.authorPubKey.length == 32;
@@ -7393,6 +7406,190 @@ void main() {
         (await ownerSvc.listGroups()).map((entry) => entry.groupId),
         isNot(contains(spaceId)),
       );
+    },
+  );
+
+  test(
+    'moderation appeal crosses the membership boundary once and revokes through signed audit',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final bobStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      late final GroupService ownerSvc;
+      late final GroupService bobSvc;
+      ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        sendSpaceModerationAppealDecision:
+            (peer, appealId, decisionJson) async {
+              expect(peer, bob);
+              expect(appealId, isNotEmpty);
+              if (!await bobSvc.receiveSpaceModerationAppealDecision(
+                owner,
+                decisionJson,
+              )) {
+                throw StateError('decision rejected');
+              }
+            },
+      );
+      bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        sendSpaceModerationAppeal: (peer, appealId, appealJson) async {
+          expect(peer, owner);
+          expect(appealId, isNotEmpty);
+          if (!await ownerSvc.receiveSpaceModerationAppeal(bob, appealJson)) {
+            throw StateError('appeal rejected');
+          }
+        },
+      );
+      addTearDown(ownerSvc.dispose);
+      addTearDown(bobSvc.dispose);
+
+      final spaceId = await ownerSvc.createSpace('Appeal lab');
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      final actionId = await ownerSvc.moderateSpace(
+        spaceId,
+        kind: SpaceModerationKind.restrictMessages,
+        target: bob,
+        scope: SpaceModerationScope.space,
+        reason: 'automated false positive',
+      );
+      expect(actionId, isNotNull);
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      final candidate =
+          (await bobSvc.appealableSpaceModerationActions()).single;
+      expect(candidate.record.actionId, actionId);
+      expect(candidate.spaceName, 'Appeal lab');
+
+      expect(
+        await bobSvc.appealSpaceModeration(
+          spaceId,
+          actionId!,
+          text: 'Please review the source event.',
+        ),
+        isTrue,
+      );
+      final incoming = await ownerSvc.incomingSpaceModerationAppeals(
+        spaceId: spaceId,
+        pendingOnly: true,
+      );
+      expect(incoming, hasLength(1));
+      expect(incoming.single.appeal.appellant, bob);
+      expect(incoming.single.appeal.actionId, actionId);
+
+      // Retrying sends the exact durable proposal and creates no new review.
+      expect(
+        await bobSvc.appealSpaceModeration(
+          spaceId,
+          actionId,
+          text: 'A changed body must not create a second appeal.',
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.incomingSpaceModerationAppeals(spaceId: spaceId),
+        hasLength(1),
+      );
+
+      expect(
+        await ownerSvc.decideSpaceModerationAppeal(
+          incoming.single.appeal.appealId,
+          outcome: SpaceModerationAppealOutcome.actionRevoked,
+          reason: 'review confirmed the false positive',
+        ),
+        isTrue,
+      );
+      final ownerRecord = (await ownerSvc.spaceModerationAudit(spaceId)).single;
+      expect(ownerRecord.revokedBy, owner);
+      expect(
+        ownerRecord.revocationReason,
+        'review confirmed the false positive',
+      );
+      final outgoing = (await bobSvc.outgoingSpaceModerationAppeals()).single;
+      expect(
+        outgoing.decision?.outcome,
+        SpaceModerationAppealOutcome.actionRevoked,
+      );
+      expect(await bobSvc.appealableSpaceModerationActions(), isEmpty);
+    },
+  );
+
+  test(
+    'moderation appeal routes to the current owner after transfer',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(storage, _FakeSigner(owner));
+      final carolSvc = GroupService(storage, _FakeSigner(carol));
+      NodeId? recipient;
+      final bobSvc = GroupService(
+        storage,
+        _FakeSigner(bob),
+        sendSpaceModerationAppeal: (peer, appealId, appealJson) async {
+          recipient = peer;
+        },
+      );
+      addTearDown(ownerSvc.dispose);
+      addTearDown(carolSvc.dispose);
+      addTearDown(bobSvc.dispose);
+      final spaceId = await ownerSvc.createSpace('Transferred review');
+      for (final member in [bob, carol]) {
+        expect(
+          await ownerSvc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: member,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+      }
+      expect(await ownerSvc.transferSpaceOwnership(spaceId, carol), isTrue);
+      final actionId = await carolSvc.moderateSpace(
+        spaceId,
+        kind: SpaceModerationKind.warning,
+        target: bob,
+        scope: SpaceModerationScope.space,
+        reason: 'current owner review',
+      );
+      expect(actionId, isNotNull);
+      expect(
+        await bobSvc.appealSpaceModeration(
+          spaceId,
+          actionId!,
+          text: 'Route to the effective owner.',
+        ),
+        isTrue,
+      );
+      expect(recipient, carol);
+      expect(recipient, isNot(owner));
     },
   );
 

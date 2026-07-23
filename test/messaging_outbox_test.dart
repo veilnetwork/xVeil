@@ -521,6 +521,57 @@ void main() {
   );
 
   test(
+    'non-contact moderation appeal ACK waits for durable Space validation',
+    () async {
+      final x = _id(23);
+      final y = _id(24);
+      final tx = _FakeTransport(x);
+      final ty = _FakeTransport(y);
+      tx.peer = ty;
+      ty.peer = tx;
+      final sx = HiddenVolumeStorage(_memOpener());
+      final sy = HiddenVolumeStorage(_memOpener());
+      await sx.open(password: 'x', createIfMissing: true);
+      await sy.open(password: 'y', createIfMissing: true);
+      final mx = MessagingService(tx, sx)..start();
+      final my = MessagingService(ty, sy)..start();
+      addTearDown(() async {
+        await mx.dispose();
+        await my.dispose();
+        await sx.close();
+        await sy.close();
+        await tx.dispose();
+        await ty.dispose();
+      });
+
+      my.onSpaceModerationAppeal = (peer, json) async => json == 'valid';
+      await mx.sendSpaceModerationAppeal(y, 'ac' * 32, 'valid');
+      await _pump();
+      expect(
+        (await sx.pendingOutboxFrames()).map((frame) => frame.frameId),
+        isNot(contains('space-moderation-appeal:${'ac' * 32}')),
+      );
+
+      await mx.sendSpaceModerationAppeal(y, 'ad' * 32, 'invalid');
+      await _pump();
+      expect(
+        (await sx.pendingOutboxFrames()).map((frame) => frame.frameId),
+        contains('space-moderation-appeal:${'ad' * 32}'),
+        reason: 'invalid proposals must not be ACKed or retired',
+      );
+
+      mx.onSpaceModerationAppealDecision = (peer, json) async =>
+          json == 'decision';
+      await my.sendSpaceModerationAppealDecision(x, 'ac' * 32, 'decision');
+      await _pump();
+      expect(
+        (await sy.pendingOutboxFrames()).map((frame) => frame.frameId),
+        isNot(contains('space-moderation-appeal-decision:${'ac' * 32}')),
+      );
+    },
+  );
+
+  test(
     're-sending an already-delivered message does not duplicate it',
     () async {
       await mA.sendText(b, 'hello');

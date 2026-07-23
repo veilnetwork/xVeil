@@ -46,6 +46,8 @@ void main() {
   final spaceRulesAcceptances = <String>[];
   final spaceModerationActions = <(String, String, String, String, String)>[];
   final spaceModerationRevocations = <(String, String, String)>[];
+  final spaceModerationAppealActions =
+      <(String, String?, String?, String?, String?, String?)>[];
   final renames = <(String, String)>[];
   final leaves = <String>[];
   Map<String, dynamic>? call;
@@ -99,6 +101,7 @@ void main() {
     spaceRulesAcceptances.clear();
     spaceModerationActions.clear();
     spaceModerationRevocations.clear();
+    spaceModerationAppealActions.clear();
     renames.clear();
     leaves.clear();
     groupCall = null;
@@ -625,6 +628,30 @@ void main() {
         spaceModerationRevocations.add((space, actionId, reason));
         return null;
       },
+      spaceModerationAppeals: (space) async => {
+        'candidates': const [],
+        'outgoing': const [],
+        'incoming': [
+          {
+            'appealId': 'ac' * 32,
+            'spaceId': space ?? 'aa',
+            'actionId': '${'01' * 32}:2',
+            'status': 'pending',
+          },
+        ],
+      },
+      spaceModerationAppealAction:
+          (action, space, actionId, appealId, text, reason) async {
+            spaceModerationAppealActions.add((
+              action,
+              space,
+              actionId,
+              appealId,
+              text,
+              reason,
+            ));
+            return space == 'denied' ? 'moderation appeal rejected' : null;
+          },
       createSpaceChannel:
           (
             space,
@@ -1409,6 +1436,44 @@ void main() {
         200,
       );
       expect(spaceModerationRevocations.single, ('aa', actionId, 'reviewed'));
+      final appeals = await h.handle(
+        'GET',
+        u('/v1/spaces/moderation/appeals?space=aa'),
+        auth,
+      );
+      expect(appeals.status, 200);
+      expect(((appeals.body as Map)['incoming'] as List), hasLength(1));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/moderation/appeals'),
+          auth,
+          body: {
+            'action': 'appeal',
+            'space': 'aa',
+            'actionId': actionId,
+            'text': '  review context  ',
+          },
+        )).status,
+        200,
+      );
+      expect(spaceModerationAppealActions.single, (
+        'appeal',
+        'aa',
+        actionId,
+        null,
+        'review context',
+        null,
+      ));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/moderation/appeals'),
+          auth,
+          body: {'action': 'revoke', 'appealId': 'short', 'reason': 'yes'},
+        )).status,
+        400,
+      );
       expect(
         (await h.handle(
           'POST',
@@ -3055,6 +3120,7 @@ void main() {
           '/spaces/rules/accept',
           '/spaces/moderation',
           '/spaces/moderation/revoke',
+          '/spaces/moderation/appeals',
           '/spaces/posts',
           '/spaces/posts/draft',
           '/spaces/posts/comments',

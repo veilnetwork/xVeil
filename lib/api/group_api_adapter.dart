@@ -433,6 +433,108 @@ final class GroupApiAdapter {
     ];
   }
 
+  static Map<String, dynamic> _moderationAppealJson(
+    SpaceModerationAppeal appeal, {
+    SpaceModerationAppealDecision? decision,
+    int? receivedAtMs,
+    String? spaceName,
+  }) => {
+    'appealId': appeal.appealId,
+    'spaceId': appeal.spaceId.hex,
+    'actionId': appeal.actionId,
+    'appellant': appeal.appellant.hex,
+    'reviewer': appeal.reviewer.hex,
+    'text': appeal.text,
+    'createdAt': appeal.createdAtMs,
+    'name': ?spaceName,
+    'receivedAt': ?receivedAtMs,
+    'status': decision?.outcome.name ?? 'pending',
+    if (decision != null) ...{
+      'decisionReason': decision.reason,
+      'decidedAt': decision.decidedAtMs,
+    },
+  };
+
+  Future<Map<String, dynamic>> moderationAppeals(String? spaceHex) async {
+    final NodeId? spaceId;
+    if (spaceHex == null) {
+      spaceId = null;
+    } else {
+      spaceId = _parseId(spaceHex);
+      if (spaceId == null) return {'error': 'invalid space'};
+    }
+    final candidates = await _groups.appealableSpaceModerationActions();
+    final outgoing = await _groups.outgoingSpaceModerationAppeals();
+    final names = await _groups.moderationAppealSpaceNames();
+    final incoming = await _groups.incomingSpaceModerationAppeals(
+      spaceId: spaceId,
+    );
+    return {
+      'candidates': [
+        for (final candidate in candidates)
+          if (spaceId == null || candidate.spaceId == spaceId)
+            {
+              'spaceId': candidate.spaceId.hex,
+              'name': candidate.spaceName,
+              'action': moderationRecordJson(candidate.record),
+            },
+      ],
+      'outgoing': [
+        for (final entry in outgoing)
+          if (spaceId == null || entry.appeal.spaceId == spaceId)
+            _moderationAppealJson(
+              entry.appeal,
+              decision: entry.decision,
+              spaceName: names[entry.appeal.spaceId.hex],
+            ),
+      ],
+      'incoming': [
+        for (final entry in incoming)
+          _moderationAppealJson(
+            entry.appeal,
+            decision: entry.decision,
+            receivedAtMs: entry.receivedAtMs,
+            spaceName: names[entry.appeal.spaceId.hex],
+          ),
+      ],
+    };
+  }
+
+  Future<String?> moderationAppealAction(
+    String action,
+    String? spaceHex,
+    String? actionId,
+    String? appealId,
+    String? text,
+    String? reason,
+  ) async {
+    if (action == 'appeal') {
+      final spaceId = spaceHex == null ? null : _parseId(spaceHex);
+      if (spaceId == null || actionId == null || text == null) {
+        return 'space, actionId and text required';
+      }
+      return await _groups.appealSpaceModeration(spaceId, actionId, text: text)
+          ? null
+          : 'moderation appeal rejected';
+    }
+    final outcome = switch (action) {
+      'reject' => SpaceModerationAppealOutcome.rejected,
+      'revoke' => SpaceModerationAppealOutcome.actionRevoked,
+      'acknowledge' => SpaceModerationAppealOutcome.acknowledgedIrreversible,
+      _ => null,
+    };
+    if (outcome == null || appealId == null || reason == null) {
+      return 'valid appeal decision required';
+    }
+    return await _groups.decideSpaceModerationAppeal(
+          appealId,
+          outcome: outcome,
+          reason: reason,
+        )
+        ? null
+        : 'moderation appeal decision rejected';
+  }
+
   Future<({String? error, String? actionId})> moderate(
     String spaceHex,
     String kindName,

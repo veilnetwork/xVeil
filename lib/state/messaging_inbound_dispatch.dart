@@ -26,7 +26,9 @@ extension _MessagingInboundDispatch on MessagingService {
         env.kind == WireKind.spaceInvite ||
         env.kind == WireKind.spaceInviteDecision ||
         env.kind == WireKind.spaceJoinRequest ||
-        env.kind == WireKind.spaceJoinDecision;
+        env.kind == WireKind.spaceJoinDecision ||
+        env.kind == WireKind.spaceModerationAppeal ||
+        env.kind == WireKind.spaceModerationAppealDecision;
     final deferredGroupCallAck = env.kind == WireKind.groupCallSignal;
     if (fid != null && deferredGroupCallAck && _outbox.hasSeen(fid)) {
       // This exact frame passed membership+AEAD+signature once already. A
@@ -161,7 +163,7 @@ extension _MessagingInboundDispatch on MessagingService {
         if (existing?.status != ContactStatus.accepted) {
           if (ackId == null ||
               (!await _authorizedGroupCallAck(m.src, ackId) &&
-                  !await _authorizedSpaceJoinAck(m.src, ackId))) {
+                  !await _authorizedExternalSpaceProposalAck(m.src, ackId))) {
             return;
           }
         }
@@ -436,6 +438,38 @@ extension _MessagingInboundDispatch on MessagingService {
         final joinDecisionHandler = onSpaceJoinDecision;
         if (joinDecisionHandler == null ||
             !await joinDecisionHandler(m.src, env.body)) {
+          return;
+        }
+        if (fid != null) {
+          _outbox.remember(fid);
+          await _ackFrame(m, fid);
+        }
+        return;
+      case WireKind.spaceModerationAppeal:
+        // Like a public join request, this narrow external proposal carries
+        // its own node-id-bound authorization. Persist only after the Space
+        // owner validates the exact action and one-per-action admission rule.
+        if (fid != null && _outbox.hasSeen(fid)) {
+          await _ackFrame(m, fid);
+          return;
+        }
+        final appealHandler = onSpaceModerationAppeal;
+        if (appealHandler == null || !await appealHandler(m.src, env.body)) {
+          return;
+        }
+        if (fid != null) {
+          _outbox.remember(fid);
+          await _ackFrame(m, fid);
+        }
+        return;
+      case WireKind.spaceModerationAppealDecision:
+        if (fid != null && _outbox.hasSeen(fid)) {
+          await _ackFrame(m, fid);
+          return;
+        }
+        final appealDecisionHandler = onSpaceModerationAppealDecision;
+        if (appealDecisionHandler == null ||
+            !await appealDecisionHandler(m.src, env.body)) {
           return;
         }
         if (fid != null) {

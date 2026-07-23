@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:xveil/domain/space_moderation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/storage.dart';
@@ -75,6 +76,13 @@ class _Signer implements GroupSigner {
   @override
   GroupCallSignal signCallSignal(GroupCallSignal value) =>
       value.withSignature(Uint8List(64), value.author.bytes);
+  @override
+  SpaceModerationAppeal signModerationAppeal(SpaceModerationAppeal value) =>
+      value.withSignature(Uint8List(64), value.appellant.bytes);
+  @override
+  SpaceModerationAppealDecision signModerationAppealDecision(
+    SpaceModerationAppealDecision value,
+  ) => value.withSignature(Uint8List(64), value.reviewer.bytes);
 
   bool _valid(List<int> signature, List<int> publicKey) =>
       signature.length == 64 && publicKey.length == 32;
@@ -101,6 +109,12 @@ class _Signer implements GroupSigner {
 
   @override
   bool verifyCallSignal(GroupCallSignal value) =>
+      _valid(value.signature, value.authorPubKey);
+  @override
+  bool verifyModerationAppeal(SpaceModerationAppeal value) =>
+      _valid(value.signature, value.authorPubKey);
+  @override
+  bool verifyModerationAppealDecision(SpaceModerationAppealDecision value) =>
       _valid(value.signature, value.authorPubKey);
 
   @override
