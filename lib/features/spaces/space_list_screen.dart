@@ -14,6 +14,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../chat/chat_actions.dart';
 import '../home/home_section_scaffold.dart';
+import 'public_space_discovery_sheet.dart';
 
 /// User-facing list of communities. Group chats remain in the Chats section.
 class SpaceListScreen extends ConsumerStatefulWidget {
@@ -100,6 +101,11 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
         content: Text(ok ? l.spaceJoinRequestSent : l.spaceOperationFailed),
       ),
     );
+  }
+
+  Future<void> _discover(BuildContext context) async {
+    final route = await showPublicSpaceDiscoverySheet(context);
+    if (route != null && context.mounted) context.push(route);
   }
 
   String _moderationKindLabel(AppL10n l, SpaceModerationKind kind) =>
@@ -239,6 +245,13 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
           tooltip: l.mentionsOpenTooltip,
           onPressed: () => context.push('/mentions'),
         ),
+        if (service != null)
+          IconButton(
+            key: const ValueKey('space-public-discovery-action'),
+            tooltip: l.spaceDiscoveryAction,
+            onPressed: () => _discover(context),
+            icon: const Icon(Icons.travel_explore_outlined),
+          ),
         if (service != null)
           IconButton(
             key: const ValueKey('space-join-link-action'),
