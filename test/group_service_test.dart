@@ -641,13 +641,43 @@ void main() {
       expect(missingObjects, greaterThan(0));
       expect(repairWire['rcpt'], isA<String>());
 
-      expect(await bobSvc.ingestGroupEntry(owner, repair), isTrue);
       final repairReceipt = repairWire['rcpt'];
+      final noProgressAck = Map<String, dynamic>.of(behindVector)
+        ..['rack'] = repairReceipt;
+      final beforeNoProgressAck = ownerOutbound.length;
+      expect(
+        await ownerSvc.handleGroupSyncRequest(bob, noProgressAck),
+        isFalse,
+        reason:
+            'ACKing a repair without advancing the frontier must stop the loop',
+      );
+      expect(
+        ownerOutbound,
+        hasLength(beforeNoProgressAck),
+        reason: 'the identical missing-object set must not be sent again',
+      );
+      expect(
+        await ownerSvc.handleGroupSyncRequest(bob, noProgressAck),
+        isFalse,
+        reason: 'a replayed durable ACK must not restart the repair loop',
+      );
+      expect(ownerOutbound, hasLength(beforeNoProgressAck));
+
+      expect(
+        await ownerSvc.handleGroupSyncRequest(bob, behindVector),
+        isTrue,
+        reason: 'a fresh independent sync nudge may retry after a stalled ACK',
+      );
+      final retryRepair = ownerOutbound.last.$2;
+      final retryWire = jsonDecode(retryRepair) as Map;
+      expect(retryWire['rcpt'], isA<String>());
+      expect(retryWire['rcpt'], isNot(repairReceipt));
+
+      expect(await bobSvc.ingestGroupEntry(owner, retryRepair), isTrue);
+      final retryReceipt = retryWire['rcpt'];
       final repairAck = bobOutbound.singleWhere((entry) {
         final wire = jsonDecode(entry.$2);
-        return entry.$1 == owner &&
-            wire is Map &&
-            wire['rack'] == repairReceipt;
+        return entry.$1 == owner && wire is Map && wire['rack'] == retryReceipt;
       }).$2;
       final backfillSends = ownerOutbound.length;
       expect(await ownerSvc.ingestGroupEntry(bob, repairAck), isFalse);
@@ -658,11 +688,15 @@ void main() {
       );
 
       final observations = await ownerSvc.spaceObservabilitySnapshot();
-      expect(observations.amounts['p2pMissingObjects'], missingObjects);
-      expect(observations.counters['p2pMissingObjects.succeeded'], 1);
-      expect(observations.counters['p2pReceipt.succeeded'], 2);
+      expect(
+        observations.amounts['p2pMissingObjects'],
+        missingObjects * 4,
+        reason: 'all four behind vectors report the same missing-object set',
+      );
+      expect(observations.counters['p2pMissingObjects.succeeded'], 4);
+      expect(observations.counters['p2pReceipt.succeeded'], 3);
       expect(observations.counters['p2pReceipt.rejected'], 3);
-      expect(observations.durationsMs['p2pReceipt']?['samples'], 2);
+      expect(observations.durationsMs['p2pReceipt']?['samples'], 3);
       expect(observations.replication.confirmedRemoteHolderSlots, 1);
       expect(
         jsonEncode(observations.toJson()),
