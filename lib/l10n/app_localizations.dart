@@ -1711,6 +1711,12 @@ abstract class AppL10n {
   /// **'Reusable permission sets, participant groups, and direct member roles. Every change is signed and audited.'**
   String get spaceAccessHint;
 
+  /// No description provided for @spaceAccessDelegatedHint.
+  ///
+  /// In en, this message translates to:
+  /// **'You can manage only roles below your current permission ceiling. Your own roles and peer managers are locked.'**
+  String get spaceAccessDelegatedHint;
+
   /// No description provided for @spaceAccessEmpty.
   ///
   /// In en, this message translates to:

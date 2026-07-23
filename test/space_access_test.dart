@@ -613,6 +613,210 @@ void main() {
     );
   });
 
+  test(
+    'V20 delegates only lower roles and rejects self or peer escalation',
+    () {
+      const managerRoleId =
+          'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+      const publisherRoleId =
+          'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd';
+      const storageRoleId =
+          'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+      final managerRole = SpaceRoleDefinition(
+        roleId: managerRoleId,
+        name: 'Role manager',
+        permissions: const {
+          SpacePermission.manageRoles,
+          SpacePermission.managePosts,
+        },
+      );
+      final publisherRole = SpaceRoleDefinition(
+        roleId: publisherRoleId,
+        name: 'Publisher',
+        permissions: const {SpacePermission.publishPosts},
+      );
+      final first = SpaceAccessPolicy(
+        spaceId: space,
+        revision: 1,
+        previousPolicyHash: '',
+        changedBy: owner,
+        changedAtMs: 12,
+        roles: [managerRole, publisherRole],
+        groups: const [],
+        directAssignments: [
+          SpaceMemberRoleAssignment(
+            member: bob,
+            roleIds: const [managerRoleId],
+          ),
+        ],
+      );
+      final addBob = ControlEntry(
+        version: 2,
+        groupId: space,
+        author: owner,
+        seq: 0,
+        prevHash: '',
+        op: ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+        policyVersion: 0,
+        createdAtMs: 10,
+        signature: Uint8List(0),
+      );
+      final addCarol = ControlEntry(
+        version: 2,
+        groupId: space,
+        author: owner,
+        seq: 1,
+        prevHash: controlEntryHash(addBob),
+        op: ControlOp.addMember,
+        target: carol,
+        role: GroupRole.member,
+        policyVersion: 0,
+        createdAtMs: 11,
+        signature: Uint8List(0),
+      );
+      final setFirst = ControlEntry(
+        version: 17,
+        groupId: space,
+        author: owner,
+        seq: 2,
+        prevHash: controlEntryHash(addCarol),
+        op: ControlOp.setPolicy,
+        target: null,
+        role: null,
+        accessPolicy: first,
+        policyVersion: 0,
+        createdAtMs: first.changedAtMs,
+        signature: Uint8List(0),
+      );
+      final base = foldControlLog(
+        owner: owner,
+        entries: [addBob, addCarol, setFirst],
+        verify: (_) => true,
+      );
+      expect(base.rejected, isEmpty);
+      final acl = SpaceAcl(base.state);
+
+      SpaceAccessPolicy next({
+        List<SpaceRoleDefinition>? roles,
+        List<SpaceMemberRoleAssignment>? direct,
+      }) => SpaceAccessPolicy(
+        spaceId: space,
+        revision: 2,
+        previousPolicyHash: first.policyHash,
+        changedBy: bob,
+        changedAtMs: 20,
+        roles: roles ?? [managerRole, publisherRole],
+        groups: const [],
+        directAssignments:
+            direct ??
+            [
+              SpaceMemberRoleAssignment(
+                member: bob,
+                roleIds: const [managerRoleId],
+              ),
+              SpaceMemberRoleAssignment(
+                member: carol,
+                roleIds: const [publisherRoleId],
+              ),
+            ],
+      );
+
+      final lower = next();
+      final delegated = ControlEntry(
+        version: 20,
+        groupId: space,
+        author: bob,
+        seq: 0,
+        prevHash: '',
+        op: ControlOp.setPolicy,
+        target: null,
+        role: null,
+        accessPolicy: lower,
+        policyVersion: 1,
+        createdAtMs: lower.changedAtMs,
+        signature: Uint8List(0),
+      );
+      final accepted = foldControlLog(
+        owner: owner,
+        entries: [addBob, addCarol, setFirst, delegated],
+        verify: (_) => true,
+      );
+      expect(delegated.isStructurallyValid, isTrue);
+      expect(
+        ControlEntry.fromJson(
+          jsonDecode(jsonEncode(delegated.toJson())),
+        )?.canonicalBytes(),
+        delegated.canonicalBytes(),
+      );
+      expect(accepted.rejected, isEmpty);
+      expect(accepted.state.customRoleIdsOf(carol), contains(publisherRoleId));
+
+      final self = next(
+        direct: [
+          SpaceMemberRoleAssignment(
+            member: bob,
+            roleIds: const [managerRoleId, publisherRoleId],
+          ),
+        ],
+      );
+      expect(
+        acl.authorizePolicyChange(bob, self).denial,
+        SpaceAuthorizationDenial.selfEscalation,
+      );
+      final forgedSelf = ControlEntry(
+        version: 20,
+        groupId: space,
+        author: bob,
+        seq: 0,
+        prevHash: '',
+        op: ControlOp.setPolicy,
+        target: null,
+        role: null,
+        accessPolicy: self,
+        policyVersion: 1,
+        createdAtMs: self.changedAtMs,
+        signature: Uint8List(0),
+      );
+      final rejectedSelf = foldControlLog(
+        owner: owner,
+        entries: [addBob, addCarol, setFirst, forgedSelf],
+        verify: (_) => true,
+      );
+      expect(rejectedSelf.rejected, contains(forgedSelf));
+      expect(rejectedSelf.state.accessPolicy?.policyHash, first.policyHash);
+
+      final peer = next(
+        direct: [
+          SpaceMemberRoleAssignment(
+            member: bob,
+            roleIds: const [managerRoleId],
+          ),
+          SpaceMemberRoleAssignment(
+            member: carol,
+            roleIds: const [managerRoleId],
+          ),
+        ],
+      );
+      expect(
+        acl.authorizePolicyChange(bob, peer).denial,
+        SpaceAuthorizationDenial.protectedTarget,
+      );
+
+      final storageRole = SpaceRoleDefinition(
+        roleId: storageRoleId,
+        name: 'Storage manager',
+        permissions: const {SpacePermission.manageStorage},
+      );
+      final outside = next(roles: [managerRole, publisherRole, storageRole]);
+      expect(
+        acl.authorizePolicyChange(bob, outside).denial,
+        SpaceAuthorizationDenial.permissionCeiling,
+      );
+    },
+  );
+
   test('V19 denial snapshots are canonical without changing V17/V18 bytes', () {
     final category = _id(4);
     final legacyV18 = SpaceAccessPolicy(

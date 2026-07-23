@@ -1823,9 +1823,10 @@ final class GroupApiAdapter {
     };
   }
 
-  /// Apply one owner-only optimistic access-policy edit. Role deletion cleans
-  /// every reference in the same signed snapshot, so no dangling intermediate
-  /// policy can be observed.
+  /// Apply one optimistic access-policy edit. Owners are unrestricted;
+  /// manageRoles delegates are constrained by the same capability ceiling the
+  /// causal fold enforces. Role deletion cleans every reference in the same
+  /// signed snapshot, so no dangling intermediate policy can be observed.
   Future<String?> spaceAccessAction(
     String spaceHex,
     Map<String, dynamic> body,
@@ -2052,6 +2053,39 @@ final class GroupApiAdapter {
         }
       default:
         return 'invalid access policy action';
+    }
+    final candidate = SpaceAccessPolicy(
+      spaceId: visible.$1,
+      schemaVersion:
+          current?.schemaVersion == 3 ||
+              roles.any((role) => role.usesDenyEncoding)
+          ? 3
+          : current?.schemaVersion == 2 ||
+                roles.any((role) => role.usesScopedEncoding)
+          ? 2
+          : 1,
+      revision: expectedRevision + 1,
+      previousPolicyHash: current?.policyHash ?? '',
+      changedBy: _groups.selfId,
+      changedAtMs: 0,
+      roles: roles,
+      groups: groups,
+      directAssignments: direct,
+    );
+    if (!candidate.isStructurallyValid) return 'invalid access policy';
+    final decision = SpaceAcl(
+      state,
+    ).authorizePolicyChange(_groups.selfId, candidate);
+    if (!decision.allowed) {
+      return switch (decision.denial) {
+        SpaceAuthorizationDenial.selfEscalation =>
+          'access policy cannot change your own effective roles',
+        SpaceAuthorizationDenial.permissionCeiling =>
+          'role reaches or exceeds your permission ceiling',
+        SpaceAuthorizationDenial.protectedTarget =>
+          'member has equal or higher role-management authority',
+        _ => 'operation rejected by space policy',
+      };
     }
     final applied = await _groups.replaceSpaceAccessPolicy(
       visible.$1,

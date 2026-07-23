@@ -1779,7 +1779,7 @@ Map<String, dynamic> openApiSpec() {
         },
         'post': {
           'summary':
-              'Atomically edit the owner-signed access policy at an expected revision',
+              'Atomically edit the signed access policy at an expected revision; manageRoles delegates are limited to roles below their current capability ceiling',
           'requestBody': {
             'required': true,
             'content': {

@@ -1721,4 +1721,159 @@ void main() {
     expect(state.accessPolicy?.revision, 3);
     expect(find.text('Editorial'), findsOneWidget);
   });
+
+  testWidgets(
+    'manageRoles delegate sees only lower roles, targets and permission scopes',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final owner = _id(90);
+      final manager = _id(91);
+      final member = _id(92);
+      final ownerService = GroupService(storage, _Signer(owner));
+      final managerService = GroupService(storage, _Signer(manager));
+      addTearDown(ownerService.dispose);
+      addTearDown(managerService.dispose);
+      final spaceId = await ownerService.createSpace('Delegated role UI');
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: manager,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: member,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final managerRoleId = ownerService.newSpaceAccessObjectId();
+      final publisherRoleId = ownerService.newSpaceAccessObjectId();
+      final managerRole = SpaceRoleDefinition(
+        roleId: managerRoleId,
+        name: 'Role manager',
+        permissions: const {
+          SpacePermission.manageRoles,
+          SpacePermission.managePosts,
+        },
+      );
+      final publisherRole = SpaceRoleDefinition(
+        roleId: publisherRoleId,
+        name: 'Publisher',
+        permissions: const {SpacePermission.publishPosts},
+      );
+      expect(
+        await ownerService.replaceSpaceAccessPolicy(
+          spaceId,
+          expectedRevision: 0,
+          roles: [managerRole, publisherRole],
+          groups: const <SpaceMemberGroup>[],
+          directAssignments: [
+            SpaceMemberRoleAssignment(
+              member: manager,
+              roleIds: [managerRoleId],
+            ),
+            SpaceMemberRoleAssignment(
+              member: member,
+              roleIds: [publisherRoleId],
+            ),
+          ],
+        ),
+        isNotNull,
+      );
+
+      await tester.binding.setSurfaceSize(const Size(430, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [groupServiceProvider.overrideWithValue(managerService)],
+          child: MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('space-access-expansion')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('space-access-delegated-hint')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('space-access-add-role')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('space-access-add-group')),
+        findsOneWidget,
+      );
+      final managerTile = find.byKey(
+        ValueKey('space-access-role-$managerRoleId'),
+      );
+      final publisherTile = find.byKey(
+        ValueKey('space-access-role-$publisherRoleId'),
+      );
+      expect(
+        find.descendant(
+          of: managerTile,
+          matching: find.byIcon(Icons.edit_outlined),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: publisherTile,
+          matching: find.byIcon(Icons.edit_outlined),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(ValueKey('space-access-assign-${manager.hex}')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(ValueKey('space-access-assign-${owner.hex}')),
+        findsNothing,
+      );
+      final memberAssignment = find.byKey(
+        ValueKey('space-access-assign-${member.hex}'),
+      );
+      await tester.scrollUntilVisible(
+        memberAssignment,
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(memberAssignment, findsOneWidget);
+
+      final addRole = find.byKey(const ValueKey('space-access-add-role'));
+      await tester.ensureVisible(addRole);
+      await tester.tap(addRole);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('space-access-permission-manageRoles')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('space-access-permission-manageStorage')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('space-access-permission-managePosts')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('space-access-permission-publishPosts')),
+        findsOneWidget,
+      );
+    },
+  );
 }

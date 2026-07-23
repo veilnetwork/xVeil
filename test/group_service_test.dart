@@ -8560,7 +8560,7 @@ void main() {
   );
 
   test(
-    'signed access snapshots are Space-only, optimistic and owner-authored',
+    'initial access snapshots are Space-only, optimistic and owner-authored',
     () async {
       final (ownerService, memberService) = await setup();
       final spaceId = await ownerService.createSpace('Access lab');
@@ -8643,6 +8643,258 @@ void main() {
       );
     },
   );
+
+  test(
+    'manageRoles delegate signs V20 below their ceiling without self escalation',
+    () async {
+      final (ownerService, memberService) = await setup();
+      final spaceId = await ownerService.createSpace('Delegated access lab');
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: carol,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final managerRoleId = ownerService.newSpaceAccessObjectId();
+      final publisherRoleId = ownerService.newSpaceAccessObjectId();
+      final storageRoleId = ownerService.newSpaceAccessObjectId();
+      final managerRole = SpaceRoleDefinition(
+        roleId: managerRoleId,
+        name: 'Role manager',
+        permissions: const {
+          SpacePermission.manageRoles,
+          SpacePermission.managePosts,
+        },
+      );
+      final publisherRole = SpaceRoleDefinition(
+        roleId: publisherRoleId,
+        name: 'Publisher',
+        permissions: const {SpacePermission.publishPosts},
+      );
+      expect(
+        await ownerService.replaceSpaceAccessPolicy(
+          spaceId,
+          expectedRevision: 0,
+          roles: [managerRole, publisherRole],
+          groups: const <SpaceMemberGroup>[],
+          directAssignments: [
+            SpaceMemberRoleAssignment(member: bob, roleIds: [managerRoleId]),
+          ],
+        ),
+        isNotNull,
+      );
+
+      final bobService = memberService(bob);
+      final lower = await bobService.replaceSpaceAccessPolicy(
+        spaceId,
+        expectedRevision: 1,
+        roles: [managerRole, publisherRole],
+        groups: const <SpaceMemberGroup>[],
+        directAssignments: [
+          SpaceMemberRoleAssignment(member: bob, roleIds: [managerRoleId]),
+          SpaceMemberRoleAssignment(member: carol, roleIds: [publisherRoleId]),
+        ],
+      );
+      expect(lower?.revision, 2);
+      final delegatedEntry = (await ownerService.load(
+        spaceId,
+      ))!.control.lastWhere((entry) => entry.op == ControlOp.setPolicy);
+      expect(delegatedEntry.version, 20);
+      expect(delegatedEntry.author, bob);
+
+      expect(
+        await bobService.replaceSpaceAccessPolicy(
+          spaceId,
+          expectedRevision: 2,
+          roles: [managerRole, publisherRole],
+          groups: const <SpaceMemberGroup>[],
+          directAssignments: [
+            SpaceMemberRoleAssignment(
+              member: bob,
+              roleIds: [managerRoleId, publisherRoleId],
+            ),
+            SpaceMemberRoleAssignment(
+              member: carol,
+              roleIds: [publisherRoleId],
+            ),
+          ],
+        ),
+        isNull,
+        reason: 'the current policy may never bootstrap the author',
+      );
+      expect(
+        await bobService.replaceSpaceAccessPolicy(
+          spaceId,
+          expectedRevision: 2,
+          roles: [managerRole, publisherRole],
+          groups: const <SpaceMemberGroup>[],
+          directAssignments: [
+            SpaceMemberRoleAssignment(member: bob, roleIds: [managerRoleId]),
+            SpaceMemberRoleAssignment(member: carol, roleIds: [managerRoleId]),
+          ],
+        ),
+        isNull,
+        reason: 'manageRoles is the equal-level non-delegable boundary',
+      );
+      final storageRole = SpaceRoleDefinition(
+        roleId: storageRoleId,
+        name: 'Storage manager',
+        permissions: const {SpacePermission.manageStorage},
+      );
+      expect(
+        await bobService.replaceSpaceAccessPolicy(
+          spaceId,
+          expectedRevision: 2,
+          roles: [managerRole, publisherRole, storageRole],
+          groups: const <SpaceMemberGroup>[],
+          directAssignments: [
+            SpaceMemberRoleAssignment(member: bob, roleIds: [managerRoleId]),
+            SpaceMemberRoleAssignment(
+              member: carol,
+              roleIds: [publisherRoleId],
+            ),
+          ],
+        ),
+        isNull,
+        reason: 'a delegate cannot mint a capability they do not hold',
+      );
+      expect((await ownerService.stateOf(spaceId))!.accessPolicy?.revision, 2);
+    },
+  );
+
+  test('manageRoles delegate cannot widen a category-scoped ceiling', () async {
+    final (ownerService, memberService) = await setup();
+    final spaceId = await ownerService.createSpace('Scoped role ceiling');
+    final insideCategory = await ownerService.createChannel(
+      spaceId,
+      name: 'Inside',
+      kind: SpaceChannelKind.category,
+    );
+    final outsideCategory = await ownerService.createChannel(
+      spaceId,
+      name: 'Outside',
+      kind: SpaceChannelKind.category,
+    );
+    expect(insideCategory, isNotNull);
+    expect(outsideCategory, isNotNull);
+    expect(
+      await ownerService.addControlOp(
+        spaceId,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    expect(
+      await ownerService.addControlOp(
+        spaceId,
+        ControlOp.addMember,
+        target: carol,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    final managerRoleId = ownerService.newSpaceAccessObjectId();
+    final insideRoleId = ownerService.newSpaceAccessObjectId();
+    final outsideRoleId = ownerService.newSpaceAccessObjectId();
+    final managerRole = SpaceRoleDefinition(
+      roleId: managerRoleId,
+      name: 'Inside role manager',
+      grants: [
+        const SpacePermissionGrant(
+          permission: SpacePermission.manageRoles,
+          scope: SpacePermissionScope(kind: SpacePermissionScopeKind.roles),
+        ),
+        SpacePermissionGrant(
+          permission: SpacePermission.manageChannels,
+          scope: SpacePermissionScope(
+            kind: SpacePermissionScopeKind.category,
+            targetId: insideCategory,
+          ),
+        ),
+      ],
+    );
+    expect(
+      await ownerService.replaceSpaceAccessPolicy(
+        spaceId,
+        expectedRevision: 0,
+        roles: [managerRole],
+        groups: const <SpaceMemberGroup>[],
+        directAssignments: [
+          SpaceMemberRoleAssignment(member: bob, roleIds: [managerRoleId]),
+        ],
+      ),
+      isNotNull,
+    );
+    final insideRole = SpaceRoleDefinition(
+      roleId: insideRoleId,
+      name: 'Inside channel manager',
+      grants: [
+        SpacePermissionGrant(
+          permission: SpacePermission.manageChannels,
+          scope: SpacePermissionScope(
+            kind: SpacePermissionScopeKind.category,
+            targetId: insideCategory,
+          ),
+        ),
+      ],
+    );
+    final bobService = memberService(bob);
+    expect(
+      await bobService.replaceSpaceAccessPolicy(
+        spaceId,
+        expectedRevision: 1,
+        roles: [managerRole, insideRole],
+        groups: const <SpaceMemberGroup>[],
+        directAssignments: [
+          SpaceMemberRoleAssignment(member: bob, roleIds: [managerRoleId]),
+          SpaceMemberRoleAssignment(member: carol, roleIds: [insideRoleId]),
+        ],
+      ),
+      isNotNull,
+    );
+
+    final outsideRole = SpaceRoleDefinition(
+      roleId: outsideRoleId,
+      name: 'Outside channel manager',
+      grants: [
+        SpacePermissionGrant(
+          permission: SpacePermission.manageChannels,
+          scope: SpacePermissionScope(
+            kind: SpacePermissionScopeKind.category,
+            targetId: outsideCategory,
+          ),
+        ),
+      ],
+    );
+    expect(
+      await bobService.replaceSpaceAccessPolicy(
+        spaceId,
+        expectedRevision: 2,
+        roles: [managerRole, insideRole, outsideRole],
+        groups: const <SpaceMemberGroup>[],
+        directAssignments: [
+          SpaceMemberRoleAssignment(member: bob, roleIds: [managerRoleId]),
+          SpaceMemberRoleAssignment(member: carol, roleIds: [insideRoleId]),
+        ],
+      ),
+      isNull,
+    );
+    expect((await ownerService.stateOf(spaceId))!.accessPolicy?.revision, 2);
+  });
 
   test(
     'scoped V18 role manages one category and rejects its sibling',
