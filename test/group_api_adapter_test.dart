@@ -183,9 +183,13 @@ void main() {
       expect((await api.lifecycle(space))!['state'], 'active');
       expect(await api.setLifecycle(space, 'invalid'), isNotNull);
       expect(await api.createSpace('Bad', '', 'unknown'), isNull);
-      final observations = api.spaceObservability();
+      final observations = await api.spaceObservability();
       expect((observations['privacy'] as Map)['containsIdentifiers'], isFalse);
       expect((observations['counters'] as Map)['spaceCreated.succeeded'], 1);
+      final replication = observations['replication'] as Map;
+      expect(replication['basis'], 'activeAuthorizedMembers');
+      expect(replication['liveSourceAvailable'], isFalse);
+      expect(replication.containsKey('availableRemoteSpreaders'), isFalse);
       expect(observations.toString(), isNot(contains(space)));
       expect(observations.toString(), isNot(contains('Field lab')));
     } finally {

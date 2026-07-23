@@ -142,6 +142,7 @@ class HeadlessRuntime {
       final epochCrypto = stack.transport is VeilFlutterTransport
           ? (stack.transport as VeilFlutterTransport).mailboxCrypto()
           : LoopbackMailboxCrypto(senderForOpen: nodeId);
+      final activePeerTransport = stack.transport;
       groups = GroupService(
         storage,
         groupSigner,
@@ -165,6 +166,10 @@ class HeadlessRuntime {
         grantContentServe: messaging.grantGroupContentServe,
         startContentPull: (holder, contentId) async {
           await messaging!.downloadContent(holder, contentId);
+        },
+        activePeers: () async => {
+          for (final peer in await activePeerTransport.peers())
+            if (peer.isActive) peer.nodeId,
         },
       );
       groups.startSpaceLifecycleMaintenance();

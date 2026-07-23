@@ -560,6 +560,10 @@ typedef SpaceRecommendationSender =
 typedef SpaceRecommendationRevoker =
     Future<bool> Function(NodeId peer, String messageId);
 
+/// Point-in-time transport view used only when an observability snapshot is
+/// explicitly requested. Implementations must return active sessions only.
+typedef ActivePeerSnapshotReader = Future<Set<NodeId>> Function();
+
 typedef GroupCallFrameSender =
     Future<void> Function(
       NodeId peer,
@@ -587,6 +591,7 @@ class GroupService {
     this.grantContentServe,
     this.startContentPull,
     this.startContentPullFromAny,
+    this._activePeers,
     this.contentRequestFanoutTimeout = const Duration(seconds: 8),
     this.contentGrantDelay = const Duration(seconds: 4),
     SpaceObservability? observability,
@@ -604,6 +609,7 @@ class GroupService {
   final SpaceRecommendationRevoker? revokeSpaceRecommendation;
   final GroupEpochService? _epochService;
   final SpaceObservability _observability;
+  final ActivePeerSnapshotReader? _activePeers;
   final int ourCertVersion;
 
   /// Ships a signed content-fetch request to the holder (wire layer).
@@ -657,15 +663,127 @@ class GroupService {
   NodeId get selfId => _signer.selfId;
 
   /// Bounded RAM-only counters/events with a compile-time privacy-safe schema.
-  SpaceObservabilitySnapshot spaceObservabilitySnapshot() =>
-      _observability.snapshot();
+  Future<SpaceObservabilitySnapshot> spaceObservabilitySnapshot() async =>
+      _observability.snapshot(replication: await _spaceReplicationSnapshot());
+
+  Future<SpaceReplicationObservability> _spaceReplicationSnapshot() async {
+    Set<String>? activePeerIds;
+    final reader = _activePeers;
+    if (reader != null) {
+      try {
+        activePeerIds = {for (final peer in await reader()) peer.hex};
+      } catch (_) {
+        activePeerIds = null;
+      }
+    }
+
+    var spaces = 0;
+    var eligibleRemoteSpreaders = 0;
+    var availableRemoteSpreaders = 0;
+    var targetReplicationFactorTotal = 0;
+    var liveReplicationFactorTotal = 0;
+    var liveReplicationFactorMin = 0;
+    var liveReplicationFactorMax = 0;
+    var underReplicatedSpaces = 0;
+
+    for (final hex in await _index()) {
+      try {
+        final bundle = await load(NodeId.fromHex(hex));
+        if (bundle == null || !bundle.manifest.isSpace) continue;
+        final state = foldControlLog(
+          owner: bundle.manifest.owner,
+          entries: bundle.control,
+          verify: (entry) => _validControlFor(bundle.manifest, entry),
+          initialName: bundle.manifest.name,
+          initialDescription: bundle.manifest.description ?? '',
+        ).state;
+        final acl = SpaceAcl(state);
+        if (!acl.allows(_signer.selfId, SpacePermission.distributeContent)) {
+          continue;
+        }
+        final eligible = <NodeId>[
+          for (final member in state.members.values)
+            if (member.nodeId != _signer.selfId &&
+                acl.allows(member.nodeId, SpacePermission.distributeContent))
+              member.nodeId,
+        ];
+        final neighborCount = await groupSyncNeighborCount(
+          bundle.manifest.groupId,
+        );
+        final target =
+            1 +
+            (eligible.length < neighborCount ? eligible.length : neighborCount);
+        spaces++;
+        eligibleRemoteSpreaders += eligible.length;
+        targetReplicationFactorTotal += target;
+
+        if (activePeerIds != null) {
+          final available = eligible
+              .where((peer) => activePeerIds!.contains(peer.hex))
+              .length;
+          final live = available + 1;
+          availableRemoteSpreaders += available;
+          liveReplicationFactorTotal += live;
+          if (spaces == 1 || live < liveReplicationFactorMin) {
+            liveReplicationFactorMin = live;
+          }
+          if (live > liveReplicationFactorMax) {
+            liveReplicationFactorMax = live;
+          }
+          if (live < target) underReplicatedSpaces++;
+        }
+      } catch (_) {
+        // A corrupt/partially purged local row must not break diagnostics for
+        // every other Space, and exposing the failing id would violate scope.
+      }
+    }
+
+    final liveSourceAvailable = activePeerIds != null;
+    return SpaceReplicationObservability(
+      liveSourceAvailable: liveSourceAvailable,
+      spaces: spaces,
+      eligibleRemoteSpreaders: eligibleRemoteSpreaders,
+      targetReplicationFactorTotal: targetReplicationFactorTotal,
+      availableRemoteSpreaders: liveSourceAvailable
+          ? availableRemoteSpreaders
+          : null,
+      estimatedLiveReplicationFactorTotal: liveSourceAvailable
+          ? liveReplicationFactorTotal
+          : null,
+      estimatedLiveReplicationFactorMin: liveSourceAvailable
+          ? liveReplicationFactorMin
+          : null,
+      estimatedLiveReplicationFactorMax: liveSourceAvailable
+          ? liveReplicationFactorMax
+          : null,
+      estimatedUnderReplicatedSpaces: liveSourceAvailable
+          ? underReplicatedSpaces
+          : null,
+    );
+  }
 
   void _observeSpace(
     SpaceObservationType type,
     SpaceObservationOutcome outcome, {
     SpaceObservationReason? reason,
     int? amount,
-  }) => _observability.record(type, outcome, reason: reason, amount: amount);
+    Duration? duration,
+  }) => _observability.record(
+    type,
+    outcome,
+    reason: reason,
+    amount: amount,
+    duration: duration,
+  );
+
+  bool _wasRevokedSpaceMember(GroupBundle bundle, NodeId peer) =>
+      bundle.manifest.isSpace &&
+      bundle.control.any(
+        (entry) =>
+            _validControlFor(bundle.manifest, entry) &&
+            entry.op == ControlOp.addMember &&
+            entry.target == peer,
+      );
 
   /// Contact state belongs to [MessagingService], while feed materialization
   /// belongs here. The Flutter bridge calls this after a local or mirrored
@@ -11156,6 +11274,7 @@ class GroupService {
     }
     final b = await load(gid);
     if (b == null) return false;
+    final attempt = Stopwatch()..start();
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
@@ -11180,7 +11299,15 @@ class GroupService {
           SpaceObservationType.p2pBackfill,
           SpaceObservationOutcome.rejected,
           reason: SpaceObservationReason.notMember,
+          duration: attempt.elapsed,
         );
+        if (_wasRevokedSpaceMember(b, peer)) {
+          _observeSpace(
+            SpaceObservationType.revokedDeliveryPrevented,
+            SpaceObservationOutcome.rejected,
+            reason: SpaceObservationReason.notMember,
+          );
+        }
       }
       return false;
     }
@@ -11365,6 +11492,7 @@ class GroupService {
           SpaceObservationType.p2pBackfill,
           SpaceObservationOutcome.noOp,
           amount: 0,
+          duration: attempt.elapsed,
         );
       }
       return false;
@@ -11415,6 +11543,7 @@ class GroupService {
           SpaceObservationOutcome.failed,
           reason: SpaceObservationReason.transportFailed,
           amount: missingCount,
+          duration: attempt.elapsed,
         );
       }
       rethrow;
@@ -11424,6 +11553,7 @@ class GroupService {
         SpaceObservationType.p2pBackfill,
         SpaceObservationOutcome.succeeded,
         amount: missingCount,
+        duration: attempt.elapsed,
       );
     }
     return true;
@@ -12474,6 +12604,15 @@ class GroupService {
       devLog(
         () => 'xVeil[groups]: content request DENIED (${denial.name}) — drop',
       );
+      if (bundle.manifest.isSpace &&
+          !st.isMember(req.requester) &&
+          _wasRevokedSpaceMember(bundle, req.requester)) {
+        _observeSpace(
+          SpaceObservationType.revokedDeliveryPrevented,
+          SpaceObservationOutcome.rejected,
+          reason: SpaceObservationReason.notMember,
+        );
+      }
       return false;
     }
     if (_seenContentNonces.length >= _kMaxSeenNonces) {
@@ -14482,12 +14621,14 @@ class GroupService {
     final send = _send;
     final b = await load(groupId);
     if (b == null) return 0;
+    final attempt = Stopwatch()..start();
     if (send == null) {
       if (b.manifest.isSpace) {
         _observeSpace(
           SpaceObservationType.p2pSnapshotDelivery,
           SpaceObservationOutcome.noOp,
           reason: SpaceObservationReason.transportUnavailable,
+          duration: attempt.elapsed,
         );
       }
       return 0;
@@ -14514,6 +14655,7 @@ class GroupService {
           SpaceObservationOutcome.failed,
           reason: SpaceObservationReason.transportFailed,
           amount: n,
+          duration: attempt.elapsed,
         );
       }
       rethrow;
@@ -14525,6 +14667,7 @@ class GroupService {
             ? SpaceObservationOutcome.noOp
             : SpaceObservationOutcome.succeeded,
         amount: n,
+        duration: attempt.elapsed,
       );
     }
     return n;
@@ -14548,12 +14691,14 @@ class GroupService {
     final send = _send;
     final b = await load(groupId);
     if (b == null) return 0;
+    final attempt = Stopwatch()..start();
     if (send == null) {
       if (b.manifest.isSpace) {
         _observeSpace(
           SpaceObservationType.p2pDeltaDelivery,
           SpaceObservationOutcome.noOp,
           reason: SpaceObservationReason.transportUnavailable,
+          duration: attempt.elapsed,
         );
       }
       return 0;
@@ -14680,6 +14825,7 @@ class GroupService {
           SpaceObservationOutcome.failed,
           reason: SpaceObservationReason.transportFailed,
           amount: n,
+          duration: attempt.elapsed,
         );
       }
       rethrow;
@@ -14691,6 +14837,7 @@ class GroupService {
             ? SpaceObservationOutcome.noOp
             : SpaceObservationOutcome.succeeded,
         amount: n,
+        duration: attempt.elapsed,
       );
     }
     return n;
