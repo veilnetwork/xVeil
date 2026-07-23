@@ -402,6 +402,12 @@ class MessagingService {
   bool _groupPullSourceAllowed(NodeId peer, String cid) =>
       _groupContent.groupPullSourceAllowed(peer, cid);
 
+  void _allowPublicPullSources(
+    String cid,
+    Iterable<NodeId> peers, {
+    required Duration ttl,
+  }) => _groupContent.allowPublicPullSources(cid, peers, ttl: ttl);
+
   void _clearGroupPullSources(String cid) =>
       _groupContent.clearGroupPullSources(cid);
 
@@ -457,7 +463,7 @@ class MessagingService {
       return;
     }
     if (request == null || request.requester.hex != await _selfHex()) return;
-    _allowGroupPullSources(request.contentId, [
+    _allowPublicPullSources(request.contentId, [
       dst,
     ], ttl: kSpacePublicMediaGrantRequestWindow);
     await _send(
@@ -1719,7 +1725,7 @@ class MessagingService {
     if (sources.isEmpty) {
       return Future.value(ContentDownloadResult.noOffer);
     }
-    _allowGroupPullSources(
+    _allowPublicPullSources(
       contentId,
       sources,
       ttl: kSpacePublicMediaGrantRequestWindow,

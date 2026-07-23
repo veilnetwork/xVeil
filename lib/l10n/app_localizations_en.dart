@@ -504,6 +504,33 @@ class AppL10nEn extends AppL10n {
   String get spacePostCommentEditFailed => 'Could not save the comment changes';
 
   @override
+  String get spacePostCommentDelete => 'Delete';
+
+  @override
+  String get spacePostCommentDeleteTitle => 'Delete comment?';
+
+  @override
+  String get spacePostCommentDeleteBody =>
+      'The comment will disappear for members and, if it was public, from the public feed. This cannot be undone.';
+
+  @override
+  String get spaceModerationDeleteComment => 'Remove comment';
+
+  @override
+  String get spacePostCommentBlockAuthor => 'Block author';
+
+  @override
+  String get spacePostCommentBlockAuthorTitle => 'Block this author?';
+
+  @override
+  String get spacePostCommentBlockAuthorBody =>
+      'Their posts, comments, mentions and direct messages will be hidden on this identity. They will not be notified.';
+
+  @override
+  String get spacePostCommentParentUnavailable =>
+      'Original comment deleted or hidden';
+
+  @override
   String spacePostCommentReplyingTo(String author) {
     return 'Replying to $author';
   }

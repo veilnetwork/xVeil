@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/ids.dart';
+import '../../domain/group_message.dart';
 import '../../domain/space_moderation.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
@@ -95,6 +96,139 @@ Future<bool> promptAndModerateDeleteSpacePost(
     ).showSnackBar(SnackBar(content: Text(l.spaceOperationFailed)));
   }
   return actionId != null;
+}
+
+Future<bool> confirmAndDeleteOwnSpacePostComment(
+  BuildContext context,
+  GroupService service,
+  NodeId spaceId,
+  SpacePostCommentView comment,
+) async {
+  final l = AppL10n.of(context);
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(l.spacePostCommentDeleteTitle),
+      content: Text(l.spacePostCommentDeleteBody),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          key: const ValueKey('space-post-comment-delete-confirm'),
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: Text(l.spacePostCommentDelete),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || comment.spacePostId == null) return false;
+  final deleted = await service.deleteSpacePostComment(
+    spaceId,
+    comment.spacePostId!,
+    comment.ref,
+  );
+  if (!deleted && context.mounted) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(l.spaceOperationFailed)));
+  }
+  return deleted;
+}
+
+Future<bool> promptAndModerateDeleteSpacePostComment(
+  BuildContext context,
+  GroupService service,
+  NodeId spaceId,
+  SpacePostCommentView comment,
+) async {
+  final l = AppL10n.of(context);
+  var reasonDraft = '';
+  final reason = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(l.spaceModerationDeleteComment),
+      content: TextField(
+        key: const ValueKey('space-post-comment-moderation-reason'),
+        autofocus: true,
+        maxLength: kSpaceModerationReasonMax,
+        decoration: InputDecoration(labelText: l.spaceModerationReason),
+        onChanged: (value) => reasonDraft = value,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          key: const ValueKey('space-post-comment-moderation-confirm'),
+          onPressed: () {
+            final value = reasonDraft.trim();
+            if (value.isNotEmpty) Navigator.of(dialogContext).pop(value);
+          },
+          child: Text(l.spaceModerationDeleteComment),
+        ),
+      ],
+    ),
+  );
+  if (reason == null) return false;
+  final actionId = await service.moderateSpace(
+    spaceId,
+    kind: SpaceModerationKind.deleteMessage,
+    target: comment.author,
+    scope: SpaceModerationScope.posts,
+    reason: reason,
+    reference: SpaceModerationReference(
+      kind: SpaceModerationReferenceKind.spacePostComment,
+      author: comment.author,
+      seq: comment.root.seq,
+    ),
+  );
+  if (actionId == null && context.mounted) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(l.spaceOperationFailed)));
+  }
+  return actionId != null;
+}
+
+Future<bool> confirmAndBlockSpaceAuthor(
+  BuildContext context,
+  NodeId author,
+  Future<void> Function(NodeId author) block,
+) async {
+  final l = AppL10n.of(context);
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(l.spacePostCommentBlockAuthorTitle),
+      content: Text(l.spacePostCommentBlockAuthorBody),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          key: const ValueKey('space-post-comment-block-confirm'),
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: Text(l.spacePostCommentBlockAuthor),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true) return false;
+  try {
+    await block(author);
+    return true;
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.spaceOperationFailed)));
+    }
+    return false;
+  }
 }
 
 Future<bool> updateSpacePostPinned(

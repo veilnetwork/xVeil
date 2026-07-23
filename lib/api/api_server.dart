@@ -1407,6 +1407,27 @@ Map<String, dynamic> openApiSpec() {
           },
           'responses': ok({'type': obj}),
         },
+        'delete': {
+          'summary':
+              'Append an encrypted tombstone for an own Space post comment',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space', 'postId', 'commentId'],
+                  'properties': {
+                    'space': {'type': 'string'},
+                    'postId': {'type': 'string'},
+                    'commentId': {'type': 'string'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
       },
       '/spaces/posts/reactions': {
         'post': {
@@ -3052,6 +3073,7 @@ class ApiHandler {
     this.spacePostComments,
     this.publishSpacePostComment,
     this.editSpacePostComment,
+    this.deleteSpacePostComment,
     this.publishSpacePost,
     this.editSpacePost,
     this.deleteSpacePost,
@@ -3265,6 +3287,12 @@ class ApiHandler {
     String body,
   )?
   editSpacePostComment;
+  final Future<String?> Function(
+    String spaceHex,
+    String postId,
+    String commentId,
+  )?
+  deleteSpacePostComment;
   final Future<({String? error, Map<String, dynamic>? post})> Function(
     String spaceHex,
     String title,
@@ -4249,6 +4277,28 @@ class ApiHandler {
       return _spaceMutationResponse(
         await handler(space, postId, commentId, text.trim()),
       );
+    }
+    if (method == 'DELETE' && path == '/v1/spaces/posts/comments') {
+      final handler = deleteSpacePostComment;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space post comment deletion unavailable',
+        });
+      }
+      final space = body?['space'];
+      final postId = body?['postId'];
+      final commentId = body?['commentId'];
+      if (space is! String ||
+          space.isEmpty ||
+          postId is! String ||
+          !_validPostId(postId) ||
+          commentId is! String ||
+          !_validPostId(commentId)) {
+        return const ApiResponse(400, {
+          'error': 'invalid Space post comment delete',
+        });
+      }
+      return _spaceMutationResponse(await handler(space, postId, commentId));
     }
     if (method == 'POST' && path == '/v1/spaces/posts') {
       final handler = publishSpacePost;

@@ -637,6 +637,7 @@ class ApiServerController extends Notifier<ApiConfig> {
       spacePostComments: groupApi?.postComments,
       publishSpacePostComment: groupApi?.postComment,
       editSpacePostComment: groupApi?.editPostComment,
+      deleteSpacePostComment: groupApi?.deletePostComment,
       publishSpacePost: groupApi?.publishPost,
       editSpacePost: groupApi?.editPost,
       deleteSpacePost: groupApi?.deletePost,

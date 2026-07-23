@@ -21,9 +21,15 @@ class _MessagingGroupContent {
   /// stream unless [_groupServeGrants] contains the matching requester/cid.
   final Map<String, int> _groupPullSources = {};
 
+  /// Public-feed capability pulls share the content-addressed transport but
+  /// never mint membership receipts. Keep their admission scope separate so a
+  /// verified public download cannot be misreported as group distribution.
+  final Map<String, int> _publicPullSources = {};
+
   void clear() {
     _groupServeGrants.clear();
     _groupPullSources.clear();
+    _publicPullSources.clear();
   }
 
   /// Persist and send a signed group content-fetch request without opening a
@@ -140,11 +146,27 @@ class _MessagingGroupContent {
   }
 
   bool groupPullSourceAllowed(NodeId peer, String cid) =>
-      (_groupPullSources['${peer.hex}|$cid'] ?? 0) >
-      DateTime.now().millisecondsSinceEpoch;
+      ((_groupPullSources['${peer.hex}|$cid'] ?? 0) >
+          DateTime.now().millisecondsSinceEpoch) ||
+      ((_publicPullSources['${peer.hex}|$cid'] ?? 0) >
+          DateTime.now().millisecondsSinceEpoch);
+
+  void allowPublicPullSources(
+    String cid,
+    Iterable<NodeId> peers, {
+    required Duration ttl,
+  }) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _publicPullSources.removeWhere((_, exp) => exp <= now);
+    final expires = now + ttl.inMilliseconds;
+    for (final peer in peers) {
+      _publicPullSources['${peer.hex}|$cid'] = expires;
+    }
+  }
 
   void clearGroupPullSources(String cid) {
     _groupPullSources.removeWhere((key, _) => key.endsWith('|$cid'));
+    _publicPullSources.removeWhere((key, _) => key.endsWith('|$cid'));
   }
 
   /// Report only sources that were explicitly authorized for this group pull.
@@ -155,7 +177,8 @@ class _MessagingGroupContent {
   ) async {
     final verified = <String, NodeId>{};
     for (final source in sources) {
-      if (groupPullSourceAllowed(source, cid)) {
+      if ((_groupPullSources['${source.hex}|$cid'] ?? 0) >
+          DateTime.now().millisecondsSinceEpoch) {
         verified[source.hex] = source;
       }
     }

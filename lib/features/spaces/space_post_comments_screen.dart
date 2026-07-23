@@ -6,17 +6,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/ids.dart';
+import '../../domain/group.dart';
 import '../../domain/group_message.dart';
 import '../../domain/group_policy.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
+import '../../state/messaging.dart' show messagingServiceProvider;
 import '../../state/notifications.dart' show activeConversationProvider;
 import '../chat/custom_emoji_controller.dart';
 import '../chat/mention_composer.dart';
 import '../chat/message_markdown.dart';
 import '../chat/message_mentions.dart';
 import 'space_post_body.dart';
+import 'space_post_actions.dart';
 import 'space_post_media.dart';
 
 /// Member discussion for one Space publication. Comments share the signed,
@@ -321,6 +324,54 @@ class _SpacePostCommentsScreenState
     setState(_restoreComposerAfterEdit);
   }
 
+  Future<void> _deleteComment(SpacePostCommentView comment) async {
+    final service = _boundService;
+    final spaceId = _boundSpaceId;
+    if (_sending || service == null || spaceId == null) return;
+    final deleted = await confirmAndDeleteOwnSpacePostComment(
+      context,
+      service,
+      spaceId,
+      comment,
+    );
+    if (!mounted || !deleted) return;
+    if (_editing?.ref == comment.ref) _restoreComposerAfterEdit();
+    setState(() {
+      _projection = _load(service, spaceId);
+    });
+  }
+
+  Future<void> _moderateComment(SpacePostCommentView comment) async {
+    final service = _boundService;
+    final spaceId = _boundSpaceId;
+    if (_sending || service == null || spaceId == null) return;
+    final moderated = await promptAndModerateDeleteSpacePostComment(
+      context,
+      service,
+      spaceId,
+      comment,
+    );
+    if (!mounted || !moderated) return;
+    setState(() {
+      _projection = _load(service, spaceId);
+    });
+  }
+
+  Future<void> _blockCommentAuthor(SpacePostCommentView comment) async {
+    final service = _boundService;
+    final spaceId = _boundSpaceId;
+    if (_sending || service == null || spaceId == null) return;
+    final blocked = await confirmAndBlockSpaceAuthor(
+      context,
+      comment.author,
+      ref.read(messagingServiceProvider).blockContact,
+    );
+    if (!mounted || !blocked) return;
+    setState(() {
+      _projection = _load(service, spaceId);
+    });
+  }
+
   void _restoreComposerAfterEdit() {
     _editing = null;
     _composer.loadWireValue(_composerBeforeEdit ?? '', const []);
@@ -448,6 +499,15 @@ class _SpacePostCommentsScreenState
                             );
                           }
                           final comment = comments[index - 1];
+                          final isSelf = comment.author == service.selfId;
+                          final canModerate =
+                              !isSelf &&
+                              SpaceAcl(state).allowsControl(
+                                service.selfId,
+                                ControlOp.moderate,
+                                target: comment.author,
+                                moderationTargetsRemovedContent: true,
+                              );
                           return AnimatedContainer(
                             key: comment.ref == widget.initialCommentRef
                                 ? _initialCommentKey
@@ -465,16 +525,24 @@ class _SpacePostCommentsScreenState
                               spaceId: spaceId,
                               comment: comment,
                               repliedComment: byRef[comment.replyTo],
-                              isSelf: comment.author == service.selfId,
+                              isSelf: isSelf,
                               onReply: canWrite
                                   ? () => _reply(
                                       comment,
                                       projection.publicCommentRefs,
                                     )
                                   : null,
-                              onEdit:
-                                  canWrite && comment.author == service.selfId
+                              onEdit: canWrite && isSelf
                                   ? () => _edit(comment)
+                                  : null,
+                              onDelete: isSelf
+                                  ? () => _deleteComment(comment)
+                                  : null,
+                              onModerate: canModerate
+                                  ? () => _moderateComment(comment)
+                                  : null,
+                              onBlock: !isSelf
+                                  ? () => _blockCommentAuthor(comment)
                                   : null,
                             ),
                           );
@@ -608,6 +676,9 @@ class _CommentBubble extends StatelessWidget {
     required this.isSelf,
     required this.onReply,
     required this.onEdit,
+    required this.onDelete,
+    required this.onModerate,
+    required this.onBlock,
   });
 
   final NodeId spaceId;
@@ -616,6 +687,9 @@ class _CommentBubble extends StatelessWidget {
   final bool isSelf;
   final VoidCallback? onReply;
   final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+  final VoidCallback? onModerate;
+  final VoidCallback? onBlock;
 
   @override
   Widget build(BuildContext context) {
@@ -664,7 +738,7 @@ class _CommentBubble extends StatelessWidget {
                   ],
                 ],
               ),
-              if (repliedComment != null) ...[
+              if (comment.replyTo != null) ...[
                 const SizedBox(height: 6),
                 Container(
                   width: double.infinity,
@@ -680,7 +754,9 @@ class _CommentBubble extends StatelessWidget {
                     ),
                   ),
                   child: Text(
-                    _commentPreview(repliedComment!),
+                    repliedComment == null
+                        ? l.spacePostCommentParentUnavailable
+                        : _commentPreview(repliedComment!),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall,
@@ -714,7 +790,11 @@ class _CommentBubble extends StatelessWidget {
                   media: [comment.attachment!],
                   compact: true,
                 ),
-              if (onReply != null || onEdit != null)
+              if (onReply != null ||
+                  onEdit != null ||
+                  onDelete != null ||
+                  onModerate != null ||
+                  onBlock != null)
                 Align(
                   alignment: Alignment.centerRight,
                   child: Wrap(
@@ -744,6 +824,57 @@ class _CommentBubble extends StatelessWidget {
                             visualDensity: VisualDensity.compact,
                           ),
                         ),
+                      if (onDelete != null ||
+                          onModerate != null ||
+                          onBlock != null)
+                        PopupMenuButton<_CommentMenuAction>(
+                          key: ValueKey(
+                            'space-post-comment-menu-${comment.ref}',
+                          ),
+                          tooltip: MaterialLocalizations.of(
+                            context,
+                          ).showMenuTooltip,
+                          icon: const Icon(Icons.more_horiz, size: 20),
+                          onSelected: (action) {
+                            switch (action) {
+                              case _CommentMenuAction.delete:
+                                onDelete?.call();
+                              case _CommentMenuAction.moderate:
+                                onModerate?.call();
+                              case _CommentMenuAction.block:
+                                onBlock?.call();
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            if (onDelete != null)
+                              PopupMenuItem(
+                                value: _CommentMenuAction.delete,
+                                child: ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: const Icon(Icons.delete_outline),
+                                  title: Text(l.spacePostCommentDelete),
+                                ),
+                              ),
+                            if (onModerate != null)
+                              PopupMenuItem(
+                                value: _CommentMenuAction.moderate,
+                                child: ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: const Icon(Icons.gavel_outlined),
+                                  title: Text(l.spaceModerationDeleteComment),
+                                ),
+                              ),
+                            if (onBlock != null)
+                              PopupMenuItem(
+                                value: _CommentMenuAction.block,
+                                child: ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: const Icon(Icons.block_outlined),
+                                  title: Text(l.spacePostCommentBlockAuthor),
+                                ),
+                              ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
@@ -754,6 +885,8 @@ class _CommentBubble extends StatelessWidget {
     );
   }
 }
+
+enum _CommentMenuAction { delete, moderate, block }
 
 class _Composer extends StatelessWidget {
   const _Composer({

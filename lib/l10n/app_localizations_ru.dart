@@ -510,6 +510,33 @@ class AppL10nRu extends AppL10n {
       'Не удалось сохранить изменения комментария';
 
   @override
+  String get spacePostCommentDelete => 'Удалить';
+
+  @override
+  String get spacePostCommentDeleteTitle => 'Удалить комментарий?';
+
+  @override
+  String get spacePostCommentDeleteBody =>
+      'Комментарий исчезнет у участников и, если он был публичным, из публичной ленты. Это действие нельзя отменить.';
+
+  @override
+  String get spaceModerationDeleteComment => 'Скрыть комментарий';
+
+  @override
+  String get spacePostCommentBlockAuthor => 'Заблокировать автора';
+
+  @override
+  String get spacePostCommentBlockAuthorTitle => 'Заблокировать этого автора?';
+
+  @override
+  String get spacePostCommentBlockAuthorBody =>
+      'Его публикации, комментарии, упоминания и личные сообщения будут скрыты для этой личности. Автор не узнает о блокировке.';
+
+  @override
+  String get spacePostCommentParentUnavailable =>
+      'Исходный комментарий удалён или скрыт';
+
+  @override
   String spacePostCommentReplyingTo(String author) {
     return 'Ответ для $author';
   }

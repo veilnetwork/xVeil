@@ -673,21 +673,53 @@ class SpacePublicFeedProjection {
     verifySignature: verifySignature,
   );
 
-  Set<String> get referencedContentIds => Set<String>.unmodifiable({
-    for (final page in pages)
-      for (final post in page.posts)
-        if (!post.mediaHiddenByRetention)
-          for (final media in post.effective.media) media.contentId!,
-    // Public comment media is an independently author-signed reference. It
-    // must be part of the verified allowlist too, otherwise a public reader
-    // can verify the comment but can never request its attachment.
-    for (final page in discussionPages)
-      for (final comment in page.comments)
-        if (comment.operation == SpacePublicCommentOperation.create &&
-            comment.media != null)
-          comment.media!.contentId!,
-  });
+  /// Content reachable from the current folded public projection.
+  ///
+  /// Callers that use this set as an authorization boundary must use
+  /// [verifiedReferencedContentIds]. This compatibility getter assumes the
+  /// enclosing projection has already passed [verifyAt], as storage
+  /// reachability and diagnostics do.
+  Set<String> get referencedContentIds =>
+      _referencedContentIds(_acceptProjectionSignature);
+
+  /// Signature-verifying variant used by the public media grant boundary.
+  ///
+  /// Comment CIDs come only from currently visible roots. A later signed
+  /// delete, or owner moderation that omits the root from the snapshot,
+  /// therefore revokes future grants without mutating historical records.
+  Set<String> verifiedReferencedContentIds(
+    SpacePublicSignatureVerifier verifySignature,
+  ) => _referencedContentIds(verifySignature);
+
+  Set<String> _referencedContentIds(
+    SpacePublicSignatureVerifier verifySignature,
+  ) {
+    final contentIds = <String>{
+      for (final page in pages)
+        for (final post in page.posts)
+          if (!post.mediaHiddenByRetention)
+            for (final media in post.effective.media) media.contentId!,
+    };
+    final postIds = <String>{
+      for (final page in discussionPages)
+        for (final comment in page.comments) comment.postId,
+    };
+    for (final postId in postIds) {
+      for (final comment in commentsFor(postId, verifySignature)) {
+        final media = comment.media;
+        if (media != null) contentIds.add(media.contentId!);
+      }
+    }
+    return Set<String>.unmodifiable(contentIds);
+  }
 }
+
+bool _acceptProjectionSignature({
+  required NodeId signer,
+  required Uint8List publicKey,
+  required Uint8List message,
+  required Uint8List signature,
+}) => true;
 
 /// Durable/cache wire unit for one exact descriptor revision. Keeping the
 /// descriptor alongside its committed manifest lets a restarted holder serve
