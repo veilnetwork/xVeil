@@ -323,7 +323,7 @@ void main() {
       try {
         final space = (await api.createSpace('Consent', '', 'private'))!;
         expect(
-          await api.memberAction(space, 'invite', invitee.hex, 'member'),
+          await api.memberAction(space, 'invite', invitee.hex, 'member', true),
           isNull,
         );
         expect(sent, hasLength(1));
@@ -408,14 +408,20 @@ void main() {
       try {
         final space = (await api.createSpace('Ownership', '', 'private'))!;
         expect(
-          await api.memberAction(space, 'add', nextOwner.hex, 'member'),
+          await api.memberAction(space, 'add', nextOwner.hex, 'member', true),
           isNull,
         );
         expect(
-          await api.memberAction(space, 'transfer_owner', nextOwner.hex, null),
+          await api.memberAction(
+            space,
+            'transfer_owner',
+            nextOwner.hex,
+            null,
+            true,
+          ),
           isNull,
         );
-        final roster = (await api.members(space))!;
+        final roster = (await api.members(space, true))!;
         final byId = {
           for (final member in roster['members'] as List)
             (member as Map)['nodeId']: member['role'],
@@ -423,7 +429,13 @@ void main() {
         expect(byId[owner.hex], GroupRole.admin.name);
         expect(byId[nextOwner.hex], GroupRole.owner.name);
         expect(
-          await api.memberAction(space, 'transfer_owner', owner.hex, null),
+          await api.memberAction(
+            space,
+            'transfer_owner',
+            owner.hex,
+            null,
+            true,
+          ),
           'operation rejected by group policy',
         );
       } finally {
@@ -981,66 +993,146 @@ void main() {
       expect(await ownerApi.sendMessage(group!, 'hello', null), isNull);
       expect((await ownerApi.messages(group, 10))!.single['body'], 'hello');
 
-      var roster = await ownerApi.members(group);
+      var roster = await ownerApi.members(group, false);
       expect(roster!['selfRole'], 'owner');
       expect((roster['members'] as List).single['self'], isTrue);
 
       expect(
-        await ownerApi.memberAction(group, 'add', bob.hex, 'member'),
+        await ownerApi.memberAction(group, 'add', bob.hex, 'member', false),
         isNull,
       );
       expect(
-        await ownerApi.memberAction(group, 'set_role', bob.hex, 'admin'),
+        await ownerApi.memberAction(group, 'set_role', bob.hex, 'admin', false),
         isNull,
       );
-      expect(await ownerApi.memberAction(group, 'mute', bob.hex, null), isNull);
-      roster = await ownerApi.members(group);
+      expect(
+        await ownerApi.memberAction(group, 'mute', bob.hex, null, false),
+        isNull,
+      );
+      roster = await ownerApi.members(group, false);
       final bobJson = (roster!['members'] as List<Map<String, dynamic>>)
           .singleWhere((member) => member['nodeId'] == bob.hex);
       expect(bobJson['role'], 'admin');
       expect(bobJson['muted'], isTrue);
       expect(
-        await ownerApi.memberAction(group, 'unmute', bob.hex, null),
+        await ownerApi.memberAction(group, 'unmute', bob.hex, null, false),
         isNull,
       );
 
       expect(
-        await ownerApi.memberAction(group, 'add', carol.hex, 'member'),
+        await ownerApi.memberAction(group, 'add', carol.hex, 'member', false),
         isNull,
       );
       final carolApi = apiFor(GroupService(storage, _Signer(carol)));
       expect(
-        await carolApi.rename(group, 'Hijacked'),
+        await carolApi.rename(group, 'Hijacked', false),
         'operation rejected by group policy',
       );
       expect(
-        await ownerApi.memberAction(group, 'remove', carol.hex, null),
+        await ownerApi.memberAction(group, 'remove', carol.hex, null, false),
         isNull,
       );
-      expect((await ownerApi.members(group))!['members'], hasLength(2));
+      expect((await ownerApi.members(group, false))!['members'], hasLength(2));
 
-      expect(await ownerApi.rename(group, 'Automation'), isNull);
-      expect((await ownerApi.members(group))!['name'], 'Automation');
+      expect(await ownerApi.rename(group, 'Automation', false), isNull);
+      expect((await ownerApi.members(group, false))!['name'], 'Automation');
       expect(
-        await ownerApi.leave(group),
+        await ownerApi.leave(group, false),
         'operation rejected by group policy',
         reason: 'the genesis owner cannot leave in group policy v1',
       );
 
       final bobApi = apiFor(GroupService(storage, _Signer(bob)));
-      expect((await bobApi.members(group))!['selfRole'], 'admin');
-      expect(await bobApi.leave(group), isNull);
-      expect(await bobApi.members(group), isNull);
-      expect((await ownerApi.members(group))!['members'], hasLength(1));
+      expect((await bobApi.members(group, false))!['selfRole'], 'admin');
+      expect(await bobApi.leave(group, false), isNull);
+      expect(await bobApi.members(group, false), isNull);
+      expect((await ownerApi.members(group, false))!['members'], hasLength(1));
 
-      expect(await ownerApi.members('not-a-group'), isNull);
+      expect(await ownerApi.members('not-a-group', false), isNull);
       expect(
-        await ownerApi.memberAction(group, 'unknown', bob.hex, null),
+        await ownerApi.memberAction(group, 'unknown', bob.hex, null, false),
         'invalid member action',
       );
       await ownerService.dispose();
     },
   );
+
+  test('group and Space ids cannot cross REST adapter boundaries', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(39);
+    final service = GroupService(storage, _Signer(owner));
+    final api = GroupApiAdapter(
+      service,
+      registerContentSource:
+          (
+            String name,
+            int size,
+            Future<Uint8List> Function(int, int) read, {
+            required Future<void> Function() close,
+            String? sourcePath,
+          }) async {
+            try {
+              return 'unused';
+            } finally {
+              await close();
+            }
+          },
+      loadContent: (_) async => null,
+    );
+    addTearDown(service.dispose);
+
+    final group = (await api.create('Private chat'))!;
+    final space = (await api.createSpace(
+      'Community',
+      'Publications live here',
+      'private',
+    ))!;
+
+    expect(await api.members(group, true), isNull);
+    expect(await api.members(space, false), isNull);
+    expect(await api.messages(space, 10), isNull);
+    expect(
+      await api.sendMessage(space, 'wrong surface', null),
+      'group not found',
+    );
+    expect(
+      (await api.sendFile(
+        space,
+        '/path-is-never-opened',
+        null,
+        '',
+        null,
+      )).error,
+      'group not found',
+    );
+    expect(await api.profile(group), isNull);
+    expect(await api.lifecycle(group), isNull);
+    expect(await api.channels(group), isNull);
+    expect(await api.spaceAccess(group), isNull);
+
+    expect(
+      await api.memberAction(group, 'add', _id(40).hex, 'member', true),
+      'group not found',
+    );
+    expect(
+      await api.memberAction(space, 'add', _id(40).hex, 'member', false),
+      'group not found',
+    );
+    expect(
+      await api.rename(group, 'Wrong Space route', true),
+      'group not found',
+    );
+    expect(
+      await api.rename(space, 'Wrong group route', false),
+      'group not found',
+    );
+    expect(await api.leave(group, true), 'group not found');
+    expect(await api.leave(space, false), 'group not found');
+
+    expect((await api.members(group, false))!['name'], 'Private chat');
+    expect((await api.members(space, true))!['name'], 'Community');
+  });
 
   test('moderation API is Space-only and keeps an immutable audit', () async {
     final storage = FakeHvContainer().storage();
@@ -1078,11 +1170,11 @@ void main() {
 
       final space = (await api.createSpace('Community', '', 'public'))!;
       expect(
-        await api.memberAction(space, 'add', member.hex, 'member'),
+        await api.memberAction(space, 'add', member.hex, 'member', true),
         isNull,
       );
       expect(
-        await api.memberAction(space, 'mute', member.hex, null),
+        await api.memberAction(space, 'mute', member.hex, null, true),
         contains('/v1/spaces/moderation'),
       );
       final created = await api.moderate(

@@ -2930,19 +2930,22 @@ class ApiHandler {
     String messageRef,
   )
   loadGroupFile;
-  final Future<Map<String, dynamic>?> Function(String groupHex) groupMembers;
+  final Future<Map<String, dynamic>?> Function(String groupHex, bool isSpace)
+  groupMembers;
   final Future<String?> Function(
     String groupHex,
     String action,
     String peerHex,
     String? role,
+    bool isSpace,
   )
   groupMemberAction;
   final Future<Map<String, dynamic>?> Function(String spaceHex)? spaceAccess;
   final Future<String?> Function(String spaceHex, Map<String, dynamic> body)?
   spaceAccessAction;
-  final Future<String?> Function(String groupHex, String name) renameGroup;
-  final Future<String?> Function(String groupHex) leaveGroup;
+  final Future<String?> Function(String groupHex, String name, bool isSpace)
+  renameGroup;
+  final Future<String?> Function(String groupHex, bool isSpace) leaveGroup;
   final Future<List<Map<String, dynamic>>?> Function(String spaceHex)?
   spaceChannels;
   final Future<Map<String, dynamic>?> Function(
@@ -4740,7 +4743,7 @@ class ApiHandler {
           'error': isSpace ? 'space required' : 'group required',
         });
       }
-      final roster = await groupMembers(scope);
+      final roster = await groupMembers(scope, isSpace);
       if (roster == null) {
         return ApiResponse(404, {
           'error': isSpace ? 'space not found' : 'group not found',
@@ -4788,6 +4791,7 @@ class ApiHandler {
         action,
         peer,
         role as String?,
+        isSpace,
       );
       return isSpace
           ? _spaceMutationResponse(error)
@@ -4838,7 +4842,7 @@ class ApiHandler {
               : 'group + name required (name max 64)',
         });
       }
-      final error = await renameGroup(scope, name);
+      final error = await renameGroup(scope, name, isSpace);
       return isSpace
           ? _spaceMutationResponse(error)
           : _groupMutationResponse(error);
@@ -4852,7 +4856,7 @@ class ApiHandler {
           'error': isSpace ? 'space required' : 'group required',
         });
       }
-      final error = await leaveGroup(scope);
+      final error = await leaveGroup(scope, isSpace);
       return isSpace
           ? _spaceMutationResponse(error)
           : _groupMutationResponse(error);
