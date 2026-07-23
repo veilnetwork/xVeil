@@ -1948,6 +1948,10 @@ extension _MessagingContentPull on MessagingService {
     Iterable<NodeId>? verifiedSources,
   }) async {
     final ackId = m.msgId ?? m.contentId;
+    final actualSources = verifiedSources ?? <NodeId>[peer];
+    final groupScoped = actualSources.any(
+      (source) => _groupPullSourceAllowed(source, m.contentId),
+    );
     if (sink != null) {
       try {
         await sink.close();
@@ -1993,7 +1997,9 @@ extension _MessagingContentPull on MessagingService {
             'xVeil[content]: COMPLETE ${m.contentId.substring(0, 12)} '
             '(${m.size}B) saved to $savedPath (serveable)',
       );
-      await _send(peer, WireEnvelope.ack(ackId).encode());
+      if (!groupScoped) {
+        await _send(peer, WireEnvelope.ack(ackId).encode());
+      }
       if (!_contentReceived.isClosed) {
         _contentReceived.add((
           contentId: m.contentId,
@@ -2009,12 +2015,21 @@ extension _MessagingContentPull on MessagingService {
           'xVeil[content]: COMPLETE ${m.contentId.substring(0, 12)} '
           '(${m.size}B) stored',
     );
-    final persisted = await _persistReceivedContent(peer, m);
-    if (persisted) await _send(peer, WireEnvelope.ack(ackId).encode());
+    final persisted = await _persistReceivedContent(
+      peer,
+      m,
+      surfaceOffer: !groupScoped,
+    );
+    if (persisted && !groupScoped) {
+      await _send(peer, WireEnvelope.ack(ackId).encode());
+    }
     if (persisted) {
-      await _groupContent.reportVerifiedSources(
-        m.contentId,
-        verifiedSources ?? <NodeId>[peer],
+      // The holder receipt is live-only observability. The verified blob is
+      // already durable, so group folding/storage latency must not postpone
+      // the user's completion event (or turn a successful download into a
+      // failed one).
+      unawaited(
+        _groupContent.reportVerifiedSources(m.contentId, actualSources),
       );
     }
     if (persisted) _clearGroupPullSources(m.contentId);
@@ -2150,17 +2165,26 @@ extension _MessagingContentPull on MessagingService {
           'xVeil[content]: COMPLETE ${f.contentId.substring(0, 12)} '
           '(${fetch.manifest.size}B) streamed to disk',
     );
-    final persisted = await _persistReceivedContent(fetch.peer, fetch.manifest);
+    final groupScoped = _groupPullSourceAllowed(fetch.peer, f.contentId);
+    final persisted = await _persistReceivedContent(
+      fetch.peer,
+      fetch.manifest,
+      surfaceOffer: !groupScoped,
+    );
     // Ack by the per-send msgId (the EVENT identity) so the SENDER's specific
     // file message flips sent->delivered = actually received (a legacy sender
     // without msgId falls back to the contentId — old behaviour).
-    if (persisted) {
+    if (persisted && !groupScoped) {
       devLog(
         () =>
             'xVeil[timeline]: content-ack id=$ackId '
             'via=direct t=${DateTime.now().millisecondsSinceEpoch}',
       );
       await _send(fetch.peer, WireEnvelope.ack(ackId).encode());
+    }
+    if (persisted && groupScoped) {
+      unawaited(_groupContent.reportVerifiedSources(f.contentId, [fetch.peer]));
+      _clearGroupPullSources(f.contentId);
     }
     if (persisted && await _consumeParkedPlainFileSave(f.contentId)) {
       return;
@@ -2175,12 +2199,24 @@ extension _MessagingContentPull on MessagingService {
   }
 
   /// A content transfer completed: its pieces were already streamed to disk
-  /// (storeFilePiece in [_onPieceChunk]), so the blob is hasFile-complete. Ensure
-  /// the OFFER message exists (idempotent) so it flips offer → downloaded, then
-  /// signal. Returns true (safe to ack = delivered = actually received).
-  Future<bool> _persistReceivedContent(NodeId peer, ContentManifest m) async {
+  /// (storeFilePiece in [_onPieceChunk]), so the blob is hasFile-complete.
+  /// Ordinary 1:1 transfers ensure the OFFER exists; group-scoped pulls retain
+  /// the same manifest/serving state without creating a direct-chat row.
+  Future<bool> _persistReceivedContent(
+    NodeId peer,
+    ContentManifest m, {
+    bool surfaceOffer = true,
+  }) async {
     _contentAvailability.forgetOffer(m.contentId);
-    await _surfaceFileOffer(peer, m);
+    if (surfaceOffer) {
+      await _surfaceFileOffer(peer, m);
+    } else {
+      devLog(
+        () =>
+            'xVeil[content]: group download kept out of 1:1 chat '
+            '${m.contentId.substring(0, 12)} <- ${peer.short}',
+      );
+    }
     await _persistServeManifest(m);
     _serving[m.contentId] = (manifest: m, source: null, servedAt: _now());
     _evictServing();

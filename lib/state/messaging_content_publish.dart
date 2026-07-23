@@ -85,20 +85,32 @@ extension _MessagingContentPublish on MessagingService {
   Future<Uint8List> _sendContentManifest(
     NodeId dst,
     ContentManifest manifest,
-  ) async {
-    final encoded = _encodeContentManifest(manifest);
+  ) => _sendEncodedContentManifest(dst, manifest, groupScoped: false);
+
+  Future<Uint8List> _sendGroupContentManifest(
+    NodeId dst,
+    ContentManifest manifest,
+  ) => _sendEncodedContentManifest(dst, manifest, groupScoped: true);
+
+  Future<Uint8List> _sendEncodedContentManifest(
+    NodeId dst,
+    ContentManifest manifest, {
+    required bool groupScoped,
+  }) async {
+    final encoded = _encodeContentManifest(manifest, groupScoped: groupScoped);
     await _send(dst, encoded.frame);
+    final scope = groupScoped ? 'group holder' : 'manifest';
     if (encoded.inline) {
       devLog(
         () =>
-            'xVeil[content]: manifest inline '
+            'xVeil[content]: $scope inline '
             '${manifest.contentId.substring(0, 12)} '
             'frame=${encoded.frame.length}B -> ${dst.short}',
       );
     } else {
       devLog(
         () =>
-            'xVeil[content]: manifest ref '
+            'xVeil[content]: $scope ref '
             '${manifest.contentId.substring(0, 12)} '
             'full_frame=${encoded.fullLength}B '
             'ref_frame=${encoded.frame.length}B -> ${dst.short}',
@@ -108,15 +120,24 @@ extension _MessagingContentPublish on MessagingService {
   }
 
   ({Uint8List frame, int fullLength, bool inline}) _encodeContentManifest(
-    ContentManifest manifest,
-  ) {
+    ContentManifest manifest, {
+    bool groupScoped = false,
+  }) {
     final fullJson = _contentManifestJson(manifest);
-    final fullFrame = contentManifestEnvelope(fullJson).encode();
+    final fullFrame =
+        (groupScoped
+                ? groupContentManifestEnvelope(fullJson)
+                : contentManifestEnvelope(fullJson))
+            .encode();
     if (fullFrame.length <= _contentManifestInlineEnvelopeLimit) {
       return (frame: fullFrame, fullLength: fullFrame.length, inline: true);
     }
     final refJson = _contentManifestRefJson(manifest);
-    final refFrame = contentManifestEnvelope(refJson).encode();
+    final refFrame =
+        (groupScoped
+                ? groupContentManifestEnvelope(refJson)
+                : contentManifestEnvelope(refJson))
+            .encode();
     return (frame: refFrame, fullLength: fullFrame.length, inline: false);
   }
 

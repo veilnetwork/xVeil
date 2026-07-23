@@ -592,4 +592,20 @@ void main() {
     expect(roundTrip.kind, WireKind.groupContentReceipt);
     expect(roundTrip.body, '{"gid":"aa","cid":"bb","n":"cc"}');
   });
+
+  test('groupContentManifest is a distinct v:2 scoped holder frame', () {
+    expect(
+      WireKind.groupContentReceipt.index,
+      39,
+      reason: 'new wire kinds are append-only; existing indices cannot shift',
+    );
+    expect(WireKind.groupContentManifest.index, 40);
+    final bytes = groupContentManifestEnvelope(
+      '{"id":"abc","name":"x"}',
+    ).encode();
+    expect(jsonDecode(utf8.decode(bytes))['v'], 2);
+    final roundTrip = WireEnvelope.decode(bytes);
+    expect(roundTrip.kind, WireKind.groupContentManifest);
+    expect(roundTrip.body, '{"id":"abc","name":"x"}');
+  });
 }

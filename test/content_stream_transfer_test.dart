@@ -255,6 +255,7 @@ class _StreamLink
   int localStreamCloses = 0;
   int activeAnonymousAccepts = 0;
   int maxConcurrentAnonymousAccepts = 0;
+  final List<String> warmedPeers = [];
   Completer<void>? _acceptWaiter;
   Completer<void>? _p2pAcceptWaiter;
 
@@ -287,7 +288,9 @@ class _StreamLink
   Future<void> dispose() async => _in.close();
 
   @override
-  Future<void> warmStreamPeer(NodeId dst) async {}
+  Future<void> warmStreamPeer(NodeId dst) async {
+    warmedPeers.add(dst.hex);
+  }
 
   @override
   Future<ReliableStream?> openStream(NodeId dst) async {
@@ -1326,6 +1329,95 @@ void main() {
   );
 
   test(
+    'GROUP holder hint stays out of an accepted contact chat and warms pull',
+    () async {
+      final data = _rnd(180000, 37);
+      final cid = await mA.registerGroupContent(
+        data,
+        name: 'accepted-group.bin',
+      );
+      final grantObserved = Completer<void>();
+      mA.onGroupContentRequest = (peer, _) {
+        mA.grantGroupContentServe(peer, cid);
+        if (!grantObserved.isCompleted) grantObserved.complete();
+      };
+      final request = GroupContentRequest(
+        groupId: _id(9),
+        contentId: cid,
+        requester: b,
+        nonce: 'accepted-contact',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+        signature: Uint8List(0),
+      );
+
+      await mB.sendGroupContentRequest(a, jsonEncode(request.toJson()));
+      await grantObserved.future.timeout(const Duration(seconds: 2));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      final holderFrames = tA.sentPayloads
+          .map(WireEnvelope.decode)
+          .where((env) => env.kind == WireKind.groupContentManifest)
+          .toList();
+      expect(holderFrames, hasLength(1));
+      expect(
+        await sB.loadMessages(a.hex),
+        isEmpty,
+        reason: 'a Space holder hint is not a direct-chat file offer',
+      );
+      expect(
+        tB.sentPayloads.map(WireEnvelope.decode).map((env) => env.kind),
+        isNot(contains(anyOf(WireKind.ack, WireKind.pieceRequest))),
+        reason: 'the live hint cannot auto-download or emit a read oracle',
+      );
+      expect(await sB.hasFile(cid), isFalse);
+      expect(tB.warmedPeers, contains(a.hex));
+
+      final chunksBefore = tA.sentPayloads
+          .map(WireEnvelope.decode)
+          .where((env) => env.kind == WireKind.pieceChunk)
+          .length;
+      await tB.send(
+        a,
+        pieceRequestEnvelope(contentId: cid, indices: [0]).encode(),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(
+        tA.sentPayloads
+            .map(WireEnvelope.decode)
+            .where((env) => env.kind == WireKind.pieceChunk)
+            .length,
+        greaterThan(chunksBefore),
+        reason: 'a registered group blob must retain datagram fallback serving',
+      );
+
+      final gotB = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(
+        await mB.downloadGroupContentFromAny([a], cid),
+        ContentDownloadResult.started,
+      );
+      final event = await gotB.timeout(const Duration(seconds: 20));
+      expect(event.contentId, cid);
+      expect(await sB.loadFile(cid), data);
+      expect(
+        await sB.loadMessages(a.hex),
+        isEmpty,
+        reason: 'completing a Space pull must not create a direct-chat row',
+      );
+      expect(
+        tB.sentPayloads.map(WireEnvelope.decode).map((env) => env.kind),
+        isNot(contains(WireKind.ack)),
+        reason: 'a Space completion uses its scoped receipt, not a 1:1 ACK',
+      );
+      expect(tB.openStreamAttemptsByPeer[a.hex], greaterThan(0));
+      expect(
+        tB.openStreamAttemptCount,
+        tB.openedStreamCount,
+        reason: 'the warmed in-memory route must not lose an open attempt',
+      );
+    },
+  );
+
+  test(
     'GROUP swarm: a non-contact member re-seeds after the author goes offline',
     () async {
       final data = _rnd(530000, 19);
@@ -1393,7 +1485,7 @@ void main() {
         final sent = tB.sentPayloads.any((payload) {
           try {
             return WireEnvelope.decode(payload).kind ==
-                WireKind.contentManifest;
+                WireKind.groupContentManifest;
           } catch (_) {
             return false;
           }

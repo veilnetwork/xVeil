@@ -152,6 +152,7 @@ extension _MessagingContentReceive on MessagingService {
       final cid = ref.contentId;
       if (!_groupPullSourceAllowed(peer, cid)) return;
       _contentAvailability.rememberRef(peer, ref);
+      _warmStreamPeer(peer);
       devLog(
         () =>
             'xVeil[content]: group holder ref '
@@ -166,6 +167,7 @@ extension _MessagingContentReceive on MessagingService {
       return;
     }
     _rememberOfferedManifest(peer, manifest);
+    _warmStreamPeer(peer);
     devLog(
       () =>
           'xVeil[content]: group holder manifest '
@@ -178,8 +180,14 @@ extension _MessagingContentReceive on MessagingService {
     try {
       final decoded = jsonDecode(body) as Map<String, dynamic>;
       final ref = _parseContentManifestRef(decoded);
-      if (ref != null) return ref.contentId;
-      return ContentManifest.fromJson(decoded)?.contentId;
+      // Compatibility with a holder from the immediately preceding build,
+      // which used the ordinary contentManifest kind for this live hint.
+      // Real direct-chat file sends carry a per-send event id; only an
+      // eventless base manifest/ref may be reclassified while the exact group
+      // pull scope is active.
+      if (ref != null) return ref.msgId == null ? ref.contentId : null;
+      final manifest = ContentManifest.fromJson(decoded);
+      return manifest?.msgId == null ? manifest?.contentId : null;
     } catch (_) {
       return null;
     }

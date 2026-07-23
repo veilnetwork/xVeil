@@ -297,12 +297,16 @@ extension _MessagingInboundDispatch on MessagingService {
       case WireKind.contentManifest:
         // A peer advertises a content manifest (the "torrent"): verify it,
         // register a transfer, request the pieces we lack.
+        final groupCid = _groupScopedManifestContentId(env.body);
+        if (groupCid != null && _groupPullSourceAllowed(m.src, groupCid)) {
+          // Compatibility with the preceding build, whose live group-holder
+          // hint reused contentManifest. Check this before the contact gate:
+          // co-members may also be accepted contacts, but the eventless,
+          // exact-(peer,cid)-scoped hint must still avoid the 1:1 offer path.
+          await _onGroupContentManifest(m.src, env.body);
+          return;
+        }
         if (existing?.status != ContactStatus.accepted) {
-          final groupCid = _groupScopedManifestContentId(env.body);
-          if (groupCid != null && _groupPullSourceAllowed(m.src, groupCid)) {
-            await _onGroupContentManifest(m.src, env.body);
-            return;
-          }
           devLog(
             () =>
                 'xVeil[content]: manifest DROPPED — ${m.src.short} '
@@ -316,6 +320,12 @@ extension _MessagingInboundDispatch on MessagingService {
               '<- ${m.src.short}',
         );
         await _onContentManifest(m.src, env.body);
+        return;
+      case WireKind.groupContentManifest:
+        // A live holder hint for an already-scoped group pull. The group
+        // receive path validates the exact (peer,cid) scope and deliberately
+        // creates no chat offer, auto-download, ACK, or membership oracle.
+        await _onGroupContentManifest(m.src, env.body);
         return;
       case WireKind.contentReoffer:
         // A peer lost the manifest handle (restart) but still holds the offer —
