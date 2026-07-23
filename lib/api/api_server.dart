@@ -190,6 +190,47 @@ Map<String, dynamic> openApiSpec() {
             'lastTs': {'type': 'integer', 'format': 'int64'},
           },
         },
+        'SpaceMembership': {
+          'type': obj,
+          'required': [
+            'spaceId',
+            'name',
+            'visibility',
+            'status',
+            'source',
+            'isMember',
+            'canOpen',
+            'changedAt',
+          ],
+          'properties': {
+            'spaceId': {'type': 'string'},
+            'name': {'type': 'string'},
+            'visibility': {
+              'type': 'string',
+              'enum': ['public', 'private', 'secret'],
+            },
+            'status': {
+              'type': 'string',
+              'enum': ['pending', 'active', 'suspended', 'left', 'banned'],
+            },
+            'source': {
+              'type': 'string',
+              'enum': [
+                'manifest',
+                'controlLog',
+                'moderation',
+                'joinRequest',
+                'invite',
+              ],
+            },
+            'isMember': {'type': 'boolean'},
+            'canOpen': {'type': 'boolean'},
+            'changedAt': {'type': 'integer', 'format': 'int64'},
+            'until': {'type': 'integer', 'format': 'int64'},
+            'reason': {'type': 'string'},
+            'sourceId': {'type': 'string'},
+          },
+        },
         'SpaceRulesVersion': {
           'type': obj,
           'required': [
@@ -559,6 +600,21 @@ Map<String, dynamic> openApiSpec() {
             },
           },
           'responses': ok({'type': obj}),
+        },
+      },
+      '/spaces/memberships': {
+        'get': {
+          'summary':
+              'Derived membership states from signed facts and durable proposals',
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'memberships': {
+                'type': 'array',
+                'items': {r'$ref': '#/components/schemas/SpaceMembership'},
+              },
+            },
+          }),
         },
       },
       '/spaces/profile': {
@@ -2583,6 +2639,7 @@ class ApiHandler {
     this.callsAvailable = true,
     required this.groups,
     this.spaces,
+    this.spaceMemberships,
     required this.createGroup,
     this.createSpace,
     required this.groupMessages,
@@ -2709,6 +2766,7 @@ class ApiHandler {
   /// via [groupsAvailable].
   final Future<List<Map<String, dynamic>>> Function() groups;
   final Future<List<Map<String, dynamic>>> Function()? spaces;
+  final Future<List<Map<String, dynamic>>> Function()? spaceMemberships;
   final Future<String?> Function(String name) createGroup;
   final Future<String?> Function(
     String name,
@@ -3143,6 +3201,15 @@ class ApiHandler {
     }
     if (method == 'GET' && path == '/v1/spaces') {
       return ApiResponse(200, {'spaces': await (spaces ?? groups)()});
+    }
+    if (method == 'GET' && path == '/v1/spaces/memberships') {
+      final handler = spaceMemberships;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'Space membership projection unavailable',
+        });
+      }
+      return ApiResponse(200, {'memberships': await handler()});
     }
     if (method == 'POST' && path == '/v1/spaces') {
       final handler = createSpace;

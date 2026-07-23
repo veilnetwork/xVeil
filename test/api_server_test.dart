@@ -154,6 +154,20 @@ void main() {
           'lastTs': 123,
         },
       ],
+      spaceMemberships: () async => [
+        {
+          'spaceId': 'aa',
+          'name': 'Family',
+          'visibility': 'public',
+          'status': 'suspended',
+          'source': 'moderation',
+          'isMember': true,
+          'canOpen': true,
+          'changedAt': 120,
+          'until': 180,
+          'reason': 'cool down',
+        },
+      ],
       createGroup: (name) async => name == 'bad' ? null : 'new-group',
       createSpace: (name, description, visibility) async {
         spaceCreates.add((name, description, visibility));
@@ -1212,6 +1226,17 @@ void main() {
       final listed = await h.handle('GET', u('/v1/spaces'), auth);
       expect(listed.status, 200);
       expect(((listed.body as Map)['spaces'] as List).single['name'], 'Family');
+      final memberships = await h.handle(
+        'GET',
+        u('/v1/spaces/memberships'),
+        auth,
+      );
+      expect(memberships.status, 200);
+      final membership =
+          ((memberships.body as Map)['memberships'] as List).single as Map;
+      expect(membership['status'], 'suspended');
+      expect(membership['isMember'], isTrue);
+      expect(membership['reason'], 'cool down');
       final created = await h.handle(
         'POST',
         u('/v1/spaces'),
@@ -3113,6 +3138,7 @@ void main() {
           '/contacts/block',
           '/messages',
           '/spaces',
+          '/spaces/memberships',
           '/spaces/profile',
           '/spaces/lifecycle',
           '/spaces/retention',

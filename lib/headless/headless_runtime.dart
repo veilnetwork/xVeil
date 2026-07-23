@@ -245,6 +245,7 @@ class HeadlessRuntime {
         callsAvailable: false,
         groups: groupApi.list,
         spaces: groupApi.listSpaces,
+        spaceMemberships: groupApi.listSpaceMemberships,
         createGroup: groupApi.create,
         createSpace: groupApi.createSpace,
         groupMessages: groupApi.messages,

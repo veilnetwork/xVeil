@@ -1483,6 +1483,48 @@ abstract class AppL10n {
   /// **'Declined'**
   String get spaceJoinRequestDeclined;
 
+  /// No description provided for @spaceMembershipStatusTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Membership status'**
+  String get spaceMembershipStatusTitle;
+
+  /// No description provided for @spaceMembershipPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Membership pending'**
+  String get spaceMembershipPending;
+
+  /// No description provided for @spaceMembershipActive.
+  ///
+  /// In en, this message translates to:
+  /// **'Active member'**
+  String get spaceMembershipActive;
+
+  /// No description provided for @spaceMembershipSuspended.
+  ///
+  /// In en, this message translates to:
+  /// **'Membership suspended'**
+  String get spaceMembershipSuspended;
+
+  /// No description provided for @spaceMembershipSuspendedUntil.
+  ///
+  /// In en, this message translates to:
+  /// **'Membership suspended until {until}'**
+  String spaceMembershipSuspendedUntil(String until);
+
+  /// No description provided for @spaceMembershipLeft.
+  ///
+  /// In en, this message translates to:
+  /// **'No longer a member'**
+  String get spaceMembershipLeft;
+
+  /// No description provided for @spaceMembershipBanned.
+  ///
+  /// In en, this message translates to:
+  /// **'Membership banned'**
+  String get spaceMembershipBanned;
+
   /// No description provided for @spaceJoinDismiss.
   ///
   /// In en, this message translates to:

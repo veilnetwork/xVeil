@@ -43,6 +43,7 @@ import '../domain/space_channel.dart';
 import '../domain/space_invite.dart';
 import '../domain/space_join_request.dart';
 import '../domain/space_lifecycle.dart';
+import '../domain/space_membership.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
 import '../domain/space_recommendation.dart';
@@ -832,7 +833,7 @@ class GroupService {
         invite.invitee != selfId ||
         invite.createdAtMs > now + const Duration(minutes: 5).inMilliseconds ||
         invite.isExpiredAt(now) ||
-        await load(invite.spaceId) != null) {
+        !await _canStartSpaceMembershipProposal(invite.spaceId, now)) {
       return false;
     }
     final receivedInvite = invite;
@@ -1428,9 +1429,9 @@ class GroupService {
     return SpaceRecommendationShareResult.sent;
   });
 
-  /// Receiver-side card suppression. A locally held Space cannot be joined via
-  /// the public ticket flow, so showing the card would be both redundant and
-  /// misleading. The card never becomes authority by itself.
+  /// Receiver-side card suppression. A current or restricted membership cannot
+  /// start another proposal; a retained signed `left` state may deliberately
+  /// rejoin. The recommendation card never becomes authority by itself.
   Future<bool> acceptsSpaceRecommendationCard(
     NodeId sender,
     SpaceRecommendationCard card,
@@ -1448,7 +1449,7 @@ class GroupService {
     } catch (_) {
       return false;
     }
-    return await load(card.spaceId) == null;
+    return _canStartSpaceMembershipProposal(card.spaceId, _now());
   }
 
   Future<String?> currentSpaceJoinCode(NodeId spaceId) async {
@@ -1476,7 +1477,7 @@ class GroupService {
     if (ticket.approver == selfId ||
         ticket.createdAtMs > now + const Duration(minutes: 5).inMilliseconds ||
         ticket.isExpiredAt(now) ||
-        await load(ticket.spaceId) != null ||
+        !await _canStartSpaceMembershipProposal(ticket.spaceId, now) ||
         (await _storage.getContact(ticket.approver))?.status ==
             ContactStatus.blocked ||
         sendSpaceJoinRequest == null) {
@@ -1531,8 +1532,14 @@ class GroupService {
     final now = _now();
     final result = <SpaceJoinOutboxEntry>[];
     for (final entry in (await _loadSpaceJoins()).outgoing) {
-      if (entry.ticket.isExpiredAt(now) ||
-          await load(entry.ticket.spaceId) != null) {
+      if (entry.ticket.isExpiredAt(now)) {
+        continue;
+      }
+      final bundle = await load(entry.ticket.spaceId);
+      if (bundle != null &&
+          (!_validSpaceBundle(bundle) ||
+              _spaceMembershipForBundle(bundle, now).status !=
+                  SpaceMembershipStatus.left)) {
         continue;
       }
       if (entry.declined &&
@@ -1546,6 +1553,223 @@ class GroupService {
       (left, right) =>
           right.request.createdAtMs.compareTo(left.request.createdAtMs),
     );
+    return result;
+  }
+
+  bool _validSpaceBundle(GroupBundle bundle) =>
+      bundle.manifest.isSpace && bundle.manifest.visibility != null;
+
+  SpaceMembershipProjection _spaceMembershipForBundle(
+    GroupBundle bundle,
+    int now,
+  ) {
+    final folded = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    );
+    final state = folded.state;
+    final member = state.memberOf(selfId);
+
+    ControlEntry? latestMembershipEntry;
+    ControlEntry? latestMuteEntry;
+    for (final entry in folded.accepted) {
+      final affectsMembership =
+          (entry.op == ControlOp.addMember && entry.target == selfId) ||
+          (entry.op == ControlOp.removeMember && entry.target == selfId) ||
+          (entry.op == ControlOp.ban && entry.target == selfId) ||
+          (entry.op == ControlOp.leave && entry.author == selfId) ||
+          (entry.op == ControlOp.moderate &&
+              entry.moderationAction?.target == selfId &&
+              entry.moderationAction?.kind.removesMembership == true);
+      if (affectsMembership) latestMembershipEntry = entry;
+      if ((entry.op == ControlOp.mute || entry.op == ControlOp.unmute) &&
+          entry.target == selfId) {
+        latestMuteEntry = entry;
+      }
+    }
+
+    SpaceModerationRecord? permanentBan;
+    SpaceModerationRecord? suspension;
+    for (final record in state.activeModerationFor(selfId, now)) {
+      switch (record.action.kind) {
+        case SpaceModerationKind.permanentBan:
+          if (permanentBan == null ||
+              record.action.createdAtMs > permanentBan.action.createdAtMs) {
+            permanentBan = record;
+          }
+          break;
+        case SpaceModerationKind.temporaryBan:
+        case SpaceModerationKind.timeout:
+          if (suspension == null ||
+              record.action.createdAtMs > suspension.action.createdAtMs) {
+            suspension = record;
+          }
+          break;
+        case _:
+          break;
+      }
+    }
+
+    SpaceMembershipProjection fromModeration(
+      SpaceModerationRecord record,
+      SpaceMembershipStatus status,
+    ) => SpaceMembershipProjection(
+      spaceId: bundle.manifest.spaceId,
+      name: state.name,
+      visibility: bundle.manifest.visibility!,
+      status: status,
+      source: SpaceMembershipSource.moderation,
+      isMember: member != null,
+      changedAtMs: record.action.createdAtMs,
+      untilMs: record.action.expiresAtMs,
+      reason: record.action.reason,
+      sourceId: record.actionId,
+    );
+
+    if (permanentBan != null) {
+      return fromModeration(permanentBan, SpaceMembershipStatus.banned);
+    }
+    if (suspension != null) {
+      return fromModeration(suspension, SpaceMembershipStatus.suspended);
+    }
+    if (member != null) {
+      if (member.muted) {
+        return SpaceMembershipProjection(
+          spaceId: bundle.manifest.spaceId,
+          name: state.name,
+          visibility: bundle.manifest.visibility!,
+          status: SpaceMembershipStatus.suspended,
+          source: SpaceMembershipSource.controlLog,
+          isMember: true,
+          changedAtMs: latestMuteEntry?.createdAtMs ?? member.joinedAtMs,
+          sourceId: latestMuteEntry == null
+              ? null
+              : '${latestMuteEntry.author.hex}:${latestMuteEntry.seq}',
+        );
+      }
+      final joinedByControl = latestMembershipEntry?.op == ControlOp.addMember
+          ? latestMembershipEntry
+          : null;
+      return SpaceMembershipProjection(
+        spaceId: bundle.manifest.spaceId,
+        name: state.name,
+        visibility: bundle.manifest.visibility!,
+        status: SpaceMembershipStatus.active,
+        source: joinedByControl == null
+            ? SpaceMembershipSource.manifest
+            : SpaceMembershipSource.controlLog,
+        isMember: true,
+        changedAtMs: member.joinedAtMs == 0
+            ? bundle.manifest.createdAtMs
+            : member.joinedAtMs,
+        sourceId: joinedByControl == null
+            ? null
+            : '${joinedByControl.author.hex}:${joinedByControl.seq}',
+      );
+    }
+
+    final legacyBan =
+        latestMembershipEntry?.op == ControlOp.ban &&
+        latestMembershipEntry?.target == selfId;
+    return SpaceMembershipProjection(
+      spaceId: bundle.manifest.spaceId,
+      name: state.name,
+      visibility: bundle.manifest.visibility!,
+      status: legacyBan
+          ? SpaceMembershipStatus.banned
+          : SpaceMembershipStatus.left,
+      source: SpaceMembershipSource.controlLog,
+      isMember: false,
+      changedAtMs:
+          latestMembershipEntry?.createdAtMs ?? bundle.manifest.createdAtMs,
+      sourceId: latestMembershipEntry == null
+          ? null
+          : '${latestMembershipEntry.author.hex}:${latestMembershipEntry.seq}',
+    );
+  }
+
+  Future<bool> _canStartSpaceMembershipProposal(NodeId spaceId, int now) async {
+    final bundle = await load(spaceId);
+    if (bundle == null) return true;
+    if (!_validSpaceBundle(bundle)) return false;
+    return _spaceMembershipForBundle(bundle, now).status ==
+        SpaceMembershipStatus.left;
+  }
+
+  /// One read-only projection over the signed control/moderation fold and the
+  /// existing durable consent proposal stores. No row is persisted here.
+  Future<List<SpaceMembershipProjection>> spaceMemberships() async {
+    final now = _now();
+    final bySpace = <String, SpaceMembershipProjection>{};
+    for (final hex in await _index()) {
+      try {
+        final bundle = await load(NodeId.fromHex(hex));
+        if (bundle == null || !_validSpaceBundle(bundle)) continue;
+        bySpace[hex] = _spaceMembershipForBundle(bundle, now);
+      } catch (_) {
+        // A malformed/unverifiable bundle must not become a positive
+        // membership claim or erase another independently durable proposal.
+      }
+    }
+
+    void addPending({
+      required NodeId spaceId,
+      required String name,
+      required SpaceVisibility visibility,
+      required SpaceMembershipSource source,
+      required int changedAtMs,
+      required String sourceId,
+    }) {
+      final current = bySpace[spaceId.hex];
+      if (current != null && current.status != SpaceMembershipStatus.left) {
+        return;
+      }
+      bySpace[spaceId.hex] = SpaceMembershipProjection(
+        spaceId: spaceId,
+        name: current?.name ?? name,
+        visibility: current?.visibility ?? visibility,
+        status: SpaceMembershipStatus.pending,
+        source: source,
+        isMember: false,
+        changedAtMs: changedAtMs,
+        sourceId: sourceId,
+      );
+    }
+
+    final joins = await _loadSpaceJoins();
+    for (final entry in joins.outgoing) {
+      if (entry.ticket.isExpiredAt(now) || entry.declined) continue;
+      addPending(
+        spaceId: entry.ticket.spaceId,
+        name: entry.ticket.spaceName,
+        visibility: SpaceVisibility.public,
+        source: SpaceMembershipSource.joinRequest,
+        changedAtMs: entry.decision?.decidedAtMs ?? entry.request.createdAtMs,
+        sourceId: entry.request.requestId,
+      );
+    }
+    final invites = await _loadSpaceInvites();
+    for (final entry in invites.incoming) {
+      if (!entry.accepted || entry.invite.isExpiredAt(now)) continue;
+      addPending(
+        spaceId: entry.invite.spaceId,
+        name: entry.invite.spaceName,
+        visibility: entry.invite.visibility,
+        source: SpaceMembershipSource.invite,
+        changedAtMs: entry.acceptedAtMs!,
+        sourceId: entry.invite.inviteId,
+      );
+    }
+
+    final result = bySpace.values.toList(growable: false)
+      ..sort((left, right) {
+        final changed = right.changedAtMs.compareTo(left.changedAtMs);
+        if (changed != 0) return changed;
+        return left.spaceId.hex.compareTo(right.spaceId.hex);
+      });
     return result;
   }
 
@@ -1942,7 +2166,9 @@ class GroupService {
                 entry.appeal.actionId == record.actionId &&
                 (entry.decision != null || entry.appeal.reviewer == reviewer),
           );
-          if (record.action.target == selfId && !appealed) {
+          if (record.action.target == selfId &&
+              record.revokedAtMs == null &&
+              !appealed) {
             result.add(
               SpaceModerationAppealCandidate(
                 spaceId: bundle.manifest.groupId,
@@ -2038,6 +2264,7 @@ class GroupService {
     final record = await _moderationRecord(bundle, state, actionId);
     final reviewer = _effectiveSpaceOwner(state);
     if (record == null ||
+        record.revokedAtMs != null ||
         record.action.target != selfId ||
         reviewer == null ||
         reviewer == selfId) {

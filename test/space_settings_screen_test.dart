@@ -210,6 +210,102 @@ void main() {
     expect(created.discoverable, isFalse);
   });
 
+  testWidgets(
+    'Communities renders signed suspended and left membership states',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final ownerService = GroupService(storage, _Signer(_id(112)));
+      final memberService = GroupService(storage, _Signer(_id(113)));
+      addTearDown(ownerService.dispose);
+      addTearDown(memberService.dispose);
+      final spaceId = await ownerService.createSpace(
+        'Membership UI',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: memberService.selfId,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final actionId = await ownerService.moderateSpace(
+        spaceId,
+        kind: SpaceModerationKind.timeout,
+        target: memberService.selfId,
+        scope: SpaceModerationScope.space,
+        reason: 'Take a break',
+        expiresAtMs:
+            DateTime.now().millisecondsSinceEpoch +
+            const Duration(hours: 1).inMilliseconds,
+      );
+      expect(actionId, isNotNull);
+
+      final router = GoRouter(
+        initialLocation: '/spaces',
+        routes: [
+          GoRoute(path: '/spaces', builder: (_, _) => const SpaceListScreen()),
+          GoRoute(
+            path: '/space/:id',
+            builder: (_, state) =>
+                Scaffold(body: Text(state.pathParameters['id']!)),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [groupServiceProvider.overrideWithValue(memberService)],
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(SpaceListScreen)));
+      expect(find.text('Membership UI'), findsWidgets);
+      expect(find.textContaining(l.spaceMembershipSuspended), findsWidgets);
+      expect(find.byIcon(Icons.pause_circle_outline), findsOneWidget);
+
+      expect(
+        await ownerService.revokeSpaceModeration(
+          spaceId,
+          actionId!,
+          reason: 'Restored',
+        ),
+        isTrue,
+      );
+      memberService.changes.value++;
+      await tester.pumpAndSettle();
+      expect(find.textContaining(l.spaceMembershipSuspended), findsNothing);
+
+      expect(await memberService.leaveGroup(spaceId), isTrue);
+      expect(await memberService.listSpaces(), isEmpty);
+      expect(
+        (await memberService.spaceMemberships())
+            .singleWhere((entry) => entry.spaceId == spaceId)
+            .status
+            .name,
+        'left',
+      );
+      expect(await memberService.appealableSpaceModerationActions(), isEmpty);
+      expect(await memberService.outgoingSpaceModerationAppeals(), isEmpty);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pumpAndSettle();
+      expect(find.text(l.spaceMembershipStatusTitle), findsOneWidget);
+      expect(find.text(l.spaceMembershipLeft), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('space-membership-rejoin-${spaceId.hex}')),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets('Space list exposes and edits the exact notification policy', (
     tester,
   ) async {

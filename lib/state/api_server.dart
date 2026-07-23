@@ -580,6 +580,9 @@ class ApiServerController extends Notifier<ApiConfig> {
       callAction: _callAction,
       groups: groupApi == null ? () async => const [] : groupApi.list,
       spaces: groupApi == null ? () async => const [] : groupApi.listSpaces,
+      spaceMemberships: groupApi == null
+          ? () async => const []
+          : groupApi.listSpaceMemberships,
       createGroup: groupApi == null ? (_) async => null : groupApi.create,
       createSpace: groupApi?.createSpace,
       groupMessages: groupApi == null
