@@ -440,6 +440,9 @@ class ControlEntry {
   /// or revocation of a Space recommendation campaign. V14 carries an opaque
   /// moderation action encrypted for one restricted channel. V15 carries an
   /// opaque retention revision encrypted for one restricted text channel.
+  /// V16 carries a clear Space/channel media-only retention revision; keeping
+  /// it separate from V9 prevents older clients from treating it as full
+  /// history deletion.
   final int version;
 
   /// Group binding for replay resistance. Legacy entries omit it and retain
@@ -495,7 +498,8 @@ class ControlEntry {
           version == 12 ||
           version == 13 ||
           version == 14 ||
-          version == 15) &&
+          version == 15 ||
+          version == 16) &&
       seq >= 0 &&
       policyVersion >= 0 &&
       createdAtMs >= 0 &&
@@ -589,10 +593,13 @@ class ControlEntry {
                     ? op == ControlOp.moderate
                     : op != ControlOp.moderate &&
                           op != ControlOp.revokeModeration)) &&
-      (version == 9
+      (version == 9 || version == 16
           ? op == ControlOp.setRetention &&
                 retentionPolicy != null &&
                 retentionPolicy!.isStructurallyValid &&
+                (version == 16
+                    ? retentionPolicy!.mediaOnly
+                    : !retentionPolicy!.mediaOnly) &&
                 groupId != null &&
                 target == null &&
                 role == null &&
@@ -888,7 +895,8 @@ class ControlEntry {
             version != 12 &&
             version != 13 &&
             version != 14 &&
-            version != 15) ||
+            version != 15 &&
+            version != 16) ||
         author is! String ||
         seq is! int ||
         prev is! String ||

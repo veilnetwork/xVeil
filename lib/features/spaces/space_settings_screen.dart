@@ -148,13 +148,15 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
   Future<void> _setGlobalRetention(
     GroupService service,
     NodeId spaceId,
-    int? days,
-  ) async {
+    int? days, {
+    required bool mediaOnly,
+  }) async {
     final policy = days == null
         ? const SpaceRetentionPolicy(mode: SpaceRetentionMode.keepForever)
         : SpaceRetentionPolicy(
             mode: SpaceRetentionMode.deleteAfter,
             retentionMs: Duration(days: days).inMilliseconds,
+            mediaOnly: mediaOnly,
           );
     if (!await service.setSpaceRetentionPolicy(spaceId, policy)) _failure();
   }
@@ -688,9 +690,8 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                 SpaceAcl(
                   state,
                 ).allows(service.selfId, SpacePermission.manageRecommendations);
-            final globalRetentionDays = _retentionDays(
-              state.effectiveRetentionPolicy(),
-            );
+            final globalRetentionPolicy = state.effectiveRetentionPolicy();
+            final globalRetentionDays = _retentionDays(globalRetentionPolicy);
             final members = state.members.values.toList()
               ..sort((a, b) {
                 final rank = b.role.rank.compareTo(a.role.rank);
@@ -1254,7 +1255,23 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                               value: globalRetentionDays,
                               enabled: canManageRetention,
                               onChanged: (days) => unawaited(
-                                _setGlobalRetention(service, spaceId, days),
+                                _setGlobalRetention(
+                                  service,
+                                  spaceId,
+                                  days,
+                                  mediaOnly:
+                                      days != null &&
+                                      globalRetentionPolicy.mediaOnly,
+                                ),
+                              ),
+                              mediaOnly: globalRetentionPolicy.mediaOnly,
+                              onMediaOnlyChanged: (mediaOnly) => unawaited(
+                                _setGlobalRetention(
+                                  service,
+                                  spaceId,
+                                  globalRetentionDays,
+                                  mediaOnly: mediaOnly,
+                                ),
                               ),
                             ),
                             _RetentionTile(
@@ -1367,6 +1384,8 @@ class _RetentionTile extends StatelessWidget {
     required this.value,
     required this.onChanged,
     this.enabled = true,
+    this.mediaOnly = false,
+    this.onMediaOnlyChanged,
   });
 
   final String title;
@@ -1374,45 +1393,64 @@ class _RetentionTile extends StatelessWidget {
   final int? value;
   final bool enabled;
   final ValueChanged<int?> onChanged;
+  final bool mediaOnly;
+  final ValueChanged<bool>? onMediaOnlyChanged;
 
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    return ListTile(
-      title: Text(title),
-      subtitle: Text(subtitle),
-      trailing: DropdownButton<int>(
-        value: value ?? 0,
-        underline: const SizedBox.shrink(),
-        onChanged: enabled
-            ? (next) {
-                if (next != null) onChanged(next == 0 ? null : next);
-              }
-            : null,
-        selectedItemBuilder: (_) => [
-          for (final text in [
-            l.retentionUnlimited,
-            l.retention7,
-            l.retention30,
-            l.retention90,
-            l.retention365,
-          ])
-            SizedBox(
-              width: 112,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis),
-              ),
-            ),
-        ],
-        items: [
-          DropdownMenuItem(value: 0, child: Text(l.retentionUnlimited)),
-          DropdownMenuItem(value: 7, child: Text(l.retention7)),
-          DropdownMenuItem(value: 30, child: Text(l.retention30)),
-          DropdownMenuItem(value: 90, child: Text(l.retention90)),
-          DropdownMenuItem(value: 365, child: Text(l.retention365)),
-        ],
-      ),
+    return Column(
+      children: [
+        ListTile(
+          title: Text(title),
+          subtitle: Text(subtitle),
+          trailing: DropdownButton<int>(
+            value: value ?? 0,
+            underline: const SizedBox.shrink(),
+            onChanged: enabled
+                ? (next) {
+                    if (next != null) onChanged(next == 0 ? null : next);
+                  }
+                : null,
+            selectedItemBuilder: (_) => [
+              for (final text in [
+                l.retentionUnlimited,
+                l.retention7,
+                l.retention30,
+                l.retention90,
+                l.retention365,
+              ])
+                SizedBox(
+                  width: 112,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      text,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+            ],
+            items: [
+              DropdownMenuItem(value: 0, child: Text(l.retentionUnlimited)),
+              DropdownMenuItem(value: 7, child: Text(l.retention7)),
+              DropdownMenuItem(value: 30, child: Text(l.retention30)),
+              DropdownMenuItem(value: 90, child: Text(l.retention90)),
+              DropdownMenuItem(value: 365, child: Text(l.retention365)),
+            ],
+          ),
+        ),
+        if (value != null && onMediaOnlyChanged != null)
+          SwitchListTile(
+            key: const ValueKey('space-global-retention-media-only'),
+            value: mediaOnly,
+            onChanged: enabled ? onMediaOnlyChanged : null,
+            title: Text(l.spaceRetentionMediaOnly),
+            subtitle: Text(l.spaceRetentionMediaOnlyHint),
+            secondary: const Icon(Icons.perm_media_outlined),
+          ),
+      ],
     );
   }
 }

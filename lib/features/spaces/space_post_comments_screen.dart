@@ -662,6 +662,22 @@ class _CommentBubble extends StatelessWidget {
                 const SizedBox(height: 5),
                 SelectionArea(child: FormattedText(comment.body)),
               ],
+              if (comment.mediaHiddenByRetention)
+                Padding(
+                  padding: const EdgeInsets.only(top: 7),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.hide_image_outlined, size: 17),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          l.spaceRetentionMediaExpired,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               if (comment.attachment != null)
                 MediaObjectList(
                   spaceId: spaceId,

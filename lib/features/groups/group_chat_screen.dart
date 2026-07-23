@@ -1676,6 +1676,7 @@ class _GroupBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final l = AppL10n.of(context);
     final att = message.attachment;
     // A sticker renders BORDERLESS (no bubble background), like every messenger.
     if (att != null && att.kind == 'sticker' && message.body.isEmpty) {
@@ -1760,6 +1761,23 @@ class _GroupBubble extends StatelessWidget {
                       ).textTheme.labelSmall?.copyWith(color: scheme.primary),
                     ),
                   if (quoted != null) _quoteBlock(context),
+                  if (message.mediaHiddenByRetention)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.hide_image_outlined, size: 17),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              l.spaceRetentionMediaExpired,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   if (message.attachment != null &&
                       message.attachment!.kind == 'voice')
                     _GroupVoiceRow(

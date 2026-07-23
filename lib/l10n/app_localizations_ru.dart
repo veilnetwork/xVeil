@@ -638,6 +638,16 @@ class AppL10nRu extends AppL10n {
       'Скрывает только локальную историю и ничего не удаляет у других участников.';
 
   @override
+  String get spaceRetentionMediaOnly => 'Удалять только медиа';
+
+  @override
+  String get spaceRetentionMediaOnlyHint =>
+      'Сохранять текст сообщений и публикаций, удаляя вложения после выбранного срока.';
+
+  @override
+  String get spaceRetentionMediaExpired => 'Медиа удалено по политике хранения';
+
+  @override
   String get spaceActiveTitle => 'Сообщество активно';
 
   @override

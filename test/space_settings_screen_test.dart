@@ -480,6 +480,15 @@ void main() {
       expect(find.text(l.retention365), findsOneWidget);
       await tester.tap(find.text(l.retention7));
       await tester.pumpAndSettle();
+      expect(find.text(l.spaceRetentionMediaOnly), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey('space-channel-retention-media-only')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('space-channel-retention-save')),
+      );
+      await tester.pumpAndSettle();
 
       final policy = await service.spaceRetentionPolicyOf(
         spaceId,
@@ -487,6 +496,7 @@ void main() {
       );
       expect(policy?.mode, SpaceRetentionMode.deleteAfter);
       expect(policy?.retentionMs, const Duration(days: 7).inMilliseconds);
+      expect(policy?.mediaOnly, isTrue);
       final row = (await service.load(spaceId))!.control.last;
       expect(row.version, 15);
       expect(row.retentionPolicy, isNull);

@@ -1243,6 +1243,24 @@ abstract class AppL10n {
   /// **'Only hides local history; it never deletes content for other members.'**
   String get spaceRetentionLocalHint;
 
+  /// No description provided for @spaceRetentionMediaOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete only media'**
+  String get spaceRetentionMediaOnly;
+
+  /// No description provided for @spaceRetentionMediaOnlyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep message and publication text while expiring attachments after the selected period.'**
+  String get spaceRetentionMediaOnlyHint;
+
+  /// No description provided for @spaceRetentionMediaExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'Media removed by the retention policy'**
+  String get spaceRetentionMediaExpired;
+
   /// No description provided for @spaceActiveTitle.
   ///
   /// In en, this message translates to:

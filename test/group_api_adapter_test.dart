@@ -1115,7 +1115,10 @@ void main() {
         expect(await api.retention(group), isNull);
 
         final space = (await api.createSpace('Community', '', 'private'))!;
-        expect(await api.setRetention(space, 90, false), isNull);
+        expect(
+          await api.setRetention(space, 90, false, mediaOnly: true),
+          isNull,
+        );
         expect(await api.setRetention(space, 30, true), isNull);
 
         final spaceId = NodeId.fromHex(space);
@@ -1155,6 +1158,14 @@ void main() {
           value['community']['retentionMs'],
           const Duration(days: 90).inMilliseconds,
         );
+        expect(value['community']['mediaOnly'], isTrue);
+        expect(
+          (await service.load(spaceId))!.control
+              .where((entry) => entry.op == ControlOp.setRetention)
+              .single
+              .version,
+          16,
+        );
         expect(value['localDevice']['retentionDays'], 1);
         expect(value['history'], hasLength(1));
         expect(
@@ -1164,7 +1175,13 @@ void main() {
 
         final channel = (await service.channelsOf(spaceId)).single;
         expect(
-          await api.setChannelRetention(space, channel.channelId.hex, 7, false),
+          await api.setChannelRetention(
+            space,
+            channel.channelId.hex,
+            7,
+            false,
+            mediaOnly: true,
+          ),
           isNull,
         );
         final channelValue = (await api.channelRetention(
@@ -1176,6 +1193,7 @@ void main() {
           (channelValue['policy'] as Map)['retentionMs'],
           const Duration(days: 7).inMilliseconds,
         );
+        expect((channelValue['policy'] as Map)['mediaOnly'], isTrue);
         expect(channelValue['history'], hasLength(1));
       } finally {
         await service.dispose();
