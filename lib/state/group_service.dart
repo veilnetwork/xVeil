@@ -13246,16 +13246,27 @@ class GroupService {
       verify: (entry) => _validControlFor(bundle.manifest, entry),
     ).state;
     final scope = await _contentGrantScope(bundle, st, req);
+    final acl = SpaceAcl(st);
+    final requesterDecision = acl.authorize(
+      req.requester,
+      SpacePermission.distributeContent,
+      channelId: req.channelId,
+      categoryId: scope.categoryId,
+    );
+    final holderAuthorized = acl.allows(
+      _signer.selfId,
+      SpacePermission.distributeContent,
+      channelId: req.channelId,
+      categoryId: scope.categoryId,
+    );
     final denial = authorizeGroupContentRequest(
       req,
-      decision: SpaceAcl(
-        st,
-      ).authorize(req.requester, SpacePermission.distributeContent),
+      decision: requesterDecision,
       referenced: scope.referenced,
       nowMs: _now(),
       seenNonces: _seenContentNonces,
       verify: _signer.verifyContentRequest,
-      scopeAuthorized: scope.authorized,
+      scopeAuthorized: scope.authorized && holderAuthorized,
     );
     if (denial != null) {
       devLog(
@@ -13340,8 +13351,18 @@ class GroupService {
       final stillAuthorized =
           scope != null &&
           scope.candidates.contains(pending.holder) &&
-          acl.allows(_signer.selfId, SpacePermission.distributeContent) &&
-          acl.allows(pending.holder, SpacePermission.distributeContent);
+          acl.allows(
+            _signer.selfId,
+            SpacePermission.distributeContent,
+            channelId: scope.channelId,
+            categoryId: scope.categoryId,
+          ) &&
+          acl.allows(
+            pending.holder,
+            SpacePermission.distributeContent,
+            channelId: scope.channelId,
+            categoryId: scope.categoryId,
+          );
       _outboundContentRequests.remove(entry.key);
       if (!stillAuthorized) continue;
 
@@ -13428,8 +13449,18 @@ class GroupService {
     final scope = await _contentGrantScope(bundle, state, request);
     if (!scope.authorized ||
         !scope.referenced.contains(receipt.contentId) ||
-        !acl.allows(peer, SpacePermission.distributeContent) ||
-        !acl.allows(_signer.selfId, SpacePermission.distributeContent)) {
+        !acl.allows(
+          peer,
+          SpacePermission.distributeContent,
+          channelId: request.channelId,
+          categoryId: scope.categoryId,
+        ) ||
+        !acl.allows(
+          _signer.selfId,
+          SpacePermission.distributeContent,
+          channelId: request.channelId,
+          categoryId: scope.categoryId,
+        )) {
       _observeSpace(
         SpaceObservationType.p2pContentReceipt,
         SpaceObservationOutcome.rejected,
@@ -13453,7 +13484,8 @@ class GroupService {
   /// use. Unscoped requests deliberately exclude channel-encrypted rows, even
   /// when this holder can decrypt them: otherwise any Space member who guessed
   /// a protected CID could reuse the legacy membership-wide grant.
-  Future<({bool authorized, Set<String> referenced})> _contentGrantScope(
+  Future<({bool authorized, Set<String> referenced, NodeId? categoryId})>
+  _contentGrantScope(
     GroupBundle bundle,
     GroupState state,
     GroupContentRequest request,
@@ -13481,19 +13513,24 @@ class GroupService {
           for (final post in posts)
             for (final media in post.media) media.contentId!,
         },
+        categoryId: null,
       );
     }
 
     if (!bundle.manifest.isSpace) {
-      return (authorized: false, referenced: <String>{});
+      return (authorized: false, referenced: <String>{}, categoryId: null);
     }
     final opaque = state.protectedChannels[channelId.hex];
     if (opaque == null || opaque.channelEpoch != request.channelEpoch) {
-      return (authorized: false, referenced: <String>{});
+      return (authorized: false, referenced: <String>{}, categoryId: null);
     }
     final clear = (await _protectedChannelsOf(bundle, state))[channelId.hex];
     if (clear == null || !clear.recipients.contains(request.requester)) {
-      return (authorized: false, referenced: <String>{});
+      return (
+        authorized: false,
+        referenced: <String>{},
+        categoryId: clear?.channel.categoryId,
+      );
     }
     final messages = await messagesOf(
       request.groupId,
@@ -13507,6 +13544,7 @@ class GroupService {
           if (message.isChannelEncrypted && message.attachment?.cid != null)
             message.attachment!.cid!,
       },
+      categoryId: clear.channel.categoryId,
     );
   }
 
@@ -13673,7 +13711,14 @@ class GroupService {
   /// or only inside a protected channel visible to this device. Protected
   /// pulls fan out solely to that channel's current recipients; the channel id
   /// is never disclosed to unrelated Space members as a side effect of fetch.
-  Future<({NodeId? channelId, int? channelEpoch, List<NodeId> candidates})?>
+  Future<
+    ({
+      NodeId? channelId,
+      int? channelEpoch,
+      NodeId? categoryId,
+      List<NodeId> candidates,
+    })?
+  >
   _contentFetchScope(
     GroupBundle bundle,
     GroupState state,
@@ -13701,13 +13746,17 @@ class GroupService {
                   visiblePostIds.contains(message.spacePostId)),
         );
     if (ordinaryReference) {
+      final acl = SpaceAcl(state);
       final candidates = [
         for (final member in state.members.values)
-          if (member.nodeId != _signer.selfId) member.nodeId,
+          if (member.nodeId != _signer.selfId &&
+              acl.allows(member.nodeId, SpacePermission.distributeContent))
+            member.nodeId,
       ]..sort((left, right) => left.hex.compareTo(right.hex));
       return (
         channelId: null,
         channelEpoch: null,
+        categoryId: null,
         candidates: _preferContentHolder(candidates, preferredHolder),
       );
     }
@@ -13735,13 +13784,23 @@ class GroupService {
         !clear.recipients.contains(_signer.selfId)) {
       return null;
     }
+    final acl = SpaceAcl(state);
     final candidates = [
       for (final recipient in clear.recipients)
-        if (recipient != _signer.selfId && state.isMember(recipient)) recipient,
+        if (recipient != _signer.selfId &&
+            state.isMember(recipient) &&
+            acl.allows(
+              recipient,
+              SpacePermission.distributeContent,
+              channelId: channelId,
+              categoryId: clear.channel.categoryId,
+            ))
+          recipient,
     ]..sort((left, right) => left.hex.compareTo(right.hex));
     return (
       channelId: channelId,
       channelEpoch: opaque.channelEpoch,
+      categoryId: clear.channel.categoryId,
       candidates: _preferContentHolder(candidates, preferredHolder),
     );
   }
@@ -13778,9 +13837,12 @@ class GroupService {
                 visiblePostIds.contains(message.spacePostId)))
           message.attachment!.cid!,
     };
+    final acl = SpaceAcl(state);
     final ordinaryCandidates = [
       for (final member in state.members.values)
-        if (member.nodeId != _signer.selfId) member.nodeId,
+        if (member.nodeId != _signer.selfId &&
+            acl.allows(member.nodeId, SpacePermission.distributeContent))
+          member.nodeId,
     ]..sort((left, right) => left.hex.compareTo(right.hex));
     final result = <String, List<NodeId>>{
       for (final contentId in ordinary) contentId: ordinaryCandidates,
@@ -13821,7 +13883,14 @@ class GroupService {
       }
       result[entry.key] = [
         for (final recipient in clear.recipients)
-          if (recipient != _signer.selfId && state.isMember(recipient))
+          if (recipient != _signer.selfId &&
+              state.isMember(recipient) &&
+              acl.allows(
+                recipient,
+                SpacePermission.distributeContent,
+                channelId: channelId,
+                categoryId: clear.channel.categoryId,
+              ))
             recipient,
       ]..sort((left, right) => left.hex.compareTo(right.hex));
     }
