@@ -2754,6 +2754,162 @@ class GroupService {
     return List.unmodifiable(records);
   }
 
+  /// Materialize the signed retention timeline visible to this device. V9
+  /// rows are already clear; V15 rows are decrypted only for a currently
+  /// visible restricted channel and validated against its historical epoch.
+  ///
+  /// [hiddenThroughMs] is the fail-closed boundary caused by an accepted but
+  /// locally unreadable encrypted revision. A later readable revision makes
+  /// messages created after that activation safe again; older content remains
+  /// hidden because a destructive policy may already have retired it.
+  Future<
+    ({List<SpaceRetentionRevision> revisions, Map<String, int> hiddenThroughMs})
+  >
+  _materializedRetentionHistory(
+    GroupBundle bundle,
+    GroupState state, {
+    Map<String, SpaceChannelControlCleartext>? currentChannels,
+  }) async {
+    final visibleChannels =
+        currentChannels ?? await _protectedChannelsOf(bundle, state);
+    final accepted = _acceptedControl(bundle.manifest, bundle.control);
+    final revisions = <SpaceRetentionRevision>[];
+    final unresolved = <String>{};
+    final hiddenThrough = <String, int>{};
+    var lastActivationMs = 0;
+
+    for (var index = 0; index < accepted.length; index++) {
+      final entry = accepted[index];
+      if (entry.op != ControlOp.setRetention) continue;
+      final activatedAt = entry.createdAtMs < lastActivationMs
+          ? lastActivationMs
+          : entry.createdAtMs;
+      lastActivationMs = activatedAt;
+      final clearPolicy = entry.retentionPolicy;
+      if (clearPolicy != null) {
+        revisions.add(
+          SpaceRetentionRevision(
+            policy: clearPolicy,
+            activatedAtMs: activatedAt,
+            author: entry.author,
+            authorSeq: entry.seq,
+          ),
+        );
+        continue;
+      }
+
+      final envelope = entry.channelRetention;
+      if (envelope == null ||
+          visibleChannels[envelope.channelId.hex] == null ||
+          state.protectedRetention['${entry.author.hex}:${entry.seq}'] ==
+              null) {
+        continue;
+      }
+      final channelHex = envelope.channelId.hex;
+      SpaceChannelControlEnvelope? channelRevision;
+      for (var prior = index - 1; prior >= 0; prior--) {
+        final candidate = accepted[prior].channelControl;
+        if (candidate?.channelId == envelope.channelId &&
+            candidate?.channelEpoch == envelope.channelEpoch) {
+          channelRevision = candidate;
+          break;
+        }
+      }
+      final channelAtPolicy = channelRevision == null
+          ? null
+          : await _materializeProtectedChannel(
+              bundle,
+              state,
+              channelRevision,
+              requireCurrentAcl: false,
+            );
+      final key =
+          bundle.localChannelEpochKeys[_channelKeyId(
+            envelope.channelId,
+            envelope.channelEpoch,
+          )];
+      if (channelAtPolicy == null ||
+          channelAtPolicy.channel.access != SpaceChannelAccess.restricted ||
+          channelAtPolicy.channel.kind != SpaceChannelKind.text ||
+          key == null ||
+          !_validLocalChannelEpochKey(
+            bundle.manifest,
+            bundle.control,
+            envelope.channelId,
+            envelope.channelEpoch,
+            key,
+          )) {
+        unresolved.add(channelHex);
+        continue;
+      }
+
+      Uint8List? clear;
+      try {
+        clear = await decryptSpaceChannelRetentionPayload(
+          spaceId: envelope.spaceId,
+          channelId: envelope.channelId,
+          channelEpoch: envelope.channelEpoch,
+          author: entry.author,
+          seq: entry.seq,
+          prevHash: entry.prevHash,
+          policyVersion: entry.policyVersion,
+          createdAtMs: entry.createdAtMs,
+          payload: envelope.encryptedPolicy,
+          channelKey: key,
+        );
+        final policy = SpaceRetentionPolicy.fromJson(
+          jsonDecode(utf8.decode(clear, allowMalformed: false)),
+        );
+        if (policy == null || policy.channelId != envelope.channelId) {
+          unresolved.add(channelHex);
+          continue;
+        }
+        revisions.add(
+          SpaceRetentionRevision(
+            policy: policy,
+            activatedAtMs: activatedAt,
+            author: entry.author,
+            authorSeq: entry.seq,
+          ),
+        );
+        if (unresolved.remove(channelHex)) {
+          final previous = hiddenThrough[channelHex] ?? -1;
+          if (activatedAt > previous) hiddenThrough[channelHex] = activatedAt;
+        }
+      } catch (_) {
+        unresolved.add(channelHex);
+      } finally {
+        clear?.fillRange(0, clear.length, 0);
+      }
+    }
+    for (final channelHex in unresolved) {
+      hiddenThrough[channelHex] = 0x7fffffffffffffff;
+    }
+    return (
+      revisions: List<SpaceRetentionRevision>.unmodifiable(revisions),
+      hiddenThroughMs: Map<String, int>.unmodifiable(hiddenThrough),
+    );
+  }
+
+  SpaceRetentionPolicy _effectiveRetentionPolicy(
+    Iterable<SpaceRetentionRevision> revisions, [
+    NodeId? channelId,
+  ]) {
+    SpaceRetentionPolicy space = const SpaceRetentionPolicy(
+      mode: SpaceRetentionMode.keepForever,
+    );
+    SpaceRetentionPolicy? channel;
+    for (final revision in revisions) {
+      final policy = revision.policy;
+      if (policy.channelId == null) {
+        space = policy;
+      } else if (policy.channelId == channelId) {
+        channel = policy.mode == SpaceRetentionMode.inherit ? null : policy;
+      }
+    }
+    return channel ?? space;
+  }
+
   Future<GroupReaction?> _materializeEncryptedReaction(
     GroupBundle bundle,
     GroupReaction reaction,
@@ -4341,6 +4497,43 @@ class GroupService {
     if ((create && previous != null) || (!create && previous == null)) {
       return false;
     }
+    SpaceRetentionPolicy? currentRetentionPolicy;
+    var hasCurrentRetentionPolicy = false;
+    SpaceChannelControlCleartext? previousClear;
+    if (previous != null && state.protectedRetention.isNotEmpty) {
+      previousClear = await _materializeProtectedChannel(
+        bundle,
+        state,
+        previous,
+        requireCurrentAcl: false,
+      );
+      if (previousClear == null) return false;
+      final retention = await _materializedRetentionHistory(
+        bundle,
+        state,
+        currentChannels: {channel.channelId.hex: previousClear},
+      );
+      if (retention.hiddenThroughMs[channel.channelId.hex] ==
+          0x7fffffffffffffff) {
+        return false;
+      }
+      for (final revision in retention.revisions) {
+        final policy = revision.policy;
+        if (policy.channelId != channel.channelId) continue;
+        currentRetentionPolicy = policy;
+        hasCurrentRetentionPolicy = true;
+      }
+      final addsRecipient = recipients.any(
+        (recipient) => !previousClear!.recipients.contains(recipient),
+      );
+      if (addsRecipient &&
+          hasCurrentRetentionPolicy &&
+          state.roleOf(_signer.selfId) != GroupRole.owner) {
+        // Only the owner can preserve a manageStorage decision in the new
+        // epoch. Never grant an old content key merely to reveal policy.
+        return false;
+      }
+    }
     final link = _nextControlLink(
       bundle.manifest,
       bundle.control,
@@ -4350,6 +4543,7 @@ class GroupService {
     final channelEpoch = create ? 1 : previous!.channelEpoch + 1;
     final key = _randomEpochKey();
     Uint8List? clear;
+    Uint8List? retentionClear;
     try {
       final sealed = await epochService.sealEpoch(
         groupId: channel.channelId,
@@ -4398,7 +4592,51 @@ class GroupService {
           channelControl: opaque,
         ),
       );
-      final candidate = [...bundle.control, signed];
+      final controls = <ControlEntry>[signed];
+      final candidate = <ControlEntry>[...bundle.control, signed];
+      if (hasCurrentRetentionPolicy &&
+          currentRetentionPolicy != null &&
+          state.roleOf(_signer.selfId) == GroupRole.owner) {
+        final retentionCreatedAt = createdAtMs;
+        retentionClear = Uint8List.fromList(
+          utf8.encode(jsonEncode(currentRetentionPolicy.toJson())),
+        );
+        final retentionEncrypted = await encryptSpaceChannelRetentionPayload(
+          spaceId: bundle.manifest.groupId,
+          channelId: channel.channelId,
+          channelEpoch: channelEpoch,
+          author: _signer.selfId,
+          seq: link.seq + 1,
+          prevHash: controlEntryHash(signed),
+          policyVersion: state.policyVersion,
+          createdAtMs: retentionCreatedAt,
+          clearText: retentionClear,
+          channelKey: key,
+        );
+        final retention = _signer.signControl(
+          ControlEntry(
+            version: 15,
+            groupId: bundle.manifest.groupId,
+            author: _signer.selfId,
+            seq: link.seq + 1,
+            prevHash: controlEntryHash(signed),
+            op: ControlOp.setRetention,
+            target: null,
+            role: null,
+            channelRetention: SpaceChannelRetentionEnvelope(
+              spaceId: bundle.manifest.groupId,
+              channelId: channel.channelId,
+              channelEpoch: channelEpoch,
+              encryptedPolicy: retentionEncrypted,
+            ),
+            policyVersion: state.policyVersion,
+            createdAtMs: retentionCreatedAt,
+            signature: Uint8List(0),
+          ),
+        );
+        candidate.add(retention);
+        controls.add(retention);
+      }
       final folded = foldControlLog(
         owner: bundle.manifest.owner,
         entries: candidate,
@@ -4424,12 +4662,13 @@ class GroupService {
           },
         ),
       );
-      unawaited(broadcastDelta(bundle.manifest.groupId, control: [signed]));
+      unawaited(broadcastDelta(bundle.manifest.groupId, control: controls));
       return true;
     } catch (_) {
       return false;
     } finally {
       clear?.fillRange(0, clear.length, 0);
+      retentionClear?.fillRange(0, retentionClear.length, 0);
       key.fillRange(0, key.length, 0);
     }
   }
@@ -4556,6 +4795,7 @@ class GroupService {
     SpaceModerationAction? moderationAction,
     SpaceModerationRevocation? moderationRevocation,
     SpaceChannelModerationEnvelope? channelModeration,
+    SpaceChannelRetentionEnvelope? channelRetention,
     SpaceRetentionPolicy? retentionPolicy,
     SpaceLifecycleTransition? lifecycleTransition,
     SpacePostPin? postPin,
@@ -4669,6 +4909,8 @@ class GroupService {
               ? 12
               : recommendationCampaign != null
               ? 13
+              : channelRetention != null
+              ? 15
               : retentionPolicy != null
               ? 9
               : channelModeration != null
@@ -4696,6 +4938,7 @@ class GroupService {
           moderationAction: moderationAction,
           moderationRevocation: moderationRevocation,
           channelModeration: channelModeration,
+          channelRetention: channelRetention,
           retentionPolicy: retentionPolicy,
           lifecycleTransition: lifecycleTransition,
           postPin: postPin,
@@ -4855,10 +5098,10 @@ class GroupService {
     return addControlOp(spaceId, ControlOp.setDescription, text: normalized);
   }
 
-  /// Publish a typed Space-wide or open-channel retention revision. Protected
-  /// channel ids are deliberately rejected here: placing one in the global
-  /// control log would leak hidden metadata. Their encrypted policy envelope
-  /// remains a later protocol revision.
+  /// Publish a typed Space-wide or channel retention revision. Open channel
+  /// policies use the signed V9 shape. Restricted channel policy semantics use
+  /// V15 ciphertext under that channel epoch; only its already-opaque routing
+  /// id/epoch remain visible in the global control log.
   Future<bool> setSpaceRetentionPolicy(
     NodeId spaceId,
     SpaceRetentionPolicy policy,
@@ -4881,16 +5124,128 @@ class GroupService {
     ).allows(_signer.selfId, SpacePermission.manageStorage)) {
       return false;
     }
-    if (policy.channelId != null &&
-        !state.channels.containsKey(policy.channelId!.hex)) {
+    final channelId = policy.channelId;
+    if (channelId == null || state.channels.containsKey(channelId.hex)) {
+      return _addControlOp(
+        spaceId,
+        ControlOp.setRetention,
+        retentionPolicy: policy,
+      );
+    }
+    final envelope = state.protectedChannels[channelId.hex];
+    if (envelope == null) return false;
+    final clearChannel = await _materializeProtectedChannel(
+      bundle,
+      state,
+      envelope,
+    );
+    if (clearChannel == null ||
+        clearChannel.channel.access != SpaceChannelAccess.restricted ||
+        clearChannel.channel.kind != SpaceChannelKind.text) {
       return false;
     }
-    return _addControlOp(
-      spaceId,
-      ControlOp.setRetention,
-      retentionPolicy: policy,
+    final key = bundle
+        .localChannelEpochKeys[_channelKeyId(channelId, envelope.channelEpoch)];
+    if (key == null ||
+        !_validLocalChannelEpochKey(
+          bundle.manifest,
+          bundle.control,
+          channelId,
+          envelope.channelEpoch,
+          key,
+        )) {
+      return false;
+    }
+    final link = _nextControlLink(
+      bundle.manifest,
+      bundle.control,
+      _signer.selfId,
     );
+    if (link.blocked) return false;
+    final createdAt = _now();
+    Uint8List? clear;
+    try {
+      clear = Uint8List.fromList(utf8.encode(jsonEncode(policy.toJson())));
+      final encrypted = await encryptSpaceChannelRetentionPayload(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: envelope.channelEpoch,
+        author: _signer.selfId,
+        seq: link.seq,
+        prevHash: link.prevHash,
+        policyVersion: state.policyVersion,
+        createdAtMs: createdAt,
+        clearText: clear,
+        channelKey: key,
+      );
+      return _addControlOp(
+        spaceId,
+        ControlOp.setRetention,
+        channelRetention: SpaceChannelRetentionEnvelope(
+          spaceId: spaceId,
+          channelId: channelId,
+          channelEpoch: envelope.channelEpoch,
+          encryptedPolicy: encrypted,
+        ),
+        createdAtMs: createdAt,
+      );
+    } catch (_) {
+      return false;
+    } finally {
+      clear?.fillRange(0, clear.length, 0);
+    }
   });
+
+  /// Effective signed policy visible to this device for one Space/channel.
+  /// Null is fail-closed: the channel is unknown, unauthorized, or has a
+  /// current encrypted revision this device cannot authenticate/decrypt.
+  Future<SpaceRetentionPolicy?> spaceRetentionPolicyOf(
+    NodeId spaceId, {
+    NodeId? channelId,
+  }) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return null;
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    if (!state.isMember(_signer.selfId) || state.isDeleted) return null;
+    if (channelId == null || state.channels.containsKey(channelId.hex)) {
+      return state.effectiveRetentionPolicy(channelId);
+    }
+    final channels = await _protectedChannelsOf(bundle, state);
+    if (channels[channelId.hex] == null) return null;
+    final history = await _materializedRetentionHistory(
+      bundle,
+      state,
+      currentChannels: channels,
+    );
+    if (history.hiddenThroughMs[channelId.hex] == 0x7fffffffffffffff) {
+      return null;
+    }
+    return _effectiveRetentionPolicy(history.revisions, channelId);
+  }
+
+  /// Authorized audit projection. Clear Space/open-channel revisions and only
+  /// decryptable restricted-channel revisions are returned in signed order.
+  Future<List<SpaceRetentionRevision>> spaceRetentionHistoryOf(
+    NodeId spaceId,
+  ) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return const [];
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    if (!state.isMember(_signer.selfId) || state.isDeleted) return const [];
+    return (await _materializedRetentionHistory(bundle, state)).revisions;
+  }
 
   String _localSpaceRetentionKey(NodeId spaceId) =>
       'space.retention.local.v1:${spaceId.hex}';
@@ -9321,6 +9676,13 @@ class GroupService {
     final protected = b.manifest.isSpace
         ? await _protectedChannelsOf(b, state)
         : const <String, SpaceChannelControlCleartext>{};
+    final retention = b.manifest.isSpace
+        ? await _materializedRetentionHistory(
+            b,
+            state,
+            currentChannels: protected,
+          )
+        : null;
     final protectedModeration = b.manifest.isSpace
         ? await _protectedModerationRecordsOf(b, state)
         : const <SpaceModerationRecord>[];
@@ -9365,7 +9727,12 @@ class GroupService {
           };
           if (!historyAllows) continue;
         }
-        if (state.isRetentionExpired(
+        final hiddenThrough = effectiveChannelId == null
+            ? null
+            : retention!.hiddenThroughMs[effectiveChannelId.hex];
+        if ((hiddenThrough != null && m.createdAtMs <= hiddenThrough) ||
+            spaceRetentionRemoves(
+              revisions: retention!.revisions,
               createdAtMs: m.createdAtMs,
               atMs: readAt,
               channelId: effectiveChannelId,

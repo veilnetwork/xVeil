@@ -26,6 +26,7 @@ import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_rules.dart';
 import 'package:xveil/domain/space_recommendation.dart';
+import 'package:xveil/domain/space_retention.dart';
 import 'package:xveil/domain/inline_custom_emoji.dart';
 import 'package:xveil/state/group_epoch_service.dart';
 import 'package:xveil/state/group_service_providers.dart';
@@ -6476,6 +6477,333 @@ void main() {
           broadcast: false,
         ),
         isFalse,
+      );
+    },
+  );
+
+  test(
+    'protected retention stays ciphertext-only, owner-only and irreversible',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(ownerSvc.dispose);
+      final spaceId = await ownerSvc.createSpace('Protected retention');
+      for (final peer in [bob, carol]) {
+        expect(
+          await ownerSvc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: peer,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+      }
+      final channelId = await ownerSvc.createChannel(
+        spaceId,
+        name: 'retained privately',
+        kind: SpaceChannelKind.text,
+        history: SpaceChannelHistory.full,
+        access: SpaceChannelAccess.restricted,
+        members: [bob],
+      );
+      expect(channelId, isNotNull);
+
+      var bundle = (await ownerSvc.load(spaceId))!;
+      final state = (await ownerSvc.stateOf(spaceId))!;
+      final opaque = state.protectedChannels[channelId!.hex]!;
+      final channelKey = bundle.localChannelEpochKeys['${channelId.hex}:1']!;
+      final oldAt =
+          DateTime.now().millisecondsSinceEpoch -
+          const Duration(days: 10).inMilliseconds;
+      final clearMessage = GroupMessageCleartext(
+        body: 'old protected evidence',
+        attachment: MediaObject(
+          kind: 'file',
+          contentId: 'd' * 64,
+          name: 'old.bin',
+          size: 16,
+        ),
+      ).encode();
+      final encryptedMessage = await encryptSpaceChannelMessagePayload(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: opaque.channelEpoch,
+        author: owner,
+        seq: 0,
+        prevHash: '',
+        policyVersion: state.policyVersion,
+        createdAtMs: oldAt,
+        clearText: clearMessage,
+        channelKey: channelKey,
+      );
+      clearMessage.fillRange(0, clearMessage.length, 0);
+      final oldMessage = _FakeSigner(owner).signMessage(
+        GroupMessage(
+          version: 3,
+          groupId: spaceId,
+          channelId: channelId,
+          channelEpoch: opaque.channelEpoch,
+          encryptedPayload: encryptedMessage,
+          author: owner,
+          seq: 0,
+          prevHash: '',
+          body: '',
+          policyVersion: state.policyVersion,
+          createdAtMs: oldAt,
+          signature: Uint8List(0),
+        ),
+      );
+      expect(
+        await ownerSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            bundle.copyWith(messages: [oldMessage]),
+            recipient: owner,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        (await ownerSvc.messagesOf(spaceId, channelId: channelId)).single.body,
+        'old protected evidence',
+      );
+
+      expect(
+        await ownerSvc.setSpaceRetentionPolicy(
+          spaceId,
+          SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.keepForever,
+            channelId: channelId,
+          ),
+        ),
+        isTrue,
+      );
+      bundle = (await ownerSvc.load(spaceId))!;
+      final protectedRow = bundle.control.last;
+      expect(protectedRow.version, 15);
+      expect(protectedRow.channelRetention?.channelId, channelId);
+      expect(protectedRow.retentionPolicy, isNull);
+      final protectedWire = jsonEncode(protectedRow.toJson());
+      expect(protectedWire, isNot(contains('keepForever')));
+      expect(protectedWire, isNot(contains('retentionMs')));
+      expect(
+        (await ownerSvc.spaceRetentionPolicyOf(
+          spaceId,
+          channelId: channelId,
+        ))?.mode,
+        SpaceRetentionMode.keepForever,
+      );
+      expect(
+        await ownerSvc.setSpaceRetentionPolicy(
+          spaceId,
+          SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.deleteAfter,
+            retentionMs: const Duration(days: 1).inMilliseconds,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.messagesOf(spaceId, channelId: channelId),
+        hasLength(1),
+        reason: 'the encrypted channel override wins over the Space policy',
+      );
+
+      expect(
+        await ownerSvc.setSpaceRetentionPolicy(
+          spaceId,
+          SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.deleteAfter,
+            channelId: channelId,
+            retentionMs: const Duration(days: 1).inMilliseconds,
+          ),
+        ),
+        isTrue,
+      );
+      expect(await ownerSvc.messagesOf(spaceId, channelId: channelId), isEmpty);
+      expect(
+        await ownerSvc.referencedContentIds(spaceId),
+        isNot(contains('d' * 64)),
+      );
+      expect(
+        await ownerSvc.setSpaceRetentionPolicy(
+          spaceId,
+          SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.keepForever,
+            channelId: channelId,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.messagesOf(spaceId, channelId: channelId),
+        isEmpty,
+        reason: 'a relaxed encrypted revision cannot resurrect retired data',
+      );
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(bobSvc.dispose);
+      bundle = (await ownerSvc.load(spaceId))!;
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(bundle, recipient: bob),
+        ),
+        isTrue,
+      );
+      expect(await bobSvc.messagesOf(spaceId, channelId: channelId), isEmpty);
+      expect(
+        (await bobSvc.spaceRetentionHistoryOf(
+          spaceId,
+        )).where((revision) => revision.policy.channelId == channelId),
+        hasLength(3),
+      );
+
+      final bobBundle = (await bobSvc.load(spaceId))!;
+      final bobState = (await bobSvc.stateOf(spaceId))!;
+      final forgedAt = DateTime.now().millisecondsSinceEpoch + 1;
+      final forgedPolicy = SpaceRetentionPolicy(
+        mode: SpaceRetentionMode.keepForever,
+        channelId: channelId,
+      );
+      final forgedClear = Uint8List.fromList(
+        utf8.encode(jsonEncode(forgedPolicy.toJson())),
+      );
+      final forgedEncrypted = await encryptSpaceChannelRetentionPayload(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: opaque.channelEpoch,
+        author: bob,
+        seq: 0,
+        prevHash: '',
+        policyVersion: bobState.policyVersion,
+        createdAtMs: forgedAt,
+        clearText: forgedClear,
+        channelKey: bobBundle.localChannelEpochKeys['${channelId.hex}:1']!,
+      );
+      forgedClear.fillRange(0, forgedClear.length, 0);
+      final forged = _FakeSigner(bob).signControl(
+        ControlEntry(
+          version: 15,
+          groupId: spaceId,
+          author: bob,
+          seq: 0,
+          prevHash: '',
+          op: ControlOp.setRetention,
+          target: null,
+          role: null,
+          channelRetention: SpaceChannelRetentionEnvelope(
+            spaceId: spaceId,
+            channelId: channelId,
+            channelEpoch: opaque.channelEpoch,
+            encryptedPolicy: forgedEncrypted,
+          ),
+          policyVersion: bobState.policyVersion,
+          createdAtMs: forgedAt,
+          signature: Uint8List(0),
+        ),
+      );
+      expect(
+        await ownerSvc.ingestSnapshot(
+          jsonEncode({
+            'm': bundle.manifest.toJson(),
+            'c': [forged.toJson()],
+            'g': const [],
+            'r': const [],
+            'p': const [],
+          }),
+        ),
+        isTrue,
+      );
+      expect(
+        (await ownerSvc.stateOf(spaceId))!.protectedRetention,
+        isNot(contains('${bob.hex}:0')),
+        reason: 'manageStorage remains owner-only in the pure fold',
+      );
+
+      final carolStorage = FakeHvContainer().storage();
+      await carolStorage.open(password: 'pw', createIfMissing: true);
+      final carolSvc = GroupService(
+        carolStorage,
+        _FakeSigner(carol),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(carolSvc.dispose);
+      expect(
+        await carolSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: carol,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        await carolSvc.spaceRetentionPolicyOf(spaceId, channelId: channelId),
+        isNull,
+      );
+      expect(
+        (await carolSvc.spaceRetentionHistoryOf(
+          spaceId,
+        )).where((revision) => revision.policy.channelId == channelId),
+        isEmpty,
+      );
+
+      expect(
+        await ownerSvc.setChannelMembers(spaceId, channelId, [bob, carol]),
+        isTrue,
+        reason: 'the owner rewraps the effective override for the new epoch',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+      expect(
+        await ownerSvc.postMessage(
+          spaceId,
+          'post-rekey history',
+          channelId: channelId,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await carolSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: carol,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        (await carolSvc.spaceRetentionPolicyOf(
+          spaceId,
+          channelId: channelId,
+        ))?.mode,
+        SpaceRetentionMode.keepForever,
+      );
+      expect(
+        (await carolSvc.messagesOf(
+          spaceId,
+          channelId: channelId,
+        )).map((message) => message.body),
+        ['post-rekey history'],
+        reason:
+            'new recipients see post-rekey history without receiving old keys',
       );
     },
   );

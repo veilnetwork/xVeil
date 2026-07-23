@@ -417,6 +417,7 @@ class ControlEntry {
     this.moderationAction,
     this.moderationRevocation,
     this.channelModeration,
+    this.channelRetention,
     this.retentionPolicy,
     this.lifecycleTransition,
     this.postPin,
@@ -437,7 +438,8 @@ class ControlEntry {
   /// restoration bound to a signed recovery deadline. V12 carries one
   /// community-wide Space publication pin/unpin state. V13 carries creation
   /// or revocation of a Space recommendation campaign. V14 carries an opaque
-  /// moderation action encrypted for one restricted channel.
+  /// moderation action encrypted for one restricted channel. V15 carries an
+  /// opaque retention revision encrypted for one restricted text channel.
   final int version;
 
   /// Group binding for replay resistance. Legacy entries omit it and retain
@@ -460,6 +462,7 @@ class ControlEntry {
   final SpaceModerationAction? moderationAction;
   final SpaceModerationRevocation? moderationRevocation;
   final SpaceChannelModerationEnvelope? channelModeration;
+  final SpaceChannelRetentionEnvelope? channelRetention;
   final SpaceRetentionPolicy? retentionPolicy;
   final SpaceLifecycleTransition? lifecycleTransition;
   final SpacePostPin? postPin;
@@ -491,7 +494,8 @@ class ControlEntry {
           version == 11 ||
           version == 12 ||
           version == 13 ||
-          version == 14) &&
+          version == 14 ||
+          version == 15) &&
       seq >= 0 &&
       policyVersion >= 0 &&
       createdAtMs >= 0 &&
@@ -602,7 +606,10 @@ class ControlEntry {
                 rulesAcceptance == null &&
                 moderationAction == null &&
                 moderationRevocation == null
-          : retentionPolicy == null && op != ControlOp.setRetention) &&
+          : retentionPolicy == null &&
+                (version == 15
+                    ? op == ControlOp.setRetention
+                    : op != ControlOp.setRetention)) &&
       (version == 10 || version == 11
           ? ((version == 10 &&
                         (op == ControlOp.archiveSpace ||
@@ -704,6 +711,29 @@ class ControlEntry {
                 postPin == null &&
                 recommendationCampaign == null
           : channelModeration == null) &&
+      (version == 15
+          ? op == ControlOp.setRetention &&
+                channelRetention != null &&
+                channelRetention!.isStructurallyValid &&
+                groupId == channelRetention!.spaceId &&
+                target == null &&
+                role == null &&
+                text == null &&
+                epochDescriptor == null &&
+                channel == null &&
+                channelControl == null &&
+                postBoundary == null &&
+                controlCheckpoint == null &&
+                rules == null &&
+                rulesAcceptance == null &&
+                moderationAction == null &&
+                moderationRevocation == null &&
+                channelModeration == null &&
+                retentionPolicy == null &&
+                lifecycleTransition == null &&
+                postPin == null &&
+                recommendationCampaign == null
+          : channelRetention == null) &&
       (controlCheckpoint == null
           ? op != ControlOp.checkpoint
           : version == 4 &&
@@ -747,6 +777,7 @@ class ControlEntry {
     moderationAction: moderationAction,
     moderationRevocation: moderationRevocation,
     channelModeration: channelModeration,
+    channelRetention: channelRetention,
     retentionPolicy: retentionPolicy,
     lifecycleTransition: lifecycleTransition,
     postPin: postPin,
@@ -785,6 +816,8 @@ class ControlEntry {
         'moderationRevocation': moderationRevocation!.toJson(),
       if (channelModeration != null)
         'channelModeration': channelModeration!.toJson(),
+      if (channelRetention != null)
+        'channelRetention': channelRetention!.toJson(),
       if (retentionPolicy != null) 'retentionPolicy': retentionPolicy!.toJson(),
       if (lifecycleTransition != null)
         'lifecycleTransition': lifecycleTransition!.toJson(),
@@ -821,6 +854,8 @@ class ControlEntry {
       'moderationRevocation': moderationRevocation!.toJson(),
     if (channelModeration != null)
       'channelModeration': channelModeration!.toJson(),
+    if (channelRetention != null)
+      'channelRetention': channelRetention!.toJson(),
     if (retentionPolicy != null) 'retentionPolicy': retentionPolicy!.toJson(),
     if (lifecycleTransition != null)
       'lifecycleTransition': lifecycleTransition!.toJson(),
@@ -852,7 +887,8 @@ class ControlEntry {
             version != 11 &&
             version != 12 &&
             version != 13 &&
-            version != 14) ||
+            version != 14 &&
+            version != 15) ||
         author is! String ||
         seq is! int ||
         prev is! String ||
@@ -918,6 +954,12 @@ class ControlEntry {
       if (j.containsKey('channelModeration') && channelModeration == null) {
         return null;
       }
+      final channelRetention = j.containsKey('channelRetention')
+          ? SpaceChannelRetentionEnvelope.fromJson(j['channelRetention'])
+          : null;
+      if (j.containsKey('channelRetention') && channelRetention == null) {
+        return null;
+      }
       final retentionPolicy = j.containsKey('retentionPolicy')
           ? SpaceRetentionPolicy.fromJson(j['retentionPolicy'])
           : null;
@@ -963,6 +1005,7 @@ class ControlEntry {
         moderationAction: moderationAction,
         moderationRevocation: moderationRevocation,
         channelModeration: channelModeration,
+        channelRetention: channelRetention,
         retentionPolicy: retentionPolicy,
         lifecycleTransition: lifecycleTransition,
         postPin: postPin,

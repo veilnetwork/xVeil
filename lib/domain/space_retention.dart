@@ -1,4 +1,5 @@
 import '../core/ids.dart';
+import 'group_payload.dart';
 
 const int kMinSpaceRetentionMs = 24 * 60 * 60 * 1000;
 const int kMaxSpaceRetentionMs = 100 * 365 * 24 * 60 * 60 * 1000;
@@ -111,6 +112,63 @@ class SpaceRetentionRevision {
   final int activatedAtMs;
   final NodeId author;
   final int authorSeq;
+}
+
+/// Opaque retention revision for one restricted channel.
+///
+/// The outer signed control row exposes only the already-public opaque channel
+/// id and epoch needed for routing/key selection. The actual mode, interval
+/// and deletion posture stay authenticated under that channel epoch key.
+class SpaceChannelRetentionEnvelope {
+  const SpaceChannelRetentionEnvelope({
+    required this.spaceId,
+    required this.channelId,
+    required this.channelEpoch,
+    required this.encryptedPolicy,
+  });
+
+  final NodeId spaceId;
+  final NodeId channelId;
+  final int channelEpoch;
+  final GroupEncryptedPayload encryptedPolicy;
+
+  bool get isStructurallyValid =>
+      channelEpoch > 0 &&
+      channelEpoch <= 0xffffffff &&
+      encryptedPolicy.isStructurallyValid;
+
+  Map<String, dynamic> toJson() => {
+    'v': 1,
+    'sid': spaceId.hex,
+    'cid': channelId.hex,
+    'epoch': channelEpoch,
+    'enc': encryptedPolicy.toJson(),
+  };
+
+  static SpaceChannelRetentionEnvelope? fromJson(Object? value) {
+    if (value is! Map || value['v'] != 1) return null;
+    final sid = value['sid'];
+    final cid = value['cid'];
+    final epoch = value['epoch'];
+    final encrypted = GroupEncryptedPayload.fromJson(value['enc']);
+    if (sid is! String ||
+        cid is! String ||
+        epoch is! int ||
+        encrypted == null) {
+      return null;
+    }
+    try {
+      final envelope = SpaceChannelRetentionEnvelope(
+        spaceId: NodeId.fromHex(sid),
+        channelId: NodeId.fromHex(cid),
+        channelEpoch: epoch,
+        encryptedPolicy: encrypted,
+      );
+      return envelope.isStructurallyValid ? envelope : null;
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 /// Returns true once any accepted policy interval has retired the item. Every

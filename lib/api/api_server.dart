@@ -632,7 +632,8 @@ Map<String, dynamic> openApiSpec() {
       },
       '/spaces/retention': {
         'get': {
-          'summary': 'Read signed community and local-device retention',
+          'summary':
+              'Read signed community/local retention or one visible channel',
           'parameters': [
             {
               'name': 'space',
@@ -640,11 +641,17 @@ Map<String, dynamic> openApiSpec() {
               'required': true,
               'schema': {'type': 'string'},
             },
+            {
+              'name': 'channel',
+              'in': 'query',
+              'required': false,
+              'schema': {'type': 'string'},
+            },
           ],
           'responses': ok({'type': obj}),
         },
         'post': {
-          'summary': 'Set community or local-device retention',
+          'summary': 'Set community, local-device or channel retention',
           'requestBody': {
             'required': true,
             'content': {
@@ -656,8 +663,10 @@ Map<String, dynamic> openApiSpec() {
                     'space': {'type': 'string'},
                     'scope': {
                       'type': 'string',
-                      'enum': ['community', 'device'],
+                      'enum': ['community', 'device', 'channel'],
                     },
+                    'channel': {'type': 'string'},
+                    'inherit': {'type': 'boolean', 'default': false},
                     'days': {
                       'type': 'integer',
                       'minimum': 1,
@@ -2581,6 +2590,8 @@ class ApiHandler {
     this.setSpaceLifecycle,
     this.spaceRetention,
     this.setSpaceRetention,
+    this.spaceChannelRetention,
+    this.setSpaceChannelRetention,
     this.spaceRules,
     this.publishSpaceRules,
     this.acceptSpaceRules,
@@ -2829,6 +2840,18 @@ class ApiHandler {
   final Future<Map<String, dynamic>?> Function(String spaceHex)? spaceRetention;
   final Future<String?> Function(String spaceHex, int? days, bool localDevice)?
   setSpaceRetention;
+  final Future<Map<String, dynamic>?> Function(
+    String spaceHex,
+    String channelHex,
+  )?
+  spaceChannelRetention;
+  final Future<String?> Function(
+    String spaceHex,
+    String channelHex,
+    int? days,
+    bool inherit,
+  )?
+  setSpaceChannelRetention;
   final Future<Map<String, dynamic>?> Function(String spaceHex)? spaceRules;
   final Future<String?> Function(
     String spaceHex,
@@ -3146,34 +3169,57 @@ class ApiHandler {
       return _spaceMutationResponse(await handler(space, action as String));
     }
     if (method == 'GET' && path == '/v1/spaces/retention') {
-      final handler = spaceRetention;
-      if (handler == null) {
-        return const ApiResponse(501, {'error': 'Space retention unavailable'});
-      }
       final space = uri.queryParameters['space'];
       if (space == null || space.isEmpty) {
         return const ApiResponse(400, {'error': 'space required'});
       }
-      final retention = await handler(space);
+      final channel = uri.queryParameters['channel'];
+      final retention = channel == null
+          ? await spaceRetention?.call(space)
+          : channel.isEmpty
+          ? null
+          : await spaceChannelRetention?.call(space, channel);
+      if ((channel == null && spaceRetention == null) ||
+          (channel != null && spaceChannelRetention == null)) {
+        return const ApiResponse(501, {'error': 'Space retention unavailable'});
+      }
       return retention == null
-          ? const ApiResponse(404, {'error': 'space not found'})
+          ? const ApiResponse(404, {'error': 'space or channel not found'})
           : ApiResponse(200, retention);
     }
     if (method == 'POST' && path == '/v1/spaces/retention') {
       final handler = setSpaceRetention;
-      if (handler == null) {
-        return const ApiResponse(501, {'error': 'Space retention unavailable'});
-      }
       final space = body?['space'];
       final scope = body?['scope'];
       final days = body?['days'];
+      final channel = body?['channel'];
+      final inherit = body?['inherit'] ?? false;
       if (space is! String ||
           space.isEmpty ||
-          (scope != 'community' && scope != 'device') ||
+          (scope != 'community' && scope != 'device' && scope != 'channel') ||
+          inherit is! bool ||
+          (scope == 'channel'
+              ? channel is! String || channel.isEmpty
+              : channel != null || inherit == true) ||
+          (scope == 'channel' && inherit == true && days != null) ||
           (days != null && (days is! int || days <= 0 || days > 36500))) {
         return const ApiResponse(400, {
-          'error': 'valid space, scope and optional days required',
+          'error': 'valid space, scope, channel and optional days required',
         });
+      }
+      if (scope == 'channel') {
+        final channelHandler = setSpaceChannelRetention;
+        if (channelHandler == null) {
+          return const ApiResponse(501, {
+            'error': 'Space retention unavailable',
+          });
+        }
+        return _spaceMutationResponse(
+          await channelHandler(space, channel as String, days as int?, inherit),
+        );
+      }
+      if (handler == null) {
+        return const ApiResponse(501, {'error': 'Space retention unavailable'});
       }
       return _spaceMutationResponse(
         await handler(space, days as int?, scope == 'device'),
