@@ -1228,10 +1228,103 @@ final class GroupApiAdapter {
     return updateSubscription(spaceHex, feedEnabled: enabled);
   }
 
+  Map<String, dynamic> _publicDiscoveryEntry(
+    SpacePublicDiscoveryResult result,
+  ) {
+    final descriptor = result.descriptor;
+    return {
+      'spaceId': descriptor.spaceId.hex,
+      'name': descriptor.name,
+      'description': descriptor.description,
+      if (descriptor.avatarContentId != null)
+        'avatarContentId': descriptor.avatarContentId,
+      if (descriptor.coverContentId != null)
+        'coverContentId': descriptor.coverContentId,
+      'createdAt': descriptor.createdAtMs,
+      'updatedAt': descriptor.updatedAtMs,
+      'revision': descriptor.revision,
+      'publicFeedRevision': descriptor.publicFeedRevision,
+      'publicFeedUpdatedAt': descriptor.publicFeedUpdatedAtMs,
+      'publicPostCount': descriptor.publicPostCount,
+      'expiresAt': descriptor.expiresAtMs,
+      'joinCode': descriptor.joinCode,
+      // Holder identities are routing internals. The API exposes only the
+      // independently verified availability count needed to explain quorum.
+      'independentHolders': result.holders.length,
+    };
+  }
+
+  Future<Map<String, dynamic>> searchPublicSpaces(String query) async {
+    final outcome = await _groups.searchPublicSpaceDiscoveryOutcome(query);
+    return {
+      'status': outcome.status.name,
+      'results': [
+        for (final result in outcome.results) _publicDiscoveryEntry(result),
+      ],
+    };
+  }
+
+  Future<Map<String, dynamic>?> resolvePublicSpace(String spaceHex) async {
+    final spaceId = _parseId(spaceHex);
+    if (spaceId == null) return null;
+    final result = await _groups.resolvePublicSpaceDiscovery(spaceId);
+    return result == null ? null : _publicDiscoveryEntry(result);
+  }
+
+  Future<List<Map<String, dynamic>>> publicSubscriptions() async => [
+    for (final view in await _groups.publicSpaceSubscriptions())
+      {
+        'spaceId': view.descriptor.spaceId.hex,
+        'name': view.descriptor.name,
+        'description': view.descriptor.description,
+        if (view.descriptor.avatarContentId != null)
+          'avatarContentId': view.descriptor.avatarContentId,
+        if (view.descriptor.coverContentId != null)
+          'coverContentId': view.descriptor.coverContentId,
+        'verifiedAt': view.verifiedAtMs,
+        'stale': view.stale,
+        'publicFeedRevision': view.descriptor.publicFeedRevision,
+        'publicFeedUpdatedAt': view.descriptor.publicFeedUpdatedAtMs,
+        'publicPostCount': view.feed.posts.length,
+        'feedEnabled': view.subscription.feedEnabled,
+        'notificationsEnabled': view.subscription.notificationsEnabled,
+        'hiddenFromRecommendations':
+            view.subscription.hiddenFromRecommendations,
+        'updatedAt': view.subscription.updatedAtMs,
+        'publicOnly': true,
+      },
+  ];
+
+  /// Re-resolve the exact public Space server-side before subscribing. API
+  /// clients never submit holder attestations or signed descriptor bytes.
+  Future<String?> subscribePublicSpace(String spaceHex) async {
+    final spaceId = _parseId(spaceHex);
+    if (spaceId == null) return 'invalid space';
+    if (await _groups.publicSpaceSubscription(spaceId) != null) return null;
+    final discovery = await _groups.resolvePublicSpaceDiscovery(spaceId);
+    if (discovery == null) return 'public Space unavailable';
+    return await _groups.subscribeToPublicSpaceDiscovery(discovery) == null
+        ? 'public Space subscription rejected'
+        : null;
+  }
+
+  Future<String?> unsubscribePublicSpace(String spaceHex) async {
+    final spaceId = _parseId(spaceHex);
+    if (spaceId == null) return 'invalid space';
+    return await _groups.unsubscribeFromPublicSpace(spaceId)
+        ? null
+        : 'public Space subscription not found';
+  }
+
   Future<Map<String, dynamic>?> subscription(String spaceHex) async {
+    final spaceId = _parseId(spaceHex);
+    if (spaceId == null) return null;
     final visible = await _visible(spaceHex);
-    if (visible == null) return null;
-    final value = await _groups.spaceSubscription(visible.$1);
+    if (visible == null &&
+        await _groups.publicSpaceSubscription(spaceId) == null) {
+      return null;
+    }
+    final value = await _groups.spaceSubscription(spaceId);
     return {
       'spaceId': value.spaceId.hex,
       'feedEnabled': value.feedEnabled,
@@ -1250,8 +1343,13 @@ final class GroupApiAdapter {
     String? commentNotifications,
     bool? hiddenFromRecommendations,
   }) async {
+    final spaceId = _parseId(spaceHex);
+    if (spaceId == null) return 'space not found';
     final visible = await _visible(spaceHex);
-    if (visible == null) return 'space not found';
+    if (visible == null &&
+        await _groups.publicSpaceSubscription(spaceId) == null) {
+      return 'space not found';
+    }
     try {
       final commentMode = commentNotifications == null
           ? null
@@ -1260,7 +1358,7 @@ final class GroupApiAdapter {
         return 'invalid comment notification mode';
       }
       await _groups.updateSpaceSubscription(
-        visible.$1,
+        spaceId,
         feedEnabled: feedEnabled,
         notificationsEnabled: notificationsEnabled,
         commentNotifications: commentMode,

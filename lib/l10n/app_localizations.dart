@@ -496,7 +496,7 @@ abstract class AppL10n {
   /// No description provided for @spaceVisibilityPublicHint.
   ///
   /// In en, this message translates to:
-  /// **'Posts may be shared publicly. Automatic discovery is not enabled until the holder protocol is ready.'**
+  /// **'Posts may be shared publicly. If discovery is enabled, the allowlisted profile and signed public feed can appear in verified search.'**
   String get spaceVisibilityPublicHint;
 
   /// No description provided for @spaceVisibilityPrivateHint.
@@ -1176,6 +1176,66 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Remove this public subscription and its offline snapshot from this device?'**
   String get spacePublicUnsubscribeConfirm;
+
+  /// No description provided for @spaceDiscoveryAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Find public communities'**
+  String get spaceDiscoveryAction;
+
+  /// No description provided for @spaceDiscoveryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Find public communities'**
+  String get spaceDiscoveryTitle;
+
+  /// No description provided for @spaceDiscoveryHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Name or exact node_id'**
+  String get spaceDiscoveryHint;
+
+  /// No description provided for @spaceDiscoveryIdle.
+  ///
+  /// In en, this message translates to:
+  /// **'Search by name, or paste an exact node_id from a trusted source.'**
+  String get spaceDiscoveryIdle;
+
+  /// No description provided for @spaceDiscoveryNoVerifiedResults.
+  ///
+  /// In en, this message translates to:
+  /// **'No public community reached verified holder quorum.'**
+  String get spaceDiscoveryNoVerifiedResults;
+
+  /// No description provided for @spaceDiscoveryUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Public discovery is unavailable. Check the connection and try again.'**
+  String get spaceDiscoveryUnavailable;
+
+  /// No description provided for @spaceDiscoveryPartialQuorum.
+  ///
+  /// In en, this message translates to:
+  /// **'A matching announcement was found, but it does not yet have enough independent verified holders.'**
+  String get spaceDiscoveryPartialQuorum;
+
+  /// No description provided for @spaceDiscoveryPosts.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No publications} one{1 publication} other{{count} publications}}'**
+  String spaceDiscoveryPosts(int count);
+
+  /// No description provided for @spaceDiscoverySources.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 verified source} other{{count} verified sources}}'**
+  String spaceDiscoverySources(int count);
+
+  /// No description provided for @spacePublicSubscribe.
+  ///
+  /// In en, this message translates to:
+  /// **'Subscribe'**
+  String get spacePublicSubscribe;
 
   /// No description provided for @spaceCommentNotificationsSetting.
   ///

@@ -318,6 +318,11 @@ class HeadlessRuntime {
         spaceFeed: groupApi.feed,
         spaceFeedTypeFilter: groupApi.feedTypeFilter,
         setSpaceFeedTypeFilter: groupApi.setFeedTypeFilter,
+        publicSpaceDiscoverySearch: groupApi.searchPublicSpaces,
+        publicSpaceDiscoveryResolve: groupApi.resolvePublicSpace,
+        publicSpaceSubscriptions: groupApi.publicSubscriptions,
+        subscribePublicSpace: groupApi.subscribePublicSpace,
+        unsubscribePublicSpace: groupApi.unsubscribePublicSpace,
         spaceSubscription: groupApi.subscription,
         updateSpaceSubscription:
             (
