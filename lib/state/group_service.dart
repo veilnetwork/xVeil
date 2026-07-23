@@ -856,15 +856,28 @@ class GroupService {
   }
 
   Future<List<PendingSpaceInvite>> pendingSpaceInvites() async {
-    final now = _now();
-    final store = await _loadSpaceInvites();
-    final result =
-        store.incoming.where((entry) => !entry.invite.isExpiredAt(now)).toList()
-          ..sort(
-            (left, right) =>
-                right.invite.createdAtMs.compareTo(left.invite.createdAtMs),
-          );
-    return result;
+    return _serializeSpaceInvites(() async {
+      final now = _now();
+      final store = await _loadSpaceInvites();
+      final incoming = <PendingSpaceInvite>[];
+      for (final entry in store.incoming) {
+        if (entry.invite.isExpiredAt(now) ||
+            (await _storage.getContact(entry.invite.inviter))?.status !=
+                ContactStatus.accepted) {
+          continue;
+        }
+        incoming.add(entry);
+      }
+      if (incoming.length != store.incoming.length) {
+        await _saveSpaceInvites(incoming: incoming, outgoing: store.outgoing);
+        changes.value++;
+      }
+      incoming.sort(
+        (left, right) =>
+            right.invite.createdAtMs.compareTo(left.invite.createdAtMs),
+      );
+      return incoming;
+    });
   }
 
   Future<bool> decideSpaceInvite(
@@ -882,10 +895,24 @@ class GroupService {
           for (final candidate in store.incoming) {
             if (candidate.invite.inviteId == inviteId) pending = candidate;
           }
-          if (pending == null || pending.invite.isExpiredAt(_now())) {
+          if (pending == null) {
             return null;
           }
-          final decidedAt = _now();
+          final now = _now();
+          if (pending.invite.isExpiredAt(now) ||
+              (await _storage.getContact(pending.invite.inviter))?.status !=
+                  ContactStatus.accepted) {
+            await _saveSpaceInvites(
+              incoming: [
+                for (final entry in store.incoming)
+                  if (entry.invite.inviteId != inviteId) entry,
+              ],
+              outgoing: store.outgoing,
+            );
+            changes.value++;
+            return null;
+          }
+          final decidedAt = now;
           final decision = SpaceInviteDecision(
             inviteId: inviteId,
             spaceId: pending.invite.spaceId,
@@ -1122,6 +1149,11 @@ class GroupService {
   Future<bool> revokeSpaceJoinCode(NodeId spaceId) => _serializeSpaceJoins(
     () async {
       final store = await _loadSpaceJoins();
+      final revokedTicketIds = <String>{
+        for (final ticket in store.tickets)
+          if (ticket.spaceId == spaceId && ticket.approver == selfId)
+            ticket.ticketId,
+      };
       final tickets = [
         for (final ticket in store.tickets)
           if (!(ticket.spaceId == spaceId && ticket.approver == selfId)) ticket,
@@ -1129,7 +1161,12 @@ class GroupService {
       if (tickets.length == store.tickets.length) return false;
       await _saveSpaceJoins(
         tickets: tickets,
-        incoming: store.incoming,
+        incoming: [
+          for (final entry in store.incoming)
+            if (!entry.pending ||
+                !revokedTicketIds.contains(entry.request.ticketId))
+              entry,
+        ],
         outgoing: store.outgoing,
       );
       changes.value++;
@@ -1523,31 +1560,44 @@ class GroupService {
   }
 
   Future<List<SpaceJoinOutboxEntry>> outgoingSpaceJoinRequests() async {
-    final now = _now();
-    final result = <SpaceJoinOutboxEntry>[];
-    for (final entry in (await _loadSpaceJoins()).outgoing) {
-      if (entry.ticket.isExpiredAt(now)) {
-        continue;
+    return _serializeSpaceJoins(() async {
+      final now = _now();
+      final store = await _loadSpaceJoins();
+      final outgoing = <SpaceJoinOutboxEntry>[];
+      for (final entry in store.outgoing) {
+        if (entry.ticket.isExpiredAt(now) ||
+            (await _storage.getContact(entry.request.approver))?.status ==
+                ContactStatus.blocked) {
+          continue;
+        }
+        final bundle = await load(entry.ticket.spaceId);
+        if (bundle != null &&
+            (!_validSpaceBundle(bundle) ||
+                _spaceMembershipForBundle(bundle, now).status !=
+                    SpaceMembershipStatus.left)) {
+          continue;
+        }
+        if (entry.declined &&
+            now - entry.decision!.decidedAtMs >
+                kSpaceJoinRequestRetryDelay.inMilliseconds) {
+          continue;
+        }
+        outgoing.add(entry);
       }
-      final bundle = await load(entry.ticket.spaceId);
-      if (bundle != null &&
-          (!_validSpaceBundle(bundle) ||
-              _spaceMembershipForBundle(bundle, now).status !=
-                  SpaceMembershipStatus.left)) {
-        continue;
+      if (outgoing.length != store.outgoing.length) {
+        await _saveSpaceJoins(
+          tickets: store.tickets,
+          incoming: store.incoming,
+          outgoing: outgoing,
+        );
+        changes.value++;
       }
-      if (entry.declined &&
-          now - entry.decision!.decidedAtMs >
-              kSpaceJoinRequestRetryDelay.inMilliseconds) {
-        continue;
-      }
-      result.add(entry);
-    }
-    result.sort(
-      (left, right) =>
-          right.request.createdAtMs.compareTo(left.request.createdAtMs),
-    );
-    return result;
+      outgoing.sort(
+        (left, right) =>
+            right.request.createdAtMs.compareTo(left.request.createdAtMs),
+      );
+      return outgoing;
+    });
   }
 
   bool _validSpaceBundle(GroupBundle bundle) =>
@@ -1693,8 +1743,9 @@ class GroupService {
         SpaceMembershipStatus.left;
   }
 
-  /// One read-only projection over the signed control/moderation fold and the
-  /// existing durable consent proposal stores. No row is persisted here.
+  /// One projection over the signed control/moderation fold and the existing
+  /// durable consent stores. It creates no membership row; invalidated
+  /// invite/join proposals may be pruned so unblock cannot revive old consent.
   Future<List<SpaceMembershipProjection>> spaceMemberships() async {
     final now = _now();
     final bySpace = <String, SpaceMembershipProjection>{};
@@ -1733,9 +1784,8 @@ class GroupService {
       );
     }
 
-    final joins = await _loadSpaceJoins();
-    for (final entry in joins.outgoing) {
-      if (entry.ticket.isExpiredAt(now) || entry.declined) continue;
+    for (final entry in await outgoingSpaceJoinRequests()) {
+      if (entry.declined) continue;
       addPending(
         spaceId: entry.ticket.spaceId,
         name: entry.ticket.spaceName,
@@ -1745,9 +1795,8 @@ class GroupService {
         sourceId: entry.request.requestId,
       );
     }
-    final invites = await _loadSpaceInvites();
-    for (final entry in invites.incoming) {
-      if (!entry.accepted || entry.invite.isExpiredAt(now)) continue;
+    for (final entry in await pendingSpaceInvites()) {
+      if (!entry.accepted) continue;
       addPending(
         spaceId: entry.invite.spaceId,
         name: entry.invite.spaceName,
@@ -1827,20 +1876,8 @@ class GroupService {
     final acceptedRequest = request;
     return _serializeSpaceJoins(() async {
       final store = await _loadSpaceJoins();
-      SpaceJoinTicket? ticket;
-      for (final candidate in store.tickets) {
-        if (candidate.ticketId == acceptedRequest.ticketId &&
-            candidate.spaceId == acceptedRequest.spaceId &&
-            candidate.approver == selfId) {
-          ticket = candidate;
-          break;
-        }
-      }
-      if (ticket == null ||
-          ticket.isExpiredAt(now) ||
-          acceptedRequest.ticketHash != spaceJoinTicketHash(ticket) ||
-          acceptedRequest.createdAtMs < ticket.createdAtMs ||
-          acceptedRequest.createdAtMs >= ticket.expiresAtMs) {
+      if (_liveTicketForSpaceJoinRequest(store.tickets, acceptedRequest, now) ==
+          null) {
         return false;
       }
       for (final old in store.incoming) {
@@ -1878,17 +1915,64 @@ class GroupService {
     });
   }
 
+  SpaceJoinTicket? _liveTicketForSpaceJoinRequest(
+    List<SpaceJoinTicket> tickets,
+    SpaceJoinRequest request,
+    int now,
+  ) {
+    for (final ticket in tickets) {
+      if (ticket.ticketId == request.ticketId &&
+          ticket.spaceId == request.spaceId &&
+          ticket.approver == selfId &&
+          request.approver == selfId &&
+          !ticket.isExpiredAt(now) &&
+          request.ticketHash == spaceJoinTicketHash(ticket) &&
+          request.createdAtMs >= ticket.createdAtMs &&
+          request.createdAtMs < ticket.expiresAtMs) {
+        return ticket;
+      }
+    }
+    return null;
+  }
+
   Future<List<SpaceJoinInboxEntry>> pendingSpaceJoinRequests(
     NodeId spaceId,
   ) async {
-    final result =
-        (await _loadSpaceJoins()).incoming
-            .where((entry) => entry.pending && entry.request.spaceId == spaceId)
-            .toList()
-          ..sort(
-            (left, right) => right.receivedAtMs.compareTo(left.receivedAtMs),
-          );
-    return result;
+    return _serializeSpaceJoins(() async {
+      final now = _now();
+      final store = await _loadSpaceJoins();
+      final incoming = <SpaceJoinInboxEntry>[];
+      final result = <SpaceJoinInboxEntry>[];
+      for (final entry in store.incoming) {
+        if (entry.pending &&
+            ((await _storage.getContact(entry.request.requester))?.status ==
+                    ContactStatus.blocked ||
+                _liveTicketForSpaceJoinRequest(
+                      store.tickets,
+                      entry.request,
+                      now,
+                    ) ==
+                    null)) {
+          continue;
+        }
+        incoming.add(entry);
+        if (entry.pending && entry.request.spaceId == spaceId) {
+          result.add(entry);
+        }
+      }
+      if (incoming.length != store.incoming.length) {
+        await _saveSpaceJoins(
+          tickets: store.tickets,
+          incoming: incoming,
+          outgoing: store.outgoing,
+        );
+        changes.value++;
+      }
+      result.sort(
+        (left, right) => right.receivedAtMs.compareTo(left.receivedAtMs),
+      );
+      return result;
+    });
   }
 
   Future<bool> decideSpaceJoinRequest(
@@ -1910,6 +1994,26 @@ class GroupService {
             }
           }
           if (pending == null) return null;
+          final now = _now();
+          if ((await _storage.getContact(pending.request.requester))?.status ==
+                  ContactStatus.blocked ||
+              _liveTicketForSpaceJoinRequest(
+                    store.tickets,
+                    pending.request,
+                    now,
+                  ) ==
+                  null) {
+            await _saveSpaceJoins(
+              tickets: store.tickets,
+              incoming: [
+                for (final entry in store.incoming)
+                  if (entry.request.requestId != requestId) entry,
+              ],
+              outgoing: store.outgoing,
+            );
+            changes.value++;
+            return null;
+          }
           if (accept) {
             final added = await addControlOp(
               pending.request.spaceId,
@@ -1919,7 +2023,6 @@ class GroupService {
             );
             if (!added) return null;
           }
-          final now = _now();
           final decision = SpaceJoinDecision(
             requestId: requestId,
             spaceId: pending.request.spaceId,
@@ -10729,7 +10832,7 @@ class GroupService {
   ) async {
     if (manifest.visibility != SpaceVisibility.public) return null;
     SpaceJoinOutboxEntry? pending;
-    for (final candidate in (await _loadSpaceJoins()).outgoing) {
+    for (final candidate in await outgoingSpaceJoinRequests()) {
       if (!candidate.declined &&
           candidate.request.spaceId == manifest.spaceId &&
           candidate.request.approver == peer &&
