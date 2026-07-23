@@ -619,6 +619,7 @@ class GroupService {
   /// discard its last rendered snapshot before recalculating access, instead
   /// of briefly retaining content after a local block, leave, or remote ban.
   final GroupChangeSignal feedAccessChanges = GroupChangeSignal();
+  final Map<String, int> _contactAccessGenerations = <String, int>{};
   static const String _contentGcMarksKey = 'content.gc.marks.v1';
   Timer? _spaceDeletionMaintenanceTimer;
   bool _spaceDeletionMaintenanceRunning = false;
@@ -638,7 +639,28 @@ class GroupService {
   /// without waiting for an unrelated group mutation.
   void notifyContactAccessChanged(NodeId peer) {
     if (peer == _signer.selfId) return;
+    _contactAccessGenerations.update(
+      peer.hex,
+      (generation) => generation + 1,
+      ifAbsent: () => 1,
+    );
     _invalidateFeedAccess();
+  }
+
+  int _contactAccessGeneration(NodeId peer) =>
+      _contactAccessGenerations[peer.hex] ?? 0;
+
+  Future<bool> _contactConsentStillAllows(
+    NodeId peer, {
+    required int generation,
+    required bool requireAccepted,
+  }) async {
+    if (_contactAccessGeneration(peer) != generation) return false;
+    final status = (await _storage.getContact(peer))?.status;
+    if (_contactAccessGeneration(peer) != generation) return false;
+    return requireAccepted
+        ? status == ContactStatus.accepted
+        : status != ContactStatus.blocked;
   }
 
   void _invalidateFeedAccess() {
@@ -983,13 +1005,29 @@ class GroupService {
     }
     final matchedInvite = invite;
     if (matchedDecision.accepted) {
-      final added = await addControlOp(
+      final added = await _addMemberFromConsent(
         matchedInvite.spaceId,
-        ControlOp.addMember,
-        target: peer,
-        role: matchedInvite.role,
+        peer,
+        matchedInvite.role,
+        requireAcceptedContact: true,
       );
-      if (!added) return false;
+      if (!added) {
+        if ((await _storage.getContact(peer))?.status !=
+            ContactStatus.accepted) {
+          await _serializeSpaceInvites(() async {
+            final latest = await _loadSpaceInvites();
+            await _saveSpaceInvites(
+              incoming: latest.incoming,
+              outgoing: [
+                for (final entry in latest.outgoing)
+                  if (entry.inviteId != matchedInvite.inviteId) entry,
+              ],
+            );
+          });
+          changes.value++;
+        }
+        return false;
+      }
     }
     await _serializeSpaceInvites(() async {
       final latest = await _loadSpaceInvites();
@@ -2015,13 +2053,29 @@ class GroupService {
             return null;
           }
           if (accept) {
-            final added = await addControlOp(
+            final added = await _addMemberFromConsent(
               pending.request.spaceId,
-              ControlOp.addMember,
-              target: pending.request.requester,
-              role: GroupRole.member,
+              pending.request.requester,
+              GroupRole.member,
+              requireAcceptedContact: false,
             );
-            if (!added) return null;
+            if (!added) {
+              if ((await _storage.getContact(
+                    pending.request.requester,
+                  ))?.status ==
+                  ContactStatus.blocked) {
+                await _saveSpaceJoins(
+                  tickets: store.tickets,
+                  incoming: [
+                    for (final entry in store.incoming)
+                      if (entry.request.requestId != requestId) entry,
+                  ],
+                  outgoing: store.outgoing,
+                );
+                changes.value++;
+              }
+              return null;
+            }
           }
           final decision = SpaceJoinDecision(
             requestId: requestId,
@@ -6229,6 +6283,39 @@ class GroupService {
     ),
   );
 
+  /// Turn a still-live consent decision into membership under the same
+  /// per-Space mutation queue as role, moderation and lifecycle changes.
+  ///
+  /// Contact state belongs to MessagingService, so it cannot share the
+  /// per-Space mutex directly. The synchronous generation bump from
+  /// [notifyContactAccessChanged] plus the durable status read in [guard]
+  /// closes that cross-store TOCTOU window. [_addControlOp] checks the guard
+  /// after the expensive epoch-seal awaits and again after persistence,
+  /// before any snapshot can be sent to the candidate member.
+  Future<bool> _addMemberFromConsent(
+    NodeId spaceId,
+    NodeId member,
+    GroupRole role, {
+    required bool requireAcceptedContact,
+  }) {
+    final generation = _contactAccessGeneration(member);
+    Future<bool> guard() => _contactConsentStillAllows(
+      member,
+      generation: generation,
+      requireAccepted: requireAcceptedContact,
+    );
+    return _serialized(
+      spaceId,
+      () => _addControlOp(
+        spaceId,
+        ControlOp.addMember,
+        target: member,
+        role: role,
+        commitGuard: guard,
+      ),
+    );
+  }
+
   Future<bool> _addControlOp(
     NodeId groupId,
     ControlOp op, {
@@ -6248,6 +6335,7 @@ class GroupService {
     SpaceRecommendationCampaign? recommendationCampaign,
     SpaceAccessPolicy? accessPolicy,
     int? createdAtMs,
+    Future<bool> Function()? commitGuard,
   }) async {
     final b = await load(groupId);
     if (b == null) return false;
@@ -6483,7 +6571,54 @@ class GroupService {
         epochEnvelopes: envelopes,
         localEpochKeys: localKeys,
       );
+      if (commitGuard != null && !await commitGuard()) return false;
       await _save(savedBundle);
+      if (commitGuard != null && !await commitGuard()) {
+        // The relationship changed while the storage write itself was in
+        // flight. Do not broadcast the transient add (and its epoch envelope)
+        // to the candidate. Append a signed removal + epoch rotation while the
+        // caller still owns the same per-Space queue, then send one full
+        // convergent snapshot to the remaining members. The append-only audit
+        // truthfully records the rare cross-store race instead of rewriting
+        // already persisted signed history.
+        final compensated = await _addControlOp(
+          groupId,
+          ControlOp.removeMember,
+          target: target,
+        );
+        final latestState = await stateOf(groupId);
+        final removalPersisted =
+            target != null &&
+            latestState != null &&
+            !latestState.isMember(target);
+        if (compensated || removalPersisted) {
+          try {
+            await broadcast(groupId);
+          } catch (error) {
+            // The signed removal is already durable and the rejected candidate
+            // never received the transient add. Keep the fail-closed local
+            // truth; ordinary anti-entropy can retry convergence.
+            devLog(
+              () =>
+                  'xVeil[spaces]: consent compensation persisted but '
+                  'snapshot retry failed (${groupId.short}): $error',
+            );
+          }
+        } else {
+          // No membership snapshot was emitted yet and this service still owns
+          // the per-Space queue, so restoring the exact pre-commit bundle is a
+          // safe local transaction rollback (not a signed-history rewrite
+          // visible to peers).
+          await _save(b);
+          devLog(
+            () =>
+                'xVeil[spaces]: consent changed during membership commit; '
+                'compensating removal failed, restored pre-commit bundle '
+                '(${groupId.short})',
+          );
+        }
+        return false;
+      }
       // A join needs the whole log; every other mutation is a bounded delta.
       if (protectedAclMayChange) {
         if (op == ControlOp.addMember) {

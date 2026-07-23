@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -7,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/storage/fake_kv_log_store.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/domain/chat.dart';
@@ -21,6 +24,7 @@ import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/message_mention.dart';
 import 'package:xveil/domain/space_channel.dart';
+import 'package:xveil/domain/space_invite.dart';
 import 'package:xveil/domain/space_lifecycle.dart';
 import 'package:xveil/domain/space_join_request.dart';
 import 'package:xveil/domain/space_membership.dart';
@@ -177,6 +181,72 @@ class _FakeSovereign implements SovereignGroupSigner {
 
   @override
   void close() => _closed = true;
+}
+
+/// Pauses the first epoch envelope for [heldRecipient]. This puts a membership
+/// decision precisely inside the old check-to-commit window without sleeps.
+class _GatedMailboxCrypto implements VeilMailboxCrypto {
+  _GatedMailboxCrypto({
+    required this.senderForOpen,
+    required this.heldRecipient,
+  }) : _delegate = LoopbackMailboxCrypto(senderForOpen: senderForOpen);
+
+  final NodeId senderForOpen;
+  final NodeId heldRecipient;
+  final LoopbackMailboxCrypto _delegate;
+  final Completer<void> entered = Completer<void>();
+  final Completer<void> release = Completer<void>();
+  bool _held = false;
+
+  @override
+  Future<Uint8List> seal({
+    required NodeId recipient,
+    required Uint8List appId,
+    required int endpointId,
+    required Uint8List data,
+  }) async {
+    if (!_held && recipient == heldRecipient) {
+      _held = true;
+      entered.complete();
+      await release.future;
+    }
+    return _delegate.seal(
+      recipient: recipient,
+      appId: appId,
+      endpointId: endpointId,
+      data: data,
+    );
+  }
+
+  @override
+  Future<OpenedMailboxMessage> open({
+    required Uint8List blob,
+    required int ourCertVersion,
+  }) => _delegate.open(blob: blob, ourCertVersion: ourCertVersion);
+}
+
+/// Pauses one group bundle write after it is durable but before the caller can
+/// run its post-save relationship guard.
+class _PostWriteGatedStorage extends HiddenVolumeStorage {
+  _PostWriteGatedStorage()
+    : super(
+        ({required Uint8List password, required bool create}) =>
+            FakeKvLogStore(),
+      );
+
+  final Completer<void> entered = Completer<void>();
+  final Completer<void> release = Completer<void>();
+  bool gateNextGroupWrite = false;
+
+  @override
+  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
+    await super.storeFile(fileId, bytes, name: name);
+    if (gateNextGroupWrite && fileId.startsWith('group:')) {
+      gateNextGroupWrite = false;
+      entered.complete();
+      await release.future;
+    }
+  }
 }
 
 void main() {
@@ -3286,6 +3356,247 @@ void main() {
       );
       expect(await ownerService.pendingSpaceJoinRequests(spaceId), isEmpty);
       expect((await ownerService.stateOf(spaceId))!.isMember(bob), isFalse);
+    },
+  );
+
+  test(
+    'blocking during public join epoch sealing aborts membership atomically',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final requesterStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await requesterStorage.open(password: 'requester', createIfMissing: true);
+      final crypto = _GatedMailboxCrypto(
+        senderForOpen: owner,
+        heldRecipient: bob,
+      );
+      addTearDown(() {
+        if (!crypto.release.isCompleted) crypto.release.complete();
+      });
+      late final GroupService ownerService;
+      final decisions = <String>[];
+      final requesterService = GroupService(
+        requesterStorage,
+        _FakeSigner(bob),
+        sendSpaceJoinRequest: (peer, requestId, json) async {
+          expect(await ownerService.receiveSpaceJoinRequest(bob, json), isTrue);
+        },
+      );
+      ownerService = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(crypto),
+        sendSpaceJoinDecision: (peer, requestId, json) async {
+          decisions.add(json);
+        },
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(requesterService.dispose);
+
+      final spaceId = await ownerService.createSpace(
+        'Concurrent block',
+        visibility: SpaceVisibility.public,
+      );
+      final code = (await ownerService.createSpaceJoinCode(spaceId))!;
+      expect(await requesterService.requestToJoinSpace(code), isTrue);
+      final request = (await ownerService.pendingSpaceJoinRequests(
+        spaceId,
+      )).single;
+
+      final deciding = ownerService.decideSpaceJoinRequest(
+        request.request.requestId,
+        accept: true,
+      );
+      await crypto.entered.future;
+      await ownerStorage.upsertContact(
+        Contact(nodeId: bob, status: ContactStatus.blocked),
+      );
+      ownerService.notifyContactAccessChanged(bob);
+      crypto.release.complete();
+
+      expect(await deciding, isFalse);
+      expect((await ownerService.stateOf(spaceId))!.isMember(bob), isFalse);
+      expect(await ownerService.pendingSpaceJoinRequests(spaceId), isEmpty);
+      expect(decisions, isEmpty);
+      expect(
+        (await ownerService.load(spaceId))!.control
+            .where(
+              (entry) => entry.target == bob && entry.op == ControlOp.addMember,
+            )
+            .toList(),
+        isEmpty,
+        reason:
+            'the guard runs after epoch sealing and before durable membership',
+      );
+    },
+  );
+
+  test(
+    'blocking during accepted invite epoch sealing retires the consent',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await ownerStorage.upsertContact(
+        Contact(nodeId: bob, status: ContactStatus.accepted),
+      );
+      final crypto = _GatedMailboxCrypto(
+        senderForOpen: owner,
+        heldRecipient: bob,
+      );
+      addTearDown(() {
+        if (!crypto.release.isCompleted) crypto.release.complete();
+      });
+      SpaceInvite? invite;
+      final ownerService = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(crypto),
+        sendSpaceInvite: (peer, inviteId, json) async {
+          invite = SpaceInvite.fromJson(jsonDecode(json));
+        },
+      );
+      addTearDown(ownerService.dispose);
+      final spaceId = await ownerService.createSpace('Invite race');
+      expect(await ownerService.inviteToSpace(spaceId, bob), isTrue);
+      final sentInvite = invite!;
+      final decision = SpaceInviteDecision(
+        inviteId: sentInvite.inviteId,
+        spaceId: spaceId,
+        accepted: true,
+        decidedAtMs: sentInvite.createdAtMs + 1,
+      );
+
+      final receiving = ownerService.receiveSpaceInviteDecision(
+        bob,
+        jsonEncode(decision.toJson()),
+      );
+      await crypto.entered.future;
+      await ownerStorage.upsertContact(
+        Contact(nodeId: bob, status: ContactStatus.blocked),
+      );
+      ownerService.notifyContactAccessChanged(bob);
+      crypto.release.complete();
+
+      expect(await receiving, isFalse);
+      expect((await ownerService.stateOf(spaceId))!.isMember(bob), isFalse);
+      await ownerStorage.upsertContact(
+        Contact(nodeId: bob, status: ContactStatus.accepted),
+      );
+      ownerService.notifyContactAccessChanged(bob);
+      expect(
+        await ownerService.receiveSpaceInviteDecision(
+          bob,
+          jsonEncode(decision.toJson()),
+        ),
+        isFalse,
+        reason: 'unblocking cannot revive the retired invitation consent',
+      );
+    },
+  );
+
+  test(
+    'blocking during durable join write preserves a persisted compensation',
+    () async {
+      final ownerStorage = _PostWriteGatedStorage();
+      final requesterStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await requesterStorage.open(password: 'requester', createIfMissing: true);
+      addTearDown(() {
+        if (!ownerStorage.release.isCompleted) ownerStorage.release.complete();
+      });
+      var failBroadcasts = false;
+      var rejectedBroadcasts = 0;
+      late final GroupService ownerService;
+      final requesterService = GroupService(
+        requesterStorage,
+        _FakeSigner(bob),
+        sendSpaceJoinRequest: (peer, requestId, json) async {
+          expect(await ownerService.receiveSpaceJoinRequest(bob, json), isTrue);
+        },
+      );
+      ownerService = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+        send: (peer, groupId, json) async {
+          if (failBroadcasts) {
+            rejectedBroadcasts++;
+            throw StateError('offline after durable compensation');
+          }
+        },
+        sendSpaceJoinDecision: (peer, requestId, json) async {},
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(requesterService.dispose);
+
+      final spaceId = await ownerService.createSpace(
+        'Durable compensation',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: carol,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerService.createChannel(
+          spaceId,
+          name: 'protected',
+          kind: SpaceChannelKind.text,
+          access: SpaceChannelAccess.restricted,
+          members: [carol],
+        ),
+        isNotNull,
+      );
+      final code = (await ownerService.createSpaceJoinCode(spaceId))!;
+      expect(await requesterService.requestToJoinSpace(code), isTrue);
+      final request = (await ownerService.pendingSpaceJoinRequests(
+        spaceId,
+      )).single;
+
+      ownerStorage.gateNextGroupWrite = true;
+      final deciding = ownerService.decideSpaceJoinRequest(
+        request.request.requestId,
+        accept: true,
+      );
+      final first = await Future.any<String>([
+        ownerStorage.entered.future.then((_) => 'write'),
+        deciding.then((result) => 'decision:$result'),
+      ]).timeout(const Duration(seconds: 5), onTimeout: () => 'timeout');
+      expect(first, 'write');
+      await ownerStorage.upsertContact(
+        Contact(nodeId: bob, status: ContactStatus.blocked),
+      );
+      ownerService.notifyContactAccessChanged(bob);
+      failBroadcasts = true;
+      ownerStorage.release.complete();
+
+      expect(
+        await deciding.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () =>
+              throw StateError('compensating decision did not finish'),
+        ),
+        isFalse,
+      );
+      expect(rejectedBroadcasts, greaterThan(0));
+      expect((await ownerService.stateOf(spaceId))!.isMember(bob), isFalse);
+      final controls = (await ownerService.load(
+        spaceId,
+      ))!.control.where((entry) => entry.target == bob).toList();
+      expect(
+        controls.map((entry) => entry.op),
+        containsAllInOrder([ControlOp.addMember, ControlOp.removeMember]),
+        reason:
+            'append-only history records both the raced add and its durable '
+            'compensation even when the immediate snapshot retry is offline',
+      );
     },
   );
 
