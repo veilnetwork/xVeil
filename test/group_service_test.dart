@@ -37,6 +37,7 @@ import 'package:xveil/domain/space_retention.dart';
 import 'package:xveil/domain/inline_custom_emoji.dart';
 import 'package:xveil/state/group_epoch_service.dart';
 import 'package:xveil/state/group_service_providers.dart';
+import 'package:xveil/state/space_observability.dart';
 
 import 'support/fake_hv_container.dart';
 
@@ -375,6 +376,48 @@ void main() {
         before + 2,
         reason: 'Group and Space creation each invalidate their own list',
       );
+    },
+  );
+
+  test(
+    'Space service emits bounded privacy-safe lifecycle and content metrics',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      var now = 1700000000000;
+      final service = GroupService(
+        storage,
+        _FakeSigner(owner),
+        observability: SpaceObservability(nowMs: () => now++),
+      );
+      addTearDown(service.dispose);
+
+      final spaceId = await service.createSpace(
+        'Private telemetry must not retain this name',
+        visibility: SpaceVisibility.public,
+      );
+      final post = await service.publishSpacePost(
+        spaceId,
+        body: 'secret publication body',
+        broadcast: false,
+      );
+      expect(post, isNotNull);
+      expect(await service.spaceFeed(), hasLength(1));
+      expect(await service.archiveSpace(spaceId), isTrue);
+      expect(await service.restoreSpace(spaceId), isTrue);
+
+      final snapshot = service.spaceObservabilitySnapshot();
+      expect(snapshot.counters['spaceCreated.succeeded'], 1);
+      expect(snapshot.counters['postPublished.succeeded'], 1);
+      expect(snapshot.counters['feedRead.succeeded'], 1);
+      expect(snapshot.counters['spaceArchived.succeeded'], 1);
+      expect(snapshot.counters['spaceRestored.succeeded'], 1);
+      expect(snapshot.amounts['postPublished'], 1);
+      expect(snapshot.amounts['feedRead'], 1);
+      final encoded = jsonEncode(snapshot.toJson());
+      expect(encoded, isNot(contains(spaceId.hex)));
+      expect(encoded, isNot(contains('Private telemetry')));
+      expect(encoded, isNot(contains('secret publication body')));
     },
   );
 
@@ -4093,6 +4136,21 @@ void main() {
         SpaceRecommendationShareResult.rateLimited,
       );
       expect(sent, hasLength(5));
+      final observations = service.spaceObservabilitySnapshot();
+      expect(observations.counters['recommendationShared.succeeded'], 5);
+      expect(observations.counters['recommendationShared.rejected'], 3);
+      expect(observations.counters['recommendationShared.reason.duplicate'], 1);
+      expect(
+        observations.counters['recommendationShared.reason.permissionDenied'],
+        1,
+      );
+      expect(
+        observations.counters['recommendationShared.reason.rateLimited'],
+        1,
+      );
+      expect(observations.counters['recommendationRevoked.succeeded'], 1);
+      expect(observations.counters['recommendationRevoked.rejected'], 1);
+      expect(observations.counters['aclDenied.reason.permissionDenied'], 1);
 
       expect(
         await service.revokeSpaceRecommendationCampaign(
@@ -7058,6 +7116,16 @@ void main() {
       final repair = jsonDecode(toBob.single) as Map;
       expect(repair['c'], hasLength(1));
       expect(repair['p'], hasLength(2));
+      expect(
+        await ownerSvc.handleGroupSyncRequest(stranger, request),
+        isFalse,
+        reason: 'observability must not weaken the silent membership gate',
+      );
+      final observations = ownerSvc.spaceObservabilitySnapshot();
+      expect(observations.counters['p2pBackfill.succeeded'], 1);
+      expect(observations.amounts['p2pBackfill'], 3);
+      expect(observations.counters['aclDenied.reason.notMember'], 1);
+      expect(observations.counters['p2pBackfill.reason.notMember'], 1);
       expect(await bobSvc.ingestSnapshot(toBob.single), isTrue);
       expect((await bobSvc.postsOf(spaceId)).map((post) => post.body), [
         'lost seq zero',

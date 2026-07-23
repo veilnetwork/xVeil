@@ -279,6 +279,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_selftest':
           await _groupSelftestHook(req);
           return;
+        case '/space_observability':
+          await _spaceObservabilityHook(req);
+          return;
         case '/group_create':
           await _groupCreateHook(req);
           return;
@@ -882,6 +885,18 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   }
 
   GroupService? _groupSvc() => ref.read(groupServiceProvider);
+
+  Future<void> _spaceObservabilityHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = _groupSvc();
+    if (service == null) {
+      return _json(req, {'ok': false, 'error': 'no signer'}, status: 409);
+    }
+    return _json(req, {
+      'ok': true,
+      ...service.spaceObservabilitySnapshot().toJson(),
+    });
+  }
 
   /// Create a group named ?name= with the real identity; report id + members.
   Future<void> _groupCreateHook(HttpRequest req) async {

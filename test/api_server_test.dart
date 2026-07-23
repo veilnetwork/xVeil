@@ -599,6 +599,19 @@ void main() {
                 },
               ],
             },
+      spaceObservability: () => {
+        'v': 1,
+        'scope': 'runtime',
+        'privacy': {
+          'containsIdentifiers': false,
+          'containsContent': false,
+          'containsSecrets': false,
+          'arbitraryLabels': false,
+        },
+        'counters': {'spaceCreated.succeeded': 1},
+        'amounts': const <String, int>{},
+        'recent': const <Object>[],
+      },
       setSpaceRetention:
           (space, days, localDevice, {bool mediaOnly = false}) async {
             if (space == 'denied') return 'operation rejected by space policy';
@@ -2452,6 +2465,24 @@ void main() {
     },
   );
 
+  test(
+    'GET /v1/spaces/observability exposes only bounded aggregate data',
+    () async {
+      final response = await make(
+        readOnly: true,
+      ).handle('GET', u('/v1/spaces/observability'), 'Bearer secret-token');
+      expect(response.status, 200);
+      final body = response.body as Map;
+      expect(body['scope'], 'runtime');
+      expect((body['privacy'] as Map)['containsIdentifiers'], isFalse);
+      expect((body['counters'] as Map)['spaceCreated.succeeded'], 1);
+      final encoded = jsonEncode(body);
+      expect(RegExp(r'[0-9a-f]{64}').hasMatch(encoded), isFalse);
+      expect(encoded, isNot(contains('nodeId')));
+      expect(encoded, isNot(contains('spaceId')));
+    },
+  );
+
   test('loopback API parses PATCH JSON for signed Space post edits', () async {
     final server = ApiServer(make(), const Stream.empty());
     final port = await server.start(0);
@@ -3235,6 +3266,7 @@ void main() {
           '/spaces/moderation',
           '/spaces/moderation/revoke',
           '/spaces/moderation/appeals',
+          '/spaces/observability',
           '/spaces/posts',
           '/spaces/posts/draft',
           '/spaces/posts/comments',
