@@ -249,6 +249,33 @@ class _PostWriteGatedStorage extends HiddenVolumeStorage {
   }
 }
 
+class _ControlledGroupWriteStorage extends HiddenVolumeStorage {
+  _ControlledGroupWriteStorage()
+    : super(
+        ({required Uint8List password, required bool create}) =>
+            FakeKvLogStore(),
+      );
+
+  int groupWriteAttempts = 0;
+  bool failNextGroupWrite = false;
+
+  void resetGroupWriteAttempts() {
+    groupWriteAttempts = 0;
+  }
+
+  @override
+  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
+    if (fileId.startsWith('group:')) {
+      groupWriteAttempts++;
+      if (failNextGroupWrite) {
+        failNextGroupWrite = false;
+        throw StateError('injected group bundle write failure');
+      }
+    }
+    await super.storeFile(fileId, bytes, name: name);
+  }
+}
+
 void main() {
   final hasVeilFfi = (Platform.environment['VEIL_FFI_DYLIB'] ?? '').isNotEmpty;
   final owner = _id(1);
@@ -4257,7 +4284,7 @@ void main() {
   test(
     'ownership transfer rekeys protected channel control for the new owner',
     () async {
-      final storage = FakeHvContainer().storage();
+      final storage = _ControlledGroupWriteStorage();
       await storage.open(password: 'pw', createIfMissing: true);
       final service = GroupService(
         storage,
@@ -4284,12 +4311,38 @@ void main() {
       );
       expect(channelId, isNotNull);
       expect(await service.channelMembersOf(spaceId, channelId!), [owner]);
+      expect(
+        await service.setSpaceRetentionPolicy(
+          spaceId,
+          SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.keepForever,
+            channelId: channelId,
+          ),
+        ),
+        isTrue,
+      );
 
+      storage.resetGroupWriteAttempts();
       expect(await service.transferSpaceOwnership(spaceId, bob), isTrue);
+      expect(
+        storage.groupWriteAttempts,
+        1,
+        reason: 'the channel key and role must share one durable commit',
+      );
       expect(
         await service.channelMembersOf(spaceId, channelId),
         containsAllInOrder([owner, bob]),
         reason: 'the effective owner must never inherit a stranded ACL subtree',
+      );
+      expect(
+        (await service.spaceRetentionPolicyOf(
+          spaceId,
+          channelId: channelId,
+        ))?.mode,
+        SpaceRetentionMode.keepForever,
+        reason:
+            'the outgoing owner must preserve the encrypted retention policy '
+            'inside the same ownership transaction',
       );
       final controls = (await service.load(spaceId))!.control;
       expect(
@@ -4299,10 +4352,153 @@ void main() {
         ),
         isTrue,
       );
+      final channelRevision = controls.lastWhere(
+        (entry) => entry.channelControl?.channelId == channelId,
+      );
       expect(
-        controls.last.channelControl?.channelEpoch,
+        channelRevision.channelControl?.channelEpoch,
         2,
         reason: 'role transfer rotates opaque channel control immediately',
+      );
+      expect(
+        controls.indexOf(channelRevision),
+        lessThan(
+          controls.lastIndexWhere(
+            (entry) => entry.op == ControlOp.transferOwnership,
+          ),
+        ),
+        reason:
+            'the current owner must preserve protected policy/key authority '
+            'before the signed ownership hand-off in the atomic bundle',
+      );
+    },
+  );
+
+  test(
+    'admin demotion atomically removes implicit protected channel access',
+    () async {
+      final storage = _ControlledGroupWriteStorage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(
+        storage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      final spaceId = await service.createSpace('Atomic roles');
+      expect(
+        await service.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.admin,
+        ),
+        isTrue,
+      );
+      final channelId = await service.createChannel(
+        spaceId,
+        name: 'admins',
+        kind: SpaceChannelKind.text,
+        access: SpaceChannelAccess.restricted,
+      );
+      expect(channelId, isNotNull);
+      expect(
+        await service.channelMembersOf(spaceId, channelId!),
+        containsAll([owner, bob]),
+      );
+
+      storage.resetGroupWriteAttempts();
+      expect(
+        await service.addControlOp(
+          spaceId,
+          ControlOp.setRole,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(storage.groupWriteAttempts, 1);
+      expect(await service.channelMembersOf(spaceId, channelId), [owner]);
+      expect(
+        (await service.stateOf(
+          spaceId,
+        ))!.protectedChannels[channelId.hex]!.channelEpoch,
+        2,
+      );
+    },
+  );
+
+  test(
+    'failed membership transaction preserves member and protected channel epoch',
+    () async {
+      final storage = _ControlledGroupWriteStorage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(
+        storage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      final spaceId = await service.createSpace('Atomic membership');
+      expect(
+        await service.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final channelId = await service.createChannel(
+        spaceId,
+        name: 'private',
+        kind: SpaceChannelKind.text,
+        access: SpaceChannelAccess.restricted,
+      );
+      expect(channelId, isNotNull);
+      expect(
+        await service.setChannelMembers(spaceId, channelId!, [bob]),
+        isTrue,
+      );
+      final before = (await service.load(spaceId))!;
+      final beforeState = (await service.stateOf(spaceId))!;
+      final beforeChannelEpoch =
+          beforeState.protectedChannels[channelId.hex]!.channelEpoch;
+
+      storage.resetGroupWriteAttempts();
+      storage.failNextGroupWrite = true;
+      expect(
+        await service.addControlOp(
+          spaceId,
+          ControlOp.removeMember,
+          target: bob,
+        ),
+        isFalse,
+      );
+      expect(
+        storage.groupWriteAttempts,
+        1,
+        reason: 'there must be no second, independently failing ACL write',
+      );
+
+      final after = (await service.load(spaceId))!;
+      final afterState = (await service.stateOf(spaceId))!;
+      expect(after.control, hasLength(before.control.length));
+      expect(afterState.epoch, beforeState.epoch);
+      expect(afterState.isMember(bob), isTrue);
+      expect(
+        afterState.protectedChannels[channelId.hex]!.channelEpoch,
+        beforeChannelEpoch,
+      );
+      expect(
+        await service.channelMembersOf(spaceId, channelId),
+        containsAll([owner, bob]),
+      );
+      expect(
+        after.localChannelEpochKeys.keys,
+        unorderedEquals(before.localChannelEpochKeys.keys),
       );
     },
   );
