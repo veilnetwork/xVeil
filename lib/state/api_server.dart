@@ -331,6 +331,11 @@ class ApiServerController extends Notifier<ApiConfig> {
     } catch (_) {
       return 'invalid group';
     }
+    final listed = (await groups.listGroups()).any(
+      (entry) => entry.groupId == groupId,
+    );
+    final bundle = listed ? await groups.load(groupId) : null;
+    if (bundle == null || bundle.manifest.isSpace) return 'group not found';
     final state = await groups.stateOf(groupId);
     if (state == null || !state.isMember(groups.selfId)) {
       return 'group not found';
@@ -360,8 +365,13 @@ class ApiServerController extends Notifier<ApiConfig> {
       spaceId = NodeId.fromHex(spaceHex);
       channelId = NodeId.fromHex(channelHex);
     } catch (_) {
-      return 'invalid group';
+      return 'invalid space or channel';
     }
+    final listed = (await groups.listSpaces()).any(
+      (entry) => entry.groupId == spaceId,
+    );
+    final bundle = listed ? await groups.load(spaceId) : null;
+    if (bundle == null || !bundle.manifest.isSpace) return 'space not found';
     final started = await service.startCall(
       spaceId,
       CallMedia(
@@ -601,17 +611,17 @@ class ApiServerController extends Notifier<ApiConfig> {
       loadGroupFile: groupApi == null
           ? (_, _) async => (error: 'group media unavailable', bytes: null)
           : groupApi.loadFile,
-      groupMembers: groupApi == null ? (_) async => null : groupApi.members,
+      groupMembers: groupApi == null ? (_, _) async => null : groupApi.members,
       groupMemberAction: groupApi == null
-          ? (_, _, _, _) async => 'groups unavailable'
+          ? (_, _, _, _, _) async => 'groups unavailable'
           : groupApi.memberAction,
       spaceAccess: groupApi?.spaceAccess,
       spaceAccessAction: groupApi?.spaceAccessAction,
       renameGroup: groupApi == null
-          ? (_, _) async => 'groups unavailable'
+          ? (_, _, _) async => 'groups unavailable'
           : groupApi.rename,
       leaveGroup: groupApi == null
-          ? (_) async => 'groups unavailable'
+          ? (_, _) async => 'groups unavailable'
           : groupApi.leave,
       spaceChannels: groupApi?.channels,
       spacePosts: groupApi?.posts,
