@@ -12,6 +12,7 @@ import '../../domain/group_policy.dart';
 import '../../domain/space_channel.dart';
 import '../../domain/space_retention.dart';
 import '../../domain/space_join_request.dart';
+import '../../domain/space_moderation.dart';
 import '../../domain/space_recommendation.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
@@ -19,7 +20,7 @@ import '../../state/group_service_providers.dart';
 import '../../state/messaging.dart' show conversationsProvider;
 import '../chat/chat_actions.dart';
 
-enum _SpaceMemberAction { unmute, promote, demote, remove, transferOwner }
+enum _SpaceMemberAction { unmute, promote, demote, remove, ban, transferOwner }
 
 /// The Space-native management surface. It deliberately writes through the
 /// existing signed control log: the UI only predicts permissions for clarity;
@@ -725,7 +726,61 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     String label,
     _SpaceMemberAction action,
   ) async {
-    if (action == _SpaceMemberAction.remove) {
+    String? banReason;
+    if (action == _SpaceMemberAction.ban) {
+      final l = AppL10n.of(context);
+      var draftReason = '';
+      banReason = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text(l.spaceMemberBan),
+            content: SizedBox(
+              width: 480,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(l.spaceMemberBanConfirm(label)),
+                  const SizedBox(height: 16),
+                  TextField(
+                    key: const ValueKey('space-member-ban-reason'),
+                    autofocus: true,
+                    maxLength: kSpaceModerationReasonMax,
+                    onChanged: (value) {
+                      draftReason = value;
+                      setDialogState(() {});
+                    },
+                    decoration: InputDecoration(
+                      labelText: l.spaceModerationReason,
+                      counterText: '',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: Text(l.actionCancel),
+              ),
+              FilledButton(
+                key: const ValueKey('space-member-ban-confirm'),
+                onPressed: draftReason.trim().isEmpty
+                    ? null
+                    : () => Navigator.of(dialogContext).pop(draftReason.trim()),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                  foregroundColor: Theme.of(context).colorScheme.onError,
+                ),
+                child: Text(l.spaceMemberBan),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (banReason == null) return;
+    } else if (action == _SpaceMemberAction.remove) {
       final l = AppL10n.of(context);
       final confirmed = await showDialog<bool>(
         context: context,
@@ -764,11 +819,23 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
       );
       if (confirmed != true) return;
     }
+    if (action == _SpaceMemberAction.ban) {
+      final actionId = await service.moderateSpace(
+        spaceId,
+        kind: SpaceModerationKind.permanentBan,
+        target: member.nodeId,
+        scope: SpaceModerationScope.space,
+        reason: banReason!,
+      );
+      if (actionId == null) _failure();
+      return;
+    }
     final (operation, role) = switch (action) {
       _SpaceMemberAction.unmute => (ControlOp.unmute, null),
       _SpaceMemberAction.promote => (ControlOp.setRole, GroupRole.admin),
       _SpaceMemberAction.demote => (ControlOp.setRole, GroupRole.member),
       _SpaceMemberAction.remove => (ControlOp.removeMember, null),
+      _SpaceMemberAction.ban => throw StateError('handled above'),
       _SpaceMemberAction.transferOwner => (ControlOp.transferOwnership, null),
     };
     final applied = action == _SpaceMemberAction.transferOwner
@@ -919,6 +986,19 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
         PopupMenuItem(
           value: _SpaceMemberAction.remove,
           child: Text(l.spaceMemberRemove),
+        ),
+      );
+    }
+    if (SpaceAcl(
+      state,
+    ).allowsControl(selfId, ControlOp.moderate, target: member.nodeId)) {
+      actions.add(
+        PopupMenuItem(
+          value: _SpaceMemberAction.ban,
+          child: Text(
+            l.spaceMemberBan,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
         ),
       );
     }

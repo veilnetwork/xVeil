@@ -4430,6 +4430,85 @@ void main() {
   );
 
   test(
+    'permanent Space ban atomically revokes membership and every protected key',
+    () async {
+      final storage = _ControlledGroupWriteStorage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(
+        storage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      final spaceId = await service.createSpace('Atomic moderation ban');
+      expect(
+        await service.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final channelId = await service.createChannel(
+        spaceId,
+        name: 'protected incident room',
+        kind: SpaceChannelKind.text,
+        access: SpaceChannelAccess.restricted,
+        members: [bob],
+      );
+      expect(channelId, isNotNull);
+      final before = (await service.stateOf(spaceId))!;
+      final beforeChannelEpoch =
+          before.protectedChannels[channelId!.hex]!.channelEpoch;
+
+      storage.resetGroupWriteAttempts();
+      final actionId = await service.moderateSpace(
+        spaceId,
+        kind: SpaceModerationKind.permanentBan,
+        target: bob,
+        scope: SpaceModerationScope.space,
+        reason: 'Repeated abuse',
+      );
+
+      expect(actionId, isNotNull);
+      expect(
+        storage.groupWriteAttempts,
+        1,
+        reason:
+            'moderation audit, membership epoch and protected ACLs are one commit',
+      );
+      final after = (await service.stateOf(spaceId))!;
+      expect(after.isMember(bob), isFalse);
+      expect(after.epoch, before.epoch + 1);
+      expect(
+        after.protectedChannels[channelId.hex]!.channelEpoch,
+        beforeChannelEpoch + 1,
+      );
+      expect(await service.channelMembersOf(spaceId, channelId), [owner]);
+      final record = (await service.spaceModerationAudit(
+        spaceId,
+      )).singleWhere((entry) => entry.actionId == actionId);
+      expect(record.action.kind, SpaceModerationKind.permanentBan);
+      expect(record.action.reason, 'Repeated abuse');
+
+      final blockedSnapshot =
+          jsonDecode(
+                service.snapshotJson(
+                  (await service.load(spaceId))!,
+                  recipient: bob,
+                ),
+              )
+              as Map<String, dynamic>;
+      expect(blockedSnapshot['ke'], isNull);
+      expect(blockedSnapshot['cke'], isNull);
+      expect(blockedSnapshot['g'], isEmpty);
+      expect(blockedSnapshot['p'], isNull);
+    },
+  );
+
+  test(
     'failed membership transaction preserves member and protected channel epoch',
     () async {
       final storage = _ControlledGroupWriteStorage();

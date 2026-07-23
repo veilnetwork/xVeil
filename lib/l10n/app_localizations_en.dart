@@ -1115,6 +1115,14 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get spaceMemberBan => 'Block in community';
+
+  @override
+  String spaceMemberBanConfirm(String member) {
+    return 'Permanently block $member? Their membership will be revoked and protected access keys will be rotated. The signed action remains in the moderation history and can be appealed.';
+  }
+
+  @override
   String get spaceMemberTransferOwnership => 'Transfer ownership';
 
   @override

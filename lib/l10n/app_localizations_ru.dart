@@ -1127,6 +1127,14 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String get spaceMemberBan => 'Заблокировать в сообществе';
+
+  @override
+  String spaceMemberBanConfirm(String member) {
+    return 'Бессрочно заблокировать $member? Участие будет отозвано, а ключи защищённого доступа сменены. Подписанное действие останется в истории модерации, и его можно обжаловать.';
+  }
+
+  @override
   String get spaceMemberTransferOwnership => 'Передать владение';
 
   @override
