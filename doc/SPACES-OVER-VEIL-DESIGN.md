@@ -561,6 +561,17 @@ camera/background/push проверяются дополнительно на ф
   переподписывает текущий override новым ключом, поэтому новый recipient видит
   только post-rekey history и не получает старый content key. GUI и
   loopback/headless REST используют те же фиксированные retention presets;
+* media-only retention использует policy payload v2 и clear `ControlEntry`
+  v16; прежние полнотекстовые политики остаются byte-compatible V9/payload v1,
+  а restricted channel по-прежнему несёт новый режим только внутри V15
+  ciphertext. V16 нужен, чтобы старый клиент не принял «удалять только медиа»
+  за полное удаление истории. Message/post rows не переписываются и не
+  переподписываются: projection сохраняет текст и signed envelope, скрывает
+  media reference, исключает CID из fetch/grant scope и показывает явный
+  placeholder. Полное expiry и media expiry имеют независимые необратимые
+  timeline; поздний `keepForever` не воскрешает ни удалённую запись, ни уже
+  истёкшее вложение. Для edit публикации срок нового media считается от
+  immutable edit row, закреплённая публикация сохраняется целиком;
 * проверка нового слоя: `flutter analyze` чист, полный `flutter test` зелёный,
   включая отдельную проверку неизменных mute-duration presets. Свежий arm64
   Android APK установлен и
@@ -588,7 +599,7 @@ heads; следующий шаг масштабирования — proof-based 
 text/voice, базовая signed moderation, moderator delete и retention restricted
 text уже реализованы; следующими слоями остаются настоящий indistinguishable
 secret scope, прочие protected-scope moderation policies,
-media-only/physical retention GC и appeal transport.
+physical retention GC и appeal transport.
 
 Архивирование Space также не должно появляться как локальный UI-флаг. Текущий
 `GroupMessage` не подписывает causal cut состояния Space, поэтому без нового

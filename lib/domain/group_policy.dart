@@ -193,6 +193,17 @@ class GroupState {
     channelId: channelId,
   );
 
+  bool isRetentionMediaExpired({
+    required int createdAtMs,
+    required int atMs,
+    NodeId? channelId,
+  }) => spaceRetentionRemovesMedia(
+    revisions: retentionHistory,
+    createdAtMs: createdAtMs,
+    atMs: atMs,
+    channelId: channelId,
+  );
+
   GroupMember? memberOf(NodeId id) => members[id.hex];
   bool isMember(NodeId id) => members.containsKey(id.hex);
   GroupRole? roleOf(NodeId id) => members[id.hex]?.role;
@@ -770,8 +781,8 @@ GroupFoldResult foldControlLog({
         final channel = policy?.channelId == null
             ? null
             : channels[policy!.channelId!.hex];
-        if (e.version != 9 ||
-            policy == null ||
+        if (policy == null ||
+            e.version != (policy.mediaOnly ? 16 : 9) ||
             !policy.isStructurallyValid ||
             (policy.channelId != null && channel == null)) {
           rejected.add(e);

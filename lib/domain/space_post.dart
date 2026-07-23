@@ -1020,12 +1020,17 @@ class SpacePostView {
     required this.effective,
     this.pinned = false,
     this.pinnedAtMs,
+    this.mediaHiddenByRetention = false,
   });
 
   final SpacePost root;
   final SpacePost effective;
   final bool pinned;
   final int? pinnedAtMs;
+
+  /// Projection-only state; [root] and [effective] remain the exact immutable
+  /// signed rows used for verification and replication.
+  final bool mediaHiddenByRetention;
 
   String get postId => root.postId;
   String get revisionId => effective.postId;
@@ -1038,7 +1043,8 @@ class SpacePostView {
   SpacePostVisibility get visibility => effective.visibility;
   String get title => effective.title;
   String get body => effective.body;
-  List<MediaObject> get media => effective.media;
+  List<MediaObject> get media =>
+      mediaHiddenByRetention ? const <MediaObject>[] : effective.media;
   int get policyVersion => effective.policyVersion;
   int get createdAtMs => root.createdAtMs;
   int get publishedAtMs => root.publishedAtMs;
@@ -1051,7 +1057,18 @@ class SpacePostView {
         effective: effective,
         pinned: pinned,
         pinnedAtMs: pinned ? pinnedAtMs : null,
+        mediaHiddenByRetention: mediaHiddenByRetention,
       );
+
+  SpacePostView withMediaHiddenByRetention() => mediaHiddenByRetention
+      ? this
+      : SpacePostView(
+          root: root,
+          effective: effective,
+          pinned: pinned,
+          pinnedAtMs: pinnedAtMs,
+          mediaHiddenByRetention: true,
+        );
 }
 
 /// Stable chronological cursor. Every tie-breaker is signed by the post, so

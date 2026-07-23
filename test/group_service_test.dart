@@ -6623,6 +6623,56 @@ void main() {
             mode: SpaceRetentionMode.deleteAfter,
             channelId: channelId,
             retentionMs: const Duration(days: 1).inMilliseconds,
+            mediaOnly: true,
+          ),
+        ),
+        isTrue,
+      );
+      final mediaOnlyRow = (await ownerSvc.load(spaceId))!.control.last;
+      expect(mediaOnlyRow.version, 15);
+      expect(mediaOnlyRow.retentionPolicy, isNull);
+      expect(jsonEncode(mediaOnlyRow.toJson()), isNot(contains('mediaOnly')));
+      final retainedText = await ownerSvc.messagesOf(
+        spaceId,
+        channelId: channelId,
+      );
+      expect(retainedText, hasLength(1));
+      expect(retainedText.single.body, 'old protected evidence');
+      expect(retainedText.single.attachment, isNull);
+      expect(retainedText.single.mediaHiddenByRetention, isTrue);
+      expect(
+        await ownerSvc.referencedContentIds(spaceId),
+        isNot(contains('d' * 64)),
+      );
+      expect(
+        await ownerSvc.setSpaceRetentionPolicy(
+          spaceId,
+          SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.keepForever,
+            channelId: channelId,
+          ),
+        ),
+        isTrue,
+      );
+      final stillRedacted = await ownerSvc.messagesOf(
+        spaceId,
+        channelId: channelId,
+      );
+      expect(stillRedacted, hasLength(1));
+      expect(stillRedacted.single.attachment, isNull);
+      expect(
+        stillRedacted.single.mediaHiddenByRetention,
+        isTrue,
+        reason: 'relaxing policy must not resurrect retired protected media',
+      );
+
+      expect(
+        await ownerSvc.setSpaceRetentionPolicy(
+          spaceId,
+          SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.deleteAfter,
+            channelId: channelId,
+            retentionMs: const Duration(days: 1).inMilliseconds,
           ),
         ),
         isTrue,
@@ -6670,7 +6720,7 @@ void main() {
         (await bobSvc.spaceRetentionHistoryOf(
           spaceId,
         )).where((revision) => revision.policy.channelId == channelId),
-        hasLength(3),
+        hasLength(5),
       );
 
       final bobBundle = (await bobSvc.load(spaceId))!;
@@ -6805,6 +6855,129 @@ void main() {
         reason:
             'new recipients see post-rekey history without receiving old keys',
       );
+    },
+  );
+
+  test(
+    'media-only retention keeps signed text and irreversibly retires grants',
+    () async {
+      final signer = _FakeSigner(owner);
+      final sourceStorage = FakeHvContainer().storage();
+      await sourceStorage.open(password: 'pw', createIfMissing: true);
+      final source = GroupService(sourceStorage, signer);
+      addTearDown(source.dispose);
+      final spaceId = await source.createSpace(
+        'Media-only retention',
+        visibility: SpaceVisibility.public,
+      );
+      final post = await source.publishSpacePost(
+        spaceId,
+        title: 'Retained publication',
+        body: 'signed post text remains',
+        media: [
+          MediaObject(
+            kind: 'image',
+            contentId: 'a' * 64,
+            name: 'old.png',
+            size: 32,
+          ),
+        ],
+        broadcast: false,
+      );
+      expect(post, isNotNull);
+      expect(
+        await source.setSpaceRetentionPolicy(
+          spaceId,
+          SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.deleteAfter,
+            retentionMs: const Duration(days: 1).inMilliseconds,
+            mediaOnly: true,
+          ),
+        ),
+        isTrue,
+      );
+      var bundle = (await source.load(spaceId))!;
+      expect(bundle.control.last.version, 16);
+      expect(bundle.control.last.retentionPolicy?.mediaOnly, isTrue);
+      final oldAt =
+          DateTime.now().millisecondsSinceEpoch -
+          const Duration(days: 10).inMilliseconds;
+      final oldPost = signer.signPost(
+        SpacePost(
+          spaceId: post!.spaceId,
+          author: post.author,
+          seq: post.seq,
+          prevHash: post.prevHash,
+          type: post.type,
+          visibility: post.visibility,
+          title: post.title,
+          body: post.body,
+          media: post.media,
+          policyVersion: post.policyVersion,
+          createdAtMs: oldAt,
+          publishedAtMs: oldAt,
+          version: post.version,
+          membershipEpoch: post.membershipEpoch,
+          encryptedPayload: post.encryptedPayload,
+          controlFrontier: post.controlFrontier,
+          controlCheckpointHash: post.controlCheckpointHash,
+          operation: post.operation,
+          targetSeq: post.targetSeq,
+          lifecycleGeneration: post.lifecycleGeneration,
+          signature: Uint8List(0),
+        ),
+      );
+      final oldMessage = signer.signMessage(
+        GroupMessage(
+          groupId: spaceId,
+          author: owner,
+          seq: 0,
+          prevHash: '',
+          body: 'signed message text remains',
+          policyVersion: 0,
+          createdAtMs: oldAt,
+          signature: Uint8List(0),
+          attachment: MediaObject(
+            kind: 'image',
+            contentId: 'b' * 64,
+            inlinePreviewB64: 'QQ==',
+            width: 1,
+            height: 1,
+            name: 'old-message.png',
+          ),
+        ),
+      );
+      bundle = bundle.copyWith(posts: [oldPost], messages: [oldMessage]);
+
+      final readerStorage = FakeHvContainer().storage();
+      await readerStorage.open(password: 'pw', createIfMissing: true);
+      final reader = GroupService(readerStorage, signer);
+      addTearDown(reader.dispose);
+      expect(await reader.ingestSnapshot(source.snapshotJson(bundle)), isTrue);
+
+      final visiblePosts = await reader.postsOf(spaceId);
+      expect(visiblePosts, hasLength(1));
+      expect(visiblePosts.single.body, 'signed post text remains');
+      expect(visiblePosts.single.media, isEmpty);
+      expect(visiblePosts.single.mediaHiddenByRetention, isTrue);
+      final visibleMessages = await reader.messagesOf(spaceId);
+      expect(visibleMessages, hasLength(1));
+      expect(visibleMessages.single.body, 'signed message text remains');
+      expect(visibleMessages.single.attachment, isNull);
+      expect(visibleMessages.single.mediaHiddenByRetention, isTrue);
+      expect(oldPost.media, hasLength(1), reason: 'signed row stays immutable');
+      expect(oldMessage.toJson(), contains('att'));
+      expect(await reader.referencedContentIds(spaceId), isEmpty);
+
+      expect(
+        await reader.setSpaceRetentionPolicy(
+          spaceId,
+          const SpaceRetentionPolicy(mode: SpaceRetentionMode.keepForever),
+        ),
+        isTrue,
+      );
+      expect((await reader.postsOf(spaceId)).single.media, isEmpty);
+      expect((await reader.messagesOf(spaceId)).single.attachment, isNull);
     },
   );
 

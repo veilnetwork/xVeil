@@ -204,14 +204,18 @@ final class GroupApiAdapter {
   Future<String?> setRetention(
     String spaceHex,
     int? days,
-    bool localDevice,
-  ) async {
+    bool localDevice, {
+    bool mediaOnly = false,
+  }) async {
     final visible = await _visible(spaceHex);
     if (visible == null) return 'space not found';
     final bundle = await _groups.load(visible.$1);
     if (bundle == null || !bundle.manifest.isSpace) return 'space not found';
     if (days != null && (days <= 0 || days > 36500)) {
       return 'invalid retention days';
+    }
+    if (mediaOnly && (localDevice || days == null)) {
+      return 'media-only retention requires bounded community days';
     }
     if (localDevice) {
       return await _groups.setLocalSpaceRetentionDays(visible.$1, days)
@@ -228,6 +232,7 @@ final class GroupApiAdapter {
         : SpaceRetentionPolicy(
             mode: SpaceRetentionMode.deleteAfter,
             retentionMs: Duration(days: days).inMilliseconds,
+            mediaOnly: mediaOnly,
           );
     return await _groups.setSpaceRetentionPolicy(visible.$1, policy)
         ? null
@@ -273,8 +278,9 @@ final class GroupApiAdapter {
     String spaceHex,
     String channelHex,
     int? days,
-    bool inherit,
-  ) async {
+    bool inherit, {
+    bool mediaOnly = false,
+  }) async {
     final visible = await _visible(spaceHex);
     if (visible == null) return 'space not found';
     final NodeId channelId;
@@ -287,6 +293,9 @@ final class GroupApiAdapter {
       return 'invalid retention days';
     }
     if (inherit && days != null) return 'inherit cannot include days';
+    if (mediaOnly && (inherit || days == null)) {
+      return 'media-only retention requires bounded channel days';
+    }
     if (!SpaceAcl(
       visible.$2,
     ).allows(_groups.selfId, SpacePermission.manageStorage)) {
@@ -306,6 +315,7 @@ final class GroupApiAdapter {
             mode: SpaceRetentionMode.deleteAfter,
             channelId: channelId,
             retentionMs: Duration(days: days).inMilliseconds,
+            mediaOnly: mediaOnly,
           );
     return await _groups.setSpaceRetentionPolicy(visible.$1, policy)
         ? null
@@ -512,6 +522,7 @@ final class GroupApiAdapter {
     'author': message.author.hex,
     'body': message.body,
     'sentAt': message.createdAtMs,
+    if (message.mediaHiddenByRetention) 'mediaExpired': true,
     if (message.replyTo != null) 'replyTo': message.replyTo,
     if (message.spacePostId != null && message.attachment != null)
       'media': message.attachment!.toReferenceJson(),
@@ -533,6 +544,7 @@ final class GroupApiAdapter {
     'body': comment.body,
     'sentAt': comment.createdAtMs,
     'edited': comment.edited,
+    if (comment.mediaHiddenByRetention) 'mediaExpired': true,
     if (comment.editedAtMs != null) 'updatedAt': comment.editedAtMs,
     if (comment.replyTo != null) 'replyTo': comment.replyTo,
     if (comment.attachment != null)
@@ -557,6 +569,7 @@ final class GroupApiAdapter {
     'updatedAt': post.updatedAtMs,
     'edited': post.edited,
     'pinned': post.pinned,
+    if (post.mediaHiddenByRetention) 'mediaExpired': true,
     if (post.pinnedAtMs != null) 'pinnedAt': post.pinnedAtMs,
     'reactions': {
       for (final entry in reactions.entries)

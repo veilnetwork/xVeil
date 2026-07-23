@@ -17,8 +17,9 @@ ControlEntry _retentionEntry({
   required int atMs,
   required SpaceRetentionPolicy policy,
   String prevHash = '',
+  int version = 9,
 }) => ControlEntry(
-  version: 9,
+  version: version,
   groupId: _id(9),
   author: _id(1),
   seq: seq,
@@ -51,6 +52,28 @@ void main() {
     final decoded = ControlEntry.fromJson(entry.toJson());
     expect(decoded?.retentionPolicy?.retentionMs, policy.retentionMs);
     expect(decoded?.op, ControlOp.setRetention);
+  });
+
+  test('media-only retention uses V16 and cannot masquerade as V9', () {
+    final policy = SpaceRetentionPolicy(
+      mode: SpaceRetentionMode.deleteAfter,
+      retentionMs: const Duration(days: 30).inMilliseconds,
+      mediaOnly: true,
+    );
+    final legacyVersion = _retentionEntry(seq: 0, atMs: 1000, policy: policy);
+    final mediaVersion = _retentionEntry(
+      seq: 0,
+      atMs: 1000,
+      policy: policy,
+      version: 16,
+    );
+
+    expect(legacyVersion.isStructurallyValid, isFalse);
+    expect(mediaVersion.isStructurallyValid, isTrue);
+    final decoded = ControlEntry.fromJson(mediaVersion.toJson());
+    expect(decoded?.version, 16);
+    expect(decoded?.retentionPolicy?.mediaOnly, isTrue);
+    expect(decoded?.retentionPolicy?.toJson()['v'], 2);
   });
 
   test('retention is owner-only and is not available to legacy group rows', () {
@@ -200,6 +223,51 @@ void main() {
     expect(
       spaceRetentionRemoves(
         revisions: [destructive, relaxed],
+        createdAtMs: 20 * week + const Duration(days: 1).inMilliseconds,
+        atMs: 40 * week,
+      ),
+      isFalse,
+    );
+  });
+
+  test('media-only expiry is irreversible without retiring signed text', () {
+    final week = const Duration(days: 7).inMilliseconds;
+    final mediaOnly = SpaceRetentionRevision(
+      policy: SpaceRetentionPolicy(
+        mode: SpaceRetentionMode.deleteAfter,
+        retentionMs: week,
+        mediaOnly: true,
+      ),
+      activatedAtMs: 20 * week,
+      author: _id(1),
+      authorSeq: 0,
+    );
+    final relaxed = SpaceRetentionRevision(
+      policy: const SpaceRetentionPolicy(mode: SpaceRetentionMode.keepForever),
+      activatedAtMs: 21 * week,
+      author: _id(1),
+      authorSeq: 1,
+    );
+
+    expect(
+      spaceRetentionRemoves(
+        revisions: [mediaOnly, relaxed],
+        createdAtMs: 10 * week,
+        atMs: 40 * week,
+      ),
+      isFalse,
+    );
+    expect(
+      spaceRetentionRemovesMedia(
+        revisions: [mediaOnly, relaxed],
+        createdAtMs: 10 * week,
+        atMs: 40 * week,
+      ),
+      isTrue,
+    );
+    expect(
+      spaceRetentionRemovesMedia(
+        revisions: [mediaOnly, relaxed],
         createdAtMs: 20 * week + const Duration(days: 1).inMilliseconds,
         atMs: 40 * week,
       ),

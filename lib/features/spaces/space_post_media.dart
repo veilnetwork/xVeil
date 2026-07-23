@@ -204,6 +204,23 @@ class SpacePostMediaList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (post.mediaHiddenByRetention) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: Row(
+          children: [
+            const Icon(Icons.hide_image_outlined, size: 18),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                AppL10n.of(context).spaceRetentionMediaExpired,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return MediaObjectList(
       spaceId: spaceId,
       author: post.author,
