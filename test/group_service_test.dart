@@ -5242,6 +5242,93 @@ void main() {
   );
 
   test(
+    'public-only subscriber advertises its exact verified package as a holder',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final readerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await readerStorage.open(password: 'reader', createIfMissing: true);
+      final transport = _FakeSpaceDiscoveryTransport();
+      final ownerSigner = _DiscoveryFakeSigner(17);
+      final ownerId = ownerSigner.selfId;
+      final readerSigner = _DiscoveryFakeSigner(18);
+      final readerId = readerSigner.selfId;
+      late final GroupService readerService;
+      final ownerService = GroupService(
+        ownerStorage,
+        ownerSigner,
+        sendPublicFeedChunk: (requester, chunkJson) async {
+          expect(requester, readerId);
+          readerService.handlePublicFeedObjectChunk(ownerId, chunkJson);
+        },
+      );
+      readerService = GroupService(
+        readerStorage,
+        readerSigner,
+        sendPublicFeedRequest: (holder, requestJson) async {
+          expect(holder, ownerId);
+          await ownerService.handlePublicFeedObjectRequest(
+            readerId,
+            requestJson,
+          );
+        },
+        spaceDiscoveryTransport: transport,
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(readerService.dispose);
+
+      final spaceId = await ownerService.createSpace(
+        'Subscriber reseed',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      expect(
+        await ownerService.publishSpacePost(
+          spaceId,
+          body: 'Owner-signed public package',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      final ownerPublication = await ownerService
+          .buildSpacePublicDiscoveryPublication(spaceId);
+      expect(ownerPublication, isNotNull);
+      expect(
+        await readerService.subscribeToPublicSpace(
+          ownerPublication!.discovery.descriptor,
+          [ownerPublication.discovery.holder],
+        ),
+        isNotNull,
+      );
+      expect(await readerService.load(spaceId), isNull);
+
+      final sweep = await readerService.publishPublicSpaceDiscovery();
+      expect(sweep.available, isTrue);
+      expect(sweep.spacesScanned, 1);
+      expect(sweep.spacesPublished, 1);
+      expect(sweep.failures, 0);
+      final direct = transport.records
+          .map(SpaceDiscoveryCarrier.fromBytes)
+          .whereType<SpaceDiscoveryCarrier>()
+          .singleWhere(
+            (record) =>
+                record.route.kind == SpaceDiscoveryCarrierRouteKind.direct,
+          );
+      final payload = SpacePublicDiscoveryPayload.fromBytes(direct.payload)!;
+      expect(payload.descriptor.publisher, ownerId);
+      expect(payload.descriptor.spaceId, spaceId);
+      expect(payload.holder.holder, readerId);
+      expect(
+        payload.holder.publicFeedManifestHash,
+        ownerPublication.discovery.descriptor.publicFeedManifestHash,
+      );
+      final wire = utf8.decode(direct.payload);
+      expect(wire, isNot(contains('"members"')));
+      expect(wire, isNot(contains('"epochEnvelopes"')));
+    },
+  );
+
+  test(
     'public discovery publishes native routes and keeps global search quorum',
     () async {
       final storage = FakeHvContainer().storage();
@@ -8285,6 +8372,322 @@ void main() {
       expect(
         await ownerService.referencedContentIds(spaceId),
         isNot(contains('must-not-be-referenced')),
+      );
+    },
+  );
+
+  test(
+    'comment tombstones and moderation converge and revoke public media',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final bobStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final ownerService = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      final bobService = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(bobService.dispose);
+
+      final spaceId = await ownerService.createSpace(
+        'Public comment lifecycle',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      final post = (await ownerService.publishSpacePost(
+        spaceId,
+        body: 'Public root',
+        broadcast: false,
+      ))!;
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+
+      final firstCid = 'd' * 64;
+      expect(
+        await bobService.commentOnSpacePost(
+          spaceId,
+          post.postId,
+          'Public member comment',
+          media: MediaObject(
+            contentId: firstCid,
+            kind: 'image',
+            name: 'first.png',
+            mimeType: 'image/png',
+            size: 42,
+          ),
+          publiclyVisible: true,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      final bobComment = (await bobService.spacePostCommentsOf(
+        spaceId,
+        post.postId,
+      )).single;
+      expect(
+        await ownerService.ingestSnapshot(
+          bobService.snapshotJson(
+            (await bobService.load(spaceId))!,
+            recipient: owner,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerService.commentOnSpacePost(
+          spaceId,
+          post.postId,
+          'Reply survives its parent tombstone',
+          replyTo: bobComment.ref,
+          publiclyVisible: true,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      final beforeDelete = await ownerService
+          .buildSpacePublicDiscoveryPublication(spaceId);
+      expect(beforeDelete, isNotNull);
+      expect(
+        beforeDelete!.feed.verifiedReferencedContentIds(
+          _FakeSigner(owner).verifyDetached,
+        ),
+        contains(firstCid),
+      );
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+
+      final ownerNotices = <GroupMessage>[];
+      final noticeSub = ownerService.incomingComments.listen(
+        (notice) => ownerNotices.add(notice.message),
+      );
+      addTearDown(noticeSub.cancel);
+      expect(
+        await bobService.deleteSpacePostComment(
+          spaceId,
+          post.postId,
+          bobComment.ref,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await bobService.deleteSpacePostComment(
+          spaceId,
+          post.postId,
+          bobComment.ref,
+          broadcast: false,
+        ),
+        isFalse,
+        reason: 'an accepted tombstone cannot be replayed or resurrected',
+      );
+      expect(
+        await bobService.editSpacePostComment(
+          spaceId,
+          post.postId,
+          bobComment.ref,
+          'Attempted resurrection',
+          broadcast: false,
+        ),
+        isFalse,
+        reason: 'the local writer cannot edit a terminal tombstone',
+      );
+      final bobAfterDelete = (await bobService.load(spaceId))!;
+      expect(bobAfterDelete.messages, hasLength(3));
+      expect(bobAfterDelete.publicComments, hasLength(3));
+      expect(
+        jsonEncode(bobAfterDelete.messages.last.toJson()),
+        isNot(contains(bobComment.ref)),
+        reason: 'the private delete target stays inside AEAD cleartext',
+      );
+      expect(
+        bobAfterDelete.publicComments.last.operation,
+        SpacePublicCommentOperation.delete,
+      );
+      expect(
+        await ownerService.ingestSnapshot(
+          bobService.snapshotJson(bobAfterDelete, recipient: owner),
+        ),
+        isTrue,
+      );
+      expect(ownerNotices, isEmpty, reason: 'a tombstone is not a new comment');
+      final afterDelete = await ownerService.spacePostCommentsOf(
+        spaceId,
+        post.postId,
+      );
+      expect(afterDelete.map((comment) => comment.body), [
+        'Reply survives its parent tombstone',
+      ]);
+      expect(afterDelete.single.replyTo, bobComment.ref);
+      final publicAfterDelete = await ownerService
+          .buildSpacePublicDiscoveryPublication(spaceId);
+      expect(
+        publicAfterDelete!.feed
+            .commentsFor(post.postId, _FakeSigner(owner).verifyDetached)
+            .map((comment) => comment.body),
+        ['Reply survives its parent tombstone'],
+      );
+      expect(
+        publicAfterDelete.feed.verifiedReferencedContentIds(
+          _FakeSigner(owner).verifyDetached,
+        ),
+        isNot(contains(firstCid)),
+      );
+
+      expect(
+        await bobService.commentOnSpacePost(
+          spaceId,
+          post.postId,
+          'Abusive public comment',
+          media: MediaObject(
+            contentId: 'e' * 64,
+            kind: 'file',
+            name: 'abuse.bin',
+            size: 12,
+          ),
+          publiclyVisible: true,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      final abusive = (await bobService.spacePostCommentsOf(
+        spaceId,
+        post.postId,
+      )).singleWhere((comment) => comment.author == bob);
+      expect(
+        await ownerService.ingestSnapshot(
+          bobService.snapshotJson(
+            (await bobService.load(spaceId))!,
+            recipient: owner,
+          ),
+        ),
+        isTrue,
+      );
+      await ownerStorage.upsertContact(
+        Contact(nodeId: bob, status: ContactStatus.blocked),
+      );
+      expect(await ownerService.isSpaceAuthorBlocked(bob), isTrue);
+      expect(
+        (await ownerService.spacePostCommentsOf(
+          spaceId,
+          post.postId,
+        )).map((comment) => comment.body),
+        ['Reply survives its parent tombstone'],
+        reason: 'a relationship block is a local comment projection filter',
+      );
+      await ownerStorage.upsertContact(
+        Contact(nodeId: bob, status: ContactStatus.accepted),
+      );
+      expect(
+        await ownerService.spacePostCommentsOf(spaceId, post.postId),
+        hasLength(2),
+      );
+      final actionId = await ownerService.moderateSpace(
+        spaceId,
+        kind: SpaceModerationKind.deleteMessage,
+        target: bob,
+        scope: SpaceModerationScope.posts,
+        reason: 'documented abuse',
+        reference: SpaceModerationReference(
+          kind: SpaceModerationReferenceKind.spacePostComment,
+          author: bob,
+          seq: abusive.root.seq,
+        ),
+      );
+      expect(actionId, isNotNull);
+      expect(
+        await ownerService.spacePostCommentsOf(spaceId, post.postId),
+        hasLength(1),
+      );
+      expect(
+        await ownerService.moderateSpace(
+          spaceId,
+          kind: SpaceModerationKind.deleteMessage,
+          target: bob,
+          scope: SpaceModerationScope.posts,
+          reason: 'duplicate',
+          reference: SpaceModerationReference(
+            kind: SpaceModerationReferenceKind.spacePostComment,
+            author: bob,
+            seq: abusive.root.seq,
+          ),
+        ),
+        isNull,
+      );
+      final audit = await ownerService.spaceModerationAudit(spaceId);
+      final record = audit.singleWhere(
+        (candidate) => candidate.actionId == actionId,
+      );
+      expect(record.action.reason, 'documented abuse');
+      expect(
+        record.action.reference?.kind,
+        SpaceModerationReferenceKind.spacePostComment,
+      );
+      final afterModeration = await ownerService
+          .buildSpacePublicDiscoveryPublication(spaceId);
+      expect(
+        afterModeration!.feed.verifiedReferencedContentIds(
+          _FakeSigner(owner).verifyDetached,
+        ),
+        isNot(contains('e' * 64)),
+      );
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        (await bobService.spacePostCommentsOf(
+          spaceId,
+          post.postId,
+        )).map((comment) => comment.body),
+        ['Reply survives its parent tombstone'],
       );
     },
   );

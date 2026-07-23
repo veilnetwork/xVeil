@@ -2167,15 +2167,22 @@ class GroupService {
       final matches = switch (comment.operation) {
         SpacePublicCommentOperation.create =>
           memberRow.editOf == null &&
+              memberRow.deleteOf == null &&
               memberRow.body == comment.body &&
               memberRow.replyTo == comment.replyTo &&
               sameMedia(memberRow.attachment, comment.media),
         SpacePublicCommentOperation.edit =>
           memberRow.editOf == comment.ref &&
+              memberRow.deleteOf == null &&
               memberRow.body == comment.body &&
               memberRow.attachment == null &&
               memberRow.replyTo == null,
-        SpacePublicCommentOperation.delete => false,
+        SpacePublicCommentOperation.delete =>
+          memberRow.editOf == null &&
+              memberRow.deleteOf == comment.ref &&
+              memberRow.body.isEmpty &&
+              memberRow.attachment == null &&
+              memberRow.replyTo == null,
       };
       if (matches) publicComments.add(comment);
     }
@@ -2817,8 +2824,22 @@ class GroupService {
     SpacePublicDescriptor descriptor,
   ) async {
     final bundle = await load(spaceId);
-    if (bundle == null ||
-        !bundle.manifest.isSpace ||
+    if (bundle == null) {
+      // A public-only subscriber has no membership bundle by design. It may
+      // still reseed the exact owner-signed package it durably verified; never
+      // let a merely observed newer descriptor borrow that local trust.
+      final snapshot = await _loadPublicSubscriptionSnapshot(spaceId);
+      return snapshot != null &&
+          snapshot.package.descriptor.descriptorHash ==
+              descriptor.descriptorHash &&
+          snapshot.package.descriptor.publicFeedManifestHash ==
+              descriptor.publicFeedManifestHash &&
+          snapshot.verifyStored(
+            verifySignature: _signer.verifyDetached,
+            verifyPost: _signer.verifyPost,
+          );
+    }
+    if (!bundle.manifest.isSpace ||
         bundle.manifest.visibility != SpaceVisibility.public ||
         bundle.manifest.discoverable != true ||
         descriptor.spaceId != spaceId ||
@@ -2990,10 +3011,11 @@ class GroupService {
     return null;
   }
 
-  /// Publish every locally owned `public + discoverable` Space through the
-  /// native bounded DHT carrier. A direct route supports exact links; hashed
-  /// name/prefix routes support interactive search without publishing a
-  /// plaintext side index.
+  /// Publish every locally held `public + discoverable` Space through the
+  /// native bounded DHT carrier. Owners build their current projection;
+  /// public-only subscribers reseed only their exact durably verified package.
+  /// A direct route supports exact links; hashed name/prefix routes support
+  /// interactive search without publishing a plaintext side index.
   Future<SpaceDiscoveryPublishSweep> publishPublicSpaceDiscovery({
     bool forceHolderRefresh = true,
   }) async {
@@ -3011,11 +3033,19 @@ class GroupService {
     var spacesPublished = 0;
     var recordsPublished = 0;
     var failures = 0;
+    final candidates = <String, NodeId>{};
     for (final entry in await listSpaces()) {
+      candidates[entry.groupId.hex] = entry.groupId;
+    }
+    for (final subscription in await publicSpaceSubscriptions()) {
+      candidates[subscription.descriptor.spaceId.hex] =
+          subscription.descriptor.spaceId;
+    }
+    for (final spaceId in candidates.values) {
       spacesScanned++;
       final publication =
-          await buildSpacePublicDiscoveryPublication(entry.groupId) ??
-          await _replicatePublicSpaceDiscovery(entry.groupId);
+          await buildSpacePublicDiscoveryPublication(spaceId) ??
+          await _replicatePublicSpaceDiscovery(spaceId);
       if (publication == null) continue;
       final payload = publication.discovery;
       final lastPublished =
@@ -3551,7 +3581,9 @@ class GroupService {
     if (cached == null) return;
     final descriptor = cached.descriptor;
     final referenced =
-        cached.feed.referencedContentIds.contains(request.contentId) ||
+        cached.feed
+            .verifiedReferencedContentIds(_signer.verifyDetached)
+            .contains(request.contentId) ||
         descriptor.avatarContentId == request.contentId ||
         descriptor.coverContentId == request.contentId;
     if (!referenced) return;
@@ -3637,7 +3669,9 @@ class GroupService {
     );
     if (cached == null ||
         cached.descriptor.descriptorHash != descriptor.descriptorHash ||
-        !(cached.feed.referencedContentIds.contains(contentId) ||
+        !(cached.feed
+                .verifiedReferencedContentIds(_signer.verifyDetached)
+                .contains(contentId) ||
             descriptor.avatarContentId == contentId ||
             descriptor.coverContentId == contentId)) {
       return false;
@@ -7759,7 +7793,11 @@ class GroupService {
         // not use a malformed index/snapshot pair as deletion authority.
         return (contentIds: contentIds, complete: false);
       }
-      contentIds.addAll(snapshot.package.projection.referencedContentIds);
+      contentIds.addAll(
+        snapshot.package.projection.verifiedReferencedContentIds(
+          _signer.verifyDetached,
+        ),
+      );
     }
     return (contentIds: contentIds, complete: true);
   }
@@ -10180,6 +10218,18 @@ class GroupService {
         SpaceModerationReferenceKind.spacePost => (await postsOf(
           spaceId,
         )).any((post) => post.postId == reference.contentId),
+        SpaceModerationReferenceKind.spacePostComment =>
+          (await _messagesOfBundle(
+            bundle,
+            includeSpacePostComments: true,
+            applyLocalRetention: false,
+          )).any(
+            (message) =>
+                message.spacePostId != null &&
+                message.editOf == null &&
+                message.deleteOf == null &&
+                message.ref == reference.contentId,
+          ),
       };
       if (!exists) return null;
     }
@@ -10625,6 +10675,33 @@ class GroupService {
     );
   }
 
+  /// Append an encrypted immutable tombstone for one of our own comments.
+  ///
+  /// If the root was explicitly public, the same durable write also appends
+  /// its separately author-signed public delete record. The private target
+  /// remains inside AEAD cleartext, so non-members cannot correlate the
+  /// member-log tombstone with the public statement.
+  Future<bool> deleteSpacePostComment(
+    NodeId spaceId,
+    String postId,
+    String commentRef, {
+    bool broadcast = true,
+  }) {
+    if (!_spacePostIdPattern.hasMatch(commentRef)) {
+      return Future.value(false);
+    }
+    return _serialized(
+      spaceId,
+      () => _postMessage(
+        spaceId,
+        '',
+        spacePostId: postId,
+        deleteOf: commentRef,
+        broadcast: broadcast,
+      ),
+    );
+  }
+
   Future<bool> _postMessage(
     NodeId groupId,
     String body, {
@@ -10633,6 +10710,7 @@ class GroupService {
     MediaObject? attachment,
     String? replyTo,
     String? editOf,
+    String? deleteOf,
     List<InlineCustomEmoji> customEmoji = const [],
     bool publiclyVisible = false,
     bool broadcast = true,
@@ -10640,16 +10718,20 @@ class GroupService {
     var effectiveAttachment = attachment;
     var publishPublicComment = publiclyVisible;
     if (!isValidInlineCustomEmoji(body, customEmoji)) return false;
-    if (editOf != null &&
+    if (editOf != null && deleteOf != null) return false;
+    final mutationOf = editOf ?? deleteOf;
+    if (mutationOf != null &&
         (spacePostId == null ||
-            !_spacePostIdPattern.hasMatch(editOf) ||
+            !_spacePostIdPattern.hasMatch(mutationOf) ||
             attachment != null ||
             replyTo != null ||
             customEmoji.isNotEmpty)) {
       return false;
     }
+    if (deleteOf != null && body.isNotEmpty) return false;
     if (spacePostId != null &&
         editOf == null &&
+        deleteOf == null &&
         body.trim().isEmpty &&
         attachment == null) {
       return false;
@@ -10673,11 +10755,11 @@ class GroupService {
             targetPost == null) {
           return false;
         }
-        if (editOf != null) {
-          final separator = editOf.lastIndexOf(':');
+        if (mutationOf != null) {
+          final separator = mutationOf.lastIndexOf(':');
           final targetSeq = separator < 0
               ? null
-              : int.tryParse(editOf.substring(separator + 1));
+              : int.tryParse(mutationOf.substring(separator + 1));
           publishPublicComment =
               targetSeq != null &&
               b.publicComments.any(
@@ -10700,7 +10782,7 @@ class GroupService {
                 !attachment.isReferenceStructurallyValid)) {
           return false;
         }
-        final comments = replyTo == null && editOf == null
+        final comments = replyTo == null && mutationOf == null
             ? const <SpacePostCommentView>[]
             : await spacePostCommentsOf(groupId, spacePostId);
         if (replyTo != null) {
@@ -10720,13 +10802,15 @@ class GroupService {
             return false;
           }
         }
-        if (editOf != null) {
+        if (mutationOf != null) {
           final target = comments
-              .where((comment) => comment.ref == editOf)
+              .where((comment) => comment.ref == mutationOf)
               .firstOrNull;
           if (target == null ||
               target.author != _signer.selfId ||
-              (body.trim().isEmpty && target.attachment == null)) {
+              (editOf != null &&
+                  body.trim().isEmpty &&
+                  target.attachment == null)) {
             return false;
           }
         }
@@ -10904,6 +10988,7 @@ class GroupService {
         attachment: effectiveAttachment,
         replyTo: replyTo,
         editOf: editOf,
+        deleteOf: deleteOf,
         customEmoji: customEmoji,
       ).encode();
       try {
@@ -10965,13 +11050,15 @@ class GroupService {
       if (postId == null) return false;
       final chain = _publicCommentChain(b, postId, _signer.selfId);
       if (chain == null) return false;
-      final operation = editOf == null
-          ? SpacePublicCommentOperation.create
-          : SpacePublicCommentOperation.edit;
-      final separator = editOf?.lastIndexOf(':') ?? -1;
+      final operation = deleteOf != null
+          ? SpacePublicCommentOperation.delete
+          : editOf != null
+          ? SpacePublicCommentOperation.edit
+          : SpacePublicCommentOperation.create;
+      final separator = mutationOf?.lastIndexOf(':') ?? -1;
       final targetSeq = separator < 0
           ? null
-          : int.tryParse(editOf!.substring(separator + 1));
+          : int.tryParse(mutationOf!.substring(separator + 1));
       final unsignedPublic = SpacePublicComment(
         spaceId: groupId,
         postId: postId,
@@ -10980,7 +11067,7 @@ class GroupService {
         prevHash: chain.isEmpty ? '' : chain.last.recordHash,
         operation: operation,
         targetSeq: targetSeq,
-        body: body,
+        body: operation == SpacePublicCommentOperation.delete ? '' : body,
         replyTo: operation == SpacePublicCommentOperation.create
             ? replyTo
             : null,
@@ -13498,7 +13585,8 @@ class GroupService {
     if (view == null || !view.feed.posts.any((post) => post.postId == postId)) {
       return const [];
     }
-    return view.feed.commentsFor(postId, _signer.verifyDetached);
+    final comments = view.feed.commentsFor(postId, _signer.verifyDetached);
+    return _withoutBlockedSpaceAuthors(comments, (comment) => comment.author);
   }
 
   Future<SpacePublicReactions> publicSpacePostReactions(
@@ -13738,7 +13826,9 @@ class GroupService {
   }) async {
     final current = await publicSpaceSubscription(spaceId);
     if (current == null ||
-        !current.feed.referencedContentIds.contains(contentId)) {
+        !current.feed
+            .verifiedReferencedContentIds(_signer.verifyDetached)
+            .contains(contentId)) {
       return false;
     }
     final discovery = await resolvePublicSpaceDiscovery(
@@ -13748,7 +13838,9 @@ class GroupService {
     if (discovery == null) return false;
     final refreshed = await subscribeToPublicSpaceDiscovery(discovery);
     if (refreshed == null ||
-        !refreshed.feed.referencedContentIds.contains(contentId)) {
+        !refreshed.feed
+            .verifiedReferencedContentIds(_signer.verifyDetached)
+            .contains(contentId)) {
       return false;
     }
     return requestPublicSpaceMedia(
@@ -15655,7 +15747,9 @@ class GroupService {
           ) ||
           (b.manifest.isSpace &&
               (state.isModeratedContentRemoved(
-                    kind: SpaceModerationReferenceKind.message,
+                    kind: isComment
+                        ? SpaceModerationReferenceKind.spacePostComment
+                        : SpaceModerationReferenceKind.message,
                     author: m.author,
                     seq: m.seq,
                     atMs: readAt,
@@ -15663,7 +15757,9 @@ class GroupService {
                   ) ||
                   spaceModerationRemovesContent(
                     protectedModeration,
-                    kind: SpaceModerationReferenceKind.message,
+                    kind: isComment
+                        ? SpaceModerationReferenceKind.spacePostComment
+                        : SpaceModerationReferenceKind.message,
                     author: m.author,
                     seq: m.seq,
                     atMs: readAt,
@@ -15711,7 +15807,40 @@ class GroupService {
       spacePostId: postId,
       applyLocalRetention: applyLocalRetention,
     );
-    return _projectSpacePostComments(comments);
+    return _withoutBlockedSpaceAuthors(
+      _projectSpacePostComments(comments),
+      (comment) => comment.author,
+    );
+  }
+
+  /// Relationship blocks are identity-local and never enter a Space log.
+  /// Storage errors fail closed for non-self authors so a previously blocked
+  /// identity cannot flash back into comments or mention surfaces.
+  Future<bool> isSpaceAuthorBlocked(NodeId author) async {
+    if (author == _signer.selfId) return false;
+    try {
+      return (await _storage.getContact(author))?.status ==
+          ContactStatus.blocked;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<List<T>> _withoutBlockedSpaceAuthors<T>(
+    Iterable<T> values,
+    NodeId Function(T value) authorOf,
+  ) async {
+    final blocked = <String, Future<bool>>{};
+    final visible = <T>[];
+    for (final value in values) {
+      final author = authorOf(value);
+      final hidden = await blocked.putIfAbsent(
+        author.hex,
+        () => isSpaceAuthorBlocked(author),
+      );
+      if (!hidden) visible.add(value);
+    }
+    return List<T>.unmodifiable(visible);
   }
 
   /// Validated publications and all of their effective comments, projected
@@ -15761,31 +15890,42 @@ class GroupService {
   ) {
     final roots = [
       for (final comment in comments)
-        if (comment.editOf == null) comment,
+        if (comment.editOf == null && comment.deleteOf == null) comment,
     ];
     final byRef = {for (final comment in roots) comment.ref: comment};
     final revisions = <String, GroupMessage>{};
     for (final revision in comments.where(
-      (comment) => comment.editOf != null,
+      (comment) => comment.editOf != null || comment.deleteOf != null,
     )) {
-      final target = byRef[revision.editOf];
+      if (revision.editOf != null && revision.deleteOf != null) continue;
+      final target = byRef[revision.editOf ?? revision.deleteOf];
       if (target == null ||
           revision.author != target.author ||
           revision.seq <= target.seq ||
           revision.attachment != null ||
           revision.replyTo != null ||
-          (revision.body.trim().isEmpty && target.attachment == null)) {
+          (revision.editOf != null &&
+              revision.body.trim().isEmpty &&
+              target.attachment == null) ||
+          (revision.deleteOf != null && revision.body.isNotEmpty)) {
         continue;
       }
       final current = revisions[target.ref];
-      if (current == null || revision.seq > current.seq) {
+      // A tombstone is irreversible even if a hostile signer appends a later
+      // edit or timestamps rows out of order. Any valid delete therefore wins
+      // over every edit for the same stable root.
+      if (current?.deleteOf != null) continue;
+      if (revision.deleteOf != null ||
+          current == null ||
+          revision.seq > current.seq) {
         revisions[target.ref] = revision;
       }
     }
     final refs = byRef.keys.toSet();
     return List.unmodifiable([
       for (final comment in roots)
-        if (comment.replyTo == null || refs.contains(comment.replyTo))
+        if ((comment.replyTo == null || refs.contains(comment.replyTo)) &&
+            revisions[comment.ref]?.deleteOf == null)
           SpacePostCommentView(root: comment, revision: revisions[comment.ref]),
     ]);
   }
@@ -16203,11 +16343,22 @@ class GroupService {
       includeSpacePostComments: true,
       applyLocalRetention: applyLocalRetention,
     );
+    final commentRows = <String, List<GroupMessage>>{};
+    for (final message in msgs) {
+      final postId = message.spacePostId;
+      if (postId != null && postIds.contains(postId)) {
+        (commentRows[postId] ??= <GroupMessage>[]).add(message);
+      }
+    }
+    final comments = <SpacePostCommentView>[
+      for (final rows in commentRows.values) ..._projectSpacePostComments(rows),
+    ];
     return {
       for (final m in msgs)
-        if (m.attachment?.cid != null &&
-            (m.spacePostId == null || postIds.contains(m.spacePostId)))
+        if (m.spacePostId == null && m.attachment?.cid != null)
           m.attachment!.cid!,
+      for (final comment in comments)
+        if (comment.attachment?.cid != null) comment.attachment!.cid!,
       for (final post in posts)
         for (final media in post.media) media.contentId!,
     };
@@ -17750,16 +17901,23 @@ class GroupService {
         final matches = switch (comment.operation) {
           SpacePublicCommentOperation.create =>
             visible.editOf == null &&
+                visible.deleteOf == null &&
                 visible.body == comment.body &&
                 visible.replyTo == comment.replyTo &&
                 jsonEncode(visible.attachment?.toJson()) ==
                     jsonEncode(comment.media?.toJson()),
           SpacePublicCommentOperation.edit =>
             visible.editOf == comment.ref &&
+                visible.deleteOf == null &&
                 visible.body == comment.body &&
                 visible.attachment == null &&
                 visible.replyTo == null,
-          SpacePublicCommentOperation.delete => false,
+          SpacePublicCommentOperation.delete =>
+            visible.editOf == null &&
+                visible.deleteOf == comment.ref &&
+                visible.body.isEmpty &&
+                visible.attachment == null &&
+                visible.replyTo == null,
         };
         if (matches &&
             !publicComments.any(
@@ -17882,7 +18040,8 @@ class GroupService {
         if (materialized != null) {
           if (materialized.spacePostId == null) {
             _incomingCtl.add((groupId: man.groupId, message: materialized));
-          } else if (materialized.editOf == null) {
+          } else if (materialized.editOf == null &&
+              materialized.deleteOf == null) {
             _incomingCommentCtl.add((
               spaceId: man.groupId,
               message: materialized,

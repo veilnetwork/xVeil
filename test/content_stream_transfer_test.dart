@@ -1419,7 +1419,7 @@ void main() {
   );
 
   test(
-    'PUBLIC media grant streams verified bytes to a non-contact without ACK',
+    'PUBLIC media grant streams and re-seeds verified bytes without group receipts',
     () async {
       final data = _rnd(240000, 83);
       final cid = await mA.registerGroupContent(data, name: 'public-media.bin');
@@ -1474,6 +1474,10 @@ void main() {
       );
 
       final got = mC.contentReceived.firstWhere((e) => e.contentId == cid);
+      var membershipReceipts = 0;
+      mC.onGroupContentVerifiedSources = (_, _) async {
+        membershipReceipts++;
+      };
       expect(
         await mC.downloadPublicSpaceContentFromAny([a], cid),
         ContentDownloadResult.started,
@@ -1489,6 +1493,64 @@ void main() {
         tC.sentPayloads.map(WireEnvelope.decode).map((env) => env.kind),
         isNot(contains(WireKind.ack)),
       );
+      expect(
+        membershipReceipts,
+        0,
+        reason: 'a public capability pull must not mint membership evidence',
+      );
+
+      // C is now a durable secondary holder. With A absent from this phase, D
+      // can fetch the same verified blob through an independently authorized
+      // public grant without creating either a contact or group receipt.
+      final d = _id(4);
+      final tD = _StreamLink(d);
+      final sD = HiddenVolumeStorage(_mem());
+      await sD.open(password: 'd', createIfMissing: true);
+      final mD = MessagingService(
+        tD,
+        sD,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+      )..start();
+      addTearDown(() async {
+        await mD.dispose();
+        await sD.close();
+      });
+      tD.routes[c.hex] = tC;
+      tC.routes[d.hex] = tD;
+      final secondaryGranted = Completer<void>();
+      mC.onSpacePublicMediaGrantRequest = (peer, _) async {
+        mC.grantGroupContentServe(
+          peer,
+          cid,
+          ttl: kSpacePublicMediaGrantRequestWindow,
+        );
+        if (!secondaryGranted.isCompleted) secondaryGranted.complete();
+      };
+      final secondaryRequest = SpacePublicMediaGrantRequest(
+        spaceId: _id(9),
+        descriptorHash: '11' * 32,
+        manifestHash: '22' * 32,
+        contentId: cid,
+        requester: d,
+        requesterPublicKey: d.bytes,
+        nonce: '44' * 32,
+        createdAtMs: DateTime.now().millisecondsSinceEpoch,
+        signature: Uint8List(64),
+      );
+      await mD.sendSpacePublicMediaGrantRequest(
+        c,
+        jsonEncode(secondaryRequest.toJson()),
+      );
+      await secondaryGranted.future.timeout(const Duration(seconds: 2));
+      final gotD = mD.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(
+        await mD.downloadPublicSpaceContentFromAny([c], cid),
+        ContentDownloadResult.started,
+      );
+      await gotD.timeout(const Duration(seconds: 20));
+      expect(await sD.loadFile(cid), data);
+      expect(await sD.getContact(c), isNull);
     },
   );
 

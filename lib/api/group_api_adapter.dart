@@ -843,6 +843,18 @@ final class GroupApiAdapter {
         : 'comment edit rejected';
   }
 
+  Future<String?> deletePostComment(
+    String spaceHex,
+    String postId,
+    String commentId,
+  ) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    return await _groups.deleteSpacePostComment(visible.$1, postId, commentId)
+        ? null
+        : 'comment delete rejected';
+  }
+
   /// The identity-local encrypted composer draft. It is intentionally exposed
   /// separately from [posts] because it is neither signed nor replicated.
   Future<Map<String, dynamic>?> postDraft(String spaceHex) async {

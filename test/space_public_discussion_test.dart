@@ -236,6 +236,16 @@ void main() {
       targetSeq: 0,
       body: '',
     );
+    final resurrection = _comment(
+      space: space,
+      postId: postId,
+      author: stableAuthor,
+      seq: 2,
+      previous: deletion,
+      operation: SpacePublicCommentOperation.edit,
+      targetSeq: 0,
+      body: 'Must stay deleted',
+    );
 
     expect(
       foldSpacePublicComments(
@@ -248,12 +258,13 @@ void main() {
     );
     expect(
       foldSpacePublicComments(
-        comments: [stableRoot, deletion],
+        comments: [resurrection, stableRoot, deletion],
         spaceId: space,
         postId: postId,
         verifySignature: _verifyDetached,
       ),
       isEmpty,
+      reason: 'a valid delete is terminal even before a later signed edit',
     );
   });
 
