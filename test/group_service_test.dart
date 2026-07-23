@@ -6321,6 +6321,109 @@ void main() {
         isTrue,
       );
       expect(contentGrants, [(bob, 'a' * 64)]);
+
+      final deletionId = await ownerSvc.moderateSpace(
+        spaceId,
+        kind: SpaceModerationKind.deleteMessage,
+        target: bob,
+        scope: SpaceModerationScope.channel,
+        reason: 'sensitive incident cleanup',
+        channelId: channelId,
+        reference: SpaceModerationReference(
+          kind: SpaceModerationReferenceKind.message,
+          author: bob,
+          seq: storedMedia.seq,
+          channelId: channelId,
+        ),
+      );
+      expect(deletionId, isNotNull);
+      final moderatedBundle = (await ownerSvc.load(spaceId))!;
+      final protectedModeration = moderatedBundle.control.last;
+      expect(protectedModeration.version, 14);
+      expect(protectedModeration.channelModeration?.channelId, channelId);
+      expect(protectedModeration.target, isNull);
+      expect(protectedModeration.moderationAction, isNull);
+      final moderationWire = jsonEncode(protectedModeration.toJson());
+      expect(moderationWire, isNot(contains(bob.hex)));
+      expect(moderationWire, isNot(contains(storedMedia.ref)));
+      expect(moderationWire, isNot(contains('sensitive incident cleanup')));
+      expect(moderationWire, isNot(contains('incident-report')));
+      expect(
+        (await ownerSvc.messagesOf(
+          spaceId,
+          channelId: channelId,
+        )).map((message) => message.body),
+        ['channel-key ciphertext'],
+      );
+      expect(
+        await ownerSvc.referencedContentIds(spaceId),
+        isNot(contains('a' * 64)),
+      );
+      final audit = await ownerSvc.spaceModerationAudit(spaceId);
+      expect(audit.map((record) => record.actionId), contains(deletionId));
+      expect(
+        audit
+            .singleWhere((record) => record.actionId == deletionId)
+            .action
+            .reason,
+        'sensitive incident cleanup',
+      );
+      expect(
+        await ownerSvc.handleContentRequest(
+          jsonEncode(
+            signedRequest(
+              bob,
+              nonce: 'bob-after-moderation',
+              scopedChannel: channelId,
+              scopedEpoch: 1,
+            ).toJson(),
+          ),
+        ),
+        isFalse,
+        reason: 'moderated-away media is no longer grantable',
+      );
+
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(moderatedBundle, recipient: bob),
+        ),
+        isTrue,
+      );
+      expect(
+        (await bobSvc.messagesOf(
+          spaceId,
+          channelId: channelId,
+        )).map((message) => message.body),
+        ['channel-key ciphertext'],
+      );
+      expect(
+        (await bobSvc.spaceModerationAudit(
+          spaceId,
+        )).map((record) => record.actionId),
+        contains(deletionId),
+      );
+
+      final carolStorage = FakeHvContainer().storage();
+      await carolStorage.open(password: 'pw', createIfMissing: true);
+      final carolSvc = GroupService(
+        carolStorage,
+        _FakeSigner(carol),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      expect(
+        await carolSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(moderatedBundle, recipient: carol),
+        ),
+        isTrue,
+      );
+      expect(await carolSvc.spaceModerationAudit(spaceId), isEmpty);
+      expect(
+        (await carolSvc.stateOf(spaceId))!.protectedModeration,
+        contains(deletionId),
+        reason: 'outsiders retain signed opaque evidence without plaintext',
+      );
       expect(
         await ownerSvc.setChannelMembers(spaceId, channelId, const []),
         isTrue,
@@ -6517,6 +6620,172 @@ void main() {
         (await ownerSvc.stateOf(spaceId))!.lifecycleTransitionHash,
       );
       expect(jsonEncode(restoredReaction.toJson()), isNot(contains('✅')));
+    },
+  );
+
+  test(
+    'protected moderation rechecks the encrypted target rank fail-closed',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      final spaceId = await ownerSvc.createSpace('Protected moderation ACL');
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.admin,
+        ),
+        isTrue,
+      );
+      final channelId = await ownerSvc.createChannel(
+        spaceId,
+        name: 'admin-visible',
+        kind: SpaceChannelKind.text,
+        access: SpaceChannelAccess.restricted,
+        members: [bob],
+      );
+      expect(channelId, isNotNull);
+      expect(
+        await ownerSvc.postMessage(
+          spaceId,
+          'owner evidence',
+          channelId: channelId,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      final target = (await ownerSvc.messagesOf(
+        spaceId,
+        channelId: channelId,
+      )).single;
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        await bobSvc.moderateSpace(
+          spaceId,
+          kind: SpaceModerationKind.deleteMessage,
+          target: owner,
+          scope: SpaceModerationScope.channel,
+          reason: 'admin cannot moderate owner',
+          channelId: channelId,
+          reference: SpaceModerationReference(
+            kind: SpaceModerationReferenceKind.message,
+            author: owner,
+            seq: target.seq,
+            channelId: channelId,
+          ),
+        ),
+        isNull,
+      );
+
+      final bobBundle = (await bobSvc.load(spaceId))!;
+      final bobState = (await bobSvc.stateOf(spaceId))!;
+      final opaque = bobState.protectedChannels[channelId!.hex]!;
+      final key = bobBundle.localChannelEpochKeys['${channelId.hex}:1']!;
+      final createdAt = target.createdAtMs + 100;
+      final hiddenAction = SpaceModerationAction(
+        kind: SpaceModerationKind.deleteMessage,
+        target: owner,
+        scope: SpaceModerationScope.channel,
+        reason: 'forged privileged deletion',
+        createdAtMs: createdAt,
+        channelId: channelId,
+        reference: SpaceModerationReference(
+          kind: SpaceModerationReferenceKind.message,
+          author: owner,
+          seq: target.seq,
+          channelId: channelId,
+        ),
+      );
+      final clear = Uint8List.fromList(
+        utf8.encode(jsonEncode(hiddenAction.toJson())),
+      );
+      final encrypted = await encryptSpaceChannelModerationPayload(
+        spaceId: spaceId,
+        channelId: channelId,
+        channelEpoch: opaque.channelEpoch,
+        author: bob,
+        seq: 0,
+        prevHash: '',
+        policyVersion: bobState.policyVersion,
+        createdAtMs: createdAt,
+        clearText: clear,
+        channelKey: key,
+      );
+      clear.fillRange(0, clear.length, 0);
+      final malicious = _FakeSigner(bob).signControl(
+        ControlEntry(
+          version: 14,
+          groupId: spaceId,
+          author: bob,
+          seq: 0,
+          prevHash: '',
+          op: ControlOp.moderate,
+          target: null,
+          role: null,
+          channelModeration: SpaceChannelModerationEnvelope(
+            spaceId: spaceId,
+            channelId: channelId,
+            channelEpoch: opaque.channelEpoch,
+            encryptedAction: encrypted,
+          ),
+          policyVersion: bobState.policyVersion,
+          createdAtMs: createdAt,
+          signature: Uint8List(0),
+        ),
+      );
+      final ownerBundle = (await ownerSvc.load(spaceId))!;
+      expect(
+        await ownerSvc.ingestSnapshot(
+          jsonEncode({
+            'm': ownerBundle.manifest.toJson(),
+            'c': [malicious.toJson()],
+            'g': const [],
+            'r': const [],
+            'p': const [],
+          }),
+        ),
+        isTrue,
+      );
+      expect(
+        (await ownerSvc.stateOf(spaceId))!.protectedModeration,
+        contains('${bob.hex}:0'),
+        reason: 'the signed opaque row remains convergent audit evidence',
+      );
+      expect(await ownerSvc.spaceModerationAudit(spaceId), isEmpty);
+      expect(
+        (await ownerSvc.messagesOf(
+          spaceId,
+          channelId: channelId,
+        )).map((message) => message.body),
+        ['owner evidence'],
+        reason: 'hidden target authority is rechecked before enforcement',
+      );
     },
   );
 

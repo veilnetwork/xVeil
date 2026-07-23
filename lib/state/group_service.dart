@@ -2629,6 +2629,131 @@ class GroupService {
     return result;
   }
 
+  /// Decrypt and authorize accepted V14 moderation evidence for channels the
+  /// current device can still see. The outer fold proves signature, chain,
+  /// policy version, moderator rank and current channel epoch; this second
+  /// phase proves the hidden target/reference against the exact prior control
+  /// prefix. Invalid ciphertext is inert and never weakens the clear log.
+  Future<List<SpaceModerationRecord>> _protectedModerationRecordsOf(
+    GroupBundle bundle,
+    GroupState state,
+  ) async {
+    if (state.protectedModeration.isEmpty || !state.isMember(_signer.selfId)) {
+      return const [];
+    }
+    final currentChannels = await _protectedChannelsOf(bundle, state);
+    if (currentChannels.isEmpty) return const [];
+    final accepted = _acceptedControl(bundle.manifest, bundle.control);
+    final records = <SpaceModerationRecord>[];
+    for (var index = 0; index < accepted.length; index++) {
+      final entry = accepted[index];
+      final envelope = entry.channelModeration;
+      if (envelope == null || currentChannels[envelope.channelId.hex] == null) {
+        continue;
+      }
+      SpaceChannelControlEnvelope? channelRevision;
+      for (var prior = index - 1; prior >= 0; prior--) {
+        final candidate = accepted[prior].channelControl;
+        if (candidate?.channelId == envelope.channelId &&
+            candidate?.channelEpoch == envelope.channelEpoch) {
+          channelRevision = candidate;
+          break;
+        }
+      }
+      if (channelRevision == null) continue;
+      final channelAtAction = await _materializeProtectedChannel(
+        bundle,
+        state,
+        channelRevision,
+        requireCurrentAcl: false,
+      );
+      if (channelAtAction == null ||
+          channelAtAction.channel.access != SpaceChannelAccess.restricted ||
+          channelAtAction.channel.kind != SpaceChannelKind.text ||
+          channelAtAction.channel.archived) {
+        continue;
+      }
+      final key =
+          bundle.localChannelEpochKeys[_channelKeyId(
+            envelope.channelId,
+            envelope.channelEpoch,
+          )];
+      if (key == null ||
+          !_validLocalChannelEpochKey(
+            bundle.manifest,
+            bundle.control,
+            envelope.channelId,
+            envelope.channelEpoch,
+            key,
+          )) {
+        continue;
+      }
+      Uint8List? clear;
+      try {
+        clear = await decryptSpaceChannelModerationPayload(
+          spaceId: envelope.spaceId,
+          channelId: envelope.channelId,
+          channelEpoch: envelope.channelEpoch,
+          author: entry.author,
+          seq: entry.seq,
+          prevHash: entry.prevHash,
+          policyVersion: entry.policyVersion,
+          createdAtMs: entry.createdAtMs,
+          payload: envelope.encryptedAction,
+          channelKey: key,
+        );
+        final action = SpaceModerationAction.fromJson(
+          jsonDecode(utf8.decode(clear, allowMalformed: false)),
+        );
+        final reference = action?.reference;
+        if (action == null ||
+            action.kind != SpaceModerationKind.deleteMessage ||
+            action.scope != SpaceModerationScope.channel ||
+            action.channelId != envelope.channelId ||
+            action.createdAtMs != entry.createdAtMs ||
+            reference?.kind != SpaceModerationReferenceKind.message ||
+            reference?.channelId != envelope.channelId ||
+            reference?.author != action.target) {
+          continue;
+        }
+        final historical = foldControlLog(
+          owner: bundle.manifest.owner,
+          entries: accepted.sublist(0, index),
+          verify: (candidate) => _validControlFor(bundle.manifest, candidate),
+          initialName: bundle.manifest.name,
+          initialDescription: bundle.manifest.description ?? '',
+        ).state;
+        final actorRole = historical.roleOf(entry.author);
+        final targetRole = historical.roleOf(action.target);
+        final authorized =
+            actorRole != null &&
+            (targetRole == null
+                ? actorRole == GroupRole.owner
+                : SpaceAcl.roleAllowsControl(
+                    authorRole: actorRole,
+                    op: ControlOp.moderate,
+                    targetRole: targetRole,
+                  ));
+        if (!authorized) continue;
+        final actionId = '${entry.author.hex}:${entry.seq}';
+        records.add(
+          SpaceModerationRecord(
+            actionId: actionId,
+            actor: entry.author,
+            actionSeq: entry.seq,
+            action: action,
+          ),
+        );
+      } catch (_) {
+        // A copied, corrupt or unauthorized ciphertext is signed opaque
+        // evidence only. It never becomes an enforceable moderation action.
+      } finally {
+        clear?.fillRange(0, clear.length, 0);
+      }
+    }
+    return List.unmodifiable(records);
+  }
+
   Future<GroupReaction?> _materializeEncryptedReaction(
     GroupBundle bundle,
     GroupReaction reaction,
@@ -4430,6 +4555,7 @@ class GroupService {
     SpaceRulesAcceptance? rulesAcceptance,
     SpaceModerationAction? moderationAction,
     SpaceModerationRevocation? moderationRevocation,
+    SpaceChannelModerationEnvelope? channelModeration,
     SpaceRetentionPolicy? retentionPolicy,
     SpaceLifecycleTransition? lifecycleTransition,
     SpacePostPin? postPin,
@@ -4545,6 +4671,8 @@ class GroupService {
               ? 13
               : retentionPolicy != null
               ? 9
+              : channelModeration != null
+              ? 14
               : moderationAction != null || moderationRevocation != null
               ? 8
               : rules != null || rulesAcceptance != null
@@ -4567,6 +4695,7 @@ class GroupService {
           rulesAcceptance: rulesAcceptance,
           moderationAction: moderationAction,
           moderationRevocation: moderationRevocation,
+          channelModeration: channelModeration,
           retentionPolicy: retentionPolicy,
           lifecycleTransition: lifecycleTransition,
           postPin: postPin,
@@ -4932,10 +5061,13 @@ class GroupService {
       SpaceModerationKind.deleteMessage,
       SpaceModerationKind.deletePost,
     }.contains(kind);
-    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.moderate) ||
+    final actorRole = state.roleOf(_signer.selfId);
+    final targetRole = state.roleOf(target);
+    if (actorRole == null ||
+        !SpaceAcl(state).allows(_signer.selfId, SpacePermission.moderate) ||
         (!state.isMember(target) &&
-            !(removesContent &&
-                state.roleOf(_signer.selfId) == GroupRole.owner))) {
+            !(removesContent && actorRole == GroupRole.owner)) ||
+        (targetRole != null && targetRole.rank >= actorRole.rank)) {
       return null;
     }
     final createdAt = _now();
@@ -4950,6 +5082,29 @@ class GroupService {
       reference: reference,
     );
     if (!action.isStructurallyValid) return null;
+
+    final protectedEnvelope = channelId == null
+        ? null
+        : state.protectedChannels[channelId.hex];
+    if (protectedEnvelope != null) {
+      if (kind != SpaceModerationKind.deleteMessage ||
+          scope != SpaceModerationScope.channel ||
+          reference?.kind != SpaceModerationReferenceKind.message ||
+          reference?.channelId != channelId) {
+        return null;
+      }
+      final clearChannel = await _materializeProtectedChannel(
+        bundle,
+        state,
+        protectedEnvelope,
+      );
+      if (clearChannel == null ||
+          clearChannel.channel.access != SpaceChannelAccess.restricted ||
+          clearChannel.channel.kind != SpaceChannelKind.text ||
+          clearChannel.channel.archived) {
+        return null;
+      }
+    }
 
     if (reference != null) {
       final exists = switch (reference.kind) {
@@ -4970,6 +5125,55 @@ class GroupService {
     );
     if (link.blocked) return null;
     final actionId = '${_signer.selfId.hex}:${link.seq}';
+    if (protectedEnvelope != null) {
+      final key =
+          bundle.localChannelEpochKeys[_channelKeyId(
+            protectedEnvelope.channelId,
+            protectedEnvelope.channelEpoch,
+          )];
+      if (key == null ||
+          !_validLocalChannelEpochKey(
+            bundle.manifest,
+            bundle.control,
+            protectedEnvelope.channelId,
+            protectedEnvelope.channelEpoch,
+            key,
+          )) {
+        return null;
+      }
+      Uint8List? clear;
+      try {
+        clear = Uint8List.fromList(utf8.encode(jsonEncode(action.toJson())));
+        final encrypted = await encryptSpaceChannelModerationPayload(
+          spaceId: spaceId,
+          channelId: protectedEnvelope.channelId,
+          channelEpoch: protectedEnvelope.channelEpoch,
+          author: _signer.selfId,
+          seq: link.seq,
+          prevHash: link.prevHash,
+          policyVersion: state.policyVersion,
+          createdAtMs: createdAt,
+          clearText: clear,
+          channelKey: key,
+        );
+        final applied = await _addControlOp(
+          spaceId,
+          ControlOp.moderate,
+          channelModeration: SpaceChannelModerationEnvelope(
+            spaceId: spaceId,
+            channelId: protectedEnvelope.channelId,
+            channelEpoch: protectedEnvelope.channelEpoch,
+            encryptedAction: encrypted,
+          ),
+          createdAtMs: createdAt,
+        );
+        return applied ? actionId : null;
+      } catch (_) {
+        return null;
+      } finally {
+        clear?.fillRange(0, clear.length, 0);
+      }
+    }
     final applied = await _addControlOp(
       spaceId,
       ControlOp.moderate,
@@ -5037,13 +5241,17 @@ class GroupService {
       initialDescription: bundle.manifest.description ?? '',
     ).state;
     if (!state.isMember(_signer.selfId)) return const [];
-    final records = state.moderationRecords.values.toList()
-      ..sort((left, right) {
-        final time = right.action.createdAtMs.compareTo(
-          left.action.createdAtMs,
-        );
-        return time != 0 ? time : right.actionId.compareTo(left.actionId);
-      });
+    final protectedRecords = await _protectedModerationRecordsOf(bundle, state);
+    final records =
+        <SpaceModerationRecord>[
+          ...state.moderationRecords.values,
+          ...protectedRecords,
+        ]..sort((left, right) {
+          final time = right.action.createdAtMs.compareTo(
+            left.action.createdAtMs,
+          );
+          return time != 0 ? time : right.actionId.compareTo(left.actionId);
+        });
     return records;
   }
 
@@ -9113,6 +9321,9 @@ class GroupService {
     final protected = b.manifest.isSpace
         ? await _protectedChannelsOf(b, state)
         : const <String, SpaceChannelControlCleartext>{};
+    final protectedModeration = b.manifest.isSpace
+        ? await _protectedModerationRecordsOf(b, state)
+        : const <SpaceModerationRecord>[];
     final out = <GroupMessage>[];
     for (final m in _acceptedMessagesWithinLifecycle(b, state)) {
       final isComment = m.spacePostId != null;
@@ -9172,13 +9383,21 @@ class GroupService {
             channelId: effectiveChannelId,
           ) ||
           (b.manifest.isSpace &&
-              state.isModeratedContentRemoved(
-                kind: SpaceModerationReferenceKind.message,
-                author: m.author,
-                seq: m.seq,
-                atMs: readAt,
-                channelId: effectiveChannelId,
-              ))) {
+              (state.isModeratedContentRemoved(
+                    kind: SpaceModerationReferenceKind.message,
+                    author: m.author,
+                    seq: m.seq,
+                    atMs: readAt,
+                    channelId: effectiveChannelId,
+                  ) ||
+                  spaceModerationRemovesContent(
+                    protectedModeration,
+                    kind: SpaceModerationReferenceKind.message,
+                    author: m.author,
+                    seq: m.seq,
+                    atMs: readAt,
+                    channelId: effectiveChannelId,
+                  )))) {
         continue;
       }
       if (!m.isEncrypted) {
