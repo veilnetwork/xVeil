@@ -244,6 +244,17 @@ class MessagingService {
   /// unauthorized or unset).
   void Function(NodeId peer, String requestJson)? onGroupContentRequest;
 
+  /// A live-only completion receipt for an earlier signed group content
+  /// request. The group layer matches it to bounded RAM state and silently
+  /// drops invalid/non-member sources; no ACK or durable record is created.
+  void Function(NodeId peer, String receiptJson)? onGroupContentReceipt;
+
+  /// Fired only after a membership-scoped blob is fully hash-verified and
+  /// durably stored. [sources] contains the actual stream sources that supplied
+  /// verified bytes, not every member that was merely eligible.
+  Future<void> Function(String contentId, Set<NodeId> sources)?
+  onGroupContentVerifiedSources;
+
   /// Receives ordinary local 1:1 writes for projection to this identity's
   /// other devices. Mirrored writes never re-fire it.
   void Function(NodeId peer, Message stored)? get onMessageStored =>
@@ -343,6 +354,11 @@ class MessagingService {
   /// own ten-minute freshness deadline.
   Future<void> sendGroupContentRequest(NodeId dst, String requestJson) =>
       _groupContent.sendGroupContentRequest(dst, requestJson);
+
+  /// Live-only counterpart to [sendGroupContentRequest]. It intentionally has
+  /// no outbox/mailbox fallback and receives no delivery ACK.
+  Future<void> sendGroupContentReceipt(NodeId dst, String receiptJson) =>
+      _groupContent.sendGroupContentReceipt(dst, receiptJson);
 
   /// Send one already-signed+epoch-encrypted group-call signal. Lifecycle
   /// transitions are durable for short outage tolerance; heartbeats are live

@@ -121,6 +121,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     revokeSpaceRecommendation: messaging.revokeSpaceRecommendation,
     sendContentRequest: (holder, json) =>
         messaging.sendGroupContentRequest(holder, json),
+    sendContentReceipt: (holder, json) =>
+        messaging.sendGroupContentReceipt(holder, json),
     sendGroupCallFrame: (peer, signal, json) =>
         messaging.sendGroupCallSignal(peer, signal, json),
     grantContentServe: messaging.grantGroupContentServe,
@@ -157,6 +159,11 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   messaging.onGroupContentRequest = (peer, requestJson) {
     unawaited(service.handleContentRequest(requestJson));
   };
+  messaging.onGroupContentReceipt = (peer, receiptJson) {
+    unawaited(service.handleContentReceipt(peer, receiptJson));
+  };
+  messaging.onGroupContentVerifiedSources =
+      service.handleVerifiedContentSources;
   messaging.onGroupCallSignal = service.ingestGroupCallFrame;
   messaging.onGroupEntryFromStranger = (peer, bundleJson) {
     unawaited(service.ingestGroupEntryFromStranger(peer, bundleJson));

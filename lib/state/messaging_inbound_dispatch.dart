@@ -573,6 +573,14 @@ extension _MessagingInboundDispatch on MessagingService {
         // own folded state and grants (or silently drops — no oracle).
         onGroupContentRequest?.call(m.src, env.body);
         return;
+      case WireKind.groupContentReceipt:
+        // Live-only proof that this authenticated requester completed one
+        // exact signed request. The group layer requires the source-bound,
+        // single-use RAM challenge and current authorization. Never ACK:
+        // a response would create both a membership oracle and a durable read
+        // receipt surface.
+        onGroupContentReceipt?.call(m.src, env.body);
+        return;
       case WireKind.groupCallSignal:
         // No contact gate: current group membership + epoch AEAD + node-bound
         // signature are the authorization. Invalid/removed/stale senders are

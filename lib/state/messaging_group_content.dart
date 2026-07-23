@@ -61,6 +61,14 @@ class _MessagingGroupContent {
     _owner._stashInBackground(dst, frameId, wire);
   }
 
+  /// Send a completion receipt over the live authenticated transport only.
+  ///
+  /// Unlike the request this is intentionally never put in the outbox or
+  /// mailbox: it is bounded by the holder's in-RAM request challenge and is
+  /// diagnostics/proof material, not a user-visible or durable read event.
+  Future<void> sendGroupContentReceipt(NodeId dst, String receiptJson) =>
+      _owner._send(dst, WireEnvelope.groupContentReceipt(receiptJson).encode());
+
   /// Allow [peer] to pull [cid] for [ttl] (defaults to the request window).
   void grantGroupContentServe(
     NodeId peer,
@@ -137,6 +145,35 @@ class _MessagingGroupContent {
 
   void clearGroupPullSources(String cid) {
     _groupPullSources.removeWhere((key, _) => key.endsWith('|$cid'));
+  }
+
+  /// Report only sources that were explicitly authorized for this group pull.
+  /// Callers invoke this after the complete blob is hash-verified and durable.
+  Future<void> reportVerifiedSources(
+    String cid,
+    Iterable<NodeId> sources,
+  ) async {
+    final verified = <String, NodeId>{};
+    for (final source in sources) {
+      if (groupPullSourceAllowed(source, cid)) {
+        verified[source.hex] = source;
+      }
+    }
+    if (verified.isEmpty) return;
+    final callback = _owner.onGroupContentVerifiedSources;
+    if (callback == null) return;
+    try {
+      await callback(cid, Set<NodeId>.unmodifiable(verified.values));
+    } catch (e) {
+      // The bytes are already verified and persisted. A best-effort
+      // observability receipt must never turn that success into a failed
+      // download.
+      devLog(
+        () =>
+            'xVeil[content]: verified-source receipt failed '
+            '${cid.substring(0, cid.length < 12 ? cid.length : 12)}: $e',
+      );
+    }
   }
 
   Future<void> persistRequiredGroupManifest(ContentManifest manifest) async {

@@ -466,6 +466,51 @@ final class _SpaceHolderProof {
   final int confirmedAtMs;
 }
 
+/// Holder-side half of a content completion challenge. The original signed
+/// request is retained only in RAM so a later live receipt can be matched to
+/// the exact requester/group/CID/nonce without persisting a read trail.
+final class _PendingContentReceipt {
+  _PendingContentReceipt({required this.request, required this.createdAtMs})
+    : elapsed = Stopwatch()..start();
+
+  final GroupContentRequest request;
+  final int createdAtMs;
+  final Stopwatch elapsed;
+}
+
+/// Requester-side half used to route a verified-store receipt back only to an
+/// actual byte source. One entry replaces the previous attempt for the same
+/// (Space, CID, holder), keeping fanout bounded even across retries.
+final class _OutboundContentRequest {
+  const _OutboundContentRequest({
+    required this.request,
+    required this.holder,
+    required this.createdAtMs,
+  });
+
+  final GroupContentRequest request;
+  final NodeId holder;
+  final int createdAtMs;
+}
+
+/// A bounded runtime confirmation that [peer] held/received one complete,
+/// content-addressed blob. It is protocol evidence, not a Byzantine-proof
+/// storage attestation: TTL, current authorization and the live reference set
+/// constrain every aggregate that consumes it.
+final class _ContentHolderProof {
+  const _ContentHolderProof({
+    required this.spaceId,
+    required this.contentId,
+    required this.peer,
+    required this.confirmedAtMs,
+  });
+
+  final NodeId spaceId;
+  final String contentId;
+  final NodeId peer;
+  final int confirmedAtMs;
+}
+
 class GroupLogCompaction {
   const GroupLogCompaction({
     required this.messagesBefore,
@@ -621,6 +666,7 @@ class GroupService {
     this._epochService,
     this.ourCertVersion = 1,
     this.sendContentRequest,
+    this.sendContentReceipt,
     this.sendGroupCallFrame,
     this.grantContentServe,
     this.startContentPull,
@@ -649,6 +695,11 @@ class GroupService {
   /// Ships a signed content-fetch request to the holder (wire layer).
   final Future<void> Function(NodeId holder, String requestJson)?
   sendContentRequest;
+
+  /// Ships a verified-store receipt live-only to the exact source. The wire
+  /// layer must not outbox, stash or ACK this diagnostics-only frame.
+  final Future<void> Function(NodeId holder, String receiptJson)?
+  sendContentReceipt;
 
   /// Ships a short-lived encrypted call-control frame to one current member.
   final GroupCallFrameSender? sendGroupCallFrame;
@@ -686,10 +737,19 @@ class GroupService {
   static const Duration _spaceReceiptTtl = Duration(hours: 24);
   static const int _kMaxPendingSpaceReceipts = 2048;
   static const int _kMaxSpaceHolderProofs = 4096;
+  static const int _kMaxPendingContentReceipts = 2048;
+  static const int _kMaxOutboundContentRequests = 2048;
+  static const int _kMaxContentHolderProofs = 8192;
   final Map<String, _PendingSpaceReceipt> _pendingSpaceReceipts =
       <String, _PendingSpaceReceipt>{};
   final Map<String, _SpaceHolderProof> _spaceHolderProofs =
       <String, _SpaceHolderProof>{};
+  final Map<String, _PendingContentReceipt> _pendingContentReceipts =
+      <String, _PendingContentReceipt>{};
+  final Map<String, _OutboundContentRequest> _outboundContentRequests =
+      <String, _OutboundContentRequest>{};
+  final Map<String, _ContentHolderProof> _contentHolderProofs =
+      <String, _ContentHolderProof>{};
   static const String _contentGcMarksKey = 'content.gc.marks.v1';
   Timer? _spaceDeletionMaintenanceTimer;
   bool _spaceDeletionMaintenanceRunning = false;
@@ -708,8 +768,26 @@ class GroupService {
   String _spaceHolderProofKey(NodeId spaceId, NodeId peer) =>
       '${spaceId.hex}:${peer.hex}';
 
+  String _pendingContentReceiptKey(NodeId requester, String nonce) =>
+      '${requester.hex}:$nonce';
+
+  String _outboundContentRequestKey(
+    NodeId spaceId,
+    String contentId,
+    NodeId holder,
+  ) => '${spaceId.hex}:$contentId:${holder.hex}';
+
+  String _contentHolderProofKey(
+    NodeId spaceId,
+    String contentId,
+    NodeId peer,
+  ) => '${spaceId.hex}:$contentId:${peer.hex}';
+
   void _purgeSpaceReceiptState() {
-    final cutoff = _spaceReceiptNowMs() - _spaceReceiptTtl.inMilliseconds;
+    final nowMs = _spaceReceiptNowMs();
+    final cutoff = nowMs - _spaceReceiptTtl.inMilliseconds;
+    final contentRequestCutoff =
+        nowMs - kGroupContentRequestWindow.inMilliseconds;
     final expiredReceipts = [
       for (final entry in _pendingSpaceReceipts.entries)
         if (entry.value.createdAtMs < cutoff) entry.key,
@@ -724,6 +802,37 @@ class GroupService {
     for (final key in expiredProofs) {
       _spaceHolderProofs.remove(key);
     }
+    final expiredContentReceipts = [
+      for (final entry in _pendingContentReceipts.entries)
+        if (entry.value.createdAtMs < contentRequestCutoff) entry.key,
+    ];
+    for (final key in expiredContentReceipts) {
+      _pendingContentReceipts.remove(key)?.elapsed.stop();
+    }
+    _outboundContentRequests.removeWhere(
+      (_, value) => value.createdAtMs < contentRequestCutoff,
+    );
+    _contentHolderProofs.removeWhere(
+      (_, value) => value.confirmedAtMs < cutoff,
+    );
+  }
+
+  void _rememberContentHolderProof(
+    NodeId spaceId,
+    String contentId,
+    NodeId peer,
+  ) {
+    final key = _contentHolderProofKey(spaceId, contentId, peer);
+    while (_contentHolderProofs.length >= _kMaxContentHolderProofs &&
+        !_contentHolderProofs.containsKey(key)) {
+      _contentHolderProofs.remove(_contentHolderProofs.keys.first);
+    }
+    _contentHolderProofs[key] = _ContentHolderProof(
+      spaceId: spaceId,
+      contentId: contentId,
+      peer: peer,
+      confirmedAtMs: _spaceReceiptNowMs(),
+    );
   }
 
   String? _beginSpaceReceipt(GroupBundle bundle, NodeId peer) {
@@ -769,9 +878,13 @@ class GroupService {
     return value;
   }
 
-  Future<String?> _spaceSyncFrontier(NodeId spaceId) async {
-    final request = await buildGroupSyncRequest(spaceId);
-    if (request == null) return null;
+  Future<String?> _spaceSyncFrontier(
+    NodeId spaceId, {
+    GroupBundle? bundle,
+  }) async {
+    final loaded = bundle ?? await load(spaceId);
+    if (loaded == null || loaded.manifest.groupId != spaceId) return null;
+    final request = _buildGroupSyncRequest(loaded);
     final vector = Map<String, dynamic>.of(request)
       ..remove('sreq')
       ..remove('gid')
@@ -783,10 +896,11 @@ class GroupService {
 
   Future<bool> _acceptSpaceReceipt(
     NodeId peer,
-    NodeId spaceId,
+    GroupBundle bundle,
     Object? value, {
     required bool caughtUp,
   }) async {
+    final spaceId = bundle.manifest.groupId;
     if (value == null) return false;
     if (value is! String || !_spaceReceiptPattern.hasMatch(value)) {
       _observeSpace(
@@ -819,7 +933,7 @@ class GroupService {
       _spaceHolderProofs.remove(proofKey);
       return true;
     }
-    final frontier = await _spaceSyncFrontier(spaceId);
+    final frontier = await _spaceSyncFrontier(spaceId, bundle: bundle);
     if (frontier == null) return true;
     while (_spaceHolderProofs.length >= _kMaxSpaceHolderProofs &&
         !_spaceHolderProofs.containsKey(proofKey)) {
@@ -853,8 +967,7 @@ class GroupService {
         !acl.allows(_signer.selfId, SpacePermission.distributeContent)) {
       return;
     }
-    final request = await buildGroupSyncRequest(manifest.groupId);
-    if (request == null) return;
+    final request = _buildGroupSyncRequest(bundle);
     request['rack'] = token;
     final send = _send;
     if (send == null) {
@@ -906,6 +1019,14 @@ class GroupService {
     var liveReplicationFactorMin = 0;
     var liveReplicationFactorMax = 0;
     var underReplicatedSpaces = 0;
+    var referencedContentBlobs = 0;
+    var locallyHeldContentBlobs = 0;
+    var targetContentHolderSlots = 0;
+    var confirmedRemoteContentHolderSlots = 0;
+    var availableConfirmedRemoteContentHolderSlots = 0;
+    var confirmedContentHolderSlots = 0;
+    var confirmedContentDeficitSlots = 0;
+    var confirmedUnderReplicatedContentBlobs = 0;
 
     for (final hex in await _index()) {
       try {
@@ -937,7 +1058,10 @@ class GroupService {
         spaces++;
         eligibleRemoteSpreaders += eligible.length;
         targetReplicationFactorTotal += target;
-        final frontier = await _spaceSyncFrontier(bundle.manifest.groupId);
+        final frontier = await _spaceSyncFrontier(
+          bundle.manifest.groupId,
+          bundle: bundle,
+        );
         final confirmed = frontier == null
             ? const <NodeId>[]
             : [
@@ -979,6 +1103,64 @@ class GroupService {
           }
           if (live < target) underReplicatedSpaces++;
         }
+
+        // Content is measured per referenced CID, not inferred from the Space
+        // frontier. A peer may have every signed post/message row while still
+        // missing its lazy media blob. Protected-channel references use their
+        // narrower recipient set; ordinary references use current members with
+        // distribute permission. No CID or member id leaves this method.
+        final contentCandidates = await _contentReplicationCandidates(
+          bundle,
+          state,
+        );
+        final localContent = <String, bool>{
+          for (final entry in await Future.wait(
+            contentCandidates.keys.map(
+              (contentId) async =>
+                  MapEntry(contentId, await _storage.hasFile(contentId)),
+            ),
+          ))
+            entry.key: entry.value,
+        };
+        for (final entry in contentCandidates.entries) {
+          final contentId = entry.key;
+          final contentEligible = [
+            for (final peer in entry.value)
+              if (acl.allows(peer, SpacePermission.distributeContent)) peer,
+          ];
+          final contentTarget =
+              1 +
+              (contentEligible.length < neighborCount
+                  ? contentEligible.length
+                  : neighborCount);
+          final heldLocally = localContent[contentId] ?? false;
+          final confirmedRemote = [
+            for (final peer in contentEligible)
+              if (_contentHolderProofs[_contentHolderProofKey(
+                    bundle.manifest.groupId,
+                    contentId,
+                    peer,
+                  )] !=
+                  null)
+                peer,
+          ];
+          final confirmed = (heldLocally ? 1 : 0) + confirmedRemote.length;
+          final deficit = contentTarget > confirmed
+              ? contentTarget - confirmed
+              : 0;
+          referencedContentBlobs++;
+          if (heldLocally) locallyHeldContentBlobs++;
+          targetContentHolderSlots += contentTarget;
+          confirmedRemoteContentHolderSlots += confirmedRemote.length;
+          confirmedContentHolderSlots += confirmed;
+          confirmedContentDeficitSlots += deficit;
+          if (deficit > 0) confirmedUnderReplicatedContentBlobs++;
+          if (activePeerIds != null) {
+            availableConfirmedRemoteContentHolderSlots += confirmedRemote
+                .where((peer) => activePeerIds!.contains(peer.hex))
+                .length;
+          }
+        }
       } catch (_) {
         // A corrupt/partially purged local row must not break diagnostics for
         // every other Space, and exposing the failing id would violate scope.
@@ -997,11 +1179,22 @@ class GroupService {
       confirmedReplicationFactorMin: confirmedReplicationFactorMin,
       confirmedReplicationFactorMax: confirmedReplicationFactorMax,
       confirmedUnderReplicatedSpaces: confirmedUnderReplicatedSpaces,
+      referencedContentBlobs: referencedContentBlobs,
+      locallyHeldContentBlobs: locallyHeldContentBlobs,
+      targetContentHolderSlots: targetContentHolderSlots,
+      confirmedRemoteContentHolderSlots: confirmedRemoteContentHolderSlots,
+      confirmedContentHolderSlots: confirmedContentHolderSlots,
+      confirmedContentDeficitSlots: confirmedContentDeficitSlots,
+      confirmedUnderReplicatedContentBlobs:
+          confirmedUnderReplicatedContentBlobs,
       availableRemoteSpreaders: liveSourceAvailable
           ? availableRemoteSpreaders
           : null,
       availableConfirmedRemoteHolderSlots: liveSourceAvailable
           ? availableConfirmedRemoteHolderSlots
+          : null,
+      availableConfirmedRemoteContentHolderSlots: liveSourceAvailable
+          ? availableConfirmedRemoteContentHolderSlots
           : null,
       estimatedLiveReplicationFactorTotal: liveSourceAvailable
           ? liveReplicationFactorTotal
@@ -11284,6 +11477,13 @@ class GroupService {
   Future<Map<String, dynamic>?> buildGroupSyncRequest(NodeId groupId) async {
     final b = await load(groupId);
     if (b == null) return null;
+    return _buildGroupSyncRequest(b);
+  }
+
+  /// Build a sync vector from an already validated bundle. Snapshot and
+  /// receipt paths use this to keep one coherent storage read per Space.
+  Map<String, dynamic> _buildGroupSyncRequest(GroupBundle b) {
+    final groupId = b.manifest.groupId;
     final syncState = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
@@ -11757,7 +11957,7 @@ class GroupService {
       }
       await _acceptSpaceReceipt(
         peer,
-        gid,
+        b,
         req['rack'],
         caughtUp: missingCount == 0,
       );
@@ -12150,9 +12350,18 @@ class GroupService {
     final send = _send;
     if (send == null) return 0;
     final bundle = await load(groupId);
-    final req = await buildGroupSyncRequest(groupId);
-    final state = await stateOf(groupId);
-    if (bundle == null || req == null || state == null) return 0;
+    if (bundle == null) return 0;
+    final req = _buildGroupSyncRequest(bundle);
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    int? neighborCount;
+    Future<int> readNeighborCount() async =>
+        neighborCount ??= await groupSyncNeighborCount(groupId);
     final others = <NodeId>[
       for (final member in state.members.values)
         if (member.nodeId != _signer.selfId &&
@@ -12165,14 +12374,14 @@ class GroupService {
         : nearestGroupNodesByXor(
             _signer.selfId,
             others,
-            k: await groupSyncNeighborCount(groupId),
+            k: await readNeighborCount(),
           );
     final peersById = <String, NodeId>{
       for (final peer in basePeers) peer.hex: peer,
     };
     if (bundle.manifest.isSpace) {
       final protected = await _protectedChannelsOf(bundle, state);
-      final k = await groupSyncNeighborCount(groupId);
+      final k = await readNeighborCount();
       for (final clear in protected.values) {
         for (final peer in nearestGroupNodesByXor(
           _signer.selfId,
@@ -12203,6 +12412,26 @@ class GroupService {
   }) async {
     final b = await load(groupId);
     if (b == null) return const [];
+    return _messagesOfBundle(
+      b,
+      channelId: channelId,
+      spacePostId: spacePostId,
+      includeSpacePostComments: includeSpacePostComments,
+      applyLocalRetention: applyLocalRetention,
+    );
+  }
+
+  /// Materialize messages from a bundle the caller already loaded. This is
+  /// intentionally private: all external reads still validate through [load],
+  /// while aggregate diagnostics avoid decoding the same durable bundle twice.
+  Future<List<GroupMessage>> _messagesOfBundle(
+    GroupBundle b, {
+    NodeId? channelId,
+    String? spacePostId,
+    bool includeSpacePostComments = false,
+    bool applyLocalRetention = true,
+  }) async {
+    final groupId = b.manifest.groupId;
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
@@ -12840,7 +13069,25 @@ class GroupService {
         signature: Uint8List(0),
       ),
     );
-    await send(holder, jsonEncode(signed.toJson()));
+    _purgeSpaceReceiptState();
+    final key = _outboundContentRequestKey(groupId, cid, holder);
+    while (_outboundContentRequests.length >= _kMaxOutboundContentRequests &&
+        !_outboundContentRequests.containsKey(key)) {
+      _outboundContentRequests.remove(_outboundContentRequests.keys.first);
+    }
+    _outboundContentRequests[key] = _OutboundContentRequest(
+      request: signed,
+      holder: holder,
+      createdAtMs: _spaceReceiptNowMs(),
+    );
+    try {
+      await send(holder, jsonEncode(signed.toJson()));
+    } catch (_) {
+      if (_outboundContentRequests[key]?.request.nonce == signed.nonce) {
+        _outboundContentRequests.remove(key);
+      }
+      rethrow;
+    }
     return true;
   }
 
@@ -12898,7 +13145,176 @@ class GroupService {
       _seenContentNonces.remove(_seenContentNonces.first);
     }
     _seenContentNonces.add(req.nonce);
+    if (grantContentServe != null) {
+      _purgeSpaceReceiptState();
+      final key = _pendingContentReceiptKey(req.requester, req.nonce);
+      while (_pendingContentReceipts.length >= _kMaxPendingContentReceipts &&
+          !_pendingContentReceipts.containsKey(key)) {
+        _pendingContentReceipts
+            .remove(_pendingContentReceipts.keys.first)
+            ?.elapsed
+            .stop();
+      }
+      _pendingContentReceipts[key]?.elapsed.stop();
+      _pendingContentReceipts[key] = _PendingContentReceipt(
+        request: req,
+        createdAtMs: _spaceReceiptNowMs(),
+      );
+    }
     grantContentServe?.call(req.requester, req.contentId);
+    return true;
+  }
+
+  /// Requester side: the messaging layer calls this only after [contentId] is
+  /// fully hash-verified and durable, with the actual sources that supplied
+  /// verified bytes. Record those source slots locally and return each source
+  /// its own original request nonce. The receipt send is detached/live-only:
+  /// content completion must not wait for diagnostics and no offline read
+  /// trail may enter an outbox or mailbox.
+  Future<void> handleVerifiedContentSources(
+    String contentId,
+    Set<NodeId> sources,
+  ) async {
+    if (sources.isEmpty || !await _storage.hasFile(contentId)) return;
+    _purgeSpaceReceiptState();
+    final sourceIds = {for (final source in sources) source.hex};
+    final matches = [
+      for (final entry in _outboundContentRequests.entries)
+        if (entry.value.request.contentId == contentId &&
+            sourceIds.contains(entry.value.holder.hex))
+          entry,
+    ];
+    for (final entry in matches) {
+      final pending = entry.value;
+      final request = pending.request;
+      final bundle = await load(request.groupId);
+      if (bundle == null) {
+        _outboundContentRequests.remove(entry.key);
+        continue;
+      }
+      final state = foldControlLog(
+        owner: bundle.manifest.owner,
+        entries: bundle.control,
+        verify: (control) => _validControlFor(bundle.manifest, control),
+        initialName: bundle.manifest.name,
+        initialDescription: bundle.manifest.description ?? '',
+      ).state;
+      final acl = SpaceAcl(state);
+      final scope = await _contentFetchScope(
+        bundle,
+        state,
+        contentId,
+        preferredHolder: pending.holder,
+      );
+      final stillAuthorized =
+          scope != null &&
+          scope.candidates.contains(pending.holder) &&
+          acl.allows(_signer.selfId, SpacePermission.distributeContent) &&
+          acl.allows(pending.holder, SpacePermission.distributeContent);
+      _outboundContentRequests.remove(entry.key);
+      if (!stillAuthorized) continue;
+
+      if (bundle.manifest.isSpace) {
+        _rememberContentHolderProof(request.groupId, contentId, pending.holder);
+      }
+      final send = sendContentReceipt;
+      if (send == null) continue;
+      final receipt = GroupContentReceipt(
+        groupId: request.groupId,
+        contentId: contentId,
+        requester: _signer.selfId,
+        requestNonce: request.nonce,
+        tsMs: _now(),
+      );
+      unawaited(
+        send(pending.holder, jsonEncode(receipt.toJson())).catchError((
+          Object _,
+        ) {
+          // Best-effort and deliberately not durable.
+        }),
+      );
+    }
+  }
+
+  /// Holder side: accept one completion only when it comes from the
+  /// authenticated requester and exactly matches the still-live signed
+  /// request retained in RAM. Current membership, scope and reference are
+  /// re-evaluated so a removal/ACL rotation between request and completion
+  /// cannot mint a stale holder proof. Invalid frames are silently dropped.
+  Future<bool> handleContentReceipt(NodeId peer, String receiptJson) async {
+    GroupContentReceipt? receipt;
+    try {
+      receipt = GroupContentReceipt.fromJson(jsonDecode(receiptJson));
+    } catch (_) {
+      // Malformed → silent drop below.
+    }
+    if (receipt == null || receipt.requester != peer) {
+      _observeSpace(
+        SpaceObservationType.p2pContentReceipt,
+        SpaceObservationOutcome.rejected,
+        reason: SpaceObservationReason.invalidInput,
+      );
+      return false;
+    }
+    _purgeSpaceReceiptState();
+    final key = _pendingContentReceiptKey(peer, receipt.requestNonce);
+    final pending = _pendingContentReceipts[key];
+    final request = pending?.request;
+    if (pending == null ||
+        request == null ||
+        request.groupId != receipt.groupId ||
+        request.contentId != receipt.contentId ||
+        request.requester != peer ||
+        (_now() - receipt.tsMs).abs() >
+            kGroupContentRequestWindow.inMilliseconds) {
+      _observeSpace(
+        SpaceObservationType.p2pContentReceipt,
+        SpaceObservationOutcome.rejected,
+        reason: SpaceObservationReason.invalidState,
+      );
+      return false;
+    }
+    _pendingContentReceipts.remove(key);
+    pending.elapsed.stop();
+
+    final bundle = await load(receipt.groupId);
+    if (bundle == null) {
+      _observeSpace(
+        SpaceObservationType.p2pContentReceipt,
+        SpaceObservationOutcome.rejected,
+        reason: SpaceObservationReason.notFound,
+      );
+      return false;
+    }
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (control) => _validControlFor(bundle.manifest, control),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    final acl = SpaceAcl(state);
+    final scope = await _contentGrantScope(bundle, state, request);
+    if (!scope.authorized ||
+        !scope.referenced.contains(receipt.contentId) ||
+        !acl.allows(peer, SpacePermission.distributeContent) ||
+        !acl.allows(_signer.selfId, SpacePermission.distributeContent)) {
+      _observeSpace(
+        SpaceObservationType.p2pContentReceipt,
+        SpaceObservationOutcome.rejected,
+        reason: SpaceObservationReason.permissionDenied,
+        duration: pending.elapsed.elapsed,
+      );
+      return false;
+    }
+    if (bundle.manifest.isSpace) {
+      _rememberContentHolderProof(receipt.groupId, receipt.contentId, peer);
+    }
+    _observeSpace(
+      SpaceObservationType.p2pContentReceipt,
+      SpaceObservationOutcome.succeeded,
+      duration: pending.elapsed.elapsed,
+    );
     return true;
   }
 
@@ -13137,8 +13553,8 @@ class GroupService {
         ? await _postsOfBundle(bundle)
         : const <SpacePostView>[];
     final visiblePostIds = {for (final post in posts) post.postId};
-    final messages = await messagesOf(
-      bundle.manifest.groupId,
+    final messages = await _messagesOfBundle(
+      bundle,
       includeSpacePostComments: true,
       applyLocalRetention: false,
     );
@@ -13197,6 +13613,88 @@ class GroupService {
       channelEpoch: opaque.channelEpoch,
       candidates: _preferContentHolder(candidates, preferredHolder),
     );
+  }
+
+  /// Resolve every locally visible content reference in one materialization
+  /// pass for observability. Calling [_contentFetchScope] once per CID would
+  /// repeatedly decrypt/fold the complete post and message history, making a
+  /// diagnostics snapshot scale as `references × history`.
+  ///
+  /// Ordinary references use every current remote member. A CID visible only
+  /// in a protected channel uses that channel's current recipients, matching
+  /// the pull path. When the same protected CID appears in multiple channels,
+  /// prefer a row authored by self and then the lexicographically first
+  /// channel — the same deterministic choice [_contentFetchScope] makes with
+  /// `preferredHolder == self`.
+  Future<Map<String, List<NodeId>>> _contentReplicationCandidates(
+    GroupBundle bundle,
+    GroupState state,
+  ) async {
+    final posts = await _postsOfBundle(bundle);
+    final visiblePostIds = {for (final post in posts) post.postId};
+    final messages = await _messagesOfBundle(
+      bundle,
+      includeSpacePostComments: true,
+      applyLocalRetention: false,
+    );
+    final ordinary = <String>{
+      for (final post in posts)
+        for (final media in post.media) media.contentId!,
+      for (final message in messages)
+        if (!message.isChannelEncrypted &&
+            message.attachment?.cid != null &&
+            (message.spacePostId == null ||
+                visiblePostIds.contains(message.spacePostId)))
+          message.attachment!.cid!,
+    };
+    final ordinaryCandidates = [
+      for (final member in state.members.values)
+        if (member.nodeId != _signer.selfId) member.nodeId,
+    ]..sort((left, right) => left.hex.compareTo(right.hex));
+    final result = <String, List<NodeId>>{
+      for (final contentId in ordinary) contentId: ordinaryCandidates,
+    };
+
+    final protected = <String, GroupMessage>{};
+    for (final message in messages) {
+      final contentId = message.attachment?.cid;
+      if (!message.isChannelEncrypted ||
+          contentId == null ||
+          ordinary.contains(contentId)) {
+        continue;
+      }
+      final previous = protected[contentId];
+      if (previous == null) {
+        protected[contentId] = message;
+        continue;
+      }
+      final messagePreferred = message.author == _signer.selfId ? 0 : 1;
+      final previousPreferred = previous.author == _signer.selfId ? 0 : 1;
+      if (messagePreferred < previousPreferred ||
+          (messagePreferred == previousPreferred &&
+              message.channelId!.hex.compareTo(previous.channelId!.hex) < 0)) {
+        protected[contentId] = message;
+      }
+    }
+    if (protected.isEmpty) return result;
+
+    final clearChannels = await _protectedChannelsOf(bundle, state);
+    for (final entry in protected.entries) {
+      final channelId = entry.value.channelId!;
+      final opaque = state.protectedChannels[channelId.hex];
+      final clear = clearChannels[channelId.hex];
+      if (opaque == null ||
+          clear == null ||
+          !clear.recipients.contains(_signer.selfId)) {
+        continue;
+      }
+      result[entry.key] = [
+        for (final recipient in clear.recipients)
+          if (recipient != _signer.selfId && state.isMember(recipient))
+            recipient,
+      ]..sort((left, right) => left.hex.compareTo(right.hex));
+    }
+    return result;
   }
 
   List<NodeId> _preferContentHolder(
@@ -15177,8 +15675,14 @@ class GroupService {
     for (final pending in _pendingSpaceReceipts.values) {
       pending.elapsed.stop();
     }
+    for (final pending in _pendingContentReceipts.values) {
+      pending.elapsed.stop();
+    }
     _pendingSpaceReceipts.clear();
     _spaceHolderProofs.clear();
+    _pendingContentReceipts.clear();
+    _outboundContentRequests.clear();
+    _contentHolderProofs.clear();
     changes.dispose();
     feedAccessChanges.dispose();
     await _groupCallIncomingCtl.close();
