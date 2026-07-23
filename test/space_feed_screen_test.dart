@@ -237,6 +237,8 @@ void main() {
       find.byKey(ValueKey('space-feed-post-menu-${post.postId}')),
     );
     await tester.pumpAndSettle();
+    expect(find.text(l.spacePostUnpin), findsOneWidget);
+    expect(find.text(l.spacePostDelete), findsOneWidget);
     await tester.tap(find.text(l.feedPostHide));
     await tester.pumpAndSettle();
     expect(find.text('Release'), findsNothing);
@@ -246,7 +248,94 @@ void main() {
     await tester.tap(find.text(l.feedPostUndo));
     await tester.pumpAndSettle();
     expect(find.text('Release'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(ValueKey('space-feed-post-menu-${post.postId}')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.spacePostDelete));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('space-post-delete-confirm')));
+    await tester.pumpAndSettle();
+    expect(find.text('Release'), findsNothing);
+    expect(await service.postsOf(spaceId), isEmpty);
   });
+
+  testWidgets(
+    'Feed exposes exact moderation and pin actions only to authorized members',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final owner = _id(11);
+      final author = _id(12);
+      final reader = _id(13);
+      final ownerService = GroupService(storage, _Signer(owner));
+      final authorService = GroupService(storage, _Signer(author));
+      final readerService = GroupService(storage, _Signer(reader));
+      final spaceId = await ownerService.createSpace(
+        'Moderated feed',
+        visibility: SpaceVisibility.public,
+      );
+      for (final member in [author, reader]) {
+        expect(
+          await ownerService.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: member,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+      }
+      final post = await authorService.publishSpacePost(
+        spaceId,
+        title: 'Review target',
+        body: 'Visible to every member',
+        broadcast: false,
+      );
+      expect(post, isNotNull);
+
+      await tester.pumpWidget(_host(readerService, const SpaceFeedScreen()));
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(SpaceFeedScreen)));
+      await tester.tap(
+        find.byKey(ValueKey('space-feed-post-menu-${post!.postId}')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(l.spacePostPin), findsNothing);
+      expect(find.text(l.spacePostDelete), findsNothing);
+      expect(find.text(l.spaceModerationDeletePost), findsNothing);
+      expect(find.text(l.feedPostHide), findsOneWidget);
+      await tester.tapAt(Offset.zero);
+      await tester.pumpAndSettle();
+
+      await tester.pumpWidget(_host(ownerService, const SpaceFeedScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(ValueKey('space-feed-post-menu-${post.postId}')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(l.spacePostPin), findsOneWidget);
+      expect(find.text(l.spaceModerationDeletePost), findsOneWidget);
+      expect(find.text(l.spacePostDelete), findsNothing);
+      await tester.tap(find.text(l.spaceModerationDeletePost));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('space-post-moderation-reason')),
+        'Feed cleanup',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('space-post-moderation-confirm')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Review target'), findsNothing);
+      expect(await ownerService.postsOf(spaceId), isEmpty);
+      final audit = await ownerService.spaceModerationAudit(spaceId);
+      expect(audit.single.action.kind, SpaceModerationKind.deletePost);
+      expect(audit.single.action.reason, 'Feed cleanup');
+    },
+  );
 
   testWidgets('Feed filters publication types and persists the selection', (
     tester,

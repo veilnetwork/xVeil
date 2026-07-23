@@ -5526,6 +5526,81 @@ void main() {
   );
 
   test(
+    'a restricted author can remove an own Space post without publishing again',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(storage, _FakeSigner(owner));
+      final bobSvc = GroupService(storage, _FakeSigner(bob));
+      addTearDown(ownerSvc.dispose);
+      addTearDown(bobSvc.dispose);
+      final spaceId = await ownerSvc.createSpace(
+        'Restricted authors',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final root = await bobSvc.publishSpacePost(
+        spaceId,
+        body: 'The author must retain the right to remove this',
+        broadcast: false,
+      );
+      expect(root, isNotNull);
+
+      expect(
+        await ownerSvc.moderateSpace(
+          spaceId,
+          kind: SpaceModerationKind.restrictPublishing,
+          target: bob,
+          scope: SpaceModerationScope.posts,
+          reason: 'temporary publishing restriction',
+          expiresAtMs:
+              DateTime.now().millisecondsSinceEpoch +
+              const Duration(hours: 1).inMilliseconds,
+        ),
+        isNotNull,
+      );
+      expect(
+        await bobSvc.publishSpacePost(
+          spaceId,
+          body: 'must remain blocked',
+          broadcast: false,
+        ),
+        isNull,
+      );
+      expect(
+        await bobSvc.editSpacePost(
+          spaceId,
+          root!.postId,
+          title: '',
+          body: 'must remain blocked too',
+          broadcast: false,
+        ),
+        isNull,
+      );
+      final feedItem = (await bobSvc.spaceFeed()).single;
+      expect(feedItem.canDeletePost, isTrue);
+      expect(feedItem.canManagePosts, isFalse);
+      expect(
+        await bobSvc.deleteSpacePost(spaceId, root.postId, broadcast: false),
+        isTrue,
+      );
+      expect(await bobSvc.postsOf(spaceId), isEmpty);
+      final wire = (await bobSvc.load(spaceId))!.posts.last;
+      expect(wire.operation, SpacePostOperation.delete);
+      expect(wire.author, bob);
+      expect(wire.targetSeq, root.seq);
+    },
+  );
+
+  test(
     'private Space post revisions stay ciphertext-only and converge by snapshot',
     () async {
       final ownerStorage = FakeHvContainer().storage();
