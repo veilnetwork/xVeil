@@ -84,7 +84,9 @@ void main() {
       int now = 1_000_000,
     }) => authorizeGroupContentRequest(
       r,
-      state: state,
+      decision: SpaceAcl(
+        state,
+      ).authorize(r.requester, SpacePermission.distributeContent),
       referenced: referenced,
       nowMs: now,
       seenNonces: seen,
@@ -98,11 +100,28 @@ void main() {
     // Each gate refuses independently.
     expect(auth(req(), sigOk: false), GroupContentDenial.badSignature);
     expect(auth(req(requester: stranger)), GroupContentDenial.notAMember);
+    expect(
+      authorizeGroupContentRequest(
+        req(),
+        decision: const SpaceAuthorizationDecision.deny(
+          SpaceAuthorizationDenial.deleted,
+        ),
+        referenced: referenced,
+        nowMs: 1_000_000,
+        seenNonces: seen,
+        verify: (_) => true,
+        scopeAuthorized: true,
+      ),
+      GroupContentDenial.notAuthorizedForScope,
+      reason: 'media protocol consumes the shared lifecycle decision',
+    );
     expect(auth(req(cid: 'feedbeef')), GroupContentDenial.unknownContent);
     expect(
       authorizeGroupContentRequest(
         req(channelId: _id(3), channelEpoch: 1),
-        state: state,
+        decision: SpaceAcl(
+          state,
+        ).authorize(owner, SpacePermission.distributeContent),
         referenced: referenced,
         nowMs: 1_000_000,
         seenNonces: seen,
