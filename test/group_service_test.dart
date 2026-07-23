@@ -8489,4 +8489,89 @@ void main() {
       expect(await storage.hasFile('mf:$contentId'), isFalse);
     },
   );
+
+  test(
+    'signed access snapshots are Space-only, optimistic and owner-authored',
+    () async {
+      final (ownerService, memberService) = await setup();
+      final spaceId = await ownerService.createSpace('Access lab');
+      final groupId = await ownerService.createGroup('Not a Space');
+      final roleId = ownerService.newSpaceAccessObjectId();
+      final role = SpaceRoleDefinition(
+        roleId: roleId,
+        name: 'Publisher',
+        permissions: const {
+          SpacePermission.publishPosts,
+          SpacePermission.managePosts,
+        },
+      );
+
+      final first = await ownerService.replaceSpaceAccessPolicy(
+        spaceId,
+        expectedRevision: 0,
+        roles: [role],
+        groups: const <SpaceMemberGroup>[],
+        directAssignments: const <SpaceMemberRoleAssignment>[],
+      );
+      expect(first?.revision, 1);
+      expect(
+        await ownerService.replaceSpaceAccessPolicy(
+          spaceId,
+          expectedRevision: 0,
+          roles: [role],
+          groups: const <SpaceMemberGroup>[],
+          directAssignments: const <SpaceMemberRoleAssignment>[],
+        ),
+        isNull,
+        reason: 'a stale editor must not overwrite a newer signed snapshot',
+      );
+      expect(
+        await ownerService.replaceSpaceAccessPolicy(
+          groupId,
+          expectedRevision: 0,
+          roles: [role],
+          groups: const <SpaceMemberGroup>[],
+          directAssignments: const <SpaceMemberRoleAssignment>[],
+        ),
+        isNull,
+      );
+
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.admin,
+        ),
+        isTrue,
+      );
+      final adminService = memberService(bob);
+      expect(
+        await adminService.replaceSpaceAccessPolicy(
+          spaceId,
+          expectedRevision: 1,
+          roles: [role],
+          groups: const <SpaceMemberGroup>[],
+          directAssignments: [
+            SpaceMemberRoleAssignment(member: bob, roleIds: [roleId]),
+          ],
+        ),
+        isNull,
+      );
+
+      final state = (await ownerService.stateOf(spaceId))!;
+      final bundle = (await ownerService.load(spaceId))!;
+      final accessEntry = bundle.control.lastWhere(
+        (entry) => entry.version == 17,
+      );
+      expect(state.accessPolicyHistory, hasLength(1));
+      expect(state.accessPolicy?.policyHash, first?.policyHash);
+      expect(accessEntry.author, owner);
+      expect(accessEntry.accessPolicy?.policyHash, first?.policyHash);
+      expect(
+        ControlEntry.fromJson(accessEntry.toJson())?.accessPolicy?.policyHash,
+        first?.policyHash,
+      );
+    },
+  );
 }

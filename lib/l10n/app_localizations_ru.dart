@@ -902,6 +902,137 @@ class AppL10nRu extends AppL10n {
   String get spaceRoleMember => 'Участник';
 
   @override
+  String get spaceAccessTitle => 'Роли и доступ';
+
+  @override
+  String get spaceAccessHint =>
+      'Переиспользуемые наборы прав, группы участников и прямые роли. Каждое изменение подписано и доступно для аудита.';
+
+  @override
+  String get spaceAccessEmpty =>
+      'Пользовательских ролей пока нет. Встроенные роли сообщества продолжают действовать.';
+
+  @override
+  String get spaceAccessRoles => 'Пользовательские роли';
+
+  @override
+  String get spaceAccessGroups => 'Группы участников';
+
+  @override
+  String get spaceAccessRoleAdd => 'Добавить роль';
+
+  @override
+  String get spaceAccessRoleEdit => 'Изменить роль';
+
+  @override
+  String get spaceAccessRoleDelete => 'Удалить роль';
+
+  @override
+  String spaceAccessRoleDeleteConfirm(Object name) {
+    return 'Удалить роль «$name»? Все её назначения будут сняты в том же подписанном изменении.';
+  }
+
+  @override
+  String get spaceAccessRoleName => 'Название роли';
+
+  @override
+  String spaceAccessRolePermissions(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count прав',
+      few: '$count права',
+      one: '1 право',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get spaceAccessGroupAdd => 'Добавить группу';
+
+  @override
+  String get spaceAccessGroupEdit => 'Изменить группу';
+
+  @override
+  String get spaceAccessGroupDelete => 'Удалить группу';
+
+  @override
+  String spaceAccessGroupDeleteConfirm(Object name) {
+    return 'Удалить группу участников «$name»?';
+  }
+
+  @override
+  String get spaceAccessGroupName => 'Название группы';
+
+  @override
+  String spaceAccessGroupSummary(num members, num roles) {
+    String _temp0 = intl.Intl.pluralLogic(
+      members,
+      locale: localeName,
+      other: '$members участников',
+      few: '$members участника',
+      one: '1 участник',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      roles,
+      locale: localeName,
+      other: '$roles ролей',
+      few: '$roles роли',
+      one: '1 роль',
+    );
+    return '$_temp0 · $_temp1';
+  }
+
+  @override
+  String get spaceAccessDirectRoles => 'Назначить пользовательские роли';
+
+  @override
+  String get spaceAccessNoRoles => 'Сначала создайте пользовательскую роль.';
+
+  @override
+  String get spacePermissionView => 'Просмотр сообщества';
+
+  @override
+  String get spacePermissionDistributeContent => 'Раздача контента';
+
+  @override
+  String get spacePermissionPublishMessages => 'Публикация сообщений';
+
+  @override
+  String get spacePermissionPublishPosts => 'Публикация записей';
+
+  @override
+  String get spacePermissionManagePosts => 'Управление записями';
+
+  @override
+  String get spacePermissionManageRecommendations =>
+      'Управление рекомендациями';
+
+  @override
+  String get spacePermissionEnterVoice => 'Вход в голосовые каналы';
+
+  @override
+  String get spacePermissionManageMembers => 'Управление участниками';
+
+  @override
+  String get spacePermissionManageRoles => 'Управление ролями';
+
+  @override
+  String get spacePermissionModerate => 'Модерация';
+
+  @override
+  String get spacePermissionManageSettings => 'Управление настройками';
+
+  @override
+  String get spacePermissionManageEncryption => 'Управление шифрованием';
+
+  @override
+  String get spacePermissionManageStorage => 'Управление хранением';
+
+  @override
+  String get spacePermissionManageChannels => 'Управление каналами';
+
+  @override
   String get spaceMemberMuted => 'Публикации запрещены до снятия ограничения';
 
   @override

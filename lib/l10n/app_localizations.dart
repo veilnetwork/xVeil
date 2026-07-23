@@ -1699,6 +1699,204 @@ abstract class AppL10n {
   /// **'Member'**
   String get spaceRoleMember;
 
+  /// No description provided for @spaceAccessTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Roles and access'**
+  String get spaceAccessTitle;
+
+  /// No description provided for @spaceAccessHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Reusable permission sets, participant groups, and direct member roles. Every change is signed and audited.'**
+  String get spaceAccessHint;
+
+  /// No description provided for @spaceAccessEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No custom roles yet. Built-in community roles continue to apply.'**
+  String get spaceAccessEmpty;
+
+  /// No description provided for @spaceAccessRoles.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom roles'**
+  String get spaceAccessRoles;
+
+  /// No description provided for @spaceAccessGroups.
+  ///
+  /// In en, this message translates to:
+  /// **'Participant groups'**
+  String get spaceAccessGroups;
+
+  /// No description provided for @spaceAccessRoleAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Add role'**
+  String get spaceAccessRoleAdd;
+
+  /// No description provided for @spaceAccessRoleEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit role'**
+  String get spaceAccessRoleEdit;
+
+  /// No description provided for @spaceAccessRoleDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete role'**
+  String get spaceAccessRoleDelete;
+
+  /// No description provided for @spaceAccessRoleDeleteConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete the role “{name}”? Its assignments will be removed in the same signed change.'**
+  String spaceAccessRoleDeleteConfirm(Object name);
+
+  /// No description provided for @spaceAccessRoleName.
+  ///
+  /// In en, this message translates to:
+  /// **'Role name'**
+  String get spaceAccessRoleName;
+
+  /// No description provided for @spaceAccessRolePermissions.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 permission} other{{count} permissions}}'**
+  String spaceAccessRolePermissions(num count);
+
+  /// No description provided for @spaceAccessGroupAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Add group'**
+  String get spaceAccessGroupAdd;
+
+  /// No description provided for @spaceAccessGroupEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit group'**
+  String get spaceAccessGroupEdit;
+
+  /// No description provided for @spaceAccessGroupDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete group'**
+  String get spaceAccessGroupDelete;
+
+  /// No description provided for @spaceAccessGroupDeleteConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete the participant group “{name}”?'**
+  String spaceAccessGroupDeleteConfirm(Object name);
+
+  /// No description provided for @spaceAccessGroupName.
+  ///
+  /// In en, this message translates to:
+  /// **'Group name'**
+  String get spaceAccessGroupName;
+
+  /// No description provided for @spaceAccessGroupSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'{members, plural, =1{1 member} other{{members} members}} · {roles, plural, =1{1 role} other{{roles} roles}}'**
+  String spaceAccessGroupSummary(num members, num roles);
+
+  /// No description provided for @spaceAccessDirectRoles.
+  ///
+  /// In en, this message translates to:
+  /// **'Assign custom roles'**
+  String get spaceAccessDirectRoles;
+
+  /// No description provided for @spaceAccessNoRoles.
+  ///
+  /// In en, this message translates to:
+  /// **'Create a custom role before assigning it.'**
+  String get spaceAccessNoRoles;
+
+  /// No description provided for @spacePermissionView.
+  ///
+  /// In en, this message translates to:
+  /// **'View community'**
+  String get spacePermissionView;
+
+  /// No description provided for @spacePermissionDistributeContent.
+  ///
+  /// In en, this message translates to:
+  /// **'Distribute content'**
+  String get spacePermissionDistributeContent;
+
+  /// No description provided for @spacePermissionPublishMessages.
+  ///
+  /// In en, this message translates to:
+  /// **'Publish messages'**
+  String get spacePermissionPublishMessages;
+
+  /// No description provided for @spacePermissionPublishPosts.
+  ///
+  /// In en, this message translates to:
+  /// **'Publish posts'**
+  String get spacePermissionPublishPosts;
+
+  /// No description provided for @spacePermissionManagePosts.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage posts'**
+  String get spacePermissionManagePosts;
+
+  /// No description provided for @spacePermissionManageRecommendations.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage recommendations'**
+  String get spacePermissionManageRecommendations;
+
+  /// No description provided for @spacePermissionEnterVoice.
+  ///
+  /// In en, this message translates to:
+  /// **'Join voice'**
+  String get spacePermissionEnterVoice;
+
+  /// No description provided for @spacePermissionManageMembers.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage members'**
+  String get spacePermissionManageMembers;
+
+  /// No description provided for @spacePermissionManageRoles.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage roles'**
+  String get spacePermissionManageRoles;
+
+  /// No description provided for @spacePermissionModerate.
+  ///
+  /// In en, this message translates to:
+  /// **'Moderate'**
+  String get spacePermissionModerate;
+
+  /// No description provided for @spacePermissionManageSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage settings'**
+  String get spacePermissionManageSettings;
+
+  /// No description provided for @spacePermissionManageEncryption.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage encryption'**
+  String get spacePermissionManageEncryption;
+
+  /// No description provided for @spacePermissionManageStorage.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage storage and retention'**
+  String get spacePermissionManageStorage;
+
+  /// No description provided for @spacePermissionManageChannels.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage channels'**
+  String get spacePermissionManageChannels;
+
   /// No description provided for @spaceMemberMuted.
   ///
   /// In en, this message translates to:

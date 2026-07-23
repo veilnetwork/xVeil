@@ -20,6 +20,7 @@ import 'dart:collection';
 import '../core/ids.dart';
 import 'group.dart';
 import 'group_epoch.dart';
+import 'space_access.dart';
 import 'space_channel.dart';
 import 'space_lifecycle.dart';
 import 'space_join_request.dart';
@@ -29,12 +30,16 @@ import 'space_recommendation.dart';
 import 'space_retention.dart';
 import 'space_rules.dart';
 
+export 'space_access.dart';
+
 /// The folded group state after replaying a (validated) control-log prefix.
 class GroupState {
   GroupState._(
     this.members,
     this.epoch,
     this.policyVersion,
+    this.accessPolicy,
+    this.accessPolicyHistory,
     this.name,
     this.description,
     this.epochDescriptor,
@@ -61,6 +66,11 @@ class GroupState {
 
   /// The current policy version (bumped by setPolicy).
   final int policyVersion;
+
+  /// Latest accepted custom access snapshot and its immutable audit history.
+  /// Null/empty is the compatible legacy policy made only of built-in roles.
+  final SpaceAccessPolicy? accessPolicy;
+  final List<SpaceAccessPolicy> accessPolicyHistory;
 
   /// The current display name (genesis manifest name, updated by setName).
   final String name;
@@ -207,6 +217,10 @@ class GroupState {
   GroupMember? memberOf(NodeId id) => members[id.hex];
   bool isMember(NodeId id) => members.containsKey(id.hex);
   GroupRole? roleOf(NodeId id) => members[id.hex]?.role;
+  Set<String> customRoleIdsOf(NodeId id) =>
+      accessPolicy?.roleIdsFor(id) ?? const {};
+  Set<SpacePermission> customPermissionsOf(NodeId id) =>
+      accessPolicy?.permissionsFor(id) ?? const {};
   SpacePostPin? postPinFor(String postId) => postPins[postId];
   SpaceRecommendationCampaign? recommendationCampaignFor(String campaignId) =>
       recommendationCampaigns[campaignId];
@@ -216,6 +230,8 @@ class GroupState {
     {owner.hex: GroupMember(nodeId: owner, role: GroupRole.owner)},
     0,
     0,
+    null,
+    const [],
     name,
     '',
     null,
@@ -233,26 +249,6 @@ class GroupState {
     null,
     null,
   );
-}
-
-/// Stable authorization vocabulary for Space v1. Scopes that do not yet have
-/// a wire object are still named here so service/API checks converge on one
-/// policy surface instead of growing ad-hoc role comparisons.
-enum SpacePermission {
-  view,
-  distributeContent,
-  publishMessages,
-  publishPosts,
-  managePosts,
-  manageRecommendations,
-  enterVoice,
-  manageMembers,
-  manageRoles,
-  moderate,
-  manageSettings,
-  manageEncryption,
-  manageStorage,
-  manageChannels,
 }
 
 /// Deterministic Space authorization evaluated by every local node. V1 keeps
@@ -298,24 +294,94 @@ final class SpaceAcl {
       (record) =>
           record.action.kind.blocksVoice && appliesToChannel(record.action),
     );
+    final custom = state.customPermissionsOf(actor);
+    bool builtInOrCustom(bool builtIn, SpacePermission permission) =>
+        builtIn || custom.contains(permission);
     return switch (permission) {
       SpacePermission.view || SpacePermission.distributeContent => true,
       SpacePermission.publishMessages => !member.muted && !blocksMessages,
       SpacePermission.publishPosts => !member.muted && !blocksPosts,
-      SpacePermission.managePosts => member.role.rank >= GroupRole.admin.rank,
-      SpacePermission.manageRecommendations =>
+      SpacePermission.managePosts => builtInOrCustom(
         member.role.rank >= GroupRole.admin.rank,
+        permission,
+      ),
+      SpacePermission.manageRecommendations => builtInOrCustom(
+        member.role.rank >= GroupRole.admin.rank,
+        permission,
+      ),
       SpacePermission.enterVoice => !blocksVoice,
       SpacePermission.manageMembers ||
       SpacePermission.manageRoles ||
       SpacePermission.moderate ||
-      SpacePermission.manageEncryption =>
+      SpacePermission.manageEncryption => builtInOrCustom(
         member.role.rank >= GroupRole.admin.rank,
-      SpacePermission.manageChannels =>
+        permission,
+      ),
+      SpacePermission.manageChannels => builtInOrCustom(
         member.role.rank >= GroupRole.admin.rank,
-      SpacePermission.manageSettings ||
-      SpacePermission.manageStorage => member.role == GroupRole.owner,
+        permission,
+      ),
+      SpacePermission.manageSettings || SpacePermission.manageStorage =>
+        builtInOrCustom(member.role == GroupRole.owner, permission),
     };
+  }
+
+  /// Custom-role control authorization. The owner-authored policy may delegate
+  /// routine work, but never policy edits, ownership/lifecycle changes or
+  /// built-in role promotion. Targets with admin/owner standing stay protected.
+  static bool customPolicyAllowsControl({
+    required SpaceAccessPolicy? policy,
+    required NodeId author,
+    required ControlOp op,
+    GroupRole? targetRole,
+    GroupRole? newRole,
+    NodeId? target,
+  }) {
+    if (policy == null) return false;
+    final permissions = policy.permissionsFor(author);
+    bool has(SpacePermission permission) => permissions.contains(permission);
+    switch (op) {
+      case ControlOp.setName:
+      case ControlOp.setDescription:
+      case ControlOp.publishRules:
+        return has(SpacePermission.manageSettings);
+      case ControlOp.createChannel:
+      case ControlOp.updateChannel:
+        return has(SpacePermission.manageChannels);
+      case ControlOp.setRetention:
+        return has(SpacePermission.manageStorage);
+      case ControlOp.setPostPin:
+        return has(SpacePermission.managePosts);
+      case ControlOp.setRecommendationCampaign:
+        return has(SpacePermission.manageRecommendations);
+      case ControlOp.rotateEpoch:
+        return has(SpacePermission.manageEncryption);
+      case ControlOp.addMember:
+        return has(SpacePermission.manageMembers) &&
+            (newRole ?? GroupRole.member) == GroupRole.member;
+      case ControlOp.removeMember:
+      case ControlOp.ban:
+      case ControlOp.mute:
+      case ControlOp.unmute:
+        return has(SpacePermission.manageMembers) &&
+            target != author &&
+            targetRole == GroupRole.member;
+      case ControlOp.moderate:
+      case ControlOp.revokeModeration:
+        return has(SpacePermission.moderate) &&
+            target != author &&
+            targetRole == GroupRole.member;
+      case ControlOp.setPolicy:
+      case ControlOp.setRole:
+      case ControlOp.transferOwnership:
+      case ControlOp.archiveSpace:
+      case ControlOp.deleteSpace:
+      case ControlOp.restoreSpace:
+      case ControlOp.checkpoint:
+      case ControlOp.acceptRules:
+      case ControlOp.leave:
+        return false;
+    }
   }
 
   /// Role-level rule used during the causal control-log fold. Targets at the
@@ -434,6 +500,8 @@ GroupFoldResult foldControlLog({
   };
   var epoch = 0;
   var policyVersion = 0;
+  SpaceAccessPolicy? accessPolicy;
+  final accessPolicyHistory = <SpaceAccessPolicy>[];
   var name = initialName;
   var description = initialDescription;
   GroupEpochDescriptor? epochDescriptor;
@@ -598,20 +666,39 @@ GroupFoldResult foldControlLog({
                   ? authorRole == GroupRole.owner &&
                         revocationRecord.action.kind.removesMembership
                   : canApply(
-                      authorRole: authorRole,
-                      op: ControlOp.revokeModeration,
-                      targetRole: targetRole,
-                    ))
+                          authorRole: authorRole,
+                          op: ControlOp.revokeModeration,
+                          targetRole: targetRole,
+                        ) ||
+                        SpaceAcl.customPolicyAllowsControl(
+                          policy: accessPolicy,
+                          author: e.author,
+                          op: ControlOp.revokeModeration,
+                          targetRole: targetRole,
+                          target: e.target,
+                        ))
         : protectsModeration
-        ? authorRole.rank >= GroupRole.admin.rank
+        ? authorRole.rank >= GroupRole.admin.rank ||
+              (accessPolicy
+                      ?.permissionsFor(e.author)
+                      .contains(SpacePermission.moderate) ??
+                  false)
         : moderationTargetsRemovedContent && targetRole == null
         ? authorRole == GroupRole.owner
         : canApply(
-            authorRole: authorRole,
-            op: e.op,
-            targetRole: targetRole,
-            newRole: e.role,
-          );
+                authorRole: authorRole,
+                op: e.op,
+                targetRole: targetRole,
+                newRole: e.role,
+              ) ||
+              SpaceAcl.customPolicyAllowsControl(
+                policy: accessPolicy,
+                author: e.author,
+                op: e.op,
+                targetRole: targetRole,
+                newRole: e.role,
+                target: e.target,
+              );
     if (!authorized) {
       rejected.add(e);
       continue;
@@ -890,6 +977,24 @@ GroupFoldResult foldControlLog({
       rejected.add(e);
       continue;
     }
+    if (e.op == ControlOp.setPolicy && e.version == 17) {
+      final next = e.accessPolicy;
+      final expectedRevision = (accessPolicy?.revision ?? 0) + 1;
+      final expectedPrevious = accessPolicy?.policyHash ?? '';
+      if (next == null ||
+          next.revision != expectedRevision ||
+          next.previousPolicyHash != expectedPrevious ||
+          next.groups.any(
+            (group) =>
+                group.members.any((member) => !members.containsKey(member.hex)),
+          ) ||
+          next.directAssignments.any(
+            (assignment) => !members.containsKey(assignment.member.hex),
+          )) {
+        rejected.add(e);
+        continue;
+      }
+    }
     final descriptor = e.epochDescriptor;
     GroupEpochDescriptor? usableDescriptor = descriptor;
     final moderationRemovesMember =
@@ -976,6 +1081,11 @@ GroupFoldResult foldControlLog({
         epoch++;
         epochDescriptor = usableDescriptor;
       case ControlOp.setPolicy:
+        final next = e.accessPolicy;
+        if (next != null) {
+          accessPolicy = next;
+          accessPolicyHistory.add(next);
+        }
         policyVersion++;
       case ControlOp.setRetention:
         final activatedAt = e.createdAtMs < lastRetentionActivationMs
@@ -1160,6 +1270,8 @@ GroupFoldResult foldControlLog({
       members,
       epoch,
       policyVersion,
+      accessPolicy,
+      List.unmodifiable(accessPolicyHistory),
       name,
       description,
       epochDescriptor,

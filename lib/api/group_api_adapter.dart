@@ -1713,6 +1713,228 @@ final class GroupApiAdapter {
     };
   }
 
+  /// Current signed custom access policy plus effective permissions for every
+  /// member. The built-in owner/admin/member role remains visible separately.
+  Future<Map<String, dynamic>?> spaceAccess(String spaceHex) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return null;
+    final bundle = await _groups.load(visible.$1);
+    if (bundle == null || !bundle.manifest.isSpace) return null;
+    final state = visible.$2;
+    final policy = state.accessPolicy;
+    final members = state.members.values.toList()
+      ..sort((a, b) => a.nodeId.hex.compareTo(b.nodeId.hex));
+    return {
+      'spaceId': visible.$1.hex,
+      'revision': policy?.revision ?? 0,
+      'policyVersion': state.policyVersion,
+      'selfCanManage': state.roleOf(_groups.selfId) == GroupRole.owner,
+      'roles': [for (final role in policy?.roles ?? const []) role.toJson()],
+      'groups': [
+        for (final group in policy?.groups ?? const []) group.toJson(),
+      ],
+      'direct': [
+        for (final assignment in policy?.directAssignments ?? const [])
+          assignment.toJson(),
+      ],
+      'effective': [
+        for (final member in members)
+          {
+            'member': member.nodeId.hex,
+            'builtInRole': member.role.name,
+            'customRoles': (state.customRoleIdsOf(member.nodeId).toList()
+              ..sort()),
+            'permissions':
+                (state.customPermissionsOf(member.nodeId).toList()
+                      ..sort((a, b) => a.index.compareTo(b.index)))
+                    .map((permission) => permission.name)
+                    .toList(growable: false),
+          },
+      ],
+    };
+  }
+
+  /// Apply one owner-only optimistic access-policy edit. Role deletion cleans
+  /// every reference in the same signed snapshot, so no dangling intermediate
+  /// policy can be observed.
+  Future<String?> spaceAccessAction(
+    String spaceHex,
+    Map<String, dynamic> body,
+  ) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    final bundle = await _groups.load(visible.$1);
+    if (bundle == null || !bundle.manifest.isSpace) return 'space not found';
+    final state = visible.$2;
+    if (state.roleOf(_groups.selfId) != GroupRole.owner) {
+      return 'operation rejected by space policy';
+    }
+    final expectedRevision = body['expectedRevision'];
+    final action = body['action'];
+    if (expectedRevision is! int || expectedRevision < 0 || action is! String) {
+      return 'action + expectedRevision required';
+    }
+    final current = state.accessPolicy;
+    if ((current?.revision ?? 0) != expectedRevision) {
+      return 'access policy revision conflict';
+    }
+    var roles = [...?current?.roles];
+    var groups = [...?current?.groups];
+    var direct = [...?current?.directAssignments];
+
+    String? parseId(Object? value, {bool create = false}) {
+      if (value == null && create) return _groups.newSpaceAccessObjectId();
+      if (value is! String || !RegExp(r'^[0-9a-f]{64}$').hasMatch(value)) {
+        return null;
+      }
+      return value;
+    }
+
+    List<String>? parseRoleIds(Object? value) {
+      if (value is! List) return null;
+      final result = <String>[];
+      for (final raw in value) {
+        final id = parseId(raw);
+        if (id == null || result.contains(id)) return null;
+        result.add(id);
+      }
+      return result;
+    }
+
+    switch (action) {
+      case 'upsert_role':
+        final rawId = body['roleId'];
+        final roleId = parseId(rawId, create: rawId == null);
+        final name = body['name'];
+        final rawPermissions = body['permissions'];
+        if (roleId == null ||
+            name is! String ||
+            rawPermissions is! List ||
+            name.trim() != name ||
+            name.isEmpty) {
+          return 'valid roleId, name and permissions required';
+        }
+        final permissions = <SpacePermission>{};
+        for (final raw in rawPermissions) {
+          final permission = raw is String
+              ? SpacePermission.fromName(raw)
+              : null;
+          if (permission == null || !permissions.add(permission)) {
+            return 'unknown or duplicate permission';
+          }
+        }
+        final role = SpaceRoleDefinition(
+          roleId: roleId,
+          name: name,
+          permissions: permissions,
+        );
+        if (!role.isStructurallyValid) return 'invalid role';
+        roles
+          ..removeWhere((candidate) => candidate.roleId == roleId)
+          ..add(role);
+      case 'delete_role':
+        final roleId = parseId(body['roleId']);
+        if (roleId == null ||
+            !roles.any((candidate) => candidate.roleId == roleId)) {
+          return 'role not found';
+        }
+        roles.removeWhere((candidate) => candidate.roleId == roleId);
+        groups = [
+          for (final group in groups)
+            if (group.roleIds.any((id) => id != roleId))
+              SpaceMemberGroup(
+                groupId: group.groupId,
+                name: group.name,
+                members: group.members,
+                roleIds: group.roleIds.where((id) => id != roleId),
+              ),
+        ];
+        direct = [
+          for (final assignment in direct)
+            if (assignment.roleIds.any((id) => id != roleId))
+              SpaceMemberRoleAssignment(
+                member: assignment.member,
+                roleIds: assignment.roleIds.where((id) => id != roleId),
+              ),
+        ];
+      case 'upsert_group':
+        final rawId = body['groupId'];
+        final groupId = parseId(rawId, create: rawId == null);
+        final name = body['name'];
+        final memberValues = body['members'];
+        final roleIds = parseRoleIds(body['roles']);
+        if (groupId == null ||
+            name is! String ||
+            memberValues is! List ||
+            roleIds == null ||
+            name.trim() != name ||
+            name.isEmpty) {
+          return 'valid groupId, name, members and roles required';
+        }
+        final members = <NodeId>[];
+        try {
+          for (final raw in memberValues) {
+            if (raw is! String) return 'invalid group member';
+            final member = NodeId.fromHex(raw);
+            if (!state.isMember(member) ||
+                members.any((candidate) => candidate == member)) {
+              return 'invalid or duplicate group member';
+            }
+            members.add(member);
+          }
+        } catch (_) {
+          return 'invalid group member';
+        }
+        if (roleIds.any(
+          (id) => !roles.any((candidate) => candidate.roleId == id),
+        )) {
+          return 'group references an unknown role';
+        }
+        final group = SpaceMemberGroup(
+          groupId: groupId,
+          name: name,
+          members: members,
+          roleIds: roleIds,
+        );
+        if (!group.isStructurallyValid) return 'invalid participant group';
+        groups
+          ..removeWhere((candidate) => candidate.groupId == groupId)
+          ..add(group);
+      case 'delete_group':
+        final groupId = parseId(body['groupId']);
+        if (groupId == null ||
+            !groups.any((candidate) => candidate.groupId == groupId)) {
+          return 'participant group not found';
+        }
+        groups.removeWhere((candidate) => candidate.groupId == groupId);
+      case 'set_member_roles':
+        final peer = _parseId(body['peer'] as String? ?? '');
+        final roleIds = parseRoleIds(body['roles']);
+        if (peer == null || !state.isMember(peer) || roleIds == null) {
+          return 'valid peer and roles required';
+        }
+        if (roleIds.any(
+          (id) => !roles.any((candidate) => candidate.roleId == id),
+        )) {
+          return 'member references an unknown role';
+        }
+        direct.removeWhere((assignment) => assignment.member == peer);
+        if (roleIds.isNotEmpty) {
+          direct.add(SpaceMemberRoleAssignment(member: peer, roleIds: roleIds));
+        }
+      default:
+        return 'invalid access policy action';
+    }
+    final applied = await _groups.replaceSpaceAccessPolicy(
+      visible.$1,
+      expectedRevision: expectedRevision,
+      roles: roles,
+      groups: groups,
+      directAssignments: direct,
+    );
+    return applied == null ? 'access policy update failed' : null;
+  }
+
   /// Apply one explicit membership/moderation action through the existing
   /// signed control-log. Policy is checked before the mutation so a permitted
   /// operation that later fails (for example because a new peer has no
