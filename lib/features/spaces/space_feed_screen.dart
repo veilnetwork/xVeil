@@ -295,12 +295,24 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
                                         item.post.postId,
                                         emoji,
                                       ),
-                                onComments: item.publicOnly
-                                    ? null
-                                    : () => context.push(
-                                        '/space/${item.spaceId.hex}/comments?post='
-                                        '${Uri.encodeQueryComponent(item.post.postId)}',
-                                      ),
+                                onPublicReact:
+                                    !item.publicOnly &&
+                                        item.post.visibility ==
+                                            SpacePostVisibility.public
+                                    ? (emoji) => service.reactToSpacePost(
+                                        item.spaceId,
+                                        item.post.postId,
+                                        emoji,
+                                        publiclyVisible: true,
+                                      )
+                                    : null,
+                                onComments: () => context.push(
+                                  item.publicOnly
+                                      ? '/space/${item.spaceId.hex}/public-comments?post='
+                                            '${Uri.encodeQueryComponent(item.post.postId)}'
+                                      : '/space/${item.spaceId.hex}/comments?post='
+                                            '${Uri.encodeQueryComponent(item.post.postId)}',
+                                ),
                                 onHide: () => hidePost(item),
                                 onDelete: item.canDeletePost
                                     ? () async {
@@ -359,12 +371,24 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
                                         item.post.postId,
                                         emoji,
                                       ),
-                                onComments: item.publicOnly
-                                    ? null
-                                    : () => context.push(
-                                        '/space/${item.spaceId.hex}/comments?post='
-                                        '${Uri.encodeQueryComponent(item.post.postId)}',
-                                      ),
+                                onPublicReact:
+                                    !item.publicOnly &&
+                                        item.post.visibility ==
+                                            SpacePostVisibility.public
+                                    ? (emoji) => service.reactToSpacePost(
+                                        item.spaceId,
+                                        item.post.postId,
+                                        emoji,
+                                        publiclyVisible: true,
+                                      )
+                                    : null,
+                                onComments: () => context.push(
+                                  item.publicOnly
+                                      ? '/space/${item.spaceId.hex}/public-comments?post='
+                                            '${Uri.encodeQueryComponent(item.post.postId)}'
+                                      : '/space/${item.spaceId.hex}/comments?post='
+                                            '${Uri.encodeQueryComponent(item.post.postId)}',
+                                ),
                                 onHide: () => hidePost(item),
                                 onDelete: item.canDeletePost
                                     ? () async {
@@ -765,6 +789,7 @@ class _PostCard extends StatelessWidget {
     required this.item,
     required this.onTap,
     required this.onReact,
+    required this.onPublicReact,
     required this.onComments,
     required this.onHide,
     required this.onDelete,
@@ -776,6 +801,7 @@ class _PostCard extends StatelessWidget {
   final SpaceFeedItem item;
   final VoidCallback onTap;
   final Future<bool> Function(String emoji)? onReact;
+  final Future<bool> Function(String emoji)? onPublicReact;
   final VoidCallback? onComments;
   final Future<void> Function() onHide;
   final Future<void> Function()? onDelete;
@@ -903,12 +929,15 @@ class _PostCard extends StatelessWidget {
                 publicOnly: item.publicOnly,
               ),
               const SizedBox(height: 8),
-              if (onReact != null)
+              if (item.reactions.isNotEmpty ||
+                  onReact != null ||
+                  onPublicReact != null)
                 SpacePostReactionBar(
                   postId: post.postId,
                   reactions: item.reactions,
                   selfId: selfId,
-                  onReact: onReact!,
+                  onReact: onReact,
+                  onPublicReact: onPublicReact,
                 ),
               if (onComments != null)
                 TextButton.icon(

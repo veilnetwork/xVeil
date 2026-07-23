@@ -5,17 +5,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/ids.dart';
+import '../../domain/space_public_discussion.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/notifications.dart' show activeConversationProvider;
 import 'space_post_body.dart';
 import 'space_post_media.dart';
+import 'space_post_reactions.dart';
 
 /// Read-only publication surface for a verified public subscription.
 ///
-/// It intentionally has no channel/comment/reaction/member actions: those
-/// require membership material which a public snapshot never contains.
+/// It has no member actions. Public comments and reactions shown here are
+/// independent author-signed records and never expose the membership log.
 class PublicSpacePostsScreen extends ConsumerStatefulWidget {
   const PublicSpacePostsScreen({
     super.key,
@@ -398,6 +400,61 @@ class _PublicSpacePostsScreenState
                                       ).textTheme.labelSmall,
                                     ),
                                   ],
+                                  FutureBuilder<List<Object>>(
+                                    future: Future.wait<Object>([
+                                      service.publicSpacePostComments(
+                                        spaceId,
+                                        post.postId,
+                                      ),
+                                      service.publicSpacePostReactions(
+                                        spaceId,
+                                        post.postId,
+                                      ),
+                                    ]),
+                                    builder: (context, discussionSnapshot) {
+                                      final values = discussionSnapshot.data;
+                                      final comments = values == null
+                                          ? const <SpacePublicCommentView>[]
+                                          : values[0]
+                                                as List<SpacePublicCommentView>;
+                                      final reactions = values == null
+                                          ? const <String, List<NodeId>>{}
+                                          : values[1] as SpacePublicReactions;
+                                      return Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          if (reactions.isNotEmpty) ...[
+                                            const SizedBox(height: 10),
+                                            SpacePostReactionBar(
+                                              postId: post.postId,
+                                              reactions: reactions,
+                                              selfId: service.selfId,
+                                              onReact: null,
+                                            ),
+                                          ],
+                                          TextButton.icon(
+                                            key: ValueKey(
+                                              'public-space-comments-${post.postId}',
+                                            ),
+                                            onPressed: () => context.push(
+                                              '/space/${spaceId.hex}/public-comments?post='
+                                              '${Uri.encodeQueryComponent(post.postId)}',
+                                            ),
+                                            icon: const Icon(
+                                              Icons.forum_outlined,
+                                              size: 18,
+                                            ),
+                                            label: Text(
+                                              l.spacePostCommentsCount(
+                                                comments.length,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  ),
                                 ],
                               ),
                             ),

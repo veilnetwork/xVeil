@@ -39,6 +39,7 @@ import '../domain/group_payload.dart';
 import '../domain/group_policy.dart';
 import '../domain/group_reaction.dart';
 import '../domain/inline_custom_emoji.dart';
+import '../domain/message_mention.dart';
 import '../domain/space_channel.dart';
 import '../domain/space_discovery.dart';
 import '../domain/space_discovery_carrier.dart';
@@ -49,6 +50,7 @@ import '../domain/space_lifecycle.dart';
 import '../domain/space_membership.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
+import '../domain/space_public_discussion.dart';
 import '../domain/space_public_feed.dart';
 import '../domain/space_public_feed_transport.dart';
 import '../domain/space_policy_audit.dart';
@@ -406,6 +408,8 @@ class GroupBundle {
     required this.messages,
     this.posts = const [],
     this.reactions = const [],
+    this.publicComments = const [],
+    this.publicReactions = const [],
     this.epochEnvelopes = const [],
     this.localEpochKeys = const {},
     this.channelEpochEnvelopes = const [],
@@ -417,6 +421,8 @@ class GroupBundle {
   final List<GroupMessage> messages;
   final List<SpacePost> posts;
   final List<GroupReaction> reactions;
+  final List<SpacePublicComment> publicComments;
+  final List<SpacePublicReaction> publicReactions;
 
   /// Recipient-specific ML-KEM records. A creator keeps every record it
   /// minted so direct fanout can be tailored per recipient; a receiver stores
@@ -441,6 +447,8 @@ class GroupBundle {
     List<GroupMessage>? messages,
     List<SpacePost>? posts,
     List<GroupReaction>? reactions,
+    List<SpacePublicComment>? publicComments,
+    List<SpacePublicReaction>? publicReactions,
     List<GroupEpochRecipientEnvelope>? epochEnvelopes,
     Map<int, Uint8List>? localEpochKeys,
     List<GroupEpochRecipientEnvelope>? channelEpochEnvelopes,
@@ -452,6 +460,8 @@ class GroupBundle {
     messages: messages ?? this.messages,
     posts: posts ?? this.posts,
     reactions: reactions ?? this.reactions,
+    publicComments: publicComments ?? this.publicComments,
+    publicReactions: publicReactions ?? this.publicReactions,
     epochEnvelopes: epochEnvelopes ?? this.epochEnvelopes,
     localEpochKeys: localEpochKeys ?? this.localEpochKeys,
     channelEpochEnvelopes: channelEpochEnvelopes ?? this.channelEpochEnvelopes,
@@ -2098,7 +2108,15 @@ class GroupService {
     });
   }
 
-  Future<({List<SpacePostView> posts, int revision, int updatedAtMs})?>
+  Future<
+    ({
+      List<SpacePostView> posts,
+      List<SpacePublicComment> comments,
+      List<SpacePublicReaction> reactions,
+      int revision,
+      int updatedAtMs,
+    })?
+  >
   _spacePublicFeedMaterial(GroupBundle bundle) async {
     final visible = [
       for (final post in await _postsOfBundle(bundle))
@@ -2113,6 +2131,109 @@ class GroupService {
         right,
       ).compareTo(SpaceFeedCursor.fromView(left)),
     );
+    final visibleById = {for (final post in visible) post.postId: post};
+
+    // A public discussion statement is admitted only when the same member row
+    // is still accepted and decrypts to the exact signed public content. This
+    // keeps public opt-in independent from the private log without allowing a
+    // relay to graft an otherwise valid statement onto unrelated membership
+    // activity.
+    final visibleMessages = await _messagesOfBundle(
+      bundle,
+      includeSpacePostComments: true,
+      applyLocalRetention: false,
+    );
+    final commentsByRef = {
+      for (final message in visibleMessages)
+        if (message.spacePostId != null) message.ref: message,
+    };
+    bool sameMedia(MediaObject? left, MediaObject? right) =>
+        jsonEncode(left?.toJson()) == jsonEncode(right?.toJson());
+    final publicComments = <SpacePublicComment>[];
+    for (final comment in bundle.publicComments) {
+      final post = visibleById[comment.postId];
+      final memberRow = commentsByRef['${comment.author.hex}:${comment.seq}'];
+      if (post == null ||
+          _postGeneration(post.root) != comment.lifecycleGeneration ||
+          !comment.verify(_signer.verifyDetached) ||
+          memberRow == null ||
+          memberRow.author != comment.author ||
+          memberRow.spacePostId != comment.postId ||
+          (memberRow.lifecycleGeneration ??
+                  _legacyPostGeneration(bundle.manifest.groupId)) !=
+              comment.lifecycleGeneration) {
+        continue;
+      }
+      final matches = switch (comment.operation) {
+        SpacePublicCommentOperation.create =>
+          memberRow.editOf == null &&
+              memberRow.body == comment.body &&
+              memberRow.replyTo == comment.replyTo &&
+              sameMedia(memberRow.attachment, comment.media),
+        SpacePublicCommentOperation.edit =>
+          memberRow.editOf == comment.ref &&
+              memberRow.body == comment.body &&
+              memberRow.attachment == null &&
+              memberRow.replyTo == null,
+        SpacePublicCommentOperation.delete => false,
+      };
+      if (matches) publicComments.add(comment);
+    }
+
+    final visibleReactions = <String, GroupReaction>{};
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    for (final reaction in _acceptedReactionsWithinLifecycle(bundle, state)) {
+      final materialized = await _materializeEncryptedReaction(
+        bundle,
+        reaction,
+      );
+      if (materialized != null &&
+          materialized.targetKind == ReactionTargetKind.spacePost) {
+        visibleReactions['${reaction.author.hex}:${reaction.seq}'] =
+            materialized;
+      }
+    }
+    final publicReactions = <SpacePublicReaction>[];
+    for (final reaction in bundle.publicReactions) {
+      final post = visibleById[reaction.postId];
+      final memberRow =
+          visibleReactions['${reaction.author.hex}:${reaction.seq}'];
+      if (post == null ||
+          _postGeneration(post.root) != reaction.lifecycleGeneration ||
+          !reaction.verify(_signer.verifyDetached) ||
+          memberRow == null ||
+          memberRow.author != reaction.author ||
+          memberRow.target != reaction.postId ||
+          memberRow.emoji != reaction.emoji ||
+          (memberRow.lifecycleGeneration ??
+                  _legacyPostGeneration(bundle.manifest.groupId)) !=
+              reaction.lifecycleGeneration) {
+        continue;
+      }
+      publicReactions.add(reaction);
+    }
+    if (publicComments.length + publicReactions.length >
+        kSpacePublicDiscussionPageSize * kSpacePublicDiscussionPageMaxCount) {
+      return null;
+    }
+    publicComments.sort((left, right) {
+      final byTime = left.createdAtMs.compareTo(right.createdAtMs);
+      if (byTime != 0) return byTime;
+      final byAuthor = left.author.hex.compareTo(right.author.hex);
+      return byAuthor != 0 ? byAuthor : left.seq.compareTo(right.seq);
+    });
+    publicReactions.sort((left, right) {
+      final byTime = left.createdAtMs.compareTo(right.createdAtMs);
+      if (byTime != 0) return byTime;
+      final byAuthor = left.author.hex.compareTo(right.author.hex);
+      return byAuthor != 0 ? byAuthor : left.seq.compareTo(right.seq);
+    });
 
     var updatedAtMs = bundle.manifest.createdAtMs;
     final retainedPublicRows = [
@@ -2125,13 +2246,24 @@ class GroupService {
     for (final post in retainedPublicRows) {
       updatedAtMs = max(updatedAtMs, post.createdAtMs);
     }
+    for (final comment in publicComments) {
+      updatedAtMs = max(updatedAtMs, comment.createdAtMs);
+    }
+    for (final reaction in publicReactions) {
+      updatedAtMs = max(updatedAtMs, reaction.createdAtMs);
+    }
     return (
       posts: List<SpacePostView>.unmodifiable(visible),
+      comments: List<SpacePublicComment>.unmodifiable(publicComments),
+      reactions: List<SpacePublicReaction>.unmodifiable(publicReactions),
       // Distinct valid rows include fork evidence. This count therefore never
       // rolls back when a newly received equivocation quarantines a formerly
       // visible suffix; the newer fail-closed descriptor still supersedes the
       // older snapshot instead of losing a "highest revision" comparison.
-      revision: retainedPublicRows.length,
+      revision:
+          retainedPublicRows.length +
+          bundle.publicComments.length +
+          bundle.publicReactions.length,
       updatedAtMs: updatedAtMs,
     );
   }
@@ -2420,6 +2552,8 @@ class GroupService {
     required GroupBundle bundle,
     required String controlHeadHash,
     required List<SpacePostView> posts,
+    required List<SpacePublicComment> comments,
+    required List<SpacePublicReaction> reactions,
     required int revision,
     required int updatedAtMs,
     required int issuedAtMs,
@@ -2444,6 +2578,33 @@ class GroupService {
       );
     }
     if (pages.any((page) => !page.isStructurallyValid)) return null;
+    final discussionPages = <SpacePublicDiscussionPage>[];
+    var commentOffset = 0;
+    var reactionOffset = 0;
+    while (commentOffset < comments.length ||
+        reactionOffset < reactions.length) {
+      final pageComments = comments
+          .skip(commentOffset)
+          .take(kSpacePublicDiscussionPageSize)
+          .toList(growable: false);
+      commentOffset += pageComments.length;
+      final remaining = kSpacePublicDiscussionPageSize - pageComments.length;
+      final pageReactions = reactions
+          .skip(reactionOffset)
+          .take(remaining)
+          .toList(growable: false);
+      reactionOffset += pageReactions.length;
+      discussionPages.add(
+        SpacePublicDiscussionPage(
+          spaceId: bundle.manifest.groupId,
+          index: discussionPages.length,
+          comments: pageComments,
+          reactions: pageReactions,
+        ),
+      );
+    }
+    if (discussionPages.any((page) => !page.isStructurallyValid)) return null;
+    final hasDiscussion = discussionPages.isNotEmpty;
     final unsigned = SpacePublicFeedManifest(
       spaceId: bundle.manifest.groupId,
       publisher: selfId,
@@ -2454,6 +2615,13 @@ class GroupService {
       expiresAtMs: expiresAtMs,
       itemCount: posts.length,
       pageHashes: [for (final page in pages) page.contentHash],
+      wireVersion: hasDiscussion
+          ? SpacePublicFeedManifest.discussionVersion
+          : SpacePublicFeedManifest.version,
+      discussionItemCount: comments.length + reactions.length,
+      discussionPageHashes: [
+        for (final page in discussionPages) page.contentHash,
+      ],
     );
     final signed = _signer.signDetached(unsigned.canonicalBytes());
     if (!_listEquals(signed.publicKey, bundle.manifest.genesisPubKey)) {
@@ -2463,6 +2631,7 @@ class GroupService {
     final projection = SpacePublicFeedProjection(
       manifest: manifest,
       pages: pages,
+      discussionPages: discussionPages,
     );
     return projection.verifyAt(
           nowMs: issuedAtMs,
@@ -2555,6 +2724,8 @@ class GroupService {
       bundle: bundle,
       controlHeadHash: controlHeadHash,
       posts: feedMaterial.posts,
+      comments: feedMaterial.comments,
+      reactions: feedMaterial.reactions,
       revision: feedMaterial.revision,
       updatedAtMs: feedMaterial.updatedAtMs,
       issuedAtMs: issuedAt,
@@ -3291,7 +3462,16 @@ class GroupService {
           break;
         }
       }
-      bytes = page?.canonicalBytes();
+      SpacePublicDiscussionPage? discussionPage;
+      if (page == null) {
+        for (final candidate in cached.feed.discussionPages) {
+          if (candidate.contentHash == request.objectHash) {
+            discussionPage = candidate;
+            break;
+          }
+        }
+      }
+      bytes = page?.canonicalBytes() ?? discussionPage?.canonicalBytes();
     }
     if (bytes == null ||
         bytes.isEmpty ||
@@ -3562,7 +3742,8 @@ class GroupService {
           manifest.revision != descriptor.publicFeedRevision ||
           manifest.updatedAtMs != descriptor.publicFeedUpdatedAtMs ||
           manifest.itemCount != descriptor.publicPostCount ||
-          manifest.pageHashes.length > _kPublicFeedServeRequestsPerWindow - 1 ||
+          manifest.pageHashes.length + manifest.discussionPageHashes.length >
+              _kPublicFeedServeRequestsPerWindow - 1 ||
           !manifest.verifyAt(
             nowMs: _now(),
             expectedSpaceId: descriptor.spaceId,
@@ -3611,9 +3792,51 @@ class GroupService {
         if (failed) break;
       }
       if (failed) continue;
+      final discussionPages = <SpacePublicDiscussionPage>[];
+      for (
+        var offset = 0;
+        offset < manifest.discussionPageHashes.length;
+        offset += 4
+      ) {
+        final end = min(offset + 4, manifest.discussionPageHashes.length);
+        final batch = await Future.wait([
+          for (final hash in manifest.discussionPageHashes.sublist(offset, end))
+            _requestPublicFeedObject(
+              holder: holder.holder,
+              descriptor: descriptor,
+              objectHash: hash,
+              timeout: objectTimeout,
+            ),
+        ]);
+        for (var index = 0; index < batch.length; index++) {
+          final bytes = batch[index];
+          final expectedIndex = offset + index;
+          final page = bytes == null
+              ? null
+              : SpacePublicDiscussionPage.fromBytes(bytes);
+          if (page == null ||
+              page.index != expectedIndex ||
+              !page.verify(
+                expectedHash: manifest.discussionPageHashes[expectedIndex],
+                verifySignature: _signer.verifyDetached,
+              )) {
+            failed = true;
+            break;
+          }
+          totalBytes += bytes!.length;
+          if (totalBytes > kSpacePublicFeedProjectionMaxBytes) {
+            failed = true;
+            break;
+          }
+          discussionPages.add(page);
+        }
+        if (failed) break;
+      }
+      if (failed) continue;
       final projection = SpacePublicFeedProjection(
         manifest: manifest,
         pages: pages,
+        discussionPages: discussionPages,
       );
       if (!projection.verifyAt(
         nowMs: _now(),
@@ -7170,6 +7393,14 @@ class GroupService {
           .map(GroupReaction.fromJson)
           .whereType<GroupReaction>()
           .toList();
+      final publicComments = (d['pc'] as List? ?? const [])
+          .map(SpacePublicComment.fromJson)
+          .whereType<SpacePublicComment>()
+          .toList();
+      final publicReactions = (d['pr'] as List? ?? const [])
+          .map(SpacePublicReaction.fromJson)
+          .whereType<SpacePublicReaction>()
+          .toList();
       final epochEnvelopes = (d['ke'] as List? ?? const [])
           .map(GroupEpochRecipientEnvelope.fromJson)
           .whereType<GroupEpochRecipientEnvelope>()
@@ -7237,6 +7468,8 @@ class GroupService {
         messages: messages,
         posts: posts,
         reactions: reactions,
+        publicComments: publicComments,
+        publicReactions: publicReactions,
         epochEnvelopes: material.envelopes,
         localEpochKeys: material.keys,
         channelEpochEnvelopes: channelMaterial.envelopes,
@@ -7259,6 +7492,10 @@ class GroupService {
       if (b.posts.isNotEmpty)
         'p': b.posts.map((post) => post.toJson()).toList(),
       'r': b.reactions.map((x) => x.toJson()).toList(),
+      if (b.publicComments.isNotEmpty)
+        'pc': b.publicComments.map((comment) => comment.toJson()).toList(),
+      if (b.publicReactions.isNotEmpty)
+        'pr': b.publicReactions.map((reaction) => reaction.toJson()).toList(),
       if (b.epochEnvelopes.isNotEmpty)
         'ke': b.epochEnvelopes.map((entry) => entry.toJson()).toList(),
       if (b.localEpochKeys.isNotEmpty)
@@ -10337,6 +10574,7 @@ class GroupService {
     String body, {
     String? replyTo,
     MediaObject? media,
+    bool publiclyVisible = false,
     bool broadcast = true,
   }) {
     final normalized = body.trim();
@@ -10355,6 +10593,7 @@ class GroupService {
         spacePostId: postId,
         attachment: media,
         replyTo: replyTo,
+        publiclyVisible: publiclyVisible,
         broadcast: broadcast,
       ),
     );
@@ -10395,9 +10634,11 @@ class GroupService {
     String? replyTo,
     String? editOf,
     List<InlineCustomEmoji> customEmoji = const [],
+    bool publiclyVisible = false,
     bool broadcast = true,
   }) async {
     var effectiveAttachment = attachment;
+    var publishPublicComment = publiclyVisible;
     if (!isValidInlineCustomEmoji(body, customEmoji)) return false;
     if (editOf != null &&
         (spacePostId == null ||
@@ -10424,11 +10665,34 @@ class GroupService {
     SpaceChannelControlCleartext? protectedChannel;
     if (b.manifest.isSpace) {
       if (spacePostId != null) {
+        final targetPost = (await _postsOfBundle(
+          b,
+        )).where((post) => post.postId == spacePostId).firstOrNull;
         if (resolvedChannelId != null ||
             !_spacePostIdPattern.hasMatch(spacePostId) ||
-            !(await _postsOfBundle(
-              b,
-            )).any((post) => post.postId == spacePostId)) {
+            targetPost == null) {
+          return false;
+        }
+        if (editOf != null) {
+          final separator = editOf.lastIndexOf(':');
+          final targetSeq = separator < 0
+              ? null
+              : int.tryParse(editOf.substring(separator + 1));
+          publishPublicComment =
+              targetSeq != null &&
+              b.publicComments.any(
+                (comment) =>
+                    comment.spaceId == groupId &&
+                    comment.postId == spacePostId &&
+                    comment.author == _signer.selfId &&
+                    comment.seq == targetSeq &&
+                    comment.operation == SpacePublicCommentOperation.create &&
+                    comment.verify(_signer.verifyDetached),
+              );
+        }
+        if (publishPublicComment &&
+            (b.manifest.visibility != SpaceVisibility.public ||
+                targetPost.visibility != SpacePostVisibility.public)) {
           return false;
         }
         if (attachment != null &&
@@ -10442,6 +10706,17 @@ class GroupService {
         if (replyTo != null) {
           if (!_spacePostIdPattern.hasMatch(replyTo) ||
               !comments.any((comment) => comment.ref == replyTo)) {
+            return false;
+          }
+          if (publishPublicComment &&
+              !b.publicComments.any(
+                (comment) =>
+                    comment.spaceId == groupId &&
+                    comment.postId == spacePostId &&
+                    comment.ref == replyTo &&
+                    comment.operation == SpacePublicCommentOperation.create &&
+                    comment.verify(_signer.verifyDetached),
+              )) {
             return false;
           }
         }
@@ -10683,10 +10958,64 @@ class GroupService {
       );
     }
     final signed = _signer.signMessage(unsigned);
-    await _save(b.copyWith(messages: [...b.messages, signed]));
+    SpacePublicComment? publicComment;
+    if (publishPublicComment) {
+      final lifecycle = lifecycleGeneration ?? _legacyPostGeneration(groupId);
+      final postId = spacePostId;
+      if (postId == null) return false;
+      final chain = _publicCommentChain(b, postId, _signer.selfId);
+      if (chain == null) return false;
+      final operation = editOf == null
+          ? SpacePublicCommentOperation.create
+          : SpacePublicCommentOperation.edit;
+      final separator = editOf?.lastIndexOf(':') ?? -1;
+      final targetSeq = separator < 0
+          ? null
+          : int.tryParse(editOf!.substring(separator + 1));
+      final unsignedPublic = SpacePublicComment(
+        spaceId: groupId,
+        postId: postId,
+        author: _signer.selfId,
+        seq: signed.seq,
+        prevHash: chain.isEmpty ? '' : chain.last.recordHash,
+        operation: operation,
+        targetSeq: targetSeq,
+        body: body,
+        replyTo: operation == SpacePublicCommentOperation.create
+            ? replyTo
+            : null,
+        media: operation == SpacePublicCommentOperation.create
+            ? effectiveAttachment
+            : null,
+        lifecycleGeneration: lifecycle,
+        createdAtMs: createdAt,
+        signature: Uint8List(0),
+        authorPubKey: Uint8List(0),
+      );
+      final detached = _signer.signDetached(unsignedPublic.canonicalBytes());
+      publicComment = unsignedPublic.withSignature(
+        detached.signature,
+        detached.publicKey,
+      );
+      if (!publicComment.verify(_signer.verifyDetached)) return false;
+    }
+    await _save(
+      b.copyWith(
+        messages: [...b.messages, signed],
+        publicComments: [...b.publicComments, ?publicComment],
+      ),
+    );
     // Ship only the NEW message (delta), not the whole log — a post to a group
     // that already holds an image must not re-chunk that image over the wire.
-    if (broadcast) unawaited(broadcastDelta(groupId, messages: [signed]));
+    if (broadcast) {
+      unawaited(
+        broadcastDelta(
+          groupId,
+          messages: [signed],
+          publicComments: [?publicComment],
+        ),
+      );
+    }
     return true;
   }
 
@@ -11935,11 +12264,65 @@ class GroupService {
     ...reaction.signature,
   ]).toString();
 
+  bool _validPublicCommentFor(NodeId spaceId, SpacePublicComment comment) =>
+      comment.spaceId == spaceId && comment.verify(_signer.verifyDetached);
+
+  bool _validPublicReactionFor(NodeId spaceId, SpacePublicReaction reaction) =>
+      reaction.spaceId == spaceId && reaction.verify(_signer.verifyDetached);
+
+  List<SpacePublicComment>? _publicCommentChain(
+    GroupBundle bundle,
+    String postId,
+    NodeId author,
+  ) {
+    final chain = [
+      for (final comment in bundle.publicComments)
+        if (comment.author == author &&
+            comment.postId == postId &&
+            _validPublicCommentFor(bundle.manifest.groupId, comment))
+          comment,
+    ]..sort((left, right) => left.seq.compareTo(right.seq));
+    for (var index = 0; index < chain.length; index++) {
+      if ((index > 0 && chain[index].seq <= chain[index - 1].seq) ||
+          (index == 0
+              ? chain[index].prevHash.isNotEmpty
+              : chain[index].prevHash != chain[index - 1].recordHash)) {
+        return null;
+      }
+    }
+    return chain;
+  }
+
+  List<SpacePublicReaction>? _publicReactionChain(
+    GroupBundle bundle,
+    String postId,
+    NodeId author,
+  ) {
+    final chain = [
+      for (final reaction in bundle.publicReactions)
+        if (reaction.author == author &&
+            reaction.postId == postId &&
+            _validPublicReactionFor(bundle.manifest.groupId, reaction))
+          reaction,
+    ]..sort((left, right) => left.seq.compareTo(right.seq));
+    for (var index = 0; index < chain.length; index++) {
+      if ((index > 0 && chain[index].seq <= chain[index - 1].seq) ||
+          (index == 0
+              ? chain[index].prevHash.isNotEmpty
+              : chain[index].prevHash != chain[index - 1].recordHash)) {
+        return null;
+      }
+    }
+    return chain;
+  }
+
   String _spaceRepairFingerprint({
     required Iterable<ControlEntry> controls,
     required Iterable<GroupMessage> messages,
     required Iterable<GroupReaction> reactions,
     required Iterable<SpacePost> posts,
+    Iterable<SpacePublicComment> publicComments = const [],
+    Iterable<SpacePublicReaction> publicReactions = const [],
     required Iterable<GroupEpochRecipientEnvelope> epochEnvelopes,
     required Iterable<GroupEpochRecipientEnvelope> channelEpochEnvelopes,
   }) {
@@ -11956,6 +12339,10 @@ class GroupService {
       for (final message in messages) 'message:${groupMessageHash(message)}',
       for (final reaction in reactions) 'reaction:${_reactionHash(reaction)}',
       for (final post in posts) 'post:${_spacePostHash(post)}',
+      for (final comment in publicComments)
+        'publicComment:${comment.recordHash}',
+      for (final reaction in publicReactions)
+        'publicReaction:${reaction.recordHash}',
       for (final envelope in epochEnvelopes) 'epoch:${envelopeHash(envelope)}',
       for (final envelope in channelEpochEnvelopes)
         'channelEpoch:${envelopeHash(envelope)}',
@@ -13098,6 +13485,56 @@ class GroupService {
     return _publicSubscriptionView(snapshot, subscription);
   }
 
+  /// Return the author-signed public discussion for one subscribed post.
+  ///
+  /// The public snapshot has already passed its owner manifest gate. Folding
+  /// here verifies every contributing author again and rejects broken chains,
+  /// so UI callers never need access to the service's private signer.
+  Future<List<SpacePublicCommentView>> publicSpacePostComments(
+    NodeId spaceId,
+    String postId,
+  ) async {
+    final view = await publicSpaceSubscription(spaceId);
+    if (view == null || !view.feed.posts.any((post) => post.postId == postId)) {
+      return const [];
+    }
+    return view.feed.commentsFor(postId, _signer.verifyDetached);
+  }
+
+  Future<SpacePublicReactions> publicSpacePostReactions(
+    NodeId spaceId,
+    String postId,
+  ) async {
+    final view = await publicSpaceSubscription(spaceId);
+    if (view == null || !view.feed.posts.any((post) => post.postId == postId)) {
+      return const {};
+    }
+    return view.feed.reactionsFor(postId, _signer.verifyDetached);
+  }
+
+  /// Stable public root refs known to an active member. The composer uses this
+  /// to prevent accidentally marking a reply public when its parent was
+  /// members-only (which would otherwise be rejected by the service).
+  Future<Set<String>> publicSpacePostCommentRefs(
+    NodeId spaceId,
+    String postId,
+  ) async {
+    final bundle = await load(spaceId);
+    if (bundle == null ||
+        bundle.manifest.visibility != SpaceVisibility.public) {
+      return const {};
+    }
+    return {
+      for (final comment in foldSpacePublicComments(
+        comments: bundle.publicComments,
+        spaceId: spaceId,
+        postId: postId,
+        verifySignature: _signer.verifyDetached,
+      ))
+        comment.ref,
+    };
+  }
+
   Future<List<SpacePublicSubscriptionView>> publicSpaceSubscriptions() async {
     final index = await _loadPublicSubscriptionIndex();
     if (!index.complete) return const [];
@@ -13244,9 +13681,29 @@ class GroupService {
       final priorPostIds = {
         for (final post in prior.package.projection.posts) post.postId,
       };
+      final priorCommentRefs = <String>{};
+      for (final post in prior.package.projection.posts) {
+        priorCommentRefs.addAll(
+          prior.package.projection
+              .commentsFor(post.postId, _signer.verifyDetached)
+              .map((comment) => comment.ref),
+        );
+      }
       for (final post in feed.posts) {
         if (post.author != selfId && !priorPostIds.contains(post.postId)) {
           _incomingPublicPostCtl.add((spaceId: descriptor.spaceId, post: post));
+        }
+        for (final comment in feed.commentsFor(
+          post.postId,
+          _signer.verifyDetached,
+        )) {
+          if (comment.author != selfId &&
+              !priorCommentRefs.contains(comment.ref)) {
+            _incomingPublicCommentCtl.add((
+              spaceId: descriptor.spaceId,
+              comment: comment,
+            ));
+          }
         }
       }
     }
@@ -13700,11 +14157,28 @@ class GroupService {
         bundle,
         visiblePostIds: {for (final post in feedPosts) post.postId},
       );
+      final commentsByPost = selectedFilter.mentionsOnly
+          ? (await spacePostsAndCommentsOf(spaceId)).commentsByPost
+          : const <String, List<SpacePostCommentView>>{};
       for (final post in feedPosts) {
+        var relatedMention = false;
+        if (selectedFilter.mentionsOnly) {
+          for (final comment
+              in commentsByPost[post.postId] ??
+                  const <SpacePostCommentView>[]) {
+            if (comment.author != _signer.selfId &&
+                messageMentionsNode(comment.body, _signer.selfId) &&
+                !await isBlockedAuthor(comment.author)) {
+              relatedMention = true;
+              break;
+            }
+          }
+        }
         if (!selectedFilter.allowsPost(
           post,
           viewer: _signer.selfId,
           nowMs: readAt,
+          relatedMention: relatedMention,
         )) {
           continue;
         }
@@ -13745,12 +14219,27 @@ class GroupService {
         continue;
       }
       for (final post in public.feed.posts) {
+        var relatedMention = false;
+        if (selectedFilter.mentionsOnly) {
+          for (final comment in public.feed.commentsFor(
+            post.postId,
+            _signer.verifyDetached,
+          )) {
+            if (comment.author != _signer.selfId &&
+                messageMentionsNode(comment.body, _signer.selfId) &&
+                !await isBlockedAuthor(comment.author)) {
+              relatedMention = true;
+              break;
+            }
+          }
+        }
         if (hidden.containsKey(_hiddenSpaceFeedPostKey(spaceId, post.postId)) ||
             await isBlockedAuthor(post.author) ||
             !selectedFilter.allowsPost(
               post,
               viewer: _signer.selfId,
               nowMs: readAt,
+              relatedMention: relatedMention,
             ) ||
             (pinned != null && post.pinned != pinned)) {
           continue;
@@ -13763,7 +14252,10 @@ class GroupService {
             spaceId: spaceId,
             spaceName: public.descriptor.name,
             post: post,
-            reactions: const {},
+            reactions: public.feed.reactionsFor(
+              post.postId,
+              _signer.verifyDetached,
+            ),
             canDeletePost: false,
             canModeratePost: false,
             canManagePosts: false,
@@ -14093,6 +14585,62 @@ class GroupService {
       return result;
     }
 
+    Map<String, Object> publicCommentVector() {
+      final result = <String, Object>{};
+      final postIds = {
+        for (final comment in b.publicComments)
+          if (_validPublicCommentFor(groupId, comment)) comment.postId,
+      };
+      for (final postId in postIds) {
+        final authors = {
+          for (final comment in b.publicComments)
+            if (comment.postId == postId &&
+                _validPublicCommentFor(groupId, comment))
+              comment.author,
+        };
+        final scoped = <String, Object>{};
+        for (final author in authors) {
+          final chain = _publicCommentChain(b, postId, author);
+          if (chain != null && chain.isNotEmpty) {
+            scoped[author.hex] = {
+              's': chain.last.seq,
+              'h': chain.last.recordHash,
+            };
+          }
+        }
+        if (scoped.isNotEmpty) result[postId] = scoped;
+      }
+      return result;
+    }
+
+    Map<String, Object> publicReactionVector() {
+      final result = <String, Object>{};
+      final postIds = {
+        for (final reaction in b.publicReactions)
+          if (_validPublicReactionFor(groupId, reaction)) reaction.postId,
+      };
+      for (final postId in postIds) {
+        final authors = {
+          for (final reaction in b.publicReactions)
+            if (reaction.postId == postId &&
+                _validPublicReactionFor(groupId, reaction))
+              reaction.author,
+        };
+        final scoped = <String, Object>{};
+        for (final author in authors) {
+          final chain = _publicReactionChain(b, postId, author);
+          if (chain != null && chain.isNotEmpty) {
+            scoped[author.hex] = {
+              's': chain.last.seq,
+              'h': chain.last.recordHash,
+            };
+          }
+        }
+        if (scoped.isNotEmpty) result[postId] = scoped;
+      }
+      return result;
+    }
+
     return {
       'sreq': 1,
       'gid': groupId.hex,
@@ -14124,6 +14672,8 @@ class GroupService {
       if (b.manifest.isSpace) 'cr': channelReactionVector(),
       if (b.manifest.isSpace) 'p': postVector(),
       if (b.manifest.isSpace) 'pg': postGenerationVector(),
+      if (b.manifest.isSpace) 'pc': publicCommentVector(),
+      if (b.manifest.isSpace) 'pr': publicReactionVector(),
       if (b.localEpochKeys.isNotEmpty)
         'ke': (b.localEpochKeys.keys.toList()..sort()),
       if (b.localChannelEpochKeys.isNotEmpty)
@@ -14269,6 +14819,11 @@ class GroupService {
       return channels is Map ? channels[_reactionSyncScope(reaction)] : null;
     }
 
+    Object? publicVectorFor(String key, String postId) {
+      final byPost = req[key];
+      return byPost is Map ? byPost[postId] : null;
+    }
+
     bool peerNeedsMessage(GroupMessage message) {
       if (!_validMessageFor(gid, message)) return false;
       final messageVector = messageVectorFor(message);
@@ -14355,11 +14910,65 @@ class GroupService {
                 _peerCanDecryptEpoch(b, peer, post.membershipEpoch!)))
           post,
     ];
+    final missingPublicComments = [
+      for (final comment in b.publicComments)
+        if (_validPublicCommentFor(gid, comment) &&
+            comment.lifecycleGeneration ==
+                (state.lifecycleTransitionHash ?? _legacyPostGeneration(gid)) &&
+            (comment.seq >
+                    seen(
+                      publicVectorFor('pc', comment.postId),
+                      comment.author,
+                    ) ||
+                (comment.seq ==
+                        seen(
+                          publicVectorFor('pc', comment.postId),
+                          comment.author,
+                        ) &&
+                    hasRowHash(
+                      publicVectorFor('pc', comment.postId),
+                      comment.author,
+                    ) &&
+                    seenRowHash(
+                          publicVectorFor('pc', comment.postId),
+                          comment.author,
+                        ) !=
+                        comment.recordHash)))
+          comment,
+    ];
+    final missingPublicReactions = [
+      for (final reaction in b.publicReactions)
+        if (_validPublicReactionFor(gid, reaction) &&
+            reaction.lifecycleGeneration ==
+                (state.lifecycleTransitionHash ?? _legacyPostGeneration(gid)) &&
+            (reaction.seq >
+                    seen(
+                      publicVectorFor('pr', reaction.postId),
+                      reaction.author,
+                    ) ||
+                (reaction.seq ==
+                        seen(
+                          publicVectorFor('pr', reaction.postId),
+                          reaction.author,
+                        ) &&
+                    hasRowHash(
+                      publicVectorFor('pr', reaction.postId),
+                      reaction.author,
+                    ) &&
+                    seenRowHash(
+                          publicVectorFor('pr', reaction.postId),
+                          reaction.author,
+                        ) !=
+                        reaction.recordHash)))
+          reaction,
+    ];
     final missingCount =
         missingCtl.length +
         missingMsgs.length +
         missingRx.length +
         missingPosts.length +
+        missingPublicComments.length +
+        missingPublicReactions.length +
         missingEpochEnvelopes.length +
         missingChannelEpochEnvelopes.length;
     final repairFingerprint = b.manifest.isSpace && missingCount > 0
@@ -14368,6 +14977,8 @@ class GroupService {
             messages: missingMsgs,
             reactions: missingRx,
             posts: missingPosts,
+            publicComments: missingPublicComments,
+            publicReactions: missingPublicReactions,
             epochEnvelopes: missingEpochEnvelopes,
             channelEpochEnvelopes: missingChannelEpochEnvelopes,
           )
@@ -14410,6 +15021,8 @@ class GroupService {
         missingCtl.isEmpty &&
         missingRx.isEmpty &&
         missingPosts.isEmpty &&
+        missingPublicComments.isEmpty &&
+        missingPublicReactions.isEmpty &&
         missingEpochEnvelopes.isEmpty &&
         missingChannelEpochEnvelopes.isEmpty) {
       if (b.manifest.isSpace) {
@@ -14427,8 +15040,17 @@ class GroupService {
             missingCtl.isEmpty &&
             (missingMsgs.isNotEmpty ||
                 missingRx.isNotEmpty ||
-                missingPosts.isNotEmpty)
-        ? _overlayDeltaId(gid, missingMsgs, missingRx, missingPosts)
+                missingPosts.isNotEmpty ||
+                missingPublicComments.isNotEmpty ||
+                missingPublicReactions.isNotEmpty)
+        ? _overlayDeltaId(
+            gid,
+            missingMsgs,
+            missingRx,
+            missingPosts,
+            missingPublicComments,
+            missingPublicReactions,
+          )
         : null;
     if (overlayId != null) _rememberOverlayDelta(overlayId);
     final receipt = _beginSpaceReceipt(
@@ -14447,6 +15069,14 @@ class GroupService {
           'r': [for (final r in missingRx) r.toJson()],
           if (missingPosts.isNotEmpty)
             'p': [for (final post in missingPosts) post.toJson()],
+          if (missingPublicComments.isNotEmpty)
+            'pc': [
+              for (final comment in missingPublicComments) comment.toJson(),
+            ],
+          if (missingPublicReactions.isNotEmpty)
+            'pr': [
+              for (final reaction in missingPublicReactions) reaction.toJson(),
+            ],
           if (missingEpochEnvelopes.isNotEmpty)
             'ke': [
               for (final envelope in missingEpochEnvelopes) envelope.toJson(),
@@ -14685,8 +15315,29 @@ class GroupService {
         .map(SpacePost.fromJson)
         .whereType<SpacePost>()
         .toList();
-    if (messages.isEmpty && reactions.isEmpty && posts.isEmpty) return;
-    if (_overlayDeltaId(manifest.groupId, messages, reactions, posts) !=
+    final publicComments = (wire['pc'] as List? ?? const [])
+        .map(SpacePublicComment.fromJson)
+        .whereType<SpacePublicComment>()
+        .toList();
+    final publicReactions = (wire['pr'] as List? ?? const [])
+        .map(SpacePublicReaction.fromJson)
+        .whereType<SpacePublicReaction>()
+        .toList();
+    if (messages.isEmpty &&
+        reactions.isEmpty &&
+        posts.isEmpty &&
+        publicComments.isEmpty &&
+        publicReactions.isEmpty) {
+      return;
+    }
+    if (_overlayDeltaId(
+          manifest.groupId,
+          messages,
+          reactions,
+          posts,
+          publicComments,
+          publicReactions,
+        ) !=
         overlayId) {
       return;
     }
@@ -14727,6 +15378,20 @@ class GroupService {
       return null;
     }
 
+    SpacePublicComment? storedPublicComment(SpacePublicComment incoming) {
+      for (final candidate in stored.publicComments) {
+        if (candidate.recordHash == incoming.recordHash) return candidate;
+      }
+      return null;
+    }
+
+    SpacePublicReaction? storedPublicReaction(SpacePublicReaction incoming) {
+      for (final candidate in stored.publicReactions) {
+        if (candidate.recordHash == incoming.recordHash) return candidate;
+      }
+      return null;
+    }
+
     final validMessages = messages
         .map(storedMessage)
         .whereType<GroupMessage>()
@@ -14736,9 +15401,19 @@ class GroupService {
         .whereType<GroupReaction>()
         .toList();
     final validPosts = posts.map(storedPost).whereType<SpacePost>().toList();
+    final validPublicComments = publicComments
+        .map(storedPublicComment)
+        .whereType<SpacePublicComment>()
+        .toList();
+    final validPublicReactions = publicReactions
+        .map(storedPublicReaction)
+        .whereType<SpacePublicReaction>()
+        .toList();
     if (validMessages.length != messages.length ||
         validReactions.length != reactions.length ||
         validPosts.length != posts.length ||
+        validPublicComments.length != publicComments.length ||
+        validPublicReactions.length != publicReactions.length ||
         !_rememberOverlayDelta(overlayId)) {
       return;
     }
@@ -14747,6 +15422,8 @@ class GroupService {
       messages: validMessages,
       reactions: validReactions,
       posts: validPosts,
+      publicComments: validPublicComments,
+      publicReactions: validPublicReactions,
       exclude: {source},
       overlayId: overlayId,
     );
@@ -15141,6 +15818,7 @@ class GroupService {
     NodeId spaceId,
     String postId,
     String emoji, {
+    bool publiclyVisible = false,
     bool broadcast = true,
   }) => _serialized(
     spaceId,
@@ -15149,6 +15827,7 @@ class GroupService {
       postId,
       emoji,
       targetKind: ReactionTargetKind.spacePost,
+      publiclyVisible: publiclyVisible,
       broadcast: broadcast,
     ),
   );
@@ -15158,6 +15837,7 @@ class GroupService {
     String target,
     String emoji, {
     required ReactionTargetKind targetKind,
+    bool publiclyVisible = false,
     bool broadcast = true,
   }) async {
     final b = await load(groupId);
@@ -15179,10 +15859,18 @@ class GroupService {
       }
       if (targetMessage == null) return false;
     }
-    if (targetKind == ReactionTargetKind.spacePost &&
-        (!b.manifest.isSpace ||
-            !(await postsOf(groupId)).any((post) => post.postId == target))) {
-      return false;
+    SpacePostView? targetPost;
+    if (targetKind == ReactionTargetKind.spacePost) {
+      if (!b.manifest.isSpace) return false;
+      targetPost = (await postsOf(
+        groupId,
+      )).where((post) => post.postId == target).firstOrNull;
+      if (targetPost == null) return false;
+      if (publiclyVisible &&
+          (b.manifest.visibility != SpaceVisibility.public ||
+              targetPost.visibility != SpacePostVisibility.public)) {
+        return false;
+      }
     }
     if (!SpaceAcl(state).allows(
       _signer.selfId,
@@ -15351,8 +16039,48 @@ class GroupService {
       );
     }
     final signed = _signer.signReaction(unsigned);
-    await _save(b.copyWith(reactions: [...b.reactions, signed]));
-    if (broadcast) unawaited(broadcastDelta(groupId, reactions: [signed]));
+    SpacePublicReaction? publicReaction;
+    if (publiclyVisible) {
+      final lifecycle = lifecycleGeneration ?? _legacyPostGeneration(groupId);
+      if (targetKind != ReactionTargetKind.spacePost || targetPost == null) {
+        return false;
+      }
+      final chain = _publicReactionChain(b, target, _signer.selfId);
+      if (chain == null) return false;
+      final unsignedPublic = SpacePublicReaction(
+        spaceId: groupId,
+        postId: target,
+        author: _signer.selfId,
+        seq: signed.seq,
+        prevHash: chain.isEmpty ? '' : chain.last.recordHash,
+        emoji: next,
+        lifecycleGeneration: lifecycle,
+        createdAtMs: createdAt,
+        signature: Uint8List(0),
+        authorPubKey: Uint8List(0),
+      );
+      final detached = _signer.signDetached(unsignedPublic.canonicalBytes());
+      publicReaction = unsignedPublic.withSignature(
+        detached.signature,
+        detached.publicKey,
+      );
+      if (!publicReaction.verify(_signer.verifyDetached)) return false;
+    }
+    await _save(
+      b.copyWith(
+        reactions: [...b.reactions, signed],
+        publicReactions: [...b.publicReactions, ?publicReaction],
+      ),
+    );
+    if (broadcast) {
+      unawaited(
+        broadcastDelta(
+          groupId,
+          reactions: [signed],
+          publicReactions: [?publicReaction],
+        ),
+      );
+    }
     return true;
   }
 
@@ -16468,6 +17196,28 @@ class GroupService {
           )
           .map((r) => r.toJson())
           .toList(),
+      if (b.manifest.isSpace && distributesContent)
+        'pc': b.publicComments
+            .where(
+              (comment) =>
+                  _validPublicCommentFor(b.manifest.groupId, comment) &&
+                  comment.lifecycleGeneration ==
+                      (lifecycleState.lifecycleTransitionHash ??
+                          _legacyPostGeneration(b.manifest.groupId)),
+            )
+            .map((comment) => comment.toJson())
+            .toList(),
+      if (b.manifest.isSpace && distributesContent)
+        'pr': b.publicReactions
+            .where(
+              (reaction) =>
+                  _validPublicReactionFor(b.manifest.groupId, reaction) &&
+                  reaction.lifecycleGeneration ==
+                      (lifecycleState.lifecycleTransitionHash ??
+                          _legacyPostGeneration(b.manifest.groupId)),
+            )
+            .map((reaction) => reaction.toJson())
+            .toList(),
       if (epochEnvelopes.isNotEmpty)
         'ke': epochEnvelopes.map((entry) => entry.toJson()).toList(),
       if (channelEpochEnvelopes.isNotEmpty)
@@ -16528,6 +17278,14 @@ class GroupService {
     final inReactions = (d['r'] as List? ?? const [])
         .map(GroupReaction.fromJson)
         .whereType<GroupReaction>()
+        .toList();
+    final inPublicComments = (d['pc'] as List? ?? const [])
+        .map(SpacePublicComment.fromJson)
+        .whereType<SpacePublicComment>()
+        .toList();
+    final inPublicReactions = (d['pr'] as List? ?? const [])
+        .map(SpacePublicReaction.fromJson)
+        .whereType<SpacePublicReaction>()
         .toList();
     final inEpochEnvelopes = (d['ke'] as List? ?? const [])
         .map(GroupEpochRecipientEnvelope.fromJson)
@@ -16605,6 +17363,12 @@ class GroupService {
           };
     final posts = [...(existing?.posts ?? const <SpacePost>[])];
     final reactions = [...(existing?.reactions ?? const <GroupReaction>[])];
+    final publicComments = [
+      ...(existing?.publicComments ?? const <SpacePublicComment>[]),
+    ];
+    final publicReactions = [
+      ...(existing?.publicReactions ?? const <SpacePublicReaction>[]),
+    ];
     for (final e in inControl) {
       if (!_validControlFor(man, e)) continue;
       final incomingHash = controlEntryHash(e);
@@ -16654,6 +17418,8 @@ class GroupService {
       messages: messages,
       posts: posts,
       reactions: reactions,
+      publicComments: publicComments,
+      publicReactions: publicReactions,
       epochEnvelopes: material.envelopes,
       localEpochKeys: material.keys,
       channelEpochEnvelopes: channelMaterial.envelopes,
@@ -16826,6 +17592,8 @@ class GroupService {
                 messages: messages,
                 posts: posts,
                 reactions: reactions,
+                publicComments: publicComments,
+                publicReactions: publicReactions,
                 epochEnvelopes: material.envelopes,
                 localEpochKeys: material.keys,
                 channelEpochEnvelopes: channelMaterial.envelopes,
@@ -16852,6 +17620,8 @@ class GroupService {
       messages: messages,
       posts: posts,
       reactions: reactions,
+      publicComments: publicComments,
+      publicReactions: publicReactions,
       epochEnvelopes: material.envelopes,
       localEpochKeys: material.keys,
       channelEpochEnvelopes: channelMaterial.envelopes,
@@ -16943,12 +17713,104 @@ class GroupService {
         reactions.add(r);
       }
     }
+    if (man.isSpace && man.visibility == SpaceVisibility.public) {
+      final publicLifecycle =
+          mergedState.lifecycleTransitionHash ??
+          _legacyPostGeneration(man.groupId);
+      final acceptedMessageHashes = {
+        for (final message in acceptedMessages) groupMessageHash(message),
+      };
+      for (final comment in inPublicComments) {
+        if (!_validPublicCommentFor(man.groupId, comment) ||
+            comment.lifecycleGeneration != publicLifecycle ||
+            !visiblePostIds.contains(comment.postId)) {
+          continue;
+        }
+        GroupMessage? memberRow;
+        for (final candidate in messages) {
+          if (candidate.author == comment.author &&
+              candidate.seq == comment.seq &&
+              candidate.spacePostId == comment.postId &&
+              acceptedMessageHashes.contains(groupMessageHash(candidate))) {
+            memberRow = candidate;
+            break;
+          }
+        }
+        if (memberRow == null) continue;
+        final visible = await _materializeEncryptedMessage(
+          targetBundle,
+          memberRow,
+        );
+        if (visible == null ||
+            (visible.lifecycleGeneration ??
+                    _legacyPostGeneration(man.groupId)) !=
+                comment.lifecycleGeneration) {
+          continue;
+        }
+        final matches = switch (comment.operation) {
+          SpacePublicCommentOperation.create =>
+            visible.editOf == null &&
+                visible.body == comment.body &&
+                visible.replyTo == comment.replyTo &&
+                jsonEncode(visible.attachment?.toJson()) ==
+                    jsonEncode(comment.media?.toJson()),
+          SpacePublicCommentOperation.edit =>
+            visible.editOf == comment.ref &&
+                visible.body == comment.body &&
+                visible.attachment == null &&
+                visible.replyTo == null,
+          SpacePublicCommentOperation.delete => false,
+        };
+        if (matches &&
+            !publicComments.any(
+              (stored) => stored.recordHash == comment.recordHash,
+            )) {
+          publicComments.add(comment);
+        }
+      }
+      for (final reaction in inPublicReactions) {
+        if (!_validPublicReactionFor(man.groupId, reaction) ||
+            reaction.lifecycleGeneration != publicLifecycle ||
+            !visiblePostIds.contains(reaction.postId)) {
+          continue;
+        }
+        GroupReaction? memberRow;
+        for (final candidate in reactions) {
+          if (candidate.author == reaction.author &&
+              candidate.seq == reaction.seq) {
+            memberRow = candidate;
+            break;
+          }
+        }
+        if (memberRow == null) continue;
+        final visible = await _materializeEncryptedReaction(
+          targetBundle,
+          memberRow,
+        );
+        if (visible == null ||
+            visible.targetKind != ReactionTargetKind.spacePost ||
+            visible.target != reaction.postId ||
+            visible.emoji != reaction.emoji ||
+            (visible.lifecycleGeneration ??
+                    _legacyPostGeneration(man.groupId)) !=
+                reaction.lifecycleGeneration) {
+          continue;
+        }
+        if (!publicReactions.any(
+          (stored) => stored.recordHash == reaction.recordHash,
+        )) {
+          publicReactions.add(reaction);
+        }
+      }
+    }
     final saved = GroupBundle(
       manifest: man,
       control: control,
       messages: messages,
       posts: posts,
       reactions: reactions,
+      publicComments: publicComments,
+      publicReactions: publicReactions,
       epochEnvelopes: material.envelopes,
       localEpochKeys: material.keys,
       channelEpochEnvelopes: channelMaterial.envelopes,
@@ -17072,6 +17934,14 @@ class GroupService {
   _incomingPublicPostCtl = StreamController.broadcast();
   Stream<({NodeId spaceId, SpacePostView post})> get incomingPublicPosts =>
       _incomingPublicPostCtl.stream;
+
+  /// Newly observed author-signed public comment roots from an already-active
+  /// public-only subscription. Imported history and immutable edits are
+  /// silent; only a newly visible root is eligible for mention notification.
+  final StreamController<({NodeId spaceId, SpacePublicCommentView comment})>
+  _incomingPublicCommentCtl = StreamController.broadcast();
+  Stream<({NodeId spaceId, SpacePublicCommentView comment})>
+  get incomingPublicComments => _incomingPublicCommentCtl.stream;
 
   /// Attached by the multi-device bridge: a LOCAL group-seen advance (never
   /// fired from [applyMirroredGroupSeen]) — my other devices clear the badge.
@@ -17997,6 +18867,8 @@ class GroupService {
     List<GroupMessage> messages = const [],
     List<GroupReaction> reactions = const [],
     List<SpacePost> posts = const [],
+    List<SpacePublicComment> publicComments = const [],
+    List<SpacePublicReaction> publicReactions = const [],
     Set<NodeId> exclude = const {},
     String? overlayId,
   }) async {
@@ -18047,7 +18919,15 @@ class GroupService {
         ? nearestGroupNodesByXor(_signer.selfId, candidates, k: neighborCount)
         : candidates;
     final deltaId = sparse
-        ? (overlayId ?? _overlayDeltaId(groupId, messages, reactions, posts))
+        ? (overlayId ??
+              _overlayDeltaId(
+                groupId,
+                messages,
+                reactions,
+                posts,
+                publicComments,
+                publicReactions,
+              ))
         : null;
     if (deltaId != null) _rememberOverlayDelta(deltaId);
     var n = 0;
@@ -18121,6 +19001,28 @@ class GroupService {
               'r': peerReactions.map((reaction) => reaction.toJson()).toList(),
               if (peerPosts.isNotEmpty)
                 'p': peerPosts.map((post) => post.toJson()).toList(),
+              if (publicComments.isNotEmpty)
+                'pc': publicComments
+                    .where(
+                      (comment) =>
+                          _validPublicCommentFor(groupId, comment) &&
+                          comment.lifecycleGeneration ==
+                              (state.lifecycleTransitionHash ??
+                                  _legacyPostGeneration(groupId)),
+                    )
+                    .map((comment) => comment.toJson())
+                    .toList(),
+              if (publicReactions.isNotEmpty)
+                'pr': publicReactions
+                    .where(
+                      (reaction) =>
+                          _validPublicReactionFor(groupId, reaction) &&
+                          reaction.lifecycleGeneration ==
+                              (state.lifecycleTransitionHash ??
+                                  _legacyPostGeneration(groupId)),
+                    )
+                    .map((reaction) => reaction.toJson())
+                    .toList(),
               if (epochEnvelopes.isNotEmpty)
                 'ke': epochEnvelopes.map((entry) => entry.toJson()).toList(),
               if (channelEpochEnvelopes.isNotEmpty)
@@ -18167,12 +19069,16 @@ class GroupService {
     Iterable<GroupMessage> messages,
     Iterable<GroupReaction> reactions, [
     Iterable<SpacePost> posts = const [],
+    Iterable<SpacePublicComment> publicComments = const [],
+    Iterable<SpacePublicReaction> publicReactions = const [],
   ]) {
     final identities = <String>[
       for (final message in messages) 'm:${message.author.hex}:${message.seq}',
       for (final reaction in reactions)
         'r:${reaction.author.hex}:${reaction.seq}',
       for (final post in posts) 'p:${post.author.hex}:${post.seq}',
+      for (final comment in publicComments) 'pc:${comment.recordHash}',
+      for (final reaction in publicReactions) 'pr:${reaction.recordHash}',
     ]..sort();
     return crypto.sha256
         .convert(utf8.encode('${groupId.hex}|${identities.join('|')}'))
@@ -18234,6 +19140,7 @@ class GroupService {
     await _incomingCommentCtl.close();
     await _incomingPostCtl.close();
     await _incomingPublicPostCtl.close();
+    await _incomingPublicCommentCtl.close();
   }
 }
 

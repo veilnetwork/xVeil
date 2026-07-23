@@ -61,6 +61,7 @@ class _SpacePostCommentsScreenState
   SpacePostCommentView? _replyBeforeEdit;
   MediaObject? _mediaBeforeEdit;
   bool _sending = false;
+  bool _publiclyVisible = false;
   bool _followAfterLoad = true;
   int _renderedCommentCount = -1;
   StateController<String?>? _activeConversation;
@@ -128,6 +129,7 @@ class _SpacePostCommentsScreenState
     final results = await Future.wait<Object?>([
       service.stateOf(spaceId),
       service.postsOf(spaceId),
+      service.publicSpacePostCommentRefs(spaceId, widget.postId),
     ]);
     final state = results[0] as GroupState?;
     final posts = results[1] as List<SpacePostView>;
@@ -137,7 +139,12 @@ class _SpacePostCommentsScreenState
     final comments = post == null
         ? const <SpacePostCommentView>[]
         : await service.spacePostCommentsOf(spaceId, widget.postId);
-    return _CommentsProjection(state: state, post: post, comments: comments);
+    return _CommentsProjection(
+      state: state,
+      post: post,
+      comments: comments,
+      publicCommentRefs: results[2] as Set<String>,
+    );
   }
 
   bool get _nearTail =>
@@ -249,6 +256,7 @@ class _SpacePostCommentsScreenState
             body,
             replyTo: _replyTo?.ref,
             media: _media,
+            publiclyVisible: _publiclyVisible,
           )
         : await service.editSpacePostComment(
             spaceId,
@@ -262,6 +270,7 @@ class _SpacePostCommentsScreenState
         _composer.clearWithCustomEmoji();
         _replyTo = null;
         _media = null;
+        _publiclyVisible = false;
       } else {
         _restoreComposerAfterEdit();
       }
@@ -282,10 +291,13 @@ class _SpacePostCommentsScreenState
     }
   }
 
-  void _reply(SpacePostCommentView comment) {
+  void _reply(SpacePostCommentView comment, Set<String> publicCommentRefs) {
     setState(() {
       if (_editing != null) _restoreComposerAfterEdit();
       _replyTo = comment;
+      if (!publicCommentRefs.contains(comment.ref)) {
+        _publiclyVisible = false;
+      }
     });
     _composerFocus.requestFocus();
   }
@@ -454,7 +466,12 @@ class _SpacePostCommentsScreenState
                               comment: comment,
                               repliedComment: byRef[comment.replyTo],
                               isSelf: comment.author == service.selfId,
-                              onReply: canWrite ? () => _reply(comment) : null,
+                              onReply: canWrite
+                                  ? () => _reply(
+                                      comment,
+                                      projection.publicCommentRefs,
+                                    )
+                                  : null,
                               onEdit:
                                   canWrite && comment.author == service.selfId
                                   ? () => _edit(comment)
@@ -478,6 +495,16 @@ class _SpacePostCommentsScreenState
                       mentionTargets: state.members.values
                           .map((member) => member.nodeId)
                           .toList(growable: false),
+                      allowPublic:
+                          post.visibility == SpacePostVisibility.public &&
+                          _editing == null &&
+                          (_replyTo == null ||
+                              projection.publicCommentRefs.contains(
+                                _replyTo!.ref,
+                              )),
+                      publiclyVisible: _publiclyVisible,
+                      onPublicChanged: (value) =>
+                          setState(() => _publiclyVisible = value),
                       onChanged: () => setState(() {}),
                       onCancelReply: () => setState(() => _replyTo = null),
                       onCancelEdit: _cancelEdit,
@@ -518,11 +545,13 @@ class _CommentsProjection {
     required this.state,
     required this.post,
     required this.comments,
+    required this.publicCommentRefs,
   });
 
   final GroupState? state;
   final SpacePostView? post;
   final List<SpacePostCommentView> comments;
+  final Set<String> publicCommentRefs;
 }
 
 class _PublicationHeader extends StatelessWidget {
@@ -737,6 +766,9 @@ class _Composer extends StatelessWidget {
     required this.canSend,
     required this.tooLong,
     required this.mentionTargets,
+    required this.allowPublic,
+    required this.publiclyVisible,
+    required this.onPublicChanged,
     required this.onChanged,
     required this.onCancelReply,
     required this.onCancelEdit,
@@ -754,6 +786,9 @@ class _Composer extends StatelessWidget {
   final bool canSend;
   final bool tooLong;
   final Iterable<NodeId> mentionTargets;
+  final bool allowPublic;
+  final bool publiclyVisible;
+  final ValueChanged<bool> onPublicChanged;
   final VoidCallback onChanged;
   final VoidCallback onCancelReply;
   final VoidCallback onCancelEdit;
@@ -774,6 +809,17 @@ class _Composer extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (allowPublic)
+                SwitchListTile(
+                  key: const ValueKey('space-post-comment-public'),
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  value: publiclyVisible,
+                  secondary: const Icon(Icons.public, size: 20),
+                  title: Text(l.spacePostCommentPublic),
+                  subtitle: Text(l.spacePostCommentPublicHint),
+                  onChanged: sending ? null : onPublicChanged,
+                ),
               if (replyTo != null)
                 Row(
                   children: [

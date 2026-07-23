@@ -118,6 +118,21 @@ class _Signer implements GroupSigner {
       _valid(value.signature, value.authorPubKey);
 
   @override
+  ({Uint8List signature, Uint8List publicKey}) signDetached(
+    Uint8List message,
+  ) => (signature: _signature(selfPubKey, message), publicKey: selfPubKey);
+
+  @override
+  bool verifyDetached({
+    required NodeId signer,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+  }) =>
+      signer == NodeId(Uint8List.fromList(publicKey)) &&
+      _sameBytes(signature, _signature(publicKey, message));
+
+  @override
   bool verifySovereign({
     required String algorithm,
     required NodeId nodeId,
