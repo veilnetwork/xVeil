@@ -15,6 +15,7 @@ import '../domain/group_reaction.dart';
 import '../domain/space_channel.dart';
 import '../domain/space_join_request.dart';
 import '../domain/space_lifecycle.dart';
+import '../domain/space_membership.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
 import '../domain/space_retention.dart';
@@ -49,6 +50,27 @@ final class GroupApiAdapter {
   Future<List<Map<String, dynamic>>> listSpaces() async => [
     for (final space in await _groups.listSpaces()) _listEntry(space),
   ];
+
+  Future<List<Map<String, dynamic>>> listSpaceMemberships() async => [
+    for (final membership in await _groups.spaceMemberships())
+      _spaceMembershipEntry(membership),
+  ];
+
+  Map<String, dynamic> _spaceMembershipEntry(
+    SpaceMembershipProjection membership,
+  ) => {
+    'spaceId': membership.spaceId.hex,
+    'name': membership.name,
+    'visibility': membership.visibility.name,
+    'status': membership.status.name,
+    'source': membership.source.name,
+    'isMember': membership.isMember,
+    'canOpen': membership.canOpen,
+    'changedAt': membership.changedAtMs,
+    if (membership.untilMs != null) 'until': membership.untilMs,
+    if (membership.reason != null) 'reason': membership.reason,
+    if (membership.sourceId != null) 'sourceId': membership.sourceId,
+  };
 
   Map<String, dynamic> _listEntry(GroupListEntry group) => {
     'spaceId': group.groupId.hex,

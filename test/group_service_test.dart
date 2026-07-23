@@ -22,6 +22,7 @@ import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/domain/space_lifecycle.dart';
 import 'package:xveil/domain/space_join_request.dart';
+import 'package:xveil/domain/space_membership.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_rules.dart';
@@ -3115,6 +3116,239 @@ void main() {
       );
       expect(await requesterService.outgoingSpaceJoinRequests(), isEmpty);
       expect(await ownerService.pendingSpaceJoinRequests(spaceId), isEmpty);
+    },
+  );
+
+  test(
+    'Space membership projection derives active suspended left and banned from signed facts',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final ownerService = GroupService(storage, _FakeSigner(owner));
+      final bobService = GroupService(storage, _FakeSigner(bob));
+      addTearDown(ownerService.dispose);
+      addTearDown(bobService.dispose);
+
+      final spaceId = await ownerService.createSpace(
+        'Membership lab',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      var membership = (await bobService.spaceMemberships()).singleWhere(
+        (entry) => entry.spaceId == spaceId,
+      );
+      expect(membership.status, SpaceMembershipStatus.active);
+      expect(membership.source, SpaceMembershipSource.controlLog);
+      expect(membership.isMember, isTrue);
+
+      final until =
+          DateTime.now().millisecondsSinceEpoch +
+          const Duration(hours: 1).inMilliseconds;
+      final timeoutId = await ownerService.moderateSpace(
+        spaceId,
+        kind: SpaceModerationKind.timeout,
+        target: bob,
+        scope: SpaceModerationScope.space,
+        reason: 'cool down',
+        expiresAtMs: until,
+      );
+      expect(timeoutId, isNotNull);
+      membership = (await bobService.spaceMemberships()).singleWhere(
+        (entry) => entry.spaceId == spaceId,
+      );
+      expect(membership.status, SpaceMembershipStatus.suspended);
+      expect(membership.source, SpaceMembershipSource.moderation);
+      expect(membership.isMember, isTrue);
+      expect(membership.untilMs, until);
+      expect(membership.reason, 'cool down');
+
+      expect(
+        await ownerService.revokeSpaceModeration(
+          spaceId,
+          timeoutId!,
+          reason: 'reviewed',
+        ),
+        isTrue,
+      );
+      expect(
+        (await bobService.spaceMemberships())
+            .singleWhere((entry) => entry.spaceId == spaceId)
+            .status,
+        SpaceMembershipStatus.active,
+      );
+
+      expect(await bobService.leaveGroup(spaceId), isTrue);
+      membership = (await bobService.spaceMemberships()).singleWhere(
+        (entry) => entry.spaceId == spaceId,
+      );
+      expect(membership.status, SpaceMembershipStatus.left);
+      expect(membership.isMember, isFalse);
+      expect(await bobService.listSpaces(), isEmpty);
+
+      final bannedSpace = await ownerService.createSpace(
+        'Ban lab',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerService.addControlOp(
+          bannedSpace,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerService.moderateSpace(
+          bannedSpace,
+          kind: SpaceModerationKind.permanentBan,
+          target: bob,
+          scope: SpaceModerationScope.space,
+          reason: 'signed ban',
+        ),
+        isNotNull,
+      );
+      membership = (await bobService.spaceMemberships()).singleWhere(
+        (entry) => entry.spaceId == bannedSpace,
+      );
+      expect(membership.status, SpaceMembershipStatus.banned);
+      expect(membership.isMember, isFalse);
+      expect(membership.reason, 'signed ban');
+    },
+  );
+
+  test(
+    'a retained left Space may request rejoin but a signed ban may not',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final bobStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await bobStorage.open(password: 'bob', createIfMissing: true);
+      late final GroupService ownerService;
+      late final GroupService bobService;
+      ownerService = GroupService(ownerStorage, _FakeSigner(owner));
+      bobService = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        sendSpaceJoinRequest: (peer, requestId, requestJson) async {
+          expect(peer, owner);
+          expect(
+            await ownerService.receiveSpaceJoinRequest(bob, requestJson),
+            isTrue,
+          );
+        },
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(bobService.dispose);
+
+      final spaceId = await ownerService.createSpace(
+        'Returnable',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      expect(await bobService.leaveGroup(spaceId), isTrue);
+      expect(
+        await ownerService.ingestSnapshot(
+          bobService.snapshotJson(
+            (await bobService.load(spaceId))!,
+            recipient: owner,
+          ),
+        ),
+        isTrue,
+      );
+      expect((await ownerService.stateOf(spaceId))!.isMember(bob), isFalse);
+      expect(
+        (await bobService.spaceMemberships())
+            .singleWhere((entry) => entry.spaceId == spaceId)
+            .status,
+        SpaceMembershipStatus.left,
+      );
+
+      final code = await ownerService.createSpaceJoinCode(spaceId);
+      expect(code, isNotNull);
+      expect(await bobService.requestToJoinSpace(code!), isTrue);
+      expect(
+        await ownerService.pendingSpaceJoinRequests(spaceId),
+        hasLength(1),
+      );
+      expect(await bobService.outgoingSpaceJoinRequests(), hasLength(1));
+      expect(
+        (await bobService.spaceMemberships())
+            .singleWhere((entry) => entry.spaceId == spaceId)
+            .status,
+        SpaceMembershipStatus.pending,
+      );
+
+      final bannedSpace = await ownerService.createSpace(
+        'Blocked return',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerService.addControlOp(
+          bannedSpace,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(bannedSpace))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerService.moderateSpace(
+          bannedSpace,
+          kind: SpaceModerationKind.permanentBan,
+          target: bob,
+          scope: SpaceModerationScope.space,
+          reason: 'no rejoin',
+        ),
+        isNotNull,
+      );
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(bannedSpace))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      final bannedCode = await ownerService.createSpaceJoinCode(bannedSpace);
+      expect(bannedCode, isNotNull);
+      expect(await bobService.requestToJoinSpace(bannedCode!), isFalse);
+      expect(await ownerService.pendingSpaceJoinRequests(bannedSpace), isEmpty);
     },
   );
 
