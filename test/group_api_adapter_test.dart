@@ -1341,4 +1341,63 @@ void main() {
     expect(await api.revokeRecommendationCampaign(space, campaignId), isNull);
     expect((await api.recommendationCampaigns(space))!['campaigns'], isEmpty);
   });
+
+  test(
+    'Space access API projects and edits one signed optimistic policy',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final owner = _id(74);
+      final service = GroupService(storage, _Signer(owner));
+      final api = GroupApiAdapter(
+        service,
+        registerContentSource:
+            (name, size, read, {required close, sourcePath}) async {
+              await close();
+              return 'unused';
+            },
+        loadContent: storage.loadFile,
+      );
+      addTearDown(service.dispose);
+      final space = (await api.createSpace('Access API', '', 'private'))!;
+
+      expect((await api.spaceAccess(space))?['revision'], 0);
+      expect(
+        await api.spaceAccessAction(space, {
+          'action': 'upsert_role',
+          'expectedRevision': 0,
+          'name': 'Publisher',
+          'permissions': ['publishPosts', 'managePosts'],
+        }),
+        isNull,
+      );
+      final afterRole = (await api.spaceAccess(space))!;
+      final role = (afterRole['roles'] as List).single as Map;
+      expect(afterRole['revision'], 1);
+      expect(role['name'], 'Publisher');
+      expect(
+        await api.spaceAccessAction(space, {
+          'action': 'set_member_roles',
+          'expectedRevision': 1,
+          'peer': owner.hex,
+          'roles': [role['id']],
+        }),
+        isNull,
+      );
+      final assigned = (await api.spaceAccess(space))!;
+      expect(assigned['revision'], 2);
+      expect(((assigned['effective'] as List).single as Map)['permissions'], [
+        'publishPosts',
+        'managePosts',
+      ]);
+      expect(
+        await api.spaceAccessAction(space, {
+          'action': 'delete_role',
+          'expectedRevision': 1,
+          'roleId': role['id'],
+        }),
+        'access policy revision conflict',
+      );
+    },
+  );
 }

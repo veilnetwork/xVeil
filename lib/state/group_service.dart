@@ -2691,6 +2691,7 @@ class GroupService {
 
   bool _validControlFor(GroupManifest manifest, ControlEntry e) {
     if (!e.isStructurallyValid) return false;
+    if (e.version == 17 && !manifest.isSpace) return false;
     if ((e.op == ControlOp.transferOwnership ||
             e.op == ControlOp.setDescription ||
             e.op == ControlOp.publishRules ||
@@ -5419,6 +5420,75 @@ class GroupService {
     ).state;
   }
 
+  /// A fresh opaque id for a custom role or participant group. Callers may
+  /// stage a complete policy locally, but only [replaceSpaceAccessPolicy]
+  /// makes it authoritative through the signed control log.
+  String newSpaceAccessObjectId() => _newSpaceInviteId();
+
+  /// Atomically replace custom roles, participant groups and direct role
+  /// assignments. Optimistic [expectedRevision] prevents two owner devices
+  /// from silently overwriting each other. The fold remains the final
+  /// authorization boundary and permits this operation only to the owner.
+  Future<SpaceAccessPolicy?> replaceSpaceAccessPolicy(
+    NodeId spaceId, {
+    required int expectedRevision,
+    required Iterable<SpaceRoleDefinition> roles,
+    required Iterable<SpaceMemberGroup> groups,
+    required Iterable<SpaceMemberRoleAssignment> directAssignments,
+  }) => _serialized(spaceId, () async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return null;
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    if (!state.isActive ||
+        state.roleOf(selfId) != GroupRole.owner ||
+        (state.accessPolicy?.revision ?? 0) != expectedRevision) {
+      return null;
+    }
+    final now = _now();
+    // Historical snapshots keep departed ids for audit. A fresh snapshot
+    // automatically drops those stale assignments so one removal cannot make
+    // every later policy edit structurally impossible.
+    final currentGroups = [
+      for (final group in groups)
+        SpaceMemberGroup(
+          groupId: group.groupId,
+          name: group.name,
+          members: group.members.where(state.isMember),
+          roleIds: group.roleIds,
+        ),
+    ];
+    final currentDirectAssignments = [
+      for (final assignment in directAssignments)
+        if (state.isMember(assignment.member)) assignment,
+    ];
+    final policy = SpaceAccessPolicy(
+      spaceId: spaceId,
+      revision: expectedRevision + 1,
+      previousPolicyHash: state.accessPolicy?.policyHash ?? '',
+      changedBy: selfId,
+      changedAtMs: now,
+      roles: roles,
+      groups: currentGroups,
+      directAssignments: currentDirectAssignments,
+    );
+    if (!policy.isStructurallyValid) {
+      return null;
+    }
+    final applied = await _addControlOp(
+      spaceId,
+      ControlOp.setPolicy,
+      accessPolicy: policy,
+      createdAtMs: now,
+    );
+    return applied ? policy : null;
+  });
+
   /// Current signed channels of one Space, ordered for presentation.
   Future<List<SpaceChannel>> channelsOf(
     NodeId spaceId, {
@@ -6035,6 +6105,7 @@ class GroupService {
     SpaceLifecycleTransition? lifecycleTransition,
     SpacePostPin? postPin,
     SpaceRecommendationCampaign? recommendationCampaign,
+    SpaceAccessPolicy? accessPolicy,
     int? createdAtMs,
   }) async {
     final b = await load(groupId);
@@ -6144,6 +6215,8 @@ class GroupService {
               ? 12
               : recommendationCampaign != null
               ? 13
+              : accessPolicy != null
+              ? 17
               : channelRetention != null
               ? 15
               : retentionPolicy != null
@@ -6180,6 +6253,7 @@ class GroupService {
           lifecycleTransition: lifecycleTransition,
           postPin: postPin,
           recommendationCampaign: recommendationCampaign,
+          accessPolicy: accessPolicy,
           policyVersion: pv,
           createdAtMs: createdAt,
           signature: Uint8List(0),

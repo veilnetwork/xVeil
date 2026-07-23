@@ -255,6 +255,8 @@ class HeadlessRuntime {
         loadGroupFile: groupApi.loadFile,
         groupMembers: groupApi.members,
         groupMemberAction: groupApi.memberAction,
+        spaceAccess: groupApi.spaceAccess,
+        spaceAccessAction: groupApi.spaceAccessAction,
         renameGroup: groupApi.rename,
         leaveGroup: groupApi.leave,
         spaceChannels: groupApi.channels,

@@ -1763,6 +1763,88 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
       },
+      '/spaces/access': {
+        'get': {
+          'summary':
+              'Read signed custom roles, participant groups and effective permissions',
+          'parameters': [
+            {
+              'name': 'space',
+              'in': 'query',
+              'required': true,
+              'schema': {'type': 'string'},
+            },
+          ],
+          'responses': ok({'type': obj}),
+        },
+        'post': {
+          'summary':
+              'Atomically edit the owner-signed access policy at an expected revision',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space', 'action', 'expectedRevision'],
+                  'properties': {
+                    'space': {'type': 'string'},
+                    'action': {
+                      'type': 'string',
+                      'enum': [
+                        'upsert_role',
+                        'delete_role',
+                        'upsert_group',
+                        'delete_group',
+                        'set_member_roles',
+                      ],
+                    },
+                    'expectedRevision': {'type': 'integer', 'minimum': 0},
+                    'roleId': {'type': 'string'},
+                    'groupId': {'type': 'string'},
+                    'peer': {'type': 'string'},
+                    'name': {'type': 'string', 'maxLength': 80},
+                    'permissions': {
+                      'type': 'array',
+                      'uniqueItems': true,
+                      'items': {
+                        'type': 'string',
+                        'enum': [
+                          'view',
+                          'distributeContent',
+                          'publishMessages',
+                          'publishPosts',
+                          'managePosts',
+                          'manageRecommendations',
+                          'enterVoice',
+                          'manageMembers',
+                          'manageRoles',
+                          'moderate',
+                          'manageSettings',
+                          'manageEncryption',
+                          'manageStorage',
+                          'manageChannels',
+                        ],
+                      },
+                    },
+                    'members': {
+                      'type': 'array',
+                      'uniqueItems': true,
+                      'items': {'type': 'string'},
+                    },
+                    'roles': {
+                      'type': 'array',
+                      'uniqueItems': true,
+                      'items': {'type': 'string'},
+                    },
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+      },
       '/spaces/invites': {
         'get': {
           'summary': 'Pending consent-first community invitations',
@@ -2649,6 +2731,8 @@ class ApiHandler {
     required this.loadGroupFile,
     required this.groupMembers,
     required this.groupMemberAction,
+    this.spaceAccess,
+    this.spaceAccessAction,
     required this.renameGroup,
     required this.leaveGroup,
     this.spaceChannels,
@@ -2801,6 +2885,9 @@ class ApiHandler {
     String? role,
   )
   groupMemberAction;
+  final Future<Map<String, dynamic>?> Function(String spaceHex)? spaceAccess;
+  final Future<String?> Function(String spaceHex, Map<String, dynamic> body)?
+  spaceAccessAction;
   final Future<String?> Function(String groupHex, String name) renameGroup;
   final Future<String?> Function(String groupHex) leaveGroup;
   final Future<List<Map<String, dynamic>>?> Function(String spaceHex)?
@@ -4652,6 +4739,35 @@ class ApiHandler {
       return isSpace
           ? _spaceMutationResponse(error)
           : _groupMutationResponse(error);
+    }
+    if (method == 'GET' && path == '/v1/spaces/access') {
+      if (spaceAccess == null) {
+        return const ApiResponse(501, {'error': 'Space access unavailable'});
+      }
+      final space = uri.queryParameters['space'];
+      if (space == null || space.isEmpty) {
+        return const ApiResponse(400, {'error': 'space required'});
+      }
+      final policy = await spaceAccess!(space);
+      return policy == null
+          ? const ApiResponse(404, {'error': 'space not found'})
+          : ApiResponse(200, policy);
+    }
+    if (method == 'POST' && path == '/v1/spaces/access') {
+      if (spaceAccessAction == null) {
+        return const ApiResponse(501, {'error': 'Space access unavailable'});
+      }
+      final space = body?['space'];
+      if (space is! String || space.isEmpty || body == null) {
+        return const ApiResponse(400, {
+          'error': 'space + action + expectedRevision required',
+        });
+      }
+      final error = await spaceAccessAction!(
+        space,
+        Map<String, dynamic>.from(body),
+      );
+      return _spaceMutationResponse(error);
     }
     if (method == 'POST' &&
         (path == '/v1/spaces/name' || path == '/v1/groups/name')) {

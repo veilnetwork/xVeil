@@ -125,6 +125,25 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     GroupRole.member => l.spaceRoleMember,
   };
 
+  String _permissionLabel(AppL10n l, SpacePermission permission) =>
+      switch (permission) {
+        SpacePermission.view => l.spacePermissionView,
+        SpacePermission.distributeContent => l.spacePermissionDistributeContent,
+        SpacePermission.publishMessages => l.spacePermissionPublishMessages,
+        SpacePermission.publishPosts => l.spacePermissionPublishPosts,
+        SpacePermission.managePosts => l.spacePermissionManagePosts,
+        SpacePermission.manageRecommendations =>
+          l.spacePermissionManageRecommendations,
+        SpacePermission.enterVoice => l.spacePermissionEnterVoice,
+        SpacePermission.manageMembers => l.spacePermissionManageMembers,
+        SpacePermission.manageRoles => l.spacePermissionManageRoles,
+        SpacePermission.moderate => l.spacePermissionModerate,
+        SpacePermission.manageSettings => l.spacePermissionManageSettings,
+        SpacePermission.manageEncryption => l.spacePermissionManageEncryption,
+        SpacePermission.manageStorage => l.spacePermissionManageStorage,
+        SpacePermission.manageChannels => l.spacePermissionManageChannels,
+      };
+
   String _visibilityLabel(AppL10n l, SpaceVisibility? visibility) =>
       switch (visibility) {
         SpaceVisibility.public => l.spaceVisibilityPublic,
@@ -314,6 +333,265 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text(l.spaceInviteSent)));
     }
+  }
+
+  Future<bool> _replaceAccessPolicy(
+    GroupService service,
+    NodeId spaceId,
+    GroupState state, {
+    required Iterable<SpaceRoleDefinition> roles,
+    required Iterable<SpaceMemberGroup> groups,
+    required Iterable<SpaceMemberRoleAssignment> directAssignments,
+  }) async {
+    final saved = await service.replaceSpaceAccessPolicy(
+      spaceId,
+      expectedRevision: state.accessPolicy?.revision ?? 0,
+      roles: roles,
+      groups: groups,
+      directAssignments: directAssignments,
+    );
+    if (saved != null) return true;
+    _failure();
+    return false;
+  }
+
+  Future<void> _editAccessRole(
+    GroupService service,
+    NodeId spaceId,
+    GroupState state, [
+    SpaceRoleDefinition? existing,
+  ]) async {
+    final draft = await showDialog<_SpaceRoleDraft>(
+      context: context,
+      builder: (_) => _SpaceRoleDialog(
+        existing: existing,
+        permissionLabel: (permission) =>
+            _permissionLabel(AppL10n.of(context), permission),
+      ),
+    );
+    if (draft == null) return;
+    final roleId = existing?.roleId ?? service.newSpaceAccessObjectId();
+    final roles = [...?state.accessPolicy?.roles]
+      ..removeWhere((role) => role.roleId == roleId)
+      ..add(
+        SpaceRoleDefinition(
+          roleId: roleId,
+          name: draft.name,
+          permissions: draft.permissions,
+        ),
+      );
+    await _replaceAccessPolicy(
+      service,
+      spaceId,
+      state,
+      roles: roles,
+      groups: state.accessPolicy?.groups ?? const <SpaceMemberGroup>[],
+      directAssignments:
+          state.accessPolicy?.directAssignments ??
+          const <SpaceMemberRoleAssignment>[],
+    );
+  }
+
+  Future<void> _deleteAccessRole(
+    GroupService service,
+    NodeId spaceId,
+    GroupState state,
+    SpaceRoleDefinition role,
+  ) async {
+    final l = AppL10n.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(l.spaceAccessRoleDelete),
+        content: Text(l.spaceAccessRoleDeleteConfirm(role.name)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: Text(l.spaceAccessRoleDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final remainingRoles = [
+      for (final candidate
+          in state.accessPolicy?.roles ?? const <SpaceRoleDefinition>[])
+        if (candidate.roleId != role.roleId) candidate,
+    ];
+    final groups = [
+      for (final group
+          in state.accessPolicy?.groups ?? const <SpaceMemberGroup>[])
+        if (group.roleIds.any((roleId) => roleId != role.roleId))
+          SpaceMemberGroup(
+            groupId: group.groupId,
+            name: group.name,
+            members: group.members,
+            roleIds: group.roleIds.where((roleId) => roleId != role.roleId),
+          ),
+    ];
+    final direct = [
+      for (final assignment
+          in state.accessPolicy?.directAssignments ??
+              const <SpaceMemberRoleAssignment>[])
+        if (assignment.roleIds.any((roleId) => roleId != role.roleId))
+          SpaceMemberRoleAssignment(
+            member: assignment.member,
+            roleIds: assignment.roleIds.where(
+              (roleId) => roleId != role.roleId,
+            ),
+          ),
+    ];
+    await _replaceAccessPolicy(
+      service,
+      spaceId,
+      state,
+      roles: remainingRoles,
+      groups: groups,
+      directAssignments: direct,
+    );
+  }
+
+  Future<void> _editAccessGroup(
+    GroupService service,
+    NodeId spaceId,
+    GroupState state,
+    List<Conversation> conversations, [
+    SpaceMemberGroup? existing,
+  ]) async {
+    final roles = state.accessPolicy?.roles ?? const <SpaceRoleDefinition>[];
+    if (roles.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).spaceAccessNoRoles)),
+      );
+      return;
+    }
+    final members = [
+      for (final member in state.members.values)
+        _SpaceAccessMemberOption(
+          id: member.nodeId,
+          label: _memberLabel(
+            AppL10n.of(context),
+            service,
+            member.nodeId,
+            conversations,
+          ),
+        ),
+    ];
+    final draft = await showDialog<_SpaceGroupDraft>(
+      context: context,
+      builder: (_) =>
+          _SpaceGroupDialog(existing: existing, members: members, roles: roles),
+    );
+    if (draft == null) return;
+    final groupId = existing?.groupId ?? service.newSpaceAccessObjectId();
+    final groups = [...?state.accessPolicy?.groups]
+      ..removeWhere((group) => group.groupId == groupId)
+      ..add(
+        SpaceMemberGroup(
+          groupId: groupId,
+          name: draft.name,
+          members: draft.members,
+          roleIds: draft.roleIds,
+        ),
+      );
+    await _replaceAccessPolicy(
+      service,
+      spaceId,
+      state,
+      roles: roles,
+      groups: groups,
+      directAssignments:
+          state.accessPolicy?.directAssignments ??
+          const <SpaceMemberRoleAssignment>[],
+    );
+  }
+
+  Future<void> _deleteAccessGroup(
+    GroupService service,
+    NodeId spaceId,
+    GroupState state,
+    SpaceMemberGroup group,
+  ) async {
+    final l = AppL10n.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(l.spaceAccessGroupDelete),
+        content: Text(l.spaceAccessGroupDeleteConfirm(group.name)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: Text(l.spaceAccessGroupDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _replaceAccessPolicy(
+      service,
+      spaceId,
+      state,
+      roles: state.accessPolicy?.roles ?? const <SpaceRoleDefinition>[],
+      groups: [
+        for (final candidate
+            in state.accessPolicy?.groups ?? const <SpaceMemberGroup>[])
+          if (candidate.groupId != group.groupId) candidate,
+      ],
+      directAssignments:
+          state.accessPolicy?.directAssignments ??
+          const <SpaceMemberRoleAssignment>[],
+    );
+  }
+
+  Future<void> _assignDirectRoles(
+    GroupService service,
+    NodeId spaceId,
+    GroupState state,
+    GroupMember member,
+    String label,
+  ) async {
+    final roles = state.accessPolicy?.roles ?? const <SpaceRoleDefinition>[];
+    if (roles.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).spaceAccessNoRoles)),
+      );
+      return;
+    }
+    final current = state.accessPolicy?.directAssignments
+        .where((assignment) => assignment.member == member.nodeId)
+        .firstOrNull;
+    final selected = await showDialog<Set<String>>(
+      context: context,
+      builder: (_) => _SpaceDirectRolesDialog(
+        memberLabel: label,
+        roles: roles,
+        selectedRoleIds: current?.roleIds.toSet() ?? const {},
+      ),
+    );
+    if (selected == null) return;
+    final direct = [...?state.accessPolicy?.directAssignments]
+      ..removeWhere((assignment) => assignment.member == member.nodeId);
+    if (selected.isNotEmpty) {
+      direct.add(
+        SpaceMemberRoleAssignment(member: member.nodeId, roleIds: selected),
+      );
+    }
+    await _replaceAccessPolicy(
+      service,
+      spaceId,
+      state,
+      roles: roles,
+      groups: state.accessPolicy?.groups ?? const <SpaceMemberGroup>[],
+      directAssignments: direct,
+    );
   }
 
   Future<void> _copySpaceJoinLink(GroupService service, NodeId spaceId) async {
@@ -690,6 +968,11 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                 SpaceAcl(
                   state,
                 ).allows(service.selfId, SpacePermission.manageRecommendations);
+            final canManageAccess = state.isActive && myRole == GroupRole.owner;
+            final accessRoles =
+                state.accessPolicy?.roles ?? const <SpaceRoleDefinition>[];
+            final accessGroups =
+                state.accessPolicy?.groups ?? const <SpaceMemberGroup>[];
             final globalRetentionPolicy = state.effectiveRetentionPolicy();
             final globalRetentionDays = _retentionDays(globalRetentionPolicy);
             final members = state.members.values.toList()
@@ -1137,6 +1420,213 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                         ),
                         const SizedBox(height: 20),
                       ],
+                      Card(
+                        key: const ValueKey('space-access-card'),
+                        clipBehavior: Clip.antiAlias,
+                        child: ExpansionTile(
+                          key: const ValueKey('space-access-expansion'),
+                          leading: const Icon(Icons.policy_outlined),
+                          title: Text(l.spaceAccessTitle),
+                          subtitle: Text(l.spaceAccessHint),
+                          children: [
+                            if (accessRoles.isEmpty && accessGroups.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  0,
+                                  16,
+                                  12,
+                                ),
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    l.spaceAccessEmpty,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
+                                ),
+                              ),
+                            if (accessRoles.isNotEmpty) ...[
+                              const Divider(height: 1),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  12,
+                                  16,
+                                  4,
+                                ),
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    l.spaceAccessRoles,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.labelLarge,
+                                  ),
+                                ),
+                              ),
+                              for (final role in accessRoles)
+                                ListTile(
+                                  key: ValueKey(
+                                    'space-access-role-${role.roleId}',
+                                  ),
+                                  leading: const Icon(Icons.badge_outlined),
+                                  title: Text(role.name),
+                                  subtitle: Text(
+                                    l.spaceAccessRolePermissions(
+                                      role.permissions.length,
+                                    ),
+                                  ),
+                                  trailing: canManageAccess
+                                      ? Wrap(
+                                          spacing: 0,
+                                          children: [
+                                            IconButton(
+                                              tooltip: l.spaceAccessRoleEdit,
+                                              onPressed: () => _editAccessRole(
+                                                service,
+                                                spaceId,
+                                                state,
+                                                role,
+                                              ),
+                                              icon: const Icon(
+                                                Icons.edit_outlined,
+                                              ),
+                                            ),
+                                            IconButton(
+                                              tooltip: l.spaceAccessRoleDelete,
+                                              onPressed: () =>
+                                                  _deleteAccessRole(
+                                                    service,
+                                                    spaceId,
+                                                    state,
+                                                    role,
+                                                  ),
+                                              icon: const Icon(
+                                                Icons.delete_outline,
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : null,
+                                ),
+                            ],
+                            if (accessGroups.isNotEmpty) ...[
+                              const Divider(height: 1),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  12,
+                                  16,
+                                  4,
+                                ),
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    l.spaceAccessGroups,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.labelLarge,
+                                  ),
+                                ),
+                              ),
+                              for (final group in accessGroups)
+                                ListTile(
+                                  key: ValueKey(
+                                    'space-access-group-${group.groupId}',
+                                  ),
+                                  leading: const Icon(
+                                    Icons.group_work_outlined,
+                                  ),
+                                  title: Text(group.name),
+                                  subtitle: Text(
+                                    l.spaceAccessGroupSummary(
+                                      group.members.length,
+                                      group.roleIds.length,
+                                    ),
+                                  ),
+                                  trailing: canManageAccess
+                                      ? Wrap(
+                                          spacing: 0,
+                                          children: [
+                                            IconButton(
+                                              tooltip: l.spaceAccessGroupEdit,
+                                              onPressed: () => _editAccessGroup(
+                                                service,
+                                                spaceId,
+                                                state,
+                                                conversations,
+                                                group,
+                                              ),
+                                              icon: const Icon(
+                                                Icons.edit_outlined,
+                                              ),
+                                            ),
+                                            IconButton(
+                                              tooltip: l.spaceAccessGroupDelete,
+                                              onPressed: () =>
+                                                  _deleteAccessGroup(
+                                                    service,
+                                                    spaceId,
+                                                    state,
+                                                    group,
+                                                  ),
+                                              icon: const Icon(
+                                                Icons.delete_outline,
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : null,
+                                ),
+                            ],
+                            if (canManageAccess) ...[
+                              const Divider(height: 1),
+                              Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Wrap(
+                                  alignment: WrapAlignment.end,
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    OutlinedButton.icon(
+                                      key: const ValueKey(
+                                        'space-access-add-role',
+                                      ),
+                                      onPressed: () => _editAccessRole(
+                                        service,
+                                        spaceId,
+                                        state,
+                                      ),
+                                      icon: const Icon(
+                                        Icons.add_moderator_outlined,
+                                      ),
+                                      label: Text(l.spaceAccessRoleAdd),
+                                    ),
+                                    OutlinedButton.icon(
+                                      key: const ValueKey(
+                                        'space-access-add-group',
+                                      ),
+                                      onPressed: () => _editAccessGroup(
+                                        service,
+                                        spaceId,
+                                        state,
+                                        conversations,
+                                      ),
+                                      icon: const Icon(
+                                        Icons.group_add_outlined,
+                                      ),
+                                      label: Text(l.spaceAccessGroupAdd),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
                       Row(
                         children: [
                           Expanded(
@@ -1179,6 +1669,15 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                           member.nodeId == service.selfId
                                       ? <PopupMenuEntry<_SpaceMemberAction>>[]
                                       : _actionsFor(l, myRole, member);
+                                  final customRoleNames = [
+                                    for (final role in accessRoles)
+                                      if (state
+                                          .customRoleIdsOf(member.nodeId)
+                                          .contains(role.roleId))
+                                        role.name,
+                                  ]..sort();
+                                  final canAssignCustomRoles =
+                                      canManageAccess && accessRoles.isNotEmpty;
                                   return Column(
                                     children: [
                                       if (index > 0)
@@ -1196,28 +1695,64 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                           [
                                             _roleLabel(l, member.role),
                                             member.nodeId.short,
+                                            ...customRoleNames,
                                             if (member.muted)
                                               l.spaceMemberMuted,
                                           ].join(' · '),
                                         ),
-                                        trailing: actions.isEmpty
-                                            ? member.muted
-                                                  ? const Icon(
-                                                      Icons.volume_off_outlined,
-                                                    )
-                                                  : null
-                                            : PopupMenuButton<
-                                                _SpaceMemberAction
-                                              >(
-                                                itemBuilder: (_) => actions,
-                                                onSelected: (action) =>
-                                                    _memberAction(
-                                                      service,
-                                                      spaceId,
-                                                      member,
-                                                      label,
-                                                      action,
+                                        trailing:
+                                            !canAssignCustomRoles &&
+                                                actions.isEmpty &&
+                                                !member.muted
+                                            ? null
+                                            : Wrap(
+                                                spacing: 0,
+                                                children: [
+                                                  if (canAssignCustomRoles)
+                                                    IconButton(
+                                                      key: ValueKey(
+                                                        'space-access-assign-${member.nodeId.hex}',
+                                                      ),
+                                                      tooltip: l
+                                                          .spaceAccessDirectRoles,
+                                                      onPressed: () =>
+                                                          _assignDirectRoles(
+                                                            service,
+                                                            spaceId,
+                                                            state,
+                                                            member,
+                                                            label,
+                                                          ),
+                                                      icon: const Icon(
+                                                        Icons.badge_outlined,
+                                                      ),
                                                     ),
+                                                  if (actions.isNotEmpty)
+                                                    PopupMenuButton<
+                                                      _SpaceMemberAction
+                                                    >(
+                                                      itemBuilder: (_) =>
+                                                          actions,
+                                                      onSelected: (action) =>
+                                                          _memberAction(
+                                                            service,
+                                                            spaceId,
+                                                            member,
+                                                            label,
+                                                            action,
+                                                          ),
+                                                    )
+                                                  else if (member.muted)
+                                                    const Padding(
+                                                      padding: EdgeInsets.all(
+                                                        12,
+                                                      ),
+                                                      child: Icon(
+                                                        Icons
+                                                            .volume_off_outlined,
+                                                      ),
+                                                    ),
+                                                ],
                                               ),
                                       ),
                                     ],
@@ -1230,6 +1765,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                       const SizedBox(height: 20),
                       if (myRole == GroupRole.owner)
                         ListTile(
+                          key: const ValueKey('space-owner-leave-hint'),
                           leading: const Icon(Icons.info_outline),
                           title: Text(l.spaceOwnerLeaveHint),
                         )
@@ -1372,6 +1908,325 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
           },
         ),
       ),
+    );
+  }
+}
+
+final class _SpaceRoleDraft {
+  const _SpaceRoleDraft({required this.name, required this.permissions});
+
+  final String name;
+  final Set<SpacePermission> permissions;
+}
+
+class _SpaceRoleDialog extends StatefulWidget {
+  const _SpaceRoleDialog({
+    required this.existing,
+    required this.permissionLabel,
+  });
+
+  final SpaceRoleDefinition? existing;
+  final String Function(SpacePermission permission) permissionLabel;
+
+  @override
+  State<_SpaceRoleDialog> createState() => _SpaceRoleDialogState();
+}
+
+class _SpaceRoleDialogState extends State<_SpaceRoleDialog> {
+  late final TextEditingController _name = TextEditingController(
+    text: widget.existing?.name ?? '',
+  );
+  late final Set<SpacePermission> _permissions = {
+    ...?widget.existing?.permissions,
+  };
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final normalized = _name.text.trim();
+    if (normalized.isEmpty || _permissions.isEmpty) return;
+    Navigator.of(context).pop(
+      _SpaceRoleDraft(
+        name: normalized,
+        permissions: Set.unmodifiable(_permissions),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final canSave = _name.text.trim().isNotEmpty && _permissions.isNotEmpty;
+    return AlertDialog(
+      title: Text(
+        widget.existing == null ? l.spaceAccessRoleAdd : l.spaceAccessRoleEdit,
+      ),
+      content: SizedBox(
+        width: 520,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 520),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  key: const ValueKey('space-access-role-name'),
+                  controller: _name,
+                  autofocus: true,
+                  maxLength: 80,
+                  decoration: InputDecoration(labelText: l.spaceAccessRoleName),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 4),
+                for (final permission in SpacePermission.values)
+                  CheckboxListTile(
+                    key: ValueKey('space-access-permission-${permission.name}'),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    value: _permissions.contains(permission),
+                    title: Text(widget.permissionLabel(permission)),
+                    onChanged: (selected) => setState(() {
+                      if (selected == true) {
+                        _permissions.add(permission);
+                      } else {
+                        _permissions.remove(permission);
+                      }
+                    }),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          key: const ValueKey('space-access-role-save'),
+          onPressed: canSave ? _submit : null,
+          child: Text(l.actionSave),
+        ),
+      ],
+    );
+  }
+}
+
+final class _SpaceAccessMemberOption {
+  const _SpaceAccessMemberOption({required this.id, required this.label});
+
+  final NodeId id;
+  final String label;
+}
+
+final class _SpaceGroupDraft {
+  const _SpaceGroupDraft({
+    required this.name,
+    required this.members,
+    required this.roleIds,
+  });
+
+  final Set<NodeId> members;
+  final Set<String> roleIds;
+  final String name;
+}
+
+class _SpaceGroupDialog extends StatefulWidget {
+  const _SpaceGroupDialog({
+    required this.existing,
+    required this.members,
+    required this.roles,
+  });
+
+  final SpaceMemberGroup? existing;
+  final List<_SpaceAccessMemberOption> members;
+  final List<SpaceRoleDefinition> roles;
+
+  @override
+  State<_SpaceGroupDialog> createState() => _SpaceGroupDialogState();
+}
+
+class _SpaceGroupDialogState extends State<_SpaceGroupDialog> {
+  late final TextEditingController _name = TextEditingController(
+    text: widget.existing?.name ?? '',
+  );
+  late final Set<NodeId> _members = {...?widget.existing?.members};
+  late final Set<String> _roleIds = {...?widget.existing?.roleIds};
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final normalized = _name.text.trim();
+    if (normalized.isEmpty || _members.isEmpty || _roleIds.isEmpty) return;
+    Navigator.of(context).pop(
+      _SpaceGroupDraft(
+        name: normalized,
+        members: Set.unmodifiable(_members),
+        roleIds: Set.unmodifiable(_roleIds),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final canSave =
+        _name.text.trim().isNotEmpty &&
+        _members.isNotEmpty &&
+        _roleIds.isNotEmpty;
+    return AlertDialog(
+      title: Text(
+        widget.existing == null
+            ? l.spaceAccessGroupAdd
+            : l.spaceAccessGroupEdit,
+      ),
+      content: SizedBox(
+        width: 520,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 560),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  key: const ValueKey('space-access-group-name'),
+                  controller: _name,
+                  autofocus: true,
+                  maxLength: 80,
+                  decoration: InputDecoration(
+                    labelText: l.spaceAccessGroupName,
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+                Text(
+                  l.spaceAccessRoles,
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                for (final role in widget.roles)
+                  CheckboxListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    value: _roleIds.contains(role.roleId),
+                    title: Text(role.name),
+                    onChanged: (selected) => setState(() {
+                      if (selected == true) {
+                        _roleIds.add(role.roleId);
+                      } else {
+                        _roleIds.remove(role.roleId);
+                      }
+                    }),
+                  ),
+                const SizedBox(height: 8),
+                Text(
+                  l.spaceMembers(widget.members.length),
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                for (final member in widget.members)
+                  CheckboxListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    value: _members.contains(member.id),
+                    title: Text(member.label),
+                    subtitle: Text(member.id.short),
+                    onChanged: (selected) => setState(() {
+                      if (selected == true) {
+                        _members.add(member.id);
+                      } else {
+                        _members.remove(member.id);
+                      }
+                    }),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          key: const ValueKey('space-access-group-save'),
+          onPressed: canSave ? _submit : null,
+          child: Text(l.actionSave),
+        ),
+      ],
+    );
+  }
+}
+
+class _SpaceDirectRolesDialog extends StatefulWidget {
+  const _SpaceDirectRolesDialog({
+    required this.memberLabel,
+    required this.roles,
+    required this.selectedRoleIds,
+  });
+
+  final String memberLabel;
+  final List<SpaceRoleDefinition> roles;
+  final Set<String> selectedRoleIds;
+
+  @override
+  State<_SpaceDirectRolesDialog> createState() =>
+      _SpaceDirectRolesDialogState();
+}
+
+class _SpaceDirectRolesDialogState extends State<_SpaceDirectRolesDialog> {
+  late final Set<String> _selected = {...widget.selectedRoleIds};
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return AlertDialog(
+      title: Text(l.spaceAccessDirectRoles),
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.memberLabel),
+            const SizedBox(height: 8),
+            for (final role in widget.roles)
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                value: _selected.contains(role.roleId),
+                title: Text(role.name),
+                onChanged: (selected) => setState(() {
+                  if (selected == true) {
+                    _selected.add(role.roleId);
+                  } else {
+                    _selected.remove(role.roleId);
+                  }
+                }),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          key: const ValueKey('space-access-direct-save'),
+          onPressed: () =>
+              Navigator.of(context).pop(Set.unmodifiable(_selected)),
+          child: Text(l.actionSave),
+        ),
+      ],
     );
   }
 }

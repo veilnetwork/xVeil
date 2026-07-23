@@ -16,6 +16,7 @@ import 'package:crypto/crypto.dart' as crypto;
 
 import '../core/ids.dart';
 import 'group_epoch.dart';
+import 'space_access.dart';
 import 'space_channel.dart';
 import 'space_lifecycle.dart';
 import 'space_moderation.dart';
@@ -422,6 +423,7 @@ class ControlEntry {
     this.lifecycleTransition,
     this.postPin,
     this.recommendationCampaign,
+    this.accessPolicy,
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
@@ -442,7 +444,8 @@ class ControlEntry {
   /// opaque retention revision encrypted for one restricted text channel.
   /// V16 carries a clear Space/channel media-only retention revision; keeping
   /// it separate from V9 prevents older clients from treating it as full
-  /// history deletion.
+  /// history deletion. V17 carries one complete, atomic Space access-policy
+  /// snapshot containing custom roles, participant groups and direct roles.
   final int version;
 
   /// Group binding for replay resistance. Legacy entries omit it and retain
@@ -470,6 +473,7 @@ class ControlEntry {
   final SpaceLifecycleTransition? lifecycleTransition;
   final SpacePostPin? postPin;
   final SpaceRecommendationCampaign? recommendationCampaign;
+  final SpaceAccessPolicy? accessPolicy;
 
   /// Optional scale-free recipient-envelope root for the epoch established by
   /// this control entry. Legacy entries omit it and keep identical bytes.
@@ -499,7 +503,8 @@ class ControlEntry {
           version == 13 ||
           version == 14 ||
           version == 15 ||
-          version == 16) &&
+          version == 16 ||
+          version == 17) &&
       seq >= 0 &&
       policyVersion >= 0 &&
       createdAtMs >= 0 &&
@@ -741,6 +746,32 @@ class ControlEntry {
                 postPin == null &&
                 recommendationCampaign == null
           : channelRetention == null) &&
+      (version == 17
+          ? op == ControlOp.setPolicy &&
+                accessPolicy != null &&
+                accessPolicy!.isStructurallyValid &&
+                groupId == accessPolicy!.spaceId &&
+                accessPolicy!.changedBy == author &&
+                accessPolicy!.changedAtMs == createdAtMs &&
+                target == null &&
+                role == null &&
+                text == null &&
+                epochDescriptor == null &&
+                channel == null &&
+                channelControl == null &&
+                postBoundary == null &&
+                controlCheckpoint == null &&
+                rules == null &&
+                rulesAcceptance == null &&
+                moderationAction == null &&
+                moderationRevocation == null &&
+                channelModeration == null &&
+                channelRetention == null &&
+                retentionPolicy == null &&
+                lifecycleTransition == null &&
+                postPin == null &&
+                recommendationCampaign == null
+          : accessPolicy == null) &&
       (controlCheckpoint == null
           ? op != ControlOp.checkpoint
           : version == 4 &&
@@ -789,6 +820,7 @@ class ControlEntry {
     lifecycleTransition: lifecycleTransition,
     postPin: postPin,
     recommendationCampaign: recommendationCampaign,
+    accessPolicy: accessPolicy,
     policyVersion: policyVersion,
     createdAtMs: createdAtMs,
     signature: sig,
@@ -831,6 +863,7 @@ class ControlEntry {
       if (postPin != null) 'postPin': postPin!.toJson(),
       if (recommendationCampaign != null)
         'recommendationCampaign': recommendationCampaign!.toJson(),
+      if (accessPolicy != null) 'accessPolicy': accessPolicy!.toJson(),
       'pv': policyVersion,
       'ts': createdAtMs,
     };
@@ -869,6 +902,7 @@ class ControlEntry {
     if (postPin != null) 'postPin': postPin!.toJson(),
     if (recommendationCampaign != null)
       'recommendationCampaign': recommendationCampaign!.toJson(),
+    if (accessPolicy != null) 'accessPolicy': accessPolicy!.toJson(),
     'pv': policyVersion,
     'ts': createdAtMs,
     'sig': base64Encode(signature),
@@ -896,7 +930,8 @@ class ControlEntry {
             version != 13 &&
             version != 14 &&
             version != 15 &&
-            version != 16) ||
+            version != 16 &&
+            version != 17) ||
         author is! String ||
         seq is! int ||
         prev is! String ||
@@ -991,6 +1026,10 @@ class ControlEntry {
           recommendationCampaign == null) {
         return null;
       }
+      final accessPolicy = j.containsKey('accessPolicy')
+          ? SpaceAccessPolicy.fromJson(j['accessPolicy'])
+          : null;
+      if (j.containsKey('accessPolicy') && accessPolicy == null) return null;
       final entry = ControlEntry(
         version: version,
         groupId: j['gid'] is String ? NodeId.fromHex(j['gid'] as String) : null,
@@ -1018,6 +1057,7 @@ class ControlEntry {
         lifecycleTransition: lifecycleTransition,
         postPin: postPin,
         recommendationCampaign: recommendationCampaign,
+        accessPolicy: accessPolicy,
         policyVersion: pv,
         createdAtMs: ts,
         signature: Uint8List.fromList(base64Decode(sig)),

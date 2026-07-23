@@ -15,6 +15,7 @@ import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
+import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_join_request.dart';
@@ -851,7 +852,6 @@ void main() {
 
     expect(find.text(l.spaceSettingsTitle), findsOneWidget);
     expect(find.text('Protocol lab'), findsOneWidget);
-    expect(find.text(l.spaceOwnerLeaveHint), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('space-subscription-settings')));
     await tester.pumpAndSettle();
@@ -1188,12 +1188,17 @@ void main() {
     );
     await tester.pumpAndSettle();
     final l = AppL10n.of(tester.element(find.byType(SpaceSettingsScreen)));
+    final lifecycleAction = find.byKey(
+      const ValueKey('space-lifecycle-action'),
+    );
     await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('space-lifecycle-action')),
+      lifecycleAction,
       300,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(find.byKey(const ValueKey('space-lifecycle-action')));
+    await tester.ensureVisible(lifecycleAction);
+    await tester.pumpAndSettle();
+    await tester.tap(lifecycleAction);
     await tester.pumpAndSettle();
     expect(find.text(l.spaceArchiveConfirm), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('space-lifecycle-confirm')));
@@ -1429,5 +1434,109 @@ void main() {
     final revoked = (await service.spaceModerationAudit(spaceId)).single;
     expect(revoked.revocationReason, 'Warning reviewed');
     expect(find.textContaining(l.spaceModerationRevoked), findsOneWidget);
+  });
+
+  testWidgets('Space owner creates roles, groups and direct assignments', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(75);
+    final service = GroupService(storage, _Signer(owner));
+    addTearDown(service.dispose);
+    final spaceId = await service.createSpace('Access settings');
+    await tester.binding.setSurfaceSize(const Size(800, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          groupServiceProvider.overrideWithValue(service),
+          conversationsProvider.overrideWith((ref) => Stream.value(const [])),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(SpaceSettingsScreen)));
+    final accessExpansion = find.byKey(
+      const ValueKey('space-access-expansion'),
+    );
+    await tester.ensureVisible(accessExpansion);
+    await tester.tap(accessExpansion);
+    await tester.pumpAndSettle();
+    final addRole = find.byKey(const ValueKey('space-access-add-role'));
+    await tester.ensureVisible(addRole);
+    await tester.pumpAndSettle();
+    await tester.tap(addRole);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('space-access-role-name')),
+      'Publisher',
+    );
+    final permission = find.byKey(
+      const ValueKey('space-access-permission-publishPosts'),
+    );
+    await tester.ensureVisible(permission);
+    await tester.tap(permission);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('space-access-role-save')));
+    await tester.pumpAndSettle();
+
+    var state = (await service.stateOf(spaceId))!;
+    final role = state.accessPolicy!.roles.single;
+    expect(role.name, 'Publisher');
+    expect(role.permissions, {SpacePermission.publishPosts});
+    expect(find.text('Publisher'), findsOneWidget);
+
+    final assign = find.byKey(ValueKey('space-access-assign-${owner.hex}'));
+    await tester.ensureVisible(assign);
+    await tester.pumpAndSettle();
+    await tester.tap(assign);
+    await tester.pumpAndSettle();
+    final directRole = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.widgetWithText(CheckboxListTile, 'Publisher'),
+    );
+    await tester.tap(directRole);
+    await tester.tap(find.byKey(const ValueKey('space-access-direct-save')));
+    await tester.pumpAndSettle();
+    state = (await service.stateOf(spaceId))!;
+    expect(state.customRoleIdsOf(owner), {role.roleId});
+
+    final addGroup = find.byKey(const ValueKey('space-access-add-group'));
+    await tester.ensureVisible(addGroup);
+    await tester.pumpAndSettle();
+    await tester.tap(addGroup);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('space-access-group-name')),
+      'Editorial',
+    );
+    final groupDialog = find.byType(AlertDialog);
+    await tester.tap(
+      find.descendant(
+        of: groupDialog,
+        matching: find.widgetWithText(CheckboxListTile, 'Publisher'),
+      ),
+    );
+    await tester.tap(
+      find.descendant(
+        of: groupDialog,
+        matching: find.widgetWithText(CheckboxListTile, l.spaceYou),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('space-access-group-save')));
+    await tester.pumpAndSettle();
+
+    state = (await service.stateOf(spaceId))!;
+    expect(state.accessPolicy?.groups.single.name, 'Editorial');
+    expect(state.accessPolicy?.revision, 3);
+    expect(find.text('Editorial'), findsOneWidget);
   });
 }

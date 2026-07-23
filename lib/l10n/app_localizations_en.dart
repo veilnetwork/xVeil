@@ -896,6 +896,133 @@ class AppL10nEn extends AppL10n {
   String get spaceRoleMember => 'Member';
 
   @override
+  String get spaceAccessTitle => 'Roles and access';
+
+  @override
+  String get spaceAccessHint =>
+      'Reusable permission sets, participant groups, and direct member roles. Every change is signed and audited.';
+
+  @override
+  String get spaceAccessEmpty =>
+      'No custom roles yet. Built-in community roles continue to apply.';
+
+  @override
+  String get spaceAccessRoles => 'Custom roles';
+
+  @override
+  String get spaceAccessGroups => 'Participant groups';
+
+  @override
+  String get spaceAccessRoleAdd => 'Add role';
+
+  @override
+  String get spaceAccessRoleEdit => 'Edit role';
+
+  @override
+  String get spaceAccessRoleDelete => 'Delete role';
+
+  @override
+  String spaceAccessRoleDeleteConfirm(Object name) {
+    return 'Delete the role “$name”? Its assignments will be removed in the same signed change.';
+  }
+
+  @override
+  String get spaceAccessRoleName => 'Role name';
+
+  @override
+  String spaceAccessRolePermissions(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count permissions',
+      one: '1 permission',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get spaceAccessGroupAdd => 'Add group';
+
+  @override
+  String get spaceAccessGroupEdit => 'Edit group';
+
+  @override
+  String get spaceAccessGroupDelete => 'Delete group';
+
+  @override
+  String spaceAccessGroupDeleteConfirm(Object name) {
+    return 'Delete the participant group “$name”?';
+  }
+
+  @override
+  String get spaceAccessGroupName => 'Group name';
+
+  @override
+  String spaceAccessGroupSummary(num members, num roles) {
+    String _temp0 = intl.Intl.pluralLogic(
+      members,
+      locale: localeName,
+      other: '$members members',
+      one: '1 member',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      roles,
+      locale: localeName,
+      other: '$roles roles',
+      one: '1 role',
+    );
+    return '$_temp0 · $_temp1';
+  }
+
+  @override
+  String get spaceAccessDirectRoles => 'Assign custom roles';
+
+  @override
+  String get spaceAccessNoRoles => 'Create a custom role before assigning it.';
+
+  @override
+  String get spacePermissionView => 'View community';
+
+  @override
+  String get spacePermissionDistributeContent => 'Distribute content';
+
+  @override
+  String get spacePermissionPublishMessages => 'Publish messages';
+
+  @override
+  String get spacePermissionPublishPosts => 'Publish posts';
+
+  @override
+  String get spacePermissionManagePosts => 'Manage posts';
+
+  @override
+  String get spacePermissionManageRecommendations => 'Manage recommendations';
+
+  @override
+  String get spacePermissionEnterVoice => 'Join voice';
+
+  @override
+  String get spacePermissionManageMembers => 'Manage members';
+
+  @override
+  String get spacePermissionManageRoles => 'Manage roles';
+
+  @override
+  String get spacePermissionModerate => 'Moderate';
+
+  @override
+  String get spacePermissionManageSettings => 'Manage settings';
+
+  @override
+  String get spacePermissionManageEncryption => 'Manage encryption';
+
+  @override
+  String get spacePermissionManageStorage => 'Manage storage and retention';
+
+  @override
+  String get spacePermissionManageChannels => 'Manage channels';
+
+  @override
   String get spaceMemberMuted => 'Cannot publish until unmuted';
 
   @override
