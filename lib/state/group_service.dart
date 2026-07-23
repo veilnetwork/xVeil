@@ -50,6 +50,7 @@ import '../domain/space_membership.dart';
 import '../domain/space_moderation.dart';
 import '../domain/space_post.dart';
 import '../domain/space_public_feed.dart';
+import '../domain/space_public_feed_transport.dart';
 import '../domain/space_policy_audit.dart';
 import '../domain/space_recommendation.dart';
 import '../domain/space_retention.dart';
@@ -583,6 +584,26 @@ final class _ContentHolderProof {
   final int confirmedAtMs;
 }
 
+final class _PendingPublicFeedObject {
+  _PendingPublicFeedObject({
+    required this.spaceId,
+    required this.holder,
+    required this.manifestHash,
+    required this.objectHash,
+    required this.createdAtMs,
+  });
+
+  final NodeId spaceId;
+  final NodeId holder;
+  final String manifestHash;
+  final String objectHash;
+  final int createdAtMs;
+  final Completer<Uint8List?> completer = Completer<Uint8List?>();
+  final Map<int, Uint8List> parts = <int, Uint8List>{};
+  int? count;
+  int? totalBytes;
+}
+
 class GroupLogCompaction {
   const GroupLogCompaction({
     required this.messagesBefore,
@@ -710,6 +731,10 @@ typedef SpaceRecommendationSender =
     Future<String?> Function(NodeId peer, SpaceRecommendationCard card);
 typedef SpaceRecommendationRevoker =
     Future<bool> Function(NodeId peer, String messageId);
+typedef SpacePublicFeedRequestSender =
+    Future<void> Function(NodeId holder, String requestJson);
+typedef SpacePublicFeedChunkSender =
+    Future<void> Function(NodeId requester, String chunkJson);
 
 /// Point-in-time transport view used only when an observability snapshot is
 /// explicitly requested. Implementations must return active sessions only.
@@ -770,6 +795,8 @@ class GroupService {
     this.ourCertVersion = 1,
     this.sendContentRequest,
     this.sendContentReceipt,
+    this.sendPublicFeedRequest,
+    this.sendPublicFeedChunk,
     this.sendGroupCallFrame,
     this.grantContentServe,
     this.startContentPull,
@@ -805,6 +832,11 @@ class GroupService {
   /// layer must not outbox, stash or ACK this diagnostics-only frame.
   final Future<void> Function(NodeId holder, String receiptJson)?
   sendContentReceipt;
+
+  /// Live-only request/response path for exact owner-committed public feed
+  /// objects. Neither direction enters chat history or the durable outbox.
+  final SpacePublicFeedRequestSender? sendPublicFeedRequest;
+  final SpacePublicFeedChunkSender? sendPublicFeedChunk;
 
   /// Ships a short-lived encrypted call-control frame to one current member.
   final GroupCallFrameSender? sendGroupCallFrame;
@@ -846,6 +878,12 @@ class GroupService {
   static const int _kMaxPendingContentReceipts = 2048;
   static const int _kMaxOutboundContentRequests = 2048;
   static const int _kMaxContentHolderProofs = 8192;
+  static const int _kMaxPendingPublicFeedObjects = 32;
+  static const int _kPublicFeedServeRequestsPerWindow = 64;
+  static const int _kMaxPublicFeedServeQuotaIdentities = 4096;
+  static const int _kMaxDurablePublicFeedPackages = 64;
+  static const String _publicFeedCacheIndexSetting =
+      'space.public-feed-cache.index.v1';
   final Map<String, _PendingSpaceReceipt> _pendingSpaceReceipts =
       <String, _PendingSpaceReceipt>{};
   final Map<String, _StalledSpaceReceipt> _stalledSpaceReceipts =
@@ -858,6 +896,10 @@ class GroupService {
       <String, _OutboundContentRequest>{};
   final Map<String, _ContentHolderProof> _contentHolderProofs =
       <String, _ContentHolderProof>{};
+  final Map<String, _PendingPublicFeedObject> _pendingPublicFeedObjects =
+      <String, _PendingPublicFeedObject>{};
+  final Map<String, ({int windowStartedAtMs, int requests})>
+  _publicFeedServeQuotas = <String, ({int windowStartedAtMs, int requests})>{};
   static const String _contentGcMarksKey = 'content.gc.marks.v1';
   Timer? _spaceDeletionMaintenanceTimer;
   bool _spaceDeletionMaintenanceRunning = false;
@@ -870,8 +912,24 @@ class GroupService {
   final Map<String, ({String descriptorHash, int publishedAtMs})>
   _publishedPublicSpaceDescriptors =
       <String, ({String descriptorHash, int publishedAtMs})>{};
-  final Map<String, SpacePublicFeedProjection> _publishedPublicSpaceFeeds =
-      <String, SpacePublicFeedProjection>{};
+  final Map<
+    String,
+    ({
+      SpacePublicDescriptor descriptor,
+      SpacePublicFeedProjection feed,
+      int retainedUntilMs,
+    })
+  >
+  _verifiedPublicSpaceFeeds =
+      <
+        String,
+        ({
+          SpacePublicDescriptor descriptor,
+          SpacePublicFeedProjection feed,
+          int retainedUntilMs,
+        })
+      >{};
+  Future<void> _publicFeedCacheMutationTail = Future<void>.value();
   bool _scheduledSpacePostMaintenanceStarted = false;
   bool _scheduledSpacePostMaintenanceRunning = false;
   bool _scheduledSpacePostWakeRequested = false;
@@ -1997,6 +2055,248 @@ class GroupService {
     );
   }
 
+  String _verifiedPublicFeedKey(NodeId spaceId, String manifestHash) =>
+      '${spaceId.hex}:$manifestHash';
+
+  String _verifiedPublicFeedFileId(NodeId spaceId, String manifestHash) =>
+      'space-public-feed:${spaceId.hex}:$manifestHash';
+
+  Future<T> _serializePublicFeedCache<T>(Future<T> Function() action) async {
+    final previous = _publicFeedCacheMutationTail;
+    final gate = Completer<void>();
+    _publicFeedCacheMutationTail = gate.future;
+    try {
+      try {
+        await previous;
+      } catch (_) {}
+      return await action();
+    } finally {
+      gate.complete();
+    }
+  }
+
+  Future<void> _cacheVerifiedPublicFeed(
+    SpacePublicDescriptor descriptor,
+    SpacePublicFeedProjection feed,
+  ) async {
+    final key = _verifiedPublicFeedKey(
+      descriptor.spaceId,
+      descriptor.publicFeedManifestHash,
+    );
+    final nowMs = _now();
+    final retainUntilMs = min(
+      descriptor.expiresAtMs,
+      nowMs + kSpacePublicHolderLifetime.inMilliseconds,
+    );
+    _verifiedPublicSpaceFeeds[key] = (
+      descriptor: descriptor,
+      feed: feed,
+      retainedUntilMs: retainUntilMs,
+    );
+    final fileId = _verifiedPublicFeedFileId(
+      descriptor.spaceId,
+      descriptor.publicFeedManifestHash,
+    );
+    var alreadyDurable = false;
+    try {
+      alreadyDurable = await _storage.hasFile(fileId);
+    } catch (_) {}
+    Uint8List? bytes;
+    if (!alreadyDurable) {
+      var estimatedBytes =
+          descriptor.canonicalBytes().length +
+          feed.manifest.canonicalBytes().length +
+          2 * 1024 * 1024;
+      for (final page in feed.pages) {
+        estimatedBytes += page.canonicalBytes().length;
+        if (estimatedBytes > kSpacePublicFeedPackageMaxBytes) return;
+      }
+      final package = SpacePublicFeedPackage(
+        descriptor: descriptor,
+        projection: feed,
+      );
+      bytes = package.toBytes();
+      if (bytes.length > kSpacePublicFeedPackageMaxBytes) return;
+    }
+    await _serializePublicFeedCache(() async {
+      final retained =
+          <({NodeId spaceId, String manifestHash, int retainUntilMs})>[];
+      final discard = <({NodeId spaceId, String manifestHash})>[];
+      final raw = await _storage.getSetting(_publicFeedCacheIndexSetting);
+      if (raw != null && raw.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is List) {
+            for (final item in decoded.take(
+              _kMaxDurablePublicFeedPackages * 2,
+            )) {
+              if (item is! Map ||
+                  item['space'] is! String ||
+                  item['manifest'] is! String ||
+                  item['retainUntil'] is! int) {
+                continue;
+              }
+              try {
+                final candidate = (
+                  spaceId: NodeId.fromHex(item['space'] as String),
+                  manifestHash: item['manifest'] as String,
+                  retainUntilMs: item['retainUntil'] as int,
+                );
+                if (_sharedContentIdPattern.hasMatch(candidate.manifestHash)) {
+                  if (candidate.retainUntilMs > nowMs &&
+                      !(candidate.spaceId == descriptor.spaceId &&
+                          candidate.manifestHash ==
+                              descriptor.publicFeedManifestHash)) {
+                    retained.add(candidate);
+                  } else if (!(candidate.spaceId == descriptor.spaceId &&
+                      candidate.manifestHash ==
+                          descriptor.publicFeedManifestHash)) {
+                    discard.add((
+                      spaceId: candidate.spaceId,
+                      manifestHash: candidate.manifestHash,
+                    ));
+                  }
+                }
+              } catch (_) {}
+            }
+          }
+        } catch (_) {}
+      }
+      retained.add((
+        spaceId: descriptor.spaceId,
+        manifestHash: descriptor.publicFeedManifestHash,
+        retainUntilMs: retainUntilMs,
+      ));
+      retained.sort(
+        (left, right) => right.retainUntilMs.compareTo(left.retainUntilMs),
+      );
+      final keep = retained
+          .take(_kMaxDurablePublicFeedPackages)
+          .toList(growable: false);
+      final keepKeys = {
+        for (final item in keep)
+          _verifiedPublicFeedKey(item.spaceId, item.manifestHash),
+      };
+      for (final item in [
+        ...discard,
+        for (final item in retained.skip(_kMaxDurablePublicFeedPackages))
+          (spaceId: item.spaceId, manifestHash: item.manifestHash),
+      ]) {
+        final staleKey = _verifiedPublicFeedKey(
+          item.spaceId,
+          item.manifestHash,
+        );
+        _verifiedPublicSpaceFeeds.remove(staleKey);
+        try {
+          await _storage.deleteStoredFile(
+            _verifiedPublicFeedFileId(item.spaceId, item.manifestHash),
+          );
+        } catch (_) {}
+      }
+      final staleInMemory = [
+        for (final entry in _verifiedPublicSpaceFeeds.entries)
+          if (!keepKeys.contains(entry.key) &&
+              entry.value.retainedUntilMs <= nowMs)
+            entry.key,
+      ];
+      for (final staleKey in staleInMemory) {
+        _verifiedPublicSpaceFeeds.remove(staleKey);
+      }
+      if (bytes != null && !await _storage.hasFile(fileId)) {
+        await _storage.storeFile(fileId, bytes);
+      }
+      await _storage.putSetting(
+        _publicFeedCacheIndexSetting,
+        jsonEncode([
+          for (final item in keep)
+            {
+              'space': item.spaceId.hex,
+              'manifest': item.manifestHash,
+              'retainUntil': item.retainUntilMs,
+            },
+        ]),
+      );
+    });
+  }
+
+  Future<int?> _durablePublicFeedRetainedUntil(
+    NodeId spaceId,
+    String manifestHash,
+  ) async {
+    final raw = await _storage.getSetting(_publicFeedCacheIndexSetting);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return null;
+      for (final item in decoded.take(_kMaxDurablePublicFeedPackages * 2)) {
+        if (item is Map &&
+            item['space'] == spaceId.hex &&
+            item['manifest'] == manifestHash &&
+            item['retainUntil'] is int) {
+          return item['retainUntil'] as int;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<
+    ({
+      SpacePublicDescriptor descriptor,
+      SpacePublicFeedProjection feed,
+      int retainedUntilMs,
+    })?
+  >
+  _loadVerifiedPublicFeed(NodeId spaceId, String manifestHash) async {
+    final key = _verifiedPublicFeedKey(spaceId, manifestHash);
+    final memory = _verifiedPublicSpaceFeeds[key];
+    final nowMs = _now();
+    if (memory != null) {
+      if (memory.retainedUntilMs > nowMs) return memory;
+      _verifiedPublicSpaceFeeds.remove(key);
+    }
+    final retainedUntilMs = await _durablePublicFeedRetainedUntil(
+      spaceId,
+      manifestHash,
+    );
+    if (retainedUntilMs == null || retainedUntilMs <= nowMs) return null;
+    final Uint8List? bytes;
+    try {
+      bytes = await _storage.loadFile(
+        _verifiedPublicFeedFileId(spaceId, manifestHash),
+      );
+    } catch (_) {
+      return null;
+    }
+    final package = bytes == null
+        ? null
+        : SpacePublicFeedPackage.fromBytes(bytes);
+    if (package == null ||
+        package.descriptor.spaceId != spaceId ||
+        package.descriptor.publicFeedManifestHash != manifestHash ||
+        !package.verifyAt(
+          nowMs: nowMs,
+          verifySignature: _signer.verifyDetached,
+          verifyPost: _signer.verifyPost,
+        )) {
+      if (bytes != null) {
+        try {
+          await _storage.deleteStoredFile(
+            _verifiedPublicFeedFileId(spaceId, manifestHash),
+          );
+        } catch (_) {}
+      }
+      return null;
+    }
+    final loaded = (
+      descriptor: package.descriptor,
+      feed: package.projection,
+      retainedUntilMs: retainedUntilMs,
+    );
+    _verifiedPublicSpaceFeeds[key] = loaded;
+    return loaded;
+  }
+
   SpacePublicFeedProjection? _signSpacePublicFeedProjection({
     required GroupBundle bundle,
     required String controlHeadHash,
@@ -2218,7 +2518,186 @@ class GroupService {
         )) {
       return null;
     }
+    await _cacheVerifiedPublicFeed(descriptor, feed);
     return SpacePublicDiscoveryPublication(discovery: payload, feed: feed);
+  }
+
+  Future<bool> _localSpaceAcceptsPublicDescriptor(
+    NodeId spaceId,
+    SpacePublicDescriptor descriptor,
+  ) async {
+    final bundle = await load(spaceId);
+    if (bundle == null ||
+        !bundle.manifest.isSpace ||
+        bundle.manifest.visibility != SpaceVisibility.public ||
+        bundle.manifest.discoverable != true ||
+        descriptor.spaceId != spaceId ||
+        jsonEncode(bundle.manifest.toJson()) !=
+            jsonEncode(descriptor.genesisManifest.toJson())) {
+      return false;
+    }
+    final folded = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    );
+    final owners = [
+      for (final member in folded.state.members.values)
+        if (member.role == GroupRole.owner) member.nodeId,
+    ];
+    if (!folded.state.isActive ||
+        owners.length != 1 ||
+        owners.single != descriptor.publisher) {
+      return false;
+    }
+    final localControlHeadHash = crypto.sha256
+        .convert(
+          utf8.encode(
+            jsonEncode([
+              for (final entry in folded.accepted) controlEntryHash(entry),
+            ]),
+          ),
+        )
+        .toString();
+    if (localControlHeadHash != descriptor.controlHeadHash) return false;
+    final localFeed = await _spacePublicFeedMaterial(bundle);
+    return localFeed != null &&
+        localFeed.revision <= descriptor.publicFeedRevision;
+  }
+
+  SpacePublicDiscoveryPublication? _signVerifiedPublicHolder({
+    required SpacePublicDescriptor descriptor,
+    required SpacePublicFeedProjection feed,
+  }) {
+    final nowMs = _now();
+    if (!descriptor.verifyAt(nowMs, _signer.verifyDetached) ||
+        !feed.verifyAt(
+          nowMs: nowMs,
+          expectedManifestHash: descriptor.publicFeedManifestHash,
+          expectedSpaceId: descriptor.spaceId,
+          expectedPublisher: descriptor.publisher,
+          publisherPublicKey: descriptor.genesisManifest.genesisPubKey,
+          expectedControlHeadHash: descriptor.controlHeadHash,
+          verifySignature: _signer.verifyDetached,
+          verifyPost: _signer.verifyPost,
+        )) {
+      return null;
+    }
+    final expiresAtMs = min(
+      descriptor.expiresAtMs,
+      nowMs + kSpacePublicHolderLifetime.inMilliseconds,
+    );
+    if (expiresAtMs <= nowMs) return null;
+    final unsigned = SpacePublicHolderAnnouncement(
+      spaceId: descriptor.spaceId,
+      descriptorHash: descriptor.descriptorHash,
+      publicFeedManifestHash: descriptor.publicFeedManifestHash,
+      holder: selfId,
+      holderPublicKey: _signer.selfPubKey,
+      issuedAtMs: nowMs,
+      expiresAtMs: expiresAtMs,
+    );
+    final signed = _signer.signDetached(unsigned.canonicalBytes());
+    if (!_listEquals(signed.publicKey, _signer.selfPubKey)) return null;
+    final holder = unsigned.withSignature(signed.signature);
+    final payload = SpacePublicDiscoveryPayload(
+      descriptor: descriptor,
+      holder: holder,
+    );
+    return payload.verifyAt(nowMs, _signer.verifyDetached)
+        ? SpacePublicDiscoveryPublication(discovery: payload, feed: feed)
+        : null;
+  }
+
+  /// Download every bounded object committed by [descriptor], verify the owner
+  /// manifest and all author signatures, then create this node's independent
+  /// short-lived holder attestation. The caller chooses which public Spaces it
+  /// is willing to seed; membership is deliberately not treated as authority.
+  Future<SpacePublicDiscoveryPublication?>
+  replicateVerifiedPublicSpaceDiscovery(
+    SpacePublicDescriptor descriptor,
+    Iterable<SpacePublicHolderAnnouncement> holders,
+  ) async {
+    final cached = await _loadVerifiedPublicFeed(
+      descriptor.spaceId,
+      descriptor.publicFeedManifestHash,
+    );
+    if (cached != null &&
+        cached.descriptor.descriptorHash == descriptor.descriptorHash) {
+      final publication = _signVerifiedPublicHolder(
+        descriptor: cached.descriptor,
+        feed: cached.feed,
+      );
+      if (publication != null) return publication;
+    }
+    final feed = await fetchVerifiedPublicSpaceFeed(descriptor, holders);
+    return feed == null
+        ? null
+        : _signVerifiedPublicHolder(descriptor: descriptor, feed: feed);
+  }
+
+  Future<SpacePublicDiscoveryPublication?> _replicatePublicSpaceDiscovery(
+    NodeId spaceId,
+  ) async {
+    ({
+      SpacePublicDescriptor descriptor,
+      SpacePublicFeedProjection feed,
+      int retainedUntilMs,
+    })?
+    cached;
+    for (final candidate in _verifiedPublicSpaceFeeds.values) {
+      if (candidate.descriptor.spaceId != spaceId ||
+          candidate.retainedUntilMs <= _now()) {
+        continue;
+      }
+      if (cached == null ||
+          candidate.descriptor.publicFeedRevision >
+              cached.descriptor.publicFeedRevision ||
+          (candidate.descriptor.publicFeedRevision ==
+                  cached.descriptor.publicFeedRevision &&
+              candidate.descriptor.publicFeedUpdatedAtMs >
+                  cached.descriptor.publicFeedUpdatedAtMs)) {
+        cached = candidate;
+      }
+    }
+    if (cached != null &&
+        await _localSpaceAcceptsPublicDescriptor(spaceId, cached.descriptor)) {
+      final refreshed = _signVerifiedPublicHolder(
+        descriptor: cached.descriptor,
+        feed: cached.feed,
+      );
+      if (refreshed != null) return refreshed;
+    }
+    final route = SpaceDiscoveryCarrierRoute.direct(spaceId);
+    final payloads = await _resolvePublicDiscoveryRoute(
+      route,
+      timeout: const Duration(seconds: 8),
+    );
+    final descriptors = mergeSpacePublicDiscovery(
+      descriptors: [for (final payload in payloads) payload.descriptor],
+      holders: [for (final payload in payloads) payload.holder],
+      nowMs: _now(),
+      verify: _signer.verifyDetached,
+      minimumIndependentHolders: 1,
+    );
+    for (final descriptor in descriptors) {
+      if (descriptor.spaceId != spaceId ||
+          !await _localSpaceAcceptsPublicDescriptor(spaceId, descriptor)) {
+        continue;
+      }
+      final publication = await replicateVerifiedPublicSpaceDiscovery(
+        descriptor,
+        [
+          for (final payload in payloads)
+            if (payload.descriptor.descriptorHash == descriptor.descriptorHash)
+              payload.holder,
+        ],
+      );
+      if (publication != null) return publication;
+    }
+    return null;
   }
 
   /// Publish every locally owned `public + discoverable` Space through the
@@ -2244,9 +2723,9 @@ class GroupService {
     var failures = 0;
     for (final entry in await listSpaces()) {
       spacesScanned++;
-      final publication = await buildSpacePublicDiscoveryPublication(
-        entry.groupId,
-      );
+      final publication =
+          await buildSpacePublicDiscoveryPublication(entry.groupId) ??
+          await _replicatePublicSpaceDiscovery(entry.groupId);
       if (publication == null) continue;
       final payload = publication.discovery;
       final lastPublished =
@@ -2315,8 +2794,7 @@ class GroupService {
           descriptorHash: payload.descriptor.descriptorHash,
           publishedAtMs: publishNow,
         );
-        _publishedPublicSpaceFeeds[payload.descriptor.spaceId.hex] =
-            publication.feed;
+        await _cacheVerifiedPublicFeed(payload.descriptor, publication.feed);
       }
     }
     return SpaceDiscoveryPublishSweep(
@@ -2414,6 +2892,366 @@ class GroupService {
       if (payloads.length >= 5) break;
     }
     return List<SpacePublicDiscoveryPayload>.unmodifiable(payloads);
+  }
+
+  void _purgePublicFeedTransportState() {
+    final cutoff = _now() - kSpacePublicFeedRequestWindow.inMilliseconds;
+    final expired = [
+      for (final entry in _pendingPublicFeedObjects.entries)
+        if (entry.value.createdAtMs < cutoff) entry.key,
+    ];
+    for (final nonce in expired) {
+      final pending = _pendingPublicFeedObjects.remove(nonce);
+      if (pending != null && !pending.completer.isCompleted) {
+        pending.completer.complete(null);
+      }
+    }
+    _publicFeedServeQuotas.removeWhere(
+      (_, quota) => quota.windowStartedAtMs < cutoff,
+    );
+  }
+
+  String _freshPublicFeedNonce() {
+    final random = Random.secure();
+    String nonce;
+    do {
+      nonce = List<int>.generate(
+        32,
+        (_) => random.nextInt(256),
+      ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+    } while (_pendingPublicFeedObjects.containsKey(nonce));
+    return nonce;
+  }
+
+  Future<Uint8List?> _requestPublicFeedObject({
+    required NodeId holder,
+    required SpacePublicDescriptor descriptor,
+    required String objectHash,
+    required Duration timeout,
+  }) async {
+    final send = sendPublicFeedRequest;
+    if (send == null || holder == selfId) return null;
+    _purgePublicFeedTransportState();
+    if (_pendingPublicFeedObjects.length >= _kMaxPendingPublicFeedObjects) {
+      return null;
+    }
+    final nonce = _freshPublicFeedNonce();
+    final createdAtMs = _now();
+    final unsigned = SpacePublicFeedObjectRequest(
+      spaceId: descriptor.spaceId,
+      descriptorHash: descriptor.descriptorHash,
+      manifestHash: descriptor.publicFeedManifestHash,
+      objectHash: objectHash,
+      requester: selfId,
+      requesterPublicKey: _signer.selfPubKey,
+      nonce: nonce,
+      createdAtMs: createdAtMs,
+    );
+    final signed = _signer.signDetached(unsigned.canonicalBytes());
+    if (!_listEquals(signed.publicKey, _signer.selfPubKey)) return null;
+    final request = unsigned.withSignature(signed.signature);
+    if (!request.verifyAt(createdAtMs, selfId, _signer.verifyDetached)) {
+      return null;
+    }
+    final pending = _PendingPublicFeedObject(
+      spaceId: descriptor.spaceId,
+      holder: holder,
+      manifestHash: descriptor.publicFeedManifestHash,
+      objectHash: objectHash,
+      createdAtMs: createdAtMs,
+    );
+    _pendingPublicFeedObjects[nonce] = pending;
+    try {
+      await send(holder, jsonEncode(request.toJson()));
+    } catch (_) {
+      _pendingPublicFeedObjects.remove(nonce);
+      return null;
+    }
+    final result = await Future.any<Uint8List?>([
+      pending.completer.future,
+      Future<Uint8List?>.delayed(timeout, () => null),
+    ]);
+    _pendingPublicFeedObjects.remove(nonce);
+    if (!pending.completer.isCompleted) pending.completer.complete(null);
+    return result;
+  }
+
+  /// Holder-side live-only object service. Invalid, uncommitted or over-quota
+  /// requests are silent so the path exposes neither membership nor cache
+  /// state beyond the descriptor the requester already resolved from DHT.
+  Future<void> handlePublicFeedObjectRequest(
+    NodeId peer,
+    String requestJson,
+  ) async {
+    final send = sendPublicFeedChunk;
+    if (send == null) return;
+    final SpacePublicFeedObjectRequest? request;
+    try {
+      request = SpacePublicFeedObjectRequest.fromJson(jsonDecode(requestJson));
+    } catch (_) {
+      return;
+    }
+    final nowMs = _now();
+    if (request == null ||
+        request.requester != peer ||
+        !request.isStructurallyValidAt(nowMs)) {
+      return;
+    }
+    _purgePublicFeedTransportState();
+    final quota = _publicFeedServeQuotas[peer.hex];
+    final currentQuota =
+        quota == null ||
+            nowMs - quota.windowStartedAtMs >
+                kSpacePublicFeedRequestWindow.inMilliseconds
+        ? (windowStartedAtMs: nowMs, requests: 0)
+        : quota;
+    if (currentQuota.requests >= _kPublicFeedServeRequestsPerWindow) {
+      return;
+    }
+    if (_publicFeedServeQuotas.length >= _kMaxPublicFeedServeQuotaIdentities &&
+        !_publicFeedServeQuotas.containsKey(peer.hex)) {
+      _publicFeedServeQuotas.remove(_publicFeedServeQuotas.keys.first);
+    }
+    _publicFeedServeQuotas[peer.hex] = (
+      windowStartedAtMs: currentQuota.windowStartedAtMs,
+      requests: currentQuota.requests + 1,
+    );
+    if (!request.verifyAt(nowMs, peer, _signer.verifyDetached)) return;
+
+    var cached = await _loadVerifiedPublicFeed(
+      request.spaceId,
+      request.manifestHash,
+    );
+    if (cached == null) {
+      final rebuilt = await buildSpacePublicDiscoveryPublication(
+        request.spaceId,
+      );
+      if (rebuilt != null &&
+          rebuilt.discovery.descriptor.descriptorHash ==
+              request.descriptorHash &&
+          rebuilt.discovery.descriptor.publicFeedManifestHash ==
+              request.manifestHash) {
+        cached = await _loadVerifiedPublicFeed(
+          request.spaceId,
+          request.manifestHash,
+        );
+        cached ??= (
+          descriptor: rebuilt.discovery.descriptor,
+          feed: rebuilt.feed,
+          retainedUntilMs: min(
+            rebuilt.discovery.descriptor.expiresAtMs,
+            nowMs + kSpacePublicHolderLifetime.inMilliseconds,
+          ),
+        );
+      }
+    }
+    if (cached == null ||
+        cached.descriptor.descriptorHash != request.descriptorHash ||
+        cached.descriptor.publicFeedManifestHash != request.manifestHash ||
+        cached.feed.manifest.manifestHash != request.manifestHash) {
+      return;
+    }
+    final Uint8List? bytes;
+    if (request.objectHash == request.manifestHash) {
+      bytes = Uint8List.fromList(
+        utf8.encode(jsonEncode(cached.feed.manifest.toJson())),
+      );
+    } else {
+      SpacePublicFeedPage? page;
+      for (final candidate in cached.feed.pages) {
+        if (candidate.contentHash == request.objectHash) {
+          page = candidate;
+          break;
+        }
+      }
+      bytes = page?.canonicalBytes();
+    }
+    if (bytes == null ||
+        bytes.isEmpty ||
+        bytes.length > kSpacePublicFeedObjectMaxBytes) {
+      return;
+    }
+    for (final chunk in chunkSpacePublicFeedObject(
+      spaceId: request.spaceId,
+      manifestHash: request.manifestHash,
+      objectHash: request.objectHash,
+      nonce: request.nonce,
+      bytes: bytes,
+    )) {
+      try {
+        await send(peer, jsonEncode(chunk.toJson()));
+      } catch (_) {
+        return;
+      }
+    }
+  }
+
+  /// Requester-side bounded reassembly. Unsolicited chunks and chunks from a
+  /// different authenticated holder never allocate a slot.
+  void handlePublicFeedObjectChunk(NodeId peer, String chunkJson) {
+    final SpacePublicFeedObjectChunk? chunk;
+    try {
+      chunk = SpacePublicFeedObjectChunk.fromJson(jsonDecode(chunkJson));
+    } catch (_) {
+      return;
+    }
+    if (chunk == null) return;
+    _purgePublicFeedTransportState();
+    final pending = _pendingPublicFeedObjects[chunk.nonce];
+    if (pending == null ||
+        pending.holder != peer ||
+        pending.spaceId != chunk.spaceId ||
+        pending.manifestHash != chunk.manifestHash ||
+        pending.objectHash != chunk.objectHash ||
+        (pending.count != null && pending.count != chunk.count) ||
+        (pending.totalBytes != null &&
+            pending.totalBytes != chunk.totalBytes)) {
+      return;
+    }
+    pending.count ??= chunk.count;
+    pending.totalBytes ??= chunk.totalBytes;
+    if (pending.parts.containsKey(chunk.index)) return;
+    pending.parts[chunk.index] = Uint8List.fromList(chunk.data);
+    if (pending.parts.length != chunk.count) return;
+    final joined = BytesBuilder(copy: false);
+    for (var index = 0; index < chunk.count; index++) {
+      final part = pending.parts[index];
+      if (part == null) return;
+      joined.add(part);
+    }
+    final bytes = joined.toBytes();
+    if (bytes.length != chunk.totalBytes) {
+      if (!pending.completer.isCompleted) pending.completer.complete(null);
+      return;
+    }
+    final hashMatches = chunk.objectHash == chunk.manifestHash
+        ? SpacePublicFeedManifest.fromJson(
+                _decodePublicFeedObjectJson(bytes),
+              )?.manifestHash ==
+              chunk.objectHash
+        : crypto.sha256.convert(bytes).toString() == chunk.objectHash;
+    if (!hashMatches) {
+      if (!pending.completer.isCompleted) pending.completer.complete(null);
+      return;
+    }
+    if (!pending.completer.isCompleted) pending.completer.complete(bytes);
+  }
+
+  Object? _decodePublicFeedObjectJson(Uint8List bytes) {
+    try {
+      return jsonDecode(utf8.decode(bytes, allowMalformed: false));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Fetch and independently verify one exact descriptor's complete bounded
+  /// public snapshot from any holder that signed that descriptor/feed pair.
+  Future<SpacePublicFeedProjection?> fetchVerifiedPublicSpaceFeed(
+    SpacePublicDescriptor descriptor,
+    Iterable<SpacePublicHolderAnnouncement> holders, {
+    Duration objectTimeout = const Duration(seconds: 8),
+  }) async {
+    final nowMs = _now();
+    if (!descriptor.verifyAt(nowMs, _signer.verifyDetached)) return null;
+    final candidates = <String, SpacePublicHolderAnnouncement>{};
+    for (final holder in holders) {
+      if (holder.holder == selfId ||
+          holder.spaceId != descriptor.spaceId ||
+          holder.descriptorHash != descriptor.descriptorHash ||
+          holder.publicFeedManifestHash != descriptor.publicFeedManifestHash ||
+          !holder.verifyAt(nowMs, _signer.verifyDetached)) {
+        continue;
+      }
+      candidates[holder.holder.hex] = holder;
+    }
+    for (final holder in candidates.values) {
+      final manifestBytes = await _requestPublicFeedObject(
+        holder: holder.holder,
+        descriptor: descriptor,
+        objectHash: descriptor.publicFeedManifestHash,
+        timeout: objectTimeout,
+      );
+      final manifest = manifestBytes == null
+          ? null
+          : SpacePublicFeedManifest.fromJson(
+              _decodePublicFeedObjectJson(manifestBytes),
+            );
+      if (manifest == null ||
+          manifest.manifestHash != descriptor.publicFeedManifestHash ||
+          manifest.controlHeadHash != descriptor.controlHeadHash ||
+          manifest.revision != descriptor.publicFeedRevision ||
+          manifest.updatedAtMs != descriptor.publicFeedUpdatedAtMs ||
+          manifest.itemCount != descriptor.publicPostCount ||
+          manifest.pageHashes.length > _kPublicFeedServeRequestsPerWindow - 1 ||
+          !manifest.verifyAt(
+            nowMs: _now(),
+            expectedSpaceId: descriptor.spaceId,
+            expectedPublisher: descriptor.publisher,
+            publisherPublicKey: descriptor.genesisManifest.genesisPubKey,
+            verify: _signer.verifyDetached,
+          )) {
+        continue;
+      }
+      final pages = <SpacePublicFeedPage>[];
+      var totalBytes = manifestBytes!.length;
+      var failed = false;
+      for (var offset = 0; offset < manifest.pageHashes.length; offset += 4) {
+        final end = min(offset + 4, manifest.pageHashes.length);
+        final batch = await Future.wait([
+          for (final hash in manifest.pageHashes.sublist(offset, end))
+            _requestPublicFeedObject(
+              holder: holder.holder,
+              descriptor: descriptor,
+              objectHash: hash,
+              timeout: objectTimeout,
+            ),
+        ]);
+        for (var index = 0; index < batch.length; index++) {
+          final bytes = batch[index];
+          final expectedIndex = offset + index;
+          final page = bytes == null
+              ? null
+              : SpacePublicFeedPage.fromBytes(bytes);
+          if (page == null ||
+              page.index != expectedIndex ||
+              !page.verify(
+                expectedHash: manifest.pageHashes[expectedIndex],
+                verifyPost: _signer.verifyPost,
+              )) {
+            failed = true;
+            break;
+          }
+          totalBytes += bytes!.length;
+          if (totalBytes > kSpacePublicFeedProjectionMaxBytes) {
+            failed = true;
+            break;
+          }
+          pages.add(page);
+        }
+        if (failed) break;
+      }
+      if (failed) continue;
+      final projection = SpacePublicFeedProjection(
+        manifest: manifest,
+        pages: pages,
+      );
+      if (!projection.verifyAt(
+        nowMs: _now(),
+        expectedManifestHash: descriptor.publicFeedManifestHash,
+        expectedSpaceId: descriptor.spaceId,
+        expectedPublisher: descriptor.publisher,
+        publisherPublicKey: descriptor.genesisManifest.genesisPubKey,
+        expectedControlHeadHash: descriptor.controlHeadHash,
+        verifySignature: _signer.verifyDetached,
+        verifyPost: _signer.verifyPost,
+      )) {
+        continue;
+      }
+      await _cacheVerifiedPublicFeed(descriptor, projection);
+      return projection;
+    }
+    return null;
   }
 
   /// Periodically refresh only the short holder layer. The owner descriptor is
@@ -16499,7 +17337,12 @@ class GroupService {
       _spaceDiscoveryChangesBound = false;
     }
     _publishedPublicSpaceDescriptors.clear();
-    _publishedPublicSpaceFeeds.clear();
+    _verifiedPublicSpaceFeeds.clear();
+    for (final pending in _pendingPublicFeedObjects.values) {
+      if (!pending.completer.isCompleted) pending.completer.complete(null);
+    }
+    _pendingPublicFeedObjects.clear();
+    _publicFeedServeQuotas.clear();
     for (final pending in _pendingSpaceReceipts.values) {
       pending.elapsed.stop();
     }
