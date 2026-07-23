@@ -78,7 +78,7 @@ Future<Uint8List> Function(int, int) _reader(Uint8List bytes) =>
         Uint8List.sublistView(bytes, offset, offset + length);
 
 void main() {
-  test('text note create/edit is revisioned and scrubs the old body', () async {
+  test('text note edit retires old body into global GC quarantine', () async {
     final container = FakeHvContainer();
     final storage = container.storage();
     await storage.open(password: 'pw', createIfMissing: true);
@@ -113,8 +113,11 @@ void main() {
     expect(edited.revision, 2);
     expect(edited.createdAtMs, created.createdAtMs);
     expect(await service.loadTextNote(edited), 'second body');
-    expect(await storage.hasFile(firstCid), isFalse);
-    expect(await storage.hasFile('mf:$firstCid'), isFalse);
+    expect(await storage.hasFile(firstCid), isTrue);
+    expect(await storage.hasFile('mf:$firstCid'), isTrue);
+    final reachability = await storage.sharedContentReferenceSnapshot();
+    expect(reachability.complete, isTrue);
+    expect(reachability.referencedContentIds, isNot(contains(firstCid)));
     expect(
       sync.rows
           .where((row) => row.event.kind == DeviceSyncKind.cloudEntry)
@@ -175,62 +178,69 @@ void main() {
     },
   );
 
-  test('remote note revision scrubs superseded local ciphertext', () async {
-    final container = FakeHvContainer();
-    final storage = container.storage();
-    await storage.open(password: 'pw', createIfMissing: true);
-    final sync = _FakeSync(_id(1));
-    final received = StreamController<String>.broadcast();
-    var clock = 3000;
-    final service = CloudService(
-      storage,
-      sync,
-      contentReceived: received.stream,
-      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
-      newId: () => 'remote-note',
-      integrityChecks: false,
-    );
-    final original = await service.saveTextNote(title: 'Note', body: 'local');
-    final oldCid = original.contentId!;
-    final remoteBytes = Uint8List.fromList(utf8.encode('remote'));
-    final remoteManifest = ContentManifest.fromBytes('Note', remoteBytes);
-    final remote = CloudItem(
-      id: original.id,
-      kind: CloudItemKind.note,
-      name: 'Note',
-      contentId: remoteManifest.contentId,
-      size: remoteBytes.length,
-      mime: 'text/plain; charset=utf-8',
-      createdAtMs: original.createdAtMs,
-      modifiedAtMs: original.modifiedAtMs + 100,
-      revision: original.revision + 1,
-      deleted: false,
-    );
-    sync.rows.add((event: remote.toEvent(), author: _id(2)));
-    sync.controller.add(null);
-    await Future<void>.delayed(const Duration(milliseconds: 400));
+  test(
+    'remote note revision quarantines superseded local ciphertext',
+    () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final sync = _FakeSync(_id(1));
+      final received = StreamController<String>.broadcast();
+      var clock = 3000;
+      final service = CloudService(
+        storage,
+        sync,
+        contentReceived: received.stream,
+        now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+        newId: () => 'remote-note',
+        integrityChecks: false,
+      );
+      final original = await service.saveTextNote(title: 'Note', body: 'local');
+      final oldCid = original.contentId!;
+      final remoteBytes = Uint8List.fromList(utf8.encode('remote'));
+      final remoteManifest = ContentManifest.fromBytes('Note', remoteBytes);
+      final remote = CloudItem(
+        id: original.id,
+        kind: CloudItemKind.note,
+        name: 'Note',
+        contentId: remoteManifest.contentId,
+        size: remoteBytes.length,
+        mime: 'text/plain; charset=utf-8',
+        createdAtMs: original.createdAtMs,
+        modifiedAtMs: original.modifiedAtMs + 100,
+        revision: original.revision + 1,
+        deleted: false,
+      );
+      sync.rows.add((event: remote.toEvent(), author: _id(2)));
+      sync.controller.add(null);
+      await Future<void>.delayed(const Duration(milliseconds: 400));
 
-    expect((await service.listItems()).single.contentId, remote.contentId);
-    expect(await storage.hasFile(oldCid), isFalse);
-    expect(await storage.hasFile('mf:$oldCid'), isFalse);
-    final claims = foldCloudReplicaClaims(sync.rows);
-    final localClaims = claims.values
-        .where(
-          (claim) =>
-              claim.itemId == original.id &&
-              claim.deviceId == sync.selfId &&
-              claim.contentId == oldCid,
-        )
-        .toList();
-    expect(localClaims, hasLength(1));
-    final localClaim = localClaims.single;
-    expect(localClaim.contentId, oldCid);
-    expect(localClaim.present, isFalse);
+      expect((await service.listItems()).single.contentId, remote.contentId);
+      expect(await storage.hasFile(oldCid), isTrue);
+      expect(await storage.hasFile('mf:$oldCid'), isTrue);
+      expect(
+        (await storage.sharedContentReferenceSnapshot()).referencedContentIds,
+        isNot(contains(oldCid)),
+      );
+      final claims = foldCloudReplicaClaims(sync.rows);
+      final localClaims = claims.values
+          .where(
+            (claim) =>
+                claim.itemId == original.id &&
+                claim.deviceId == sync.selfId &&
+                claim.contentId == oldCid,
+          )
+          .toList();
+      expect(localClaims, hasLength(1));
+      final localClaim = localClaims.single;
+      expect(localClaim.contentId, oldCid);
+      expect(localClaim.present, isFalse);
 
-    await service.close();
-    await received.close();
-    await storage.close();
-  });
+      await service.close();
+      await received.close();
+      await storage.close();
+    },
+  );
 
   test(
     'concurrent note heads survive reconcile/restart and merge explicitly',
@@ -339,8 +349,17 @@ void main() {
       expect(merged.revision, 3);
       expect(restarted.noteHeads(merged).single.contentId, merged.contentId);
       expect(await restarted.loadTextNote(merged), 'merged body');
-      expect(await storage.hasFile(left.contentId!), isFalse);
-      expect(await storage.hasFile(right.contentId!), isFalse);
+      expect(await storage.hasFile(left.contentId!), isTrue);
+      expect(await storage.hasFile(right.contentId!), isTrue);
+      final reachability = await storage.sharedContentReferenceSnapshot();
+      expect(
+        reachability.referencedContentIds,
+        isNot(contains(left.contentId)),
+      );
+      expect(
+        reachability.referencedContentIds,
+        isNot(contains(right.contentId)),
+      );
 
       await restarted.close();
       await received2.close();
@@ -706,7 +725,7 @@ void main() {
   );
 
   test(
-    'cloud deletion keeps chat-shared payload+manifest until the chat is gone',
+    'cloud/chat deletion defers shared payload+manifest to global GC',
     () async {
       final storage = FakeHvContainer().storage();
       await storage.open(password: 'pw', createIfMissing: true);
@@ -754,15 +773,14 @@ void main() {
       );
 
       await storage.deleteMessage(peer.hex, 'share-post');
+      expect(await storage.hasFile(cid), isTrue);
+      expect(await storage.hasFile('mf:$cid'), isTrue);
+      final reachability = await storage.sharedContentReferenceSnapshot();
+      expect(reachability.complete, isTrue);
       expect(
-        await storage.hasFile(cid),
-        isFalse,
-        reason: 'the last cross-domain reference now disappeared',
-      );
-      expect(
-        await storage.hasFile('mf:$cid'),
-        isFalse,
-        reason: 'the manifest shares the payload reachability lifetime',
+        reachability.referencedContentIds,
+        isNot(contains(cid)),
+        reason: 'the global collector can now quarantine the last reference',
       );
 
       await service.close();
@@ -881,8 +899,12 @@ void main() {
       );
       await service.deleteItem(item.id);
       expect(await service.listItems(), isEmpty);
-      expect(await storage.hasFile(item.contentId!), isFalse);
-      expect(await storage.hasFile('mf:${item.contentId}'), isFalse);
+      expect(await storage.hasFile(item.contentId!), isTrue);
+      expect(await storage.hasFile('mf:${item.contentId}'), isTrue);
+      expect(
+        (await storage.sharedContentReferenceSnapshot()).referencedContentIds,
+        isNot(contains(item.contentId)),
+      );
       final all = await service.listItems(includeDeleted: true);
       expect(all.single.deleted, isTrue);
       final active = await storage.getSetting('cloud.index.v1.active');
@@ -901,7 +923,7 @@ void main() {
     },
   );
 
-  test('physical delete preserves a cid shared by another live item', () async {
+  test('global roots preserve a cid shared by another live item', () async {
     final storage = FakeHvContainer().storage();
     await storage.open(password: 'pw', createIfMissing: true);
     final sync = _FakeSync(_id(1));
@@ -931,8 +953,16 @@ void main() {
 
     await service.deleteItem(first.id);
     expect(await storage.hasFile(first.contentId!), isTrue);
+    expect(
+      (await storage.sharedContentReferenceSnapshot()).referencedContentIds,
+      contains(first.contentId),
+    );
     await service.deleteItem(second.id);
-    expect(await storage.hasFile(first.contentId!), isFalse);
+    expect(await storage.hasFile(first.contentId!), isTrue);
+    expect(
+      (await storage.sharedContentReferenceSnapshot()).referencedContentIds,
+      isNot(contains(first.contentId)),
+    );
 
     await service.close();
     await storage.close();
