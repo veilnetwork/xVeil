@@ -258,6 +258,13 @@ final class GroupApiAdapter {
               'authorSeq': revision.authorSeq,
               'policy': revision.policy.toJson(),
             },
+            SpaceRecommendationPolicyAuditEntry(:final policy) => {
+              'kind': 'recommendation',
+              'id': entry.stableId,
+              'changedAt': entry.changedAtMs,
+              'author': entry.author.hex,
+              'policy': policy.toJson(),
+            },
           },
       ],
     };
@@ -1044,10 +1051,78 @@ final class GroupApiAdapter {
       includeRevoked: includeRevoked,
     );
     return {
+      'policy': _recommendationPolicyJson(visible.$2.recommendationPolicy),
       'campaigns': [
         for (final campaign in campaigns) recommendationCampaignJson(campaign),
       ],
     };
+  }
+
+  static Map<String, dynamic> _recommendationPolicyJson(
+    SpaceRecommendationPolicy? policy,
+  ) => policy?.toJson() ?? {'v': 1, 'revision': 0, 'enabled': true};
+
+  Future<Map<String, dynamic>?> recommendationPolicy(String spaceHex) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return null;
+    return _recommendationPolicyJson(visible.$2.recommendationPolicy);
+  }
+
+  Future<String?> setRecommendationPolicy(
+    String spaceHex,
+    int expectedRevision,
+    bool enabled,
+  ) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    final policy = await _groups.setSpaceRecommendationPolicy(
+      visible.$1,
+      expectedRevision: expectedRevision,
+      enabled: enabled,
+    );
+    return policy == null ? 'recommendation policy rejected' : null;
+  }
+
+  static Map<String, dynamic> recommendationShareJson(
+    SpaceRecommendationShareAudit record,
+  ) => {
+    'id': record.stableId,
+    'campaignId': record.campaignId,
+    'spaceId': record.spaceId.hex,
+    'recipient': record.recipient.hex,
+    'sentAt': record.sentAtMs,
+    'canRevoke': record.canRevoke,
+    if (record.messageId != null) 'messageId': record.messageId,
+    if (record.revokedAtMs != null) 'revokedAt': record.revokedAtMs,
+  };
+
+  Future<Map<String, dynamic>?> recommendationShares(String spaceHex) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return null;
+    final records = await _groups.spaceRecommendationShareAudit(
+      spaceId: visible.$1,
+    );
+    return {
+      'shares': [for (final record in records) recommendationShareJson(record)],
+    };
+  }
+
+  Future<String?> revokeRecommendationShare(
+    String spaceHex,
+    String auditId,
+  ) async {
+    final spaceId = _parseId(spaceHex);
+    if (spaceId == null) return 'invalid space';
+    final records = await _groups.spaceRecommendationShareAudit(
+      spaceId: spaceId,
+    );
+    if (!records.any((record) => record.stableId == auditId)) {
+      return 'recommendation share not found';
+    }
+    final result = await _groups.revokeSentSpaceRecommendation(auditId);
+    return result == SpaceRecommendationRevokeResult.revoked
+        ? null
+        : result.name;
   }
 
   Future<({String? error, Map<String, dynamic>? campaign})>

@@ -30,6 +30,7 @@ import 'package:xveil/domain/space_join_request.dart';
 import 'package:xveil/domain/space_membership.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
+import 'package:xveil/domain/space_policy_audit.dart';
 import 'package:xveil/domain/space_rules.dart';
 import 'package:xveil/domain/space_recommendation.dart';
 import 'package:xveil/domain/space_retention.dart';
@@ -3928,11 +3929,16 @@ void main() {
       final storage = FakeHvContainer().storage();
       await storage.open(password: 'owner', createIfMissing: true);
       final sent = <({NodeId peer, String campaign})>[];
+      final revoked = <({NodeId peer, String messageId})>[];
       final service = GroupService(
         storage,
         _FakeSigner(owner),
         sendSpaceRecommendation: (peer, card) async {
           sent.add((peer: peer, campaign: card.campaignId));
+          return 'message-${sent.length}';
+        },
+        revokeSpaceRecommendation: (peer, messageId) async {
+          revoked.add((peer: peer, messageId: messageId));
           return true;
         },
       );
@@ -3996,6 +4002,69 @@ void main() {
       final shareAudit = await service.spaceRecommendationShareAudit();
       expect(shareAudit, hasLength(1));
       expect(shareAudit.single.recipient, bob);
+      expect(shareAudit.single.messageId, 'message-1');
+
+      final disabled = await service.setSpaceRecommendationPolicy(
+        publicSpace,
+        expectedRevision: 0,
+        enabled: false,
+      );
+      expect(disabled?.revision, 1);
+      expect(
+        (await service.stateOf(publicSpace))!.recommendationsEnabled,
+        false,
+      );
+      expect(
+        await service.setSpaceRecommendationPolicy(
+          publicSpace,
+          expectedRevision: 0,
+          enabled: true,
+        ),
+        isNull,
+      );
+      expect(
+        await service.createSpaceRecommendationCampaign(
+          publicSpace,
+          'Blocked while disabled',
+        ),
+        isNull,
+      );
+      expect(
+        await service.shareSpaceRecommendation(
+          publicSpace,
+          campaign.campaignId,
+          bob,
+        ),
+        SpaceRecommendationShareResult.notAllowed,
+      );
+      final enabled = await service.setSpaceRecommendationPolicy(
+        publicSpace,
+        expectedRevision: 1,
+        enabled: true,
+      );
+      expect(enabled?.revision, 2);
+      expect(
+        (await service.spacePolicyAudit(
+          publicSpace,
+        )).whereType<SpaceRecommendationPolicyAuditEntry>(),
+        hasLength(2),
+      );
+
+      expect(
+        await service.revokeSentSpaceRecommendation(shareAudit.single.stableId),
+        SpaceRecommendationRevokeResult.revoked,
+      );
+      expect(revoked.single.peer, bob);
+      expect(revoked.single.messageId, 'message-1');
+      final revokedAudit = await service.spaceRecommendationShareAudit(
+        spaceId: publicSpace,
+      );
+      expect(revokedAudit.single.revokedAtMs, isNotNull);
+      expect(revokedAudit.single.canRevoke, isFalse);
+      expect(
+        await service.revokeSentSpaceRecommendation(shareAudit.single.stableId),
+        SpaceRecommendationRevokeResult.alreadyRevoked,
+      );
 
       for (var seed = 30; seed < 34; seed++) {
         final peer = _id(seed);

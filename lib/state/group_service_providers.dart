@@ -118,6 +118,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     sendSpaceModerationAppealDecision:
         messaging.sendSpaceModerationAppealDecision,
     sendSpaceRecommendation: messaging.sendSpaceRecommendation,
+    revokeSpaceRecommendation: messaging.revokeSpaceRecommendation,
     sendContentRequest: (holder, json) =>
         messaging.sendGroupContentRequest(holder, json),
     sendGroupCallFrame: (peer, signal, json) =>

@@ -1,4 +1,7 @@
 import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart' as crypto;
 
 import '../core/ids.dart';
 
@@ -23,24 +26,53 @@ enum SpaceRecommendationShareResult {
   failed,
 }
 
+enum SpaceRecommendationRevokeResult {
+  revoked,
+  notFound,
+  alreadyRevoked,
+  unavailable,
+  failed,
+}
+
 class SpaceRecommendationShareAudit {
   const SpaceRecommendationShareAudit({
     required this.campaignId,
     required this.spaceId,
     required this.recipient,
     required this.sentAtMs,
+    this.messageId,
+    this.revokedAtMs,
   });
 
   final String campaignId;
   final NodeId spaceId;
   final NodeId recipient;
   final int sentAtMs;
+  final String? messageId;
+  final int? revokedAtMs;
+
+  bool get canRevoke => messageId != null && revokedAtMs == null;
+
+  String get stableId =>
+      messageId ?? '${spaceId.hex}:$campaignId:${recipient.hex}:$sentAtMs';
+
+  SpaceRecommendationShareAudit revokedAt(int timestampMs) =>
+      SpaceRecommendationShareAudit(
+        campaignId: campaignId,
+        spaceId: spaceId,
+        recipient: recipient,
+        sentAtMs: sentAtMs,
+        messageId: messageId,
+        revokedAtMs: timestampMs,
+      );
 
   Map<String, dynamic> toJson() => {
     'campaign': campaignId,
     'space': spaceId.hex,
     'recipient': recipient.hex,
     'sentAt': sentAtMs,
+    if (messageId != null) 'message': messageId,
+    if (revokedAtMs != null) 'revokedAt': revokedAtMs,
   };
 
   static SpaceRecommendationShareAudit? fromJson(Object? value) {
@@ -48,7 +80,9 @@ class SpaceRecommendationShareAudit {
         value['campaign'] is! String ||
         value['space'] is! String ||
         value['recipient'] is! String ||
-        value['sentAt'] is! int) {
+        value['sentAt'] is! int ||
+        (value.containsKey('message') && value['message'] is! String) ||
+        (value.containsKey('revokedAt') && value['revokedAt'] is! int)) {
       return null;
     }
     try {
@@ -57,15 +91,130 @@ class SpaceRecommendationShareAudit {
         spaceId: NodeId.fromHex(value['space'] as String),
         recipient: NodeId.fromHex(value['recipient'] as String),
         sentAtMs: value['sentAt'] as int,
+        messageId: value['message'] as String?,
+        revokedAtMs: value['revokedAt'] as int?,
       );
       if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(record.campaignId) ||
-          record.sentAtMs < 0) {
+          record.sentAtMs < 0 ||
+          (record.messageId != null &&
+              (record.messageId!.isEmpty || record.messageId!.length > 256)) ||
+          (record.revokedAtMs != null &&
+              record.revokedAtMs! < record.sentAtMs)) {
         return null;
       }
       return record;
     } catch (_) {
       return null;
     }
+  }
+}
+
+/// One complete, signed Space-wide recommendation policy.
+///
+/// V1 deliberately controls only whether active campaigns may be created and
+/// explicitly shared. The fixed anti-spam ceilings remain a non-configurable
+/// client safety boundary, so an administrator can never weaken them through
+/// a signed Space setting.
+final class SpaceRecommendationPolicy {
+  const SpaceRecommendationPolicy({
+    required this.spaceId,
+    required this.revision,
+    required this.previousPolicyHash,
+    required this.changedBy,
+    required this.changedAtMs,
+    required this.enabled,
+  });
+
+  final NodeId spaceId;
+  final int revision;
+  final String previousPolicyHash;
+  final NodeId changedBy;
+  final int changedAtMs;
+  final bool enabled;
+
+  bool get isStructurallyValid =>
+      revision >= 1 &&
+      changedAtMs >= 0 &&
+      (revision == 1
+          ? previousPolicyHash.isEmpty
+          : RegExp(r'^[0-9a-f]{64}$').hasMatch(previousPolicyHash));
+
+  Uint8List canonicalBytes() =>
+      Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
+
+  String get policyHash => crypto.sha256.convert(canonicalBytes()).toString();
+
+  Map<String, dynamic> toJson() => {
+    'v': 1,
+    'space': spaceId.hex,
+    'revision': revision,
+    'previous': previousPolicyHash,
+    'changedBy': changedBy.hex,
+    'changedAt': changedAtMs,
+    'enabled': enabled,
+  };
+
+  static SpaceRecommendationPolicy? fromJson(Object? value) {
+    if (value is! Map ||
+        value['v'] != 1 ||
+        value['space'] is! String ||
+        value['revision'] is! int ||
+        value['previous'] is! String ||
+        value['changedBy'] is! String ||
+        value['changedAt'] is! int ||
+        value['enabled'] is! bool) {
+      return null;
+    }
+    try {
+      final policy = SpaceRecommendationPolicy(
+        spaceId: NodeId.fromHex(value['space'] as String),
+        revision: value['revision'] as int,
+        previousPolicyHash: value['previous'] as String,
+        changedBy: NodeId.fromHex(value['changedBy'] as String),
+        changedAtMs: value['changedAt'] as int,
+        enabled: value['enabled'] as bool,
+      );
+      return policy.isStructurallyValid ? policy : null;
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+enum SpaceRecommendationRecipientMode {
+  acceptedContacts,
+  blockAll;
+
+  static SpaceRecommendationRecipientMode? fromName(String? value) {
+    for (final mode in values) {
+      if (mode.name == value) return mode;
+    }
+    return null;
+  }
+}
+
+/// Identity-local recipient posture. This is intentionally not Space
+/// authority and never travels on the wire, preventing a preference oracle.
+final class SpaceRecommendationRecipientPolicy {
+  const SpaceRecommendationRecipientPolicy({
+    this.mode = SpaceRecommendationRecipientMode.acceptedContacts,
+  });
+
+  final SpaceRecommendationRecipientMode mode;
+
+  bool get acceptsCards =>
+      mode == SpaceRecommendationRecipientMode.acceptedContacts;
+
+  Map<String, dynamic> toJson() => {'v': 1, 'mode': mode.name};
+
+  static SpaceRecommendationRecipientPolicy? fromJson(Object? value) {
+    if (value is! Map || value['v'] != 1 || value['mode'] is! String) {
+      return null;
+    }
+    final mode = SpaceRecommendationRecipientMode.fromName(
+      value['mode'] as String,
+    );
+    return mode == null ? null : SpaceRecommendationRecipientPolicy(mode: mode);
   }
 }
 

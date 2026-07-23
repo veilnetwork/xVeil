@@ -1675,6 +1675,66 @@ abstract class AppL10n {
   /// **'Allow accepted contacts to send community cards. Turning this off silently discards new recommendations.'**
   String get spaceRecommendationReceiveHint;
 
+  /// No description provided for @spaceRecommendationPolicyEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow community recommendations'**
+  String get spaceRecommendationPolicyEnabled;
+
+  /// No description provided for @spaceRecommendationPolicyDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Community recommendations disabled'**
+  String get spaceRecommendationPolicyDisabled;
+
+  /// No description provided for @spaceRecommendationPolicyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed community-wide setting. Anti-spam limits remain fixed and cannot be weakened.'**
+  String get spaceRecommendationPolicyHint;
+
+  /// No description provided for @spaceRecommendationSentAuditTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sent recommendations'**
+  String get spaceRecommendationSentAuditTitle;
+
+  /// No description provided for @spaceRecommendationSentAuditHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Local encrypted audit. Revoke removes the selected card from both sides.'**
+  String get spaceRecommendationSentAuditHint;
+
+  /// No description provided for @spaceRecommendationSentAuditEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No recommendations sent from this device'**
+  String get spaceRecommendationSentAuditEmpty;
+
+  /// No description provided for @spaceRecommendationSentTo.
+  ///
+  /// In en, this message translates to:
+  /// **'Sent to {recipient}'**
+  String spaceRecommendationSentTo(String recipient);
+
+  /// No description provided for @spaceRecommendationSentRevoked.
+  ///
+  /// In en, this message translates to:
+  /// **'revoked'**
+  String get spaceRecommendationSentRevoked;
+
+  /// No description provided for @spaceRecommendationSentRevoke.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke sent recommendation'**
+  String get spaceRecommendationSentRevoke;
+
+  /// No description provided for @spacePolicyAuditRecommendations.
+  ///
+  /// In en, this message translates to:
+  /// **'Recommendation policy'**
+  String get spacePolicyAuditRecommendations;
+
   /// No description provided for @spaceRoleLabel.
   ///
   /// In en, this message translates to:

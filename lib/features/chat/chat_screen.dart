@@ -1583,12 +1583,39 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final svc = ref.read(messagingServiceProvider);
     for (final m in chosen) {
       if (forEveryone && m.direction == MessageDirection.outgoing) {
-        await svc.deleteForEveryone(m.id);
+        await _deleteForEveryone(m, svc);
       } else {
         await svc.deleteMessageLocally(m.id);
       }
     }
     _clearSelection();
+  }
+
+  Future<void> _deleteForEveryone(
+    Message message,
+    MessagingService messaging,
+  ) async {
+    if (parseSpaceRecommendationMessage(message.body) == null) {
+      await messaging.deleteForEveryone(message.id);
+      return;
+    }
+    final groups = ref.read(groupServiceProvider);
+    if (groups == null) {
+      await messaging.deleteForEveryone(message.id);
+      return;
+    }
+    final result = await groups.revokeSentSpaceRecommendation(message.id);
+    if (result == SpaceRecommendationRevokeResult.revoked ||
+        result == SpaceRecommendationRevokeResult.alreadyRevoked) {
+      return;
+    }
+    if (result == SpaceRecommendationRevokeResult.notFound ||
+        result == SpaceRecommendationRevokeResult.unavailable) {
+      // A mirrored or legacy outgoing card may not have a local v2 audit row.
+      await messaging.deleteForEveryone(message.id);
+      return;
+    }
+    if (mounted) _snack(AppL10n.of(context).spaceOperationFailed);
   }
 
   Future<void> _editMessage(Message m) async {
@@ -1643,7 +1670,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (confirmed != true) return;
     final svc = ref.read(messagingServiceProvider);
     if (forEveryone) {
-      await svc.deleteForEveryone(m.id);
+      await _deleteForEveryone(m, svc);
     } else {
       await svc.deleteMessageLocally(m.id);
     }

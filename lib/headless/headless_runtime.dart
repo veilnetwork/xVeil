@@ -156,6 +156,8 @@ class HeadlessRuntime {
         sendSpaceModerationAppeal: messaging.sendSpaceModerationAppeal,
         sendSpaceModerationAppealDecision:
             messaging.sendSpaceModerationAppealDecision,
+        sendSpaceRecommendation: messaging.sendSpaceRecommendation,
+        revokeSpaceRecommendation: messaging.revokeSpaceRecommendation,
         sendContentRequest: (holder, json) =>
             messaging!.sendGroupContentRequest(holder, json),
         sendGroupCallFrame: (peer, signal, json) =>
@@ -274,6 +276,17 @@ class HeadlessRuntime {
         deleteSpacePost: groupApi.deletePost,
         setSpacePostPinned: groupApi.setPostPinned,
         reactToSpacePost: groupApi.reactToPost,
+        spaceRecommendationCampaigns: (space, includeRevoked) => groupApi
+            .recommendationCampaigns(space, includeRevoked: includeRevoked),
+        createSpaceRecommendationCampaign:
+            groupApi.createRecommendationCampaign,
+        revokeSpaceRecommendationCampaign:
+            groupApi.revokeRecommendationCampaign,
+        shareSpaceRecommendation: groupApi.shareRecommendation,
+        spaceRecommendationPolicy: groupApi.recommendationPolicy,
+        setSpaceRecommendationPolicy: groupApi.setRecommendationPolicy,
+        spaceRecommendationShares: groupApi.recommendationShares,
+        revokeSpaceRecommendationShare: groupApi.revokeRecommendationShare,
         spaceFeed: groupApi.feed,
         spaceFeedTypeFilter: groupApi.feedTypeFilter,
         setSpaceFeedTypeFilter: groupApi.setFeedTypeFilter,
@@ -379,6 +392,7 @@ class HeadlessRuntime {
     messaging.onSpaceModerationAppeal = groups.receiveSpaceModerationAppeal;
     messaging.onSpaceModerationAppealDecision =
         groups.receiveSpaceModerationAppealDecision;
+    messaging.onSpaceRecommendation = groups.acceptsSpaceRecommendationCard;
     messaging.onGroupContentRequest = (peer, requestJson) {
       unawaited(groups.handleContentRequest(requestJson));
     };

@@ -1132,6 +1132,116 @@ void main() {
     );
   });
 
+  test('Space recommendation policy V21 forms a signed revision chain', () {
+    final spaceId = _id(7);
+    final firstPolicy = SpaceRecommendationPolicy(
+      spaceId: spaceId,
+      revision: 1,
+      previousPolicyHash: '',
+      changedBy: _owner,
+      changedAtMs: 1200,
+      enabled: false,
+    );
+    final first = ControlEntry(
+      version: 21,
+      groupId: spaceId,
+      author: _owner,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.setRecommendationPolicy,
+      target: null,
+      role: null,
+      recommendationPolicy: firstPolicy,
+      policyVersion: 0,
+      createdAtMs: 1200,
+      signature: Uint8List(64),
+      authorPubKey: Uint8List(32),
+    );
+    final secondPolicy = SpaceRecommendationPolicy(
+      spaceId: spaceId,
+      revision: 2,
+      previousPolicyHash: firstPolicy.policyHash,
+      changedBy: _owner,
+      changedAtMs: 1300,
+      enabled: true,
+    );
+    final second = ControlEntry(
+      version: 21,
+      groupId: spaceId,
+      author: _owner,
+      seq: 1,
+      prevHash: controlEntryHash(first),
+      op: ControlOp.setRecommendationPolicy,
+      target: null,
+      role: null,
+      recommendationPolicy: secondPolicy,
+      policyVersion: 0,
+      createdAtMs: 1300,
+      signature: Uint8List(64),
+      authorPubKey: Uint8List(32),
+    );
+
+    expect(first.isStructurallyValid, isTrue);
+    expect(
+      ControlEntry.fromJson(first.toJson())?.recommendationPolicy?.enabled,
+      isFalse,
+    );
+    final folded = foldControlLog(
+      owner: _owner,
+      entries: [first, second],
+      verify: _ok,
+    );
+    expect(folded.rejected, isEmpty);
+    expect(folded.state.recommendationsEnabled, isTrue);
+    expect(folded.state.recommendationPolicyHistory, hasLength(2));
+    expect(
+      canApply(
+        authorRole: GroupRole.admin,
+        op: ControlOp.setRecommendationPolicy,
+      ),
+      isTrue,
+    );
+    expect(
+      canApply(
+        authorRole: GroupRole.member,
+        op: ControlOp.setRecommendationPolicy,
+      ),
+      isFalse,
+    );
+
+    final stalePolicy = SpaceRecommendationPolicy(
+      spaceId: spaceId,
+      revision: 3,
+      previousPolicyHash: firstPolicy.policyHash,
+      changedBy: _owner,
+      changedAtMs: 1400,
+      enabled: false,
+    );
+    final stale = ControlEntry(
+      version: 21,
+      groupId: spaceId,
+      author: _owner,
+      seq: 2,
+      prevHash: controlEntryHash(second),
+      op: ControlOp.setRecommendationPolicy,
+      target: null,
+      role: null,
+      recommendationPolicy: stalePolicy,
+      policyVersion: 0,
+      createdAtMs: 1400,
+      signature: Uint8List(64),
+      authorPubKey: Uint8List(32),
+    );
+    final failClosed = foldControlLog(
+      owner: _owner,
+      entries: [first, second, stale],
+      verify: _ok,
+    );
+    expect(failClosed.rejected, contains(stale));
+    expect(failClosed.state.recommendationsEnabled, isTrue);
+    expect(failClosed.state.recommendationPolicyHistory, hasLength(2));
+  });
+
   test('withSignature fills sig + pubKey, leaving canonicalBytes stable', () {
     final unsigned = _e(
       _owner,

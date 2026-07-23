@@ -907,6 +907,7 @@ class SpaceScreen extends ConsumerWidget {
                       service.selfId,
                       SpacePermission.distributeContent,
                     ) &&
+                    state.recommendationsEnabled &&
                     recommendationCampaigns.isNotEmpty)
                   IconButton(
                     key: const ValueKey('space-recommendation-share'),

@@ -884,6 +884,43 @@ class AppL10nEn extends AppL10n {
       'Allow accepted contacts to send community cards. Turning this off silently discards new recommendations.';
 
   @override
+  String get spaceRecommendationPolicyEnabled =>
+      'Allow community recommendations';
+
+  @override
+  String get spaceRecommendationPolicyDisabled =>
+      'Community recommendations disabled';
+
+  @override
+  String get spaceRecommendationPolicyHint =>
+      'Signed community-wide setting. Anti-spam limits remain fixed and cannot be weakened.';
+
+  @override
+  String get spaceRecommendationSentAuditTitle => 'Sent recommendations';
+
+  @override
+  String get spaceRecommendationSentAuditHint =>
+      'Local encrypted audit. Revoke removes the selected card from both sides.';
+
+  @override
+  String get spaceRecommendationSentAuditEmpty =>
+      'No recommendations sent from this device';
+
+  @override
+  String spaceRecommendationSentTo(String recipient) {
+    return 'Sent to $recipient';
+  }
+
+  @override
+  String get spaceRecommendationSentRevoked => 'revoked';
+
+  @override
+  String get spaceRecommendationSentRevoke => 'Revoke sent recommendation';
+
+  @override
+  String get spacePolicyAuditRecommendations => 'Recommendation policy';
+
+  @override
   String get spaceRoleLabel => 'Community role';
 
   @override
