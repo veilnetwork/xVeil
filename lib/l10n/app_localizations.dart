@@ -2047,6 +2047,18 @@ abstract class AppL10n {
   /// **'Remove {member} and rotate access keys?'**
   String spaceMemberRemoveConfirm(String member);
 
+  /// No description provided for @spaceMemberBan.
+  ///
+  /// In en, this message translates to:
+  /// **'Block in community'**
+  String get spaceMemberBan;
+
+  /// No description provided for @spaceMemberBanConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Permanently block {member}? Their membership will be revoked and protected access keys will be rotated. The signed action remains in the moderation history and can be appealed.'**
+  String spaceMemberBanConfirm(String member);
+
   /// No description provided for @spaceMemberTransferOwnership.
   ///
   /// In en, this message translates to:

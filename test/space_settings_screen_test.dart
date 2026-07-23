@@ -1169,6 +1169,85 @@ void main() {
     expect(transferred.roleOf(alice), GroupRole.owner);
   });
 
+  testWidgets(
+    'Space member menu exposes an audited permanent block with a required reason',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final owner = _id(120);
+      final member = _id(121);
+      final service = GroupService(
+        storage,
+        _Signer(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(service.dispose);
+      final spaceId = await service.createSpace('Moderated community');
+      expect(
+        await service.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: member,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            groupServiceProvider.overrideWithValue(service),
+            conversationsProvider.overrideWith((ref) => Stream.value(const [])),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(SpaceSettingsScreen)));
+
+      await tester.scrollUntilVisible(
+        find.byIcon(Icons.more_vert),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l.spaceMemberBan));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l.spaceMemberBanConfirm(member.short)), findsOneWidget);
+      var confirm = tester.widget<FilledButton>(
+        find.byKey(const ValueKey('space-member-ban-confirm')),
+      );
+      expect(confirm.onPressed, isNull);
+      await tester.enterText(
+        find.byKey(const ValueKey('space-member-ban-reason')),
+        'Repeated abuse',
+      );
+      await tester.pump();
+      confirm = tester.widget<FilledButton>(
+        find.byKey(const ValueKey('space-member-ban-confirm')),
+      );
+      expect(confirm.onPressed, isNotNull);
+      await tester.tap(find.byKey(const ValueKey('space-member-ban-confirm')));
+      await tester.pumpAndSettle();
+
+      expect((await service.stateOf(spaceId))!.isMember(member), isFalse);
+      final audit = await service.spaceModerationAudit(spaceId);
+      expect(audit, hasLength(1));
+      expect(audit.single.action.kind, SpaceModerationKind.permanentBan);
+      expect(audit.single.action.reason, 'Repeated abuse');
+    },
+  );
+
   testWidgets('public Space join link and approval are available in UI', (
     tester,
   ) async {
