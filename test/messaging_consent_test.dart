@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +13,7 @@ import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/p2p_policy.dart';
 import 'package:xveil/domain/space_recommendation.dart';
 import 'package:xveil/domain/space_join_request.dart';
+import 'package:xveil/domain/space_public_feed_transport.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
@@ -22,6 +24,7 @@ class _FakeTransport implements VeilTransport {
   _FakeTransport(this._me);
   final NodeId _me;
   final _inbound = StreamController<InboundMessage>.broadcast();
+  final List<Uint8List> sentPayloads = <Uint8List>[];
   _FakeTransport? peer;
 
   @override
@@ -40,6 +43,7 @@ class _FakeTransport implements VeilTransport {
     Uint8List payload, {
     bool anonymous = false,
   }) async {
+    sentPayloads.add(Uint8List.fromList(payload));
     peer?._inbound.add(InboundMessage(src: _me, payload: payload));
   }
 
@@ -650,6 +654,63 @@ void main() {
       expect(await sB.pendingOutboxFrames(), isEmpty);
     },
   );
+
+  test(
+    'public media grant request is live-only and creates no contact or chat',
+    () async {
+      final seen = Completer<(NodeId, String)>();
+      mB.onSpacePublicMediaGrantRequest = (peer, body) async {
+        if (!seen.isCompleted) seen.complete((peer, body));
+      };
+      final request = SpacePublicMediaGrantRequest(
+        spaceId: _id(3),
+        descriptorHash: '11' * 32,
+        manifestHash: '22' * 32,
+        contentId: '33' * 32,
+        requester: a,
+        requesterPublicKey: a.bytes,
+        nonce: '44' * 32,
+        createdAtMs: DateTime.now().millisecondsSinceEpoch,
+        signature: Uint8List(64),
+      );
+      final body = jsonEncode(request.toJson());
+
+      await mA.sendSpacePublicMediaGrantRequest(b, body);
+      expect(await seen.future.timeout(const Duration(seconds: 2)), (a, body));
+      await _pump();
+
+      expect(await sA.getContact(b), isNull);
+      expect(await sB.getContact(a), isNull);
+      expect(await sA.loadMessages(b.hex), isEmpty);
+      expect(await sB.loadMessages(a.hex), isEmpty);
+      expect(await sA.pendingOutboxFrames(), isEmpty);
+      expect(await sB.pendingOutboxFrames(), isEmpty);
+    },
+  );
+
+  test('live-only public frames never ACK an injected frame id', () async {
+    await sA.upsertContact(Contact(nodeId: b, status: ContactStatus.accepted));
+    await sB.upsertContact(Contact(nodeId: a, status: ContactStatus.accepted));
+    final seen = Completer<void>();
+    mB.onSpacePublicMediaGrantRequest = (_, _) async {
+      if (!seen.isCompleted) seen.complete();
+    };
+
+    await tA.send(
+      b,
+      const WireEnvelope.spacePublicMediaGrantRequest(
+        '{"kind":"live-only"}',
+      ).withFrameId('must-not-ack').encode(),
+    );
+    await seen.future.timeout(const Duration(seconds: 2));
+    await _pump();
+
+    expect(
+      tB.sentPayloads.map(WireEnvelope.decode).map((env) => env.kind),
+      isNot(contains(WireKind.ack)),
+    );
+    expect(await sB.loadMessages(a.hex), isEmpty);
+  });
 }
 
 /// Tiny helper to craft a raw message payload in the stranger test.

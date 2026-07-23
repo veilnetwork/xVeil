@@ -30,13 +30,21 @@ extension _MessagingInboundDispatch on MessagingService {
         env.kind == WireKind.spaceModerationAppeal ||
         env.kind == WireKind.spaceModerationAppealDecision;
     final deferredGroupCallAck = env.kind == WireKind.groupCallSignal;
+    final liveOnlyNoAck =
+        env.kind == WireKind.groupContentReceipt ||
+        env.kind == WireKind.groupContentManifest ||
+        env.kind == WireKind.spacePublicFeedRequest ||
+        env.kind == WireKind.spacePublicFeedChunk ||
+        env.kind == WireKind.spacePublicMediaGrantRequest;
     if (fid != null && deferredGroupCallAck && _outbox.hasSeen(fid)) {
       // This exact frame passed membership+AEAD+signature once already. A
       // re-drive means our prior ACK was lost; re-ACK without reprocessing.
       await _ackFrame(m, fid);
       return;
     }
-    if (fid != null && existing?.status == ContactStatus.accepted) {
+    if (fid != null &&
+        !liveOnlyNoAck &&
+        existing?.status == ContactStatus.accepted) {
       if (deferredGroupCallAck) {
         // Authorization is the group frame itself, not ContactStatus. The
         // groupCallSignal switch arm ACKs only after the group layer accepts.
@@ -601,6 +609,13 @@ extension _MessagingInboundDispatch on MessagingService {
         // No ACK or unsolicited allocation: the Space layer accepts this only
         // for an exact pending (holder, nonce, Space, manifest, object) tuple.
         onSpacePublicFeedChunk?.call(m.src, env.body);
+        return;
+      case WireKind.spacePublicMediaGrantRequest:
+        // Public readers are not members. The Space layer may mint only one
+        // short-lived `(authenticated source, CID)` content-stream grant after
+        // matching the signed request to an exact verified public projection.
+        // No ACK/outbox/chat row: denial is intentionally silent.
+        await onSpacePublicMediaGrantRequest?.call(m.src, env.body);
         return;
       case WireKind.groupCallSignal:
         // No contact gate: current group membership + epoch AEAD + node-bound

@@ -199,6 +199,13 @@ enum WireKind {
   /// reassembly state, and the complete object is verified by its committed
   /// hash. Neither direction is ACKed, outboxed or written to chat history.
   spacePublicFeedChunk,
+
+  /// Live-only signed request to open the existing content stream for one CID
+  /// committed by an exact verified public Space descriptor/feed pair. The
+  /// Space layer validates the authenticated source, signature, freshness,
+  /// replay/quota and public reference before minting a `(peer, CID)` grant.
+  /// Appended immediately before [unknown]; all older indices stay unchanged.
+  spacePublicMediaGrantRequest,
   unknown,
 }
 
@@ -390,6 +397,9 @@ class WireEnvelope {
 
   const WireEnvelope.spacePublicFeedChunk(String chunkJson)
     : this(WireKind.spacePublicFeedChunk, chunkJson);
+
+  const WireEnvelope.spacePublicMediaGrantRequest(String requestJson)
+    : this(WireKind.spacePublicMediaGrantRequest, requestJson);
 
   const WireEnvelope.groupCallSignal(String frameJson, {int? sentAtMs})
     : this(WireKind.groupCallSignal, frameJson, sentAtMs: sentAtMs);

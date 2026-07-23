@@ -32,6 +32,7 @@ SpacePost _signedPost({
   SpacePostOperation operation = SpacePostOperation.publish,
   int? targetSeq,
   String prevHash = '',
+  List<MediaObject> media = const [],
 }) {
   final unsigned = SpacePost(
     spaceId: space,
@@ -42,6 +43,7 @@ SpacePost _signedPost({
     visibility: SpacePostVisibility.public,
     title: '',
     body: body,
+    media: media,
     policyVersion: 0,
     createdAtMs: 1000 + seq,
     publishedAtMs: 1000 + seq,
@@ -281,6 +283,52 @@ void main() {
     );
   });
 
+  test('retention-hidden media is absent from the public grant allowlist', () {
+    final space = _id(15);
+    final owner = _id(16);
+    final root = _signedPost(
+      space: space,
+      author: owner,
+      seq: 0,
+      body: 'Text remains',
+      media: [
+        const MediaObject(
+          kind: 'image',
+          contentId:
+              'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        ),
+      ],
+    );
+    final visible = _projection(
+      space: space,
+      owner: owner,
+      posts: [
+        SpacePublicPostProjection(
+          root: root,
+          effective: root,
+          pinned: false,
+          mediaHiddenByRetention: false,
+        ),
+      ],
+    );
+    final hidden = _projection(
+      space: space,
+      owner: owner,
+      posts: [
+        SpacePublicPostProjection(
+          root: root,
+          effective: root,
+          pinned: false,
+          mediaHiddenByRetention: true,
+        ),
+      ],
+    );
+
+    expect(visible.referencedContentIds, {'a' * 64});
+    expect(hidden.referencedContentIds, isEmpty);
+    expect(hidden.posts.single.body, 'Text remains');
+  });
+
   test('object request is signed, source-bound, fresh and strictly parsed', () {
     const now = 5000;
     final requester = _id(9);
@@ -317,6 +365,53 @@ void main() {
     final injected = request.toJson()..['page'] = {'privateEpoch': 2};
     expect(SpacePublicFeedObjectRequest.fromJson(injected), isNull);
   });
+
+  test(
+    'public media grant request binds source, feed revision and exact CID',
+    () {
+      const now = 6000;
+      final requester = _id(12);
+      final unsigned = SpacePublicMediaGrantRequest(
+        spaceId: _id(13),
+        descriptorHash: '11' * 32,
+        manifestHash: '22' * 32,
+        contentId: '33' * 32,
+        requester: requester,
+        requesterPublicKey: requester.bytes,
+        nonce: '44' * 32,
+        createdAtMs: now,
+      );
+      final request = unsigned.withSignature(
+        _signature(requester, requester.bytes, unsigned.canonicalBytes()),
+      );
+
+      expect(request.verifyAt(now, requester, _verifyDetached), isTrue);
+      expect(request.verifyAt(now, _id(14), _verifyDetached), isFalse);
+      expect(
+        request.verifyAt(
+          now + kSpacePublicMediaGrantRequestWindow.inMilliseconds + 1,
+          requester,
+          _verifyDetached,
+        ),
+        isFalse,
+      );
+      expect(
+        SpacePublicMediaGrantRequest.fromJson(
+          jsonDecode(jsonEncode(request.toJson())),
+        )?.toJson(),
+        request.toJson(),
+      );
+      final changedCid = request.toJson()..['contentId'] = '55' * 32;
+      final decodedChanged = SpacePublicMediaGrantRequest.fromJson(changedCid);
+      expect(decodedChanged, isNotNull);
+      expect(
+        decodedChanged!.verifyAt(now, requester, _verifyDetached),
+        isFalse,
+      );
+      final injected = request.toJson()..['channelEpoch'] = 7;
+      expect(SpacePublicMediaGrantRequest.fromJson(injected), isNull);
+    },
+  );
 
   test('object chunks are bounded, exact and losslessly reassembled', () {
     final bytes = Uint8List.fromList(

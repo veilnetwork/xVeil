@@ -27,6 +27,7 @@ import '../domain/media_file_name.dart';
 import '../domain/p2p_policy.dart';
 import '../domain/space_recommendation.dart';
 import '../domain/space_join_request.dart';
+import '../domain/space_public_feed_transport.dart';
 import 'mailbox_service.dart' show MailboxSink;
 import 'sticker_message.dart';
 import 'vnote_message.dart';
@@ -256,6 +257,12 @@ class MessagingService {
   onSpacePublicFeedRequest;
   void Function(NodeId peer, String chunkJson)? onSpacePublicFeedChunk;
 
+  /// Live-only request for a public-media `(peer, CID)` stream grant. The
+  /// Space layer authenticates the exact descriptor/feed reference; messaging
+  /// only preserves the source and pre-authorizes the matching response path.
+  Future<void> Function(NodeId peer, String requestJson)?
+  onSpacePublicMediaGrantRequest;
+
   /// Fired only after a membership-scoped blob is fully hash-verified and
   /// durably stored. [sources] contains the actual stream sources that supplied
   /// verified bytes, not every member that was merely eligible.
@@ -438,6 +445,26 @@ class MessagingService {
 
   Future<void> sendSpacePublicFeedChunk(NodeId dst, String chunkJson) =>
       _send(dst, WireEnvelope.spacePublicFeedChunk(chunkJson).encode());
+
+  Future<void> sendSpacePublicMediaGrantRequest(
+    NodeId dst,
+    String requestJson,
+  ) async {
+    final SpacePublicMediaGrantRequest? request;
+    try {
+      request = SpacePublicMediaGrantRequest.fromJson(jsonDecode(requestJson));
+    } catch (_) {
+      return;
+    }
+    if (request == null || request.requester.hex != await _selfHex()) return;
+    _allowGroupPullSources(request.contentId, [
+      dst,
+    ], ttl: kSpacePublicMediaGrantRequestWindow);
+    await _send(
+      dst,
+      WireEnvelope.spacePublicMediaGrantRequest(requestJson).encode(),
+    );
+  }
 
   Future<void> sendSpaceInvite(
     NodeId dst,
@@ -1677,6 +1704,26 @@ class MessagingService {
     // to (peer,cid,TTL): it must never turn group membership into a generic
     // read/probe capability.
     _allowGroupPullSources(contentId, sources);
+    return downloadContentFromAny(sources, contentId);
+  }
+
+  /// Public-Space counterpart of [downloadGroupContentFromAny]. Callers have
+  /// already verified an owner-signed projection and sent every holder an
+  /// exact public-media grant request; keep the receiver admission on that
+  /// request's shorter lifetime rather than inheriting membership scope.
+  Future<ContentDownloadResult> downloadPublicSpaceContentFromAny(
+    Iterable<NodeId> holders,
+    String contentId,
+  ) {
+    final sources = _uniquePeers(holders);
+    if (sources.isEmpty) {
+      return Future.value(ContentDownloadResult.noOffer);
+    }
+    _allowGroupPullSources(
+      contentId,
+      sources,
+      ttl: kSpacePublicMediaGrantRequestWindow,
+    );
     return downloadContentFromAny(sources, contentId);
   }
 

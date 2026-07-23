@@ -23,6 +23,7 @@ import '../data/transport/veil_mailbox.dart';
 import '../data/veil_stack.dart';
 import '../domain/chat.dart';
 import '../domain/identity.dart';
+import '../domain/space_public_feed_transport.dart';
 import '../state/group_epoch_service.dart';
 import '../state/group_service.dart';
 import '../state/mailbox_orchestrator.dart';
@@ -164,11 +165,27 @@ class HeadlessRuntime {
             messaging!.sendGroupContentRequest(holder, json),
         sendPublicFeedRequest: messaging.sendSpacePublicFeedRequest,
         sendPublicFeedChunk: messaging.sendSpacePublicFeedChunk,
+        sendPublicMediaGrantRequest: messaging.sendSpacePublicMediaGrantRequest,
         sendGroupCallFrame: (peer, signal, json) =>
             messaging!.sendGroupCallSignal(peer, signal, json),
         grantContentServe: messaging.grantGroupContentServe,
+        grantPublicContentServe: (peer, contentId) =>
+            messaging!.grantGroupContentServe(
+              peer,
+              contentId,
+              ttl: kSpacePublicMediaGrantRequestWindow,
+            ),
         startContentPull: (holder, contentId) async {
           await messaging!.downloadContent(holder, contentId);
+        },
+        startContentPullFromAny: (holders, contentId) async {
+          await messaging!.downloadGroupContentFromAny(holders, contentId);
+        },
+        startPublicContentPullFromAny: (holders, contentId) async {
+          await messaging!.downloadPublicSpaceContentFromAny(
+            holders,
+            contentId,
+          );
         },
         activePeers: () async => {
           for (final peer in await activePeerTransport.peers())
@@ -409,6 +426,8 @@ class HeadlessRuntime {
     };
     messaging.onSpacePublicFeedRequest = groups.handlePublicFeedObjectRequest;
     messaging.onSpacePublicFeedChunk = groups.handlePublicFeedObjectChunk;
+    messaging.onSpacePublicMediaGrantRequest =
+        groups.handlePublicMediaGrantRequest;
     messaging.onGroupCallSignal = groups.ingestGroupCallFrame;
     messaging.onGroupEntryFromStranger = (peer, bundleJson) {
       unawaited(groups.ingestGroupEntryFromStranger(peer, bundleJson));
