@@ -6951,6 +6951,18 @@ void main() {
 
       final readerStorage = FakeHvContainer().storage();
       await readerStorage.open(password: 'pw', createIfMissing: true);
+      for (final contentId in ['a' * 64, 'b' * 64]) {
+        await readerStorage.storeFile(
+          contentId,
+          Uint8List.fromList([1, 2, 3]),
+          name: 'expired-media',
+        );
+        await readerStorage.storeFile(
+          'mf:$contentId',
+          Uint8List.fromList(utf8.encode('{"cid":"$contentId"}')),
+          name: 'manifest',
+        );
+      }
       final reader = GroupService(readerStorage, signer);
       addTearDown(reader.dispose);
       expect(await reader.ingestSnapshot(source.snapshotJson(bundle)), isTrue);
@@ -6968,6 +6980,20 @@ void main() {
       expect(oldPost.media, hasLength(1), reason: 'signed row stays immutable');
       expect(oldMessage.toJson(), contains('att'));
       expect(await reader.referencedContentIds(spaceId), isEmpty);
+      final gcStartedAt = DateTime.now().millisecondsSinceEpoch;
+      final quarantined = await reader.sweepSharedContentGarbage(
+        nowMs: gcStartedAt,
+      );
+      expect(quarantined.marked, 2);
+      expect(quarantined.purged, 0);
+      final reclaimed = await reader.sweepSharedContentGarbage(
+        nowMs: gcStartedAt + kSharedContentGcGracePeriod.inMilliseconds,
+      );
+      expect(reclaimed.purged, 2);
+      for (final contentId in ['a' * 64, 'b' * 64]) {
+        expect(await readerStorage.hasFile(contentId), isFalse);
+        expect(await readerStorage.hasFile('mf:$contentId'), isFalse);
+      }
 
       expect(
         await reader.setSpaceRetentionPolicy(
@@ -7752,6 +7778,284 @@ void main() {
         (await ownerSvc.load(spaceId))!.messages.last.lifecycleGeneration,
         restored.lifecycleTransitionHash,
       );
+    },
+  );
+
+  test(
+    'global content GC preserves cross-domain refs, waits 24h, then purges payload+manifest',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner));
+      addTearDown(service.dispose);
+      addTearDown(storage.close);
+      final contentId = 'c' * 64;
+      await storage.storeFile(
+        contentId,
+        Uint8List.fromList([1, 2, 3, 4]),
+        name: 'shared.bin',
+      );
+      await storage.storeFile(
+        'mf:$contentId',
+        Uint8List.fromList(utf8.encode('{"cid":"$contentId"}')),
+        name: 'manifest',
+      );
+
+      const conversationId = 'personal-chat';
+      await storage.appendMessage(
+        Message(
+          id: 'shared-message',
+          conversationId: conversationId,
+          direction: MessageDirection.outgoing,
+          body: 'shared attachment',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(10),
+          fileId: contentId,
+          fileName: 'shared.bin',
+        ),
+      );
+      final spaceId = await service.createSpace(
+        'Shared reachability',
+        visibility: SpaceVisibility.public,
+      );
+      final post = await service.publishSpacePost(
+        spaceId,
+        body: 'same immutable bytes in a Space',
+        media: [
+          MediaObject(
+            contentId: contentId,
+            kind: 'file',
+            name: 'shared.bin',
+            size: 4,
+          ),
+        ],
+        broadcast: false,
+      );
+      expect(post, isNotNull);
+
+      await storage.deleteMessage(conversationId, 'shared-message');
+      expect(
+        await storage.hasFile(contentId),
+        isTrue,
+        reason: 'one domain cannot erase a globally shared hash-CID',
+      );
+      final whileSpaceOwns = await service.sweepSharedContentGarbage(
+        nowMs: 1000,
+        gracePeriod: Duration.zero,
+      );
+      expect(whileSpaceOwns.complete, isTrue);
+      expect(whileSpaceOwns.referenced, greaterThanOrEqualTo(1));
+      expect(whileSpaceOwns.purged, 0);
+
+      expect(
+        await service.deleteSpacePost(spaceId, post!.postId, broadcast: false),
+        isTrue,
+      );
+      final first = await service.sweepSharedContentGarbage(nowMs: 2000);
+      expect(first.marked, 1);
+      expect(first.purged, 0);
+      expect(await storage.hasFile(contentId), isTrue);
+
+      final almostDue = await service.sweepSharedContentGarbage(
+        nowMs: 2000 + kSharedContentGcGracePeriod.inMilliseconds - 1,
+      );
+      expect(almostDue.purged, 0);
+      expect(await storage.hasFile(contentId), isTrue);
+
+      final due = await service.sweepSharedContentGarbage(
+        nowMs: 2000 + kSharedContentGcGracePeriod.inMilliseconds,
+      );
+      expect(due.complete, isTrue);
+      expect(due.purged, 1);
+      expect(await storage.hasFile(contentId), isFalse);
+      expect(await storage.hasFile('mf:$contentId'), isFalse);
+    },
+  );
+
+  test(
+    'global content GC aborts on an unreadable durable cloud root',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner));
+      addTearDown(service.dispose);
+      addTearDown(storage.close);
+      final contentId = 'e' * 64;
+      await storage.storeFile(
+        contentId,
+        Uint8List.fromList([9, 8, 7]),
+        name: 'must-survive.bin',
+      );
+      await storage.putSetting('cloud.index.v1.active', 'a');
+      await storage.storeFile(
+        'cloud.index.v1.a',
+        Uint8List.fromList(utf8.encode('{not-json')),
+        name: 'corrupt-cloud-index',
+      );
+
+      final sweep = await service.sweepSharedContentGarbage(
+        nowMs: 1000,
+        gracePeriod: Duration.zero,
+      );
+      expect(sweep.complete, isFalse);
+      expect(sweep.failed, 1);
+      expect(sweep.purged, 0);
+      expect(await storage.hasFile(contentId), isTrue);
+    },
+  );
+
+  test(
+    'global content GC aborts when the durable group index is malformed',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner));
+      addTearDown(service.dispose);
+      addTearDown(storage.close);
+      final contentId = '9' * 64;
+      await storage.storeFile(
+        contentId,
+        Uint8List.fromList([1, 9, 1]),
+        name: 'must-survive-group-index-corruption.bin',
+      );
+      await storage.putSetting('groups.index', '{not-json');
+
+      final sweep = await service.sweepSharedContentGarbage(
+        nowMs: 1000,
+        gracePeriod: Duration.zero,
+      );
+      expect(sweep.complete, isFalse);
+      expect(sweep.failed, 1);
+      expect(sweep.purged, 0);
+      expect(await storage.hasFile(contentId), isTrue);
+    },
+  );
+
+  test(
+    'corrupt active GC marks restart grace instead of reviving stale fallback',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner));
+      addTearDown(service.dispose);
+      addTearDown(storage.close);
+      final contentId = 'd' * 64;
+      await storage.storeFile(
+        contentId,
+        Uint8List.fromList([3, 2, 1]),
+        name: 'quarantined.bin',
+      );
+
+      expect((await service.sweepSharedContentGarbage(nowMs: 1000)).marked, 1);
+      expect(await storage.getSetting('content.gc.marks.v1.active'), 'a');
+      // An unchanged sweep must not rotate/write the quarantine generation.
+      expect((await service.sweepSharedContentGarbage(nowMs: 1500)).purged, 0);
+      expect(await storage.getSetting('content.gc.marks.v1.active'), 'a');
+      await storage.appendMessage(
+        Message(
+          id: 'temporary-reference',
+          conversationId: 'personal-chat',
+          direction: MessageDirection.outgoing,
+          body: 'temporarily reachable',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(1600),
+          fileId: contentId,
+        ),
+      );
+      // The active generation now records that the stale mark was cleared.
+      expect(
+        (await service.sweepSharedContentGarbage(nowMs: 2000)).unreachable,
+        0,
+      );
+      await storage.deleteMessage('personal-chat', 'temporary-reference');
+      expect(await storage.getSetting('content.gc.marks.v1.active'), 'b');
+      await storage.storeFile(
+        'content.gc.marks.v1.b',
+        Uint8List.fromList(utf8.encode('{corrupt')),
+        name: 'corrupt-active-gc-marks',
+      );
+
+      final oldMarkWouldBeDue =
+          1000 + kSharedContentGcGracePeriod.inMilliseconds;
+      final restarted = await service.sweepSharedContentGarbage(
+        nowMs: oldMarkWouldBeDue,
+      );
+      expect(restarted.complete, isTrue);
+      expect(restarted.marked, 1);
+      expect(restarted.purged, 0);
+      expect(await storage.hasFile(contentId), isTrue);
+
+      final dueAfterRestart = await service.sweepSharedContentGarbage(
+        nowMs: oldMarkWouldBeDue + kSharedContentGcGracePeriod.inMilliseconds,
+      );
+      expect(dueAfterRestart.purged, 1);
+      expect(await storage.hasFile(contentId), isFalse);
+    },
+  );
+
+  test(
+    'recoverable Space deletion retains media until the bundle purge commits',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner));
+      addTearDown(service.dispose);
+      addTearDown(storage.close);
+      final contentId = 'f' * 64;
+      await storage.storeFile(
+        contentId,
+        Uint8List.fromList([4, 5, 6]),
+        name: 'recoverable.bin',
+      );
+      await storage.storeFile(
+        'mf:$contentId',
+        Uint8List.fromList(utf8.encode('{"cid":"$contentId"}')),
+        name: 'manifest',
+      );
+      final spaceId = await service.createSpace(
+        'Recoverable media',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await service.publishSpacePost(
+          spaceId,
+          body: 'must survive recovery',
+          media: [
+            MediaObject(
+              contentId: contentId,
+              kind: 'file',
+              name: 'recoverable.bin',
+              size: 3,
+            ),
+          ],
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      expect(
+        await service.deleteSpace(
+          spaceId,
+          recoveryPeriod: const Duration(milliseconds: 1),
+        ),
+        isTrue,
+      );
+      final deadline = (await service.stateOf(
+        spaceId,
+      ))!.lifecycleTransition!.recoveryDeadlineMs!;
+
+      final beforeBundlePurge = await service.sweepSharedContentGarbage(
+        nowMs: deadline,
+        gracePeriod: Duration.zero,
+      );
+      expect(beforeBundlePurge.purged, 0);
+      expect(await storage.hasFile(contentId), isTrue);
+
+      expect((await service.purgeDeletedSpaces(nowMs: deadline)).purged, 1);
+      final afterBundlePurge = await service.sweepSharedContentGarbage(
+        nowMs: deadline + 1,
+        gracePeriod: Duration.zero,
+      );
+      expect(afterBundlePurge.purged, 1);
+      expect(await storage.hasFile(contentId), isFalse);
+      expect(await storage.hasFile('mf:$contentId'), isFalse);
     },
   );
 }

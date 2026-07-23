@@ -67,6 +67,13 @@ bool _listEquals<T>(List<T>? left, List<T>? right) {
 final RegExp _channelKeyIdPattern = RegExp(r'^[0-9a-f]{64}:[1-9][0-9]*$');
 final RegExp _spacePostIdPattern = RegExp(r'^[0-9a-f]{64}:[0-9]+$');
 final RegExp _scheduledSpacePostIdPattern = RegExp(r'^[0-9a-f]{64}$');
+final RegExp _sharedContentIdPattern = RegExp(r'^[0-9a-f]{64}$');
+
+/// A newly unreachable shared blob must survive at least one full day and two
+/// independent scans. This is a storage-safety grace period, not a user-facing
+/// retention/mute interval; the existing 7/30/90/365-day and notification
+/// presets remain byte-for-byte unchanged.
+const Duration kSharedContentGcGracePeriod = Duration(hours: 24);
 
 String _channelKeyId(NodeId channelId, int epoch) => '${channelId.hex}:$epoch';
 
@@ -422,6 +429,26 @@ class SpaceDeletionSweep {
   final int failed;
 }
 
+class SharedContentGcSweep {
+  const SharedContentGcSweep({
+    required this.stored,
+    required this.referenced,
+    required this.unreachable,
+    required this.marked,
+    required this.purged,
+    required this.failed,
+    required this.complete,
+  });
+
+  final int stored;
+  final int referenced;
+  final int unreachable;
+  final int marked;
+  final int purged;
+  final int failed;
+  final bool complete;
+}
+
 class ScheduledSpacePostSweep {
   const ScheduledSpacePostSweep({
     required this.scanned,
@@ -542,6 +569,7 @@ class GroupService {
   /// discard its last rendered snapshot before recalculating access, instead
   /// of briefly retaining content after a local block, leave, or remote ban.
   final GroupChangeSignal feedAccessChanges = GroupChangeSignal();
+  static const String _contentGcMarksKey = 'content.gc.marks.v1';
   Timer? _spaceDeletionMaintenanceTimer;
   bool _spaceDeletionMaintenanceRunning = false;
   Timer? _scheduledSpacePostTimer;
@@ -3582,6 +3610,379 @@ class GroupService {
     if (notify) changes.value++;
   }
 
+  Map<String, int>? _decodeContentGcMarks(Uint8List raw) {
+    try {
+      final value = jsonDecode(utf8.decode(raw, allowMalformed: false));
+      if (value is! Map || value['v'] != 1 || value['marks'] is! Map) {
+        return null;
+      }
+      final rows = value['marks'] as Map;
+      if (rows.length > 100000) return null;
+      final marks = <String, int>{};
+      for (final entry in rows.entries) {
+        final contentId = entry.key;
+        final firstUnreachableAtMs = entry.value;
+        if (contentId is! String ||
+            !_sharedContentIdPattern.hasMatch(contentId) ||
+            firstUnreachableAtMs is! int ||
+            firstUnreachableAtMs < 1) {
+          return null;
+        }
+        marks[contentId] = firstUnreachableAtMs;
+      }
+      return marks;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Map<String, int>> _loadContentGcMarks() async {
+    final active = await _storage.getSetting('$_contentGcMarksKey.active');
+    if (active == 'a' || active == 'b') {
+      final raw = await _storage.loadFile('$_contentGcMarksKey.$active');
+      final decoded = raw == null ? null : _decodeContentGcMarks(raw);
+      if (decoded != null) return decoded;
+    }
+    // A fallback slot is an older generation and may contain a mark that was
+    // deliberately cleared while the content was reachable. Reusing it after
+    // pointer loss/corruption could therefore shorten a later quarantine.
+    // Restart every grace period instead; corruption can only delay deletion.
+    return <String, int>{};
+  }
+
+  Future<void> _saveContentGcMarks(Map<String, int> marks) async {
+    final active = await _storage.getSetting('$_contentGcMarksKey.active');
+    if (active == 'a' || active == 'b') {
+      final currentRaw = await _storage.loadFile('$_contentGcMarksKey.$active');
+      final current = currentRaw == null
+          ? null
+          : _decodeContentGcMarks(currentRaw);
+      if (current != null &&
+          current.length == marks.length &&
+          current.entries.every((entry) => marks[entry.key] == entry.value)) {
+        return;
+      }
+    }
+    final next = active == 'a' ? 'b' : 'a';
+    final sorted = marks.entries.toList()
+      ..sort((left, right) => left.key.compareTo(right.key));
+    final bytes = Uint8List.fromList(
+      utf8.encode(
+        jsonEncode({
+          'v': 1,
+          'marks': {for (final entry in sorted) entry.key: entry.value},
+        }),
+      ),
+    );
+    await _storage.storeFile(
+      '$_contentGcMarksKey.$next',
+      bytes,
+      name: 'shared-content-gc-quarantine',
+    );
+    await _storage.putSetting('$_contentGcMarksKey.active', next);
+  }
+
+  Future<({Set<String> contentIds, bool complete})> _rawGroupContentReferences(
+    GroupBundle bundle,
+    GroupState state,
+  ) async {
+    final contentIds = <String>{};
+    for (final message in _acceptedMessagesWithinLifecycle(bundle, state)) {
+      final visible = message.isEncrypted
+          ? await _materializeEncryptedMessage(bundle, message)
+          : message;
+      if (visible == null) {
+        return (contentIds: contentIds, complete: false);
+      }
+      final contentId = visible.attachment?.contentId;
+      if (contentId != null) contentIds.add(contentId);
+    }
+    for (final post in _canonicalPostRows(
+      bundle.manifest.groupId,
+      bundle.posts,
+    )) {
+      final visible = post.isEncrypted
+          ? await _materializeEncryptedPost(bundle, post)
+          : post;
+      if (visible == null) {
+        return (contentIds: contentIds, complete: false);
+      }
+      for (final media in visible.media) {
+        final contentId = media.contentId;
+        if (contentId != null) contentIds.add(contentId);
+      }
+    }
+    return (contentIds: contentIds, complete: true);
+  }
+
+  Future<bool> _groupProjectionComplete(
+    GroupBundle bundle,
+    GroupState state,
+  ) async {
+    for (final message in _acceptedMessagesWithinLifecycle(bundle, state)) {
+      if (message.isEncrypted &&
+          await _materializeEncryptedMessage(bundle, message) == null) {
+        return false;
+      }
+    }
+    for (final post in _canonicalPostRows(
+      bundle.manifest.groupId,
+      bundle.posts,
+    )) {
+      if (post.isEncrypted &&
+          await _materializeEncryptedPost(bundle, post) == null) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  Future<({Set<String> groupIds, bool complete})> _groupIdsForGc() async {
+    final groupIds = <String>{};
+    try {
+      final raw = await _storage.getSetting('groups.index');
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is! List || decoded.length > 100000) {
+          return (groupIds: groupIds, complete: false);
+        }
+        for (final value in decoded) {
+          if (value is! String || !_sharedContentIdPattern.hasMatch(value)) {
+            return (groupIds: groupIds, complete: false);
+          }
+          groupIds.add(value);
+        }
+      }
+
+      // The ordinary UI index is allowed to lag a crash-safe bundle write.
+      // Cross-check concrete roots so a lost/stale index cannot hide a Group
+      // from destructive reachability. A malformed candidate blocks the pass.
+      for (final key in await _storage.settingsKeys()) {
+        String? groupId;
+        if (key.startsWith('file:group:')) {
+          groupId = key.substring('file:group:'.length);
+        } else if (key.startsWith('ondisk:group:')) {
+          groupId = key.substring('ondisk:group:'.length);
+        } else if (key.startsWith('set:group:')) {
+          groupId = key.substring('set:group:'.length);
+        } else if (key.startsWith('filepiece:group:')) {
+          final rest = key.substring('filepiece:group:'.length);
+          final cut = rest.lastIndexOf(':');
+          if (cut <= 0 || int.tryParse(rest.substring(cut + 1)) == null) {
+            return (groupIds: groupIds, complete: false);
+          }
+          groupId = rest.substring(0, cut);
+        }
+        if (groupId == null) continue;
+        if (!_sharedContentIdPattern.hasMatch(groupId)) {
+          return (groupIds: groupIds, complete: false);
+        }
+        groupIds.add(groupId);
+      }
+      return (groupIds: groupIds, complete: true);
+    } catch (_) {
+      return (groupIds: groupIds, complete: false);
+    }
+  }
+
+  Future<({Set<String> contentIds, bool complete})>
+  _groupContentReferencesForGc() async {
+    final contentIds = <String>{};
+    final index = await _groupIdsForGc();
+    if (!index.complete) {
+      return (contentIds: contentIds, complete: false);
+    }
+    for (final hex in index.groupIds) {
+      NodeId groupId;
+      try {
+        groupId = NodeId.fromHex(hex);
+      } catch (_) {
+        return (contentIds: contentIds, complete: false);
+      }
+      final result = await _serialized(groupId, () async {
+        final bundle = await load(groupId);
+        if (bundle == null) {
+          final wasPurged = await deletedSpaceTombstone(groupId) != null;
+          return (contentIds: <String>{}, complete: wasPurged);
+        }
+        final state = foldControlLog(
+          owner: bundle.manifest.owner,
+          entries: bundle.control,
+          verify: (entry) => _validControlFor(bundle.manifest, entry),
+          initialName: bundle.manifest.name,
+          initialDescription: bundle.manifest.description ?? '',
+        ).state;
+        if (state.isDeleted) {
+          // Recovery can restore the exact bundle until purge. Keep every
+          // decryptable historical reference, not only the currently hidden
+          // projection, for the whole recovery window.
+          return _rawGroupContentReferences(bundle, state);
+        }
+        final refs = await referencedContentIds(
+          groupId,
+          applyLocalRetention: true,
+        );
+        return (
+          contentIds: refs,
+          complete: await _groupProjectionComplete(bundle, state),
+        );
+      });
+      contentIds.addAll(result.contentIds);
+      if (!result.complete) {
+        return (contentIds: contentIds, complete: false);
+      }
+    }
+    return (contentIds: contentIds, complete: true);
+  }
+
+  /// Mark/sweep the one shared hash-CID namespace. Every destructive domain
+  /// defers to this pass, which unions chat, cloud and validated group/Space
+  /// roots, waits through [gracePeriod], re-scans before deletion, then removes
+  /// payload and `mf:<cid>` together. Any unreadable root aborts fail-closed.
+  Future<SharedContentGcSweep> sweepSharedContentGarbage({
+    int? nowMs,
+    Duration gracePeriod = kSharedContentGcGracePeriod,
+    int limit = 16,
+  }) async {
+    if (limit <= 0 || limit > 256) {
+      throw ArgumentError.value(limit, 'limit', 'must be 1..256');
+    }
+    if (gracePeriod.isNegative) {
+      throw ArgumentError.value(
+        gracePeriod,
+        'gracePeriod',
+        'must not be negative',
+      );
+    }
+    final now = nowMs ?? _now();
+    final storage = await _storage.sharedContentReferenceSnapshot();
+    final groups = storage.complete
+        ? await _groupContentReferencesForGc()
+        : (contentIds: <String>{}, complete: false);
+    if (!storage.complete || !groups.complete) {
+      return SharedContentGcSweep(
+        stored: storage.storedContentIds.length,
+        referenced:
+            storage.referencedContentIds.length + groups.contentIds.length,
+        unreachable: 0,
+        marked: 0,
+        purged: 0,
+        failed: 1,
+        complete: false,
+      );
+    }
+
+    final referenced = <String>{
+      ...storage.referencedContentIds,
+      ...groups.contentIds,
+    };
+    final unreachable = storage.storedContentIds.difference(referenced);
+    final marks = await _loadContentGcMarks();
+    marks.removeWhere(
+      (contentId, _) =>
+          referenced.contains(contentId) ||
+          !storage.storedContentIds.contains(contentId),
+    );
+    var marked = 0;
+    for (final contentId in unreachable) {
+      if (!marks.containsKey(contentId)) {
+        marks[contentId] = now;
+        marked++;
+      }
+    }
+    try {
+      // Commit quarantine before any destructive operation. A crash can only
+      // leave an older mark (longer retention), never bypass the grace period.
+      await _saveContentGcMarks(marks);
+    } catch (_) {
+      return SharedContentGcSweep(
+        stored: storage.storedContentIds.length,
+        referenced: referenced.length,
+        unreachable: unreachable.length,
+        marked: marked,
+        purged: 0,
+        failed: 1,
+        complete: false,
+      );
+    }
+
+    final eligible =
+        [
+          for (final entry in marks.entries)
+            if (now - entry.value >= gracePeriod.inMilliseconds) entry,
+        ]..sort((left, right) {
+          final time = left.value.compareTo(right.value);
+          return time != 0 ? time : left.key.compareTo(right.key);
+        });
+    if (eligible.isEmpty) {
+      return SharedContentGcSweep(
+        stored: storage.storedContentIds.length,
+        referenced: referenced.length,
+        unreachable: unreachable.length,
+        marked: marked,
+        purged: 0,
+        failed: 0,
+        complete: true,
+      );
+    }
+
+    // A second independent snapshot closes long sweep windows and catches a
+    // reference added after quarantine. New storage still observes the full
+    // grace period even if it was created from a formerly orphaned CID.
+    final recheckStorage = await _storage.sharedContentReferenceSnapshot();
+    final recheckGroups = recheckStorage.complete
+        ? await _groupContentReferencesForGc()
+        : (contentIds: <String>{}, complete: false);
+    if (!recheckStorage.complete || !recheckGroups.complete) {
+      return SharedContentGcSweep(
+        stored: storage.storedContentIds.length,
+        referenced: referenced.length,
+        unreachable: unreachable.length,
+        marked: marked,
+        purged: 0,
+        failed: 1,
+        complete: false,
+      );
+    }
+    final recheckedReferences = <String>{
+      ...recheckStorage.referencedContentIds,
+      ...recheckGroups.contentIds,
+    };
+    var purged = 0;
+    var failed = 0;
+    for (final entry in eligible.take(limit)) {
+      final contentId = entry.key;
+      if (recheckedReferences.contains(contentId) ||
+          !recheckStorage.storedContentIds.contains(contentId)) {
+        marks.remove(contentId);
+        continue;
+      }
+      try {
+        await _storage.deleteStoredFile(contentId);
+        await _storage.deleteStoredFile('mf:$contentId');
+        marks.remove(contentId);
+        purged++;
+      } catch (_) {
+        failed++;
+      }
+    }
+    if (purged > 0) await _storage.scrubDeleted();
+    try {
+      await _saveContentGcMarks(marks);
+    } catch (_) {
+      failed++;
+    }
+    return SharedContentGcSweep(
+      stored: storage.storedContentIds.length,
+      referenced: referenced.length,
+      unreachable: unreachable.length,
+      marked: marked,
+      purged: purged,
+      failed: failed,
+      complete: failed == 0,
+    );
+  }
+
   /// Start the idempotent lifecycle maintenance loop. GUI and headless hosts
   /// call this once after constructing the service; tests can invoke
   /// [purgeDeletedSpaces] directly with a deterministic clock.
@@ -3599,6 +4000,14 @@ class GroupService {
     _spaceDeletionMaintenanceRunning = true;
     try {
       await purgeDeletedSpaces();
+      final gc = await sweepSharedContentGarbage();
+      devLog(
+        () =>
+            'xVeil[content-gc]: stored=${gc.stored} '
+            'referenced=${gc.referenced} unreachable=${gc.unreachable} '
+            'marked=${gc.marked} purged=${gc.purged} failed=${gc.failed} '
+            'complete=${gc.complete}',
+      );
     } finally {
       _spaceDeletionMaintenanceRunning = false;
     }
@@ -10249,16 +10658,22 @@ class GroupService {
   /// The contentIds referenced by validated channel messages or Space posts —
   /// the only content a membership grant may unlock (membership must not
   /// become a license to fetch arbitrary content this device holds).
-  Future<Set<String>> referencedContentIds(NodeId groupId) async {
+  Future<Set<String>> referencedContentIds(
+    NodeId groupId, {
+    bool applyLocalRetention = false,
+  }) async {
     final bundle = await load(groupId);
     final posts = bundle == null || !bundle.manifest.isSpace
         ? const <SpacePostView>[]
-        : await _postsOfBundle(bundle);
+        : await _postsOfBundle(
+            bundle,
+            applyLocalRetention: applyLocalRetention,
+          );
     final postIds = {for (final post in posts) post.postId};
     final msgs = await messagesOf(
       groupId,
       includeSpacePostComments: true,
-      applyLocalRetention: false,
+      applyLocalRetention: applyLocalRetention,
     );
     return {
       for (final m in msgs)
