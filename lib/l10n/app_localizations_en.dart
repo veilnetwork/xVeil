@@ -631,6 +631,17 @@ class AppL10nEn extends AppL10n {
       'Only hides local history; it never deletes content for other members.';
 
   @override
+  String get spaceRetentionMediaOnly => 'Delete only media';
+
+  @override
+  String get spaceRetentionMediaOnlyHint =>
+      'Keep message and publication text while expiring attachments after the selected period.';
+
+  @override
+  String get spaceRetentionMediaExpired =>
+      'Media removed by the retention policy';
+
+  @override
   String get spaceActiveTitle => 'Community is active';
 
   @override

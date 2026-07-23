@@ -143,13 +143,18 @@ class GroupMessage {
     this.encryptedPayload,
     this.channelId,
     this.spacePostId,
-    this.attachment,
+    MediaObject? attachment,
     this.replyTo,
     this.editOf,
     this.customEmoji = const [],
     this.lifecycleGeneration,
+    this.mediaHiddenByRetention = false,
     Uint8List? authorPubKey,
-  }) : authorPubKey = authorPubKey ?? Uint8List(0);
+  }) : // A public `attachment` parameter intentionally feeds a private raw
+       // field; the public getter applies the retention projection.
+       // ignore: prefer_initializing_formals
+       _attachment = attachment,
+       authorPubKey = authorPubKey ?? Uint8List(0);
 
   final NodeId groupId;
   final int version;
@@ -170,7 +175,14 @@ class GroupMessage {
   final int createdAtMs;
   final String? lifecycleGeneration;
   final Uint8List signature;
-  final MediaObject? attachment; // optional inline/ref media
+  final MediaObject? _attachment; // signed/decrypted inline or referenced media
+
+  /// Projection-only marker. The signed row and its raw attachment remain
+  /// intact for verification/replication, while user-facing consumers see no
+  /// media reference after an irreversible media-only retention boundary.
+  final bool mediaHiddenByRetention;
+
+  MediaObject? get attachment => mediaHiddenByRetention ? null : _attachment;
   final List<InlineCustomEmoji> customEmoji;
 
   /// The `<authorHex>:<seq>` reference of the message this one replies to, or
@@ -246,8 +258,8 @@ class GroupMessage {
             'body': body,
             'pv': policyVersion,
             'ts': createdAtMs,
-            if (attachment != null)
-              'att': attachment!.toLegacyAttachmentCanonical(),
+            if (_attachment != null)
+              'att': _attachment.toLegacyAttachmentCanonical(),
             if (replyTo != null) 'rt': replyTo,
             if (editOf != null) 'edit': editOf,
             if (customEmoji.isNotEmpty)
@@ -272,11 +284,12 @@ class GroupMessage {
     policyVersion: policyVersion,
     createdAtMs: createdAtMs,
     signature: sig,
-    attachment: attachment,
+    attachment: _attachment,
     replyTo: replyTo,
     editOf: editOf,
     customEmoji: customEmoji,
     lifecycleGeneration: lifecycleGeneration,
+    mediaHiddenByRetention: mediaHiddenByRetention,
     authorPubKey: pubKey,
   );
 
@@ -303,6 +316,32 @@ class GroupMessage {
         lifecycleGeneration: lifecycleGeneration,
         authorPubKey: authorPubKey,
       );
+
+  GroupMessage withMediaHiddenByRetention() => mediaHiddenByRetention
+      ? this
+      : GroupMessage(
+          groupId: groupId,
+          author: author,
+          seq: seq,
+          prevHash: prevHash,
+          body: body,
+          version: version,
+          membershipEpoch: membershipEpoch,
+          channelEpoch: channelEpoch,
+          encryptedPayload: encryptedPayload,
+          channelId: channelId,
+          spacePostId: spacePostId,
+          policyVersion: policyVersion,
+          createdAtMs: createdAtMs,
+          signature: signature,
+          attachment: _attachment,
+          replyTo: replyTo,
+          editOf: editOf,
+          customEmoji: customEmoji,
+          lifecycleGeneration: lifecycleGeneration,
+          mediaHiddenByRetention: true,
+          authorPubKey: authorPubKey,
+        );
 
   Map<String, dynamic> toJson() {
     if (version == 3 || version == 6) {
@@ -351,7 +390,7 @@ class GroupMessage {
       'body': body,
       'pv': policyVersion,
       'ts': createdAtMs,
-      if (attachment != null) 'att': attachment!.toLegacyAttachmentCanonical(),
+      if (_attachment != null) 'att': _attachment.toLegacyAttachmentCanonical(),
       if (replyTo != null) 'rt': replyTo,
       if (editOf != null) 'edit': editOf,
       if (customEmoji.isNotEmpty) 'ce': encodeInlineCustomEmoji(customEmoji),
@@ -483,6 +522,7 @@ class SpacePostCommentView {
   NodeId get author => root.author;
   String get body => revision?.body ?? root.body;
   MediaObject? get attachment => root.attachment;
+  bool get mediaHiddenByRetention => root.mediaHiddenByRetention;
   String? get replyTo => root.replyTo;
   String? get spacePostId => root.spacePostId;
   int get createdAtMs => root.createdAtMs;

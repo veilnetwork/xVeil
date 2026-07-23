@@ -40,8 +40,8 @@ void main() {
   final spaceCreates = <(String, String, String)>[];
   final spaceDescriptions = <(String, String)>[];
   final spaceLifecycleActions = <(String, String)>[];
-  final spaceRetentionUpdates = <(String, int?, bool)>[];
-  final spaceChannelRetentionUpdates = <(String, String, int?, bool)>[];
+  final spaceRetentionUpdates = <(String, int?, bool, bool)>[];
+  final spaceChannelRetentionUpdates = <(String, String, int?, bool, bool)>[];
   final spaceRulesPublications = <(String, String, String, int?)>[];
   final spaceRulesAcceptances = <String>[];
   final spaceModerationActions = <(String, String, String, String, String)>[];
@@ -539,11 +539,12 @@ void main() {
               'localDevice': {'mode': 'keepForever'},
               'history': const [],
             },
-      setSpaceRetention: (space, days, localDevice) async {
-        if (space == 'denied') return 'operation rejected by space policy';
-        spaceRetentionUpdates.add((space, days, localDevice));
-        return null;
-      },
+      setSpaceRetention:
+          (space, days, localDevice, {bool mediaOnly = false}) async {
+            if (space == 'denied') return 'operation rejected by space policy';
+            spaceRetentionUpdates.add((space, days, localDevice, mediaOnly));
+            return null;
+          },
       spaceChannelRetention: (space, channel) async => channel == 'missing'
           ? null
           : {
@@ -552,11 +553,18 @@ void main() {
               'policy': {'mode': 'deleteAfter', 'retentionMs': 604800000},
               'history': const [],
             },
-      setSpaceChannelRetention: (space, channel, days, inherit) async {
-        if (space == 'denied') return 'operation rejected by space policy';
-        spaceChannelRetentionUpdates.add((space, channel, days, inherit));
-        return null;
-      },
+      setSpaceChannelRetention:
+          (space, channel, days, inherit, {bool mediaOnly = false}) async {
+            if (space == 'denied') return 'operation rejected by space policy';
+            spaceChannelRetentionUpdates.add((
+              space,
+              channel,
+              days,
+              inherit,
+              mediaOnly,
+            ));
+            return null;
+          },
       spaceRules: (space) async => space == 'missing'
           ? null
           : {
@@ -1271,11 +1279,30 @@ void main() {
           'POST',
           u('/v1/spaces/retention'),
           auth,
-          body: {'space': 'aa', 'scope': 'community', 'days': 90},
+          body: {
+            'space': 'aa',
+            'scope': 'community',
+            'days': 90,
+            'mediaOnly': true,
+          },
         )).status,
         200,
       );
-      expect(spaceRetentionUpdates.single, ('aa', 90, false));
+      expect(spaceRetentionUpdates.single, ('aa', 90, false, true));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/retention'),
+          auth,
+          body: {
+            'space': 'aa',
+            'scope': 'device',
+            'days': 90,
+            'mediaOnly': true,
+          },
+        )).status,
+        400,
+      );
       final channelRetention = await h.handle(
         'GET',
         u('/v1/spaces/retention?space=aa&channel=bb'),
@@ -1300,7 +1327,13 @@ void main() {
         )).status,
         200,
       );
-      expect(spaceChannelRetentionUpdates.single, ('aa', 'bb', null, true));
+      expect(spaceChannelRetentionUpdates.single, (
+        'aa',
+        'bb',
+        null,
+        true,
+        false,
+      ));
 
       final rules = await h.handle('GET', u('/v1/spaces/rules?space=aa'), auth);
       expect(rules.status, 200);

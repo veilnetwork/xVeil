@@ -25,6 +25,7 @@ class SpaceRetentionPolicy {
     required this.mode,
     this.channelId,
     this.retentionMs,
+    this.mediaOnly = false,
     this.physicalDeletionGraceMs = 7 * 24 * 60 * 60 * 1000,
     this.includeArchivedChannels = true,
     this.preservePinned = true,
@@ -34,6 +35,12 @@ class SpaceRetentionPolicy {
   final SpaceRetentionMode mode;
   final NodeId? channelId;
   final int? retentionMs;
+
+  /// Expire media references while retaining the signed message/publication
+  /// text. This modifier is valid only with a bounded `deleteAfter` policy.
+  /// It has a distinct wire version so an older client cannot mistake the
+  /// policy for full-history deletion.
+  final bool mediaOnly;
   final int physicalDeletionGraceMs;
   final bool includeArchivedChannels;
   final bool preservePinned;
@@ -45,8 +52,9 @@ class SpaceRetentionPolicy {
       preservePinned &&
       preserveModerationEvidence &&
       switch (mode) {
-        SpaceRetentionMode.inherit => channelId != null && retentionMs == null,
-        SpaceRetentionMode.keepForever => retentionMs == null,
+        SpaceRetentionMode.inherit =>
+          channelId != null && retentionMs == null && !mediaOnly,
+        SpaceRetentionMode.keepForever => retentionMs == null && !mediaOnly,
         SpaceRetentionMode.deleteAfter =>
           retentionMs != null &&
               retentionMs! >= kMinSpaceRetentionMs &&
@@ -54,10 +62,11 @@ class SpaceRetentionPolicy {
       };
 
   Map<String, dynamic> toJson() => {
-    'v': 1,
+    'v': mediaOnly ? 2 : 1,
     'mode': mode.name,
     if (channelId != null) 'channel': channelId!.hex,
     if (retentionMs != null) 'retentionMs': retentionMs,
+    if (mediaOnly) 'mediaOnly': true,
     'graceMs': physicalDeletionGraceMs,
     'archives': includeArchivedChannels,
     'pins': preservePinned,
@@ -66,12 +75,17 @@ class SpaceRetentionPolicy {
 
   static SpaceRetentionPolicy? fromJson(Object? value) {
     if (value is! Map ||
-        value['v'] != 1 ||
+        (value['v'] != 1 && value['v'] != 2) ||
         value['mode'] is! String ||
         value['graceMs'] is! int ||
         value['archives'] is! bool ||
         value['pins'] is! bool ||
         value['moderation'] is! bool) {
+      return null;
+    }
+    final version = value['v'] as int;
+    if ((version == 1 && value.containsKey('mediaOnly')) ||
+        (version == 2 && value['mediaOnly'] != true)) {
       return null;
     }
     final mode = SpaceRetentionMode.fromName(value['mode'] as String);
@@ -85,6 +99,7 @@ class SpaceRetentionPolicy {
         retentionMs: value['retentionMs'] is int
             ? value['retentionMs'] as int
             : null,
+        mediaOnly: version == 2,
         physicalDeletionGraceMs: value['graceMs'] as int,
         includeArchivedChannels: value['archives'] as bool,
         preservePinned: value['pins'] as bool,
@@ -179,6 +194,37 @@ bool spaceRetentionRemoves({
   required int createdAtMs,
   required int atMs,
   NodeId? channelId,
+}) => _spaceRetentionExpires(
+  revisions: revisions,
+  createdAtMs: createdAtMs,
+  atMs: atMs,
+  channelId: channelId,
+  media: false,
+);
+
+/// Returns true once media attached to the item has expired under any accepted
+/// bounded policy. A full-history rule also expires media; a media-only rule
+/// does not expire the surrounding signed text. Replaying every revision keeps
+/// both effects irreversible when a later policy is relaxed.
+bool spaceRetentionRemovesMedia({
+  required Iterable<SpaceRetentionRevision> revisions,
+  required int createdAtMs,
+  required int atMs,
+  NodeId? channelId,
+}) => _spaceRetentionExpires(
+  revisions: revisions,
+  createdAtMs: createdAtMs,
+  atMs: atMs,
+  channelId: channelId,
+  media: true,
+);
+
+bool _spaceRetentionExpires({
+  required Iterable<SpaceRetentionRevision> revisions,
+  required int createdAtMs,
+  required int atMs,
+  required NodeId? channelId,
+  required bool media,
 }) {
   SpaceRetentionPolicy space = const SpaceRetentionPolicy(
     mode: SpaceRetentionMode.keepForever,
@@ -188,6 +234,7 @@ bool spaceRetentionRemoves({
   bool expiredAt(int boundaryMs) {
     final effective = channel ?? space;
     return effective.mode == SpaceRetentionMode.deleteAfter &&
+        (media || !effective.mediaOnly) &&
         createdAtMs <= boundaryMs - effective.retentionMs!;
   }
 

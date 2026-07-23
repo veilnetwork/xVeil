@@ -4912,7 +4912,9 @@ class GroupService {
               : channelRetention != null
               ? 15
               : retentionPolicy != null
-              ? 9
+              ? retentionPolicy.mediaOnly
+                    ? 16
+                    : 9
               : channelModeration != null
               ? 14
               : moderationAction != null || moderationRevocation != null
@@ -8325,6 +8327,14 @@ class GroupService {
         final pin = state.postPinFor(view.postId);
         final pinned =
             pin?.pinned == true && pin!.rootHash == _spacePostHash(view.root);
+        final mediaExpired =
+            !pinned &&
+            state.isRetentionMediaExpired(
+              // An edit that replaces media starts a new media lifetime while
+              // the immutable root keeps the publication's text lifetime.
+              createdAtMs: view.effective.createdAtMs,
+              atMs: readAt,
+            );
         if (deletedRoots.contains(entry.key) ||
             state.isModeratedContentRemoved(
               kind: SpaceModerationReferenceKind.spacePost,
@@ -8340,8 +8350,11 @@ class GroupService {
             (!pinned && view.root.createdAtMs <= localCutoff)) {
           continue;
         }
+        final projected = mediaExpired
+            ? view.withMediaHiddenByRetention()
+            : view;
         visiblePosts.add(
-          view.withPin(pinned: pinned, pinnedAtMs: pin?.changedAtMs),
+          projected.withPin(pinned: pinned, pinnedAtMs: pin?.changedAtMs),
         );
       }
     }
@@ -9688,6 +9701,7 @@ class GroupService {
         : const <SpaceModerationRecord>[];
     final out = <GroupMessage>[];
     for (final m in _acceptedMessagesWithinLifecycle(b, state)) {
+      var mediaExpired = false;
       final isComment = m.spacePostId != null;
       if (spacePostId == null
           ? isComment && !includeSpacePostComments
@@ -9740,6 +9754,12 @@ class GroupService {
             m.createdAtMs <= localCutoff) {
           continue;
         }
+        mediaExpired = spaceRetentionRemovesMedia(
+          revisions: retention.revisions,
+          createdAtMs: m.createdAtMs,
+          atMs: readAt,
+          channelId: effectiveChannelId,
+        );
       } else if (channelId != null) {
         continue;
       }
@@ -9768,11 +9788,21 @@ class GroupService {
         continue;
       }
       if (!m.isEncrypted) {
-        out.add(m);
+        out.add(
+          mediaExpired && m.attachment != null
+              ? m.withMediaHiddenByRetention()
+              : m,
+        );
         continue;
       }
       final materialized = await _materializeEncryptedMessage(b, m);
-      if (materialized != null) out.add(materialized);
+      if (materialized != null) {
+        out.add(
+          mediaExpired && materialized.attachment != null
+              ? materialized.withMediaHiddenByRetention()
+              : materialized,
+        );
+      }
     }
     out.sort((a, b) {
       final t = a.createdAtMs.compareTo(b.createdAtMs);

@@ -598,45 +598,85 @@ class SpaceScreen extends ConsumerWidget {
       (l.retention90, SpaceRetentionMode.deleteAfter, 90),
       (l.retention365, SpaceRetentionMode.deleteAfter, 365),
     ];
-    final picked = await showDialog<(SpaceRetentionMode, int?)>(
+    var selectedMode = current.mode;
+    var selectedDays = current.mode == SpaceRetentionMode.deleteAfter
+        ? current.retentionMs! ~/ const Duration(days: 1).inMilliseconds
+        : null;
+    var selectedMediaOnly = current.mediaOnly;
+    final picked = await showDialog<SpaceRetentionPolicy>(
       context: context,
-      builder: (dialog) => SimpleDialog(
-        title: Text(l.spaceRetentionTitle),
-        children: [
-          for (final choice in choices)
-            SimpleDialogOption(
-              key: ValueKey(
-                'space-channel-retention-${choice.$2.name}-${choice.$3}',
-              ),
-              onPressed: () => Navigator.of(dialog).pop((choice.$2, choice.$3)),
-              child: Row(
+      builder: (dialog) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(l.spaceRetentionTitle),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    current.mode == choice.$2 &&
-                            (choice.$2 != SpaceRetentionMode.deleteAfter ||
-                                current.retentionMs ==
-                                    Duration(days: choice.$3!).inMilliseconds)
-                        ? Icons.radio_button_checked
-                        : Icons.radio_button_off,
-                    size: 18,
+                  for (final choice in choices)
+                    ListTile(
+                      key: ValueKey(
+                        'space-channel-retention-${choice.$2.name}-${choice.$3}',
+                      ),
+                      leading: Icon(
+                        selectedMode == choice.$2 &&
+                                (choice.$2 != SpaceRetentionMode.deleteAfter ||
+                                    selectedDays == choice.$3)
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_off,
+                        size: 18,
+                      ),
+                      title: Text(choice.$1),
+                      onTap: () => setDialogState(() {
+                        selectedMode = choice.$2;
+                        selectedDays = choice.$3;
+                        if (selectedMode != SpaceRetentionMode.deleteAfter) {
+                          selectedMediaOnly = false;
+                        }
+                      }),
+                    ),
+                  const Divider(),
+                  SwitchListTile(
+                    key: const ValueKey('space-channel-retention-media-only'),
+                    value: selectedMediaOnly,
+                    onChanged: selectedMode == SpaceRetentionMode.deleteAfter
+                        ? (value) =>
+                              setDialogState(() => selectedMediaOnly = value)
+                        : null,
+                    title: Text(l.spaceRetentionMediaOnly),
+                    subtitle: Text(l.spaceRetentionMediaOnlyHint),
+                    secondary: const Icon(Icons.perm_media_outlined),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text(choice.$1)),
                 ],
               ),
             ),
-        ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialog).pop(),
+              child: Text(l.actionCancel),
+            ),
+            FilledButton(
+              key: const ValueKey('space-channel-retention-save'),
+              onPressed: () => Navigator.of(dialog).pop(
+                SpaceRetentionPolicy(
+                  mode: selectedMode,
+                  channelId: channelId,
+                  retentionMs: selectedDays == null
+                      ? null
+                      : Duration(days: selectedDays!).inMilliseconds,
+                  mediaOnly: selectedMediaOnly,
+                ),
+              ),
+              child: Text(l.actionSave),
+            ),
+          ],
+        ),
       ),
     );
     if (picked == null) return null;
-    final policy = SpaceRetentionPolicy(
-      mode: picked.$1,
-      channelId: channelId,
-      retentionMs: picked.$2 == null
-          ? null
-          : Duration(days: picked.$2!).inMilliseconds,
-    );
-    return service.setSpaceRetentionPolicy(spaceId, policy);
+    return service.setSpaceRetentionPolicy(spaceId, picked);
   }
 
   Future<void> _shareRecommendation(
