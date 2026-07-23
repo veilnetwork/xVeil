@@ -188,6 +188,17 @@ enum WireKind {
   /// its signed [groupContentRequest] leaves. Appended immediately before
   /// [unknown] so every prior wire index stays unchanged.
   groupContentManifest,
+
+  /// Live-only signed request for one exact owner-committed public Space feed
+  /// manifest/page hash. It may cross the contact boundary; the Space layer
+  /// validates source binding, signature, freshness, quota and local cache.
+  spacePublicFeedRequest,
+
+  /// One live-only response slice for a pending [spacePublicFeedRequest].
+  /// Unsolicited or wrong-source chunks are dropped before allocating
+  /// reassembly state, and the complete object is verified by its committed
+  /// hash. Neither direction is ACKed, outboxed or written to chat history.
+  spacePublicFeedChunk,
   unknown,
 }
 
@@ -373,6 +384,12 @@ class WireEnvelope {
   /// A live-only verified-store receipt — see [WireKind.groupContentReceipt].
   const WireEnvelope.groupContentReceipt(String receiptJson)
     : this(WireKind.groupContentReceipt, receiptJson);
+
+  const WireEnvelope.spacePublicFeedRequest(String requestJson)
+    : this(WireKind.spacePublicFeedRequest, requestJson);
+
+  const WireEnvelope.spacePublicFeedChunk(String chunkJson)
+    : this(WireKind.spacePublicFeedChunk, chunkJson);
 
   const WireEnvelope.groupCallSignal(String frameJson, {int? sentAtMs})
     : this(WireKind.groupCallSignal, frameJson, sentAtMs: sentAtMs);

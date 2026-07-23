@@ -591,6 +591,17 @@ extension _MessagingInboundDispatch on MessagingService {
         // receipt surface.
         onGroupContentReceipt?.call(m.src, env.body);
         return;
+      case WireKind.spacePublicFeedRequest:
+        // Live-only and contact-independent. The Space layer binds the signed
+        // requester to this authenticated source, applies a RAM-only quota and
+        // serves only hashes committed by its verified descriptor/manifest.
+        await onSpacePublicFeedRequest?.call(m.src, env.body);
+        return;
+      case WireKind.spacePublicFeedChunk:
+        // No ACK or unsolicited allocation: the Space layer accepts this only
+        // for an exact pending (holder, nonce, Space, manifest, object) tuple.
+        onSpacePublicFeedChunk?.call(m.src, env.body);
+        return;
       case WireKind.groupCallSignal:
         // No contact gate: current group membership + epoch AEAD + node-bound
         // signature are the authorization. Invalid/removed/stale senders are
