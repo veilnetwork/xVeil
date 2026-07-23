@@ -35,6 +35,7 @@ void main() {
   final spaceRecommendationShareRevokes = <(String, String)>[];
   final subscriptions = <(String, bool)>[];
   final subscriptionUpdates = <(String, bool?, bool?, String?, bool?)>[];
+  final publicSubscriptionActions = <(String, String)>[];
   final feedPostPreferences = <(String, String, bool)>[];
   final feedTypePreferences = <List<String>>[];
   final spaceInviteDecisions = <(String, bool)>[];
@@ -92,6 +93,7 @@ void main() {
     spaceRecommendationShareRevokes.clear();
     subscriptions.clear();
     subscriptionUpdates.clear();
+    publicSubscriptionActions.clear();
     feedPostPreferences.clear();
     feedTypePreferences.clear();
     spaceInviteDecisions.clear();
@@ -480,6 +482,45 @@ void main() {
       setSpaceFeedTypeFilter: (types) async {
         if (types.contains('unknown')) return 'invalid post type';
         feedTypePreferences.add(List<String>.of(types));
+        return null;
+      },
+      publicSpaceDiscoverySearch: (query) async => {
+        'status': 'available',
+        'results': [
+          {
+            'spaceId': '01' * 32,
+            'name': query,
+            'description': 'Verified public result',
+            'independentHolders': 2,
+          },
+        ],
+      },
+      publicSpaceDiscoveryResolve: (space) async => space == 'ff' * 32
+          ? null
+          : {
+              'spaceId': space,
+              'name': 'Exact public result',
+              'description': 'Verified exact result',
+              'independentHolders': 1,
+            },
+      publicSpaceSubscriptions: () async => [
+        {
+          'spaceId': '01' * 32,
+          'name': 'Subscribed public Space',
+          'publicOnly': true,
+          'stale': false,
+        },
+      ],
+      subscribePublicSpace: (space) async {
+        if (space == 'ee' * 32) return 'public Space unavailable';
+        publicSubscriptionActions.add(('subscribe', space));
+        return null;
+      },
+      unsubscribePublicSpace: (space) async {
+        if (space == 'ee' * 32) {
+          return 'public Space subscription not found';
+        }
+        publicSubscriptionActions.add(('unsubscribe', space));
         return null;
       },
       spaceSubscription: (space) async => space == 'missing'
@@ -943,6 +984,7 @@ void main() {
           {'space': 's', 'postId': '${'01' * 32}:0', 'pinned': true},
         ),
         ('/v1/spaces/subscription', {'space': 's', 'enabled': false}),
+        ('/v1/spaces/public-subscriptions', {'space': '01' * 32}),
         (
           '/v1/feed/hidden',
           {'space': 's', 'postId': '${'01' * 32}:0', 'hidden': true},
@@ -1023,6 +1065,14 @@ void main() {
         (await h.handle(
           'DELETE',
           u('/v1/spaces/posts/draft?space=s'),
+          'Bearer secret-token',
+        )).status,
+        403,
+      );
+      expect(
+        (await h.handle(
+          'DELETE',
+          u('/v1/spaces/public-subscriptions?space=${'01' * 32}'),
           'Bearer secret-token',
         )).status,
         403,
@@ -2339,8 +2389,71 @@ void main() {
           body: {'space': 'aa', 'publicOnly': true},
         )).status,
         400,
-        reason: 'public-only access is not implemented by local preferences',
+        reason:
+            'public-only activation requires the verified discovery endpoint',
       );
+      final publicSpaceId = '01' * 32;
+      final discovery = await h.handle(
+        'GET',
+        u('/v1/spaces/discovery?query=privacy'),
+        auth,
+      );
+      expect(discovery.status, 200);
+      expect(
+        (((discovery.body as Map)['results'] as List).single as Map)['name'],
+        'privacy',
+      );
+      final exactDiscovery = await h.handle(
+        'GET',
+        u('/v1/spaces/discovery?space=$publicSpaceId'),
+        auth,
+      );
+      expect(exactDiscovery.status, 200);
+      expect((exactDiscovery.body as Map)['spaceId'], publicSpaceId);
+      expect(
+        (await h.handle(
+          'GET',
+          u('/v1/spaces/discovery?query=x&space=$publicSpaceId'),
+          auth,
+        )).status,
+        400,
+      );
+      final publicSubscriptions = await h.handle(
+        'GET',
+        u('/v1/spaces/public-subscriptions'),
+        auth,
+      );
+      expect(publicSubscriptions.status, 200);
+      expect((publicSubscriptions.body as List).single['publicOnly'], isTrue);
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/public-subscriptions'),
+          auth,
+          body: {'space': publicSpaceId},
+        )).status,
+        200,
+      );
+      expect(publicSubscriptionActions.single, ('subscribe', publicSpaceId));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/public-subscriptions'),
+          auth,
+          body: {'space': publicSpaceId, 'holder': 'untrusted'},
+        )).status,
+        400,
+        reason: 'clients cannot inject holder attestations',
+      );
+      expect(
+        (await h.handle(
+          'DELETE',
+          u('/v1/spaces/public-subscriptions?space=$publicSpaceId'),
+          auth,
+        )).status,
+        200,
+      );
+      expect(publicSubscriptionActions.last, ('unsubscribe', publicSpaceId));
       expect(
         (await h.handle(
           'POST',
@@ -3267,6 +3380,8 @@ void main() {
           '/spaces/moderation/revoke',
           '/spaces/moderation/appeals',
           '/spaces/observability',
+          '/spaces/discovery',
+          '/spaces/public-subscriptions',
           '/spaces/posts',
           '/spaces/posts/draft',
           '/spaces/posts/comments',

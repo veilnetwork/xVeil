@@ -102,6 +102,22 @@ final class _Signer implements GroupSigner {
   bool verifySpaceManifest(SpaceManifest value) => value.signature.length == 64;
 
   @override
+  ({Uint8List signature, Uint8List publicKey}) signDetached(
+    Uint8List message,
+  ) => (signature: Uint8List(64), publicKey: selfPubKey);
+
+  @override
+  bool verifyDetached({
+    required NodeId signer,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+  }) =>
+      signer == NodeId(Uint8List.fromList(publicKey)) &&
+      publicKey.length == 32 &&
+      signature.length == 64;
+
+  @override
   bool verifySovereign({
     required String algorithm,
     required NodeId nodeId,

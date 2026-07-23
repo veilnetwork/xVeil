@@ -190,6 +190,77 @@ Map<String, dynamic> openApiSpec() {
             'lastTs': {'type': 'integer', 'format': 'int64'},
           },
         },
+        'PublicSpaceDiscovery': {
+          'type': obj,
+          'required': [
+            'spaceId',
+            'name',
+            'description',
+            'createdAt',
+            'updatedAt',
+            'revision',
+            'publicFeedRevision',
+            'publicFeedUpdatedAt',
+            'publicPostCount',
+            'expiresAt',
+            'joinCode',
+            'independentHolders',
+          ],
+          'properties': {
+            'spaceId': {'type': 'string', 'pattern': r'^[0-9a-f]{64}$'},
+            'name': {'type': 'string', 'maxLength': 160},
+            'description': {'type': 'string', 'maxLength': 4096},
+            'avatarContentId': {'type': 'string', 'pattern': r'^[0-9a-f]{64}$'},
+            'coverContentId': {'type': 'string', 'pattern': r'^[0-9a-f]{64}$'},
+            'createdAt': {'type': 'integer', 'format': 'int64'},
+            'updatedAt': {'type': 'integer', 'format': 'int64'},
+            'revision': {'type': 'integer', 'minimum': 0},
+            'publicFeedRevision': {'type': 'integer', 'minimum': 0},
+            'publicFeedUpdatedAt': {'type': 'integer', 'format': 'int64'},
+            'publicPostCount': {'type': 'integer', 'minimum': 0},
+            'expiresAt': {'type': 'integer', 'format': 'int64'},
+            'joinCode': {'type': 'string'},
+            'independentHolders': {'type': 'integer', 'minimum': 1},
+          },
+        },
+        'PublicSpaceSubscription': {
+          'type': obj,
+          'required': [
+            'spaceId',
+            'name',
+            'description',
+            'verifiedAt',
+            'stale',
+            'publicFeedRevision',
+            'publicFeedUpdatedAt',
+            'publicPostCount',
+            'feedEnabled',
+            'notificationsEnabled',
+            'hiddenFromRecommendations',
+            'updatedAt',
+            'publicOnly',
+          ],
+          'properties': {
+            'spaceId': {'type': 'string', 'pattern': r'^[0-9a-f]{64}$'},
+            'name': {'type': 'string', 'maxLength': 160},
+            'description': {'type': 'string', 'maxLength': 4096},
+            'avatarContentId': {'type': 'string', 'pattern': r'^[0-9a-f]{64}$'},
+            'coverContentId': {'type': 'string', 'pattern': r'^[0-9a-f]{64}$'},
+            'verifiedAt': {'type': 'integer', 'format': 'int64'},
+            'stale': {'type': 'boolean'},
+            'publicFeedRevision': {'type': 'integer', 'minimum': 0},
+            'publicFeedUpdatedAt': {'type': 'integer', 'format': 'int64'},
+            'publicPostCount': {'type': 'integer', 'minimum': 0},
+            'feedEnabled': {'type': 'boolean'},
+            'notificationsEnabled': {'type': 'boolean'},
+            'hiddenFromRecommendations': {'type': 'boolean'},
+            'updatedAt': {'type': 'integer', 'format': 'int64'},
+            'publicOnly': {
+              'type': 'boolean',
+              'enum': [true],
+            },
+          },
+        },
         'SpaceMembership': {
           'type': obj,
           'required': [
@@ -1531,6 +1602,95 @@ Map<String, dynamic> openApiSpec() {
               'Read bounded runtime-only community counters, delivery timing '
               'exact missing-object totals, receipt latency and '
               'identifier-free estimated/confirmed replication aggregates',
+          'responses': ok({'type': obj}),
+        },
+      },
+      '/spaces/discovery': {
+        'get': {
+          'summary':
+              'Search the verified public community index or resolve one exact '
+              'community id',
+          'parameters': [
+            {
+              'in': 'query',
+              'name': 'query',
+              'required': false,
+              'schema': {'type': 'string', 'maxLength': 512},
+              'description':
+                  'Normalized client search; mutually exclusive with space',
+            },
+            {
+              'in': 'query',
+              'name': 'space',
+              'required': false,
+              'schema': {'type': 'string', 'pattern': r'^[0-9a-f]{64}$'},
+              'description':
+                  'Exact node id; mutually exclusive with query and requires '
+                  'one verified holder',
+            },
+          ],
+          'responses': ok({
+            'oneOf': [
+              {
+                'type': obj,
+                'required': ['status', 'results'],
+                'properties': {
+                  'status': {
+                    'type': 'string',
+                    'enum': ['available', 'partialQuorum', 'unavailable'],
+                  },
+                  'results': {
+                    'type': 'array',
+                    'items': {
+                      r'$ref': '#/components/schemas/PublicSpaceDiscovery',
+                    },
+                  },
+                },
+              },
+              {r'$ref': '#/components/schemas/PublicSpaceDiscovery'},
+            ],
+          }),
+        },
+      },
+      '/spaces/public-subscriptions': {
+        'get': {
+          'summary': 'List verified device-local public-only subscriptions',
+          'responses': ok({
+            'type': 'array',
+            'items': {r'$ref': '#/components/schemas/PublicSpaceSubscription'},
+          }),
+        },
+        'post': {
+          'summary':
+              'Resolve an exact public community again and activate a '
+              'read-only subscription',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['space'],
+                  'additionalProperties': false,
+                  'properties': {
+                    'space': {'type': 'string', 'pattern': r'^[0-9a-f]{64}$'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
+        },
+        'delete': {
+          'summary': 'Deactivate one device-local public-only subscription',
+          'parameters': [
+            {
+              'in': 'query',
+              'name': 'space',
+              'required': true,
+              'schema': {'type': 'string', 'pattern': r'^[0-9a-f]{64}$'},
+            },
+          ],
           'responses': ok({'type': obj}),
         },
       },
@@ -2908,6 +3068,11 @@ class ApiHandler {
     this.spaceFeed,
     this.spaceFeedTypeFilter,
     this.setSpaceFeedTypeFilter,
+    this.publicSpaceDiscoverySearch,
+    this.publicSpaceDiscoveryResolve,
+    this.publicSpaceSubscriptions,
+    this.subscribePublicSpace,
+    this.unsubscribePublicSpace,
     this.spaceSubscription,
     this.updateSpaceSubscription,
     this.setSpaceFeedEnabled,
@@ -3161,6 +3326,13 @@ class ApiHandler {
   spaceFeed;
   final Future<Map<String, dynamic>> Function()? spaceFeedTypeFilter;
   final Future<String?> Function(List<String> types)? setSpaceFeedTypeFilter;
+  final Future<Map<String, dynamic>> Function(String query)?
+  publicSpaceDiscoverySearch;
+  final Future<Map<String, dynamic>?> Function(String spaceHex)?
+  publicSpaceDiscoveryResolve;
+  final Future<List<Map<String, dynamic>>> Function()? publicSpaceSubscriptions;
+  final Future<String?> Function(String spaceHex)? subscribePublicSpace;
+  final Future<String?> Function(String spaceHex)? unsubscribePublicSpace;
   final Future<Map<String, dynamic>?> Function(String spaceHex)?
   spaceSubscription;
   final Future<String?> Function(
@@ -4385,6 +4557,76 @@ class ApiHandler {
       return handler == null
           ? const ApiResponse(501, {'error': 'Space observability unavailable'})
           : ApiResponse(200, await handler());
+    }
+    if (method == 'GET' && path == '/v1/spaces/discovery') {
+      final query = uri.queryParameters['query'];
+      final space = uri.queryParameters['space'];
+      if ((query == null) == (space == null)) {
+        return const ApiResponse(400, {
+          'error': 'exactly one of query or space is required',
+        });
+      }
+      if (query != null) {
+        final handler = publicSpaceDiscoverySearch;
+        if (handler == null) {
+          return const ApiResponse(501, {
+            'error': 'public Space discovery unavailable',
+          });
+        }
+        if (query.trim().isEmpty || utf8.encode(query).length > 512) {
+          return const ApiResponse(400, {'error': 'valid query required'});
+        }
+        return ApiResponse(200, await handler(query));
+      }
+      final handler = publicSpaceDiscoveryResolve;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'public Space discovery unavailable',
+        });
+      }
+      if (space == null || !RegExp(r'^[0-9a-f]{64}$').hasMatch(space)) {
+        return const ApiResponse(400, {'error': 'valid space required'});
+      }
+      final result = await handler(space);
+      return result == null
+          ? const ApiResponse(404, {'error': 'public Space not found'})
+          : ApiResponse(200, result);
+    }
+    if (method == 'GET' && path == '/v1/spaces/public-subscriptions') {
+      final handler = publicSpaceSubscriptions;
+      return handler == null
+          ? const ApiResponse(501, {
+              'error': 'public Space subscriptions unavailable',
+            })
+          : ApiResponse(200, await handler());
+    }
+    if (method == 'POST' && path == '/v1/spaces/public-subscriptions') {
+      final handler = subscribePublicSpace;
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'public Space subscriptions unavailable',
+        });
+      }
+      if (body == null ||
+          body.length != 1 ||
+          body['space'] is! String ||
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(body['space'] as String)) {
+        return const ApiResponse(400, {'error': 'valid space required'});
+      }
+      return _spaceMutationResponse(await handler(body['space'] as String));
+    }
+    if (method == 'DELETE' && path == '/v1/spaces/public-subscriptions') {
+      final handler = unsubscribePublicSpace;
+      final space = uri.queryParameters['space'];
+      if (handler == null) {
+        return const ApiResponse(501, {
+          'error': 'public Space subscriptions unavailable',
+        });
+      }
+      if (space == null || !RegExp(r'^[0-9a-f]{64}$').hasMatch(space)) {
+        return const ApiResponse(400, {'error': 'valid space required'});
+      }
+      return _spaceMutationResponse(await handler(space));
     }
     if (method == 'GET' && path == '/v1/spaces/subscription') {
       final handler = spaceSubscription;

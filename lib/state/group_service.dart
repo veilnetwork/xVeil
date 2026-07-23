@@ -794,6 +794,18 @@ class SpacePublicDiscoveryResult {
   final List<SpacePublicHolderAnnouncement> holders;
 }
 
+enum SpacePublicDiscoverySearchStatus { available, partialQuorum, unavailable }
+
+class SpacePublicDiscoverySearchOutcome {
+  SpacePublicDiscoverySearchOutcome({
+    required this.status,
+    required Iterable<SpacePublicDiscoveryResult> results,
+  }) : results = List<SpacePublicDiscoveryResult>.unmodifiable(results);
+
+  final SpacePublicDiscoverySearchStatus status;
+  final List<SpacePublicDiscoveryResult> results;
+}
+
 /// One active device-local subscription to an owner-signed public projection.
 ///
 /// This is deliberately not a [GroupBundle]: it contains no membership,
@@ -2946,14 +2958,42 @@ class GroupService {
     Duration timeout = const Duration(seconds: 8),
     int minimumIndependentHolders = 2,
   }) async {
+    final outcome = await searchPublicSpaceDiscoveryOutcome(
+      query,
+      timeout: timeout,
+      minimumIndependentHolders: minimumIndependentHolders,
+    );
+    return outcome.results;
+  }
+
+  /// Search plus a bounded availability/quorum diagnostic for interactive
+  /// clients. One-holder matches never become results for global search; they
+  /// only produce [SpacePublicDiscoverySearchStatus.partialQuorum].
+  Future<SpacePublicDiscoverySearchOutcome> searchPublicSpaceDiscoveryOutcome(
+    String query, {
+    Duration timeout = const Duration(seconds: 8),
+    int minimumIndependentHolders = 2,
+  }) async {
     final terms = spaceDiscoveryQueryTerms(query);
-    if (terms.isEmpty || _spaceDiscoveryTransport == null) return const [];
+    if (terms.isEmpty) {
+      return SpacePublicDiscoverySearchOutcome(
+        status: SpacePublicDiscoverySearchStatus.available,
+        results: const [],
+      );
+    }
+    if (_spaceDiscoveryTransport == null) {
+      return SpacePublicDiscoverySearchOutcome(
+        status: SpacePublicDiscoverySearchStatus.unavailable,
+        results: const [],
+      );
+    }
     final payloads = <SpacePublicDiscoveryPayload>[];
+    var routeAvailable = false;
     for (var offset = 0; offset < terms.length; offset += 2) {
       final end = min(offset + 2, terms.length);
       final batches = await Future.wait([
         for (final term in terms.sublist(offset, end))
-          _resolvePublicDiscoveryRoute(
+          _resolvePublicDiscoveryRouteWithAvailability(
             SpaceDiscoveryCarrierRoute.search(
               spaceDiscoverySearchTokenHash(term),
             ),
@@ -2961,13 +3001,34 @@ class GroupService {
           ),
       ]);
       for (final batch in batches) {
-        payloads.addAll(batch);
+        routeAvailable = routeAvailable || batch.available;
+        payloads.addAll(batch.payloads);
       }
     }
-    return _mergePublicDiscoveryResults(
+    if (!routeAvailable) {
+      return SpacePublicDiscoverySearchOutcome(
+        status: SpacePublicDiscoverySearchStatus.unavailable,
+        results: const [],
+      );
+    }
+    final results = _mergePublicDiscoveryResults(
       payloads,
       minimumIndependentHolders: minimumIndependentHolders,
       query: query,
+    );
+    final partial =
+        results.isEmpty &&
+        minimumIndependentHolders > 1 &&
+        _mergePublicDiscoveryResults(
+          payloads,
+          minimumIndependentHolders: 1,
+          query: query,
+        ).isNotEmpty;
+    return SpacePublicDiscoverySearchOutcome(
+      status: partial
+          ? SpacePublicDiscoverySearchStatus.partialQuorum
+          : SpacePublicDiscoverySearchStatus.available,
+      results: results,
     );
   }
 
@@ -3029,13 +3090,33 @@ class GroupService {
     SpaceDiscoveryCarrierRoute route, {
     required Duration timeout,
   }) async {
+    final result = await _resolvePublicDiscoveryRouteWithAvailability(
+      route,
+      timeout: timeout,
+    );
+    return result.payloads;
+  }
+
+  Future<({List<SpacePublicDiscoveryPayload> payloads, bool available})>
+  _resolvePublicDiscoveryRouteWithAvailability(
+    SpaceDiscoveryCarrierRoute route, {
+    required Duration timeout,
+  }) async {
     final transport = _spaceDiscoveryTransport;
-    if (transport == null) return const [];
+    if (transport == null) {
+      return (
+        payloads: const <SpacePublicDiscoveryPayload>[],
+        available: false,
+      );
+    }
     final List<Uint8List> records;
     try {
       records = await transport.resolve(route, timeout: timeout);
     } catch (_) {
-      return const [];
+      return (
+        payloads: const <SpacePublicDiscoveryPayload>[],
+        available: false,
+      );
     }
     final now = DateTime.now().millisecondsSinceEpoch;
     final payloads = <SpacePublicDiscoveryPayload>[];
@@ -3054,7 +3135,10 @@ class GroupService {
       if (seen.add(identity)) payloads.add(payload);
       if (payloads.length >= 5) break;
     }
-    return List<SpacePublicDiscoveryPayload>.unmodifiable(payloads);
+    return (
+      payloads: List<SpacePublicDiscoveryPayload>.unmodifiable(payloads),
+      available: true,
+    );
   }
 
   void _purgePublicFeedTransportState() {

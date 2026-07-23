@@ -223,7 +223,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get spaceVisibilityPublicHint =>
-      'Posts may be shared publicly. Automatic discovery is not enabled until the holder protocol is ready.';
+      'Posts may be shared publicly. If discovery is enabled, the allowlisted profile and signed public feed can appear in verified search.';
 
   @override
   String get spaceVisibilityPrivateHint =>
@@ -591,6 +591,57 @@ class AppL10nEn extends AppL10n {
   @override
   String get spacePublicUnsubscribeConfirm =>
       'Remove this public subscription and its offline snapshot from this device?';
+
+  @override
+  String get spaceDiscoveryAction => 'Find public communities';
+
+  @override
+  String get spaceDiscoveryTitle => 'Find public communities';
+
+  @override
+  String get spaceDiscoveryHint => 'Name or exact node_id';
+
+  @override
+  String get spaceDiscoveryIdle =>
+      'Search by name, or paste an exact node_id from a trusted source.';
+
+  @override
+  String get spaceDiscoveryNoVerifiedResults =>
+      'No public community reached verified holder quorum.';
+
+  @override
+  String get spaceDiscoveryUnavailable =>
+      'Public discovery is unavailable. Check the connection and try again.';
+
+  @override
+  String get spaceDiscoveryPartialQuorum =>
+      'A matching announcement was found, but it does not yet have enough independent verified holders.';
+
+  @override
+  String spaceDiscoveryPosts(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count publications',
+      one: '1 publication',
+      zero: 'No publications',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String spaceDiscoverySources(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count verified sources',
+      one: '1 verified source',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get spacePublicSubscribe => 'Subscribe';
 
   @override
   String get spaceCommentNotificationsSetting => 'Discussion notifications';

@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/crypto/blake3.dart';
+import 'package:xveil/data/node/space_discovery_transport.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/domain/group.dart';
@@ -14,6 +16,7 @@ import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/message_mention.dart';
+import 'package:xveil/domain/space_discovery_carrier.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/features/spaces/space_feed_screen.dart';
@@ -118,6 +121,52 @@ class _Signer implements GroupSigner {
     required Uint8List message,
     required Uint8List signature,
   }) => false;
+}
+
+class _DiscoverySigner extends _Signer {
+  _DiscoverySigner._(this._publicKey, NodeId selfId) : super(selfId);
+
+  factory _DiscoverySigner(int seed) {
+    final publicKey = Uint8List.fromList(
+      List<int>.generate(32, (index) => seed + index),
+    );
+    return _DiscoverySigner._(publicKey, NodeId(blake3Hash(publicKey)));
+  }
+
+  final Uint8List _publicKey;
+
+  @override
+  Uint8List get selfPubKey => Uint8List.fromList(_publicKey);
+
+  @override
+  bool verifyDetached({
+    required NodeId signer,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+  }) =>
+      signer == NodeId(blake3Hash(publicKey)) &&
+      signature.length == 64 &&
+      publicKey.length == 32;
+}
+
+class _SpaceDiscoveryTransport implements SpaceDiscoveryTransport {
+  final records = <Uint8List>[];
+
+  @override
+  Future<void> publish(Uint8List record) async {
+    records.add(Uint8List.fromList(record));
+  }
+
+  @override
+  Future<List<Uint8List>> resolve(
+    SpaceDiscoveryCarrierRoute route, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async => [
+    for (final record in records)
+      if (SpaceDiscoveryCarrier.fromBytes(record)?.route.sameAs(route) ?? false)
+        Uint8List.fromList(record),
+  ];
 }
 
 class _SpaceVoiceRecorder implements VoiceRecorder {
@@ -601,6 +650,126 @@ void main() {
       expect(find.byKey(const ValueKey('public-space-join')), findsOneWidget);
       expect(find.byIcon(Icons.edit_outlined), findsNothing);
       expect(find.byIcon(Icons.forum_outlined), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Communities discovery resolves an exact node id and subscribes safely',
+    (tester) async {
+      final ownerStorage = FakeHvContainer().storage();
+      final readerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await readerStorage.open(password: 'reader', createIfMissing: true);
+      final ownerSigner = _DiscoverySigner(51);
+      final readerSigner = _DiscoverySigner(52);
+      final owner = ownerSigner.selfId;
+      final reader = readerSigner.selfId;
+      final discoveryTransport = _SpaceDiscoveryTransport();
+      late final GroupService readerService;
+      final ownerService = GroupService(
+        ownerStorage,
+        ownerSigner,
+        spaceDiscoveryTransport: discoveryTransport,
+        sendPublicFeedChunk: (requester, chunkJson) async {
+          expect(requester, reader);
+          readerService.handlePublicFeedObjectChunk(owner, chunkJson);
+        },
+      );
+      readerService = GroupService(
+        readerStorage,
+        readerSigner,
+        spaceDiscoveryTransport: discoveryTransport,
+        sendPublicFeedRequest: (holder, requestJson) async {
+          expect(holder, owner);
+          await ownerService.handlePublicFeedObjectRequest(reader, requestJson);
+        },
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(readerService.dispose);
+
+      final spaceId = await ownerService.createSpace(
+        'Exact discovery garden',
+        description: 'Owner-signed allowlist profile',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      await ownerService.publishSpacePost(
+        spaceId,
+        title: 'Verified history',
+        body: 'No membership material',
+        broadcast: false,
+      );
+      expect((await ownerService.publishPublicSpaceDiscovery()).complete, true);
+
+      late final GoRouter router;
+      router = GoRouter(
+        initialLocation: '/',
+        routes: [
+          GoRoute(path: '/', builder: (_, _) => const SpaceListScreen()),
+          GoRoute(
+            path: '/space/:id/public-posts',
+            builder: (_, state) => PublicSpacePostsScreen(
+              spaceIdHex: state.pathParameters['id']!,
+              initialPostId: state.uri.queryParameters['post'],
+            ),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        _routerHost(readerService, router, storage: readerStorage),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey('space-public-discovery-action')),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('public-space-discovery-query')),
+        'Exact discovery',
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('not yet have enough independent verified holders'),
+        findsOneWidget,
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey('public-space-discovery-query')),
+        spaceId.hex,
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Exact discovery garden'), findsOneWidget);
+      expect(
+        find.textContaining('Owner-signed allowlist profile'),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(ValueKey('public-space-discovery-result-${spaceId.hex}')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('1 verified source'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(ValueKey('public-space-discovery-subscribe-${spaceId.hex}')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(PublicSpacePostsScreen), findsOneWidget);
+      expect(find.text('Verified history'), findsOneWidget);
+      expect(await readerService.load(spaceId), isNull);
+      expect(await readerService.stateOf(spaceId), isNull);
+
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(find.byType(SpaceListScreen), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('public-space-subscription-${spaceId.hex}')),
+        findsOneWidget,
+      );
     },
   );
 

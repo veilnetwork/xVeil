@@ -223,7 +223,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get spaceVisibilityPublicHint =>
-      'Публикациями можно делиться публично. Автоматический поиск не включён до готовности протокола распространителей.';
+      'Публикациями можно делиться публично. Если поиск включён, allowlist-профиль и подписанная публичная лента могут появиться в проверенных результатах.';
 
   @override
   String get spaceVisibilityPrivateHint =>
@@ -598,6 +598,61 @@ class AppL10nRu extends AppL10n {
   @override
   String get spacePublicUnsubscribeConfirm =>
       'Удалить публичную подписку и её офлайн-снимок с этого устройства?';
+
+  @override
+  String get spaceDiscoveryAction => 'Найти публичные сообщества';
+
+  @override
+  String get spaceDiscoveryTitle => 'Публичные сообщества';
+
+  @override
+  String get spaceDiscoveryHint => 'Название или точный node_id';
+
+  @override
+  String get spaceDiscoveryIdle =>
+      'Ищите по названию или вставьте точный node_id из доверенного источника.';
+
+  @override
+  String get spaceDiscoveryNoVerifiedResults =>
+      'Нет публичных сообществ с подтверждённым кворумом распространителей.';
+
+  @override
+  String get spaceDiscoveryUnavailable =>
+      'Публичный поиск недоступен. Проверьте соединение и повторите попытку.';
+
+  @override
+  String get spaceDiscoveryPartialQuorum =>
+      'Найдено подходящее объявление, но у него пока недостаточно независимых проверенных распространителей.';
+
+  @override
+  String spaceDiscoveryPosts(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count публикации',
+      many: '$count публикаций',
+      few: '$count публикации',
+      one: '1 публикация',
+      zero: 'Нет публикаций',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String spaceDiscoverySources(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count проверенного источника',
+      many: '$count проверенных источников',
+      few: '$count проверенных источника',
+      one: '1 проверенный источник',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get spacePublicSubscribe => 'Подписаться';
 
   @override
   String get spaceCommentNotificationsSetting => 'Уведомления об обсуждениях';

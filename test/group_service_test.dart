@@ -5038,6 +5038,22 @@ void main() {
         reason:
             'one publishing identity must not satisfy global discovery quorum',
       );
+      final partial = await service.searchPublicSpaceDiscoveryOutcome('откр');
+      expect(partial.status, SpacePublicDiscoverySearchStatus.partialQuorum);
+      expect(
+        partial.results,
+        isEmpty,
+        reason: 'a partial quorum is diagnostic state, not a public result',
+      );
+
+      final offlineStorage = FakeHvContainer().storage();
+      await offlineStorage.open(password: 'offline', createIfMissing: true);
+      final offlineService = GroupService(offlineStorage, signer);
+      addTearDown(offlineService.dispose);
+      final unavailable = await offlineService
+          .searchPublicSpaceDiscoveryOutcome('откр');
+      expect(unavailable.status, SpacePublicDiscoverySearchStatus.unavailable);
+      expect(unavailable.results, isEmpty);
 
       final second = await service.publishPublicSpaceDiscovery();
       expect(second.complete, isTrue);
