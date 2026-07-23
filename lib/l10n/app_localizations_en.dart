@@ -522,6 +522,20 @@ class AppL10nEn extends AppL10n {
   String get spacePostCommentReadOnly => 'This discussion is read-only.';
 
   @override
+  String get spacePostCommentPublic => 'Visible in the public feed';
+
+  @override
+  String get spacePostCommentPublicHint =>
+      'Creates a separate author-signed public copy. Non-members can read it.';
+
+  @override
+  String get spacePostPublicReaction => 'Add a public reaction';
+
+  @override
+  String get spacePostPublicDiscussionReadOnly =>
+      'Only comments and reactions their authors explicitly made public are shown.';
+
+  @override
   String get feedPinnedTitle => 'Pinned';
 
   @override

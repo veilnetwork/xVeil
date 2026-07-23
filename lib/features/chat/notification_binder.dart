@@ -10,6 +10,7 @@ import '../../domain/group_message.dart';
 import '../../domain/group_policy.dart';
 import '../../domain/space_recommendation.dart';
 import '../../domain/space_post.dart';
+import '../../domain/space_public_discussion.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/group_service_providers.dart';
@@ -61,6 +62,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   StreamSubscription<({NodeId spaceId, SpacePostView post})>? _spacePostSub;
   StreamSubscription<({NodeId spaceId, SpacePostView post})>?
   _publicSpacePostSub;
+  StreamSubscription<({NodeId spaceId, SpacePublicCommentView comment})>?
+  _publicSpaceCommentSub;
   ProviderSubscription<GroupService?>? _groupServiceListener;
   final Map<
     String,
@@ -118,6 +121,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     _spaceCommentSub?.cancel();
     _spacePostSub?.cancel();
     _publicSpacePostSub?.cancel();
+    _publicSpaceCommentSub?.cancel();
     _groupSub = service?.incoming.listen(_onGroupIncoming);
     _spaceCommentSub = service?.incomingComments.listen(
       _onSpaceCommentIncoming,
@@ -125,6 +129,9 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     _spacePostSub = service?.incomingPosts.listen(_onSpacePostIncoming);
     _publicSpacePostSub = service?.incomingPublicPosts.listen(
       _onPublicSpacePostIncoming,
+    );
+    _publicSpaceCommentSub = service?.incomingPublicComments.listen(
+      _onPublicSpaceCommentIncoming,
     );
   }
 
@@ -332,6 +339,95 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           : n.post.body.trim().isNotEmpty
           ? n.post.body
           : '…',
+      settings: settings,
+      allowReply: false,
+      isMention: isMention,
+    );
+  }
+
+  Future<void> _onPublicSpaceCommentIncoming(
+    ({NodeId spaceId, SpacePublicCommentView comment}) n,
+  ) async {
+    if (!mounted) return;
+    final generation = ++_notificationGeneration;
+    final settings = ref.read(notificationSettingsProvider);
+    final service = ref.read(groupServiceProvider);
+    if (service == null) return;
+    final postId = n.comment.root.postId;
+    final isMention = messageMentionsNode(n.comment.body, service.selfId);
+    SpacePublicSubscriptionView? subscription;
+    var policy = const NotificationMutePolicy.all();
+    var mode = SpaceCommentNotificationMode.none;
+    SpacePostView? post;
+    SpacePublicCommentView? replyTarget;
+    try {
+      subscription = await service.publicSpaceSubscription(n.spaceId);
+      if (subscription == null) return;
+      mode = subscription.subscription.commentNotifications;
+      if (mode == SpaceCommentNotificationMode.none && !isMention) return;
+      policy = await service.groupNotificationPolicy(n.spaceId);
+      post = subscription.feed.posts
+          .where((candidate) => candidate.postId == postId)
+          .firstOrNull;
+      if (n.comment.replyTo != null) {
+        replyTarget = (await service.publicSpacePostComments(
+          n.spaceId,
+          postId,
+        )).where((candidate) => candidate.ref == n.comment.replyTo).firstOrNull;
+      }
+    } catch (_) {
+      return;
+    }
+    if (!mounted ||
+        generation != _notificationGeneration ||
+        post == null ||
+        !notificationModeAllows(
+          policy.effectiveAt(DateTime.now()),
+          isMention: isMention,
+        ) ||
+        !(isMention ||
+            shouldNotifySpaceComment(
+              mode: mode,
+              repliesToSelf: replyTarget?.author == service.selfId,
+              commentsOnOwnPost: post.author == service.selfId,
+            ))) {
+      return;
+    }
+    final ordinaryPayload = 'space-public-comment:${n.spaceId.hex}:$postId';
+    final route =
+        '/space/${n.spaceId.hex}/public-comments?post=${Uri.encodeQueryComponent(postId)}'
+        '&comment=${Uri.encodeQueryComponent(n.comment.ref)}';
+    final candidate = (
+      convHex: isMention ? notificationMentionPayload(route) : ordinaryPayload,
+      name: subscription.descriptor.name.trim().isNotEmpty
+          ? subscription.descriptor.name
+          : null,
+      shortId: n.spaceId.short,
+      preview: n.comment.body.trim().isNotEmpty
+          ? n.comment.body
+          : n.comment.media?.name ?? n.comment.media?.kind ?? '…',
+      timestampMs: n.comment.createdAtMs,
+      allowReply: false,
+      isMention: isMention,
+    );
+    if (_foreground) {
+      if (ref.read(activeConversationProvider) != ordinaryPayload) {
+        _pendingSpaceComments[ordinaryPayload] = candidate;
+      }
+      return;
+    }
+    if (!shouldAlertIncoming(
+      enabled: settings.enabled,
+      muted: false,
+      foreground: false,
+    )) {
+      return;
+    }
+    await _show(
+      convHex: candidate.convHex,
+      name: candidate.name,
+      shortId: candidate.shortId,
+      preview: candidate.preview,
       settings: settings,
       allowReply: false,
       isMention: isMention,
@@ -774,6 +870,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     _spaceCommentSub?.cancel();
     _spacePostSub?.cancel();
     _publicSpacePostSub?.cancel();
+    _publicSpaceCommentSub?.cancel();
     super.dispose();
   }
 

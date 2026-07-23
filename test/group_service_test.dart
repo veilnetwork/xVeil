@@ -36,6 +36,7 @@ import 'package:xveil/domain/space_membership.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_policy_audit.dart';
+import 'package:xveil/domain/space_public_discussion.dart';
 import 'package:xveil/domain/space_public_feed.dart';
 import 'package:xveil/domain/space_rules.dart';
 import 'package:xveil/domain/space_recommendation.dart';
@@ -4485,6 +4486,221 @@ void main() {
   );
 
   test(
+    'public discussion is explicit, author-signed and committed by feed v2',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'owner', createIfMissing: true);
+      final signer = _FakeSigner(owner);
+      final service = GroupService(
+        storage,
+        signer,
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(service.dispose);
+
+      final spaceId = await service.createSpace(
+        'Public discussion',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      final post = await service.publishSpacePost(
+        spaceId,
+        body: 'Public root',
+        broadcast: false,
+      );
+      expect(post, isNotNull);
+
+      expect(
+        await service.commentOnSpacePost(
+          spaceId,
+          post!.postId,
+          'Member-private comment',
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await service.commentOnSpacePost(
+          spaceId,
+          post.postId,
+          'Explicit public comment',
+          publiclyVisible: true,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      final memberComments = await service.spacePostCommentsOf(
+        spaceId,
+        post.postId,
+      );
+      final publicRoot = memberComments.singleWhere(
+        (comment) => comment.body == 'Explicit public comment',
+      );
+      expect(
+        await service.editSpacePostComment(
+          spaceId,
+          post.postId,
+          publicRoot.ref,
+          'Edited public comment',
+          broadcast: false,
+        ),
+        isTrue,
+      );
+
+      expect(
+        await service.reactToSpacePost(
+          spaceId,
+          post.postId,
+          '🔥',
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await service.reactToSpacePost(
+          spaceId,
+          post.postId,
+          '👍',
+          publiclyVisible: true,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+
+      final bundle = await service.load(spaceId);
+      expect(bundle, isNotNull);
+      expect(bundle!.publicComments, hasLength(2));
+      expect(bundle.publicComments.first.seq, greaterThan(0));
+      expect(bundle.publicComments.last.prevHash, isNotEmpty);
+      expect(bundle.publicReactions, hasLength(1));
+      expect(bundle.publicReactions.single.seq, greaterThan(0));
+
+      final publication = await service.buildSpacePublicDiscoveryPublication(
+        spaceId,
+      );
+      expect(publication, isNotNull);
+      expect(
+        publication!.feed.manifest.wireVersion,
+        SpacePublicFeedManifest.discussionVersion,
+      );
+      expect(publication.feed.manifest.discussionItemCount, 3);
+      expect(
+        publication.feed
+            .commentsFor(post.postId, signer.verifyDetached)
+            .single
+            .body,
+        'Edited public comment',
+      );
+      expect(
+        publication.feed.reactionsFor(post.postId, signer.verifyDetached),
+        {
+          '👍': [owner],
+        },
+      );
+      final publicWire = utf8.decode(
+        SpacePublicFeedPackage(
+          descriptor: publication.discovery.descriptor,
+          projection: publication.feed,
+        ).toBytes(),
+      );
+      expect(publicWire, contains('Edited public comment'));
+      expect(publicWire, isNot(contains('Member-private comment')));
+      expect(publicWire, isNot(contains('membershipEpoch')));
+      expect(publicWire, isNot(contains('"enc"')));
+    },
+  );
+
+  test(
+    'public discussion anti-entropy heals a lost private + public pair',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final bobStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await bobStorage.open(password: 'bob', createIfMissing: true);
+      final ownerService = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      late final GroupService bobService;
+      bobService = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+        send: (peer, groupId, json) async {
+          expect(peer, owner);
+          expect(await ownerService.ingestGroupEntry(bob, json), isTrue);
+        },
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(bobService.dispose);
+
+      final spaceId = await ownerService.createSpace(
+        'Recovered public discussion',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final post = await ownerService.publishSpacePost(
+        spaceId,
+        body: 'Recovery root',
+        broadcast: false,
+      );
+      expect(post, isNotNull);
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+
+      expect(
+        await bobService.commentOnSpacePost(
+          spaceId,
+          post!.postId,
+          'Recovered public comment',
+          publiclyVisible: true,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect((await ownerService.load(spaceId))!.publicComments, isEmpty);
+
+      final ownerVector = await ownerService.buildGroupSyncRequest(spaceId);
+      expect(ownerVector, isNotNull);
+      expect(
+        await bobService.handleGroupSyncRequest(owner, ownerVector!),
+        isTrue,
+      );
+      expect((await ownerService.load(spaceId))!.publicComments, hasLength(1));
+      expect(
+        (await ownerService.buildSpacePublicDiscoveryPublication(spaceId))!.feed
+            .commentsFor(post.postId, _FakeSigner(owner).verifyDetached)
+            .single
+            .body,
+        'Recovered public comment',
+      );
+    },
+  );
+
+  test(
     'independent holder fetches exact feed objects before signing availability',
     () async {
       final ownerStorage = FakeHvContainer().storage();
@@ -4495,6 +4711,9 @@ void main() {
       final ownerService = GroupService(
         ownerStorage,
         _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
         sendPublicFeedChunk: (requester, chunkJson) async {
           expect(requester, bob);
           holderService.handlePublicFeedObjectChunk(owner, chunkJson);
@@ -4619,6 +4838,9 @@ void main() {
       final ownerService = GroupService(
         ownerStorage,
         _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
         sendPublicFeedChunk: (requester, chunkJson) async {
           expect(requester, bob);
           readerService.handlePublicFeedObjectChunk(owner, chunkJson);
@@ -4637,7 +4859,12 @@ void main() {
       final publicNoticeSub = readerService.incomingPublicPosts.listen(
         publicNotices.add,
       );
+      final publicCommentNotices =
+          <({NodeId spaceId, SpacePublicCommentView comment})>[];
+      final publicCommentNoticeSub = readerService.incomingPublicComments
+          .listen(publicCommentNotices.add);
       addTearDown(publicNoticeSub.cancel);
+      addTearDown(publicCommentNoticeSub.cancel);
       addTearDown(() async {
         if (!identical(readerService, ownerService)) {
           await readerService.dispose();
@@ -4711,6 +4938,50 @@ void main() {
       await readerService.markSpaceFeedSeen(spaceId);
       expect(await readerService.unreadSpacePosts(spaceId), 0);
 
+      expect(
+        await ownerService.commentOnSpacePost(
+          spaceId,
+          root.postId,
+          'Public comment for ${encodeMessageMention(bob)}',
+          publiclyVisible: true,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      final withComment = await ownerService
+          .buildSpacePublicDiscoveryPublication(spaceId);
+      expect(withComment, isNotNull);
+      expect(
+        await readerService.subscribeToPublicSpace(
+          withComment!.discovery.descriptor,
+          [withComment.discovery.holder],
+        ),
+        isNotNull,
+      );
+      await pump();
+      expect(publicNotices, isEmpty);
+      expect(publicCommentNotices, hasLength(1));
+      expect(publicCommentNotices.single.spaceId, spaceId);
+      expect(
+        publicCommentNotices.single.comment.body,
+        contains(encodeMessageMention(bob)),
+      );
+      expect(
+        await readerService.publicSpacePostComments(spaceId, root.postId),
+        hasLength(1),
+      );
+      expect(
+        await readerService.spaceFeed(
+          filter: SpaceFeedFilter(
+            types: SpacePostType.values.toSet(),
+            mentionsOnly: true,
+          ),
+        ),
+        hasLength(1),
+        reason:
+            'a public comment mention keeps its root visible in mentions-only Feed',
+      );
+
       await readerService.updateSpaceSubscription(
         spaceId,
         feedEnabled: false,
@@ -4776,7 +5047,14 @@ void main() {
       final persisted = snapshot!.toJson();
       expect(persisted.keys, {'v', 'kind', 'verifiedAt', 'package'});
       final package = persisted['package'] as Map;
-      expect(package.keys, {'v', 'kind', 'descriptor', 'manifest', 'pages'});
+      expect(package.keys, {
+        'v',
+        'kind',
+        'descriptor',
+        'manifest',
+        'pages',
+        'discussionPages',
+      });
       final wire = jsonEncode(persisted);
       for (final privateField in [
         '"members"',
@@ -7740,6 +8018,7 @@ void main() {
       final spaceId = await ownerService.createSpace(
         'Distributed discussion',
         visibility: SpaceVisibility.public,
+        discoverable: true,
       );
       expect(
         await ownerService.addControlOp(
@@ -7848,7 +8127,8 @@ void main() {
         await bobService.commentOnSpacePost(
           spaceId,
           root.postId,
-          'Member redistribution',
+          'Member redistribution ${encodeMessageMention(owner)}',
+          publiclyVisible: true,
           broadcast: false,
         ),
         isTrue,
@@ -7867,8 +8147,12 @@ void main() {
           spaceId,
           root.postId,
         )).map((comment) => comment.body),
-        ['Owner comment', 'Member redistribution'],
+        [
+          'Owner comment',
+          'Member redistribution ${encodeMessageMention(owner)}',
+        ],
       );
+      expect((await ownerService.load(spaceId))!.publicComments, hasLength(1));
       final memberComment = (await ownerService.spacePostCommentsOf(
         spaceId,
         root.postId,
@@ -7878,7 +8162,7 @@ void main() {
           spaceId,
           root.postId,
           memberComment.ref,
-          'Member revision',
+          'Member revision ${encodeMessageMention(owner)}',
           broadcast: false,
         ),
         isTrue,
@@ -7898,7 +8182,7 @@ void main() {
           spaceId,
           root.postId,
         )).last.body,
-        'Member revision',
+        'Member revision ${encodeMessageMention(owner)}',
       );
       expect(
         commentNotices.map((comment) => comment.body),
@@ -7907,8 +8191,37 @@ void main() {
       );
       expect(
         ownerCommentNotices.map((comment) => comment.body),
-        ['Member redistribution'],
+        ['Member redistribution ${encodeMessageMention(owner)}'],
         reason: 'a remote edit is not emitted as another comment',
+      );
+      expect((await ownerService.load(spaceId))!.publicComments, hasLength(2));
+      final publicProjection = await ownerService
+          .buildSpacePublicDiscoveryPublication(spaceId);
+      expect(publicProjection, isNotNull);
+      expect(
+        publicProjection!.feed
+            .commentsFor(root.postId, _FakeSigner(owner).verifyDetached)
+            .single
+            .body,
+        'Member revision ${encodeMessageMention(owner)}',
+      );
+      final mentionFeed = await ownerService.spaceFeed(
+        filter: SpaceFeedFilter(
+          types: SpacePostType.values.toSet(),
+          mentionsOnly: true,
+        ),
+      );
+      expect(mentionFeed, hasLength(1));
+      expect(mentionFeed.single.post.postId, root.postId);
+      expect(
+        utf8.decode(
+          SpacePublicFeedPackage(
+            descriptor: publicProjection.discovery.descriptor,
+            projection: publicProjection.feed,
+          ).toBytes(),
+        ),
+        isNot(contains('Owner comment')),
+        reason: 'the owner-private row is never inferred into public history',
       );
 
       final bobBundle = (await bobService.load(spaceId))!;

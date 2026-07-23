@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/ids.dart';
 import '../../domain/group_reaction.dart';
+import '../../l10n/app_localizations.dart';
 
 const _quickSpacePostReactions = ['👍', '❤', '😂', '😮', '😢', '🙏'];
 
@@ -17,12 +18,14 @@ class SpacePostReactionBar extends StatelessWidget {
     required this.reactions,
     required this.selfId,
     required this.onReact,
+    this.onPublicReact,
   });
 
   final String postId;
   final MessageReactions reactions;
   final NodeId selfId;
-  final Future<bool> Function(String emoji) onReact;
+  final Future<bool> Function(String emoji)? onReact;
+  final Future<bool> Function(String emoji)? onPublicReact;
 
   @override
   Widget build(BuildContext context) {
@@ -40,18 +43,33 @@ class SpacePostReactionBar extends StatelessWidget {
             showCheckmark: false,
             visualDensity: VisualDensity.compact,
             label: Text('${entry.key} ${entry.value.length}'),
-            onSelected: (_) => unawaited(onReact(entry.key)),
+            onSelected: onReact == null
+                ? null
+                : (_) => unawaited(onReact!(entry.key)),
           ),
-        PopupMenuButton<String>(
-          key: ValueKey('space-post-add-reaction-$postId'),
-          icon: const Icon(Icons.add_reaction_outlined, size: 20),
-          padding: EdgeInsets.zero,
-          onSelected: (emoji) => unawaited(onReact(emoji)),
-          itemBuilder: (_) => [
-            for (final emoji in _quickSpacePostReactions)
-              PopupMenuItem(value: emoji, child: Text(emoji)),
-          ],
-        ),
+        if (onReact != null)
+          PopupMenuButton<String>(
+            key: ValueKey('space-post-add-reaction-$postId'),
+            icon: const Icon(Icons.add_reaction_outlined, size: 20),
+            padding: EdgeInsets.zero,
+            onSelected: (emoji) => unawaited(onReact!(emoji)),
+            itemBuilder: (_) => [
+              for (final emoji in _quickSpacePostReactions)
+                PopupMenuItem(value: emoji, child: Text(emoji)),
+            ],
+          ),
+        if (onPublicReact != null)
+          PopupMenuButton<String>(
+            key: ValueKey('space-post-add-public-reaction-$postId'),
+            tooltip: AppL10n.of(context).spacePostPublicReaction,
+            icon: const Icon(Icons.public, size: 20),
+            padding: EdgeInsets.zero,
+            onSelected: (emoji) => unawaited(onPublicReact!(emoji)),
+            itemBuilder: (_) => [
+              for (final emoji in _quickSpacePostReactions)
+                PopupMenuItem(value: emoji, child: Text(emoji)),
+            ],
+          ),
       ],
     );
   }

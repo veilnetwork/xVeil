@@ -506,6 +506,16 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
                                           post.postId,
                                           emoji,
                                         ),
+                                    onPublicReact:
+                                        post.visibility ==
+                                            SpacePostVisibility.public
+                                        ? (emoji) => service.reactToSpacePost(
+                                            spaceId,
+                                            post.postId,
+                                            emoji,
+                                            publiclyVisible: true,
+                                          )
+                                        : null,
                                   ),
                                   TextButton.icon(
                                     key: ValueKey(
