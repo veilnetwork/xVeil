@@ -225,6 +225,9 @@ class MessagingService {
   onSpaceModerationAppeal;
   Future<bool> Function(NodeId peer, String decisionJson)?
   onSpaceModerationAppealDecision;
+  Future<bool> Function(NodeId peer, String reportJson)? onSpaceAbuseReport;
+  Future<bool> Function(NodeId peer, String decisionJson)?
+  onSpaceAbuseReportDecision;
 
   /// Space-layer admission for a recommendation card. Contact consent and the
   /// receiver-wide opt-out are enforced here; this callback additionally
@@ -530,6 +533,26 @@ class MessagingService {
     dst,
     'space-moderation-appeal-decision:$appealId',
     WireEnvelope.spaceModerationAppealDecision(decisionJson),
+  );
+
+  Future<void> sendSpaceAbuseReport(
+    NodeId dst,
+    String reportId,
+    String reportJson,
+  ) => sendDurable(
+    dst,
+    'space-abuse-report:$reportId',
+    WireEnvelope.spaceAbuseReport(reportJson),
+  );
+
+  Future<void> sendSpaceAbuseReportDecision(
+    NodeId dst,
+    String reportId,
+    String decisionJson,
+  ) => sendDurable(
+    dst,
+    'space-abuse-report-decision:$reportId',
+    WireEnvelope.spaceAbuseReportDecision(decisionJson),
   );
 
   /// Ship a shared-document invite/snapshot/delta durably.

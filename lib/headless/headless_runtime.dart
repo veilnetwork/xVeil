@@ -159,6 +159,8 @@ class HeadlessRuntime {
         sendSpaceModerationAppeal: messaging.sendSpaceModerationAppeal,
         sendSpaceModerationAppealDecision:
             messaging.sendSpaceModerationAppealDecision,
+        sendSpaceAbuseReport: messaging.sendSpaceAbuseReport,
+        sendSpaceAbuseReportDecision: messaging.sendSpaceAbuseReportDecision,
         sendSpaceRecommendation: messaging.sendSpaceRecommendation,
         revokeSpaceRecommendation: messaging.revokeSpaceRecommendation,
         sendContentRequest: (holder, json) =>
@@ -360,6 +362,8 @@ class HeadlessRuntime {
         revokeSpaceModeration: groupApi.revokeModeration,
         spaceModerationAppeals: groupApi.moderationAppeals,
         spaceModerationAppealAction: groupApi.moderationAppealAction,
+        spaceAbuseReports: groupApi.abuseReports,
+        spaceAbuseReportAction: groupApi.abuseReportAction,
         createSpaceChannel: groupApi.createChannel,
         updateSpaceChannel: groupApi.updateChannel,
         spaceChannelAction: groupApi.channelAction,
@@ -425,6 +429,9 @@ class HeadlessRuntime {
     messaging.onSpaceModerationAppeal = groups.receiveSpaceModerationAppeal;
     messaging.onSpaceModerationAppealDecision =
         groups.receiveSpaceModerationAppealDecision;
+    messaging.onSpaceAbuseReport = groups.receiveSpaceAbuseReport;
+    messaging.onSpaceAbuseReportDecision =
+        groups.receiveSpaceAbuseReportDecision;
     messaging.onSpaceRecommendation = groups.acceptsSpaceRecommendationCard;
     messaging.onGroupContentRequest = (peer, requestJson) {
       unawaited(groups.handleContentRequest(requestJson));

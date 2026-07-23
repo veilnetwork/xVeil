@@ -52,6 +52,10 @@ void main() {
   final spaceModerationRevocations = <(String, String, String)>[];
   final spaceModerationAppealActions =
       <(String, String?, String?, String?, String?, String?)>[];
+  final spaceAbuseReportActions =
+      <
+        (String, String?, String?, String?, String?, String?, String?, String?)
+      >[];
   final renames = <(String, String)>[];
   final leaves = <String>[];
   Map<String, dynamic>? call;
@@ -110,6 +114,7 @@ void main() {
     spaceModerationActions.clear();
     spaceModerationRevocations.clear();
     spaceModerationAppealActions.clear();
+    spaceAbuseReportActions.clear();
     renames.clear();
     leaves.clear();
     groupCall = null;
@@ -769,6 +774,40 @@ void main() {
               reason,
             ));
             return space == 'denied' ? 'moderation appeal rejected' : null;
+          },
+      spaceAbuseReports: (space) async => {
+        'outgoing': const [],
+        'incoming': [
+          {
+            'reportId': 'ae' * 32,
+            'spaceId': space ?? 'aa',
+            'postId': '${'03' * 32}:4',
+            'status': 'pending',
+          },
+        ],
+      },
+      spaceAbuseReportAction:
+          (
+            action,
+            space,
+            postId,
+            commentId,
+            category,
+            details,
+            reportId,
+            reason,
+          ) async {
+            spaceAbuseReportActions.add((
+              action,
+              space,
+              postId,
+              commentId,
+              category,
+              details,
+              reportId,
+              reason,
+            ));
+            return space == 'denied' ? 'abuse report rejected' : null;
           },
       createSpaceChannel:
           (
@@ -1619,6 +1658,76 @@ void main() {
           u('/v1/spaces/moderation/appeals'),
           auth,
           body: {'action': 'revoke', 'appealId': 'short', 'reason': 'yes'},
+        )).status,
+        400,
+      );
+      final reports = await h.handle(
+        'GET',
+        u('/v1/spaces/moderation/reports?space=aa'),
+        auth,
+      );
+      expect(reports.status, 200);
+      expect(((reports.body as Map)['incoming'] as List), hasLength(1));
+      final postId = '${'03' * 32}:4';
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/moderation/reports'),
+          auth,
+          body: {
+            'action': 'report',
+            'space': 'aa',
+            'postId': postId,
+            'category': 'harassment',
+            'details': '  exact context  ',
+          },
+        )).status,
+        200,
+      );
+      expect(spaceAbuseReportActions.single, (
+        'report',
+        'aa',
+        postId,
+        null,
+        'harassment',
+        'exact context',
+        null,
+        null,
+      ));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/moderation/reports'),
+          auth,
+          body: {
+            'action': 'remove',
+            'reportId': 'ae' * 32,
+            'reason': '  confirmed  ',
+          },
+        )).status,
+        200,
+      );
+      expect(spaceAbuseReportActions.last, (
+        'remove',
+        null,
+        null,
+        null,
+        null,
+        null,
+        'ae' * 32,
+        'confirmed',
+      ));
+      expect(
+        (await h.handle(
+          'POST',
+          u('/v1/spaces/moderation/reports'),
+          auth,
+          body: {
+            'action': 'report',
+            'space': 'aa',
+            'postId': postId,
+            'category': 'other',
+          },
         )).status,
         400,
       );
@@ -3405,6 +3514,7 @@ void main() {
           '/spaces/moderation',
           '/spaces/moderation/revoke',
           '/spaces/moderation/appeals',
+          '/spaces/moderation/reports',
           '/spaces/observability',
           '/spaces/discovery',
           '/spaces/public-subscriptions',
