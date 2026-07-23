@@ -5,6 +5,9 @@ import 'dart:typed_data';
 class Ns {
   static const int settings = 1;
   static const int contacts = 2;
+
+  /// Legacy, pre-sharding message-log namespace. Existing profiles keep their
+  /// rows here forever; new writes use [messageLogShardFirst] and above.
   static const int messageLog = 3;
   static const int media = 4;
 
@@ -33,6 +36,38 @@ class Ns {
   /// retry proportional to the number of pending frames instead of the entire
   /// historical enqueue/ack journal.
   static const int outboxIndex = 8;
+
+  /// Message-log shards occupy an otherwise-unused namespace range.
+  ///
+  /// hidden-volume's log index is bounded per namespace (roughly 10–20K log
+  /// ids with the current two-level tree). Keeping each deterministic segment
+  /// below that floor lets an aged profile continue appending without moving
+  /// or deleting its legacy history. The global log id remains the ordering
+  /// source of truth, so no mutable "active shard" pointer or append lock is
+  /// needed.
+  /// The native commit payload can carry at most 95 active namespace roots.
+  /// Eight are reserved above (including the legacy message log), leaving 87
+  /// shards without ever making a fully-populated app space exceed that format
+  /// ceiling. Namespace is a u8, but using all 224 remaining byte values would
+  /// fail much earlier with `TooManyNamespaces`.
+  static const int messageLogShardFirst = 32;
+  static const int messageLogShardLast = 118;
+  static const int messageLogShardSize = 8192;
+  static const int messageLogShardCapacity =
+      (messageLogShardLast - messageLogShardFirst + 1) * messageLogShardSize;
+
+  static int messageLogNamespaceFor(int logId) {
+    if (logId <= 0 || logId > messageLogShardCapacity) {
+      throw RangeError.range(
+        logId,
+        1,
+        messageLogShardCapacity,
+        'logId',
+        'message-log namespace range exhausted',
+      );
+    }
+    return messageLogShardFirst + ((logId - 1) ~/ messageLogShardSize);
+  }
 }
 
 /// A single write in an atomic [KvLogStore.commit] batch. Mirrors
