@@ -187,8 +187,9 @@ final class GroupApiAdapter {
   Future<String?> updateDescription(String spaceHex, String description) async {
     final visible = await _visible(spaceHex);
     if (visible == null) return 'space not found';
-    final role = visible.$2.roleOf(_groups.selfId)!;
-    if (!canApply(authorRole: role, op: ControlOp.setDescription)) {
+    if (!SpaceAcl(
+      visible.$2,
+    ).allows(_groups.selfId, SpacePermission.manageSettings)) {
       return 'operation rejected by space policy';
     }
     return await _groups.setSpaceDescription(visible.$1, description)
@@ -318,9 +319,11 @@ final class GroupApiAdapter {
     if (mediaOnly && (inherit || days == null)) {
       return 'media-only retention requires bounded channel days';
     }
-    if (!SpaceAcl(
-      visible.$2,
-    ).allows(_groups.selfId, SpacePermission.manageStorage)) {
+    if (!SpaceAcl(visible.$2).allows(
+      _groups.selfId,
+      SpacePermission.manageStorage,
+      channelId: channelId,
+    )) {
       return 'operation rejected by space policy';
     }
     final policy = inherit
@@ -1724,17 +1727,52 @@ final class GroupApiAdapter {
     final policy = state.accessPolicy;
     final members = state.members.values.toList()
       ..sort((a, b) => a.nodeId.hex.compareTo(b.nodeId.hex));
+    List<Map<String, dynamic>> grantsJson(
+      Iterable<SpacePermissionGrant> grants,
+    ) {
+      final sorted = grants.toList()
+        ..sort((left, right) {
+          final permission = left.permission.index.compareTo(
+            right.permission.index,
+          );
+          if (permission != 0) return permission;
+          final kind = left.scope.kind.index.compareTo(right.scope.kind.index);
+          if (kind != 0) return kind;
+          return (left.scope.targetId?.hex ?? '').compareTo(
+            right.scope.targetId?.hex ?? '',
+          );
+        });
+      return [
+        for (final grant in sorted) Map<String, dynamic>.from(grant.toJson()),
+      ];
+    }
+
     return {
       'spaceId': visible.$1.hex,
+      'schemaVersion': policy?.schemaVersion ?? 1,
       'revision': policy?.revision ?? 0,
       'policyVersion': state.policyVersion,
       'selfCanManage': state.roleOf(_groups.selfId) == GroupRole.owner,
-      'roles': [for (final role in policy?.roles ?? const []) role.toJson()],
+      'roles': [
+        for (final role in policy?.roles ?? const <SpaceRoleDefinition>[])
+          {
+            'id': role.roleId,
+            'name': role.name,
+            'permissions':
+                (role.permissions.toList()
+                      ..sort((a, b) => a.index.compareTo(b.index)))
+                    .map((permission) => permission.name)
+                    .toList(growable: false),
+            'grants': grantsJson(role.grants),
+          },
+      ],
       'groups': [
-        for (final group in policy?.groups ?? const []) group.toJson(),
+        for (final group in policy?.groups ?? const <SpaceMemberGroup>[])
+          group.toJson(),
       ],
       'direct': [
-        for (final assignment in policy?.directAssignments ?? const [])
+        for (final assignment
+            in policy?.directAssignments ?? const <SpaceMemberRoleAssignment>[])
           assignment.toJson(),
       ],
       'effective': [
@@ -1749,6 +1787,7 @@ final class GroupApiAdapter {
                       ..sort((a, b) => a.index.compareTo(b.index)))
                     .map((permission) => permission.name)
                     .toList(growable: false),
+            'grants': grantsJson(state.customGrantsOf(member.nodeId)),
           },
       ],
     };
@@ -1807,27 +1846,70 @@ final class GroupApiAdapter {
         final roleId = parseId(rawId, create: rawId == null);
         final name = body['name'];
         final rawPermissions = body['permissions'];
+        final rawGrants = body['grants'];
         if (roleId == null ||
             name is! String ||
-            rawPermissions is! List ||
+            ((rawPermissions is List) == (rawGrants is List)) ||
             name.trim() != name ||
             name.isEmpty) {
-          return 'valid roleId, name and permissions required';
+          return 'valid roleId, name and exactly one of permissions/grants required';
         }
-        final permissions = <SpacePermission>{};
-        for (final raw in rawPermissions) {
-          final permission = raw is String
-              ? SpacePermission.fromName(raw)
-              : null;
-          if (permission == null || !permissions.add(permission)) {
-            return 'unknown or duplicate permission';
+        late final SpaceRoleDefinition role;
+        if (rawPermissions is List) {
+          final permissions = <SpacePermission>{};
+          for (final raw in rawPermissions) {
+            final permission = raw is String
+                ? SpacePermission.fromName(raw)
+                : null;
+            if (permission == null || !permissions.add(permission)) {
+              return 'unknown or duplicate permission';
+            }
           }
+          role = SpaceRoleDefinition(
+            roleId: roleId,
+            name: name,
+            permissions: permissions,
+          );
+        } else {
+          final grants = <SpacePermissionGrant>[];
+          for (final raw in rawGrants as List) {
+            final grant = SpacePermissionGrant.fromJson(raw);
+            if (grant == null || grants.contains(grant)) {
+              return 'unknown, invalid or duplicate permission grant';
+            }
+            grants.add(grant);
+          }
+          final channels = await _groups.channelsOf(
+            visible.$1,
+            includeArchived: true,
+          );
+          final categoryIds = {
+            for (final channel in channels)
+              if (channel.kind == SpaceChannelKind.category)
+                channel.channelId.hex,
+          };
+          final channelIds = {
+            for (final channel in channels)
+              if (channel.kind != SpaceChannelKind.category)
+                channel.channelId.hex,
+          };
+          final targetsValid = grants.every((grant) {
+            final target = grant.scope.targetId?.hex;
+            return switch (grant.scope.kind) {
+              SpacePermissionScopeKind.category =>
+                target != null && categoryIds.contains(target),
+              SpacePermissionScopeKind.channel =>
+                target != null && channelIds.contains(target),
+              _ => true,
+            };
+          });
+          if (!targetsValid) return 'permission scope target not found';
+          role = SpaceRoleDefinition(
+            roleId: roleId,
+            name: name,
+            grants: grants,
+          );
         }
-        final role = SpaceRoleDefinition(
-          roleId: roleId,
-          name: name,
-          permissions: permissions,
-        );
         if (!role.isStructurallyValid) return 'invalid role';
         roles
           ..removeWhere((candidate) => candidate.roleId == roleId)
@@ -1994,11 +2076,19 @@ final class GroupApiAdapter {
         return 'invalid member action';
     }
     if (!canApply(
-      authorRole: authorRole,
-      op: operation,
-      targetRole: targetRole,
-      newRole: newRole,
-    )) {
+          authorRole: authorRole,
+          op: operation,
+          targetRole: targetRole,
+          newRole: newRole,
+        ) &&
+        !SpaceAcl.customPolicyAllowsControl(
+          policy: state.accessPolicy,
+          author: _groups.selfId,
+          op: operation,
+          targetRole: targetRole,
+          newRole: newRole,
+          target: peer,
+        )) {
       return 'operation rejected by group policy';
     }
 
@@ -2054,7 +2144,13 @@ final class GroupApiAdapter {
     final visible = await _visible(groupHex);
     if (visible == null) return 'group not found';
     final role = visible.$2.roleOf(_groups.selfId)!;
-    if (!canApply(authorRole: role, op: ControlOp.setName)) {
+    final bundle = await _groups.load(visible.$1);
+    final allowed = bundle?.manifest.isSpace == true
+        ? SpaceAcl(
+            visible.$2,
+          ).allows(_groups.selfId, SpacePermission.manageSettings)
+        : canApply(authorRole: role, op: ControlOp.setName);
+    if (!allowed) {
       return 'operation rejected by group policy';
     }
     return await _groups.renameGroup(visible.$1, name)

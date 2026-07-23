@@ -1766,7 +1766,7 @@ Map<String, dynamic> openApiSpec() {
       '/spaces/access': {
         'get': {
           'summary':
-              'Read signed custom roles, participant groups and effective permissions',
+              'Read signed scoped roles, participant groups and effective grants',
           'parameters': [
             {
               'name': 'space',
@@ -1806,6 +1806,8 @@ Map<String, dynamic> openApiSpec() {
                     'name': {'type': 'string', 'maxLength': 80},
                     'permissions': {
                       'type': 'array',
+                      'description':
+                          'Legacy Space-wide allow list; use grants for scoped roles',
                       'uniqueItems': true,
                       'items': {
                         'type': 'string',
@@ -1825,6 +1827,57 @@ Map<String, dynamic> openApiSpec() {
                           'manageStorage',
                           'manageChannels',
                         ],
+                      },
+                    },
+                    'grants': {
+                      'type': 'array',
+                      'uniqueItems': true,
+                      'items': {
+                        'type': obj,
+                        'required': ['permission', 'scope'],
+                        'properties': {
+                          'permission': {
+                            'type': 'string',
+                            'enum': [
+                              'view',
+                              'distributeContent',
+                              'publishMessages',
+                              'publishPosts',
+                              'managePosts',
+                              'manageRecommendations',
+                              'enterVoice',
+                              'manageMembers',
+                              'manageRoles',
+                              'moderate',
+                              'manageSettings',
+                              'manageEncryption',
+                              'manageStorage',
+                              'manageChannels',
+                            ],
+                          },
+                          'scope': {
+                            'type': obj,
+                            'required': ['kind'],
+                            'properties': {
+                              'kind': {
+                                'type': 'string',
+                                'enum': [
+                                  'space',
+                                  'category',
+                                  'channel',
+                                  'posts',
+                                  'moderation',
+                                  'members',
+                                  'roles',
+                                  'settings',
+                                  'encryption',
+                                  'storage',
+                                ],
+                              },
+                              'target': {'type': 'string'},
+                            },
+                          },
+                        },
                       },
                     },
                     'members': {

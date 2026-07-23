@@ -941,6 +941,65 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String spaceAccessRoleGrantSummary(num areas, num permissions) {
+    String _temp0 = intl.Intl.pluralLogic(
+      permissions,
+      locale: localeName,
+      other: '$permissions permissions',
+      one: '1 permission',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      areas,
+      locale: localeName,
+      other: '$areas areas',
+      one: '1 area',
+    );
+    return '$_temp0 · $_temp1';
+  }
+
+  @override
+  String get spaceAccessPermissionAreas => 'Permission areas';
+
+  @override
+  String get spaceAccessAddArea => 'Add another area';
+
+  @override
+  String get spaceAccessScopeLabel => 'Area';
+
+  @override
+  String get spaceAccessScopeTarget => 'Category or channel';
+
+  @override
+  String get spaceAccessScopeSpace => 'Entire community';
+
+  @override
+  String get spaceAccessScopeCategory => 'Category';
+
+  @override
+  String get spaceAccessScopeChannel => 'Channel';
+
+  @override
+  String get spaceAccessScopePosts => 'Publications';
+
+  @override
+  String get spaceAccessScopeModeration => 'Moderation';
+
+  @override
+  String get spaceAccessScopeMembers => 'Members';
+
+  @override
+  String get spaceAccessScopeRoles => 'Roles';
+
+  @override
+  String get spaceAccessScopeSettings => 'Settings';
+
+  @override
+  String get spaceAccessScopeEncryption => 'Encryption';
+
+  @override
+  String get spaceAccessScopeStorage => 'Storage';
+
+  @override
   String get spaceAccessGroupAdd => 'Add group';
 
   @override

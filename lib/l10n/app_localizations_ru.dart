@@ -948,6 +948,67 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String spaceAccessRoleGrantSummary(num areas, num permissions) {
+    String _temp0 = intl.Intl.pluralLogic(
+      permissions,
+      locale: localeName,
+      other: '$permissions прав',
+      few: '$permissions права',
+      one: '1 право',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      areas,
+      locale: localeName,
+      other: '$areas областей',
+      few: '$areas области',
+      one: '1 область',
+    );
+    return '$_temp0 · $_temp1';
+  }
+
+  @override
+  String get spaceAccessPermissionAreas => 'Области прав';
+
+  @override
+  String get spaceAccessAddArea => 'Добавить область';
+
+  @override
+  String get spaceAccessScopeLabel => 'Область';
+
+  @override
+  String get spaceAccessScopeTarget => 'Категория или канал';
+
+  @override
+  String get spaceAccessScopeSpace => 'Всё сообщество';
+
+  @override
+  String get spaceAccessScopeCategory => 'Категория';
+
+  @override
+  String get spaceAccessScopeChannel => 'Канал';
+
+  @override
+  String get spaceAccessScopePosts => 'Публикации';
+
+  @override
+  String get spaceAccessScopeModeration => 'Модерация';
+
+  @override
+  String get spaceAccessScopeMembers => 'Участники';
+
+  @override
+  String get spaceAccessScopeRoles => 'Роли';
+
+  @override
+  String get spaceAccessScopeSettings => 'Настройки';
+
+  @override
+  String get spaceAccessScopeEncryption => 'Шифрование';
+
+  @override
+  String get spaceAccessScopeStorage => 'Хранение';
+
+  @override
   String get spaceAccessGroupAdd => 'Добавить группу';
 
   @override

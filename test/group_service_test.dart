@@ -8574,4 +8574,112 @@ void main() {
       );
     },
   );
+
+  test(
+    'scoped V18 role manages one category and rejects its sibling',
+    () async {
+      final (ownerService, memberService) = await setup();
+      final spaceId = await ownerService.createSpace('Scoped access lab');
+      final categoryId = await ownerService.createChannel(
+        spaceId,
+        name: 'Operations',
+        kind: SpaceChannelKind.category,
+        history: SpaceChannelHistory.full,
+      );
+      expect(categoryId, isNotNull);
+      final insideId = await ownerService.createChannel(
+        spaceId,
+        name: 'Inside',
+        kind: SpaceChannelKind.text,
+        categoryId: categoryId,
+        history: SpaceChannelHistory.full,
+      );
+      expect(insideId, isNotNull);
+      final outside = (await ownerService.channelsOf(spaceId)).firstWhere(
+        (channel) =>
+            channel.categoryId == null && channel.kind == SpaceChannelKind.text,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final roleId = ownerService.newSpaceAccessObjectId();
+      final scopedRole = SpaceRoleDefinition(
+        roleId: roleId,
+        name: 'Operations steward',
+        grants: [
+          SpacePermissionGrant(
+            permission: SpacePermission.manageChannels,
+            scope: SpacePermissionScope(
+              kind: SpacePermissionScopeKind.category,
+              targetId: categoryId,
+            ),
+          ),
+        ],
+      );
+      final policy = await ownerService.replaceSpaceAccessPolicy(
+        spaceId,
+        expectedRevision: 0,
+        roles: [scopedRole],
+        groups: const <SpaceMemberGroup>[],
+        directAssignments: [
+          SpaceMemberRoleAssignment(member: bob, roleIds: [roleId]),
+        ],
+      );
+      expect(policy?.schemaVersion, 2);
+
+      final bobService = memberService(bob);
+      final inside = (await bobService.channelsOf(
+        spaceId,
+      )).singleWhere((channel) => channel.channelId == insideId);
+      expect(
+        await bobService.updateChannel(
+          spaceId,
+          inside.copyWith(name: 'Inside updated'),
+        ),
+        isTrue,
+      );
+      expect(
+        await bobService.updateChannel(
+          spaceId,
+          outside.copyWith(name: 'Outside forged'),
+        ),
+        isFalse,
+      );
+      expect(
+        await bobService.updateChannel(
+          spaceId,
+          outside.copyWith(categoryId: categoryId),
+        ),
+        isFalse,
+        reason: 'an out-of-scope root channel cannot be pulled into the grant',
+      );
+      expect(
+        await bobService.updateChannel(
+          spaceId,
+          inside.copyWith(clearCategory: true),
+        ),
+        isFalse,
+        reason: 'an in-scope channel cannot be moved outside the grant',
+      );
+
+      final state = (await ownerService.stateOf(spaceId))!;
+      expect(state.channels[insideId!.hex]?.name, 'Inside updated');
+      expect(state.channels[outside.channelId.hex]?.name, outside.name);
+      final accessEntry = (await ownerService.load(
+        spaceId,
+      ))!.control.lastWhere((entry) => entry.op == ControlOp.setPolicy);
+      expect(accessEntry.version, 18);
+      expect(accessEntry.accessPolicy?.schemaVersion, 2);
+      expect(
+        ControlEntry.fromJson(accessEntry.toJson())?.canonicalBytes(),
+        accessEntry.canonicalBytes(),
+      );
+    },
+  );
 }

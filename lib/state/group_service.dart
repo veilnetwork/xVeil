@@ -775,11 +775,18 @@ class GroupService {
     final authorRole = state.roleOf(selfId);
     if (authorRole == null ||
         state.isMember(invitee) ||
-        !canApply(
-          authorRole: authorRole,
-          op: ControlOp.addMember,
-          newRole: role,
-        )) {
+        (!canApply(
+              authorRole: authorRole,
+              op: ControlOp.addMember,
+              newRole: role,
+            ) &&
+            !SpaceAcl.customPolicyAllowsControl(
+              policy: state.accessPolicy,
+              author: selfId,
+              op: ControlOp.addMember,
+              newRole: role,
+              target: invitee,
+            ))) {
       return false;
     }
     final sender = sendSpaceInvite;
@@ -2691,7 +2698,9 @@ class GroupService {
 
   bool _validControlFor(GroupManifest manifest, ControlEntry e) {
     if (!e.isStructurallyValid) return false;
-    if (e.version == 17 && !manifest.isSpace) return false;
+    if ((e.version == 17 || e.version == 18) && !manifest.isSpace) {
+      return false;
+    }
     if ((e.op == ControlOp.transferOwnership ||
             e.op == ControlOp.setDescription ||
             e.op == ControlOp.publishRules ||
@@ -5469,6 +5478,11 @@ class GroupService {
     ];
     final policy = SpaceAccessPolicy(
       spaceId: spaceId,
+      schemaVersion:
+          state.accessPolicy?.schemaVersion == 2 ||
+              roles.any((role) => role.usesScopedEncoding)
+          ? 2
+          : 1,
       revision: expectedRevision + 1,
       previousPolicyHash: state.accessPolicy?.policyHash ?? '',
       changedBy: selfId,
@@ -5604,9 +5618,11 @@ class GroupService {
       verify: (entry) => _validControlFor(bundle.manifest, entry),
       initialName: bundle.manifest.name,
     ).state;
-    if (!SpaceAcl(
-      state,
-    ).allows(_signer.selfId, SpacePermission.manageChannels)) {
+    if (!SpaceAcl(state).allows(
+      _signer.selfId,
+      SpacePermission.manageChannels,
+      categoryId: categoryId,
+    )) {
       return null;
     }
     final firstText =
@@ -5669,9 +5685,28 @@ class GroupService {
           verify: (entry) => _validControlFor(bundle.manifest, entry),
           initialName: bundle.manifest.name,
         ).state;
-        if (!SpaceAcl(
-              state,
-            ).allows(_signer.selfId, SpacePermission.manageChannels) ||
+        final acl = SpaceAcl(state);
+        final currentPublic = state.channels[channel.channelId.hex];
+        final canManageDestination = acl.allows(
+          _signer.selfId,
+          SpacePermission.manageChannels,
+          channelId: channel.channelId,
+          categoryId: channel.kind == SpaceChannelKind.category
+              ? channel.channelId
+              : channel.categoryId,
+        );
+        final canManageSource =
+            currentPublic == null ||
+            acl.allows(
+              _signer.selfId,
+              SpacePermission.manageChannels,
+              channelId: currentPublic.channelId,
+              categoryId: currentPublic.kind == SpaceChannelKind.category
+                  ? currentPublic.channelId
+                  : currentPublic.categoryId,
+            );
+        if (!canManageDestination ||
+            !canManageSource ||
             channel.spaceId != spaceId ||
             !channel.isValid) {
           return false;
@@ -5718,9 +5753,11 @@ class GroupService {
       verify: (entry) => _validControlFor(bundle.manifest, entry),
       initialName: bundle.manifest.name,
     ).state;
-    if (!SpaceAcl(
-      state,
-    ).allows(_signer.selfId, SpacePermission.manageChannels)) {
+    if (!SpaceAcl(state).allows(
+      _signer.selfId,
+      SpacePermission.manageChannels,
+      channelId: channelId,
+    )) {
       return false;
     }
     final protected = await _protectedChannelsOf(bundle, state);
@@ -6216,7 +6253,9 @@ class GroupService {
               : recommendationCampaign != null
               ? 13
               : accessPolicy != null
-              ? 17
+              ? accessPolicy.schemaVersion >= 2
+                    ? 18
+                    : 17
               : channelRetention != null
               ? 15
               : retentionPolicy != null
@@ -6430,9 +6469,11 @@ class GroupService {
       initialName: bundle.manifest.name,
       initialDescription: bundle.manifest.description ?? '',
     ).state;
-    if (!SpaceAcl(
-      state,
-    ).allows(_signer.selfId, SpacePermission.manageStorage)) {
+    if (!SpaceAcl(state).allows(
+      _signer.selfId,
+      SpacePermission.manageStorage,
+      channelId: policy.channelId,
+    )) {
       return false;
     }
     final channelId = policy.channelId;
@@ -6729,11 +6770,27 @@ class GroupService {
     }.contains(kind);
     final actorRole = state.roleOf(_signer.selfId);
     final targetRole = state.roleOf(target);
+    final customCanModerate =
+        state.accessPolicy?.allows(
+          _signer.selfId,
+          SpacePermission.moderate,
+          channelId: channelId,
+        ) ??
+        false;
+    final targetAllowed = targetRole == null
+        ? removesContent && actorRole == GroupRole.owner
+        : actorRole != null && actorRole.rank >= GroupRole.admin.rank
+        ? targetRole.rank < actorRole.rank
+        : customCanModerate &&
+              target != _signer.selfId &&
+              targetRole == GroupRole.member;
     if (actorRole == null ||
-        !SpaceAcl(state).allows(_signer.selfId, SpacePermission.moderate) ||
-        (!state.isMember(target) &&
-            !(removesContent && actorRole == GroupRole.owner)) ||
-        (targetRole != null && targetRole.rank >= actorRole.rank)) {
+        !SpaceAcl(state).allows(
+          _signer.selfId,
+          SpacePermission.moderate,
+          channelId: channelId,
+        ) ||
+        !targetAllowed) {
       return null;
     }
     final createdAt = _now();
@@ -7198,11 +7255,6 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
-    if (!SpaceAcl(
-      state,
-    ).allows(_signer.selfId, SpacePermission.publishMessages)) {
-      return false;
-    }
     NodeId? resolvedChannelId = channelId;
     SpaceChannelControlCleartext? protectedChannel;
     if (b.manifest.isSpace) {
@@ -7267,6 +7319,13 @@ class GroupService {
         }
       }
     } else if (resolvedChannelId != null || spacePostId != null) {
+      return false;
+    }
+    if (!SpaceAcl(state).allows(
+      _signer.selfId,
+      SpacePermission.publishMessages,
+      channelId: resolvedChannelId,
+    )) {
       return false;
     }
     final descriptor = state.epochDescriptor;
@@ -11259,11 +11318,6 @@ class GroupService {
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     if (b.manifest.isSpace && state.isDeleted) return false;
-    if (!SpaceAcl(
-      state,
-    ).allows(_signer.selfId, SpacePermission.publishMessages)) {
-      return false;
-    }
     if (utf8.encode(emoji).length > 64) return false;
     GroupMessage? targetMessage;
     if (targetKind == ReactionTargetKind.message) {
@@ -11278,6 +11332,13 @@ class GroupService {
     if (targetKind == ReactionTargetKind.spacePost &&
         (!b.manifest.isSpace ||
             !(await postsOf(groupId)).any((post) => post.postId == target))) {
+      return false;
+    }
+    if (!SpaceAcl(state).allows(
+      _signer.selfId,
+      SpacePermission.publishMessages,
+      channelId: targetMessage?.channelId,
+    )) {
       return false;
     }
     // My current reaction on this message (if any) → tapping it again clears it.

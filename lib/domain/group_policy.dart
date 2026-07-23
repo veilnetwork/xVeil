@@ -219,6 +219,8 @@ class GroupState {
   GroupRole? roleOf(NodeId id) => members[id.hex]?.role;
   Set<String> customRoleIdsOf(NodeId id) =>
       accessPolicy?.roleIdsFor(id) ?? const {};
+  Set<SpacePermissionGrant> customGrantsOf(NodeId id) =>
+      accessPolicy?.grantsFor(id) ?? const {};
   Set<SpacePermission> customPermissionsOf(NodeId id) =>
       accessPolicy?.permissionsFor(id) ?? const {};
   SpacePostPin? postPinFor(String postId) => postPins[postId];
@@ -264,6 +266,7 @@ final class SpaceAcl {
     SpacePermission permission, {
     int? atMs,
     NodeId? channelId,
+    NodeId? categoryId,
   }) {
     final member = state.memberOf(actor);
     if (member == null) return false;
@@ -294,9 +297,24 @@ final class SpaceAcl {
       (record) =>
           record.action.kind.blocksVoice && appliesToChannel(record.action),
     );
-    final custom = state.customPermissionsOf(actor);
+    final publicChannel = channelId == null
+        ? null
+        : state.channels[channelId.hex];
+    final effectiveCategoryId =
+        categoryId ??
+        (publicChannel?.kind == SpaceChannelKind.category
+            ? publicChannel?.channelId
+            : publicChannel?.categoryId);
+    bool customAllows(SpacePermission permission) =>
+        state.accessPolicy?.allows(
+          actor,
+          permission,
+          channelId: channelId,
+          categoryId: effectiveCategoryId,
+        ) ??
+        false;
     bool builtInOrCustom(bool builtIn, SpacePermission permission) =>
-        builtIn || custom.contains(permission);
+        builtIn || customAllows(permission);
     return switch (permission) {
       SpacePermission.view || SpacePermission.distributeContent => true,
       SpacePermission.publishMessages => !member.muted && !blocksMessages,
@@ -326,6 +344,17 @@ final class SpaceAcl {
     };
   }
 
+  /// Whether a management surface has at least one usable target. This is for
+  /// showing category/channel-scoped controls; the eventual mutation must call
+  /// [allows] again with its exact target.
+  bool allowsAnyScope(NodeId actor, SpacePermission permission) {
+    if (allows(actor, permission)) return true;
+    if (state.memberOf(actor) == null || state.isDeleted || state.isArchived) {
+      return false;
+    }
+    return state.accessPolicy?.hasAnyGrant(actor, permission) ?? false;
+  }
+
   /// Custom-role control authorization. The owner-authored policy may delegate
   /// routine work, but never policy edits, ownership/lifecycle changes or
   /// built-in role promotion. Targets with admin/owner standing stay protected.
@@ -336,10 +365,16 @@ final class SpaceAcl {
     GroupRole? targetRole,
     GroupRole? newRole,
     NodeId? target,
+    NodeId? channelId,
+    NodeId? categoryId,
   }) {
     if (policy == null) return false;
-    final permissions = policy.permissionsFor(author);
-    bool has(SpacePermission permission) => permissions.contains(permission);
+    bool has(SpacePermission permission) => policy.allows(
+      author,
+      permission,
+      channelId: channelId,
+      categoryId: categoryId,
+    );
     switch (op) {
       case ControlOp.setName:
       case ControlOp.setDescription:
@@ -644,6 +679,24 @@ GroupFoldResult foldControlLog({
     final revocationRecord = e.op == ControlOp.revokeModeration
         ? moderationRecords[e.moderationRevocation?.actionId]
         : null;
+    final controlChannelId =
+        e.channel?.channelId ??
+        e.channelControl?.channelId ??
+        e.retentionPolicy?.channelId ??
+        e.channelRetention?.channelId ??
+        e.moderationAction?.channelId ??
+        e.channelModeration?.channelId ??
+        revocationRecord?.action.channelId;
+    final currentControlChannel = controlChannelId == null
+        ? null
+        : channels[controlChannelId.hex];
+    final controlCategoryId = e.channel != null
+        ? e.channel!.kind == SpaceChannelKind.category
+              ? e.channel!.channelId
+              : e.channel!.categoryId
+        : currentControlChannel?.kind == SpaceChannelKind.category
+        ? currentControlChannel?.channelId
+        : currentControlChannel?.categoryId;
     final moderationTargetsRemovedContent =
         e.op == ControlOp.moderate &&
         {
@@ -654,6 +707,32 @@ GroupFoldResult foldControlLog({
         e.op == ControlOp.moderate &&
         e.version == 14 &&
         e.channelModeration != null;
+    final customControlAuthorized =
+        SpaceAcl.customPolicyAllowsControl(
+          policy: accessPolicy,
+          author: e.author,
+          op: e.op,
+          targetRole: targetRole,
+          newRole: e.role,
+          target: e.target,
+          channelId: controlChannelId,
+          categoryId: controlCategoryId,
+        ) &&
+        // Moving a channel crosses two authorization boundaries. Requiring
+        // both prevents a category steward from pulling an unrelated root or
+        // sibling channel into the category they control.
+        (e.op != ControlOp.updateChannel ||
+            currentControlChannel == null ||
+            (accessPolicy?.allows(
+                  e.author,
+                  SpacePermission.manageChannels,
+                  channelId: currentControlChannel.channelId,
+                  categoryId:
+                      currentControlChannel.kind == SpaceChannelKind.category
+                      ? currentControlChannel.channelId
+                      : currentControlChannel.categoryId,
+                ) ??
+                false));
     final authorized = e.op == ControlOp.revokeModeration
         ? revocationRecord != null &&
               revocationRecord.revokedAtMs == null &&
@@ -676,12 +755,17 @@ GroupFoldResult foldControlLog({
                           op: ControlOp.revokeModeration,
                           targetRole: targetRole,
                           target: e.target,
+                          channelId: controlChannelId,
+                          categoryId: controlCategoryId,
                         ))
         : protectsModeration
         ? authorRole.rank >= GroupRole.admin.rank ||
-              (accessPolicy
-                      ?.permissionsFor(e.author)
-                      .contains(SpacePermission.moderate) ??
+              (accessPolicy?.allows(
+                    e.author,
+                    SpacePermission.moderate,
+                    channelId: controlChannelId,
+                    categoryId: controlCategoryId,
+                  ) ??
                   false)
         : moderationTargetsRemovedContent && targetRole == null
         ? authorRole == GroupRole.owner
@@ -691,14 +775,7 @@ GroupFoldResult foldControlLog({
                 targetRole: targetRole,
                 newRole: e.role,
               ) ||
-              SpaceAcl.customPolicyAllowsControl(
-                policy: accessPolicy,
-                author: e.author,
-                op: e.op,
-                targetRole: targetRole,
-                newRole: e.role,
-                target: e.target,
-              );
+              customControlAuthorized;
     if (!authorized) {
       rejected.add(e);
       continue;
@@ -977,13 +1054,28 @@ GroupFoldResult foldControlLog({
       rejected.add(e);
       continue;
     }
-    if (e.op == ControlOp.setPolicy && e.version == 17) {
+    if (e.op == ControlOp.setPolicy && (e.version == 17 || e.version == 18)) {
       final next = e.accessPolicy;
       final expectedRevision = (accessPolicy?.revision ?? 0) + 1;
       final expectedPrevious = accessPolicy?.policyHash ?? '';
+      final categoryIds = {
+        for (final channel in channels.values)
+          if (channel.kind == SpaceChannelKind.category) channel.channelId.hex,
+      };
+      final channelIds = {
+        for (final channel in channels.values)
+          if (channel.kind != SpaceChannelKind.category) channel.channelId.hex,
+        ...protectedChannels.keys,
+      };
       if (next == null ||
+          (e.version == 17 && next.schemaVersion != 1) ||
+          (e.version == 18 && next.schemaVersion != 2) ||
           next.revision != expectedRevision ||
           next.previousPolicyHash != expectedPrevious ||
+          !next.hasValidScopeTargets(
+            categoryIds: categoryIds,
+            channelIds: channelIds,
+          ) ||
           next.groups.any(
             (group) =>
                 group.members.any((member) => !members.containsKey(member.hex)),
