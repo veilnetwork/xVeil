@@ -39,6 +39,11 @@ class _FakeGroups implements GroupService {
       GroupState.genesis(_selfId);
 
   @override
+  Future<({int? channelEpoch, Set<NodeId> recipients})?>
+  currentVoiceChannelAdmission(NodeId groupId, NodeId? channelId) async =>
+      channelId == null ? (channelEpoch: null, recipients: {_selfId}) : null;
+
+  @override
   Future<GroupCallSignal?> broadcastGroupCallSignal(
     NodeId groupId, {
     NodeId? channelId,

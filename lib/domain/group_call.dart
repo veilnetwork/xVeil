@@ -7,6 +7,7 @@ import 'group_payload.dart';
 
 const int kLegacyGroupCallProtocolVersion = 1;
 const int kSpaceVoiceSessionProtocolVersion = 2;
+const int kProtectedSpaceVoiceSessionProtocolVersion = 3;
 const int maxGroupCallIdBytes = 128;
 const int maxGroupCallSignalBytes = 4096;
 
@@ -41,6 +42,7 @@ class GroupCallSignal {
   GroupCallSignal({
     required this.groupId,
     this.channelId,
+    this.channelEpoch,
     required this.callId,
     required this.author,
     required this.membershipEpoch,
@@ -56,8 +58,11 @@ class GroupCallSignal {
 
   final NodeId groupId;
 
-  /// Present for v2 Space voice sessions. Legacy v1 group-wide rooms omit it.
+  /// Present for v2/v3 Space voice sessions. Legacy v1 rooms omit it.
   final NodeId? channelId;
+
+  /// Present only for v3 restricted Space voice sessions.
+  final int? channelEpoch;
   final String callId;
   final NodeId author;
   final int membershipEpoch;
@@ -80,11 +85,18 @@ class GroupCallSignal {
         !media!.isEmpty ||
         type == GroupCallSignalType.heartbeat ||
         type == GroupCallSignalType.renegotiate;
-    final scopeValid =
-        (protocolVersion == kLegacyGroupCallProtocolVersion &&
-            channelId == null) ||
-        (protocolVersion == kSpaceVoiceSessionProtocolVersion &&
-            channelId != null);
+    final scopeValid = switch (protocolVersion) {
+      kLegacyGroupCallProtocolVersion =>
+        channelId == null && channelEpoch == null,
+      kSpaceVoiceSessionProtocolVersion =>
+        channelId != null && channelEpoch == null,
+      kProtectedSpaceVoiceSessionProtocolVersion =>
+        channelId != null &&
+            channelEpoch != null &&
+            channelEpoch! > 0 &&
+            channelEpoch! <= 0xffffffff,
+      _ => false,
+    };
     return scopeValid &&
         membershipEpoch > 0 &&
         membershipEpoch <= 0xffffffff &&
@@ -102,6 +114,7 @@ class GroupCallSignal {
     'v': protocolVersion,
     'g': groupId.hex,
     if (channelId != null) 'h': channelId!.hex,
+    if (channelEpoch != null) 'ce': channelEpoch,
     'c': callId,
     'a': author.hex,
     'e': membershipEpoch,
@@ -129,6 +142,7 @@ class GroupCallSignal {
       GroupCallSignal(
         groupId: groupId,
         channelId: channelId,
+        channelEpoch: channelEpoch,
         callId: callId,
         author: author,
         membershipEpoch: membershipEpoch,
@@ -153,6 +167,7 @@ class GroupCallSignal {
         channelId: json['h'] is String
             ? NodeId.fromHex(json['h'] as String)
             : null,
+        channelEpoch: json['ce'] as int?,
         callId: json['c'] as String,
         author: NodeId.fromHex(json['a'] as String),
         membershipEpoch: (json['e'] as num).toInt(),
@@ -196,39 +211,67 @@ class GroupCallWireFrame {
   GroupCallWireFrame({
     required this.groupId,
     this.channelId,
-    required this.membershipEpoch,
+    this.membershipEpoch,
+    this.channelEpoch,
     required this.payload,
   });
 
   final NodeId groupId;
   final NodeId? channelId;
-  final int membershipEpoch;
+  final int? membershipEpoch;
+  final int? channelEpoch;
   final GroupEncryptedPayload payload;
 
+  bool get isMembershipEncrypted =>
+      channelId == null && channelEpoch == null && membershipEpoch != null;
+
+  bool get isChannelEncrypted =>
+      channelId != null && channelEpoch != null && membershipEpoch == null;
+
   bool get isStructurallyValid =>
-      membershipEpoch > 0 &&
-      membershipEpoch <= 0xffffffff &&
+      ((isMembershipEncrypted &&
+              membershipEpoch! > 0 &&
+              membershipEpoch! <= 0xffffffff) ||
+          (isChannelEncrypted &&
+              channelEpoch! > 0 &&
+              channelEpoch! <= 0xffffffff)) &&
       payload.isStructurallyValid &&
       payload.cipherText.length <= maxGroupCallSignalBytes;
 
-  Map<String, dynamic> toJson() => {
-    'v': 1,
-    'g': groupId.hex,
-    'e': membershipEpoch,
-    'p': payload.toJson(),
-  };
+  Map<String, dynamic> toJson() => isChannelEncrypted
+      ? {
+          'v': 2,
+          'g': groupId.hex,
+          'h': channelId!.hex,
+          'ce': channelEpoch,
+          'p': payload.toJson(),
+        }
+      : {'v': 1, 'g': groupId.hex, 'e': membershipEpoch, 'p': payload.toJson()};
 
   String encode() => jsonEncode(toJson());
 
   static GroupCallWireFrame? tryDecode(String encoded) {
     try {
       final value = jsonDecode(encoded);
-      if (value is! Map || value['v'] != 1) return null;
+      if (value is! Map || (value['v'] != 1 && value['v'] != 2)) return null;
+      final version = value['v'] as int;
+      if ((version == 1 &&
+              (value['e'] is! int ||
+                  value.containsKey('h') ||
+                  value.containsKey('ce'))) ||
+          (version == 2 &&
+              (value['h'] is! String ||
+                  value['ce'] is! int ||
+                  value.containsKey('e')))) {
+        return null;
+      }
       final payload = GroupEncryptedPayload.fromJson(value['p']);
       if (payload == null) return null;
       final frame = GroupCallWireFrame(
         groupId: NodeId.fromHex(value['g'] as String),
-        membershipEpoch: (value['e'] as num).toInt(),
+        channelId: version == 2 ? NodeId.fromHex(value['h'] as String) : null,
+        membershipEpoch: version == 1 ? value['e'] as int : null,
+        channelEpoch: version == 2 ? value['ce'] as int : null,
         payload: payload,
       );
       return frame.isStructurallyValid ? frame : null;
@@ -281,6 +324,7 @@ class GroupCall {
   GroupCall({
     required this.groupId,
     this.channelId,
+    this.channelEpoch,
     required this.callId,
     required this.initiator,
     required this.membershipEpoch,
@@ -300,6 +344,9 @@ class GroupCall {
 
   /// Voice-channel scope for a Space session; null only for legacy rooms.
   final NodeId? channelId;
+
+  /// Current restricted-channel key epoch, null for open/legacy rooms.
+  final int? channelEpoch;
   final String callId;
   final NodeId initiator;
   final int membershipEpoch;
@@ -319,6 +366,7 @@ class GroupCall {
 
   GroupCall copyWith({
     int? membershipEpoch,
+    int? channelEpoch,
     CallMedia? media,
     GroupCallStatus? status,
     DateTime? joinedAt,
@@ -331,6 +379,7 @@ class GroupCall {
   }) => GroupCall(
     groupId: groupId,
     channelId: channelId,
+    channelEpoch: channelEpoch ?? this.channelEpoch,
     callId: callId,
     initiator: initiator,
     membershipEpoch: membershipEpoch ?? this.membershipEpoch,

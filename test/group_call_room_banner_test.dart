@@ -54,6 +54,13 @@ class _FakeGroups implements GroupService {
   Future<GroupState?> stateOf(NodeId groupId) async => _twoMemberState();
 
   @override
+  Future<({int? channelEpoch, Set<NodeId> recipients})?>
+  currentVoiceChannelAdmission(NodeId groupId, NodeId? channelId) async =>
+      channelId == null
+      ? (channelEpoch: null, recipients: {_self, _initiator})
+      : null;
+
+  @override
   Future<GroupCallSignal?> broadcastGroupCallSignal(
     NodeId groupId, {
     NodeId? channelId,

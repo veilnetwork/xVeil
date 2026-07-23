@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_call.dart';
@@ -26,6 +27,7 @@ import 'package:xveil/features/spaces/space_rules_screen.dart';
 import 'package:xveil/features/spaces/space_screen.dart';
 import 'package:xveil/features/spaces/space_settings_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
+import 'package:xveil/state/group_epoch_service.dart';
 import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/messaging.dart';
 
@@ -422,6 +424,114 @@ void main() {
       isFalse,
     );
   });
+
+  testWidgets(
+    'restricted voice channel keeps its kind and manages recipients',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final owner = _id(81);
+      final bob = _id(82);
+      final service = GroupService(
+        storage,
+        _Signer(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(service.dispose);
+      final spaceId = await service.createSpace('Private stage');
+      expect(
+        await service.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+
+      await tester.binding.setSurfaceSize(const Size(430, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [groupServiceProvider.overrideWithValue(service)],
+          child: MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: SpaceScreen(spaceIdHex: spaceId.hex),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(SpaceScreen)));
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('space-channel-name')),
+        'Stewards',
+      );
+      await tester.tap(find.byKey(const ValueKey('space-channel-kind')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l.spaceChannelVoice).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('space-channel-access')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l.spaceChannelAccessRestricted).last);
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<DropdownButtonFormField<SpaceChannelKind>>(
+              find.byKey(const ValueKey('space-channel-kind')),
+            )
+            .initialValue,
+        SpaceChannelKind.voice,
+      );
+      await tester.ensureVisible(
+        find.byKey(ValueKey('space-channel-create-member-${bob.hex}')),
+      );
+      await tester.tap(
+        find.byKey(ValueKey('space-channel-create-member-${bob.hex}')),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('space-channel-save')),
+      );
+      await tester.tap(find.byKey(const ValueKey('space-channel-save')));
+      await tester.pumpAndSettle();
+
+      final channel = (await service.channelsOf(
+        spaceId,
+      )).singleWhere((entry) => entry.name == 'Stewards');
+      expect(channel.kind, SpaceChannelKind.voice);
+      expect(channel.access, SpaceChannelAccess.restricted);
+      expect(await service.channelMembersOf(spaceId, channel.channelId), [
+        owner,
+        bob,
+      ]);
+      expect(find.text(l.spaceChannelAccessRestricted), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(ValueKey('space-channel-manage-${channel.channelId.hex}')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('space-channel-members-action')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('space-channel-member-${bob.hex}')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('space-channel-members-save')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(await service.channelMembersOf(spaceId, channel.channelId), [
+        owner,
+      ]);
+    },
+  );
 
   testWidgets('Space settings manage signed roster, name and P2P redundancy', (
     tester,
