@@ -579,6 +579,20 @@ class AppL10nEn extends AppL10n {
       'Alert on this device when a new community publication arrives.';
 
   @override
+  String get spacePublicReadOnly => 'Public subscription · read-only';
+
+  @override
+  String get spacePublicSnapshotStale =>
+      'Showing the last verified snapshot. Refresh needs a reachable verified holder.';
+
+  @override
+  String get spacePublicUnsubscribe => 'Unsubscribe';
+
+  @override
+  String get spacePublicUnsubscribeConfirm =>
+      'Remove this public subscription and its offline snapshot from this device?';
+
+  @override
   String get spaceCommentNotificationsSetting => 'Discussion notifications';
 
   @override

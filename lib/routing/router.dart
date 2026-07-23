@@ -30,6 +30,7 @@ import '../features/settings/privacy_settings_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/settings/storage_settings_screen.dart';
 import '../features/splash/splash_screen.dart';
+import '../features/spaces/public_space_posts_screen.dart';
 import '../features/spaces/space_list_screen.dart';
 import '../features/spaces/space_moderation_screen.dart';
 import '../features/spaces/space_post_comments_screen.dart';
@@ -171,6 +172,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/space/:id/posts',
         builder: (_, state) =>
             SpacePostsScreen(spaceIdHex: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/space/:id/public-posts',
+        builder: (_, state) => PublicSpacePostsScreen(
+          spaceIdHex: state.pathParameters['id']!,
+          initialPostId: state.uri.queryParameters['post'],
+        ),
       ),
       GoRoute(
         path: '/space/:id/comments',

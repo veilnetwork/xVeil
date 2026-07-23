@@ -1390,6 +1390,18 @@ class SpaceSubscription {
     updatedAtMs: 0,
   );
 
+  factory SpaceSubscription.publicDefault(NodeId spaceId) => SpaceSubscription(
+    spaceId: spaceId,
+    feedEnabled: true,
+    notificationsEnabled: true,
+    // Public comments are not projected yet. Mentions in owner/author-signed
+    // public posts still follow the publication notification policy.
+    commentNotifications: SpaceCommentNotificationMode.none,
+    hiddenFromRecommendations: false,
+    publicOnly: true,
+    updatedAtMs: 0,
+  );
+
   final NodeId spaceId;
   final bool feedEnabled;
   final bool notificationsEnabled;

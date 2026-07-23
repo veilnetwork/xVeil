@@ -18,6 +18,8 @@ const int kSpacePublicFeedPageMaxCount = 4096;
 const int kSpacePublicFeedProjectionMaxBytes = 64 * 1024 * 1024;
 const int kSpacePublicFeedPackageMaxBytes =
     kSpacePublicFeedProjectionMaxBytes + 2 * 1024 * 1024;
+const int kSpacePublicSubscriptionSnapshotMaxBytes =
+    kSpacePublicFeedPackageMaxBytes + 64 * 1024;
 
 final RegExp _publicFeedHashPattern = RegExp(r'^[0-9a-f]{64}$');
 
@@ -535,6 +537,82 @@ class SpacePublicFeedPackage {
 
   static SpacePublicFeedPackage? fromBytes(Uint8List bytes) {
     if (bytes.isEmpty || bytes.length > kSpacePublicFeedPackageMaxBytes) {
+      return null;
+    }
+    try {
+      return fromJson(jsonDecode(utf8.decode(bytes, allowMalformed: false)));
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+/// A locally subscribed, previously verified public snapshot.
+///
+/// Public signatures contain short network-expiry windows. An offline reader
+/// may continue showing bytes that were valid when fetched, but must not
+/// present the snapshot as current availability. [verifiedAtMs] records that
+/// validation instant; refresh/discovery still uses the current clock and a
+/// fresh holder quorum.
+class SpacePublicSubscriptionSnapshot {
+  const SpacePublicSubscriptionSnapshot({
+    required this.verifiedAtMs,
+    required this.package,
+  });
+
+  final int verifiedAtMs;
+  final SpacePublicFeedPackage package;
+
+  bool verifyStored({
+    required SpacePublicSignatureVerifier verifySignature,
+    required SpacePublicPostVerifier verifyPost,
+  }) {
+    final descriptor = package.descriptor;
+    final manifest = package.projection.manifest;
+    return verifiedAtMs >= 0 &&
+        verifiedAtMs >= descriptor.issuedAtMs &&
+        verifiedAtMs < descriptor.expiresAtMs &&
+        verifiedAtMs >= manifest.issuedAtMs &&
+        verifiedAtMs < manifest.expiresAtMs &&
+        package.verifyAt(
+          nowMs: verifiedAtMs,
+          verifySignature: verifySignature,
+          verifyPost: verifyPost,
+        );
+  }
+
+  bool isStaleAt(int nowMs) =>
+      nowMs >= package.descriptor.expiresAtMs ||
+      nowMs >= package.projection.manifest.expiresAtMs;
+
+  Map<String, dynamic> toJson() => {
+    'v': 1,
+    'kind': 'xveil.space.public-subscription-snapshot',
+    'verifiedAt': verifiedAtMs,
+    'package': package.toJson(),
+  };
+
+  Uint8List toBytes() => Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
+
+  static SpacePublicSubscriptionSnapshot? fromJson(Object? value) {
+    if (value is! Map ||
+        !_hasOnlyKeys(value, const {'v', 'kind', 'verifiedAt', 'package'}) ||
+        value['v'] != 1 ||
+        value['kind'] != 'xveil.space.public-subscription-snapshot' ||
+        value['verifiedAt'] is! int) {
+      return null;
+    }
+    final package = SpacePublicFeedPackage.fromJson(value['package']);
+    if (package == null) return null;
+    return SpacePublicSubscriptionSnapshot(
+      verifiedAtMs: value['verifiedAt'] as int,
+      package: package,
+    );
+  }
+
+  static SpacePublicSubscriptionSnapshot? fromBytes(Uint8List bytes) {
+    if (bytes.isEmpty ||
+        bytes.length > kSpacePublicSubscriptionSnapshotMaxBytes) {
       return null;
     }
     try {

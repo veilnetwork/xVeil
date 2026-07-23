@@ -59,6 +59,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   StreamSubscription<({NodeId spaceId, GroupMessage message})>?
   _spaceCommentSub;
   StreamSubscription<({NodeId spaceId, SpacePostView post})>? _spacePostSub;
+  StreamSubscription<({NodeId spaceId, SpacePostView post})>?
+  _publicSpacePostSub;
   ProviderSubscription<GroupService?>? _groupServiceListener;
   final Map<
     String,
@@ -115,11 +117,15 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     _groupSub?.cancel();
     _spaceCommentSub?.cancel();
     _spacePostSub?.cancel();
+    _publicSpacePostSub?.cancel();
     _groupSub = service?.incoming.listen(_onGroupIncoming);
     _spaceCommentSub = service?.incomingComments.listen(
       _onSpaceCommentIncoming,
     );
     _spacePostSub = service?.incomingPosts.listen(_onSpacePostIncoming);
+    _publicSpacePostSub = service?.incomingPublicPosts.listen(
+      _onPublicSpacePostIncoming,
+    );
   }
 
   /// A message just arrived. Alert in real time ONLY when backgrounded; a
@@ -266,6 +272,60 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             )
           : 'space:${n.spaceId.hex}',
       name: (name != null && name.trim().isNotEmpty) ? name : null,
+      shortId: n.spaceId.short,
+      preview: n.post.title.trim().isNotEmpty
+          ? n.post.title
+          : n.post.body.trim().isNotEmpty
+          ? n.post.body
+          : '…',
+      settings: settings,
+      allowReply: false,
+      isMention: isMention,
+    );
+  }
+
+  Future<void> _onPublicSpacePostIncoming(
+    ({NodeId spaceId, SpacePostView post}) n,
+  ) async {
+    if (!mounted) return;
+    final generation = ++_notificationGeneration;
+    final settings = ref.read(notificationSettingsProvider);
+    final service = ref.read(groupServiceProvider);
+    if (service == null) return;
+    SpacePublicSubscriptionView? subscription;
+    var policy = const NotificationMutePolicy.all();
+    try {
+      subscription = await service.publicSpaceSubscription(n.spaceId);
+      policy = await service.groupNotificationPolicy(n.spaceId);
+    } catch (_) {
+      return;
+    }
+    if (!mounted ||
+        generation != _notificationGeneration ||
+        subscription == null) {
+      return;
+    }
+    final mentionText = '${n.post.title}\n${n.post.body}';
+    final isMention = messageMentionsNode(mentionText, service.selfId);
+    if (!shouldAlertIncoming(
+      enabled: settings.enabled,
+      muted:
+          (!subscription.subscription.notificationsEnabled && !isMention) ||
+          !notificationModeAllows(
+            policy.effectiveAt(DateTime.now()),
+            isMention: isMention,
+          ),
+      foreground: _foreground,
+    )) {
+      return;
+    }
+    final route =
+        '/space/${n.spaceId.hex}/public-posts?post=${Uri.encodeQueryComponent(n.post.postId)}';
+    await _show(
+      convHex: notificationMentionPayload(route),
+      name: subscription.descriptor.name.trim().isNotEmpty
+          ? subscription.descriptor.name
+          : null,
       shortId: n.spaceId.short,
       preview: n.post.title.trim().isNotEmpty
           ? n.post.title
@@ -591,6 +651,50 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             isMention: isMention,
           ));
         }
+        for (final public in await gsvc.publicSpaceSubscriptions()) {
+          final spaceId = public.descriptor.spaceId;
+          final policy = await gsvc.groupNotificationPolicy(spaceId);
+          final mode = policy.effectiveAt(DateTime.now());
+          if (mode == NotificationMuteMode.none ||
+              'space:${spaceId.hex}' == active) {
+            continue;
+          }
+          final unreadPosts = await gsvc.unreadSpacePostViews(spaceId);
+          final requireMention =
+              mode == NotificationMuteMode.mentionsOnly ||
+              !public.subscription.notificationsEnabled;
+          final latestPost = newestByTimestamp(
+            unreadPosts.where(
+              (post) =>
+                  !requireMention ||
+                  messageMentionsNode(
+                    '${post.title}\n${post.body}',
+                    gsvc.selfId,
+                  ),
+            ),
+            (post) => post.publishedAtMs,
+          );
+          if (latestPost == null) continue;
+          final isMention = messageMentionsNode(
+            '${latestPost.title}\n${latestPost.body}',
+            gsvc.selfId,
+          );
+          final route =
+              '/space/${spaceId.hex}/public-posts?post=${Uri.encodeQueryComponent(latestPost.postId)}';
+          candidates.add((
+            convHex: notificationMentionPayload(route),
+            name: public.descriptor.name.trim().isNotEmpty
+                ? public.descriptor.name
+                : null,
+            shortId: spaceId.short,
+            preview: latestPost.title.trim().isNotEmpty
+                ? latestPost.title
+                : latestPost.body,
+            timestampMs: latestPost.publishedAtMs,
+            allowReply: false,
+            isMention: isMention,
+          ));
+        }
       } catch (e) {
         // A group-index failure must not suppress a valid 1:1 candidate.
         devLog(() => 'xVeil[notify]: flush — listGroups failed: $e');
@@ -669,6 +773,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     _groupSub?.cancel();
     _spaceCommentSub?.cancel();
     _spacePostSub?.cancel();
+    _publicSpacePostSub?.cancel();
     super.dispose();
   }
 

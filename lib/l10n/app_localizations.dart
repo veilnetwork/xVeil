@@ -1153,6 +1153,30 @@ abstract class AppL10n {
   /// **'Alert on this device when a new community publication arrives.'**
   String get spaceNotificationsSettingHint;
 
+  /// No description provided for @spacePublicReadOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Public subscription · read-only'**
+  String get spacePublicReadOnly;
+
+  /// No description provided for @spacePublicSnapshotStale.
+  ///
+  /// In en, this message translates to:
+  /// **'Showing the last verified snapshot. Refresh needs a reachable verified holder.'**
+  String get spacePublicSnapshotStale;
+
+  /// No description provided for @spacePublicUnsubscribe.
+  ///
+  /// In en, this message translates to:
+  /// **'Unsubscribe'**
+  String get spacePublicUnsubscribe;
+
+  /// No description provided for @spacePublicUnsubscribeConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove this public subscription and its offline snapshot from this device?'**
+  String get spacePublicUnsubscribeConfirm;
+
   /// No description provided for @spaceCommentNotificationsSetting.
   ///
   /// In en, this message translates to:

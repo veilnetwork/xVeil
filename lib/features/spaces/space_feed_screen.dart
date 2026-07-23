@@ -56,11 +56,21 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final service = ref.watch(groupServiceProvider);
-    final availableSpaces =
-        (ref.watch(spaceListProvider).valueOrNull ?? const <GroupListEntry>[])
-            .map((space) => (id: space.groupId, name: space.name))
-            .toList(growable: false)
-          ..sort((left, right) => left.name.compareTo(right.name));
+    final availableById = <String, ({NodeId id, String name})>{
+      for (final space
+          in ref.watch(spaceListProvider).valueOrNull ??
+              const <GroupListEntry>[])
+        space.groupId.hex: (id: space.groupId, name: space.name),
+      for (final public
+          in ref.watch(publicSpaceSubscriptionListProvider).valueOrNull ??
+              const <SpacePublicSubscriptionView>[])
+        public.descriptor.spaceId.hex: (
+          id: public.descriptor.spaceId,
+          name: public.descriptor.name,
+        ),
+    };
+    final availableSpaces = availableById.values.toList(growable: false)
+      ..sort((left, right) => left.name.compareTo(right.name));
     if (service == null) {
       return HomeSectionScaffold(
         title: l.navFeed,
@@ -274,17 +284,23 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
                               _PostCard(
                                 item: item,
                                 onTap: () => context.push(
-                                  '/space/${item.spaceId.hex}/posts',
+                                  item.publicOnly
+                                      ? '/space/${item.spaceId.hex}/public-posts?post=${Uri.encodeQueryComponent(item.post.postId)}'
+                                      : '/space/${item.spaceId.hex}/posts',
                                 ),
-                                onReact: (emoji) => service.reactToSpacePost(
-                                  item.spaceId,
-                                  item.post.postId,
-                                  emoji,
-                                ),
-                                onComments: () => context.push(
-                                  '/space/${item.spaceId.hex}/comments?post='
-                                  '${Uri.encodeQueryComponent(item.post.postId)}',
-                                ),
+                                onReact: item.publicOnly
+                                    ? null
+                                    : (emoji) => service.reactToSpacePost(
+                                        item.spaceId,
+                                        item.post.postId,
+                                        emoji,
+                                      ),
+                                onComments: item.publicOnly
+                                    ? null
+                                    : () => context.push(
+                                        '/space/${item.spaceId.hex}/comments?post='
+                                        '${Uri.encodeQueryComponent(item.post.postId)}',
+                                      ),
                                 onHide: () => hidePost(item),
                                 onDelete: item.canDeletePost
                                     ? () async {
@@ -332,17 +348,23 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
                               _PostCard(
                                 item: item,
                                 onTap: () => context.push(
-                                  '/space/${item.spaceId.hex}/posts',
+                                  item.publicOnly
+                                      ? '/space/${item.spaceId.hex}/public-posts?post=${Uri.encodeQueryComponent(item.post.postId)}'
+                                      : '/space/${item.spaceId.hex}/posts',
                                 ),
-                                onReact: (emoji) => service.reactToSpacePost(
-                                  item.spaceId,
-                                  item.post.postId,
-                                  emoji,
-                                ),
-                                onComments: () => context.push(
-                                  '/space/${item.spaceId.hex}/comments?post='
-                                  '${Uri.encodeQueryComponent(item.post.postId)}',
-                                ),
+                                onReact: item.publicOnly
+                                    ? null
+                                    : (emoji) => service.reactToSpacePost(
+                                        item.spaceId,
+                                        item.post.postId,
+                                        emoji,
+                                      ),
+                                onComments: item.publicOnly
+                                    ? null
+                                    : () => context.push(
+                                        '/space/${item.spaceId.hex}/comments?post='
+                                        '${Uri.encodeQueryComponent(item.post.postId)}',
+                                      ),
                                 onHide: () => hidePost(item),
                                 onDelete: item.canDeletePost
                                     ? () async {
@@ -753,8 +775,8 @@ class _PostCard extends StatelessWidget {
 
   final SpaceFeedItem item;
   final VoidCallback onTap;
-  final Future<bool> Function(String emoji) onReact;
-  final VoidCallback onComments;
+  final Future<bool> Function(String emoji)? onReact;
+  final VoidCallback? onComments;
   final Future<void> Function() onHide;
   final Future<void> Function()? onDelete;
   final Future<void> Function()? onModerateDelete;
@@ -878,20 +900,23 @@ class _PostCard extends StatelessWidget {
                 spaceId: item.spaceId,
                 post: post,
                 compact: true,
+                publicOnly: item.publicOnly,
               ),
               const SizedBox(height: 8),
-              SpacePostReactionBar(
-                postId: post.postId,
-                reactions: item.reactions,
-                selfId: selfId,
-                onReact: onReact,
-              ),
-              TextButton.icon(
-                key: ValueKey('space-feed-comments-${post.postId}'),
-                onPressed: onComments,
-                icon: const Icon(Icons.forum_outlined, size: 18),
-                label: Text(AppL10n.of(context).spacePostCommentsOpen),
-              ),
+              if (onReact != null)
+                SpacePostReactionBar(
+                  postId: post.postId,
+                  reactions: item.reactions,
+                  selfId: selfId,
+                  onReact: onReact!,
+                ),
+              if (onComments != null)
+                TextButton.icon(
+                  key: ValueKey('space-feed-comments-${post.postId}'),
+                  onPressed: onComments,
+                  icon: const Icon(Icons.forum_outlined, size: 18),
+                  label: Text(AppL10n.of(context).spacePostCommentsOpen),
+                ),
             ],
           ),
         ),

@@ -780,6 +780,43 @@ class SpacePublicDiscoveryPublication {
   final SpacePublicFeedProjection feed;
 }
 
+/// A merged public-discovery result that retains the independently verified
+/// holders needed to fetch the committed feed and its media. Returning only a
+/// descriptor is sufficient for rendering a card but would strand the next
+/// operation without an authenticated source.
+class SpacePublicDiscoveryResult {
+  SpacePublicDiscoveryResult({
+    required this.descriptor,
+    required Iterable<SpacePublicHolderAnnouncement> holders,
+  }) : holders = List<SpacePublicHolderAnnouncement>.unmodifiable(holders);
+
+  final SpacePublicDescriptor descriptor;
+  final List<SpacePublicHolderAnnouncement> holders;
+}
+
+/// One active device-local subscription to an owner-signed public projection.
+///
+/// This is deliberately not a [GroupBundle]: it contains no membership,
+/// control log, channel, epoch or write authority. [stale] only describes
+/// whether the short network availability proof has expired; the stored
+/// signatures remain independently verifiable at [verifiedAtMs] for offline
+/// reading.
+class SpacePublicSubscriptionView {
+  const SpacePublicSubscriptionView({
+    required this.subscription,
+    required this.descriptor,
+    required this.feed,
+    required this.verifiedAtMs,
+    required this.stale,
+  });
+
+  final SpaceSubscription subscription;
+  final SpacePublicDescriptor descriptor;
+  final SpacePublicFeedProjection feed;
+  final int verifiedAtMs;
+  final bool stale;
+}
+
 class GroupService {
   GroupService(
     this._storage,
@@ -903,8 +940,13 @@ class GroupService {
   static const int _kMaxSeenPublicMediaRequests = 8192;
   static const int _kPublicMediaHolderFanout = 8;
   static const int _kMaxDurablePublicFeedPackages = 64;
+  static const int _kMaxPublicSubscriptions = 4096;
+  static const int _kPublicSubscriptionRefreshBatch = 16;
+  static const int _kPublicSubscriptionIndexMaxBytes = 512 * 1024;
   static const String _publicFeedCacheIndexSetting =
       'space.public-feed-cache.index.v1';
+  static const String _publicSubscriptionIndexFileId =
+      'space.public-subscriptions.index.v1';
   final Map<String, _PendingSpaceReceipt> _pendingSpaceReceipts =
       <String, _PendingSpaceReceipt>{};
   final Map<String, _StalledSpaceReceipt> _stalledSpaceReceipts =
@@ -953,7 +995,10 @@ class GroupService {
           int retainedUntilMs,
         })
       >{};
+  final Map<String, SpacePublicSubscriptionSnapshot>
+  _publicSubscriptionSnapshots = <String, SpacePublicSubscriptionSnapshot>{};
   Future<void> _publicFeedCacheMutationTail = Future<void>.value();
+  int _publicSubscriptionRefreshCursor = 0;
   bool _scheduledSpacePostMaintenanceStarted = false;
   bool _scheduledSpacePostMaintenanceRunning = false;
   bool _scheduledSpacePostWakeRequested = false;
@@ -2870,28 +2915,33 @@ class GroupService {
 
   /// Resolve a public Space by its exact id. Exact-link bootstrap needs one
   /// valid holder because the immutable owner signature is still authoritative.
-  Future<SpacePublicDescriptor?> resolvePublicSpace(
+  Future<SpacePublicDiscoveryResult?> resolvePublicSpaceDiscovery(
     NodeId spaceId, {
     Duration timeout = const Duration(seconds: 8),
   }) async {
     final route = SpaceDiscoveryCarrierRoute.direct(spaceId);
     final records = await _resolvePublicDiscoveryRoute(route, timeout: timeout);
-    final merged = mergeSpacePublicDiscovery(
-      descriptors: [for (final payload in records) payload.descriptor],
-      holders: [for (final payload in records) payload.holder],
-      nowMs: DateTime.now().millisecondsSinceEpoch,
-      verify: _signer.verifyDetached,
+    final merged = _mergePublicDiscoveryResults(
+      records,
       minimumIndependentHolders: 1,
     );
-    for (final descriptor in merged) {
-      if (descriptor.spaceId == spaceId) return descriptor;
+    for (final result in merged) {
+      if (result.descriptor.spaceId == spaceId) return result;
     }
     return null;
   }
 
+  Future<SpacePublicDescriptor?> resolvePublicSpace(
+    NodeId spaceId, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async => (await resolvePublicSpaceDiscovery(
+    spaceId,
+    timeout: timeout,
+  ))?.descriptor;
+
   /// Search the public index. Global results require the same owner descriptor
   /// hash to be observed from at least two independent holder identities.
-  Future<List<SpacePublicDescriptor>> searchPublicSpaces(
+  Future<List<SpacePublicDiscoveryResult>> searchPublicSpaceDiscovery(
     String query, {
     Duration timeout = const Duration(seconds: 8),
     int minimumIndependentHolders = 2,
@@ -2914,14 +2964,65 @@ class GroupService {
         payloads.addAll(batch);
       }
     }
-    return mergeSpacePublicDiscovery(
-      descriptors: [for (final payload in payloads) payload.descriptor],
-      holders: [for (final payload in payloads) payload.holder],
-      nowMs: DateTime.now().millisecondsSinceEpoch,
-      verify: _signer.verifyDetached,
+    return _mergePublicDiscoveryResults(
+      payloads,
       minimumIndependentHolders: minimumIndependentHolders,
       query: query,
     );
+  }
+
+  Future<List<SpacePublicDescriptor>> searchPublicSpaces(
+    String query, {
+    Duration timeout = const Duration(seconds: 8),
+    int minimumIndependentHolders = 2,
+  }) async => [
+    for (final result in await searchPublicSpaceDiscovery(
+      query,
+      timeout: timeout,
+      minimumIndependentHolders: minimumIndependentHolders,
+    ))
+      result.descriptor,
+  ];
+
+  List<SpacePublicDiscoveryResult> _mergePublicDiscoveryResults(
+    Iterable<SpacePublicDiscoveryPayload> payloads, {
+    required int minimumIndependentHolders,
+    String? query,
+  }) {
+    final rows = payloads.toList(growable: false);
+    final nowMs = _now();
+    final descriptors = mergeSpacePublicDiscovery(
+      descriptors: [for (final payload in rows) payload.descriptor],
+      holders: [for (final payload in rows) payload.holder],
+      nowMs: nowMs,
+      verify: _signer.verifyDetached,
+      minimumIndependentHolders: minimumIndependentHolders,
+      query: query ?? '',
+    );
+    final results = <SpacePublicDiscoveryResult>[];
+    for (final descriptor in descriptors) {
+      final holders = <String, SpacePublicHolderAnnouncement>{};
+      for (final payload in rows) {
+        final holder = payload.holder;
+        if (payload.descriptor.descriptorHash != descriptor.descriptorHash ||
+            holder.spaceId != descriptor.spaceId ||
+            holder.descriptorHash != descriptor.descriptorHash ||
+            holder.publicFeedManifestHash !=
+                descriptor.publicFeedManifestHash ||
+            !holder.verifyAt(nowMs, _signer.verifyDetached)) {
+          continue;
+        }
+        holders[holder.holder.hex] = holder;
+      }
+      final ordered = holders.values.toList()
+        ..sort((left, right) => left.holder.hex.compareTo(right.holder.hex));
+      if (ordered.length >= minimumIndependentHolders) {
+        results.add(
+          SpacePublicDiscoveryResult(descriptor: descriptor, holders: ordered),
+        );
+      }
+    }
+    return List<SpacePublicDiscoveryResult>.unmodifiable(results);
   }
 
   Future<List<SpacePublicDiscoveryPayload>> _resolvePublicDiscoveryRoute(
@@ -3033,10 +3134,13 @@ class GroupService {
       _pendingPublicFeedObjects.remove(nonce);
       return null;
     }
+    final timedOut = Completer<Uint8List?>();
+    final timeoutTimer = Timer(timeout, () => timedOut.complete(null));
     final result = await Future.any<Uint8List?>([
       pending.completer.future,
-      Future<Uint8List?>.delayed(timeout, () => null),
+      timedOut.future,
     ]);
+    timeoutTimer.cancel();
     _pendingPublicFeedObjects.remove(nonce);
     if (!pending.completer.isCompleted) pending.completer.complete(null);
     return result;
@@ -3494,6 +3598,7 @@ class GroupService {
             'spaces=${sweep.spacesPublished} records=${sweep.recordsPublished} '
             'failures=${sweep.failures}',
       );
+      await _refreshPublicSubscriptionsSweep();
     } catch (_) {
       devLog(() => 'xVeil[space-discovery]: publication sweep failed');
     } finally {
@@ -3502,6 +3607,35 @@ class GroupService {
     if (_spaceDiscoveryPublishWakeRequested && !_disposed) {
       _spaceDiscoveryPublishWakeRequested = false;
       unawaited(_runPublicSpaceDiscoveryMaintenance(forceHolderRefresh: false));
+    }
+  }
+
+  Future<void> _refreshPublicSubscriptionsSweep() async {
+    final subscriptions = await publicSpaceSubscriptions();
+    if (subscriptions.isEmpty) {
+      _publicSubscriptionRefreshCursor = 0;
+      return;
+    }
+    final count = min(_kPublicSubscriptionRefreshBatch, subscriptions.length);
+    final selected = <NodeId>[];
+    for (var offset = 0; offset < count; offset++) {
+      selected.add(
+        subscriptions[(_publicSubscriptionRefreshCursor + offset) %
+                subscriptions.length]
+            .descriptor
+            .spaceId,
+      );
+    }
+    _publicSubscriptionRefreshCursor =
+        (_publicSubscriptionRefreshCursor + count) % subscriptions.length;
+    // Four exact lookups in flight keep refresh bounded without serially
+    // multiplying the native timeout across every local subscription.
+    for (var offset = 0; offset < selected.length; offset += 4) {
+      final end = min(offset + 4, selected.length);
+      await Future.wait([
+        for (final spaceId in selected.sublist(offset, end))
+          refreshPublicSpaceSubscription(spaceId).catchError((_) => null),
+      ]);
     }
   }
 
@@ -7286,6 +7420,25 @@ class GroupService {
       if (!result.complete) {
         return (contentIds: contentIds, complete: false);
       }
+    }
+    final publicIndex = await _loadPublicSubscriptionIndex();
+    if (!publicIndex.complete) {
+      return (contentIds: contentIds, complete: false);
+    }
+    for (final hex in publicIndex.ids) {
+      final NodeId spaceId;
+      try {
+        spaceId = NodeId.fromHex(hex);
+      } catch (_) {
+        return (contentIds: contentIds, complete: false);
+      }
+      final snapshot = await _loadPublicSubscriptionSnapshot(spaceId);
+      if (snapshot == null) {
+        // A referenced root that cannot be authenticated is uncertainty. Do
+        // not use a malformed index/snapshot pair as deletion authority.
+        return (contentIds: contentIds, complete: false);
+      }
+      contentIds.addAll(snapshot.package.projection.referencedContentIds);
     }
     return (contentIds: contentIds, complete: true);
   }
@@ -12722,6 +12875,372 @@ class GroupService {
     return visiblePosts;
   }
 
+  String _publicSubscriptionSnapshotFileId(NodeId spaceId) =>
+      'space-public-subscription:${spaceId.hex}';
+
+  Future<({Set<String> ids, bool complete})>
+  _loadPublicSubscriptionIndex() async {
+    final Uint8List? bytes;
+    try {
+      bytes = await _storage.loadFile(_publicSubscriptionIndexFileId);
+    } catch (_) {
+      return (ids: <String>{}, complete: false);
+    }
+    if (bytes == null) return (ids: <String>{}, complete: true);
+    if (bytes.isEmpty || bytes.length > _kPublicSubscriptionIndexMaxBytes) {
+      return (ids: <String>{}, complete: false);
+    }
+    try {
+      final decoded = jsonDecode(utf8.decode(bytes, allowMalformed: false));
+      if (decoded is! Map ||
+          decoded.length != 2 ||
+          decoded['v'] != 1 ||
+          decoded['items'] is! List) {
+        return (ids: <String>{}, complete: false);
+      }
+      final items = decoded['items'] as List;
+      if (items.length > _kMaxPublicSubscriptions) {
+        return (ids: <String>{}, complete: false);
+      }
+      final ids = <String>{};
+      for (final value in items) {
+        if (value is! String ||
+            !_sharedContentIdPattern.hasMatch(value) ||
+            !ids.add(value)) {
+          return (ids: <String>{}, complete: false);
+        }
+      }
+      return (ids: ids, complete: true);
+    } catch (_) {
+      return (ids: <String>{}, complete: false);
+    }
+  }
+
+  Future<void> _savePublicSubscriptionIndex(Set<String> ids) async {
+    if (ids.length > _kMaxPublicSubscriptions) {
+      throw StateError('too many public Space subscriptions');
+    }
+    final sorted = ids.toList()..sort();
+    final bytes = Uint8List.fromList(
+      utf8.encode(jsonEncode({'v': 1, 'items': sorted})),
+    );
+    if (bytes.length > _kPublicSubscriptionIndexMaxBytes) {
+      throw StateError('public Space subscription index is too large');
+    }
+    await _storage.storeFile(
+      _publicSubscriptionIndexFileId,
+      bytes,
+      name: 'public-space-subscriptions',
+    );
+  }
+
+  Future<SpacePublicSubscriptionSnapshot?> _loadPublicSubscriptionSnapshot(
+    NodeId spaceId,
+  ) async {
+    final cached = _publicSubscriptionSnapshots[spaceId.hex];
+    if (cached != null) return cached;
+    final Uint8List? bytes;
+    try {
+      bytes = await _storage.loadFile(
+        _publicSubscriptionSnapshotFileId(spaceId),
+      );
+    } catch (_) {
+      return null;
+    }
+    final snapshot = bytes == null
+        ? null
+        : SpacePublicSubscriptionSnapshot.fromBytes(bytes);
+    if (snapshot == null ||
+        snapshot.package.descriptor.spaceId != spaceId ||
+        !snapshot.verifyStored(
+          verifySignature: _signer.verifyDetached,
+          verifyPost: _signer.verifyPost,
+        )) {
+      return null;
+    }
+    _publicSubscriptionSnapshots[spaceId.hex] = snapshot;
+    return snapshot;
+  }
+
+  Future<SpaceSubscription?> _storedSpaceSubscription(NodeId spaceId) async {
+    final stored = await _storage.getSetting(_spaceSubscriptionKey(spaceId));
+    if (stored == null || stored.isEmpty) return null;
+    try {
+      return SpaceSubscription.fromJson(jsonDecode(stored), spaceId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> _hasActiveSpaceMembership(NodeId spaceId) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return false;
+    final state = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+      initialDescription: bundle.manifest.description ?? '',
+    ).state;
+    return SpaceAcl(state).allows(_signer.selfId, SpacePermission.view);
+  }
+
+  SpacePublicSubscriptionView _publicSubscriptionView(
+    SpacePublicSubscriptionSnapshot snapshot,
+    SpaceSubscription subscription,
+  ) => SpacePublicSubscriptionView(
+    subscription: subscription,
+    descriptor: snapshot.package.descriptor,
+    feed: snapshot.package.projection,
+    verifiedAtMs: snapshot.verifiedAtMs,
+    stale: snapshot.isStaleAt(_now()),
+  );
+
+  Future<SpacePublicSubscriptionView?> publicSpaceSubscription(
+    NodeId spaceId,
+  ) async {
+    final index = await _loadPublicSubscriptionIndex();
+    if (!index.complete ||
+        !index.ids.contains(spaceId.hex) ||
+        await _hasActiveSpaceMembership(spaceId)) {
+      return null;
+    }
+    final snapshot = await _loadPublicSubscriptionSnapshot(spaceId);
+    if (snapshot == null) return null;
+    final stored = await _storedSpaceSubscription(spaceId);
+    final subscription = stored?.publicOnly == true
+        ? stored!
+        : SpaceSubscription.publicDefault(spaceId);
+    return _publicSubscriptionView(snapshot, subscription);
+  }
+
+  Future<List<SpacePublicSubscriptionView>> publicSpaceSubscriptions() async {
+    final index = await _loadPublicSubscriptionIndex();
+    if (!index.complete) return const [];
+    final views = <SpacePublicSubscriptionView>[];
+    for (final hex in index.ids) {
+      final NodeId spaceId;
+      try {
+        spaceId = NodeId.fromHex(hex);
+      } catch (_) {
+        continue;
+      }
+      if (await _hasActiveSpaceMembership(spaceId)) continue;
+      final snapshot = await _loadPublicSubscriptionSnapshot(spaceId);
+      if (snapshot == null) continue;
+      final stored = await _storedSpaceSubscription(spaceId);
+      final subscription = stored?.publicOnly == true
+          ? stored!
+          : SpaceSubscription.publicDefault(spaceId);
+      views.add(_publicSubscriptionView(snapshot, subscription));
+    }
+    views.sort((left, right) {
+      final name = left.descriptor.name.compareTo(right.descriptor.name);
+      return name != 0
+          ? name
+          : left.descriptor.spaceId.hex.compareTo(right.descriptor.spaceId.hex);
+    });
+    return List<SpacePublicSubscriptionView>.unmodifiable(views);
+  }
+
+  /// Activate or refresh a read-only public subscription from one exact,
+  /// currently verified descriptor/feed pair.
+  ///
+  /// The snapshot and preference are written before the compact index. The
+  /// index is the sole activation point, so a crash cannot expose a preference
+  /// whose signed bytes are absent. Existing snapshots also impose monotonic
+  /// descriptor and feed revisions to reject a validly signed rollback.
+  Future<SpacePublicSubscriptionView?> subscribeToPublicSpace(
+    SpacePublicDescriptor descriptor,
+    Iterable<SpacePublicHolderAnnouncement> holders,
+  ) => _serializeSpaceFeedPreferences(() async {
+    final nowMs = _now();
+    if (!descriptor.verifyAt(nowMs, _signer.verifyDetached) ||
+        descriptor.genesisManifest.visibility != SpaceVisibility.public ||
+        await _hasActiveSpaceMembership(descriptor.spaceId)) {
+      return null;
+    }
+    final exactHolders = <String, SpacePublicHolderAnnouncement>{};
+    for (final holder in holders) {
+      if (holder.holder == selfId ||
+          holder.spaceId != descriptor.spaceId ||
+          holder.descriptorHash != descriptor.descriptorHash ||
+          holder.publicFeedManifestHash != descriptor.publicFeedManifestHash ||
+          !holder.verifyAt(nowMs, _signer.verifyDetached)) {
+        continue;
+      }
+      exactHolders[holder.holder.hex] = holder;
+    }
+    if (exactHolders.isEmpty) return null;
+
+    final index = await _loadPublicSubscriptionIndex();
+    if (!index.complete ||
+        (!index.ids.contains(descriptor.spaceId.hex) &&
+            index.ids.length >= _kMaxPublicSubscriptions)) {
+      return null;
+    }
+    final prior = index.ids.contains(descriptor.spaceId.hex)
+        ? await _loadPublicSubscriptionSnapshot(descriptor.spaceId)
+        : null;
+    if (prior != null) {
+      final current = prior.package.descriptor;
+      if (descriptor.revision < current.revision ||
+          descriptor.publicFeedRevision < current.publicFeedRevision ||
+          descriptor.publicFeedUpdatedAtMs < current.publicFeedUpdatedAtMs) {
+        return null;
+      }
+    }
+
+    SpacePublicFeedProjection? feed;
+    final cached = await _loadVerifiedPublicFeed(
+      descriptor.spaceId,
+      descriptor.publicFeedManifestHash,
+    );
+    if (cached != null &&
+        cached.descriptor.descriptorHash == descriptor.descriptorHash) {
+      feed = cached.feed;
+    }
+    feed ??= await fetchVerifiedPublicSpaceFeed(
+      descriptor,
+      exactHolders.values,
+    );
+    if (feed == null) return null;
+    final package = SpacePublicFeedPackage(
+      descriptor: descriptor,
+      projection: feed,
+    );
+    if (!package.verifyAt(
+      nowMs: nowMs,
+      verifySignature: _signer.verifyDetached,
+      verifyPost: _signer.verifyPost,
+    )) {
+      return null;
+    }
+    if (prior != null &&
+        prior.package.descriptor.descriptorHash == descriptor.descriptorHash &&
+        prior.package.projection.manifest.manifestHash ==
+            feed.manifest.manifestHash) {
+      final stored = await _storedSpaceSubscription(descriptor.spaceId);
+      return _publicSubscriptionView(
+        prior,
+        stored?.publicOnly == true
+            ? stored!
+            : SpaceSubscription.publicDefault(descriptor.spaceId),
+      );
+    }
+    final snapshot = SpacePublicSubscriptionSnapshot(
+      verifiedAtMs: nowMs,
+      package: package,
+    );
+    final snapshotBytes = snapshot.toBytes();
+    if (snapshotBytes.length > kSpacePublicSubscriptionSnapshotMaxBytes) {
+      return null;
+    }
+
+    final stored = index.ids.contains(descriptor.spaceId.hex)
+        ? await _storedSpaceSubscription(descriptor.spaceId)
+        : null;
+    final subscription =
+        (stored?.publicOnly == true
+                ? stored!
+                : SpaceSubscription.publicDefault(descriptor.spaceId))
+            .copyWith(publicOnly: true, updatedAtMs: nowMs);
+    await _storage.storeFile(
+      _publicSubscriptionSnapshotFileId(descriptor.spaceId),
+      snapshotBytes,
+      name: 'public-space-subscription',
+    );
+    await _saveSpaceSubscription(subscription);
+    await _storage.putSetting(_spaceFeedEnabledKey(descriptor.spaceId), '');
+    await _savePublicSubscriptionIndex({...index.ids, descriptor.spaceId.hex});
+    _publicSubscriptionSnapshots[descriptor.spaceId.hex] = snapshot;
+    changes.value++;
+    feedAccessChanges.value++;
+    if (prior != null) {
+      final priorPostIds = {
+        for (final post in prior.package.projection.posts) post.postId,
+      };
+      for (final post in feed.posts) {
+        if (post.author != selfId && !priorPostIds.contains(post.postId)) {
+          _incomingPublicPostCtl.add((spaceId: descriptor.spaceId, post: post));
+        }
+      }
+    }
+    return _publicSubscriptionView(snapshot, subscription);
+  });
+
+  Future<SpacePublicSubscriptionView?> subscribeToPublicSpaceDiscovery(
+    SpacePublicDiscoveryResult result,
+  ) => subscribeToPublicSpace(result.descriptor, result.holders);
+
+  Future<SpacePublicSubscriptionView?> refreshPublicSpaceSubscription(
+    NodeId spaceId, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    if (await publicSpaceSubscription(spaceId) == null) return null;
+    final discovery = await resolvePublicSpaceDiscovery(
+      spaceId,
+      timeout: timeout,
+    );
+    return discovery == null
+        ? null
+        : subscribeToPublicSpaceDiscovery(discovery);
+  }
+
+  /// Refresh the exact public descriptor/holders before opening a media grant.
+  /// Stored bytes remain usable offline, but a new transfer never relies on an
+  /// expired holder captured in a local snapshot.
+  Future<bool> requestSubscribedPublicSpaceMedia(
+    NodeId spaceId,
+    String contentId, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final current = await publicSpaceSubscription(spaceId);
+    if (current == null ||
+        !current.feed.referencedContentIds.contains(contentId)) {
+      return false;
+    }
+    final discovery = await resolvePublicSpaceDiscovery(
+      spaceId,
+      timeout: timeout,
+    );
+    if (discovery == null) return false;
+    final refreshed = await subscribeToPublicSpaceDiscovery(discovery);
+    if (refreshed == null ||
+        !refreshed.feed.referencedContentIds.contains(contentId)) {
+      return false;
+    }
+    return requestPublicSpaceMedia(
+      discovery.descriptor,
+      discovery.holders,
+      contentId,
+    );
+  }
+
+  /// Deactivate first, then best-effort scrub the now-unreachable public
+  /// snapshot. Shared downloaded media is reclaimed only by the global GC.
+  Future<bool> unsubscribeFromPublicSpace(NodeId spaceId) =>
+      _serializeSpaceFeedPreferences(() async {
+        final index = await _loadPublicSubscriptionIndex();
+        if (!index.complete || !index.ids.contains(spaceId.hex)) return false;
+        final next = Set<String>.of(index.ids)..remove(spaceId.hex);
+        await _savePublicSubscriptionIndex(next);
+        _publicSubscriptionSnapshots.remove(spaceId.hex);
+        try {
+          await _storage.putSetting(_spaceSubscriptionKey(spaceId), '');
+          await _storage.putSetting(_spaceFeedSeenKey(spaceId), '');
+          await _storage.deleteStoredFile(
+            _publicSubscriptionSnapshotFileId(spaceId),
+          );
+        } catch (_) {
+          // The activation index is already authoritative. Any orphaned
+          // public bytes are inert and can be scrubbed by later maintenance.
+        }
+        changes.value++;
+        feedAccessChanges.value++;
+        return true;
+      });
+
   String _spaceFeedEnabledKey(NodeId spaceId) =>
       'space.feed.enabled:${spaceId.hex}';
   String _spaceSubscriptionKey(NodeId spaceId) =>
@@ -12875,11 +13394,17 @@ class GroupService {
       throw ArgumentError.value(postId, 'postId', 'invalid Space post id');
     }
     final bundle = await load(spaceId);
-    if (bundle == null || !bundle.manifest.isSpace) {
+    final publicSubscription = bundle == null
+        ? await publicSpaceSubscription(spaceId)
+        : null;
+    if ((bundle == null || !bundle.manifest.isSpace) &&
+        publicSubscription == null) {
       throw ArgumentError.value(spaceId.hex, 'spaceId', 'unknown Space');
     }
     if (hidden) {
-      final visible = await _postsOfBundle(bundle, applyLocalRetention: true);
+      final visible =
+          publicSubscription?.feed.posts ??
+          await _postsOfBundle(bundle!, applyLocalRetention: true);
       if (!visible.any((post) => post.postId == postId)) {
         throw ArgumentError.value(postId, 'postId', 'unknown visible post');
       }
@@ -12902,17 +13427,27 @@ class GroupService {
   /// member follows publications by default but can disable them locally
   /// without leaving the Space or mutating its signed control log.
   Future<SpaceSubscription> spaceSubscription(NodeId spaceId) async {
-    final stored = await _storage.getSetting(_spaceSubscriptionKey(spaceId));
-    if (stored != null && stored.isNotEmpty) {
-      try {
-        final parsed = SpaceSubscription.fromJson(jsonDecode(stored), spaceId);
-        if (parsed != null) return parsed;
-      } catch (_) {
-        // Corrupt local preferences fail to the privacy-neutral member default.
-      }
+    final stored = await _storedSpaceSubscription(spaceId);
+    if (await _hasActiveSpaceMembership(spaceId)) {
+      if (stored != null && !stored.publicOnly) return stored;
+      // One-version migration from the boolean key introduced by the first
+      // feed slice. It is local-only and can be rewritten atomically on next
+      // change.
+      final legacy = await _storage.getSetting(_spaceFeedEnabledKey(spaceId));
+      return SpaceSubscription.memberDefault(
+        spaceId,
+      ).copyWith(feedEnabled: legacy != '0');
     }
-    // One-version migration from the boolean key introduced by the first feed
-    // slice. It is local-only and can be rewritten atomically on next change.
+    final index = await _loadPublicSubscriptionIndex();
+    if (index.complete &&
+        index.ids.contains(spaceId.hex) &&
+        await _loadPublicSubscriptionSnapshot(spaceId) != null) {
+      if (stored != null && stored.publicOnly) return stored;
+      return SpaceSubscription.publicDefault(spaceId);
+    }
+    // Preserve the legacy behavior for unknown/inactive Spaces. Callers that
+    // need to mutate still prove active membership or an activated public
+    // snapshot in [updateSpaceSubscription].
     final legacy = await _storage.getSetting(_spaceFeedEnabledKey(spaceId));
     return SpaceSubscription.memberDefault(
       spaceId,
@@ -12939,21 +13474,27 @@ class GroupService {
     SpaceCommentNotificationMode? commentNotifications,
     bool? hiddenFromRecommendations,
   }) => _serializeSpaceFeedPreferences(() async {
-    final bundle = await load(spaceId);
-    if (bundle == null || !bundle.manifest.isSpace) {
-      throw ArgumentError.value(spaceId.hex, 'spaceId', 'unknown Space');
-    }
-    final state = foldControlLog(
-      owner: bundle.manifest.owner,
-      entries: bundle.control,
-      verify: (entry) => _validControlFor(bundle.manifest, entry),
-      initialName: bundle.manifest.name,
-      initialDescription: bundle.manifest.description ?? '',
-    ).state;
-    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
-      throw StateError('Space subscription requires active membership');
-    }
     final current = await spaceSubscription(spaceId);
+    if (current.publicOnly) {
+      if (await publicSpaceSubscription(spaceId) == null) {
+        throw StateError('public Space subscription is not active');
+      }
+    } else {
+      final bundle = await load(spaceId);
+      if (bundle == null || !bundle.manifest.isSpace) {
+        throw ArgumentError.value(spaceId.hex, 'spaceId', 'unknown Space');
+      }
+      final state = foldControlLog(
+        owner: bundle.manifest.owner,
+        entries: bundle.control,
+        verify: (entry) => _validControlFor(bundle.manifest, entry),
+        initialName: bundle.manifest.name,
+        initialDescription: bundle.manifest.description ?? '',
+      ).state;
+      if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
+        throw StateError('Space subscription requires active membership');
+      }
+    }
     final next = current.copyWith(
       feedEnabled: feedEnabled,
       notificationsEnabled: notificationsEnabled,
@@ -13016,6 +13557,7 @@ class GroupService {
     final readAt = DateTime.now().millisecondsSinceEpoch;
     final items = <SpaceFeedItem>[];
     final seen = <String>{};
+    final memberSpaceIds = <String>{};
     final hidden = await _hiddenSpaceFeedPosts();
     final blockedAuthors = <String, Future<bool>>{};
     Future<bool> isBlockedAuthor(NodeId author) {
@@ -13040,11 +13582,7 @@ class GroupService {
         continue;
       }
       final bundle = await load(spaceId);
-      if (bundle == null ||
-          !bundle.manifest.isSpace ||
-          !await isSpaceFeedEnabled(spaceId)) {
-        continue;
-      }
+      if (bundle == null || !bundle.manifest.isSpace) continue;
       final folded = foldControlLog(
         owner: bundle.manifest.owner,
         entries: bundle.control,
@@ -13056,6 +13594,8 @@ class GroupService {
       if (!acl.allows(_signer.selfId, SpacePermission.view)) {
         continue;
       }
+      memberSpaceIds.add(spaceId.hex);
+      if (!await isSpaceFeedEnabled(spaceId)) continue;
       final canManagePosts = acl.allows(
         _signer.selfId,
         SpacePermission.managePosts,
@@ -13112,6 +13652,42 @@ class GroupService {
         );
       }
     }
+    for (final public in await publicSpaceSubscriptions()) {
+      final spaceId = public.descriptor.spaceId;
+      if (memberSpaceIds.contains(spaceId.hex) ||
+          !public.subscription.feedEnabled ||
+          (selectedFilter.spaceIds.isNotEmpty &&
+              !selectedFilter.spaceIds.contains(spaceId))) {
+        continue;
+      }
+      for (final post in public.feed.posts) {
+        if (hidden.containsKey(_hiddenSpaceFeedPostKey(spaceId, post.postId)) ||
+            await isBlockedAuthor(post.author) ||
+            !selectedFilter.allowsPost(
+              post,
+              viewer: _signer.selfId,
+              nowMs: readAt,
+            ) ||
+            (pinned != null && post.pinned != pinned)) {
+          continue;
+        }
+        final cursor = SpaceFeedCursor.fromView(post);
+        if (before != null && cursor.compareTo(before) >= 0) continue;
+        if (!seen.add('${spaceId.hex}:${post.postId}')) continue;
+        items.add(
+          SpaceFeedItem(
+            spaceId: spaceId,
+            spaceName: public.descriptor.name,
+            post: post,
+            reactions: const {},
+            canDeletePost: false,
+            canModeratePost: false,
+            canManagePosts: false,
+            publicOnly: true,
+          ),
+        );
+      }
+    }
     items.sort((left, right) {
       final order = SpaceFeedCursor.fromView(
         right.post,
@@ -13135,12 +13711,22 @@ class GroupService {
     return (await unreadSpacePostViews(spaceId)).length;
   }
 
+  Future<List<SpacePostView>> _spaceFeedPostsForReadState(
+    NodeId spaceId,
+  ) async {
+    if (await _hasActiveSpaceMembership(spaceId)) {
+      return postsOf(spaceId);
+    }
+    final public = await publicSpaceSubscription(spaceId);
+    return public?.feed.posts ?? const [];
+  }
+
   Future<List<SpacePostView>> unreadSpacePostViews(NodeId spaceId) async {
     final hidden = await _hiddenSpaceFeedPosts();
     final seen = SpaceFeedCursor.decode(
       await _storage.getSetting(_spaceFeedSeenKey(spaceId)),
     );
-    final posts = await postsOf(spaceId);
+    final posts = await _spaceFeedPostsForReadState(spaceId);
     final visible = <SpacePostView>[];
     for (final post in posts) {
       if (hidden.containsKey(_hiddenSpaceFeedPostKey(spaceId, post.postId)) ||
@@ -13157,7 +13743,7 @@ class GroupService {
   }
 
   Future<void> markSpaceFeedSeen(NodeId spaceId) async {
-    final posts = await postsOf(spaceId);
+    final posts = await _spaceFeedPostsForReadState(spaceId);
     if (posts.isEmpty) return;
     final latest = posts
         .map(SpaceFeedCursor.fromView)
@@ -16396,6 +16982,13 @@ class GroupService {
   Stream<({NodeId spaceId, SpacePostView post})> get incomingPosts =>
       _incomingPostCtl.stream;
 
+  /// Newly observed roots from an already-active public-only subscription.
+  /// Initial history is silent; only a later verified snapshot emits here.
+  final StreamController<({NodeId spaceId, SpacePostView post})>
+  _incomingPublicPostCtl = StreamController.broadcast();
+  Stream<({NodeId spaceId, SpacePostView post})> get incomingPublicPosts =>
+      _incomingPublicPostCtl.stream;
+
   /// Attached by the multi-device bridge: a LOCAL group-seen advance (never
   /// fired from [applyMirroredGroupSeen]) — my other devices clear the badge.
   void Function(String gidHex, int tsMs)? onGroupSeen;
@@ -17529,6 +18122,7 @@ class GroupService {
     }
     _publishedPublicSpaceDescriptors.clear();
     _verifiedPublicSpaceFeeds.clear();
+    _publicSubscriptionSnapshots.clear();
     for (final pending in _pendingPublicFeedObjects.values) {
       if (!pending.completer.isCompleted) pending.completer.complete(null);
     }
@@ -17555,6 +18149,7 @@ class GroupService {
     await _incomingCtl.close();
     await _incomingCommentCtl.close();
     await _incomingPostCtl.close();
+    await _incomingPublicPostCtl.close();
   }
 }
 
@@ -17567,6 +18162,7 @@ class SpaceFeedItem {
     required this.canDeletePost,
     required this.canModeratePost,
     required this.canManagePosts,
+    this.publicOnly = false,
   });
 
   final NodeId spaceId;
@@ -17576,6 +18172,7 @@ class SpaceFeedItem {
   final bool canDeletePost;
   final bool canModeratePost;
   final bool canManagePosts;
+  final bool publicOnly;
 }
 
 /// One row of the user-facing group list (the shape [GroupService.listGroups]

@@ -223,6 +223,7 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
     final l = AppL10n.of(context);
     final service = ref.watch(groupServiceProvider);
     final spaces = ref.watch(spaceListProvider);
+    final publicSubscriptions = ref.watch(publicSpaceSubscriptionListProvider);
     return HomeSectionScaffold(
       title: l.navCommunities,
       searching: _searching,
@@ -259,6 +260,19 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
         error: (error, _) => Center(child: Text('$error')),
         data: (allItems) {
           final searching = _query.trim().isNotEmpty;
+          final allPublicItems =
+              publicSubscriptions.valueOrNull ??
+              const <SpacePublicSubscriptionView>[];
+          final publicItems = searching
+              ? allPublicItems
+                    .where(
+                      (space) =>
+                          _matches(space.descriptor.name) ||
+                          _matches(space.descriptor.description) ||
+                          _matches(space.descriptor.spaceId.hex),
+                    )
+                    .toList(growable: false)
+              : allPublicItems;
           final items = searching
               ? allItems
                     .where(
@@ -366,6 +380,7 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                   )
                   .toList(growable: false);
               if (items.isEmpty &&
+                  publicItems.isEmpty &&
                   invites.isEmpty &&
                   joinRequests.isEmpty &&
                   appealCandidates.isEmpty &&
@@ -637,6 +652,135 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                                 )
                               : null,
                         ),
+                      ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (publicItems.isNotEmpty) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      child: Text(
+                        l.spacePublicReadOnly,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    for (final public in publicItems)
+                      FutureBuilder<
+                        ({
+                          int unread,
+                          NotificationMutePolicy notificationPolicy,
+                        })
+                      >(
+                        future:
+                            Future.wait<Object>([
+                              service?.unreadSpacePosts(
+                                    public.descriptor.spaceId,
+                                  ) ??
+                                  Future<int>.value(0),
+                              service?.groupNotificationPolicy(
+                                    public.descriptor.spaceId,
+                                  ) ??
+                                  Future<NotificationMutePolicy>.value(
+                                    const NotificationMutePolicy.all(),
+                                  ),
+                            ]).then(
+                              (values) => (
+                                unread: values[0] as int,
+                                notificationPolicy:
+                                    values[1] as NotificationMutePolicy,
+                              ),
+                            ),
+                        builder: (context, snapshot) {
+                          final unread = snapshot.data?.unread ?? 0;
+                          final policy =
+                              snapshot.data?.notificationPolicy ??
+                              const NotificationMutePolicy.all();
+                          final effectiveMode = policy.effectiveAt(
+                            DateTime.now(),
+                          );
+                          return ListTile(
+                            key: ValueKey(
+                              'public-space-subscription-${public.descriptor.spaceId.hex}',
+                            ),
+                            leading: const CircleAvatar(
+                              child: Icon(Icons.public),
+                            ),
+                            title: Text(public.descriptor.name),
+                            subtitle: Text(
+                              public.descriptor.description.isNotEmpty
+                                  ? public.descriptor.description
+                                  : l.spacePublicReadOnly,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing:
+                                !public.stale &&
+                                    public.subscription.notificationsEnabled &&
+                                    effectiveMode == NotificationMuteMode.all &&
+                                    unread == 0
+                                ? null
+                                : Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (public.stale)
+                                        Tooltip(
+                                          message: l.spacePublicSnapshotStale,
+                                          child: const Icon(
+                                            Icons.cloud_off_outlined,
+                                            size: 18,
+                                          ),
+                                        ),
+                                      if (public.stale &&
+                                          (!public
+                                                  .subscription
+                                                  .notificationsEnabled ||
+                                              effectiveMode !=
+                                                  NotificationMuteMode.all ||
+                                              unread > 0))
+                                        const SizedBox(width: 10),
+                                      if (!public
+                                          .subscription
+                                          .notificationsEnabled)
+                                        const Icon(
+                                          Icons.notifications_off_outlined,
+                                          size: 18,
+                                        )
+                                      else if (effectiveMode !=
+                                          NotificationMuteMode.all)
+                                        notificationMuteModeIndicator(
+                                          context,
+                                          effectiveMode,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onSurfaceVariant,
+                                        ),
+                                      if ((!public
+                                                  .subscription
+                                                  .notificationsEnabled ||
+                                              effectiveMode !=
+                                                  NotificationMuteMode.all) &&
+                                          unread > 0)
+                                        const SizedBox(width: 10),
+                                      if (unread > 0)
+                                        Badge(label: Text('$unread')),
+                                    ],
+                                  ),
+                            onTap: () => context.push(
+                              '/space/${public.descriptor.spaceId.hex}/public-posts',
+                            ),
+                            onLongPress: service == null
+                                ? null
+                                : () => showNotificationPolicySheet(
+                                    context,
+                                    policy,
+                                    onChanged: (mode, until) =>
+                                        service.setGroupNotificationPolicy(
+                                          public.descriptor.spaceId,
+                                          mode,
+                                          until,
+                                        ),
+                                  ),
+                          );
+                        },
                       ),
                     const SizedBox(height: 8),
                   ],
