@@ -397,6 +397,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
           roleId: roleId,
           name: draft.name,
           grants: draft.grants,
+          denials: draft.denials,
         ),
       );
     await _replaceAccessPolicy(
@@ -1498,8 +1499,11 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                   title: Text(role.name),
                                   subtitle: Text(
                                     l.spaceAccessRoleGrantSummary(
-                                      role.permissions.length,
-                                      role.grants.length,
+                                      {
+                                        ...role.permissions,
+                                        ...role.deniedPermissions,
+                                      }.length,
+                                      role.grants.length + role.denials.length,
                                     ),
                                   ),
                                   trailing: canManageAccess
@@ -1945,10 +1949,15 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
 }
 
 final class _SpaceRoleDraft {
-  const _SpaceRoleDraft({required this.name, required this.grants});
+  const _SpaceRoleDraft({
+    required this.name,
+    required this.grants,
+    required this.denials,
+  });
 
   final String name;
   final List<SpacePermissionGrant> grants;
+  final List<SpacePermissionDenial> denials;
 }
 
 class _SpaceRoleDialog extends StatefulWidget {
@@ -1973,6 +1982,9 @@ class _SpaceRoleDialogState extends State<_SpaceRoleDialog> {
     text: widget.existing?.name ?? '',
   );
   late final List<SpacePermissionGrant> _grants = [...?widget.existing?.grants];
+  late final List<SpacePermissionDenial> _denials = [
+    ...?widget.existing?.denials,
+  ];
 
   List<SpaceChannel> _targets(SpacePermissionScopeKind kind) => [
     for (final channel in widget.channels)
@@ -2029,6 +2041,45 @@ class _SpaceRoleDialogState extends State<_SpaceRoleDialog> {
     SpacePermission permission,
   ) => _grants.indexed.where((entry) => entry.$2.permission == permission);
 
+  SpacePermissionDenial? _firstAvailableDenial(
+    SpacePermission permission, {
+    SpacePermissionScopeKind? onlyKind,
+    int? replacing,
+  }) {
+    final kinds = onlyKind == null ? _scopeKinds(permission) : [onlyKind];
+    for (final kind in kinds) {
+      if (!kind.supports(permission)) continue;
+      if (!kind.requiresTarget) {
+        final candidate = SpacePermissionDenial(
+          permission: permission,
+          scope: SpacePermissionScope(kind: kind),
+        );
+        if (!_denials.indexed.any(
+          (entry) => entry.$1 != replacing && entry.$2 == candidate,
+        )) {
+          return candidate;
+        }
+        continue;
+      }
+      for (final target in _targets(kind)) {
+        final candidate = SpacePermissionDenial(
+          permission: permission,
+          scope: SpacePermissionScope(kind: kind, targetId: target.channelId),
+        );
+        if (!_denials.indexed.any(
+          (entry) => entry.$1 != replacing && entry.$2 == candidate,
+        )) {
+          return candidate;
+        }
+      }
+    }
+    return null;
+  }
+
+  Iterable<(int, SpacePermissionDenial)> _permissionDenials(
+    SpacePermission permission,
+  ) => _denials.indexed.where((entry) => entry.$2.permission == permission);
+
   void _togglePermission(SpacePermission permission, bool selected) {
     setState(() {
       if (selected) {
@@ -2071,6 +2122,38 @@ class _SpaceRoleDialogState extends State<_SpaceRoleDialog> {
     setState(() => _grants[index] = replacement);
   }
 
+  void _changeDenialScope(
+    int index,
+    SpacePermissionDenial current,
+    SpacePermissionScopeKind kind,
+  ) {
+    final replacement = _firstAvailableDenial(
+      current.permission,
+      onlyKind: kind,
+      replacing: index,
+    );
+    if (replacement != null) {
+      setState(() => _denials[index] = replacement);
+    }
+  }
+
+  void _changeDenialTarget(
+    int index,
+    SpacePermissionDenial current,
+    NodeId target,
+  ) {
+    final replacement = SpacePermissionDenial(
+      permission: current.permission,
+      scope: SpacePermissionScope(kind: current.scope.kind, targetId: target),
+    );
+    if (_denials.indexed.any(
+      (entry) => entry.$1 != index && entry.$2 == replacement,
+    )) {
+      return;
+    }
+    setState(() => _denials[index] = replacement);
+  }
+
   @override
   void dispose() {
     _name.dispose();
@@ -2080,13 +2163,19 @@ class _SpaceRoleDialogState extends State<_SpaceRoleDialog> {
   void _submit() {
     final normalized = _name.text.trim();
     if (normalized.isEmpty ||
-        _grants.isEmpty ||
+        (_grants.isEmpty && _denials.isEmpty) ||
         _grants.any((grant) => !grant.isStructurallyValid) ||
-        _grants.toSet().length != _grants.length) {
+        _grants.toSet().length != _grants.length ||
+        _denials.any((denial) => !denial.isStructurallyValid) ||
+        _denials.toSet().length != _denials.length) {
       return;
     }
     Navigator.of(context).pop(
-      _SpaceRoleDraft(name: normalized, grants: List.unmodifiable(_grants)),
+      _SpaceRoleDraft(
+        name: normalized,
+        grants: List.unmodifiable(_grants),
+        denials: List.unmodifiable(_denials),
+      ),
     );
   }
 
@@ -2208,14 +2297,135 @@ class _SpaceRoleDialogState extends State<_SpaceRoleDialog> {
     );
   }
 
+  Widget _denialScopeEditor(
+    BuildContext context,
+    int index,
+    SpacePermissionDenial denial,
+  ) {
+    final l = AppL10n.of(context);
+    final kinds = _scopeKinds(denial.permission)
+        .where(
+          (kind) =>
+              kind == denial.scope.kind ||
+              _firstAvailableDenial(
+                    denial.permission,
+                    onlyKind: kind,
+                    replacing: index,
+                  ) !=
+                  null,
+        )
+        .toList(growable: false);
+    final targets = denial.scope.kind.requiresTarget
+        ? _targets(denial.scope.kind)
+              .where((channel) {
+                final candidate = SpacePermissionDenial(
+                  permission: denial.permission,
+                  scope: SpacePermissionScope(
+                    kind: denial.scope.kind,
+                    targetId: channel.channelId,
+                  ),
+                );
+                return candidate == denial ||
+                    !_denials.indexed.any(
+                      (entry) => entry.$1 != index && entry.$2 == candidate,
+                    );
+              })
+              .toList(growable: false)
+        : const <SpaceChannel>[];
+    final scopeDropdown = DropdownButtonFormField<SpacePermissionScopeKind>(
+      key: ValueKey('space-access-deny-scope-${denial.permission.name}-$index'),
+      initialValue: denial.scope.kind,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: l.spaceAccessDenyScopeLabel,
+        isDense: true,
+        prefixIcon: const Icon(Icons.block, size: 18),
+      ),
+      items: [
+        for (final kind in kinds)
+          DropdownMenuItem(value: kind, child: Text(widget.scopeLabel(kind))),
+      ],
+      onChanged: (kind) {
+        if (kind != null && kind != denial.scope.kind) {
+          _changeDenialScope(index, denial, kind);
+        }
+      },
+    );
+    final targetDropdown = denial.scope.kind.requiresTarget
+        ? DropdownButtonFormField<String>(
+            key: ValueKey(
+              'space-access-deny-target-${denial.permission.name}-$index',
+            ),
+            initialValue: denial.scope.targetId?.hex,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: l.spaceAccessScopeTarget,
+              isDense: true,
+            ),
+            items: [
+              for (final channel in targets)
+                DropdownMenuItem(
+                  value: channel.channelId.hex,
+                  child: Text(channel.name, overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: (target) {
+              if (target != null) {
+                _changeDenialTarget(index, denial, NodeId.fromHex(target));
+              }
+            },
+          )
+        : null;
+    final remove = IconButton(
+      tooltip: MaterialLocalizations.of(context).deleteButtonTooltip,
+      onPressed: () => setState(() => _denials.removeAt(index)),
+      icon: const Icon(Icons.remove_circle_outline),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 420) {
+          return Padding(
+            padding: const EdgeInsets.only(left: 16, bottom: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                scopeDropdown,
+                if (targetDropdown != null) ...[
+                  const SizedBox(height: 8),
+                  targetDropdown,
+                ],
+                Align(alignment: Alignment.centerRight, child: remove),
+              ],
+            ),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.only(left: 16, bottom: 8),
+          child: Row(
+            children: [
+              Expanded(child: scopeDropdown),
+              if (targetDropdown != null) ...[
+                const SizedBox(width: 8),
+                Expanded(child: targetDropdown),
+              ],
+              remove,
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final canSave =
         _name.text.trim().isNotEmpty &&
-        _grants.isNotEmpty &&
+        (_grants.isNotEmpty || _denials.isNotEmpty) &&
         _grants.every((grant) => grant.isStructurallyValid) &&
-        _grants.toSet().length == _grants.length;
+        _grants.toSet().length == _grants.length &&
+        _denials.every((denial) => denial.isStructurallyValid) &&
+        _denials.toSet().length == _denials.length;
     return AlertDialog(
       title: Text(
         widget.existing == null ? l.spaceAccessRoleAdd : l.spaceAccessRoleEdit,
@@ -2279,6 +2489,25 @@ class _SpaceRoleDialogState extends State<_SpaceRoleDialog> {
                         },
                         icon: const Icon(Icons.add, size: 18),
                         label: Text(l.spaceAccessAddArea),
+                      ),
+                    ),
+                  for (final entry in _permissionDenials(permission).toList())
+                    _denialScopeEditor(context, entry.$1, entry.$2),
+                  if (_firstAvailableDenial(permission) != null)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        key: ValueKey(
+                          'space-access-add-deny-${permission.name}',
+                        ),
+                        onPressed: () {
+                          final denial = _firstAvailableDenial(permission);
+                          if (denial != null) {
+                            setState(() => _denials.add(denial));
+                          }
+                        },
+                        icon: const Icon(Icons.block, size: 18),
+                        label: Text(l.spaceAccessAddDenyArea),
                       ),
                     ),
                 ],

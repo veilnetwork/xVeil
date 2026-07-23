@@ -221,6 +221,8 @@ class GroupState {
       accessPolicy?.roleIdsFor(id) ?? const {};
   Set<SpacePermissionGrant> customGrantsOf(NodeId id) =>
       accessPolicy?.grantsFor(id) ?? const {};
+  Set<SpacePermissionDenial> customDenialsOf(NodeId id) =>
+      accessPolicy?.denialsFor(id) ?? const {};
   Set<SpacePermission> customPermissionsOf(NodeId id) =>
       accessPolicy?.permissionsFor(id) ?? const {};
   SpacePostPin? postPinFor(String postId) => postPins[postId];
@@ -264,6 +266,7 @@ enum SpaceAuthorizationDenial {
   archived,
   muted,
   moderated,
+  explicitlyDenied,
   insufficientPermission,
   protectedTarget,
 }
@@ -343,6 +346,20 @@ final class SpaceAcl {
         (publicChannel?.kind == SpaceChannelKind.category
             ? publicChannel?.channelId
             : publicChannel?.categoryId);
+    final explicitlyDenied =
+        member.role != GroupRole.owner &&
+        (state.accessPolicy?.denies(
+              actor,
+              permission,
+              channelId: channelId,
+              categoryId: effectiveCategoryId,
+            ) ??
+            false);
+    if (explicitlyDenied) {
+      return const SpaceAuthorizationDecision.deny(
+        SpaceAuthorizationDenial.explicitlyDenied,
+      );
+    }
     bool customAllows(SpacePermission permission) =>
         state.accessPolicy?.allows(
           actor,
@@ -419,7 +436,20 @@ final class SpaceAcl {
     if (state.memberOf(actor) == null || state.isDeleted || state.isArchived) {
       return false;
     }
-    return state.accessPolicy?.hasAnyGrant(actor, permission) ?? false;
+    for (final channel in state.channels.values) {
+      final categoryId = channel.kind == SpaceChannelKind.category
+          ? channel.channelId
+          : channel.categoryId;
+      if (allows(
+        actor,
+        permission,
+        channelId: channel.channelId,
+        categoryId: categoryId,
+      )) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Authorize a current control mutation against this complete folded state.
@@ -542,6 +572,26 @@ final class SpaceAcl {
       channelId: channelId,
       categoryId: categoryId,
     );
+    final sourceExplicitlyDenied =
+        op == ControlOp.updateChannel &&
+        previousChannelId != null &&
+        (policy?.denies(
+              author,
+              SpacePermission.manageChannels,
+              channelId: previousChannelId,
+              categoryId: previousCategoryId,
+            ) ??
+            false);
+    final explicitlyDenied =
+        authorRole != GroupRole.owner &&
+        (customPolicyDeniesControl(
+              policy: policy,
+              author: author,
+              op: op,
+              channelId: channelId,
+              categoryId: categoryId,
+            ) ||
+            sourceExplicitlyDenied);
     final sourceScopeAllows =
         op != ControlOp.updateChannel ||
         previousChannelId == null ||
@@ -552,20 +602,22 @@ final class SpaceAcl {
               categoryId: previousCategoryId,
             ) ??
             false);
-    final allowed = protectedModeration
-        ? authorRole.rank >= GroupRole.admin.rank ||
-              (policy?.allows(
-                    author,
-                    SpacePermission.moderate,
-                    channelId: channelId,
-                    categoryId: categoryId,
-                  ) ??
-                  false)
-        : moderationTargetsRemovedContent && targetRole == null
-        ? authorRole == GroupRole.owner
-        : op == ControlOp.revokeModeration && targetRole == null
-        ? revokesRemovedMember && authorRole == GroupRole.owner
-        : builtIn || (custom && sourceScopeAllows);
+    final allowed =
+        !explicitlyDenied &&
+        (protectedModeration
+            ? authorRole.rank >= GroupRole.admin.rank ||
+                  (policy?.allows(
+                        author,
+                        SpacePermission.moderate,
+                        channelId: channelId,
+                        categoryId: categoryId,
+                      ) ??
+                      false)
+            : moderationTargetsRemovedContent && targetRole == null
+            ? authorRole == GroupRole.owner
+            : op == ControlOp.revokeModeration && targetRole == null
+            ? revokesRemovedMember && authorRole == GroupRole.owner
+            : builtIn || (custom && sourceScopeAllows));
     if (allowed) return const SpaceAuthorizationDecision.allow();
     final rankProtected =
         targetRole != null && targetRole.rank >= authorRole.rank ||
@@ -580,10 +632,57 @@ final class SpaceAcl {
               ControlOp.revokeModeration,
             }.contains(op);
     return SpaceAuthorizationDecision.deny(
-      rankProtected
+      explicitlyDenied
+          ? SpaceAuthorizationDenial.explicitlyDenied
+          : rankProtected
           ? SpaceAuthorizationDenial.protectedTarget
           : SpaceAuthorizationDenial.insufficientPermission,
     );
+  }
+
+  static bool customPolicyDeniesControl({
+    required SpaceAccessPolicy? policy,
+    required NodeId author,
+    required ControlOp op,
+    NodeId? channelId,
+    NodeId? categoryId,
+  }) {
+    if (policy == null) return false;
+    bool denied(SpacePermission permission) => policy.denies(
+      author,
+      permission,
+      channelId: channelId,
+      categoryId: categoryId,
+    );
+    return switch (op) {
+      ControlOp.setName ||
+      ControlOp.setDescription ||
+      ControlOp.publishRules => denied(SpacePermission.manageSettings),
+      ControlOp.createChannel ||
+      ControlOp.updateChannel => denied(SpacePermission.manageChannels),
+      ControlOp.setRetention => denied(SpacePermission.manageStorage),
+      ControlOp.setPostPin => denied(SpacePermission.managePosts),
+      ControlOp.setRecommendationCampaign => denied(
+        SpacePermission.manageRecommendations,
+      ),
+      ControlOp.rotateEpoch => denied(SpacePermission.manageEncryption),
+      ControlOp.addMember ||
+      ControlOp.removeMember ||
+      ControlOp.ban ||
+      ControlOp.mute ||
+      ControlOp.unmute => denied(SpacePermission.manageMembers),
+      ControlOp.moderate ||
+      ControlOp.revokeModeration => denied(SpacePermission.moderate),
+      ControlOp.setPolicy ||
+      ControlOp.setRole ||
+      ControlOp.transferOwnership ||
+      ControlOp.archiveSpace ||
+      ControlOp.deleteSpace ||
+      ControlOp.restoreSpace ||
+      ControlOp.checkpoint ||
+      ControlOp.acceptRules ||
+      ControlOp.leave => false,
+    };
   }
 
   /// Custom-role control authorization. The owner-authored policy may delegate
@@ -1249,7 +1348,8 @@ GroupFoldResult foldControlLog({
       rejected.add(e);
       continue;
     }
-    if (e.op == ControlOp.setPolicy && (e.version == 17 || e.version == 18)) {
+    if (e.op == ControlOp.setPolicy &&
+        (e.version == 17 || e.version == 18 || e.version == 19)) {
       final next = e.accessPolicy;
       final expectedRevision = (accessPolicy?.revision ?? 0) + 1;
       final expectedPrevious = accessPolicy?.policyHash ?? '';
@@ -1265,6 +1365,7 @@ GroupFoldResult foldControlLog({
       if (next == null ||
           (e.version == 17 && next.schemaVersion != 1) ||
           (e.version == 18 && next.schemaVersion != 2) ||
+          (e.version == 19 && next.schemaVersion != 3) ||
           next.revision != expectedRevision ||
           next.previousPolicyHash != expectedPrevious ||
           !next.hasValidScopeTargets(

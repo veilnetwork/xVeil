@@ -964,6 +964,12 @@ class AppL10nEn extends AppL10n {
   String get spaceAccessAddArea => 'Add another area';
 
   @override
+  String get spaceAccessAddDenyArea => 'Deny area';
+
+  @override
+  String get spaceAccessDenyScopeLabel => 'Denied area';
+
+  @override
   String get spaceAccessScopeLabel => 'Area';
 
   @override
