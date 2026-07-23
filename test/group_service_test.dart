@@ -4387,6 +4387,103 @@ void main() {
   );
 
   test(
+    'public holder attests a verified feed projection across edit and delete',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'owner', createIfMissing: true);
+      final signer = _FakeSigner(owner);
+      final service = GroupService(storage, signer);
+      addTearDown(service.dispose);
+
+      final spaceId = await service.createSpace(
+        'Projected public feed',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      final root = await service.publishSpacePost(
+        spaceId,
+        title: 'Root',
+        body: 'Original body',
+        broadcast: false,
+      );
+      expect(root, isNotNull);
+
+      final published = await service.buildSpacePublicDiscoveryPublication(
+        spaceId,
+      );
+      expect(published, isNotNull);
+      expect(published!.discovery.descriptor.publicPostCount, 1);
+      expect(published.feed.posts.single.body, 'Original body');
+      expect(
+        published.discovery.holder.publicFeedManifestHash,
+        published.feed.manifest.manifestHash,
+      );
+      expect(
+        published.feed.verifyAt(
+          nowMs: DateTime.now().millisecondsSinceEpoch,
+          expectedManifestHash:
+              published.discovery.descriptor.publicFeedManifestHash,
+          expectedSpaceId: spaceId,
+          expectedPublisher: owner,
+          publisherPublicKey:
+              published.discovery.descriptor.genesisManifest.genesisPubKey,
+          expectedControlHeadHash:
+              published.discovery.descriptor.controlHeadHash,
+          verifySignature: signer.verifyDetached,
+          verifyPost: signer.verifyPost,
+        ),
+        isTrue,
+      );
+      final publishedHash =
+          published.discovery.descriptor.publicFeedManifestHash;
+      final publishedRevision =
+          published.discovery.descriptor.publicFeedRevision;
+
+      final edited = await service.editSpacePost(
+        spaceId,
+        root!.postId,
+        title: 'Root',
+        body: 'Edited body',
+        broadcast: false,
+      );
+      expect(edited?.body, 'Edited body');
+      final afterEdit = await service.buildSpacePublicDiscoveryPublication(
+        spaceId,
+      );
+      expect(afterEdit, isNotNull);
+      expect(afterEdit!.feed.posts.single.body, 'Edited body');
+      expect(
+        afterEdit.discovery.descriptor.publicFeedRevision,
+        greaterThan(publishedRevision),
+      );
+      expect(
+        afterEdit.discovery.descriptor.publicFeedManifestHash,
+        isNot(publishedHash),
+      );
+
+      expect(
+        await service.deleteSpacePost(spaceId, root.postId, broadcast: false),
+        isTrue,
+      );
+      final afterDelete = await service.buildSpacePublicDiscoveryPublication(
+        spaceId,
+      );
+      expect(afterDelete, isNotNull);
+      expect(afterDelete!.feed.posts, isEmpty);
+      expect(afterDelete.feed.pages, isEmpty);
+      expect(afterDelete.discovery.descriptor.publicPostCount, 0);
+      expect(
+        afterDelete.discovery.descriptor.publicFeedRevision,
+        greaterThan(afterEdit.discovery.descriptor.publicFeedRevision),
+      );
+      expect(
+        afterDelete.discovery.holder.publicFeedManifestHash,
+        afterDelete.discovery.descriptor.publicFeedManifestHash,
+      );
+    },
+  );
+
+  test(
     'public discovery publishes native routes and keeps global search quorum',
     () async {
       final storage = FakeHvContainer().storage();
