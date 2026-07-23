@@ -329,6 +329,51 @@ void main() {
   });
 
   group('markMessageStatus', () {
+    test('unknown ACK and signature ids never append orphan ops', () async {
+      final before = counting.commits;
+      await storage.markMessageStatus(
+        'conv',
+        'grpc:${List.filled(64, 'a').join()}',
+        MessageStatus.delivered,
+      );
+      await storage.markMessageSignature(
+        'conv',
+        'unknown-message',
+        MessageSignature.verified,
+      );
+      expect(
+        counting.commits,
+        before,
+        reason: 'control-frame ACKs are not chat messages',
+      );
+
+      final message = await storage.appendMessage(
+        Message(
+          id: 'scoped',
+          conversationId: 'conv-a',
+          direction: MessageDirection.outgoing,
+          body: 'hi',
+          timestamp: DateTime(2026, 7, 1),
+        ),
+      );
+      final afterMessage = counting.commits;
+      await storage.markMessageStatus(
+        'conv-b',
+        message.id,
+        MessageStatus.delivered,
+      );
+      await storage.markMessageSignature(
+        'conv-b',
+        message.id,
+        MessageSignature.verified,
+      );
+      expect(
+        counting.commits,
+        afterMessage,
+        reason: 'same id in another conversation is still not a target',
+      );
+    });
+
     test(
       're-marking the stored status does not commit (per-launch re-acks)',
       () async {
