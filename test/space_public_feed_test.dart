@@ -4,6 +4,9 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/domain/group.dart';
+import 'package:xveil/domain/space_discovery.dart';
+import 'package:xveil/domain/space_join_request.dart';
 import 'package:xveil/domain/space_public_feed.dart';
 import 'package:xveil/domain/space_public_feed_transport.dart';
 import 'package:xveil/domain/space_post.dart';
@@ -90,6 +93,58 @@ SpacePublicFeedProjection _projection({
     _signature(owner, owner.bytes, unsigned.canonicalBytes()),
   );
   return SpacePublicFeedProjection(manifest: manifest, pages: pages);
+}
+
+SpacePublicFeedPackage _package({
+  required NodeId space,
+  required NodeId owner,
+  required SpacePublicFeedProjection projection,
+}) {
+  final unsignedGenesis = SpaceManifest.space(
+    spaceId: space,
+    owner: owner,
+    genesisPubKey: owner.bytes,
+    name: 'Stored public Space',
+    description: 'Only the signed public projection is retained.',
+    visibility: SpaceVisibility.public,
+    discoverable: true,
+    createdAtMs: 1000,
+  );
+  final genesis = unsignedGenesis.withSignature(
+    _signature(owner, owner.bytes, unsignedGenesis.canonicalBytes()),
+  );
+  final ticket = SpaceJoinTicket(
+    ticketId: '77' * 32,
+    spaceId: space,
+    approver: owner,
+    spaceName: 'Stored public Space',
+    createdAtMs: 1000,
+    expiresAtMs: 3000,
+  );
+  final unsignedDescriptor = SpacePublicDescriptor(
+    spaceId: space,
+    publisher: owner,
+    genesisManifest: genesis,
+    controlHeadHash: projection.manifest.controlHeadHash,
+    revision: projection.manifest.revision,
+    publicFeedManifestHash: projection.manifest.manifestHash,
+    publicFeedRevision: projection.manifest.revision,
+    publicFeedUpdatedAtMs: projection.manifest.updatedAtMs,
+    publicPostCount: projection.manifest.itemCount,
+    name: 'Stored public Space',
+    description: 'Only the signed public projection is retained.',
+    avatarContentId: null,
+    coverContentId: null,
+    createdAtMs: 1000,
+    updatedAtMs: 1900,
+    issuedAtMs: 2000,
+    expiresAtMs: 3000,
+    joinCode: SpaceJoinCode.encode(ticket),
+  );
+  final descriptor = unsignedDescriptor.withSignature(
+    _signature(owner, owner.bytes, unsignedDescriptor.canonicalBytes()),
+  );
+  return SpacePublicFeedPackage(descriptor: descriptor, projection: projection);
 }
 
 void main() {
@@ -328,6 +383,78 @@ void main() {
     expect(hidden.referencedContentIds, isEmpty);
     expect(hidden.posts.single.body, 'Text remains');
   });
+
+  test(
+    'subscription snapshot proves fetch-time validity and stays readable offline',
+    () {
+      final space = _id(17);
+      final owner = _id(18);
+      final root = _signedPost(
+        space: space,
+        author: owner,
+        seq: 0,
+        body: 'Verified while online',
+      );
+      final projection = _projection(
+        space: space,
+        owner: owner,
+        posts: [
+          SpacePublicPostProjection(
+            root: root,
+            effective: root,
+            pinned: false,
+            mediaHiddenByRetention: false,
+          ),
+        ],
+      );
+      final snapshot = SpacePublicSubscriptionSnapshot(
+        verifiedAtMs: 2500,
+        package: _package(space: space, owner: owner, projection: projection),
+      );
+
+      expect(
+        snapshot.verifyStored(
+          verifySignature: _verifyDetached,
+          verifyPost: _verifyPost,
+        ),
+        isTrue,
+      );
+      expect(snapshot.isStaleAt(2999), isFalse);
+      expect(snapshot.isStaleAt(3000), isTrue);
+      final decoded = SpacePublicSubscriptionSnapshot.fromBytes(
+        snapshot.toBytes(),
+      );
+      expect(decoded, isNotNull);
+      expect(
+        decoded!.verifyStored(
+          verifySignature: _verifyDetached,
+          verifyPost: _verifyPost,
+        ),
+        isTrue,
+        reason:
+            'expiry blocks refresh/availability, not a previously verified '
+            'offline publication',
+      );
+
+      final injected = snapshot.toJson()..['members'] = [owner.hex];
+      expect(SpacePublicSubscriptionSnapshot.fromJson(injected), isNull);
+      final tampered = snapshot.toJson();
+      final package = tampered['package'] as Map;
+      final pages = package['pages'] as List;
+      final post = ((pages.single as Map)['posts'] as List).single as Map;
+      (post['root'] as Map)['body'] = 'unsigned replacement';
+      (post['effective'] as Map)['body'] = 'unsigned replacement';
+      final decodedTamper = SpacePublicSubscriptionSnapshot.fromJson(tampered);
+      expect(decodedTamper, isNotNull);
+      expect(
+        decodedTamper!.verifyStored(
+          verifySignature: _verifyDetached,
+          verifyPost: _verifyPost,
+        ),
+        isFalse,
+      );
+    },
+  );
 
   test('object request is signed, source-bound, fresh and strictly parsed', () {
     const now = 5000;

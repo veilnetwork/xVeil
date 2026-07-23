@@ -586,6 +586,20 @@ class AppL10nRu extends AppL10n {
       'Уведомлять на этом устройстве о новых публикациях сообщества.';
 
   @override
+  String get spacePublicReadOnly => 'Публичная подписка · только чтение';
+
+  @override
+  String get spacePublicSnapshotStale =>
+      'Показан последний проверенный снимок. Для обновления нужен доступный проверенный распространитель.';
+
+  @override
+  String get spacePublicUnsubscribe => 'Отписаться';
+
+  @override
+  String get spacePublicUnsubscribeConfirm =>
+      'Удалить публичную подписку и её офлайн-снимок с этого устройства?';
+
+  @override
   String get spaceCommentNotificationsSetting => 'Уведомления об обсуждениях';
 
   @override

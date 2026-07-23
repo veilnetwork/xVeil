@@ -17,8 +17,10 @@ import 'package:xveil/domain/message_mention.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/features/spaces/space_feed_screen.dart';
+import 'package:xveil/features/spaces/space_list_screen.dart';
 import 'package:xveil/features/spaces/space_post_comments_screen.dart';
 import 'package:xveil/features/spaces/space_posts_screen.dart';
+import 'package:xveil/features/spaces/public_space_posts_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/state/group_service_providers.dart';
@@ -95,6 +97,19 @@ class _Signer implements GroupSigner {
       _valid(value.signature, value.authorPubKey);
   @override
   bool verifySpaceManifest(SpaceManifest value) => value.signature.length == 64;
+  @override
+  ({Uint8List signature, Uint8List publicKey}) signDetached(
+    Uint8List message,
+  ) => (signature: Uint8List(64), publicKey: selfPubKey);
+  @override
+  bool verifyDetached({
+    required NodeId signer,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+  }) =>
+      signer == NodeId(Uint8List.fromList(publicKey)) &&
+      _valid(signature, publicKey);
   @override
   bool verifySovereign({
     required String algorithm,
@@ -460,6 +475,132 @@ void main() {
       expect(find.text('Ordinary'), findsNothing);
       expect(find.text('For you'), findsOneWidget);
       expect((await memberService.spaceFeedFilter()).mentionsOnly, isTrue);
+    },
+  );
+
+  testWidgets(
+    'public-only Feed and exact post route stay read-only with a back path',
+    (tester) async {
+      final ownerStorage = FakeHvContainer().storage();
+      final readerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await readerStorage.open(password: 'reader', createIfMissing: true);
+      final owner = _id(41);
+      final reader = _id(42);
+      late final GroupService readerService;
+      final ownerService = GroupService(
+        ownerStorage,
+        _Signer(owner),
+        sendPublicFeedChunk: (requester, chunkJson) async {
+          expect(requester, reader);
+          readerService.handlePublicFeedObjectChunk(owner, chunkJson);
+        },
+      );
+      readerService = GroupService(
+        readerStorage,
+        _Signer(reader),
+        sendPublicFeedRequest: (holder, requestJson) async {
+          expect(holder, owner);
+          await ownerService.handlePublicFeedObjectRequest(reader, requestJson);
+        },
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(readerService.dispose);
+      final spaceId = await ownerService.createSpace(
+        'Verified public reader',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      final post = await ownerService.publishSpacePost(
+        spaceId,
+        title: 'Exact public mention',
+        body: 'Hello ${encodeMessageMention(reader)}',
+        broadcast: false,
+      );
+      final publication = await ownerService
+          .buildSpacePublicDiscoveryPublication(spaceId);
+      expect(publication, isNotNull);
+      expect(
+        await readerService.subscribeToPublicSpace(
+          publication!.discovery.descriptor,
+          [publication.discovery.holder],
+        ),
+        isNotNull,
+      );
+
+      await tester.pumpWidget(
+        _host(readerService, const SpaceFeedScreen(), storage: readerStorage),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Exact public mention'), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('space-post-add-reaction-${post!.postId}')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(ValueKey('space-feed-comments-${post.postId}')),
+        findsNothing,
+      );
+
+      late final GoRouter router;
+      router = GoRouter(
+        initialLocation: '/',
+        routes: [
+          GoRoute(path: '/', builder: (_, _) => const SpaceListScreen()),
+          GoRoute(
+            path: '/space/:id/public-posts',
+            builder: (_, state) => PublicSpacePostsScreen(
+              spaceIdHex: state.pathParameters['id']!,
+              initialPostId: state.uri.queryParameters['post'],
+            ),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        _routerHost(readerService, router, storage: readerStorage),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(SpaceListScreen), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('public-space-subscription-${spaceId.hex}')),
+        findsOneWidget,
+      );
+      expect(find.text('Verified public reader'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(ValueKey('public-space-subscription-${spaceId.hex}')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(PublicSpacePostsScreen), findsOneWidget);
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(find.byType(SpaceListScreen), findsOneWidget);
+
+      router.push(
+        '/space/${spaceId.hex}/public-posts?post=${Uri.encodeQueryComponent(post.postId)}',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PublicSpacePostsScreen), findsOneWidget);
+      expect(find.byType(BackButton), findsOneWidget);
+      expect(find.text('Verified public reader'), findsOneWidget);
+      expect(find.text('Exact public mention'), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('public-space-post-${post.postId}')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('public-space-feed-toggle')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('public-space-notifications-toggle')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('public-space-join')), findsOneWidget);
+      expect(find.byIcon(Icons.edit_outlined), findsNothing);
+      expect(find.byIcon(Icons.forum_outlined), findsNothing);
     },
   );
 

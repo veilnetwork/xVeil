@@ -61,6 +61,9 @@ final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>
       ref.watch(groupListProvider).valueOrNull ?? const <GroupListEntry>[];
   final spaces =
       ref.watch(spaceListProvider).valueOrNull ?? const <GroupListEntry>[];
+  final publicSubscriptions =
+      ref.watch(publicSpaceSubscriptionListProvider).valueOrNull ??
+      const <SpacePublicSubscriptionView>[];
   final storage = ref.watch(storageProvider);
   final service = ref.watch(groupServiceProvider);
   final entries = <MentionInboxEntry>[];
@@ -177,6 +180,30 @@ final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>
             ),
           );
         }
+      }
+    }
+
+    for (final public in publicSubscriptions) {
+      for (final post in public.feed.posts) {
+        final postText = [
+          if (post.title.trim().isNotEmpty) post.title,
+          if (post.body.trim().isNotEmpty) post.body,
+        ].join('\n');
+        if (post.author == self || !messageMentionsNode(postText, self)) {
+          continue;
+        }
+        entries.add(
+          MentionInboxEntry(
+            id: 'public-space-post:${public.descriptor.spaceId.hex}:${post.postId}',
+            kind: MentionSourceKind.spacePost,
+            author: post.author,
+            contextName: public.descriptor.name,
+            body: postText,
+            timestampMs: post.publishedAtMs,
+            route:
+                '/space/${public.descriptor.spaceId.hex}/public-posts?post=${Uri.encodeQueryComponent(post.postId)}',
+          ),
+        );
       }
     }
   }
