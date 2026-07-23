@@ -220,6 +220,10 @@ class MessagingService {
   /// durably persisted the exact ticket/request, which is the ACK gate.
   Future<bool> Function(NodeId peer, String requestJson)? onSpaceJoinRequest;
   Future<bool> Function(NodeId peer, String decisionJson)? onSpaceJoinDecision;
+  Future<bool> Function(NodeId peer, String appealJson)?
+  onSpaceModerationAppeal;
+  Future<bool> Function(NodeId peer, String decisionJson)?
+  onSpaceModerationAppealDecision;
 
   /// Space-layer admission for a recommendation card. Contact consent and the
   /// receiver-wide opt-out are enforced here; this callback additionally
@@ -444,6 +448,26 @@ class MessagingService {
     dst,
     'space-join-decision:$requestId',
     WireEnvelope.spaceJoinDecision(decisionJson),
+  );
+
+  Future<void> sendSpaceModerationAppeal(
+    NodeId dst,
+    String appealId,
+    String appealJson,
+  ) => sendDurable(
+    dst,
+    'space-moderation-appeal:$appealId',
+    WireEnvelope.spaceModerationAppeal(appealJson),
+  );
+
+  Future<void> sendSpaceModerationAppealDecision(
+    NodeId dst,
+    String appealId,
+    String decisionJson,
+  ) => sendDurable(
+    dst,
+    'space-moderation-appeal-decision:$appealId',
+    WireEnvelope.spaceModerationAppealDecision(decisionJson),
   );
 
   /// Ship a shared-document invite/snapshot/delta durably.
@@ -967,8 +991,10 @@ class MessagingService {
   Future<bool> _authorizedGroupCallAck(NodeId peer, String frameId) =>
       _outbox.authorizedGroupCallAck(peer, frameId);
 
-  Future<bool> _authorizedSpaceJoinAck(NodeId peer, String frameId) =>
-      _outbox.authorizedSpaceJoinAck(peer, frameId);
+  Future<bool> _authorizedExternalSpaceProposalAck(
+    NodeId peer,
+    String frameId,
+  ) => _outbox.authorizedExternalSpaceProposalAck(peer, frameId);
 
   /// Locally retire a durable frame (acked, or moot): stop re-driving and
   /// re-stashing it, and drop it from the persistent outbox. [ackOutboxFrame]

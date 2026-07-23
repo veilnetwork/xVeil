@@ -673,6 +673,8 @@ class ApiServerController extends Notifier<ApiConfig> {
       spaceModerationAudit: groupApi?.moderationAudit,
       moderateSpace: groupApi?.moderate,
       revokeSpaceModeration: groupApi?.revokeModeration,
+      spaceModerationAppeals: groupApi?.moderationAppeals,
+      spaceModerationAppealAction: groupApi?.moderationAppealAction,
       createSpaceChannel: groupApi?.createChannel,
       updateSpaceChannel: groupApi?.updateChannel,
       spaceChannelAction: groupApi?.channelAction,

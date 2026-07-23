@@ -123,6 +123,122 @@ class SpaceModerationScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _reviewAppeal(
+    BuildContext context,
+    GroupService service,
+    SpaceModerationAppealInboxEntry entry,
+    SpaceModerationRecord record,
+  ) async {
+    final irreversible = {
+      SpaceModerationKind.deleteMessage,
+      SpaceModerationKind.deletePost,
+    }.contains(record.action.kind);
+    var draftReason = '';
+    var outcome = SpaceModerationAppealOutcome.rejected;
+    final result =
+        await showDialog<
+          ({SpaceModerationAppealOutcome outcome, String reason})
+        >(
+          context: context,
+          builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              title: Text(AppL10n.of(context).spaceModerationAppealReview),
+              content: SizedBox(
+                width: 480,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(entry.appeal.text),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<SpaceModerationAppealOutcome>(
+                      key: const ValueKey('space-moderation-appeal-outcome'),
+                      initialValue: outcome,
+                      isExpanded: true,
+                      items: [
+                        DropdownMenuItem(
+                          value: SpaceModerationAppealOutcome.rejected,
+                          child: Text(
+                            AppL10n.of(
+                              context,
+                            ).spaceModerationAppealDecisionReject,
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: irreversible
+                              ? SpaceModerationAppealOutcome
+                                    .acknowledgedIrreversible
+                              : SpaceModerationAppealOutcome.actionRevoked,
+                          child: Text(
+                            irreversible
+                                ? AppL10n.of(
+                                    context,
+                                  ).spaceModerationAppealDecisionAcknowledge
+                                : AppL10n.of(
+                                    context,
+                                  ).spaceModerationAppealDecisionRevoke,
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setDialogState(() => outcome = value);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const ValueKey(
+                        'space-moderation-appeal-decision-reason',
+                      ),
+                      minLines: 2,
+                      maxLines: 6,
+                      maxLength: kSpaceModerationReasonMax,
+                      decoration: InputDecoration(
+                        labelText: AppL10n.of(
+                          context,
+                        ).spaceModerationAppealDecisionReason,
+                        alignLabelWithHint: true,
+                      ),
+                      onChanged: (value) => draftReason = value,
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: Text(AppL10n.of(context).actionCancel),
+                ),
+                FilledButton(
+                  key: const ValueKey('space-moderation-appeal-decide'),
+                  onPressed: () {
+                    final reason = draftReason.trim();
+                    if (reason.isNotEmpty) {
+                      Navigator.of(
+                        dialogContext,
+                      ).pop((outcome: outcome, reason: reason));
+                    }
+                  },
+                  child: Text(AppL10n.of(context).spaceModerationAppealReview),
+                ),
+              ],
+            ),
+          ),
+        );
+    if (result == null) return;
+    final ok = await service.decideSpaceModerationAppeal(
+      entry.appeal.appealId,
+      outcome: result.outcome,
+      reason: result.reason,
+    );
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).spaceOperationFailed)),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
@@ -142,6 +258,7 @@ class SpaceModerationScreen extends ConsumerWidget {
         future: Future.wait<Object?>([
           service.stateOf(spaceId),
           service.spaceModerationAudit(spaceId),
+          service.incomingSpaceModerationAppeals(spaceId: spaceId),
         ]),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
@@ -151,6 +268,8 @@ class SpaceModerationScreen extends ConsumerWidget {
           }
           final state = snapshot.data![0] as GroupState?;
           final records = snapshot.data![1] as List<SpaceModerationRecord>;
+          final appeals =
+              snapshot.data![2] as List<SpaceModerationAppealInboxEntry>;
           if (state == null || !state.isMember(service.selfId)) {
             return Scaffold(body: Center(child: Text(l.spaceOperationFailed)));
           }
@@ -169,93 +288,173 @@ class SpaceModerationScreen extends ConsumerWidget {
                     label: Text(l.spaceModerationAdd),
                   )
                 : null,
-            body: records.isEmpty
+            body: records.isEmpty && appeals.isEmpty
                 ? Center(child: Text(l.spaceModerationEmpty))
                 : Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 760),
-                      child: ListView.separated(
+                      child: ListView(
                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-                        itemCount: records.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 8),
-                        itemBuilder: (context, index) {
-                          final record = records[index];
-                          final active = record.isActiveAt(now);
-                          final revoked = record.revokedAtMs != null;
-                          final reversible = !{
-                            SpaceModerationKind.deleteMessage,
-                            SpaceModerationKind.deletePost,
-                          }.contains(record.action.kind);
-                          final myRole = state.roleOf(service.selfId)!;
-                          final targetRole = state.roleOf(record.action.target);
-                          final canRevoke = targetRole == null
-                              ? myRole == GroupRole.owner &&
-                                    record.action.kind.removesMembership
-                              : canApply(
-                                  authorRole: myRole,
-                                  op: ControlOp.revokeModeration,
-                                  targetRole: targetRole,
-                                );
-                          final status = revoked
-                              ? l.spaceModerationRevoked
-                              : active
-                              ? l.spaceModerationActive
-                              : l.spaceModerationExpired;
-                          return Card(
-                            child: ListTile(
-                              leading: Icon(
-                                active
-                                    ? Icons.gpp_maybe_outlined
-                                    : Icons.history_outlined,
-                                color: active
-                                    ? Theme.of(context).colorScheme.error
-                                    : null,
+                        children: [
+                          if (appeals.isNotEmpty) ...[
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Text(
+                                l.spaceModerationAppealsTitle,
+                                style: Theme.of(context).textTheme.titleMedium,
                               ),
-                              title: Text(_kindLabel(l, record.action.kind)),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '${record.action.target.short} · $status',
-                                  ),
-                                  Text(record.action.reason),
-                                  Text(
-                                    '${record.actor.short} · '
-                                    '${_date(context, record.action.createdAtMs)}',
-                                  ),
-                                  if (record.action.expiresAtMs != null)
-                                    Text(
-                                      l.spaceModerationUntil(
-                                        _date(
-                                          context,
-                                          record.action.expiresAtMs!,
-                                        ),
-                                      ),
-                                    ),
-                                  if (record.revocationReason != null)
-                                    Text(record.revocationReason!),
-                                ],
-                              ),
-                              trailing:
-                                  active &&
-                                      canModerate &&
-                                      reversible &&
-                                      canRevoke
-                                  ? IconButton(
-                                      tooltip: l.spaceModerationRevoke,
-                                      onPressed: () => _revoke(
-                                        context,
-                                        service,
-                                        spaceId,
-                                        record,
-                                      ),
-                                      icon: const Icon(Icons.undo_outlined),
-                                    )
-                                  : null,
                             ),
-                          );
-                        },
+                            for (final appeal in appeals) ...[
+                              Card(
+                                key: ValueKey(
+                                  'space-moderation-appeal-incoming-${appeal.appeal.appealId}',
+                                ),
+                                child: ListTile(
+                                  leading: const Icon(Icons.balance_outlined),
+                                  title: Text(
+                                    l.spaceModerationAppealFrom(
+                                      appeal.appeal.appellant.short,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    [
+                                      appeal.appeal.text,
+                                      if (appeal.decision != null)
+                                        appeal.decision!.reason,
+                                    ].join('\n'),
+                                    maxLines: 5,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  trailing:
+                                      appeal.pending &&
+                                          state.roleOf(service.selfId) ==
+                                              GroupRole.owner
+                                      ? Builder(
+                                          builder: (context) {
+                                            final record = records
+                                                .where(
+                                                  (record) =>
+                                                      record.actionId ==
+                                                      appeal.appeal.actionId,
+                                                )
+                                                .firstOrNull;
+                                            return IconButton(
+                                              key: ValueKey(
+                                                'space-moderation-appeal-review-${appeal.appeal.appealId}',
+                                              ),
+                                              tooltip:
+                                                  l.spaceModerationAppealReview,
+                                              onPressed: record == null
+                                                  ? null
+                                                  : () => _reviewAppeal(
+                                                      context,
+                                                      service,
+                                                      appeal,
+                                                      record,
+                                                    ),
+                                              icon: const Icon(
+                                                Icons.rate_review_outlined,
+                                              ),
+                                            );
+                                          },
+                                        )
+                                      : null,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+                            const SizedBox(height: 8),
+                          ],
+                          for (final record in records) ...[
+                            Builder(
+                              builder: (context) {
+                                final active = record.isActiveAt(now);
+                                final revoked = record.revokedAtMs != null;
+                                final reversible = !{
+                                  SpaceModerationKind.deleteMessage,
+                                  SpaceModerationKind.deletePost,
+                                }.contains(record.action.kind);
+                                final myRole = state.roleOf(service.selfId)!;
+                                final targetRole = state.roleOf(
+                                  record.action.target,
+                                );
+                                final canRevoke = targetRole == null
+                                    ? myRole == GroupRole.owner &&
+                                          record.action.kind.removesMembership
+                                    : canApply(
+                                        authorRole: myRole,
+                                        op: ControlOp.revokeModeration,
+                                        targetRole: targetRole,
+                                      );
+                                final status = revoked
+                                    ? l.spaceModerationRevoked
+                                    : active
+                                    ? l.spaceModerationActive
+                                    : l.spaceModerationExpired;
+                                return Card(
+                                  child: ListTile(
+                                    leading: Icon(
+                                      active
+                                          ? Icons.gpp_maybe_outlined
+                                          : Icons.history_outlined,
+                                      color: active
+                                          ? Theme.of(context).colorScheme.error
+                                          : null,
+                                    ),
+                                    title: Text(
+                                      _kindLabel(l, record.action.kind),
+                                    ),
+                                    subtitle: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '${record.action.target.short} · $status',
+                                        ),
+                                        Text(record.action.reason),
+                                        Text(
+                                          '${record.actor.short} · '
+                                          '${_date(context, record.action.createdAtMs)}',
+                                        ),
+                                        if (record.action.expiresAtMs != null)
+                                          Text(
+                                            l.spaceModerationUntil(
+                                              _date(
+                                                context,
+                                                record.action.expiresAtMs!,
+                                              ),
+                                            ),
+                                          ),
+                                        if (record.revocationReason != null)
+                                          Text(record.revocationReason!),
+                                      ],
+                                    ),
+                                    trailing:
+                                        active &&
+                                            canModerate &&
+                                            reversible &&
+                                            canRevoke
+                                        ? IconButton(
+                                            tooltip: l.spaceModerationRevoke,
+                                            onPressed: () => _revoke(
+                                              context,
+                                              service,
+                                              spaceId,
+                                              record,
+                                            ),
+                                            icon: const Icon(
+                                              Icons.undo_outlined,
+                                            ),
+                                          )
+                                        : null,
+                                  ),
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                        ],
                       ),
                     ),
                   ),
