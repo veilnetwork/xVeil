@@ -4934,4 +4934,89 @@ class AppL10nRu extends AppL10n {
   @override
   String get spaceModerationAppealDecisionAcknowledge =>
       'Принять без восстановления';
+
+  @override
+  String get spaceAbuseReportAction => 'Пожаловаться';
+
+  @override
+  String get spaceAbuseReportDialogTitle => 'Сообщить о нарушении';
+
+  @override
+  String get spaceAbuseReportCategory => 'Причина жалобы';
+
+  @override
+  String get spaceAbuseReportCategorySpam => 'Спам или мошенничество';
+
+  @override
+  String get spaceAbuseReportCategoryHarassment => 'Травля или оскорбления';
+
+  @override
+  String get spaceAbuseReportCategoryViolence => 'Насилие или угрозы';
+
+  @override
+  String get spaceAbuseReportCategorySexualContent =>
+      'Материалы сексуального характера';
+
+  @override
+  String get spaceAbuseReportCategoryIllegalContent => 'Незаконный контент';
+
+  @override
+  String get spaceAbuseReportCategoryMisinformation => 'Опасная дезинформация';
+
+  @override
+  String get spaceAbuseReportCategoryOther => 'Другое';
+
+  @override
+  String get spaceAbuseReportDetails => 'Подробности (необязательно)';
+
+  @override
+  String get spaceAbuseReportDetailsRequired =>
+      'Для категории «Другое» добавьте пояснение';
+
+  @override
+  String get spaceAbuseReportSent => 'Жалоба отправлена модераторам';
+
+  @override
+  String get spaceAbuseReportsTitle => 'Жалобы';
+
+  @override
+  String spaceAbuseReportFrom(String node) {
+    return 'Жалоба от $node';
+  }
+
+  @override
+  String get spaceAbuseReportPost => 'Публикация';
+
+  @override
+  String get spaceAbuseReportComment => 'Комментарий';
+
+  @override
+  String get spaceAbuseReportOpenContent => 'Открыть материал';
+
+  @override
+  String get spaceAbuseReportReview => 'Рассмотреть жалобу';
+
+  @override
+  String get spaceAbuseReportDecisionReason => 'Обоснование решения';
+
+  @override
+  String get spaceAbuseReportDecisionDismiss => 'Отклонить жалобу';
+
+  @override
+  String get spaceAbuseReportDecisionResolve => 'Отметить решённой';
+
+  @override
+  String get spaceAbuseReportDecisionRemove => 'Удалить материал';
+
+  @override
+  String get spaceAbuseReportPending => 'Ожидает рассмотрения';
+
+  @override
+  String get spaceAbuseReportDismissed => 'Нарушение не подтверждено';
+
+  @override
+  String get spaceAbuseReportResolved => 'Решено';
+
+  @override
+  String get spaceAbuseReportRemoved => 'Материал удалён';
 }

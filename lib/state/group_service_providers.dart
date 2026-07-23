@@ -145,6 +145,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     sendSpaceModerationAppeal: messaging.sendSpaceModerationAppeal,
     sendSpaceModerationAppealDecision:
         messaging.sendSpaceModerationAppealDecision,
+    sendSpaceAbuseReport: messaging.sendSpaceAbuseReport,
+    sendSpaceAbuseReportDecision: messaging.sendSpaceAbuseReportDecision,
     sendSpaceRecommendation: messaging.sendSpaceRecommendation,
     revokeSpaceRecommendation: messaging.revokeSpaceRecommendation,
     sendContentRequest: (holder, json) =>
@@ -197,6 +199,9 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   messaging.onSpaceModerationAppeal = service.receiveSpaceModerationAppeal;
   messaging.onSpaceModerationAppealDecision =
       service.receiveSpaceModerationAppealDecision;
+  messaging.onSpaceAbuseReport = service.receiveSpaceAbuseReport;
+  messaging.onSpaceAbuseReportDecision =
+      service.receiveSpaceAbuseReportDecision;
   messaging.onSpaceRecommendation = service.acceptsSpaceRecommendationCard;
   messaging.onGroupContentRequest = (peer, requestJson) {
     unawaited(service.handleContentRequest(requestJson));

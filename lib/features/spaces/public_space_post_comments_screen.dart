@@ -152,6 +152,18 @@ class _PublicSpacePostCommentsScreenState
     if (mounted && blocked) setState(() {});
   }
 
+  Future<void> _reportComment(
+    GroupService service,
+    NodeId spaceId,
+    String commentRef,
+  ) => promptAndReportSpaceContent(
+    context,
+    service,
+    spaceId,
+    postId: widget.postId,
+    commentRef: commentRef,
+  );
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -302,6 +314,13 @@ class _PublicSpacePostCommentsScreenState
                             onBlock: comment.author == service.selfId
                                 ? null
                                 : () => _blockCommentAuthor(comment.author),
+                            onReport: comment.author == service.selfId
+                                ? null
+                                : () => _reportComment(
+                                    service,
+                                    spaceId,
+                                    comment.ref,
+                                  ),
                           ),
                     ],
                   ),
@@ -389,6 +408,7 @@ class _PublicCommentBubble extends StatelessWidget {
     required this.repliedComment,
     required this.isSelf,
     required this.onBlock,
+    required this.onReport,
   });
 
   final NodeId spaceId;
@@ -396,6 +416,7 @@ class _PublicCommentBubble extends StatelessWidget {
   final SpacePublicCommentView? repliedComment;
   final bool isSelf;
   final VoidCallback? onBlock;
+  final VoidCallback? onReport;
 
   @override
   Widget build(BuildContext context) {
@@ -439,23 +460,40 @@ class _PublicCommentBubble extends StatelessWidget {
                       style: Theme.of(context).textTheme.labelSmall,
                     ),
                   ],
-                  if (onBlock != null)
+                  if (onBlock != null || onReport != null)
                     PopupMenuButton<_PublicCommentAction>(
                       key: ValueKey('public-space-comment-menu-${comment.ref}'),
                       tooltip: MaterialLocalizations.of(
                         context,
                       ).showMenuTooltip,
                       icon: const Icon(Icons.more_horiz, size: 20),
-                      onSelected: (_) => onBlock?.call(),
+                      onSelected: (action) {
+                        switch (action) {
+                          case _PublicCommentAction.block:
+                            onBlock?.call();
+                          case _PublicCommentAction.report:
+                            onReport?.call();
+                        }
+                      },
                       itemBuilder: (context) => [
-                        PopupMenuItem(
-                          value: _PublicCommentAction.block,
-                          child: ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.block_outlined),
-                            title: Text(l.spacePostCommentBlockAuthor),
+                        if (onBlock != null)
+                          PopupMenuItem(
+                            value: _PublicCommentAction.block,
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.block_outlined),
+                              title: Text(l.spacePostCommentBlockAuthor),
+                            ),
                           ),
-                        ),
+                        if (onReport != null)
+                          PopupMenuItem(
+                            value: _PublicCommentAction.report,
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.flag_outlined),
+                              title: Text(l.spaceAbuseReportAction),
+                            ),
+                          ),
                       ],
                     ),
                 ],
@@ -505,7 +543,7 @@ class _PublicCommentBubble extends StatelessWidget {
   }
 }
 
-enum _PublicCommentAction { block }
+enum _PublicCommentAction { block, report }
 
 String _publicCommentTime(BuildContext context, int milliseconds) {
   final value = DateTime.fromMillisecondsSinceEpoch(milliseconds);
