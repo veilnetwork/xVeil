@@ -9,6 +9,7 @@ import '../../core/ids.dart';
 import '../../domain/chat.dart';
 import '../../domain/group.dart';
 import '../../domain/group_policy.dart';
+import '../../domain/space_channel.dart';
 import '../../domain/space_retention.dart';
 import '../../domain/space_join_request.dart';
 import '../../domain/space_recommendation.dart';
@@ -61,6 +62,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     service.pendingSpaceJoinRequests(spaceId),
     service.spaceRecommendationCampaigns(spaceId),
     service.groupNotificationPolicy(spaceId),
+    service.channelsOf(spaceId, includeArchived: true),
   ]);
 
   Future<List<Object?>> _settingsSnapshot(
@@ -142,6 +144,20 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
         SpacePermission.manageEncryption => l.spacePermissionManageEncryption,
         SpacePermission.manageStorage => l.spacePermissionManageStorage,
         SpacePermission.manageChannels => l.spacePermissionManageChannels,
+      };
+
+  String _scopeKindLabel(AppL10n l, SpacePermissionScopeKind kind) =>
+      switch (kind) {
+        SpacePermissionScopeKind.space => l.spaceAccessScopeSpace,
+        SpacePermissionScopeKind.category => l.spaceAccessScopeCategory,
+        SpacePermissionScopeKind.channel => l.spaceAccessScopeChannel,
+        SpacePermissionScopeKind.posts => l.spaceAccessScopePosts,
+        SpacePermissionScopeKind.moderation => l.spaceAccessScopeModeration,
+        SpacePermissionScopeKind.members => l.spaceAccessScopeMembers,
+        SpacePermissionScopeKind.roles => l.spaceAccessScopeRoles,
+        SpacePermissionScopeKind.settings => l.spaceAccessScopeSettings,
+        SpacePermissionScopeKind.encryption => l.spaceAccessScopeEncryption,
+        SpacePermissionScopeKind.storage => l.spaceAccessScopeStorage,
       };
 
   String _visibilityLabel(AppL10n l, SpaceVisibility? visibility) =>
@@ -359,14 +375,17 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     GroupService service,
     NodeId spaceId,
     GroupState state, [
+    List<SpaceChannel> channels = const <SpaceChannel>[],
     SpaceRoleDefinition? existing,
   ]) async {
     final draft = await showDialog<_SpaceRoleDraft>(
       context: context,
       builder: (_) => _SpaceRoleDialog(
         existing: existing,
+        channels: channels,
         permissionLabel: (permission) =>
             _permissionLabel(AppL10n.of(context), permission),
+        scopeLabel: (scope) => _scopeKindLabel(AppL10n.of(context), scope),
       ),
     );
     if (draft == null) return;
@@ -377,7 +396,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
         SpaceRoleDefinition(
           roleId: roleId,
           name: draft.name,
-          permissions: draft.permissions,
+          grants: draft.grants,
         ),
       );
     await _replaceAccessPolicy(
@@ -838,16 +857,28 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
 
   List<PopupMenuEntry<_SpaceMemberAction>> _actionsFor(
     AppL10n l,
+    GroupState state,
+    NodeId selfId,
     GroupRole myRole,
     GroupMember member,
   ) {
     final actions = <PopupMenuEntry<_SpaceMemberAction>>[];
-    if (member.muted &&
+    bool allowed(ControlOp op, {GroupRole? newRole}) =>
         canApply(
           authorRole: myRole,
-          op: ControlOp.unmute,
+          op: op,
           targetRole: member.role,
-        )) {
+          newRole: newRole,
+        ) ||
+        SpaceAcl.customPolicyAllowsControl(
+          policy: state.accessPolicy,
+          author: selfId,
+          op: op,
+          targetRole: member.role,
+          newRole: newRole,
+          target: member.nodeId,
+        );
+    if (member.muted && allowed(ControlOp.unmute)) {
       actions.add(
         PopupMenuItem(
           value: _SpaceMemberAction.unmute,
@@ -856,12 +887,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
       );
     }
     if (member.role == GroupRole.member &&
-        canApply(
-          authorRole: myRole,
-          op: ControlOp.setRole,
-          targetRole: member.role,
-          newRole: GroupRole.admin,
-        )) {
+        allowed(ControlOp.setRole, newRole: GroupRole.admin)) {
       actions.add(
         PopupMenuItem(
           value: _SpaceMemberAction.promote,
@@ -870,12 +896,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
       );
     }
     if (member.role == GroupRole.admin &&
-        canApply(
-          authorRole: myRole,
-          op: ControlOp.setRole,
-          targetRole: member.role,
-          newRole: GroupRole.member,
-        )) {
+        allowed(ControlOp.setRole, newRole: GroupRole.member)) {
       actions.add(
         PopupMenuItem(
           value: _SpaceMemberAction.demote,
@@ -883,11 +904,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
         ),
       );
     }
-    if (canApply(
-      authorRole: myRole,
-      op: ControlOp.removeMember,
-      targetRole: member.role,
-    )) {
+    if (allowed(ControlOp.removeMember)) {
       actions.add(
         PopupMenuItem(
           value: _SpaceMemberAction.remove,
@@ -895,11 +912,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
         ),
       );
     }
-    if (canApply(
-      authorRole: myRole,
-      op: ControlOp.transferOwnership,
-      targetRole: member.role,
-    )) {
+    if (allowed(ControlOp.transferOwnership)) {
       actions.add(
         PopupMenuItem(
           value: _SpaceMemberAction.transferOwner,
@@ -946,28 +959,38 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                 snapshot.data![6] as List<SpaceRecommendationCampaign>;
             final notificationPolicy =
                 snapshot.data![7] as NotificationMutePolicy;
+            final channels = snapshot.data![8] as List<SpaceChannel>;
             final myRole = state.roleOf(service.selfId)!;
+            final acl = SpaceAcl(state);
             final canRename =
                 state.isActive &&
-                canApply(authorRole: myRole, op: ControlOp.setName);
+                acl.allows(service.selfId, SpacePermission.manageSettings);
             final canEditDescription =
                 state.isActive &&
-                canApply(authorRole: myRole, op: ControlOp.setDescription);
+                acl.allows(service.selfId, SpacePermission.manageSettings);
             final canAdd =
                 state.isActive &&
-                canApply(
-                  authorRole: myRole,
-                  op: ControlOp.addMember,
-                  newRole: GroupRole.member,
-                );
-            final canManageRetention = SpaceAcl(
-              state,
-            ).allows(service.selfId, SpacePermission.manageStorage);
+                (canApply(
+                      authorRole: myRole,
+                      op: ControlOp.addMember,
+                      newRole: GroupRole.member,
+                    ) ||
+                    SpaceAcl.customPolicyAllowsControl(
+                      policy: state.accessPolicy,
+                      author: service.selfId,
+                      op: ControlOp.addMember,
+                      newRole: GroupRole.member,
+                    ));
+            final canManageRetention = acl.allows(
+              service.selfId,
+              SpacePermission.manageStorage,
+            );
             final canManageRecommendations =
                 bundle?.manifest.visibility == SpaceVisibility.public &&
-                SpaceAcl(
-                  state,
-                ).allows(service.selfId, SpacePermission.manageRecommendations);
+                acl.allows(
+                  service.selfId,
+                  SpacePermission.manageRecommendations,
+                );
             final canManageAccess = state.isActive && myRole == GroupRole.owner;
             final accessRoles =
                 state.accessPolicy?.roles ?? const <SpaceRoleDefinition>[];
@@ -1474,8 +1497,9 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                   leading: const Icon(Icons.badge_outlined),
                                   title: Text(role.name),
                                   subtitle: Text(
-                                    l.spaceAccessRolePermissions(
+                                    l.spaceAccessRoleGrantSummary(
                                       role.permissions.length,
+                                      role.grants.length,
                                     ),
                                   ),
                                   trailing: canManageAccess
@@ -1488,6 +1512,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                                 service,
                                                 spaceId,
                                                 state,
+                                                channels,
                                                 role,
                                               ),
                                               icon: const Icon(
@@ -1598,6 +1623,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                         service,
                                         spaceId,
                                         state,
+                                        channels,
                                       ),
                                       icon: const Icon(
                                         Icons.add_moderator_outlined,
@@ -1668,7 +1694,13 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                       !state.isActive ||
                                           member.nodeId == service.selfId
                                       ? <PopupMenuEntry<_SpaceMemberAction>>[]
-                                      : _actionsFor(l, myRole, member);
+                                      : _actionsFor(
+                                          l,
+                                          state,
+                                          service.selfId,
+                                          myRole,
+                                          member,
+                                        );
                                   final customRoleNames = [
                                     for (final role in accessRoles)
                                       if (state
@@ -1913,20 +1945,24 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
 }
 
 final class _SpaceRoleDraft {
-  const _SpaceRoleDraft({required this.name, required this.permissions});
+  const _SpaceRoleDraft({required this.name, required this.grants});
 
   final String name;
-  final Set<SpacePermission> permissions;
+  final List<SpacePermissionGrant> grants;
 }
 
 class _SpaceRoleDialog extends StatefulWidget {
   const _SpaceRoleDialog({
     required this.existing,
+    required this.channels,
     required this.permissionLabel,
+    required this.scopeLabel,
   });
 
   final SpaceRoleDefinition? existing;
+  final List<SpaceChannel> channels;
   final String Function(SpacePermission permission) permissionLabel;
+  final String Function(SpacePermissionScopeKind scope) scopeLabel;
 
   @override
   State<_SpaceRoleDialog> createState() => _SpaceRoleDialogState();
@@ -1936,9 +1972,104 @@ class _SpaceRoleDialogState extends State<_SpaceRoleDialog> {
   late final TextEditingController _name = TextEditingController(
     text: widget.existing?.name ?? '',
   );
-  late final Set<SpacePermission> _permissions = {
-    ...?widget.existing?.permissions,
-  };
+  late final List<SpacePermissionGrant> _grants = [...?widget.existing?.grants];
+
+  List<SpaceChannel> _targets(SpacePermissionScopeKind kind) => [
+    for (final channel in widget.channels)
+      if ((kind == SpacePermissionScopeKind.category &&
+              channel.kind == SpaceChannelKind.category) ||
+          (kind == SpacePermissionScopeKind.channel &&
+              channel.kind != SpaceChannelKind.category))
+        channel,
+  ];
+
+  List<SpacePermissionScopeKind> _scopeKinds(SpacePermission permission) => [
+    for (final kind in SpacePermissionScopeKind.values)
+      if (kind.supports(permission) &&
+          (!kind.requiresTarget || _targets(kind).isNotEmpty))
+        kind,
+  ];
+
+  SpacePermissionGrant? _firstAvailableGrant(
+    SpacePermission permission, {
+    SpacePermissionScopeKind? onlyKind,
+    int? replacing,
+  }) {
+    final kinds = onlyKind == null ? _scopeKinds(permission) : [onlyKind];
+    for (final kind in kinds) {
+      if (!kind.supports(permission)) continue;
+      if (!kind.requiresTarget) {
+        final candidate = SpacePermissionGrant(
+          permission: permission,
+          scope: SpacePermissionScope(kind: kind),
+        );
+        if (!_grants.indexed.any(
+          (entry) => entry.$1 != replacing && entry.$2 == candidate,
+        )) {
+          return candidate;
+        }
+        continue;
+      }
+      for (final target in _targets(kind)) {
+        final candidate = SpacePermissionGrant(
+          permission: permission,
+          scope: SpacePermissionScope(kind: kind, targetId: target.channelId),
+        );
+        if (!_grants.indexed.any(
+          (entry) => entry.$1 != replacing && entry.$2 == candidate,
+        )) {
+          return candidate;
+        }
+      }
+    }
+    return null;
+  }
+
+  Iterable<(int, SpacePermissionGrant)> _permissionGrants(
+    SpacePermission permission,
+  ) => _grants.indexed.where((entry) => entry.$2.permission == permission);
+
+  void _togglePermission(SpacePermission permission, bool selected) {
+    setState(() {
+      if (selected) {
+        final grant = _firstAvailableGrant(
+          permission,
+          onlyKind: SpacePermissionScopeKind.space,
+        );
+        if (grant != null) _grants.add(grant);
+      } else {
+        _grants.removeWhere((grant) => grant.permission == permission);
+      }
+    });
+  }
+
+  void _changeScope(
+    int index,
+    SpacePermissionGrant current,
+    SpacePermissionScopeKind kind,
+  ) {
+    final replacement = _firstAvailableGrant(
+      current.permission,
+      onlyKind: kind,
+      replacing: index,
+    );
+    if (replacement != null) {
+      setState(() => _grants[index] = replacement);
+    }
+  }
+
+  void _changeTarget(int index, SpacePermissionGrant current, NodeId target) {
+    final replacement = SpacePermissionGrant(
+      permission: current.permission,
+      scope: SpacePermissionScope(kind: current.scope.kind, targetId: target),
+    );
+    if (_grants.indexed.any(
+      (entry) => entry.$1 != index && entry.$2 == replacement,
+    )) {
+      return;
+    }
+    setState(() => _grants[index] = replacement);
+  }
 
   @override
   void dispose() {
@@ -1948,19 +2079,143 @@ class _SpaceRoleDialogState extends State<_SpaceRoleDialog> {
 
   void _submit() {
     final normalized = _name.text.trim();
-    if (normalized.isEmpty || _permissions.isEmpty) return;
+    if (normalized.isEmpty ||
+        _grants.isEmpty ||
+        _grants.any((grant) => !grant.isStructurallyValid) ||
+        _grants.toSet().length != _grants.length) {
+      return;
+    }
     Navigator.of(context).pop(
-      _SpaceRoleDraft(
-        name: normalized,
-        permissions: Set.unmodifiable(_permissions),
+      _SpaceRoleDraft(name: normalized, grants: List.unmodifiable(_grants)),
+    );
+  }
+
+  Widget _scopeEditor(
+    BuildContext context,
+    int index,
+    SpacePermissionGrant grant,
+  ) {
+    final l = AppL10n.of(context);
+    final kinds = _scopeKinds(grant.permission)
+        .where(
+          (kind) =>
+              kind == grant.scope.kind ||
+              _firstAvailableGrant(
+                    grant.permission,
+                    onlyKind: kind,
+                    replacing: index,
+                  ) !=
+                  null,
+        )
+        .toList(growable: false);
+    final targets = grant.scope.kind.requiresTarget
+        ? _targets(grant.scope.kind)
+              .where((channel) {
+                final candidate = SpacePermissionGrant(
+                  permission: grant.permission,
+                  scope: SpacePermissionScope(
+                    kind: grant.scope.kind,
+                    targetId: channel.channelId,
+                  ),
+                );
+                return candidate == grant ||
+                    !_grants.indexed.any(
+                      (entry) => entry.$1 != index && entry.$2 == candidate,
+                    );
+              })
+              .toList(growable: false)
+        : const <SpaceChannel>[];
+    final scopeDropdown = DropdownButtonFormField<SpacePermissionScopeKind>(
+      key: ValueKey('space-access-scope-${grant.permission.name}-$index'),
+      initialValue: grant.scope.kind,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: l.spaceAccessScopeLabel,
+        isDense: true,
       ),
+      items: [
+        for (final kind in kinds)
+          DropdownMenuItem(value: kind, child: Text(widget.scopeLabel(kind))),
+      ],
+      onChanged: (kind) {
+        if (kind != null && kind != grant.scope.kind) {
+          _changeScope(index, grant, kind);
+        }
+      },
+    );
+    final targetDropdown = grant.scope.kind.requiresTarget
+        ? DropdownButtonFormField<String>(
+            key: ValueKey(
+              'space-access-scope-target-${grant.permission.name}-$index',
+            ),
+            initialValue: grant.scope.targetId?.hex,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: l.spaceAccessScopeTarget,
+              isDense: true,
+            ),
+            items: [
+              for (final channel in targets)
+                DropdownMenuItem(
+                  value: channel.channelId.hex,
+                  child: Text(channel.name, overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: (target) {
+              if (target != null) {
+                _changeTarget(index, grant, NodeId.fromHex(target));
+              }
+            },
+          )
+        : null;
+    final remove = IconButton(
+      tooltip: MaterialLocalizations.of(context).deleteButtonTooltip,
+      onPressed: () => setState(() => _grants.removeAt(index)),
+      icon: const Icon(Icons.remove_circle_outline),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 420) {
+          return Padding(
+            padding: const EdgeInsets.only(left: 16, bottom: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                scopeDropdown,
+                if (targetDropdown != null) ...[
+                  const SizedBox(height: 8),
+                  targetDropdown,
+                ],
+                Align(alignment: Alignment.centerRight, child: remove),
+              ],
+            ),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.only(left: 16, bottom: 8),
+          child: Row(
+            children: [
+              Expanded(child: scopeDropdown),
+              if (targetDropdown != null) ...[
+                const SizedBox(width: 8),
+                Expanded(child: targetDropdown),
+              ],
+              remove,
+            ],
+          ),
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    final canSave = _name.text.trim().isNotEmpty && _permissions.isNotEmpty;
+    final canSave =
+        _name.text.trim().isNotEmpty &&
+        _grants.isNotEmpty &&
+        _grants.every((grant) => grant.isStructurallyValid) &&
+        _grants.toSet().length == _grants.length;
     return AlertDialog(
       title: Text(
         widget.existing == null ? l.spaceAccessRoleAdd : l.spaceAccessRoleEdit,
@@ -1982,21 +2237,51 @@ class _SpaceRoleDialogState extends State<_SpaceRoleDialog> {
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: 4),
-                for (final permission in SpacePermission.values)
-                  CheckboxListTile(
-                    key: ValueKey('space-access-permission-${permission.name}'),
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    value: _permissions.contains(permission),
-                    title: Text(widget.permissionLabel(permission)),
-                    onChanged: (selected) => setState(() {
-                      if (selected == true) {
-                        _permissions.add(permission);
-                      } else {
-                        _permissions.remove(permission);
-                      }
-                    }),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    l.spaceAccessPermissionAreas,
+                    style: Theme.of(context).textTheme.labelLarge,
                   ),
+                ),
+                for (final permission in SpacePermission.values) ...[
+                  Builder(
+                    builder: (context) {
+                      final selected = _permissionGrants(permission).isNotEmpty;
+                      return CheckboxListTile(
+                        key: ValueKey(
+                          'space-access-permission-${permission.name}',
+                        ),
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        value: selected,
+                        title: Text(widget.permissionLabel(permission)),
+                        onChanged: (value) =>
+                            _togglePermission(permission, value == true),
+                      );
+                    },
+                  ),
+                  for (final entry in _permissionGrants(permission).toList())
+                    _scopeEditor(context, entry.$1, entry.$2),
+                  if (_permissionGrants(permission).isNotEmpty &&
+                      _firstAvailableGrant(permission) != null)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        key: ValueKey(
+                          'space-access-add-scope-${permission.name}',
+                        ),
+                        onPressed: () {
+                          final grant = _firstAvailableGrant(permission);
+                          if (grant != null) {
+                            setState(() => _grants.add(grant));
+                          }
+                        },
+                        icon: const Icon(Icons.add, size: 18),
+                        label: Text(l.spaceAccessAddArea),
+                      ),
+                    ),
+                ],
               ],
             ),
           ),

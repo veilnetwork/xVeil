@@ -697,6 +697,119 @@ void main() {
     },
   );
 
+  testWidgets('category steward creates only inside the granted category', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(76);
+    final member = _id(77);
+    final ownerService = GroupService(storage, _Signer(owner));
+    final memberService = GroupService(storage, _Signer(member));
+    addTearDown(ownerService.dispose);
+    addTearDown(memberService.dispose);
+    final spaceId = await ownerService.createSpace('Scoped channel UI');
+    final categoryId = await ownerService.createChannel(
+      spaceId,
+      name: 'Operations',
+      kind: SpaceChannelKind.category,
+    );
+    expect(categoryId, isNotNull);
+    expect(
+      await ownerService.addControlOp(
+        spaceId,
+        ControlOp.addMember,
+        target: member,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    final roleId = ownerService.newSpaceAccessObjectId();
+    expect(
+      await ownerService.replaceSpaceAccessPolicy(
+        spaceId,
+        expectedRevision: 0,
+        roles: [
+          SpaceRoleDefinition(
+            roleId: roleId,
+            name: 'Operations steward',
+            grants: [
+              SpacePermissionGrant(
+                permission: SpacePermission.manageChannels,
+                scope: SpacePermissionScope(
+                  kind: SpacePermissionScopeKind.category,
+                  targetId: categoryId,
+                ),
+              ),
+            ],
+          ),
+        ],
+        groups: const <SpaceMemberGroup>[],
+        directAssignments: [
+          SpaceMemberRoleAssignment(member: member, roleIds: [roleId]),
+        ],
+      ),
+      isNotNull,
+    );
+
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [groupServiceProvider.overrideWithValue(memberService)],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: SpaceScreen(spaceIdHex: spaceId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    final kind = tester.widget<DropdownButton<SpaceChannelKind>>(
+      find.descendant(
+        of: find.byKey(const ValueKey('space-channel-kind')),
+        matching: find.byType(DropdownButton<SpaceChannelKind>),
+      ),
+    );
+    expect(
+      kind.items!.map((item) => item.value),
+      isNot(contains(SpaceChannelKind.category)),
+    );
+    final access = tester.widget<DropdownButton<SpaceChannelAccess>>(
+      find.descendant(
+        of: find.byKey(const ValueKey('space-channel-access')),
+        matching: find.byType(DropdownButton<SpaceChannelAccess>),
+      ),
+    );
+    expect(access.items!.map((item) => item.value), [SpaceChannelAccess.space]);
+    final category = tester.widget<DropdownButtonFormField<String>>(
+      find.byKey(const ValueKey('space-channel-category')),
+    );
+    expect(category.initialValue, categoryId!.hex);
+    final categoryButton = tester.widget<DropdownButton<String>>(
+      find.descendant(
+        of: find.byKey(const ValueKey('space-channel-category')),
+        matching: find.byType(DropdownButton<String>),
+      ),
+    );
+    expect(categoryButton.items!.map((item) => item.value), [categoryId.hex]);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('space-channel-name')),
+      'Runbooks',
+    );
+    await tester.tap(find.byKey(const ValueKey('space-channel-save')));
+    await tester.pumpAndSettle();
+
+    final created = (await ownerService.channelsOf(
+      spaceId,
+    )).singleWhere((channel) => channel.name == 'Runbooks');
+    expect(created.categoryId, categoryId);
+  });
+
   testWidgets(
     'restricted voice channel keeps its kind and manages recipients',
     (tester) async {
@@ -1445,6 +1558,13 @@ void main() {
     final service = GroupService(storage, _Signer(owner));
     addTearDown(service.dispose);
     final spaceId = await service.createSpace('Access settings');
+    final categoryId = await service.createChannel(
+      spaceId,
+      name: 'Editorial category',
+      kind: SpaceChannelKind.category,
+      history: SpaceChannelHistory.full,
+    );
+    expect(categoryId, isNotNull);
     await tester.binding.setSurfaceSize(const Size(800, 1200));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -1484,13 +1604,59 @@ void main() {
     await tester.ensureVisible(permission);
     await tester.tap(permission);
     await tester.pump();
+    final publishScope = find.byKey(
+      const ValueKey('space-access-scope-publishPosts-0'),
+    );
+    await tester.ensureVisible(publishScope);
+    await tester.tap(publishScope);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.spaceAccessScopePosts).last);
+    await tester.pumpAndSettle();
+    final manageChannels = find.byKey(
+      const ValueKey('space-access-permission-manageChannels'),
+    );
+    await tester.ensureVisible(manageChannels);
+    await tester.tap(manageChannels);
+    await tester.pumpAndSettle();
+    final channelScope = find.byKey(
+      const ValueKey('space-access-scope-manageChannels-1'),
+    );
+    await tester.ensureVisible(channelScope);
+    await tester.tap(channelScope);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.spaceAccessScopeCategory).last);
+    await tester.pumpAndSettle();
+    expect(find.text('Editorial category'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('space-access-role-save')));
     await tester.pumpAndSettle();
 
     var state = (await service.stateOf(spaceId))!;
     final role = state.accessPolicy!.roles.single;
     expect(role.name, 'Publisher');
-    expect(role.permissions, {SpacePermission.publishPosts});
+    expect(role.permissions, {
+      SpacePermission.publishPosts,
+      SpacePermission.manageChannels,
+    });
+    expect(role.grants, hasLength(2));
+    expect(
+      role.grants,
+      contains(
+        SpacePermissionGrant(
+          permission: SpacePermission.manageChannels,
+          scope: SpacePermissionScope(
+            kind: SpacePermissionScopeKind.category,
+            targetId: categoryId,
+          ),
+        ),
+      ),
+    );
+    expect(state.accessPolicy?.schemaVersion, 2);
+    expect(
+      (await service.load(
+        spaceId,
+      ))!.control.lastWhere((entry) => entry.op == ControlOp.setPolicy).version,
+      18,
+    );
     expect(find.text('Publisher'), findsOneWidget);
 
     final assign = find.byKey(ValueKey('space-access-assign-${owner.hex}'));

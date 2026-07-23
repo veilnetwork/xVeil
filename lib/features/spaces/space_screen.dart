@@ -51,14 +51,34 @@ class SpaceScreen extends ConsumerWidget {
   ) async {
     final service = ref.read(groupServiceProvider);
     final state = await service?.stateOf(spaceId);
-    if (!context.mounted) return;
+    if (!context.mounted || service == null || state == null) return;
+    final acl = SpaceAcl(state);
+    final canCreateAtRoot = acl.allows(
+      service.selfId,
+      SpacePermission.manageChannels,
+    );
+    final allowedCategoryIds = {
+      for (final channel in channels)
+        if (channel.kind == SpaceChannelKind.category &&
+            !channel.archived &&
+            acl.allows(
+              service.selfId,
+              SpacePermission.manageChannels,
+              channelId: channel.channelId,
+              categoryId: channel.channelId,
+            ))
+          channel.channelId.hex,
+    };
+    if (!canCreateAtRoot && allowedCategoryIds.isEmpty) return;
     final result = await _showChannelEditor(
       context,
       channels: channels,
-      members: state?.members.values ?? const <GroupMember>[],
+      members: state.members.values,
+      canCreateAtRoot: canCreateAtRoot,
+      allowedCategoryIds: allowedCategoryIds,
     );
     if (result == null) return;
-    final created = await service?.createChannel(
+    final created = await service.createChannel(
       spaceId,
       name: result.name,
       kind: result.kind,
@@ -85,6 +105,8 @@ class SpaceScreen extends ConsumerWidget {
     required List<SpaceChannel> channels,
     SpaceChannel? current,
     Iterable<GroupMember> members = const <GroupMember>[],
+    bool canCreateAtRoot = true,
+    Set<String>? allowedCategoryIds,
   }) async {
     final l = AppL10n.of(context);
     var name = current?.name ?? '';
@@ -104,9 +126,14 @@ class SpaceScreen extends ConsumerWidget {
           (channel) =>
               channel.kind == SpaceChannelKind.category &&
               !channel.archived &&
-              channel.channelId != current?.channelId,
+              channel.channelId != current?.channelId &&
+              (allowedCategoryIds == null ||
+                  allowedCategoryIds.contains(channel.channelId.hex)),
         )
         .toList(growable: false);
+    if (current == null && !canCreateAtRoot && categories.isNotEmpty) {
+      categoryHex = categories.first.channelId.hex;
+    }
     return showDialog<_SpaceChannelDraft>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -156,10 +183,11 @@ class SpaceScreen extends ConsumerWidget {
                         value: SpaceChannelKind.voice,
                         child: Text(l.spaceChannelVoice),
                       ),
-                      DropdownMenuItem(
-                        value: SpaceChannelKind.category,
-                        child: Text(l.spaceChannelCategory),
-                      ),
+                      if (current != null || canCreateAtRoot)
+                        DropdownMenuItem(
+                          value: SpaceChannelKind.category,
+                          child: Text(l.spaceChannelCategory),
+                        ),
                     ],
                     onChanged: current != null
                         ? null
@@ -187,10 +215,11 @@ class SpaceScreen extends ConsumerWidget {
                         value: SpaceChannelAccess.space,
                         child: Text(l.spaceChannelAccessSpace),
                       ),
-                      DropdownMenuItem(
-                        value: SpaceChannelAccess.restricted,
-                        child: Text(l.spaceChannelAccessRestricted),
-                      ),
+                      if (current != null || canCreateAtRoot)
+                        DropdownMenuItem(
+                          value: SpaceChannelAccess.restricted,
+                          child: Text(l.spaceChannelAccessRestricted),
+                        ),
                     ],
                     onChanged: current != null
                         ? null
@@ -217,10 +246,11 @@ class SpaceScreen extends ConsumerWidget {
                         labelText: l.spaceChannelCategoryLabel,
                       ),
                       items: [
-                        DropdownMenuItem(
-                          value: '',
-                          child: Text(l.spaceChannelNoCategory),
-                        ),
+                        if (current != null || canCreateAtRoot)
+                          DropdownMenuItem(
+                            value: '',
+                            child: Text(l.spaceChannelNoCategory),
+                          ),
                         for (final category in categories)
                           DropdownMenuItem(
                             value: category.channelId.hex,
@@ -361,9 +391,12 @@ class SpaceScreen extends ConsumerWidget {
     final state = await service.stateOf(spaceId);
     final current = await service.channelMembersOf(spaceId, channel.channelId);
     if (!context.mounted || state == null || current == null) return false;
-    final canManage = SpaceAcl(
-      state,
-    ).allows(service.selfId, SpacePermission.manageChannels);
+    final canManage = SpaceAcl(state).allows(
+      service.selfId,
+      SpacePermission.manageChannels,
+      channelId: channel.channelId,
+      categoryId: channel.categoryId,
+    );
     final selected = current.map((member) => member.hex).toSet();
     final saved = await showDialog<Set<String>>(
       context: context,
@@ -861,14 +894,15 @@ class SpaceScreen extends ConsumerWidget {
             );
           }
           final acl = SpaceAcl(state);
-          final canManage = acl.allows(
-            service.selfId,
-            SpacePermission.manageChannels,
-          );
-          final canManageRetention = acl.allows(
-            service.selfId,
-            SpacePermission.manageStorage,
-          );
+          final canCreateChannel =
+              acl.allows(service.selfId, SpacePermission.manageChannels) ||
+              state
+                  .customGrantsOf(service.selfId)
+                  .any(
+                    (grant) =>
+                        grant.permission == SpacePermission.manageChannels &&
+                        grant.scope.kind == SpacePermissionScopeKind.category,
+                  );
           final archived = state.isArchived;
           return Scaffold(
             appBar: AppBar(
@@ -915,7 +949,7 @@ class SpaceScreen extends ConsumerWidget {
                 ),
               ],
             ),
-            floatingActionButton: canManage
+            floatingActionButton: canCreateChannel
                 ? FloatingActionButton(
                     heroTag: 'xveil-space-channel-create-$spaceIdHex',
                     tooltip: l.spaceChannelCreateTitle,
@@ -939,6 +973,24 @@ class SpaceScreen extends ConsumerWidget {
                           itemCount: channels.length,
                           itemBuilder: (context, index) {
                             final channel = channels[index];
+                            final canManageChannel = acl.allows(
+                              service.selfId,
+                              SpacePermission.manageChannels,
+                              channelId: channel.channelId,
+                              categoryId:
+                                  channel.kind == SpaceChannelKind.category
+                                  ? channel.channelId
+                                  : channel.categoryId,
+                            );
+                            final canManageChannelRetention = acl.allows(
+                              service.selfId,
+                              SpacePermission.manageStorage,
+                              channelId: channel.channelId,
+                              categoryId:
+                                  channel.kind == SpaceChannelKind.category
+                                  ? channel.channelId
+                                  : channel.categoryId,
+                            );
                             final isCategory =
                                 channel.kind == SpaceChannelKind.category;
                             final icon = switch (channel.kind) {
@@ -990,7 +1042,7 @@ class SpaceScreen extends ConsumerWidget {
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                     ),
-                              trailing: canManage
+                              trailing: canManageChannel
                                   ? IconButton(
                                       key: ValueKey(
                                         'space-channel-manage-'
@@ -1003,7 +1055,8 @@ class SpaceScreen extends ConsumerWidget {
                                         spaceId,
                                         channel,
                                         channels,
-                                        canManageRetention: canManageRetention,
+                                        canManageRetention:
+                                            canManageChannelRetention,
                                       ),
                                       icon: const Icon(Icons.more_vert),
                                     )
@@ -1039,14 +1092,15 @@ class SpaceScreen extends ConsumerWidget {
                                         '${channel.channelId.hex}',
                                       );
                                     },
-                              onLongPress: canManage
+                              onLongPress: canManageChannel
                                   ? () => _manageChannel(
                                       context,
                                       service,
                                       spaceId,
                                       channel,
                                       channels,
-                                      canManageRetention: canManageRetention,
+                                      canManageRetention:
+                                          canManageChannelRetention,
                                     )
                                   : null,
                             );

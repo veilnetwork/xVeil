@@ -445,7 +445,9 @@ class ControlEntry {
   /// V16 carries a clear Space/channel media-only retention revision; keeping
   /// it separate from V9 prevents older clients from treating it as full
   /// history deletion. V17 carries one complete, atomic Space access-policy
-  /// snapshot containing custom roles, participant groups and direct roles.
+  /// snapshot containing legacy Space-wide custom-role grants, participant
+  /// groups and direct roles. V18 carries schema-2 access snapshots whose
+  /// positive grants bind a functional area or an exact signed category/channel.
   final int version;
 
   /// Group binding for replay resistance. Legacy entries omit it and retain
@@ -504,7 +506,8 @@ class ControlEntry {
           version == 14 ||
           version == 15 ||
           version == 16 ||
-          version == 17) &&
+          version == 17 ||
+          version == 18) &&
       seq >= 0 &&
       policyVersion >= 0 &&
       createdAtMs >= 0 &&
@@ -746,10 +749,11 @@ class ControlEntry {
                 postPin == null &&
                 recommendationCampaign == null
           : channelRetention == null) &&
-      (version == 17
+      (version == 17 || version == 18
           ? op == ControlOp.setPolicy &&
                 accessPolicy != null &&
                 accessPolicy!.isStructurallyValid &&
+                accessPolicy!.schemaVersion == (version == 17 ? 1 : 2) &&
                 groupId == accessPolicy!.spaceId &&
                 accessPolicy!.changedBy == author &&
                 accessPolicy!.changedAtMs == createdAtMs &&
@@ -931,7 +935,8 @@ class ControlEntry {
             version != 14 &&
             version != 15 &&
             version != 16 &&
-            version != 17) ||
+            version != 17 &&
+            version != 18) ||
         author is! String ||
         seq is! int ||
         prev is! String ||

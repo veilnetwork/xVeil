@@ -65,6 +65,387 @@ void main() {
     },
   );
 
+  test(
+    'legacy role encoding stays byte-compatible while V18 scopes round-trip',
+    () {
+      final legacy = policy();
+      final legacyJson = jsonEncode(legacy.toJson());
+      final legacyDecoded = SpaceAccessPolicy.fromJson(jsonDecode(legacyJson));
+      expect(legacyDecoded?.schemaVersion, 1);
+      expect(jsonEncode(legacyDecoded?.toJson()), legacyJson);
+      expect(
+        (legacyDecoded!.roles.single.toJson()).containsKey('permissions'),
+        isTrue,
+      );
+      expect(
+        legacyDecoded.roles.single.toJson().containsKey('grants'),
+        isFalse,
+      );
+
+      final category = _id(4);
+      final channel = _id(5);
+      final scoped = SpaceAccessPolicy(
+        spaceId: space,
+        schemaVersion: 2,
+        revision: 1,
+        previousPolicyHash: '',
+        changedBy: owner,
+        changedAtMs: 12,
+        roles: [
+          SpaceRoleDefinition(
+            roleId: roleId,
+            name: 'Scoped steward',
+            grants: [
+              SpacePermissionGrant(
+                permission: SpacePermission.manageChannels,
+                scope: SpacePermissionScope(
+                  kind: SpacePermissionScopeKind.category,
+                  targetId: category,
+                ),
+              ),
+              SpacePermissionGrant(
+                permission: SpacePermission.manageStorage,
+                scope: SpacePermissionScope(
+                  kind: SpacePermissionScopeKind.channel,
+                  targetId: channel,
+                ),
+              ),
+              const SpacePermissionGrant(
+                permission: SpacePermission.managePosts,
+                scope: SpacePermissionScope(
+                  kind: SpacePermissionScopeKind.posts,
+                ),
+              ),
+            ],
+          ),
+        ],
+        groups: const [],
+        directAssignments: [
+          SpaceMemberRoleAssignment(member: bob, roleIds: const [roleId]),
+        ],
+      );
+      final scopedDecoded = SpaceAccessPolicy.fromJson(
+        jsonDecode(jsonEncode(scoped.toJson())),
+      );
+
+      expect(scoped.isStructurallyValid, isTrue);
+      expect(scopedDecoded?.policyHash, scoped.policyHash);
+      expect(scopedDecoded?.schemaVersion, 2);
+      expect(
+        scopedDecoded?.roles.single.toJson().containsKey('grants'),
+        isTrue,
+      );
+      expect(
+        scopedDecoded?.hasValidScopeTargets(
+          categoryIds: {category.hex},
+          channelIds: {channel.hex},
+        ),
+        isTrue,
+      );
+      expect(
+        scopedDecoded?.hasValidScopeTargets(
+          categoryIds: {category.hex},
+          channelIds: const {},
+        ),
+        isFalse,
+      );
+      expect(
+        scopedDecoded?.allows(
+          bob,
+          SpacePermission.manageChannels,
+          categoryId: category,
+        ),
+        isTrue,
+      );
+      expect(
+        scopedDecoded?.allows(
+          bob,
+          SpacePermission.manageChannels,
+          channelId: channel,
+        ),
+        isFalse,
+      );
+      expect(
+        scopedDecoded?.allows(
+          bob,
+          SpacePermission.manageStorage,
+          channelId: channel,
+        ),
+        isTrue,
+      );
+      expect(scopedDecoded?.allows(bob, SpacePermission.managePosts), isTrue);
+    },
+  );
+
+  test('V18 category grant authorizes only that signed channel subtree', () {
+    final category = SpaceChannel(
+      spaceId: space,
+      channelId: _id(4),
+      kind: SpaceChannelKind.category,
+      name: 'Operations',
+      description: '',
+      position: 0,
+      isDefault: false,
+      archived: false,
+      history: SpaceChannelHistory.full,
+      createdBy: owner,
+      createdAtMs: 11,
+    );
+    final inside = SpaceChannel(
+      spaceId: space,
+      channelId: _id(5),
+      kind: SpaceChannelKind.text,
+      name: 'Inside',
+      description: '',
+      categoryId: category.channelId,
+      position: 1,
+      isDefault: true,
+      archived: false,
+      history: SpaceChannelHistory.full,
+      createdBy: owner,
+      createdAtMs: 12,
+    );
+    final outside = SpaceChannel(
+      spaceId: space,
+      channelId: _id(6),
+      kind: SpaceChannelKind.text,
+      name: 'Outside',
+      description: '',
+      position: 2,
+      isDefault: false,
+      archived: false,
+      history: SpaceChannelHistory.full,
+      createdBy: owner,
+      createdAtMs: 13,
+    );
+    ControlEntry ownerEntry(
+      int seq,
+      ControlOp op, {
+      NodeId? target,
+      GroupRole? role,
+      SpaceChannel? channel,
+      SpaceAccessPolicy? accessPolicy,
+      required String previous,
+      required int policyVersion,
+    }) => ControlEntry(
+      version: accessPolicy != null ? 18 : 2,
+      groupId: space,
+      author: owner,
+      seq: seq,
+      prevHash: previous,
+      op: op,
+      target: target,
+      role: role,
+      channel: channel,
+      accessPolicy: accessPolicy,
+      policyVersion: policyVersion,
+      createdAtMs: accessPolicy?.changedAtMs ?? channel?.createdAtMs ?? 10,
+      signature: Uint8List(0),
+    );
+
+    final addBob = ownerEntry(
+      0,
+      ControlOp.addMember,
+      target: bob,
+      role: GroupRole.member,
+      previous: '',
+      policyVersion: 0,
+    );
+    final createCategory = ownerEntry(
+      1,
+      ControlOp.createChannel,
+      channel: category,
+      previous: controlEntryHash(addBob),
+      policyVersion: 0,
+    );
+    final createInside = ownerEntry(
+      2,
+      ControlOp.createChannel,
+      channel: inside,
+      previous: controlEntryHash(createCategory),
+      policyVersion: 0,
+    );
+    final createOutside = ownerEntry(
+      3,
+      ControlOp.createChannel,
+      channel: outside,
+      previous: controlEntryHash(createInside),
+      policyVersion: 0,
+    );
+    final scopedPolicy = SpaceAccessPolicy(
+      spaceId: space,
+      schemaVersion: 2,
+      revision: 1,
+      previousPolicyHash: '',
+      changedBy: owner,
+      changedAtMs: 14,
+      roles: [
+        SpaceRoleDefinition(
+          roleId: roleId,
+          name: 'Operations steward',
+          grants: [
+            SpacePermissionGrant(
+              permission: SpacePermission.manageChannels,
+              scope: SpacePermissionScope(
+                kind: SpacePermissionScopeKind.category,
+                targetId: category.channelId,
+              ),
+            ),
+          ],
+        ),
+      ],
+      groups: const [],
+      directAssignments: [
+        SpaceMemberRoleAssignment(member: bob, roleIds: const [roleId]),
+      ],
+    );
+    final setPolicy = ownerEntry(
+      4,
+      ControlOp.setPolicy,
+      accessPolicy: scopedPolicy,
+      previous: controlEntryHash(createOutside),
+      policyVersion: 0,
+    );
+    final editInside = ControlEntry(
+      version: 2,
+      groupId: space,
+      author: bob,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.updateChannel,
+      target: null,
+      role: null,
+      channel: inside.copyWith(name: 'Inside updated'),
+      policyVersion: 1,
+      createdAtMs: 15,
+      signature: Uint8List(0),
+    );
+    final editOutside = ControlEntry(
+      version: 2,
+      groupId: space,
+      author: bob,
+      seq: 1,
+      prevHash: controlEntryHash(editInside),
+      op: ControlOp.updateChannel,
+      target: null,
+      role: null,
+      channel: outside.copyWith(
+        name: 'Outside forged',
+        categoryId: category.channelId,
+      ),
+      policyVersion: 1,
+      createdAtMs: 16,
+      signature: Uint8List(0),
+    );
+
+    final folded = foldControlLog(
+      owner: owner,
+      entries: [
+        addBob,
+        createCategory,
+        createInside,
+        createOutside,
+        setPolicy,
+        editInside,
+        editOutside,
+      ],
+      verify: (_) => true,
+    );
+
+    expect(setPolicy.isStructurallyValid, isTrue);
+    expect(folded.rejected, contains(editOutside));
+    expect(folded.rejected, isNot(contains(editInside)));
+    expect(folded.state.channels[inside.channelId.hex]?.name, 'Inside updated');
+    expect(folded.state.channels[outside.channelId.hex]?.name, 'Outside');
+    expect(
+      SpaceAcl(folded.state).allows(
+        bob,
+        SpacePermission.manageChannels,
+        channelId: inside.channelId,
+      ),
+      isTrue,
+    );
+    expect(
+      SpaceAcl(folded.state).allows(
+        bob,
+        SpacePermission.manageChannels,
+        channelId: outside.channelId,
+      ),
+      isFalse,
+    );
+  });
+
+  test(
+    'V18 fold rejects permission targets outside the signed channel tree',
+    () {
+      final unknown = _id(88);
+      final addBob = ControlEntry(
+        version: 2,
+        groupId: space,
+        author: owner,
+        seq: 0,
+        prevHash: '',
+        op: ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+        policyVersion: 0,
+        createdAtMs: 10,
+        signature: Uint8List(0),
+      );
+      final invalidPolicy = SpaceAccessPolicy(
+        spaceId: space,
+        schemaVersion: 2,
+        revision: 1,
+        previousPolicyHash: '',
+        changedBy: owner,
+        changedAtMs: 11,
+        roles: [
+          SpaceRoleDefinition(
+            roleId: roleId,
+            name: 'Unknown channel',
+            grants: [
+              SpacePermissionGrant(
+                permission: SpacePermission.manageChannels,
+                scope: SpacePermissionScope(
+                  kind: SpacePermissionScopeKind.channel,
+                  targetId: unknown,
+                ),
+              ),
+            ],
+          ),
+        ],
+        groups: const [],
+        directAssignments: [
+          SpaceMemberRoleAssignment(member: bob, roleIds: const [roleId]),
+        ],
+      );
+      final setPolicy = ControlEntry(
+        version: 18,
+        groupId: space,
+        author: owner,
+        seq: 1,
+        prevHash: controlEntryHash(addBob),
+        op: ControlOp.setPolicy,
+        target: null,
+        role: null,
+        accessPolicy: invalidPolicy,
+        policyVersion: 0,
+        createdAtMs: invalidPolicy.changedAtMs,
+        signature: Uint8List(0),
+      );
+
+      final folded = foldControlLog(
+        owner: owner,
+        entries: [addBob, setPolicy],
+        verify: (_) => true,
+      );
+
+      expect(setPolicy.isStructurallyValid, isTrue);
+      expect(folded.rejected, contains(setPolicy));
+      expect(folded.state.accessPolicy, isNull);
+    },
+  );
+
   test('V17 policy delegates a control permission through the same fold', () {
     final addBob = ControlEntry(
       version: 2,

@@ -961,9 +961,12 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     }
     final current = await svc.channelMembersOf(_gid, channelId);
     if (!mounted || current == null) return;
-    final canManage = SpaceAcl(
-      state,
-    ).allows(svc.selfId, SpacePermission.manageChannels);
+    final canManage = SpaceAcl(state).allows(
+      svc.selfId,
+      SpacePermission.manageChannels,
+      channelId: channel.channelId,
+      categoryId: channel.categoryId,
+    );
     final selected = current.map((member) => member.hex).toSet();
     final saved = await showDialog<Set<String>>(
       context: context,

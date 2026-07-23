@@ -1765,6 +1765,96 @@ abstract class AppL10n {
   /// **'{count, plural, =1{1 permission} other{{count} permissions}}'**
   String spaceAccessRolePermissions(num count);
 
+  /// No description provided for @spaceAccessRoleGrantSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'{permissions, plural, =1{1 permission} other{{permissions} permissions}} · {areas, plural, =1{1 area} other{{areas} areas}}'**
+  String spaceAccessRoleGrantSummary(num areas, num permissions);
+
+  /// No description provided for @spaceAccessPermissionAreas.
+  ///
+  /// In en, this message translates to:
+  /// **'Permission areas'**
+  String get spaceAccessPermissionAreas;
+
+  /// No description provided for @spaceAccessAddArea.
+  ///
+  /// In en, this message translates to:
+  /// **'Add another area'**
+  String get spaceAccessAddArea;
+
+  /// No description provided for @spaceAccessScopeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Area'**
+  String get spaceAccessScopeLabel;
+
+  /// No description provided for @spaceAccessScopeTarget.
+  ///
+  /// In en, this message translates to:
+  /// **'Category or channel'**
+  String get spaceAccessScopeTarget;
+
+  /// No description provided for @spaceAccessScopeSpace.
+  ///
+  /// In en, this message translates to:
+  /// **'Entire community'**
+  String get spaceAccessScopeSpace;
+
+  /// No description provided for @spaceAccessScopeCategory.
+  ///
+  /// In en, this message translates to:
+  /// **'Category'**
+  String get spaceAccessScopeCategory;
+
+  /// No description provided for @spaceAccessScopeChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'Channel'**
+  String get spaceAccessScopeChannel;
+
+  /// No description provided for @spaceAccessScopePosts.
+  ///
+  /// In en, this message translates to:
+  /// **'Publications'**
+  String get spaceAccessScopePosts;
+
+  /// No description provided for @spaceAccessScopeModeration.
+  ///
+  /// In en, this message translates to:
+  /// **'Moderation'**
+  String get spaceAccessScopeModeration;
+
+  /// No description provided for @spaceAccessScopeMembers.
+  ///
+  /// In en, this message translates to:
+  /// **'Members'**
+  String get spaceAccessScopeMembers;
+
+  /// No description provided for @spaceAccessScopeRoles.
+  ///
+  /// In en, this message translates to:
+  /// **'Roles'**
+  String get spaceAccessScopeRoles;
+
+  /// No description provided for @spaceAccessScopeSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get spaceAccessScopeSettings;
+
+  /// No description provided for @spaceAccessScopeEncryption.
+  ///
+  /// In en, this message translates to:
+  /// **'Encryption'**
+  String get spaceAccessScopeEncryption;
+
+  /// No description provided for @spaceAccessScopeStorage.
+  ///
+  /// In en, this message translates to:
+  /// **'Storage'**
+  String get spaceAccessScopeStorage;
+
   /// No description provided for @spaceAccessGroupAdd.
   ///
   /// In en, this message translates to:

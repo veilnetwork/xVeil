@@ -31,6 +31,162 @@ enum SpacePermission {
   }
 }
 
+/// Where one custom-role permission applies.
+///
+/// [space] is the root scope. [category] and [channel] bind a concrete signed
+/// channel id. The remaining values are explicit functional areas, so audit
+/// and management surfaces never need to infer whether a broad permission was
+/// intended for publications, moderation or another subsystem.
+enum SpacePermissionScopeKind {
+  space,
+  category,
+  channel,
+  posts,
+  moderation,
+  members,
+  roles,
+  settings,
+  encryption,
+  storage;
+
+  static SpacePermissionScopeKind? fromName(String? value) {
+    for (final kind in values) {
+      if (kind.name == value) return kind;
+    }
+    return null;
+  }
+
+  bool get requiresTarget =>
+      this == SpacePermissionScopeKind.category ||
+      this == SpacePermissionScopeKind.channel;
+
+  /// Reject meaningless combinations at the signed-policy boundary. A future
+  /// permission can extend this exhaustive mapping without changing existing
+  /// canonical rows.
+  bool supports(SpacePermission permission) => switch (this) {
+    SpacePermissionScopeKind.space => true,
+    SpacePermissionScopeKind.category ||
+    SpacePermissionScopeKind.channel => switch (permission) {
+      SpacePermission.view ||
+      SpacePermission.distributeContent ||
+      SpacePermission.publishMessages ||
+      SpacePermission.enterVoice ||
+      SpacePermission.manageChannels ||
+      SpacePermission.moderate ||
+      SpacePermission.manageEncryption ||
+      SpacePermission.manageStorage => true,
+      _ => false,
+    },
+    SpacePermissionScopeKind.posts => switch (permission) {
+      SpacePermission.publishPosts ||
+      SpacePermission.managePosts ||
+      SpacePermission.manageRecommendations => true,
+      _ => false,
+    },
+    SpacePermissionScopeKind.moderation =>
+      permission == SpacePermission.moderate,
+    SpacePermissionScopeKind.members =>
+      permission == SpacePermission.manageMembers,
+    SpacePermissionScopeKind.roles => permission == SpacePermission.manageRoles,
+    SpacePermissionScopeKind.settings =>
+      permission == SpacePermission.manageSettings,
+    SpacePermissionScopeKind.encryption =>
+      permission == SpacePermission.manageEncryption,
+    SpacePermissionScopeKind.storage => switch (permission) {
+      SpacePermission.distributeContent ||
+      SpacePermission.manageStorage => true,
+      _ => false,
+    },
+  };
+}
+
+/// One deterministic permission area. Only category/channel scopes carry a
+/// target; functional scopes deliberately have no loosely typed payload.
+final class SpacePermissionScope {
+  const SpacePermissionScope({required this.kind, this.targetId});
+
+  const SpacePermissionScope.space()
+    : kind = SpacePermissionScopeKind.space,
+      targetId = null;
+
+  final SpacePermissionScopeKind kind;
+  final NodeId? targetId;
+
+  bool get isStructurallyValid =>
+      kind.requiresTarget ? targetId != null : targetId == null;
+
+  Map<String, dynamic> toJson() => {
+    'kind': kind.name,
+    if (targetId != null) 'target': targetId!.hex,
+  };
+
+  static SpacePermissionScope? fromJson(Object? value) {
+    if (value is! Map || value['kind'] is! String) return null;
+    final kind = SpacePermissionScopeKind.fromName(value['kind'] as String);
+    if (kind == null) return null;
+    final rawTarget = value['target'];
+    if (rawTarget != null && rawTarget is! String) return null;
+    try {
+      final scope = SpacePermissionScope(
+        kind: kind,
+        targetId: rawTarget is String ? NodeId.fromHex(rawTarget) : null,
+      );
+      return scope.isStructurallyValid ? scope : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is SpacePermissionScope &&
+      other.kind == kind &&
+      other.targetId == targetId;
+
+  @override
+  int get hashCode => Object.hash(kind, targetId);
+}
+
+/// One positive permission rule. Explicit deny is intentionally a separate
+/// future rule type so allow-only V18 snapshots cannot acquire ambiguous
+/// conflict semantics by accident.
+final class SpacePermissionGrant {
+  const SpacePermissionGrant({required this.permission, required this.scope});
+
+  final SpacePermission permission;
+  final SpacePermissionScope scope;
+
+  bool get isStructurallyValid =>
+      scope.isStructurallyValid && scope.kind.supports(permission);
+
+  Map<String, dynamic> toJson() => {
+    'permission': permission.name,
+    'scope': scope.toJson(),
+  };
+
+  static SpacePermissionGrant? fromJson(Object? value) {
+    if (value is! Map ||
+        value['permission'] is! String ||
+        value['scope'] == null) {
+      return null;
+    }
+    final permission = SpacePermission.fromName(value['permission'] as String);
+    final scope = SpacePermissionScope.fromJson(value['scope']);
+    if (permission == null || scope == null) return null;
+    final grant = SpacePermissionGrant(permission: permission, scope: scope);
+    return grant.isStructurallyValid ? grant : null;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is SpacePermissionGrant &&
+      other.permission == permission &&
+      other.scope == scope;
+
+  @override
+  int get hashCode => Object.hash(permission, scope);
+}
+
 final RegExp _spaceAccessId = RegExp(r'^[0-9a-f]{64}$');
 
 /// One named permission set. Membership is deliberately stored elsewhere so a
@@ -39,48 +195,105 @@ final class SpaceRoleDefinition {
   SpaceRoleDefinition({
     required this.roleId,
     required this.name,
-    required Iterable<SpacePermission> permissions,
-  }) : permissions = Set.unmodifiable(permissions);
+    Iterable<SpacePermission>? permissions,
+    Iterable<SpacePermissionGrant>? grants,
+  }) : _legacyPermissionsEncoding = grants == null,
+       _hasConflictingSources = permissions != null && grants != null,
+       grants = List.unmodifiable(
+         grants ??
+             (permissions ?? const <SpacePermission>[]).map(
+               (permission) => SpacePermissionGrant(
+                 permission: permission,
+                 scope: const SpacePermissionScope.space(),
+               ),
+             ),
+       );
 
   final String roleId;
   final String name;
-  final Set<SpacePermission> permissions;
+  final List<SpacePermissionGrant> grants;
+  final bool _legacyPermissionsEncoding;
+  final bool _hasConflictingSources;
+
+  Set<SpacePermission> get permissions =>
+      Set.unmodifiable(grants.map((grant) => grant.permission));
+
+  /// V17 used the `permissions` array. Any role authored with `grants` needs
+  /// V18 even when its selected scopes happen to be Space-wide.
+  bool get usesScopedEncoding => !_legacyPermissionsEncoding;
 
   bool get isStructurallyValid =>
       _spaceAccessId.hasMatch(roleId) &&
       name == name.trim() &&
       name.isNotEmpty &&
       name.length <= 80 &&
-      permissions.isNotEmpty &&
-      permissions.length <= SpacePermission.values.length;
+      !_hasConflictingSources &&
+      grants.isNotEmpty &&
+      grants.length <= 512 &&
+      grants.every((grant) => grant.isStructurallyValid) &&
+      grants.toSet().length == grants.length;
 
-  Map<String, dynamic> toJson() => {
-    'id': roleId,
-    'name': name,
-    'permissions':
-        (permissions.toList()..sort((a, b) => a.index.compareTo(b.index)))
-            .map((permission) => permission.name)
+  Map<String, dynamic> toJson() {
+    final sortedGrants = grants.toList()
+      ..sort((left, right) {
+        final permission = left.permission.index.compareTo(
+          right.permission.index,
+        );
+        if (permission != 0) return permission;
+        final kind = left.scope.kind.index.compareTo(right.scope.kind.index);
+        if (kind != 0) return kind;
+        return (left.scope.targetId?.hex ?? '').compareTo(
+          right.scope.targetId?.hex ?? '',
+        );
+      });
+    return {
+      'id': roleId,
+      'name': name,
+      if (_legacyPermissionsEncoding)
+        'permissions':
+            (permissions.toList()..sort((a, b) => a.index.compareTo(b.index)))
+                .map((permission) => permission.name)
+                .toList(growable: false)
+      else
+        'grants': sortedGrants
+            .map((grant) => grant.toJson())
             .toList(growable: false),
-  };
+    };
+  }
 
   static SpaceRoleDefinition? fromJson(Object? value) {
-    if (value is! Map ||
-        value['id'] is! String ||
-        value['name'] is! String ||
-        value['permissions'] is! List) {
+    if (value is! Map || value['id'] is! String || value['name'] is! String) {
       return null;
     }
-    final permissions = <SpacePermission>{};
-    for (final raw in value['permissions'] as List) {
-      if (raw is! String) return null;
-      final permission = SpacePermission.fromName(raw);
-      if (permission == null || !permissions.add(permission)) return null;
+    final rawPermissions = value['permissions'];
+    final rawGrants = value['grants'];
+    if ((rawPermissions is List) == (rawGrants is List)) return null;
+    late final SpaceRoleDefinition role;
+    if (rawPermissions is List) {
+      final permissions = <SpacePermission>{};
+      for (final raw in rawPermissions) {
+        if (raw is! String) return null;
+        final permission = SpacePermission.fromName(raw);
+        if (permission == null || !permissions.add(permission)) return null;
+      }
+      role = SpaceRoleDefinition(
+        roleId: value['id'] as String,
+        name: value['name'] as String,
+        permissions: permissions,
+      );
+    } else {
+      final grants = <SpacePermissionGrant>[];
+      for (final raw in rawGrants as List) {
+        final grant = SpacePermissionGrant.fromJson(raw);
+        if (grant == null) return null;
+        grants.add(grant);
+      }
+      role = SpaceRoleDefinition(
+        roleId: value['id'] as String,
+        name: value['name'] as String,
+        grants: grants,
+      );
     }
-    final role = SpaceRoleDefinition(
-      roleId: value['id'] as String,
-      name: value['name'] as String,
-      permissions: permissions,
-    );
     return role.isStructurallyValid ? role : null;
   }
 }
@@ -209,6 +422,7 @@ final class SpaceMemberRoleAssignment {
 final class SpaceAccessPolicy {
   SpaceAccessPolicy({
     required this.spaceId,
+    this.schemaVersion = 1,
     required this.revision,
     required this.previousPolicyHash,
     required this.changedBy,
@@ -221,6 +435,7 @@ final class SpaceAccessPolicy {
        directAssignments = List.unmodifiable(directAssignments);
 
   final NodeId spaceId;
+  final int schemaVersion;
   final int revision;
   final String previousPolicyHash;
   final NodeId changedBy;
@@ -230,7 +445,8 @@ final class SpaceAccessPolicy {
   final List<SpaceMemberRoleAssignment> directAssignments;
 
   bool get isStructurallyValid {
-    if (revision < 1 ||
+    if ((schemaVersion != 1 && schemaVersion != 2) ||
+        revision < 1 ||
         changedAtMs < 0 ||
         (revision == 1
             ? previousPolicyHash.isNotEmpty
@@ -242,7 +458,8 @@ final class SpaceAccessPolicy {
         groups.any((group) => !group.isStructurallyValid) ||
         directAssignments.any(
           (assignment) => !assignment.isStructurallyValid,
-        )) {
+        ) ||
+        (schemaVersion == 1 && roles.any((role) => role.usesScopedEncoding))) {
       return false;
     }
     final roleIds = roles.map((role) => role.roleId).toSet();
@@ -285,12 +502,75 @@ final class SpaceAccessPolicy {
 
   Set<SpacePermission> permissionsFor(NodeId member) {
     final result = <SpacePermission>{};
-    for (final roleId in roleIdsFor(member)) {
-      final definition = role(roleId);
-      if (definition != null) result.addAll(definition.permissions);
+    for (final grant in grantsFor(member)) {
+      result.add(grant.permission);
     }
     return result;
   }
+
+  Set<SpacePermissionGrant> grantsFor(NodeId member) {
+    final result = <SpacePermissionGrant>{};
+    for (final roleId in roleIdsFor(member)) {
+      final definition = role(roleId);
+      if (definition != null) result.addAll(definition.grants);
+    }
+    return result;
+  }
+
+  bool hasAnyGrant(NodeId member, SpacePermission permission) =>
+      grantsFor(member).any((grant) => grant.permission == permission);
+
+  bool allows(
+    NodeId member,
+    SpacePermission permission, {
+    NodeId? channelId,
+    NodeId? categoryId,
+  }) {
+    for (final grant in grantsFor(member)) {
+      if (grant.permission != permission) continue;
+      final scope = grant.scope;
+      final applies = switch (scope.kind) {
+        SpacePermissionScopeKind.space => true,
+        SpacePermissionScopeKind.category =>
+          scope.targetId == categoryId ||
+              (categoryId == null && scope.targetId == channelId),
+        SpacePermissionScopeKind.channel => scope.targetId == channelId,
+        // Structural validation already proves that a functional scope
+        // matches the permission being evaluated.
+        SpacePermissionScopeKind.posts ||
+        SpacePermissionScopeKind.moderation ||
+        SpacePermissionScopeKind.members ||
+        SpacePermissionScopeKind.roles ||
+        SpacePermissionScopeKind.settings ||
+        SpacePermissionScopeKind.encryption ||
+        SpacePermissionScopeKind.storage => true,
+      };
+      if (applies) return true;
+    }
+    return false;
+  }
+
+  bool hasValidScopeTargets({
+    required Set<String> categoryIds,
+    required Set<String> channelIds,
+  }) {
+    for (final role in roles) {
+      for (final grant in role.grants) {
+        final target = grant.scope.targetId?.hex;
+        if (grant.scope.kind == SpacePermissionScopeKind.category &&
+            (target == null || !categoryIds.contains(target))) {
+          return false;
+        }
+        if (grant.scope.kind == SpacePermissionScopeKind.channel &&
+            (target == null || !channelIds.contains(target))) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  bool get usesScopedEncoding => schemaVersion >= 2;
 
   Uint8List canonicalBytes() =>
       Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
@@ -299,6 +579,7 @@ final class SpaceAccessPolicy {
 
   Map<String, dynamic> toJson() => {
     'space': spaceId.hex,
+    if (schemaVersion >= 2) 'schema': schemaVersion,
     'revision': revision,
     'previous': previousPolicyHash,
     'changedBy': changedBy.hex,
@@ -319,6 +600,7 @@ final class SpaceAccessPolicy {
   static SpaceAccessPolicy? fromJson(Object? value) {
     if (value is! Map ||
         value['space'] is! String ||
+        (value.containsKey('schema') && value['schema'] is! int) ||
         value['revision'] is! int ||
         value['previous'] is! String ||
         value['changedBy'] is! String ||
@@ -349,6 +631,7 @@ final class SpaceAccessPolicy {
       }
       final policy = SpaceAccessPolicy(
         spaceId: NodeId.fromHex(value['space'] as String),
+        schemaVersion: value['schema'] is int ? value['schema'] as int : 1,
         revision: value['revision'] as int,
         previousPolicyHash: value['previous'] as String,
         changedBy: NodeId.fromHex(value['changedBy'] as String),

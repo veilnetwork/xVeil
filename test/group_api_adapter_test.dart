@@ -1390,6 +1390,52 @@ void main() {
         'publishPosts',
         'managePosts',
       ]);
+      final defaultChannel = (await service.channelsOf(
+        NodeId.fromHex(space),
+      )).single;
+      expect(
+        await api.spaceAccessAction(space, {
+          'action': 'upsert_role',
+          'expectedRevision': 2,
+          'roleId': role['id'],
+          'name': 'Scoped publisher',
+          'grants': [
+            {
+              'permission': 'publishPosts',
+              'scope': {'kind': 'posts'},
+            },
+            {
+              'permission': 'managePosts',
+              'scope': {'kind': 'posts'},
+            },
+            {
+              'permission': 'manageStorage',
+              'scope': {
+                'kind': 'channel',
+                'target': defaultChannel.channelId.hex,
+              },
+            },
+          ],
+        }),
+        isNull,
+      );
+      final scoped = (await api.spaceAccess(space))!;
+      expect(scoped['schemaVersion'], 2);
+      expect(scoped['revision'], 3);
+      expect(
+        (((scoped['roles'] as List).single as Map)['grants'] as List),
+        hasLength(3),
+      );
+      expect(
+        (((scoped['effective'] as List).single as Map)['grants'] as List),
+        hasLength(3),
+      );
+      expect(
+        (await service.load(NodeId.fromHex(space)))!.control
+            .lastWhere((entry) => entry.op == ControlOp.setPolicy)
+            .version,
+        18,
+      );
       expect(
         await api.spaceAccessAction(space, {
           'action': 'delete_role',
