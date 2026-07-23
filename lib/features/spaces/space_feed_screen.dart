@@ -9,6 +9,7 @@ import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../home/home_section_scaffold.dart';
+import 'space_post_actions.dart';
 import 'space_post_body.dart';
 import 'space_post_media.dart';
 import 'space_post_reactions.dart';
@@ -285,6 +286,37 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
                                   '${Uri.encodeQueryComponent(item.post.postId)}',
                                 ),
                                 onHide: () => hidePost(item),
+                                onDelete: item.canDeletePost
+                                    ? () async {
+                                        await confirmAndDeleteOwnSpacePost(
+                                          context,
+                                          service,
+                                          item.spaceId,
+                                          item.post,
+                                        );
+                                      }
+                                    : null,
+                                onModerateDelete: item.canModeratePost
+                                    ? () async {
+                                        await promptAndModerateDeleteSpacePost(
+                                          context,
+                                          service,
+                                          item.spaceId,
+                                          item.post,
+                                        );
+                                      }
+                                    : null,
+                                onSetPinned: item.canManagePosts
+                                    ? (pinned) async {
+                                        await updateSpacePostPinned(
+                                          context,
+                                          service,
+                                          item.spaceId,
+                                          item.post,
+                                          pinned,
+                                        );
+                                      }
+                                    : null,
                                 selfId: service.selfId,
                               ),
                               const SizedBox(height: 4),
@@ -312,6 +344,37 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
                                   '${Uri.encodeQueryComponent(item.post.postId)}',
                                 ),
                                 onHide: () => hidePost(item),
+                                onDelete: item.canDeletePost
+                                    ? () async {
+                                        await confirmAndDeleteOwnSpacePost(
+                                          context,
+                                          service,
+                                          item.spaceId,
+                                          item.post,
+                                        );
+                                      }
+                                    : null,
+                                onModerateDelete: item.canModeratePost
+                                    ? () async {
+                                        await promptAndModerateDeleteSpacePost(
+                                          context,
+                                          service,
+                                          item.spaceId,
+                                          item.post,
+                                        );
+                                      }
+                                    : null,
+                                onSetPinned: item.canManagePosts
+                                    ? (pinned) async {
+                                        await updateSpacePostPinned(
+                                          context,
+                                          service,
+                                          item.spaceId,
+                                          item.post,
+                                          pinned,
+                                        );
+                                      }
+                                    : null,
                                 selfId: service.selfId,
                               ),
                               const SizedBox(height: 4),
@@ -682,6 +745,9 @@ class _PostCard extends StatelessWidget {
     required this.onReact,
     required this.onComments,
     required this.onHide,
+    required this.onDelete,
+    required this.onModerateDelete,
+    required this.onSetPinned,
     required this.selfId,
   });
 
@@ -690,6 +756,9 @@ class _PostCard extends StatelessWidget {
   final Future<bool> Function(String emoji) onReact;
   final VoidCallback onComments;
   final Future<void> Function() onHide;
+  final Future<void> Function()? onDelete;
+  final Future<void> Function()? onModerateDelete;
+  final Future<void> Function(bool pinned)? onSetPinned;
   final NodeId selfId;
 
   @override
@@ -726,19 +795,58 @@ class _PostCard extends StatelessWidget {
                     ),
                   ),
                   Text(published, style: Theme.of(context).textTheme.bodySmall),
-                  PopupMenuButton<String>(
+                  PopupMenuButton<_FeedPostAction>(
                     key: ValueKey('space-feed-post-menu-${post.postId}'),
-                    tooltip: AppL10n.of(context).feedPostHide,
-                    onSelected: (_) => unawaited(onHide()),
+                    onSelected: (action) {
+                      switch (action) {
+                        case _FeedPostAction.pin:
+                          unawaited(onSetPinned!(true));
+                        case _FeedPostAction.unpin:
+                          unawaited(onSetPinned!(false));
+                        case _FeedPostAction.delete:
+                          unawaited(onDelete!());
+                        case _FeedPostAction.moderateDelete:
+                          unawaited(onModerateDelete!());
+                        case _FeedPostAction.hide:
+                          unawaited(onHide());
+                      }
+                    },
                     itemBuilder: (context) => [
+                      if (onSetPinned != null)
+                        PopupMenuItem(
+                          value: post.pinned
+                              ? _FeedPostAction.unpin
+                              : _FeedPostAction.pin,
+                          child: _FeedPostMenuLabel(
+                            icon: Icons.push_pin_outlined,
+                            label: post.pinned
+                                ? AppL10n.of(context).spacePostUnpin
+                                : AppL10n.of(context).spacePostPin,
+                          ),
+                        ),
+                      if (onDelete != null)
+                        PopupMenuItem(
+                          value: _FeedPostAction.delete,
+                          child: _FeedPostMenuLabel(
+                            icon: Icons.delete_outline,
+                            label: AppL10n.of(context).spacePostDelete,
+                          ),
+                        )
+                      else if (onModerateDelete != null)
+                        PopupMenuItem(
+                          value: _FeedPostAction.moderateDelete,
+                          child: _FeedPostMenuLabel(
+                            icon: Icons.delete_forever_outlined,
+                            label: AppL10n.of(
+                              context,
+                            ).spaceModerationDeletePost,
+                          ),
+                        ),
                       PopupMenuItem(
-                        value: 'hide',
-                        child: Row(
-                          children: [
-                            const Icon(Icons.visibility_off_outlined),
-                            const SizedBox(width: 12),
-                            Text(AppL10n.of(context).feedPostHide),
-                          ],
+                        value: _FeedPostAction.hide,
+                        child: _FeedPostMenuLabel(
+                          icon: Icons.visibility_off_outlined,
+                          label: AppL10n.of(context).feedPostHide,
                         ),
                       ),
                     ],
@@ -790,4 +898,22 @@ class _PostCard extends StatelessWidget {
       ),
     );
   }
+}
+
+enum _FeedPostAction { pin, unpin, delete, moderateDelete, hide }
+
+class _FeedPostMenuLabel extends StatelessWidget {
+  const _FeedPostMenuLabel({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Icon(icon),
+      const SizedBox(width: 12),
+      Flexible(child: Text(label)),
+    ],
+  );
 }
