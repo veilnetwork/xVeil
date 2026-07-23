@@ -36,6 +36,10 @@ class SpacePublicDescriptor {
     required this.genesisManifest,
     required this.controlHeadHash,
     required this.revision,
+    required this.publicFeedManifestHash,
+    required this.publicFeedRevision,
+    required this.publicFeedUpdatedAtMs,
+    required this.publicPostCount,
     required this.name,
     required this.description,
     required this.avatarContentId,
@@ -48,7 +52,7 @@ class SpacePublicDescriptor {
     Uint8List? signature,
   }) : signature = signature ?? Uint8List(0);
 
-  static const int version = 1;
+  static const int version = 2;
   static const String kind = 'xveil.space.public';
 
   final NodeId spaceId;
@@ -56,6 +60,10 @@ class SpacePublicDescriptor {
   final SpaceManifest genesisManifest;
   final String controlHeadHash;
   final int revision;
+  final String publicFeedManifestHash;
+  final int publicFeedRevision;
+  final int publicFeedUpdatedAtMs;
+  final int publicPostCount;
   final String name;
   final String description;
   final String? avatarContentId;
@@ -79,7 +87,13 @@ class SpacePublicDescriptor {
         !_validContentId(genesisManifest.coverContentId) ||
         signature.length != 64 ||
         !_hex32Pattern.hasMatch(controlHeadHash) ||
+        !_hex32Pattern.hasMatch(publicFeedManifestHash) ||
         revision < 0 ||
+        publicFeedRevision < 0 ||
+        publicFeedUpdatedAtMs < createdAtMs ||
+        publicFeedUpdatedAtMs > issuedAtMs ||
+        publicPostCount < 0 ||
+        publicPostCount > 131072 ||
         name != name.trim() ||
         name.isEmpty ||
         name.length > 160 ||
@@ -134,6 +148,10 @@ class SpacePublicDescriptor {
         'genesis': genesisManifest.toJson(),
         'controlHeadHash': controlHeadHash,
         'revision': revision,
+        'publicFeedManifestHash': publicFeedManifestHash,
+        'publicFeedRevision': publicFeedRevision,
+        'publicFeedUpdatedAt': publicFeedUpdatedAtMs,
+        'publicPostCount': publicPostCount,
         'name': name,
         'description': description,
         if (avatarContentId != null) 'avatar': avatarContentId,
@@ -160,6 +178,10 @@ class SpacePublicDescriptor {
     genesisManifest: genesisManifest,
     controlHeadHash: controlHeadHash,
     revision: revision,
+    publicFeedManifestHash: publicFeedManifestHash,
+    publicFeedRevision: publicFeedRevision,
+    publicFeedUpdatedAtMs: publicFeedUpdatedAtMs,
+    publicPostCount: publicPostCount,
     name: name,
     description: description,
     avatarContentId: avatarContentId,
@@ -187,6 +209,10 @@ class SpacePublicDescriptor {
           'genesis',
           'controlHeadHash',
           'revision',
+          'publicFeedManifestHash',
+          'publicFeedRevision',
+          'publicFeedUpdatedAt',
+          'publicPostCount',
           'name',
           'description',
           'avatar',
@@ -205,6 +231,10 @@ class SpacePublicDescriptor {
         value['genesis'] is! Map ||
         value['controlHeadHash'] is! String ||
         value['revision'] is! int ||
+        value['publicFeedManifestHash'] is! String ||
+        value['publicFeedRevision'] is! int ||
+        value['publicFeedUpdatedAt'] is! int ||
+        value['publicPostCount'] is! int ||
         value['name'] is! String ||
         value['description'] is! String ||
         (value['avatar'] != null && value['avatar'] is! String) ||
@@ -248,6 +278,10 @@ class SpacePublicDescriptor {
         genesisManifest: genesis,
         controlHeadHash: value['controlHeadHash'] as String,
         revision: value['revision'] as int,
+        publicFeedManifestHash: value['publicFeedManifestHash'] as String,
+        publicFeedRevision: value['publicFeedRevision'] as int,
+        publicFeedUpdatedAtMs: value['publicFeedUpdatedAt'] as int,
+        publicPostCount: value['publicPostCount'] as int,
         name: value['name'] as String,
         description: value['description'] as String,
         avatarContentId: value['avatar'] as String?,
@@ -273,6 +307,7 @@ class SpacePublicHolderAnnouncement {
   SpacePublicHolderAnnouncement({
     required this.spaceId,
     required this.descriptorHash,
+    required this.publicFeedManifestHash,
     required this.holder,
     required this.holderPublicKey,
     required this.issuedAtMs,
@@ -280,11 +315,12 @@ class SpacePublicHolderAnnouncement {
     Uint8List? signature,
   }) : signature = signature ?? Uint8List(0);
 
-  static const int version = 1;
+  static const int version = 2;
   static const String kind = 'xveil.space.public-holder';
 
   final NodeId spaceId;
   final String descriptorHash;
+  final String publicFeedManifestHash;
   final NodeId holder;
   final Uint8List holderPublicKey;
   final int issuedAtMs;
@@ -293,6 +329,7 @@ class SpacePublicHolderAnnouncement {
 
   bool isStructurallyValidAt(int nowMs) =>
       _hex32Pattern.hasMatch(descriptorHash) &&
+      _hex32Pattern.hasMatch(publicFeedManifestHash) &&
       holderPublicKey.length == 32 &&
       signature.length == 64 &&
       issuedAtMs >= 0 &&
@@ -317,6 +354,7 @@ class SpacePublicHolderAnnouncement {
         'kind': kind,
         'space': spaceId.hex,
         'descriptorHash': descriptorHash,
+        'publicFeedManifestHash': publicFeedManifestHash,
         'holder': holder.hex,
         'holderKey': base64Encode(holderPublicKey),
         'issuedAt': issuedAtMs,
@@ -329,6 +367,7 @@ class SpacePublicHolderAnnouncement {
       SpacePublicHolderAnnouncement(
         spaceId: spaceId,
         descriptorHash: descriptorHash,
+        publicFeedManifestHash: publicFeedManifestHash,
         holder: holder,
         holderPublicKey: holderPublicKey,
         issuedAtMs: issuedAtMs,
@@ -348,6 +387,7 @@ class SpacePublicHolderAnnouncement {
           'kind',
           'space',
           'descriptorHash',
+          'publicFeedManifestHash',
           'holder',
           'holderKey',
           'issuedAt',
@@ -358,6 +398,7 @@ class SpacePublicHolderAnnouncement {
         value['kind'] != kind ||
         value['space'] is! String ||
         value['descriptorHash'] is! String ||
+        value['publicFeedManifestHash'] is! String ||
         value['holder'] is! String ||
         value['holderKey'] is! String ||
         value['issuedAt'] is! int ||
@@ -369,6 +410,7 @@ class SpacePublicHolderAnnouncement {
       return SpacePublicHolderAnnouncement(
         spaceId: NodeId.fromHex(value['space'] as String),
         descriptorHash: value['descriptorHash'] as String,
+        publicFeedManifestHash: value['publicFeedManifestHash'] as String,
         holder: NodeId.fromHex(value['holder'] as String),
         holderPublicKey: Uint8List.fromList(
           base64Decode(value['holderKey'] as String),
@@ -411,6 +453,7 @@ class SpacePublicDiscoveryPayload {
       descriptor.verifyAt(nowMs, verify) &&
       holder.spaceId == descriptor.spaceId &&
       holder.descriptorHash == descriptor.descriptorHash &&
+      holder.publicFeedManifestHash == descriptor.publicFeedManifestHash &&
       holder.verifyAt(nowMs, verify);
 
   static SpacePublicDiscoveryPayload? fromJson(Object? value) {
@@ -424,7 +467,8 @@ class SpacePublicDiscoveryPayload {
     if (descriptor == null ||
         holder == null ||
         holder.spaceId != descriptor.spaceId ||
-        holder.descriptorHash != descriptor.descriptorHash) {
+        holder.descriptorHash != descriptor.descriptorHash ||
+        holder.publicFeedManifestHash != descriptor.publicFeedManifestHash) {
       return null;
     }
     return SpacePublicDiscoveryPayload(descriptor: descriptor, holder: holder);
@@ -471,6 +515,7 @@ List<SpacePublicDescriptor> mergeSpacePublicDiscovery({
     final descriptor = validDescriptors[holder.descriptorHash];
     if (descriptor == null ||
         holder.spaceId != descriptor.spaceId ||
+        holder.publicFeedManifestHash != descriptor.publicFeedManifestHash ||
         !holder.verifyAt(nowMs, verify)) {
       continue;
     }
@@ -510,6 +555,14 @@ List<SpacePublicDescriptor> mergeSpacePublicDiscovery({
 }
 
 int _descriptorOrder(SpacePublicDescriptor left, SpacePublicDescriptor right) {
+  final byFeedRevision = left.publicFeedRevision.compareTo(
+    right.publicFeedRevision,
+  );
+  if (byFeedRevision != 0) return byFeedRevision;
+  final byFeedUpdated = left.publicFeedUpdatedAtMs.compareTo(
+    right.publicFeedUpdatedAtMs,
+  );
+  if (byFeedUpdated != 0) return byFeedUpdated;
   final byRevision = left.revision.compareTo(right.revision);
   if (byRevision != 0) return byRevision;
   final byIssue = left.issuedAtMs.compareTo(right.issuedAtMs);
