@@ -1942,6 +1942,475 @@ void main() {
   );
 
   test(
+    'a member holder serves with the owner offline and current ACL cuts stale '
+    'requesters and denied holders off',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final bobStorage = FakeHvContainer().storage();
+      final carolStorage = FakeHvContainer().storage();
+      for (final storage in [ownerStorage, bobStorage, carolStorage]) {
+        await storage.open(password: 'pw', createIfMissing: true);
+      }
+
+      late GroupService ownerSvc;
+      late GroupService bobSvc;
+      var ownerOnline = true;
+      final ownerGrants = <(NodeId, String)>[];
+      final bobGrants = <(NodeId, String)>[];
+      final carolRequestTargets = <NodeId>[];
+      final ownerRequestTargets = <NodeId>[];
+      bool? ownerToBobDecision;
+      final cid = sha256.convert(const [7, 8, 9]).toString();
+      final bytes = Uint8List.fromList(const [7, 8, 9]);
+
+      ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        grantContentServe: (peer, contentId) =>
+            ownerGrants.add((peer, contentId)),
+        sendContentRequest: (holder, requestJson) async {
+          ownerRequestTargets.add(holder);
+          if (holder == bob) {
+            ownerToBobDecision = await bobSvc.handleContentRequest(requestJson);
+          }
+        },
+        startContentPullFromAny: (_, _) async {},
+        contentGrantDelay: Duration.zero,
+      );
+      bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        grantContentServe: (peer, contentId) =>
+            bobGrants.add((peer, contentId)),
+        sendContentRequest: (holder, requestJson) async {
+          if (holder != owner || !ownerOnline) {
+            throw StateError('owner is offline');
+          }
+          await ownerSvc.handleContentRequest(requestJson);
+        },
+      );
+      final carolSvc = GroupService(
+        carolStorage,
+        _FakeSigner(carol),
+        sendContentRequest: (holder, requestJson) async {
+          carolRequestTargets.add(holder);
+          if (holder == owner) {
+            if (!ownerOnline) throw StateError('owner is offline');
+            await ownerSvc.handleContentRequest(requestJson);
+          } else if (holder == bob) {
+            await bobSvc.handleContentRequest(requestJson);
+          }
+        },
+        startContentPullFromAny: (holders, contentId) async {
+          expect(holders, [owner, bob], reason: 'author remains preferred');
+          expect(contentId, cid);
+          final source = await bobStorage.loadFile(contentId);
+          expect(source, bytes, reason: 'the non-owner holder has exact bytes');
+          await carolStorage.storeFile(contentId, source!, name: 'from-bob');
+        },
+        contentGrantDelay: Duration.zero,
+      );
+      addTearDown(ownerSvc.dispose);
+      addTearDown(bobSvc.dispose);
+      addTearDown(carolSvc.dispose);
+
+      final spaceId = await ownerSvc.createSpace(
+        'Owner-offline holder cut-off',
+        visibility: SpaceVisibility.public,
+      );
+      for (final member in [bob, carol]) {
+        expect(
+          await ownerSvc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: member,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+      }
+      expect(
+        await ownerSvc.publishSpacePost(
+          spaceId,
+          body: 'replicated media',
+          media: [
+            MediaObjectRef(contentId: cid, kind: 'file', size: bytes.length),
+          ],
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      await ownerStorage.storeFile(cid, bytes, name: 'owner');
+      final initial = (await ownerSvc.load(spaceId))!;
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(initial, recipient: bob),
+        ),
+        isTrue,
+      );
+      expect(
+        await carolSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(initial, recipient: carol),
+        ),
+        isTrue,
+      );
+
+      expect(await bobSvc.requestGroupContent(spaceId, cid, owner), isTrue);
+      expect(ownerGrants, [(bob, cid)]);
+      await bobStorage.storeFile(
+        cid,
+        (await ownerStorage.loadFile(cid))!,
+        name: 'replica',
+      );
+
+      ownerOnline = false;
+      expect(
+        await carolSvc.fetchGroupContent(spaceId, cid, owner),
+        isTrue,
+        reason: 'the preferred author being offline must not block a holder',
+      );
+      expect(carolRequestTargets.toSet(), {owner, bob});
+      expect(bobGrants, [(carol, cid)]);
+      expect(await carolStorage.loadFile(cid), bytes);
+
+      ownerOnline = true;
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.removeMember,
+          target: carol,
+        ),
+        isTrue,
+      );
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      ownerOnline = false;
+      final staleCarolRequest = _FakeSigner(carol).signContentRequest(
+        GroupContentRequest(
+          groupId: spaceId,
+          contentId: cid,
+          requester: carol,
+          nonce: 'stale-carol-after-removal',
+          tsMs: DateTime.now().millisecondsSinceEpoch,
+          signature: Uint8List(0),
+        ),
+      );
+      final grantsBeforeRevokedRequest = bobGrants.length;
+      expect(
+        await bobSvc.handleContentRequest(
+          jsonEncode(staleCarolRequest.toJson()),
+        ),
+        isFalse,
+        reason:
+            'an owner-offline holder must use its current fold, not the '
+            'requester stale membership view',
+      );
+      expect(bobGrants, hasLength(grantsBeforeRevokedRequest));
+      final revokedObservations = await bobSvc.spaceObservabilitySnapshot();
+      expect(
+        revokedObservations
+            .counters['revokedDeliveryPrevented.reason.notMember'],
+        1,
+      );
+
+      ownerOnline = true;
+      final denyRoleId = sha256
+          .convert(utf8.encode('deny-holder-distribution'))
+          .toString();
+      expect(
+        await ownerSvc.replaceSpaceAccessPolicy(
+          spaceId,
+          expectedRevision: 0,
+          roles: [
+            SpaceRoleDefinition(
+              roleId: denyRoleId,
+              name: 'No redistribution',
+              grants: const <SpacePermissionGrant>[],
+              denials: const [
+                SpacePermissionDenial(
+                  permission: SpacePermission.distributeContent,
+                  scope: SpacePermissionScope.space(),
+                ),
+              ],
+            ),
+          ],
+          groups: const <SpaceMemberGroup>[],
+          directAssignments: [
+            SpaceMemberRoleAssignment(member: bob, roleIds: [denyRoleId]),
+          ],
+        ),
+        isNotNull,
+      );
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+
+      final directOwnerRequest = _FakeSigner(owner).signContentRequest(
+        GroupContentRequest(
+          groupId: spaceId,
+          contentId: cid,
+          requester: owner,
+          nonce: 'owner-to-denied-holder',
+          tsMs: DateTime.now().millisecondsSinceEpoch,
+          signature: Uint8List(0),
+        ),
+      );
+      final grantsBeforeDeniedHolder = bobGrants.length;
+      expect(
+        await bobSvc.handleContentRequest(
+          jsonEncode(directOwnerRequest.toJson()),
+        ),
+        isFalse,
+        reason: 'serve authority belongs to the holder current scoped ACL too',
+      );
+      expect(bobGrants, hasLength(grantsBeforeDeniedHolder));
+
+      ownerRequestTargets.clear();
+      ownerToBobDecision = null;
+      expect(
+        await ownerSvc.fetchGroupContent(spaceId, cid, bob),
+        isFalse,
+        reason: 'known ineligible holders are omitted before request fanout',
+      );
+      expect(ownerRequestTargets, isEmpty);
+      expect(ownerToBobDecision, isNull);
+    },
+  );
+
+  test(
+    'an owner-offline protected holder enforces current channel epoch and its '
+    'own scoped distribution permission',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final bobStorage = FakeHvContainer().storage();
+      final carolStorage = FakeHvContainer().storage();
+      for (final storage in [ownerStorage, bobStorage, carolStorage]) {
+        await storage.open(password: 'pw', createIfMissing: true);
+      }
+      final ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      final bobGrants = <(NodeId, String)>[];
+      final bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        grantContentServe: (peer, contentId) =>
+            bobGrants.add((peer, contentId)),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      final carolSvc = GroupService(
+        carolStorage,
+        _FakeSigner(carol),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(ownerSvc.dispose);
+      addTearDown(bobSvc.dispose);
+      addTearDown(carolSvc.dispose);
+
+      final spaceId = await ownerSvc.createSpace('Protected holder cut-off');
+      for (final member in [bob, carol]) {
+        expect(
+          await ownerSvc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: member,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+      }
+      final channelId = await ownerSvc.createChannel(
+        spaceId,
+        name: 'Protected',
+        kind: SpaceChannelKind.text,
+        access: SpaceChannelAccess.restricted,
+        members: [bob, carol],
+      );
+      expect(channelId, isNotNull);
+      final cid = sha256.convert(const [10, 11, 12]).toString();
+      expect(
+        await ownerSvc.postMessage(
+          spaceId,
+          'protected media',
+          channelId: channelId,
+          attachment: MediaObject(
+            kind: 'file',
+            contentId: cid,
+            name: 'protected.bin',
+            size: 3,
+          ),
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      await bobStorage.storeFile(
+        cid,
+        Uint8List.fromList(const [10, 11, 12]),
+        name: 'replica',
+      );
+      final initial = (await ownerSvc.load(spaceId))!;
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(initial, recipient: bob),
+        ),
+        isTrue,
+      );
+      expect(
+        await carolSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(initial, recipient: carol),
+        ),
+        isTrue,
+      );
+
+      GroupContentRequest request(
+        NodeId requester, {
+        required String nonce,
+        required int channelEpoch,
+      }) => _FakeSigner(requester).signContentRequest(
+        GroupContentRequest(
+          groupId: spaceId,
+          contentId: cid,
+          requester: requester,
+          nonce: nonce,
+          tsMs: DateTime.now().millisecondsSinceEpoch,
+          channelId: channelId,
+          channelEpoch: channelEpoch,
+          signature: Uint8List(0),
+        ),
+      );
+
+      expect(
+        await bobSvc.handleContentRequest(
+          jsonEncode(
+            request(
+              carol,
+              nonce: 'carol-before-channel-revoke',
+              channelEpoch: 1,
+            ).toJson(),
+          ),
+        ),
+        isTrue,
+      );
+      expect(bobGrants, [(carol, cid)]);
+
+      expect(
+        await ownerSvc.setChannelMembers(spaceId, channelId!, [bob]),
+        isTrue,
+      );
+      expect(
+        (await ownerSvc.stateOf(
+          spaceId,
+        ))!.protectedChannels[channelId.hex]!.channelEpoch,
+        2,
+      );
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      final grantsBeforeEpochCutOff = bobGrants.length;
+      expect(
+        await bobSvc.handleContentRequest(
+          jsonEncode(
+            request(
+              carol,
+              nonce: 'carol-stale-channel-epoch',
+              channelEpoch: 1,
+            ).toJson(),
+          ),
+        ),
+        isFalse,
+        reason:
+            'the non-owner holder enforces the rotated epoch without asking '
+            'the owner',
+      );
+      expect(bobGrants, hasLength(grantsBeforeEpochCutOff));
+
+      final denyRoleId = sha256
+          .convert(utf8.encode('deny-protected-holder-distribution'))
+          .toString();
+      expect(
+        await ownerSvc.replaceSpaceAccessPolicy(
+          spaceId,
+          expectedRevision: 0,
+          roles: [
+            SpaceRoleDefinition(
+              roleId: denyRoleId,
+              name: 'No protected redistribution',
+              grants: const <SpacePermissionGrant>[],
+              denials: [
+                SpacePermissionDenial(
+                  permission: SpacePermission.distributeContent,
+                  scope: SpacePermissionScope(
+                    kind: SpacePermissionScopeKind.channel,
+                    targetId: channelId,
+                  ),
+                ),
+              ],
+            ),
+          ],
+          groups: const <SpaceMemberGroup>[],
+          directAssignments: [
+            SpaceMemberRoleAssignment(member: bob, roleIds: [denyRoleId]),
+          ],
+        ),
+        isNotNull,
+      );
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      final grantsBeforeHolderDenial = bobGrants.length;
+      expect(
+        await bobSvc.handleContentRequest(
+          jsonEncode(
+            request(
+              owner,
+              nonce: 'owner-to-scoped-denied-holder',
+              channelEpoch: 2,
+            ).toJson(),
+          ),
+        ),
+        isFalse,
+        reason:
+            'a channel-scoped denial on the holder blocks serving retained '
+            'bytes too',
+      );
+      expect(bobGrants, hasLength(grantsBeforeHolderDenial));
+    },
+  );
+
+  test(
     'snapshot content is gated even for an internal non-member caller',
     () async {
       final storage = FakeHvContainer().storage();
