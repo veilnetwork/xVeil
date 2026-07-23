@@ -14,6 +14,7 @@ import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/domain/group_content.dart';
+import 'package:xveil/domain/space_public_feed_transport.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
@@ -1413,6 +1414,80 @@ void main() {
         tB.openStreamAttemptCount,
         tB.openedStreamCount,
         reason: 'the warmed in-memory route must not lose an open attempt',
+      );
+    },
+  );
+
+  test(
+    'PUBLIC media grant streams verified bytes to a non-contact without ACK',
+    () async {
+      final data = _rnd(240000, 83);
+      final cid = await mA.registerGroupContent(data, name: 'public-media.bin');
+      final c = _id(3);
+      final tC = _StreamLink(c);
+      final sC = HiddenVolumeStorage(_mem());
+      await sC.open(password: 'c', createIfMissing: true);
+      final mC = MessagingService(
+        tC,
+        sC,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+      )..start();
+      addTearDown(() async {
+        await mC.dispose();
+        await sC.close();
+      });
+      tC.routes[a.hex] = tA;
+      tA.routes[c.hex] = tC;
+
+      final granted = Completer<void>();
+      mA.onSpacePublicMediaGrantRequest = (peer, _) async {
+        mA.grantGroupContentServe(
+          peer,
+          cid,
+          ttl: kSpacePublicMediaGrantRequestWindow,
+        );
+        if (!granted.isCompleted) granted.complete();
+      };
+      final request = SpacePublicMediaGrantRequest(
+        spaceId: _id(9),
+        descriptorHash: '11' * 32,
+        manifestHash: '22' * 32,
+        contentId: cid,
+        requester: c,
+        requesterPublicKey: c.bytes,
+        nonce: '33' * 32,
+        createdAtMs: DateTime.now().millisecondsSinceEpoch,
+        signature: Uint8List(64),
+      );
+      await mC.sendSpacePublicMediaGrantRequest(
+        a,
+        jsonEncode(request.toJson()),
+      );
+      await granted.future.timeout(const Duration(seconds: 2));
+      final liveGrant = mA.debugGroupServeGrants().single;
+      expect(liveGrant['peer'], c.hex);
+      expect(liveGrant['cid'], cid);
+      expect(
+        liveGrant['expiresInMs'] as int,
+        lessThanOrEqualTo(kSpacePublicMediaGrantRequestWindow.inMilliseconds),
+      );
+
+      final got = mC.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(
+        await mC.downloadPublicSpaceContentFromAny([a], cid),
+        ContentDownloadResult.started,
+      );
+      final event = await got.timeout(const Duration(seconds: 20));
+      expect(event.contentId, cid);
+      expect(await sC.loadFile(cid), data);
+      expect(await sA.getContact(c), isNull);
+      expect(await sC.getContact(a), isNull);
+      expect(await sA.loadMessages(c.hex), isEmpty);
+      expect(await sC.loadMessages(a.hex), isEmpty);
+      expect(
+        tC.sentPayloads.map(WireEnvelope.decode).map((env) => env.kind),
+        isNot(contains(WireKind.ack)),
       );
     },
   );
