@@ -3042,6 +3042,94 @@ void main() {
   );
 
   test(
+    'blocking an inviter invalidates decisions and accepted Space invites',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final bobStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await bobStorage.open(password: 'bob', createIfMissing: true);
+      await ownerStorage.upsertContact(
+        Contact(nodeId: bob, status: ContactStatus.accepted),
+      );
+      await bobStorage.upsertContact(
+        Contact(nodeId: owner, status: ContactStatus.accepted),
+      );
+      late final GroupService bobService;
+      final ownerService = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        sendSpaceInvite: (peer, inviteId, json) async {
+          expect(peer, bob);
+          expect(await bobService.receiveSpaceInvite(owner, json), isTrue);
+        },
+      );
+      bobService = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        sendSpaceInviteDecision: (peer, inviteId, json) async {
+          expect(peer, owner);
+        },
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(bobService.dispose);
+
+      final acceptedSpace = await ownerService.createSpace('Accepted stale');
+      final undecidedSpace = await ownerService.createSpace('Undecided stale');
+      expect(await ownerService.inviteToSpace(acceptedSpace, bob), isTrue);
+      expect(await ownerService.inviteToSpace(undecidedSpace, bob), isTrue);
+      final invitations = await bobService.pendingSpaceInvites();
+      final acceptedInvite = invitations.singleWhere(
+        (entry) => entry.invite.spaceId == acceptedSpace,
+      );
+      final undecidedInvite = invitations.singleWhere(
+        (entry) => entry.invite.spaceId == undecidedSpace,
+      );
+      expect(
+        await bobService.decideSpaceInvite(
+          acceptedInvite.invite.inviteId,
+          accept: true,
+        ),
+        isTrue,
+      );
+
+      await bobStorage.upsertContact(
+        Contact(nodeId: owner, status: ContactStatus.blocked),
+      );
+      expect(
+        await bobService.decideSpaceInvite(
+          undecidedInvite.invite.inviteId,
+          accept: true,
+        ),
+        isFalse,
+      );
+      expect(await bobService.pendingSpaceInvites(), isEmpty);
+      expect(await bobService.spaceMemberships(), isEmpty);
+
+      expect(
+        await ownerService.addControlOp(
+          acceptedSpace,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await bobService.ingestGroupEntry(
+          owner,
+          ownerService.snapshotJson(
+            (await ownerService.load(acceptedSpace))!,
+            recipient: bob,
+          ),
+        ),
+        isFalse,
+        reason: 'a late grant cannot revive consent after blocking the inviter',
+      );
+      expect(await bobService.load(acceptedSpace), isNull);
+    },
+  );
+
+  test(
     'public Space join link admits a non-contact only after signed approval',
     () async {
       final ownerStorage = FakeHvContainer().storage();
@@ -3149,6 +3237,117 @@ void main() {
       );
       expect(await requesterService.outgoingSpaceJoinRequests(), isEmpty);
       expect(await ownerService.pendingSpaceJoinRequests(spaceId), isEmpty);
+    },
+  );
+
+  test(
+    'blocking a requester invalidates a received public Space join request',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final requesterStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await requesterStorage.open(password: 'requester', createIfMissing: true);
+      late final GroupService ownerService;
+      final requesterService = GroupService(
+        requesterStorage,
+        _FakeSigner(bob),
+        sendSpaceJoinRequest: (peer, requestId, json) async {
+          expect(peer, owner);
+          expect(await ownerService.receiveSpaceJoinRequest(bob, json), isTrue);
+        },
+      );
+      ownerService = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        sendSpaceJoinDecision: (peer, requestId, json) async {},
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(requesterService.dispose);
+
+      final spaceId = await ownerService.createSpace(
+        'Blocked requester',
+        visibility: SpaceVisibility.public,
+      );
+      final code = (await ownerService.createSpaceJoinCode(spaceId))!;
+      expect(await requesterService.requestToJoinSpace(code), isTrue);
+      final request = (await ownerService.pendingSpaceJoinRequests(
+        spaceId,
+      )).single;
+
+      await ownerStorage.upsertContact(
+        Contact(nodeId: bob, status: ContactStatus.blocked),
+      );
+      expect(
+        await ownerService.decideSpaceJoinRequest(
+          request.request.requestId,
+          accept: true,
+        ),
+        isFalse,
+      );
+      expect(await ownerService.pendingSpaceJoinRequests(spaceId), isEmpty);
+      expect((await ownerService.stateOf(spaceId))!.isMember(bob), isFalse);
+    },
+  );
+
+  test(
+    'blocking an approver invalidates requester consent before a late grant',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final requesterStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await requesterStorage.open(password: 'requester', createIfMissing: true);
+      late final GroupService ownerService;
+      final requesterService = GroupService(
+        requesterStorage,
+        _FakeSigner(bob),
+        sendSpaceJoinRequest: (peer, requestId, json) async {
+          expect(peer, owner);
+          expect(await ownerService.receiveSpaceJoinRequest(bob, json), isTrue);
+        },
+      );
+      ownerService = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        sendSpaceJoinDecision: (peer, requestId, json) async {},
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(requesterService.dispose);
+
+      final spaceId = await ownerService.createSpace(
+        'Blocked approver',
+        visibility: SpaceVisibility.public,
+      );
+      final code = (await ownerService.createSpaceJoinCode(spaceId))!;
+      expect(await requesterService.requestToJoinSpace(code), isTrue);
+      final request = (await ownerService.pendingSpaceJoinRequests(
+        spaceId,
+      )).single;
+
+      await requesterStorage.upsertContact(
+        Contact(nodeId: owner, status: ContactStatus.blocked),
+      );
+      expect(await requesterService.outgoingSpaceJoinRequests(), isEmpty);
+      expect(await requesterService.spaceMemberships(), isEmpty);
+      expect(
+        await ownerService.decideSpaceJoinRequest(
+          request.request.requestId,
+          accept: true,
+        ),
+        isTrue,
+      );
+      expect(
+        await requesterService.ingestGroupEntryFromStranger(
+          owner,
+          ownerService.snapshotJson(
+            (await ownerService.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isFalse,
+        reason:
+            'a late grant cannot revive a request after blocking the approver',
+      );
+      expect(await requesterService.load(spaceId), isNull);
     },
   );
 
@@ -3506,7 +3705,7 @@ void main() {
   );
 
   test(
-    'revoked public Space join link receives no durable acceptance',
+    'revoking a public Space join link purges its pending request',
     () async {
       final storage = FakeHvContainer().storage();
       final requesterStorage = FakeHvContainer().storage();
@@ -3548,9 +3747,86 @@ void main() {
         isFalse,
         reason: 'the request must be bound to the exact bearer ticket',
       );
+      expect(await requesterService.requestToJoinSpace(code), isTrue);
+      final pending = await ownerService.pendingSpaceJoinRequests(spaceId);
+      expect(pending, hasLength(1));
       expect(await ownerService.revokeSpaceJoinCode(spaceId), isTrue);
       expect(await requesterService.requestToJoinSpace(code), isFalse);
       expect(await ownerService.pendingSpaceJoinRequests(spaceId), isEmpty);
+      expect(
+        await ownerService.decideSpaceJoinRequest(
+          pending.single.request.requestId,
+          accept: true,
+        ),
+        isFalse,
+      );
+      expect((await ownerService.stateOf(spaceId))!.isMember(bob), isFalse);
+    },
+  );
+
+  test(
+    'an expired public Space ticket purges its already received request',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final requesterStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await requesterStorage.open(password: 'requester', createIfMissing: true);
+      late final GroupService ownerService;
+      final requesterService = GroupService(
+        requesterStorage,
+        _FakeSigner(bob),
+        sendSpaceJoinRequest: (peer, requestId, json) async {
+          expect(peer, owner);
+          expect(await ownerService.receiveSpaceJoinRequest(bob, json), isTrue);
+        },
+      );
+      ownerService = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        sendSpaceJoinDecision: (peer, requestId, json) async {},
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(requesterService.dispose);
+
+      final spaceId = await ownerService.createSpace(
+        'Expired request',
+        visibility: SpaceVisibility.public,
+      );
+      final code = (await ownerService.createSpaceJoinCode(spaceId))!;
+      expect(await requesterService.requestToJoinSpace(code), isTrue);
+      final pending = (await ownerService.pendingSpaceJoinRequests(
+        spaceId,
+      )).single;
+
+      final ticket = SpaceJoinCode.parse(code);
+      final expiredTicket = SpaceJoinTicket(
+        ticketId: ticket.ticketId,
+        spaceId: ticket.spaceId,
+        approver: ticket.approver,
+        spaceName: ticket.spaceName,
+        createdAtMs: ticket.createdAtMs,
+        expiresAtMs: pending.request.createdAtMs + 1,
+      );
+      final raw =
+          jsonDecode(
+                (await ownerStorage.getSetting('spaces.join_requests.v1'))!,
+              )
+              as Map<String, dynamic>;
+      raw['tickets'] = [expiredTicket.toJson()];
+      final incoming = (raw['incoming'] as List).single as Map<String, dynamic>;
+      final request = incoming['request'] as Map<String, dynamic>;
+      request['ticketHash'] = spaceJoinTicketHash(expiredTicket);
+      await ownerStorage.putSetting('spaces.join_requests.v1', jsonEncode(raw));
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+
+      expect(await ownerService.pendingSpaceJoinRequests(spaceId), isEmpty);
+      expect(
+        await ownerService.decideSpaceJoinRequest(
+          pending.request.requestId,
+          accept: true,
+        ),
+        isFalse,
+      );
       expect((await ownerService.stateOf(spaceId))!.isMember(bob), isFalse);
     },
   );
