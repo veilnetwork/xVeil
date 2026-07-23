@@ -2176,7 +2176,7 @@ abstract class AppL10n {
   /// No description provided for @feedFilterEmptyHint.
   ///
   /// In en, this message translates to:
-  /// **'No publications match the selected content types.'**
+  /// **'No publications match the selected filters.'**
   String get feedFilterEmptyHint;
 
   /// No description provided for @feedFilterUpdateFailed.
@@ -2184,6 +2184,78 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Could not update the Feed filter'**
   String get feedFilterUpdateFailed;
+
+  /// No description provided for @feedFilterMentionsOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Only publications that mention me'**
+  String get feedFilterMentionsOnly;
+
+  /// No description provided for @feedFilterMentionsOnlyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The canonical node_id is matched even when a contact name or DHT login is displayed.'**
+  String get feedFilterMentionsOnlyHint;
+
+  /// No description provided for @feedFilterTypesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Publication type'**
+  String get feedFilterTypesTitle;
+
+  /// No description provided for @feedFilterTimeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Publication time'**
+  String get feedFilterTimeTitle;
+
+  /// No description provided for @feedFilterTimeAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Any time'**
+  String get feedFilterTimeAll;
+
+  /// No description provided for @feedFilterTimeHour.
+  ///
+  /// In en, this message translates to:
+  /// **'Last hour'**
+  String get feedFilterTimeHour;
+
+  /// No description provided for @feedFilterTimeDay.
+  ///
+  /// In en, this message translates to:
+  /// **'Last day'**
+  String get feedFilterTimeDay;
+
+  /// No description provided for @feedFilterTimeWeek.
+  ///
+  /// In en, this message translates to:
+  /// **'Last week'**
+  String get feedFilterTimeWeek;
+
+  /// No description provided for @feedFilterTimeMonth.
+  ///
+  /// In en, this message translates to:
+  /// **'Last month'**
+  String get feedFilterTimeMonth;
+
+  /// No description provided for @feedFilterTimeCustom.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom date and time'**
+  String get feedFilterTimeCustom;
+
+  /// No description provided for @feedFilterCommunitiesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Communities'**
+  String get feedFilterCommunitiesTitle;
+
+  /// No description provided for @feedFilterAllCommunities.
+  ///
+  /// In en, this message translates to:
+  /// **'All communities'**
+  String get feedFilterAllCommunities;
 
   /// No description provided for @chatsEmpty.
   ///

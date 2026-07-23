@@ -1198,10 +1198,48 @@ class AppL10nRu extends AppL10n {
   String get feedFilterApply => 'Применить';
 
   @override
-  String get feedFilterEmptyHint => 'Нет публикаций выбранных типов.';
+  String get feedFilterEmptyHint =>
+      'Нет публикаций, подходящих под выбранные фильтры.';
 
   @override
   String get feedFilterUpdateFailed => 'Не удалось изменить фильтр ленты';
+
+  @override
+  String get feedFilterMentionsOnly => 'Только публикации с упоминанием меня';
+
+  @override
+  String get feedFilterMentionsOnlyHint =>
+      'Поиск идёт по каноническому node_id, даже если показано имя контакта или логин DHT.';
+
+  @override
+  String get feedFilterTypesTitle => 'Тип публикации';
+
+  @override
+  String get feedFilterTimeTitle => 'Время публикации';
+
+  @override
+  String get feedFilterTimeAll => 'За всё время';
+
+  @override
+  String get feedFilterTimeHour => 'За последний час';
+
+  @override
+  String get feedFilterTimeDay => 'За последний день';
+
+  @override
+  String get feedFilterTimeWeek => 'За последнюю неделю';
+
+  @override
+  String get feedFilterTimeMonth => 'За последний месяц';
+
+  @override
+  String get feedFilterTimeCustom => 'Произвольные дата и время';
+
+  @override
+  String get feedFilterCommunitiesTitle => 'Сообщества';
+
+  @override
+  String get feedFilterAllCommunities => 'Все сообщества';
 
   @override
   String get chatsEmpty => 'Пока нет переписок';

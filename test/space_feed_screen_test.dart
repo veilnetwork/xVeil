@@ -13,6 +13,7 @@ import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_reaction.dart';
+import 'package:xveil/domain/message_mention.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_channel.dart';
 import 'package:xveil/features/spaces/space_feed_screen.dart';
@@ -303,6 +304,75 @@ void main() {
     expect(find.text('Plain update'), findsOneWidget);
     expect(find.text('Long read'), findsOneWidget);
   });
+
+  testWidgets(
+    'Feed exposes community mentions and combines mention/time/space filters',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final owner = _id(31);
+      final member = _id(32);
+      final ownerService = GroupService(storage, _Signer(owner));
+      final spaceId = await ownerService.createSpace(
+        'Mentioned community',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: member,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      await ownerService.publishSpacePost(
+        spaceId,
+        title: 'Ordinary',
+        body: 'No target here',
+        broadcast: false,
+      );
+      await ownerService.publishSpacePost(
+        spaceId,
+        title: 'For you',
+        body: 'Hello ${encodeMessageMention(member)}',
+        broadcast: false,
+      );
+      final memberService = GroupService(storage, _Signer(member));
+
+      await tester.pumpWidget(_host(memberService, const SpaceFeedScreen()));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('space-feed-mentions-open')),
+        findsOneWidget,
+      );
+      expect(find.text('Ordinary'), findsOneWidget);
+      expect(find.text('For you'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('space-feed-type-filter')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('space-feed-filter-time-lastHour')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(ValueKey('space-feed-filter-community-${spaceId.hex}')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('space-feed-filter-mentions')),
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('space-feed-filter-apply')),
+      );
+      await tester.tap(find.byKey(const ValueKey('space-feed-filter-apply')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ordinary'), findsNothing);
+      expect(find.text('For you'), findsOneWidget);
+      expect((await memberService.spaceFeedFilter()).mentionsOnly, isTrue);
+    },
+  );
 
   testWidgets('Feed drops its rendered snapshot immediately after leaving', (
     tester,

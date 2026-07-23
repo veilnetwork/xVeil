@@ -1188,10 +1188,47 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get feedFilterEmptyHint =>
-      'No publications match the selected content types.';
+      'No publications match the selected filters.';
 
   @override
   String get feedFilterUpdateFailed => 'Could not update the Feed filter';
+
+  @override
+  String get feedFilterMentionsOnly => 'Only publications that mention me';
+
+  @override
+  String get feedFilterMentionsOnlyHint =>
+      'The canonical node_id is matched even when a contact name or DHT login is displayed.';
+
+  @override
+  String get feedFilterTypesTitle => 'Publication type';
+
+  @override
+  String get feedFilterTimeTitle => 'Publication time';
+
+  @override
+  String get feedFilterTimeAll => 'Any time';
+
+  @override
+  String get feedFilterTimeHour => 'Last hour';
+
+  @override
+  String get feedFilterTimeDay => 'Last day';
+
+  @override
+  String get feedFilterTimeWeek => 'Last week';
+
+  @override
+  String get feedFilterTimeMonth => 'Last month';
+
+  @override
+  String get feedFilterTimeCustom => 'Custom date and time';
+
+  @override
+  String get feedFilterCommunitiesTitle => 'Communities';
+
+  @override
+  String get feedFilterAllCommunities => 'All communities';
 
   @override
   String get chatsEmpty => 'No conversations yet';

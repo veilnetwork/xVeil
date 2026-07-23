@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import '../core/ids.dart';
 import 'group_payload.dart';
 import 'media_object.dart';
+import 'message_mention.dart';
 
 export 'media_object.dart' show MediaObject, MediaObjectRef;
 
@@ -1148,6 +1149,206 @@ class SpaceFeedCursor {
     } catch (_) {
       return null;
     }
+  }
+}
+
+enum SpaceFeedTimePreset {
+  all,
+  lastHour,
+  lastDay,
+  lastWeek,
+  lastMonth,
+  custom;
+
+  static SpaceFeedTimePreset? fromName(Object? value) => value is String
+      ? SpaceFeedTimePreset.values
+            .where((preset) => preset.name == value)
+            .firstOrNull
+      : null;
+}
+
+/// Device-local, identity-scoped filters for the merged publication Feed.
+///
+/// Empty [spaceIds] means every subscribed community. Relative time presets
+/// are stored symbolically and recalculated when the Feed is opened, while a
+/// custom interval stores absolute inclusive millisecond bounds.
+class SpaceFeedFilter {
+  SpaceFeedFilter({
+    required Set<SpacePostType> types,
+    this.mentionsOnly = false,
+    this.timePreset = SpaceFeedTimePreset.all,
+    this.customFromMs,
+    this.customToMs,
+    Set<NodeId> spaceIds = const {},
+  }) : types = Set<SpacePostType>.unmodifiable(
+         types.isEmpty ? SpacePostType.values : types,
+       ),
+       spaceIds = Set<NodeId>.unmodifiable(spaceIds);
+
+  factory SpaceFeedFilter.defaults() =>
+      SpaceFeedFilter(types: SpacePostType.values.toSet());
+
+  final Set<SpacePostType> types;
+  final bool mentionsOnly;
+  final SpaceFeedTimePreset timePreset;
+  final int? customFromMs;
+  final int? customToMs;
+  final Set<NodeId> spaceIds;
+
+  bool get isStructurallyValid =>
+      spaceIds.length <= 4096 &&
+      (timePreset != SpaceFeedTimePreset.custom ||
+          (customFromMs != null &&
+              customToMs != null &&
+              customFromMs! >= 0 &&
+              customToMs! >= customFromMs!));
+
+  bool get isDefault =>
+      types.length == SpacePostType.values.length &&
+      !mentionsOnly &&
+      timePreset == SpaceFeedTimePreset.all &&
+      spaceIds.isEmpty;
+
+  int get activeDimensionCount =>
+      (types.length == SpacePostType.values.length ? 0 : 1) +
+      (mentionsOnly ? 1 : 0) +
+      (timePreset == SpaceFeedTimePreset.all ? 0 : 1) +
+      (spaceIds.isEmpty ? 0 : 1);
+
+  SpaceFeedFilter copyWith({
+    Set<SpacePostType>? types,
+    bool? mentionsOnly,
+    SpaceFeedTimePreset? timePreset,
+    int? customFromMs,
+    int? customToMs,
+    bool clearCustomRange = false,
+    Set<NodeId>? spaceIds,
+  }) => SpaceFeedFilter(
+    types: types ?? this.types,
+    mentionsOnly: mentionsOnly ?? this.mentionsOnly,
+    timePreset: timePreset ?? this.timePreset,
+    customFromMs: clearCustomRange ? null : customFromMs ?? this.customFromMs,
+    customToMs: clearCustomRange ? null : customToMs ?? this.customToMs,
+    spaceIds: spaceIds ?? this.spaceIds,
+  );
+
+  ({int? fromMs, int? toMs}) windowAt(int nowMs) => switch (timePreset) {
+    SpaceFeedTimePreset.all => (fromMs: null, toMs: null),
+    SpaceFeedTimePreset.lastHour => (
+      fromMs: nowMs - const Duration(hours: 1).inMilliseconds,
+      toMs: null,
+    ),
+    SpaceFeedTimePreset.lastDay => (
+      fromMs: nowMs - const Duration(days: 1).inMilliseconds,
+      toMs: null,
+    ),
+    SpaceFeedTimePreset.lastWeek => (
+      fromMs: nowMs - const Duration(days: 7).inMilliseconds,
+      toMs: null,
+    ),
+    SpaceFeedTimePreset.lastMonth => (
+      fromMs: nowMs - const Duration(days: 30).inMilliseconds,
+      toMs: null,
+    ),
+    SpaceFeedTimePreset.custom => (fromMs: customFromMs, toMs: customToMs),
+  };
+
+  bool allowsPost(
+    SpacePostView post, {
+    required NodeId viewer,
+    required int nowMs,
+  }) {
+    if (!types.contains(post.type) ||
+        (spaceIds.isNotEmpty && !spaceIds.contains(post.spaceId))) {
+      return false;
+    }
+    final window = windowAt(nowMs);
+    final from = window.fromMs;
+    if (from != null && post.publishedAtMs < from) {
+      return false;
+    }
+    final to = window.toMs;
+    if (to != null && post.publishedAtMs > to) {
+      return false;
+    }
+    if (mentionsOnly &&
+        (post.author == viewer ||
+            !messageMentionsNode('${post.title}\n${post.body}', viewer))) {
+      return false;
+    }
+    return true;
+  }
+
+  Map<String, dynamic> toJson() {
+    final spaces = [for (final id in spaceIds) id.hex]..sort();
+    return {
+      'v': 2,
+      'types': [
+        for (final type in SpacePostType.values)
+          if (types.contains(type)) type.name,
+      ],
+      'mentionsOnly': mentionsOnly,
+      'timePreset': timePreset.name,
+      if (timePreset == SpaceFeedTimePreset.custom) ...{
+        'fromMs': customFromMs,
+        'toMs': customToMs,
+      },
+      'spaces': spaces,
+    };
+  }
+
+  /// Reads both the original type-only v1 record and the complete v2 filter.
+  static SpaceFeedFilter? fromJson(Object? value) {
+    if (value is! Map ||
+        (value['v'] != 1 && value['v'] != 2) ||
+        value['types'] is! List) {
+      return null;
+    }
+    final types = <SpacePostType>{};
+    for (final name in value['types'] as List) {
+      final type = SpacePostType.fromName(name is String ? name : null);
+      if (type == null) return null;
+      types.add(type);
+    }
+    if (types.isEmpty) types.addAll(SpacePostType.values);
+    if (value['v'] == 1) return SpaceFeedFilter(types: types);
+
+    final mentionsOnly = value['mentionsOnly'];
+    final preset = SpaceFeedTimePreset.fromName(value['timePreset']);
+    final spacesValue = value['spaces'];
+    if (mentionsOnly is! bool ||
+        preset == null ||
+        spacesValue is! List ||
+        spacesValue.length > 4096) {
+      return null;
+    }
+    final spaces = <NodeId>{};
+    try {
+      for (final item in spacesValue) {
+        if (item is! String) return null;
+        spaces.add(NodeId.fromHex(item));
+      }
+    } catch (_) {
+      return null;
+    }
+    final fromMs = value['fromMs'];
+    final toMs = value['toMs'];
+    if ((fromMs != null && (fromMs is! int || fromMs < 0)) ||
+        (toMs != null && (toMs is! int || toMs < 0))) {
+      return null;
+    }
+    if (preset == SpaceFeedTimePreset.custom &&
+        (fromMs is! int || toMs is! int || fromMs > toMs)) {
+      return null;
+    }
+    return SpaceFeedFilter(
+      types: types,
+      mentionsOnly: mentionsOnly,
+      timePreset: preset,
+      customFromMs: fromMs as int?,
+      customToMs: toMs as int?,
+      spaceIds: spaces,
+    );
   }
 }
 
