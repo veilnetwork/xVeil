@@ -1528,8 +1528,8 @@ Map<String, dynamic> openApiSpec() {
       '/spaces/observability': {
         'get': {
           'summary':
-              'Read bounded runtime-only community counters and events '
-              'without identifiers, content or secrets',
+              'Read bounded runtime-only community counters, delivery timing '
+              'and identifier-free replication estimates',
           'responses': ok({'type': obj}),
         },
       },
@@ -3040,7 +3040,7 @@ class ApiHandler {
   spaceAccessAction;
   final Future<Map<String, dynamic>?> Function(String spaceHex)?
   spacePolicyAudit;
-  final Map<String, dynamic> Function()? spaceObservability;
+  final Future<Map<String, dynamic>> Function()? spaceObservability;
   final Future<String?> Function(String groupHex, String name, bool isSpace)
   renameGroup;
   final Future<String?> Function(String groupHex, bool isSpace) leaveGroup;
@@ -4383,7 +4383,7 @@ class ApiHandler {
       final handler = spaceObservability;
       return handler == null
           ? const ApiResponse(501, {'error': 'Space observability unavailable'})
-          : ApiResponse(200, handler());
+          : ApiResponse(200, await handler());
     }
     if (method == 'GET' && path == '/v1/spaces/subscription') {
       final handler = spaceSubscription;

@@ -894,7 +894,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     }
     return _json(req, {
       'ok': true,
-      ...service.spaceObservabilitySnapshot().toJson(),
+      ...(await service.spaceObservabilitySnapshot()).toJson(),
     });
   }
 

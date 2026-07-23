@@ -599,7 +599,7 @@ void main() {
                 },
               ],
             },
-      spaceObservability: () => {
+      spaceObservability: () async => {
         'v': 1,
         'scope': 'runtime',
         'privacy': {

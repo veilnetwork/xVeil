@@ -23,6 +23,7 @@ enum SpaceObservationType {
   p2pSnapshotDelivery,
   p2pDeltaDelivery,
   p2pBackfill,
+  revokedDeliveryPrevented,
 }
 
 enum SpaceObservationOutcome { succeeded, rejected, failed, noOp }
@@ -50,6 +51,7 @@ final class SpaceObservation {
     required this.occurredAtMs,
     this.reason,
     this.amount,
+    this.durationMs,
   });
 
   final SpaceObservationType type;
@@ -60,12 +62,59 @@ final class SpaceObservation {
   /// A non-sensitive count such as peers reached or objects backfilled.
   final int? amount;
 
+  /// Local elapsed time for one typed attempt, never a remote timestamp.
+  final int? durationMs;
+
   Map<String, Object> toJson() => {
     'type': type.name,
     'outcome': outcome.name,
     'occurredAt': occurredAtMs,
     'reason': ?reason?.name,
     'amount': ?amount,
+    'durationMs': ?durationMs,
+  };
+}
+
+/// Identifier-free aggregate of the replication capacity this device can see.
+///
+/// A remote member contributes one slot per locally held Space. That makes
+/// totals useful for capacity/health checks without exposing which peer is in
+/// which Space. Live factors are explicitly estimates: transport liveness plus
+/// current ACL does not prove that a peer has already converged every object.
+final class SpaceReplicationObservability {
+  const SpaceReplicationObservability({
+    required this.liveSourceAvailable,
+    required this.spaces,
+    required this.eligibleRemoteSpreaders,
+    required this.targetReplicationFactorTotal,
+    this.availableRemoteSpreaders,
+    this.estimatedLiveReplicationFactorTotal,
+    this.estimatedLiveReplicationFactorMin,
+    this.estimatedLiveReplicationFactorMax,
+    this.estimatedUnderReplicatedSpaces,
+  });
+
+  final bool liveSourceAvailable;
+  final int spaces;
+  final int eligibleRemoteSpreaders;
+  final int targetReplicationFactorTotal;
+  final int? availableRemoteSpreaders;
+  final int? estimatedLiveReplicationFactorTotal;
+  final int? estimatedLiveReplicationFactorMin;
+  final int? estimatedLiveReplicationFactorMax;
+  final int? estimatedUnderReplicatedSpaces;
+
+  Map<String, Object> toJson() => {
+    'basis': 'activeAuthorizedMembers',
+    'liveSourceAvailable': liveSourceAvailable,
+    'spaces': spaces,
+    'eligibleRemoteSpreaders': eligibleRemoteSpreaders,
+    'targetReplicationFactorTotal': targetReplicationFactorTotal,
+    'availableRemoteSpreaders': ?availableRemoteSpreaders,
+    'estimatedLiveReplicationFactorTotal': ?estimatedLiveReplicationFactorTotal,
+    'estimatedLiveReplicationFactorMin': ?estimatedLiveReplicationFactorMin,
+    'estimatedLiveReplicationFactorMax': ?estimatedLiveReplicationFactorMax,
+    'estimatedUnderReplicatedSpaces': ?estimatedUnderReplicatedSpaces,
   };
 }
 
@@ -77,7 +126,9 @@ final class SpaceObservabilitySnapshot {
     required this.droppedRecent,
     required this.counters,
     required this.amounts,
+    required this.durationsMs,
     required this.recent,
+    required this.replication,
   });
 
   final int startedAtMs;
@@ -86,10 +137,12 @@ final class SpaceObservabilitySnapshot {
   final int droppedRecent;
   final Map<String, int> counters;
   final Map<String, int> amounts;
+  final Map<String, Map<String, int>> durationsMs;
   final List<SpaceObservation> recent;
+  final SpaceReplicationObservability replication;
 
   Map<String, Object> toJson() => {
-    'v': 1,
+    'v': 2,
     'scope': 'runtime',
     'startedAt': startedAtMs,
     'capturedAt': capturedAtMs,
@@ -103,6 +156,8 @@ final class SpaceObservabilitySnapshot {
     },
     'counters': counters,
     'amounts': amounts,
+    'durationsMs': durationsMs,
+    'replication': replication.toJson(),
     'recent': [for (final event in recent) event.toJson()],
   };
 }
@@ -123,6 +178,9 @@ final class SpaceObservability {
   final ListQueue<SpaceObservation> _recent = ListQueue<SpaceObservation>();
   final Map<String, int> _counters = <String, int>{};
   final Map<String, int> _amounts = <String, int>{};
+  final Map<String, int> _durationSamples = <String, int>{};
+  final Map<String, int> _durationTotals = <String, int>{};
+  final Map<String, int> _durationMax = <String, int>{};
   int _droppedRecent = 0;
 
   void record(
@@ -130,14 +188,17 @@ final class SpaceObservability {
     SpaceObservationOutcome outcome, {
     SpaceObservationReason? reason,
     int? amount,
+    Duration? duration,
   }) {
     final boundedAmount = amount?.clamp(0, 0x7fffffff);
+    final boundedDurationMs = duration?.inMilliseconds.clamp(0, 0x7fffffff);
     final event = SpaceObservation(
       type: type,
       outcome: outcome,
       reason: reason,
       occurredAtMs: _nowMs(),
       amount: boundedAmount,
+      durationMs: boundedDurationMs,
     );
     final outcomeKey = '${type.name}.${outcome.name}';
     _counters.update(outcomeKey, (value) => value + 1, ifAbsent: () => 1);
@@ -152,6 +213,20 @@ final class SpaceObservability {
         ifAbsent: () => boundedAmount,
       );
     }
+    if (boundedDurationMs != null) {
+      final key = type.name;
+      _durationSamples.update(key, (value) => value + 1, ifAbsent: () => 1);
+      _durationTotals.update(
+        key,
+        (value) => value + boundedDurationMs,
+        ifAbsent: () => boundedDurationMs,
+      );
+      _durationMax.update(
+        key,
+        (value) => value > boundedDurationMs ? value : boundedDurationMs,
+        ifAbsent: () => boundedDurationMs,
+      );
+    }
     if (_recent.length == capacity) {
       _recent.removeFirst();
       _droppedRecent++;
@@ -159,13 +234,33 @@ final class SpaceObservability {
     _recent.addLast(event);
   }
 
-  SpaceObservabilitySnapshot snapshot() => SpaceObservabilitySnapshot(
+  SpaceObservabilitySnapshot snapshot({
+    SpaceReplicationObservability? replication,
+  }) => SpaceObservabilitySnapshot(
     startedAtMs: _startedAtMs,
     capturedAtMs: _nowMs(),
     capacity: capacity,
     droppedRecent: _droppedRecent,
     counters: Map.unmodifiable(SplayTreeMap<String, int>.of(_counters)),
     amounts: Map.unmodifiable(SplayTreeMap<String, int>.of(_amounts)),
+    durationsMs: Map.unmodifiable(
+      SplayTreeMap<String, Map<String, int>>.of({
+        for (final key in _durationSamples.keys)
+          key: Map.unmodifiable({
+            'samples': _durationSamples[key]!,
+            'total': _durationTotals[key]!,
+            'max': _durationMax[key]!,
+          }),
+      }),
+    ),
     recent: List.unmodifiable(_recent),
+    replication:
+        replication ??
+        const SpaceReplicationObservability(
+          liveSourceAvailable: false,
+          spaces: 0,
+          eligibleRemoteSpreaders: 0,
+          targetReplicationFactorTotal: 0,
+        ),
   );
 }
