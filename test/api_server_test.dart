@@ -201,10 +201,11 @@ void main() {
           : group == 'pending'
           ? (error: 'group content not downloaded', bytes: null)
           : (error: null, bytes: <int>[4, 5, 6]),
-      groupMembers: (group) async => group == 'missing'
+      groupMembers: (group, isSpace) async => group == 'missing'
           ? null
           : {
               'groupId': group,
+              'kind': isSpace ? 'space' : 'group',
               'name': 'Family',
               'epoch': 2,
               'policyVersion': 0,
@@ -219,7 +220,7 @@ void main() {
                 },
               ],
             },
-      groupMemberAction: (group, action, peer, role) async {
+      groupMemberAction: (group, action, peer, role, _) async {
         if (group == 'missing') return 'group not found';
         if (group == 'denied') return 'operation rejected by group policy';
         if (group == 'failed') return 'group mutation failed';
@@ -227,13 +228,13 @@ void main() {
         groupActions.add((group, action, peer, role));
         return null;
       },
-      renameGroup: (group, name) async {
+      renameGroup: (group, name, _) async {
         if (group == 'missing') return 'group not found';
         if (group == 'denied') return 'operation rejected by group policy';
         renames.add((group, name));
         return null;
       },
-      leaveGroup: (group) async {
+      leaveGroup: (group, _) async {
         if (group == 'missing') return 'group not found';
         if (group == 'denied') return 'operation rejected by group policy';
         leaves.add(group);
@@ -806,10 +807,10 @@ void main() {
         sendGroupFile: (_, _, _, _, _) async => (error: null, contentId: 'cid'),
         fetchGroupFile: (_, _) async => null,
         loadGroupFile: (_, _) async => (error: null, bytes: <int>[]),
-        groupMembers: (_) async => const {},
-        groupMemberAction: (_, _, _, _) async => null,
-        renameGroup: (_, _) async => null,
-        leaveGroup: (_) async => null,
+        groupMembers: (_, _) async => const {},
+        groupMemberAction: (_, _, _, _, _) async => null,
+        renameGroup: (_, _, _) async => null,
+        leaveGroup: (_, _) async => null,
         startGroupCall: (_, _) async => null,
         groupCallState: () => null,
         groupCallAction: (_) async => null,
@@ -1664,6 +1665,7 @@ void main() {
       );
       expect(roster.status, 200);
       expect((roster.body as Map)['spaceId'], 'aa');
+      expect((roster.body as Map)['kind'], 'space');
       expect((roster.body as Map).containsKey('groupId'), isFalse);
       expect(((roster.body as Map)['members'] as List).single['role'], 'owner');
       expect(
@@ -2653,6 +2655,7 @@ void main() {
         'Bearer secret-token',
       );
       expect(roster.status, 200);
+      expect((roster.body as Map)['kind'], 'group');
       expect((roster.body as Map)['selfRole'], 'owner');
       expect(((roster.body as Map)['members'] as List).single['role'], 'owner');
       expect(
@@ -3409,10 +3412,10 @@ void main() {
         sendGroupFile: (_, _, _, _, _) async => (error: null, contentId: 'cid'),
         fetchGroupFile: (_, _) async => null,
         loadGroupFile: (_, _) async => (error: null, bytes: <int>[]),
-        groupMembers: (_) async => const {},
-        groupMemberAction: (_, _, _, _) async => null,
-        renameGroup: (_, _) async => null,
-        leaveGroup: (_) async => null,
+        groupMembers: (_, _) async => const {},
+        groupMemberAction: (_, _, _, _, _) async => null,
+        renameGroup: (_, _, _) async => null,
+        leaveGroup: (_, _) async => null,
         startGroupCall: (_, _) async => null,
         groupCallState: () => null,
         groupCallAction: (_) async => null,

@@ -1289,7 +1289,7 @@ final class GroupApiAdapter {
     String groupHex,
     int limit,
   ) async {
-    final visible = await _visible(groupHex);
+    final visible = await _visible(groupHex, isSpace: false);
     if (visible == null) return null;
     final all = await _groups.messagesOf(visible.$1);
     return [
@@ -1307,7 +1307,9 @@ final class GroupApiAdapter {
   ) async {
     final parsed = _parseId(groupHex);
     if (parsed == null) return 'invalid group';
-    if (await _visible(groupHex) == null) return 'group not found';
+    if (await _visible(groupHex, isSpace: false) == null) {
+      return 'group not found';
+    }
     final sent = await _groups.postMessage(parsed, body, replyTo: replyTo);
     return sent ? null : 'not a writable group member';
   }
@@ -1576,7 +1578,7 @@ final class GroupApiAdapter {
     String caption,
     String? replyTo,
   ) async {
-    final visible = await _visible(groupHex);
+    final visible = await _visible(groupHex, isSpace: false);
     if (visible == null) {
       return (error: 'group not found', contentId: null);
     }
@@ -1681,7 +1683,7 @@ final class GroupApiAdapter {
     String groupHex,
     String messageRef,
   ) async {
-    final visible = await _visible(groupHex);
+    final visible = await _visible(groupHex, isSpace: false);
     if (visible == null) return null;
     for (final message in await _groups.messagesOf(visible.$1)) {
       if (message.ref == messageRef && message.attachment?.cid != null) {
@@ -1693,8 +1695,8 @@ final class GroupApiAdapter {
 
   /// Current validated roster. Only user-visible groups that still contain the
   /// active identity resolve; infrastructure device groups remain invisible.
-  Future<Map<String, dynamic>?> members(String groupHex) async {
-    final visible = await _visible(groupHex);
+  Future<Map<String, dynamic>?> members(String groupHex, bool isSpace) async {
+    final visible = await _visible(groupHex, isSpace: isSpace);
     if (visible == null) return null;
     final state = visible.$2;
     final members = state.members.values.toList()
@@ -2107,8 +2109,9 @@ final class GroupApiAdapter {
     String action,
     String peerHex,
     String? roleName,
+    bool isSpace,
   ) async {
-    final visible = await _visible(groupHex);
+    final visible = await _visible(groupHex, isSpace: isSpace);
     if (visible == null) return 'group not found';
     final bundle = await _groups.load(visible.$1);
     if (bundle?.manifest.isSpace == true && action == 'mute') {
@@ -2211,8 +2214,8 @@ final class GroupApiAdapter {
     return applied ? null : 'group mutation failed';
   }
 
-  Future<String?> rename(String groupHex, String name) async {
-    final visible = await _visible(groupHex);
+  Future<String?> rename(String groupHex, String name, bool isSpace) async {
+    final visible = await _visible(groupHex, isSpace: isSpace);
     if (visible == null) return 'group not found';
     final role = visible.$2.roleOf(_groups.selfId)!;
     final bundle = await _groups.load(visible.$1);
@@ -2227,8 +2230,8 @@ final class GroupApiAdapter {
         : 'group mutation failed';
   }
 
-  Future<String?> leave(String groupHex) async {
-    final visible = await _visible(groupHex);
+  Future<String?> leave(String groupHex, bool isSpace) async {
+    final visible = await _visible(groupHex, isSpace: isSpace);
     if (visible == null) return 'group not found';
     if (!SpaceAcl(visible.$2).allowsControl(_groups.selfId, ControlOp.leave)) {
       return 'operation rejected by group policy';
@@ -2238,17 +2241,22 @@ final class GroupApiAdapter {
         : 'group mutation failed';
   }
 
-  Future<(NodeId, GroupState)?> _visible(String groupHex) async {
+  Future<(NodeId, GroupState)?> _visible(
+    String groupHex, {
+    bool isSpace = true,
+  }) async {
     final groupId = _parseId(groupHex);
     if (groupId == null) return null;
-    // The two user-facing lists are disjoint, but shared group/Space mutation
-    // helpers still need to resolve either kind. Infrastructure device groups
-    // occur in neither list.
-    final listed = [
-      ...await _groups.listGroups(),
-      ...await _groups.listSpaces(),
-    ].any((entry) => entry.groupId == groupId);
+    // Resolve exactly the kind named by the REST route. A valid, visible Space
+    // must not become a group merely because a caller submitted its id to a
+    // `/v1/groups/*` endpoint, and the inverse must fail the same way.
+    final listed =
+        (isSpace ? await _groups.listSpaces() : await _groups.listGroups()).any(
+          (entry) => entry.groupId == groupId,
+        );
     if (!listed) return null;
+    final bundle = await _groups.load(groupId);
+    if (bundle == null || bundle.manifest.isSpace != isSpace) return null;
     final state = await _groups.stateOf(groupId);
     if (state == null || !state.isMember(_groups.selfId)) return null;
     return (groupId, state);
