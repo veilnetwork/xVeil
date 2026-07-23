@@ -56,6 +56,9 @@ final class GroupApiAdapter {
       _spaceMembershipEntry(membership),
   ];
 
+  Map<String, dynamic> spaceObservability() =>
+      Map<String, dynamic>.from(_groups.spaceObservabilitySnapshot().toJson());
+
   Map<String, dynamic> _spaceMembershipEntry(
     SpaceMembershipProjection membership,
   ) => {

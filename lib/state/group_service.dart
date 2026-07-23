@@ -54,6 +54,7 @@ import '../data/transport/bootstrap_invite.dart';
 import '../data/storage/storage.dart';
 import 'group_crypto.dart';
 import 'group_epoch_service.dart';
+import 'space_observability.dart';
 
 bool _listEquals<T>(List<T>? left, List<T>? right) {
   if (identical(left, right)) return true;
@@ -588,7 +589,8 @@ class GroupService {
     this.startContentPullFromAny,
     this.contentRequestFanoutTimeout = const Duration(seconds: 8),
     this.contentGrantDelay = const Duration(seconds: 4),
-  });
+    SpaceObservability? observability,
+  }) : _observability = observability ?? SpaceObservability();
   final Storage _storage;
   final GroupSigner _signer;
   final GroupSnapshotSender? _send;
@@ -601,6 +603,7 @@ class GroupService {
   final SpaceRecommendationSender? sendSpaceRecommendation;
   final SpaceRecommendationRevoker? revokeSpaceRecommendation;
   final GroupEpochService? _epochService;
+  final SpaceObservability _observability;
   final int ourCertVersion;
 
   /// Ships a signed content-fetch request to the holder (wire layer).
@@ -652,6 +655,17 @@ class GroupService {
 
   /// Our own node id — the composer uses it to align outgoing bubbles.
   NodeId get selfId => _signer.selfId;
+
+  /// Bounded RAM-only counters/events with a compile-time privacy-safe schema.
+  SpaceObservabilitySnapshot spaceObservabilitySnapshot() =>
+      _observability.snapshot();
+
+  void _observeSpace(
+    SpaceObservationType type,
+    SpaceObservationOutcome outcome, {
+    SpaceObservationReason? reason,
+    int? amount,
+  }) => _observability.record(type, outcome, reason: reason, amount: amount);
 
   /// Contact state belongs to [MessagingService], while feed materialization
   /// belongs here. The Flutter bridge calls this after a local or mirrored
@@ -1470,106 +1484,143 @@ class GroupService {
     NodeId spaceId,
     String campaignId,
     NodeId recipient,
-  ) => _serializeSpaceRecommendations(() async {
-    final sender = sendSpaceRecommendation;
-    if (sender == null || recipient == selfId) {
-      return SpaceRecommendationShareResult.invalidRecipient;
-    }
-    final contact = await _storage.getContact(recipient);
-    if (contact == null || contact.status != ContactStatus.accepted) {
-      return SpaceRecommendationShareResult.invalidRecipient;
-    }
-    final bundle = await load(spaceId);
-    if (bundle == null ||
-        !bundle.manifest.isSpace ||
-        bundle.manifest.visibility != SpaceVisibility.public) {
-      return SpaceRecommendationShareResult.invalidCampaign;
-    }
-    final state = foldControlLog(
-      owner: bundle.manifest.owner,
-      entries: bundle.control,
-      verify: (entry) => _validControlFor(bundle.manifest, entry),
-      initialName: bundle.manifest.name,
-      initialDescription: bundle.manifest.description ?? '',
-    ).state;
-    if (!state.isActive ||
-        !state.recommendationsEnabled ||
-        !SpaceAcl(state).allows(selfId, SpacePermission.distributeContent)) {
-      return SpaceRecommendationShareResult.notAllowed;
-    }
-    if (state.isMember(recipient)) {
-      return SpaceRecommendationShareResult.alreadyMember;
-    }
-    final campaign = state.recommendationCampaignFor(campaignId);
-    if (campaign == null || !campaign.active) {
-      return SpaceRecommendationShareResult.invalidCampaign;
-    }
-    final now = _now();
-    try {
-      final ticket = SpaceJoinCode.parse(campaign.joinCode);
-      if (ticket.spaceId != spaceId || ticket.isExpiredAt(now)) {
+  ) async {
+    final result = await _serializeSpaceRecommendations(() async {
+      final sender = sendSpaceRecommendation;
+      if (sender == null || recipient == selfId) {
+        return SpaceRecommendationShareResult.invalidRecipient;
+      }
+      final contact = await _storage.getContact(recipient);
+      if (contact == null || contact.status != ContactStatus.accepted) {
+        return SpaceRecommendationShareResult.invalidRecipient;
+      }
+      final bundle = await load(spaceId);
+      if (bundle == null ||
+          !bundle.manifest.isSpace ||
+          bundle.manifest.visibility != SpaceVisibility.public) {
         return SpaceRecommendationShareResult.invalidCampaign;
       }
-    } catch (_) {
-      return SpaceRecommendationShareResult.invalidCampaign;
-    }
-    final records = await spaceRecommendationShareAudit();
-    final duplicateCutoff =
-        now - _spaceRecommendationDuplicateWindow.inMilliseconds;
-    if (records.any(
-      (record) =>
-          record.campaignId == campaignId &&
-          record.recipient == recipient &&
-          record.sentAtMs >= duplicateCutoff,
-    )) {
-      return SpaceRecommendationShareResult.duplicate;
-    }
-    final hourlyCutoff = now - const Duration(hours: 1).inMilliseconds;
-    final dailyCutoff = now - const Duration(days: 1).inMilliseconds;
-    if (records.where((record) => record.sentAtMs >= dailyCutoff).length >=
-            _spaceRecommendationDailyLimit ||
-        records
-                .where(
-                  (record) =>
-                      record.campaignId == campaignId &&
-                      record.sentAtMs >= hourlyCutoff,
-                )
-                .length >=
-            _spaceRecommendationCampaignHourlyLimit) {
-      return SpaceRecommendationShareResult.rateLimited;
-    }
-    final card = SpaceRecommendationCard(
-      campaignId: campaignId,
-      spaceId: spaceId,
-      name: state.name,
-      description: state.description,
-      text: campaign.text,
-      joinCode: campaign.joinCode,
-    );
-    final String? messageId;
-    try {
-      messageId = await sender(recipient, card);
-      if (messageId == null || messageId.isEmpty || messageId.length > 256) {
-        return SpaceRecommendationShareResult.failed;
+      final state = foldControlLog(
+        owner: bundle.manifest.owner,
+        entries: bundle.control,
+        verify: (entry) => _validControlFor(bundle.manifest, entry),
+        initialName: bundle.manifest.name,
+        initialDescription: bundle.manifest.description ?? '',
+      ).state;
+      if (!state.isActive ||
+          !state.recommendationsEnabled ||
+          !SpaceAcl(state).allows(selfId, SpacePermission.distributeContent)) {
+        return SpaceRecommendationShareResult.notAllowed;
       }
-    } catch (_) {
-      return SpaceRecommendationShareResult.failed;
-    }
-    final updated = <SpaceRecommendationShareAudit>[
-      SpaceRecommendationShareAudit(
+      if (state.isMember(recipient)) {
+        return SpaceRecommendationShareResult.alreadyMember;
+      }
+      final campaign = state.recommendationCampaignFor(campaignId);
+      if (campaign == null || !campaign.active) {
+        return SpaceRecommendationShareResult.invalidCampaign;
+      }
+      final now = _now();
+      try {
+        final ticket = SpaceJoinCode.parse(campaign.joinCode);
+        if (ticket.spaceId != spaceId || ticket.isExpiredAt(now)) {
+          return SpaceRecommendationShareResult.invalidCampaign;
+        }
+      } catch (_) {
+        return SpaceRecommendationShareResult.invalidCampaign;
+      }
+      final records = await spaceRecommendationShareAudit();
+      final duplicateCutoff =
+          now - _spaceRecommendationDuplicateWindow.inMilliseconds;
+      if (records.any(
+        (record) =>
+            record.campaignId == campaignId &&
+            record.recipient == recipient &&
+            record.sentAtMs >= duplicateCutoff,
+      )) {
+        return SpaceRecommendationShareResult.duplicate;
+      }
+      final hourlyCutoff = now - const Duration(hours: 1).inMilliseconds;
+      final dailyCutoff = now - const Duration(days: 1).inMilliseconds;
+      if (records.where((record) => record.sentAtMs >= dailyCutoff).length >=
+              _spaceRecommendationDailyLimit ||
+          records
+                  .where(
+                    (record) =>
+                        record.campaignId == campaignId &&
+                        record.sentAtMs >= hourlyCutoff,
+                  )
+                  .length >=
+              _spaceRecommendationCampaignHourlyLimit) {
+        return SpaceRecommendationShareResult.rateLimited;
+      }
+      final card = SpaceRecommendationCard(
         campaignId: campaignId,
         spaceId: spaceId,
-        recipient: recipient,
-        sentAtMs: now,
-        messageId: messageId,
-      ),
-      for (final record in records)
-        if (record.sentAtMs >= duplicateCutoff) record,
-    ];
-    await _saveSpaceRecommendationShareAudit(updated);
-    changes.value++;
-    return SpaceRecommendationShareResult.sent;
-  });
+        name: state.name,
+        description: state.description,
+        text: campaign.text,
+        joinCode: campaign.joinCode,
+      );
+      final String? messageId;
+      try {
+        messageId = await sender(recipient, card);
+        if (messageId == null || messageId.isEmpty || messageId.length > 256) {
+          return SpaceRecommendationShareResult.failed;
+        }
+      } catch (_) {
+        return SpaceRecommendationShareResult.failed;
+      }
+      final updated = <SpaceRecommendationShareAudit>[
+        SpaceRecommendationShareAudit(
+          campaignId: campaignId,
+          spaceId: spaceId,
+          recipient: recipient,
+          sentAtMs: now,
+          messageId: messageId,
+        ),
+        for (final record in records)
+          if (record.sentAtMs >= duplicateCutoff) record,
+      ];
+      await _saveSpaceRecommendationShareAudit(updated);
+      changes.value++;
+      return SpaceRecommendationShareResult.sent;
+    });
+    final reason = switch (result) {
+      SpaceRecommendationShareResult.invalidRecipient =>
+        SpaceObservationReason.invalidInput,
+      SpaceRecommendationShareResult.invalidCampaign =>
+        SpaceObservationReason.invalidState,
+      SpaceRecommendationShareResult.notAllowed =>
+        SpaceObservationReason.permissionDenied,
+      SpaceRecommendationShareResult.alreadyMember =>
+        SpaceObservationReason.alreadyMember,
+      SpaceRecommendationShareResult.duplicate =>
+        SpaceObservationReason.duplicate,
+      SpaceRecommendationShareResult.rateLimited =>
+        SpaceObservationReason.rateLimited,
+      SpaceRecommendationShareResult.failed =>
+        SpaceObservationReason.transportFailed,
+      SpaceRecommendationShareResult.sent => null,
+    };
+    final outcome = switch (result) {
+      SpaceRecommendationShareResult.sent => SpaceObservationOutcome.succeeded,
+      SpaceRecommendationShareResult.failed => SpaceObservationOutcome.failed,
+      _ => SpaceObservationOutcome.rejected,
+    };
+    _observeSpace(
+      SpaceObservationType.recommendationShared,
+      outcome,
+      reason: reason,
+    );
+    if (result == SpaceRecommendationShareResult.notAllowed) {
+      _observeSpace(
+        SpaceObservationType.aclDenied,
+        SpaceObservationOutcome.rejected,
+        reason: SpaceObservationReason.permissionDenied,
+      );
+    }
+    return result;
+  }
 
   /// Revoke one already-sent recommendation by its durable message id.
   ///
@@ -1580,31 +1631,54 @@ class GroupService {
   /// for addressable revocation.
   Future<SpaceRecommendationRevokeResult> revokeSentSpaceRecommendation(
     String auditId,
-  ) => _serializeSpaceRecommendations(() async {
-    final records = await spaceRecommendationShareAudit();
-    final index = records.indexWhere((record) => record.stableId == auditId);
-    if (index < 0) return SpaceRecommendationRevokeResult.notFound;
-    final record = records[index];
-    if (record.revokedAtMs != null) {
-      return SpaceRecommendationRevokeResult.alreadyRevoked;
-    }
-    final revoker = revokeSpaceRecommendation;
-    if (record.messageId == null || revoker == null) {
-      return SpaceRecommendationRevokeResult.unavailable;
-    }
-    try {
-      if (!await revoker(record.recipient, record.messageId!)) {
+  ) async {
+    final result = await _serializeSpaceRecommendations(() async {
+      final records = await spaceRecommendationShareAudit();
+      final index = records.indexWhere((record) => record.stableId == auditId);
+      if (index < 0) return SpaceRecommendationRevokeResult.notFound;
+      final record = records[index];
+      if (record.revokedAtMs != null) {
+        return SpaceRecommendationRevokeResult.alreadyRevoked;
+      }
+      final revoker = revokeSpaceRecommendation;
+      if (record.messageId == null || revoker == null) {
+        return SpaceRecommendationRevokeResult.unavailable;
+      }
+      try {
+        if (!await revoker(record.recipient, record.messageId!)) {
+          return SpaceRecommendationRevokeResult.failed;
+        }
+      } catch (_) {
         return SpaceRecommendationRevokeResult.failed;
       }
-    } catch (_) {
-      return SpaceRecommendationRevokeResult.failed;
-    }
-    final updated = List<SpaceRecommendationShareAudit>.of(records);
-    updated[index] = record.revokedAt(_now());
-    await _saveSpaceRecommendationShareAudit(updated);
-    changes.value++;
-    return SpaceRecommendationRevokeResult.revoked;
-  });
+      final updated = List<SpaceRecommendationShareAudit>.of(records);
+      updated[index] = record.revokedAt(_now());
+      await _saveSpaceRecommendationShareAudit(updated);
+      changes.value++;
+      return SpaceRecommendationRevokeResult.revoked;
+    });
+    final reason = switch (result) {
+      SpaceRecommendationRevokeResult.notFound =>
+        SpaceObservationReason.notFound,
+      SpaceRecommendationRevokeResult.alreadyRevoked =>
+        SpaceObservationReason.conflict,
+      SpaceRecommendationRevokeResult.unavailable =>
+        SpaceObservationReason.unavailable,
+      SpaceRecommendationRevokeResult.failed =>
+        SpaceObservationReason.transportFailed,
+      SpaceRecommendationRevokeResult.revoked => null,
+    };
+    _observeSpace(
+      SpaceObservationType.recommendationRevoked,
+      result == SpaceRecommendationRevokeResult.revoked
+          ? SpaceObservationOutcome.succeeded
+          : result == SpaceRecommendationRevokeResult.failed
+          ? SpaceObservationOutcome.failed
+          : SpaceObservationOutcome.rejected,
+      reason: reason,
+    );
+    return result;
+  }
 
   /// Receiver-side card suppression. A current or restricted membership cannot
   /// start another proposal; a retained signed `left` state may deliberately
@@ -5216,6 +5290,16 @@ class GroupService {
       await _storage.scrubDeleted();
       changes.value++;
     }
+    _observeSpace(
+      SpaceObservationType.contentCleanup,
+      failed > 0
+          ? SpaceObservationOutcome.failed
+          : purged > 0
+          ? SpaceObservationOutcome.succeeded
+          : SpaceObservationOutcome.noOp,
+      reason: failed > 0 ? SpaceObservationReason.storageFailed : null,
+      amount: purged,
+    );
     return SpaceDeletionSweep(
       scanned: scanned,
       purged: purged,
@@ -5464,6 +5548,10 @@ class GroupService {
     // the new Space. Without this tick an already-mounted Communities screen
     // kept its old StreamProvider value until some unrelated group mutation.
     changes.value++;
+    _observeSpace(
+      SpaceObservationType.spaceCreated,
+      SpaceObservationOutcome.succeeded,
+    );
     return gid;
   }
 
@@ -6858,6 +6946,39 @@ class GroupService {
       } else {
         unawaited(broadcastDelta(groupId, control: controls));
       }
+      if (b.manifest.isSpace) {
+        if ({
+          ControlOp.addMember,
+          ControlOp.removeMember,
+          ControlOp.setRole,
+          ControlOp.leave,
+          ControlOp.transferOwnership,
+        }.contains(op)) {
+          _observeSpace(
+            SpaceObservationType.memberChanged,
+            SpaceObservationOutcome.succeeded,
+          );
+        }
+        if (moderationAction?.kind == SpaceModerationKind.permanentBan) {
+          _observeSpace(
+            SpaceObservationType.memberBanned,
+            SpaceObservationOutcome.succeeded,
+          );
+        }
+        final keyRows = controls
+            .where(
+              (entry) =>
+                  entry.epochDescriptor != null || entry.channelControl != null,
+            )
+            .length;
+        if (keyRows > 0) {
+          _observeSpace(
+            SpaceObservationType.keyRotated,
+            SpaceObservationOutcome.succeeded,
+            amount: keyRows,
+          );
+        }
+      }
       return true;
     } catch (_) {
       return false;
@@ -7454,8 +7575,32 @@ class GroupService {
     SpaceLifecycleState targetState, {
     Duration recoveryPeriod = kSpaceDeletionRecoveryPeriod,
   }) => _serialized(spaceId, () async {
+    final observationType = switch (targetState) {
+      SpaceLifecycleState.active => SpaceObservationType.spaceRestored,
+      SpaceLifecycleState.archived => SpaceObservationType.spaceArchived,
+      SpaceLifecycleState.deleted => SpaceObservationType.spaceDeleted,
+    };
+    bool finish(
+      bool value, {
+      SpaceObservationReason? reason,
+      bool noOp = false,
+    }) {
+      _observeSpace(
+        observationType,
+        noOp
+            ? SpaceObservationOutcome.noOp
+            : value
+            ? SpaceObservationOutcome.succeeded
+            : SpaceObservationOutcome.rejected,
+        reason: reason,
+      );
+      return value;
+    }
+
     final bundle = await load(spaceId);
-    if (bundle == null || !bundle.manifest.isSpace) return false;
+    if (bundle == null || !bundle.manifest.isSpace) {
+      return finish(false, reason: SpaceObservationReason.notFound);
+    }
     final folded = foldControlLog(
       owner: bundle.manifest.owner,
       entries: bundle.control,
@@ -7464,22 +7609,31 @@ class GroupService {
       initialDescription: bundle.manifest.description ?? '',
     );
     final state = folded.state;
-    if (state.lifecycleState == targetState) return true;
+    if (state.lifecycleState == targetState) return finish(true, noOp: true);
     final operation = switch (targetState) {
       SpaceLifecycleState.active => ControlOp.restoreSpace,
       SpaceLifecycleState.archived => ControlOp.archiveSpace,
       SpaceLifecycleState.deleted => ControlOp.deleteSpace,
     };
-    if (!SpaceAcl(state).allowsControl(_signer.selfId, operation)) return false;
+    if (!SpaceAcl(state).allowsControl(_signer.selfId, operation)) {
+      _observeSpace(
+        SpaceObservationType.aclDenied,
+        SpaceObservationOutcome.rejected,
+        reason: SpaceObservationReason.permissionDenied,
+      );
+      return finish(false, reason: SpaceObservationReason.permissionDenied);
+    }
     if ((targetState == SpaceLifecycleState.archived && !state.isActive) ||
         (targetState == SpaceLifecycleState.active && state.isActive) ||
         (targetState == SpaceLifecycleState.deleted && state.isDeleted) ||
         recoveryPeriod <= Duration.zero ||
         recoveryPeriod > kSpaceDeletionRecoveryMax) {
-      return false;
+      return finish(false, reason: SpaceObservationReason.invalidState);
     }
     final checkpoint = _controlCheckpoint(folded.accepted);
-    if (checkpoint == null) return false;
+    if (checkpoint == null) {
+      return finish(false, reason: SpaceObservationReason.conflict);
+    }
     final previous = state.lifecycleTransition;
     final closingFromActive =
         targetState != SpaceLifecycleState.active && state.isActive;
@@ -7493,7 +7647,7 @@ class GroupService {
         ? _reactionLifecycleHeads(bundle)
         : previous?.reactionHeads;
     if (messageHeads == null || postHeads == null || reactionHeads == null) {
-      return false;
+      return finish(false, reason: SpaceObservationReason.conflict);
     }
     final changedAt = _now();
     final recoveryDeadline = switch (targetState) {
@@ -7516,12 +7670,18 @@ class GroupService {
       changedAtMs: changedAt,
       recoveryDeadlineMs: recoveryDeadline,
     );
-    if (!transition.isStructurallyValid) return false;
-    return _addControlOp(
+    if (!transition.isStructurallyValid) {
+      return finish(false, reason: SpaceObservationReason.invalidState);
+    }
+    final applied = await _addControlOp(
       spaceId,
       operation,
       lifecycleTransition: transition,
       createdAtMs: changedAt,
+    );
+    return finish(
+      applied,
+      reason: applied ? null : SpaceObservationReason.conflict,
     );
   });
 
@@ -8669,6 +8829,16 @@ class GroupService {
     );
     final state = currentFold.state;
     if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.publishPosts)) {
+      _observeSpace(
+        SpaceObservationType.aclDenied,
+        SpaceObservationOutcome.rejected,
+        reason: SpaceObservationReason.permissionDenied,
+      );
+      _observeSpace(
+        SpaceObservationType.postPublished,
+        SpaceObservationOutcome.rejected,
+        reason: SpaceObservationReason.permissionDenied,
+      );
       return null;
     }
     final lifecycleGeneration = state.lifecycleTransitionHash;
@@ -8811,6 +8981,11 @@ class GroupService {
         ),
       );
     }
+    _observeSpace(
+      SpaceObservationType.postPublished,
+      SpaceObservationOutcome.succeeded,
+      amount: 1,
+    );
     return signed.withDecryptedContent(cleartext);
   }
 
@@ -10628,9 +10803,17 @@ class GroupService {
       ).compareTo(SpaceFeedCursor.fromView(left.post));
       return order;
     });
-    return items.length <= boundedLimit
+    final result = items.length <= boundedLimit
         ? items
         : items.sublist(0, boundedLimit);
+    _observeSpace(
+      SpaceObservationType.feedRead,
+      result.isEmpty
+          ? SpaceObservationOutcome.noOp
+          : SpaceObservationOutcome.succeeded,
+      amount: result.length,
+    );
+    return result;
   }
 
   Future<int> unreadSpacePosts(NodeId spaceId) async {
@@ -10987,6 +11170,18 @@ class GroupService {
     final localMessageForks = _messageForks(b.manifest, retainedMessages);
     if (!SpaceAcl(state).allows(peer, SpacePermission.distributeContent)) {
       devLog(() => 'xVeil[groups]: sync request from non-member — drop');
+      if (b.manifest.isSpace) {
+        _observeSpace(
+          SpaceObservationType.aclDenied,
+          SpaceObservationOutcome.rejected,
+          reason: SpaceObservationReason.notMember,
+        );
+        _observeSpace(
+          SpaceObservationType.p2pBackfill,
+          SpaceObservationOutcome.rejected,
+          reason: SpaceObservationReason.notMember,
+        );
+      }
       return false;
     }
     // -1, not 0: seqs start at 0, so "never seen this author" must sit BELOW
@@ -11165,6 +11360,13 @@ class GroupService {
         missingPosts.isEmpty &&
         missingEpochEnvelopes.isEmpty &&
         missingChannelEpochEnvelopes.isEmpty) {
+      if (b.manifest.isSpace) {
+        _observeSpace(
+          SpaceObservationType.p2pBackfill,
+          SpaceObservationOutcome.noOp,
+          amount: 0,
+        );
+      }
       return false;
     }
     final overlayId =
@@ -11176,28 +11378,54 @@ class GroupService {
         ? _overlayDeltaId(gid, missingMsgs, missingRx, missingPosts)
         : null;
     if (overlayId != null) _rememberOverlayDelta(overlayId);
-    await send(
-      peer,
-      gid,
-      jsonEncode({
-        'm': b.manifest.toJson(),
-        'c': [for (final e in missingCtl) e.toJson()],
-        'g': [for (final m in missingMsgs) m.toJson()],
-        'r': [for (final r in missingRx) r.toJson()],
-        if (missingPosts.isNotEmpty)
-          'p': [for (final post in missingPosts) post.toJson()],
-        if (missingEpochEnvelopes.isNotEmpty)
-          'ke': [
-            for (final envelope in missingEpochEnvelopes) envelope.toJson(),
-          ],
-        if (missingChannelEpochEnvelopes.isNotEmpty)
-          'cke': [
-            for (final envelope in missingChannelEpochEnvelopes)
-              envelope.toJson(),
-          ],
-        'ov': ?overlayId,
-      }),
-    );
+    final missingCount =
+        missingCtl.length +
+        missingMsgs.length +
+        missingRx.length +
+        missingPosts.length +
+        missingEpochEnvelopes.length +
+        missingChannelEpochEnvelopes.length;
+    try {
+      await send(
+        peer,
+        gid,
+        jsonEncode({
+          'm': b.manifest.toJson(),
+          'c': [for (final e in missingCtl) e.toJson()],
+          'g': [for (final m in missingMsgs) m.toJson()],
+          'r': [for (final r in missingRx) r.toJson()],
+          if (missingPosts.isNotEmpty)
+            'p': [for (final post in missingPosts) post.toJson()],
+          if (missingEpochEnvelopes.isNotEmpty)
+            'ke': [
+              for (final envelope in missingEpochEnvelopes) envelope.toJson(),
+            ],
+          if (missingChannelEpochEnvelopes.isNotEmpty)
+            'cke': [
+              for (final envelope in missingChannelEpochEnvelopes)
+                envelope.toJson(),
+            ],
+          'ov': ?overlayId,
+        }),
+      );
+    } catch (_) {
+      if (b.manifest.isSpace) {
+        _observeSpace(
+          SpaceObservationType.p2pBackfill,
+          SpaceObservationOutcome.failed,
+          reason: SpaceObservationReason.transportFailed,
+          amount: missingCount,
+        );
+      }
+      rethrow;
+    }
+    if (b.manifest.isSpace) {
+      _observeSpace(
+        SpaceObservationType.p2pBackfill,
+        SpaceObservationOutcome.succeeded,
+        amount: missingCount,
+      );
+    }
     return true;
   }
 
@@ -14253,20 +14481,51 @@ class GroupService {
   Future<int> broadcast(NodeId groupId) async {
     final send = _send;
     final b = await load(groupId);
-    if (send == null || b == null) return 0;
+    if (b == null) return 0;
+    if (send == null) {
+      if (b.manifest.isSpace) {
+        _observeSpace(
+          SpaceObservationType.p2pSnapshotDelivery,
+          SpaceObservationOutcome.noOp,
+          reason: SpaceObservationReason.transportUnavailable,
+        );
+      }
+      return 0;
+    }
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     var n = 0;
-    for (final m in state.members.values) {
-      if (m.nodeId == _signer.selfId ||
-          (b.manifest.isSovereignDevice && m.nodeId == b.manifest.owner)) {
-        continue;
+    try {
+      for (final m in state.members.values) {
+        if (m.nodeId == _signer.selfId ||
+            (b.manifest.isSovereignDevice && m.nodeId == b.manifest.owner)) {
+          continue;
+        }
+        await send(m.nodeId, groupId, snapshotJson(b, recipient: m.nodeId));
+        n++;
       }
-      await send(m.nodeId, groupId, snapshotJson(b, recipient: m.nodeId));
-      n++;
+    } catch (_) {
+      if (b.manifest.isSpace) {
+        _observeSpace(
+          SpaceObservationType.p2pSnapshotDelivery,
+          SpaceObservationOutcome.failed,
+          reason: SpaceObservationReason.transportFailed,
+          amount: n,
+        );
+      }
+      rethrow;
+    }
+    if (b.manifest.isSpace) {
+      _observeSpace(
+        SpaceObservationType.p2pSnapshotDelivery,
+        n == 0
+            ? SpaceObservationOutcome.noOp
+            : SpaceObservationOutcome.succeeded,
+        amount: n,
+      );
     }
     return n;
   }
@@ -14288,7 +14547,17 @@ class GroupService {
   }) async {
     final send = _send;
     final b = await load(groupId);
-    if (send == null || b == null) return 0;
+    if (b == null) return 0;
+    if (send == null) {
+      if (b.manifest.isSpace) {
+        _observeSpace(
+          SpaceObservationType.p2pDeltaDelivery,
+          SpaceObservationOutcome.noOp,
+          reason: SpaceObservationReason.transportUnavailable,
+        );
+      }
+      return 0;
+    }
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
@@ -14325,83 +14594,104 @@ class GroupService {
         : null;
     if (deltaId != null) _rememberOverlayDelta(deltaId);
     var n = 0;
-    for (final peer in peers) {
-      if (exclude.contains(peer)) continue;
-      final epochEnvelopes = _epochEnvelopesFor(b, peer, controls: control);
-      final channelEpochEnvelopes = _channelEpochEnvelopesFor(
-        b,
-        peer,
-        controls: control,
+    try {
+      for (final peer in peers) {
+        if (exclude.contains(peer)) continue;
+        final epochEnvelopes = _epochEnvelopesFor(b, peer, controls: control);
+        final channelEpochEnvelopes = _channelEpochEnvelopesFor(
+          b,
+          peer,
+          controls: control,
+        );
+        final encryptionEstablished = _encryptionEstablished(
+          b.manifest,
+          b.control,
+        );
+        final peerMessages = [
+          for (final message in messages)
+            if (_messageWithinLifecycleBoundary(b.manifest, state, message) &&
+                (message.isChannelEncrypted
+                    ? _peerCanDecryptChannelEpoch(
+                        b,
+                        peer,
+                        message.channelId!,
+                        message.channelEpoch!,
+                      )
+                    : !encryptionEstablished ||
+                          (message.isEncrypted &&
+                              _peerCanDecryptEpoch(
+                                b,
+                                peer,
+                                message.membershipEpoch!,
+                              ))))
+              message,
+        ];
+        final peerReactions = [
+          for (final reaction in reactions)
+            if (_reactionWithinLifecycleBoundary(state, reaction) &&
+                (reaction.isChannelEncrypted
+                    ? _peerCanDecryptChannelEpoch(
+                        b,
+                        peer,
+                        reaction.channelId!,
+                        reaction.channelEpoch!,
+                      )
+                    : !encryptionEstablished ||
+                          (reaction.isMembershipEncrypted &&
+                              _peerCanDecryptEpoch(
+                                b,
+                                peer,
+                                reaction.membershipEpoch!,
+                              ))))
+              reaction,
+        ];
+        final peerPosts = [
+          for (final post in posts)
+            if (_postWithinLifecycleBoundary(state, post) &&
+                (!post.isEncrypted ||
+                    _peerCanDecryptEpoch(b, peer, post.membershipEpoch!)))
+              post,
+        ];
+        await send(
+          peer,
+          groupId,
+          jsonEncode({
+            'm': b.manifest.toJson(),
+            'c': control.map((entry) => entry.toJson()).toList(),
+            'g': peerMessages.map((message) => message.toJson()).toList(),
+            'r': peerReactions.map((reaction) => reaction.toJson()).toList(),
+            if (peerPosts.isNotEmpty)
+              'p': peerPosts.map((post) => post.toJson()).toList(),
+            if (epochEnvelopes.isNotEmpty)
+              'ke': epochEnvelopes.map((entry) => entry.toJson()).toList(),
+            if (channelEpochEnvelopes.isNotEmpty)
+              'cke': channelEpochEnvelopes
+                  .map((entry) => entry.toJson())
+                  .toList(),
+            'ov': ?deltaId,
+          }),
+        );
+        n++;
+      }
+    } catch (_) {
+      if (b.manifest.isSpace) {
+        _observeSpace(
+          SpaceObservationType.p2pDeltaDelivery,
+          SpaceObservationOutcome.failed,
+          reason: SpaceObservationReason.transportFailed,
+          amount: n,
+        );
+      }
+      rethrow;
+    }
+    if (b.manifest.isSpace) {
+      _observeSpace(
+        SpaceObservationType.p2pDeltaDelivery,
+        n == 0
+            ? SpaceObservationOutcome.noOp
+            : SpaceObservationOutcome.succeeded,
+        amount: n,
       );
-      final encryptionEstablished = _encryptionEstablished(
-        b.manifest,
-        b.control,
-      );
-      final peerMessages = [
-        for (final message in messages)
-          if (_messageWithinLifecycleBoundary(b.manifest, state, message) &&
-              (message.isChannelEncrypted
-                  ? _peerCanDecryptChannelEpoch(
-                      b,
-                      peer,
-                      message.channelId!,
-                      message.channelEpoch!,
-                    )
-                  : !encryptionEstablished ||
-                        (message.isEncrypted &&
-                            _peerCanDecryptEpoch(
-                              b,
-                              peer,
-                              message.membershipEpoch!,
-                            ))))
-            message,
-      ];
-      final peerReactions = [
-        for (final reaction in reactions)
-          if (_reactionWithinLifecycleBoundary(state, reaction) &&
-              (reaction.isChannelEncrypted
-                  ? _peerCanDecryptChannelEpoch(
-                      b,
-                      peer,
-                      reaction.channelId!,
-                      reaction.channelEpoch!,
-                    )
-                  : !encryptionEstablished ||
-                        (reaction.isMembershipEncrypted &&
-                            _peerCanDecryptEpoch(
-                              b,
-                              peer,
-                              reaction.membershipEpoch!,
-                            ))))
-            reaction,
-      ];
-      final peerPosts = [
-        for (final post in posts)
-          if (_postWithinLifecycleBoundary(state, post) &&
-              (!post.isEncrypted ||
-                  _peerCanDecryptEpoch(b, peer, post.membershipEpoch!)))
-            post,
-      ];
-      await send(
-        peer,
-        groupId,
-        jsonEncode({
-          'm': b.manifest.toJson(),
-          'c': control.map((entry) => entry.toJson()).toList(),
-          'g': peerMessages.map((message) => message.toJson()).toList(),
-          'r': peerReactions.map((reaction) => reaction.toJson()).toList(),
-          if (peerPosts.isNotEmpty)
-            'p': peerPosts.map((post) => post.toJson()).toList(),
-          if (epochEnvelopes.isNotEmpty)
-            'ke': epochEnvelopes.map((entry) => entry.toJson()).toList(),
-          if (channelEpochEnvelopes.isNotEmpty)
-            'cke': channelEpochEnvelopes
-                .map((entry) => entry.toJson())
-                .toList(),
-          'ov': ?deltaId,
-        }),
-      );
-      n++;
     }
     return n;
   }

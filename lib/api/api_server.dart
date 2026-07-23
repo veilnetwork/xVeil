@@ -1525,6 +1525,14 @@ Map<String, dynamic> openApiSpec() {
           'responses': ok({'type': obj}),
         },
       },
+      '/spaces/observability': {
+        'get': {
+          'summary':
+              'Read bounded runtime-only community counters and events '
+              'without identifiers, content or secrets',
+          'responses': ok({'type': obj}),
+        },
+      },
       '/spaces/subscription': {
         'get': {
           'summary': 'Read device-local community subscription preferences',
@@ -2868,6 +2876,7 @@ class ApiHandler {
     this.spaceAccess,
     this.spaceAccessAction,
     this.spacePolicyAudit,
+    this.spaceObservability,
     required this.renameGroup,
     required this.leaveGroup,
     this.spaceChannels,
@@ -3031,6 +3040,7 @@ class ApiHandler {
   spaceAccessAction;
   final Future<Map<String, dynamic>?> Function(String spaceHex)?
   spacePolicyAudit;
+  final Map<String, dynamic> Function()? spaceObservability;
   final Future<String?> Function(String groupHex, String name, bool isSpace)
   renameGroup;
   final Future<String?> Function(String groupHex, bool isSpace) leaveGroup;
@@ -4368,6 +4378,12 @@ class ApiHandler {
         return const ApiResponse(400, {'error': 'valid space + id required'});
       }
       return _spaceMutationResponse(await handler(space, auditId));
+    }
+    if (method == 'GET' && path == '/v1/spaces/observability') {
+      final handler = spaceObservability;
+      return handler == null
+          ? const ApiResponse(501, {'error': 'Space observability unavailable'})
+          : ApiResponse(200, handler());
     }
     if (method == 'GET' && path == '/v1/spaces/subscription') {
       final handler = spaceSubscription;
