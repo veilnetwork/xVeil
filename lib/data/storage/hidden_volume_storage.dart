@@ -2218,16 +2218,21 @@ class HiddenVolumeStorage implements Storage {
     // as their relay blob lives, and the caller's once-per-id guard is in-RAM
     // only — without this check every launch appended a duplicate status row
     // (a padded commit + a log record, forever). Same-status = true no-op.
+    Message? target;
     try {
-      for (final m in await _scanLog()) {
-        if (m.id == messageId && m.conversationId == conversationId) {
-          if (m.status == status) return;
+      for (final message in await _scanLog()) {
+        if (message.id == messageId &&
+            message.conversationId == conversationId) {
+          target = message;
           break;
         }
       }
     } catch (_) {
-      // Best-effort: an unreadable scan falls through to the normal append.
+      // Fail closed: without a readable target row we must not manufacture an
+      // orphan status op for an arbitrary ACK id.
+      return;
     }
+    if (target == null || target.status == status) return;
     // Append-only log can't mutate a row, so record a status OP that [_scanLog]
     // folds onto the message (latest wins). Drives the outbox: an ack flips a
     // message to `delivered` so it is no longer re-sent. The op carries the
@@ -2252,16 +2257,21 @@ class HiddenVolumeStorage implements Storage {
   ) async {
     // Idempotent vs the stored fold (mirror of markMessageStatus): a re-arriving
     // response would otherwise append a duplicate sig row every time.
+    Message? target;
     try {
-      for (final m in await _scanLog()) {
-        if (m.id == messageId && m.conversationId == conversationId) {
-          if (m.signature == signature) return;
+      for (final message in await _scanLog()) {
+        if (message.id == messageId &&
+            message.conversationId == conversationId) {
+          target = message;
           break;
         }
       }
     } catch (_) {
-      // Best-effort — fall through to the append.
+      // Same invariant as status: append only for a message proven to exist in
+      // this exact conversation.
+      return;
     }
+    if (target == null || target.signature == signature) return;
     final payload = jsonEncode({
       'op': 'sig',
       'id': messageId,

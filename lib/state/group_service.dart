@@ -441,12 +441,43 @@ final class _PendingSpaceReceipt {
     required this.spaceId,
     required this.peer,
     required this.createdAtMs,
+    this.repairFingerprint,
   }) : elapsed = Stopwatch()..start();
 
   final NodeId spaceId;
   final NodeId peer;
   final int createdAtMs;
+  final String? repairFingerprint;
   final Stopwatch elapsed;
+}
+
+/// Metadata recovered from a valid, source-bound delivery challenge.
+///
+/// A nullable wrapper is intentionally not enough: a full snapshot has no
+/// repair fingerprint, while an invalid/replayed token has no accepted
+/// receipt at all.
+final class _AcceptedSpaceReceipt {
+  const _AcceptedSpaceReceipt({required this.repairFingerprint});
+
+  final String? repairFingerprint;
+}
+
+/// A consumed repair challenge whose receiver still advertised the exact same
+/// missing-object set. Remembering only this opaque token + content fingerprint
+/// keeps replayed durable ACKs from restarting the same ping-pong, while a
+/// fresh sync request without the old token remains free to retry.
+final class _StalledSpaceReceipt {
+  const _StalledSpaceReceipt({
+    required this.spaceId,
+    required this.peer,
+    required this.repairFingerprint,
+    required this.createdAtMs,
+  });
+
+  final NodeId spaceId;
+  final NodeId peer;
+  final String repairFingerprint;
+  final int createdAtMs;
 }
 
 /// A bounded protocol confirmation that [peer] reported a caught-up sync
@@ -736,12 +767,15 @@ class GroupService {
   final Map<String, int> _contactAccessGenerations = <String, int>{};
   static const Duration _spaceReceiptTtl = Duration(hours: 24);
   static const int _kMaxPendingSpaceReceipts = 2048;
+  static const int _kMaxStalledSpaceReceipts = 2048;
   static const int _kMaxSpaceHolderProofs = 4096;
   static const int _kMaxPendingContentReceipts = 2048;
   static const int _kMaxOutboundContentRequests = 2048;
   static const int _kMaxContentHolderProofs = 8192;
   final Map<String, _PendingSpaceReceipt> _pendingSpaceReceipts =
       <String, _PendingSpaceReceipt>{};
+  final Map<String, _StalledSpaceReceipt> _stalledSpaceReceipts =
+      <String, _StalledSpaceReceipt>{};
   final Map<String, _SpaceHolderProof> _spaceHolderProofs =
       <String, _SpaceHolderProof>{};
   final Map<String, _PendingContentReceipt> _pendingContentReceipts =
@@ -795,6 +829,7 @@ class GroupService {
     for (final token in expiredReceipts) {
       _pendingSpaceReceipts.remove(token)?.elapsed.stop();
     }
+    _stalledSpaceReceipts.removeWhere((_, value) => value.createdAtMs < cutoff);
     final expiredProofs = [
       for (final entry in _spaceHolderProofs.entries)
         if (entry.value.confirmedAtMs < cutoff) entry.key,
@@ -835,7 +870,11 @@ class GroupService {
     );
   }
 
-  String? _beginSpaceReceipt(GroupBundle bundle, NodeId peer) {
+  String? _beginSpaceReceipt(
+    GroupBundle bundle,
+    NodeId peer, {
+    String? repairFingerprint,
+  }) {
     if (!bundle.manifest.isSpace) return null;
     _purgeSpaceReceiptState();
     while (_pendingSpaceReceipts.length >= _kMaxPendingSpaceReceipts) {
@@ -856,6 +895,7 @@ class GroupService {
       spaceId: bundle.manifest.groupId,
       peer: peer,
       createdAtMs: _spaceReceiptNowMs(),
+      repairFingerprint: repairFingerprint,
     );
     return token;
   }
@@ -894,31 +934,40 @@ class GroupService {
         .toString();
   }
 
-  Future<bool> _acceptSpaceReceipt(
+  Future<_AcceptedSpaceReceipt?> _acceptSpaceReceipt(
     NodeId peer,
     GroupBundle bundle,
     Object? value, {
     required bool caughtUp,
   }) async {
     final spaceId = bundle.manifest.groupId;
-    if (value == null) return false;
+    if (value == null) return null;
     if (value is! String || !_spaceReceiptPattern.hasMatch(value)) {
       _observeSpace(
         SpaceObservationType.p2pReceipt,
         SpaceObservationOutcome.rejected,
         reason: SpaceObservationReason.invalidInput,
       );
-      return false;
+      return null;
     }
     _purgeSpaceReceiptState();
     final pending = _pendingSpaceReceipts[value];
+    final stalled = _stalledSpaceReceipts[value];
+    if (pending == null &&
+        stalled != null &&
+        stalled.spaceId == spaceId &&
+        stalled.peer == peer) {
+      return _AcceptedSpaceReceipt(
+        repairFingerprint: stalled.repairFingerprint,
+      );
+    }
     if (pending == null || pending.spaceId != spaceId || pending.peer != peer) {
       _observeSpace(
         SpaceObservationType.p2pReceipt,
         SpaceObservationOutcome.rejected,
         reason: SpaceObservationReason.invalidState,
       );
-      return false;
+      return null;
     }
     _pendingSpaceReceipts.remove(value);
     pending.elapsed.stop();
@@ -931,10 +980,16 @@ class GroupService {
     final proofKey = _spaceHolderProofKey(spaceId, peer);
     if (!caughtUp) {
       _spaceHolderProofs.remove(proofKey);
-      return true;
+      return _AcceptedSpaceReceipt(
+        repairFingerprint: pending.repairFingerprint,
+      );
     }
     final frontier = await _spaceSyncFrontier(spaceId, bundle: bundle);
-    if (frontier == null) return true;
+    if (frontier == null) {
+      return _AcceptedSpaceReceipt(
+        repairFingerprint: pending.repairFingerprint,
+      );
+    }
     while (_spaceHolderProofs.length >= _kMaxSpaceHolderProofs &&
         !_spaceHolderProofs.containsKey(proofKey)) {
       _spaceHolderProofs.remove(_spaceHolderProofs.keys.first);
@@ -945,7 +1000,25 @@ class GroupService {
       frontier: frontier,
       confirmedAtMs: _spaceReceiptNowMs(),
     );
-    return true;
+    return _AcceptedSpaceReceipt(repairFingerprint: pending.repairFingerprint);
+  }
+
+  void _rememberStalledSpaceReceipt(
+    String token,
+    NodeId spaceId,
+    NodeId peer,
+    String repairFingerprint,
+  ) {
+    while (_stalledSpaceReceipts.length >= _kMaxStalledSpaceReceipts &&
+        !_stalledSpaceReceipts.containsKey(token)) {
+      _stalledSpaceReceipts.remove(_stalledSpaceReceipts.keys.first);
+    }
+    _stalledSpaceReceipts[token] = _StalledSpaceReceipt(
+      spaceId: spaceId,
+      peer: peer,
+      repairFingerprint: repairFingerprint,
+      createdAtMs: _spaceReceiptNowMs(),
+    );
   }
 
   Future<void> _acknowledgeSpaceReceipt(NodeId peer, Map wire) async {
@@ -9978,6 +10051,34 @@ class GroupService {
     ...reaction.signature,
   ]).toString();
 
+  String _spaceRepairFingerprint({
+    required Iterable<ControlEntry> controls,
+    required Iterable<GroupMessage> messages,
+    required Iterable<GroupReaction> reactions,
+    required Iterable<SpacePost> posts,
+    required Iterable<GroupEpochRecipientEnvelope> epochEnvelopes,
+    required Iterable<GroupEpochRecipientEnvelope> channelEpochEnvelopes,
+  }) {
+    String envelopeHash(GroupEpochRecipientEnvelope envelope) => crypto.sha256
+        .convert(
+          utf8.encode(
+            jsonEncode(_canonicalSpaceFrontierValue(envelope.toJson())),
+          ),
+        )
+        .toString();
+
+    final objectIds = <String>[
+      for (final entry in controls) 'control:${controlEntryHash(entry)}',
+      for (final message in messages) 'message:${groupMessageHash(message)}',
+      for (final reaction in reactions) 'reaction:${_reactionHash(reaction)}',
+      for (final post in posts) 'post:${_spacePostHash(post)}',
+      for (final envelope in epochEnvelopes) 'epoch:${envelopeHash(envelope)}',
+      for (final envelope in channelEpochEnvelopes)
+        'channelEpoch:${envelopeHash(envelope)}',
+    ]..sort();
+    return crypto.sha256.convert(utf8.encode(objectIds.join('\n'))).toString();
+  }
+
   String _reactionLifecycleScopeHash(GroupReaction reaction) => crypto.sha256
       .convert(
         utf8.encode(
@@ -11944,6 +12045,17 @@ class GroupService {
         missingPosts.length +
         missingEpochEnvelopes.length +
         missingChannelEpochEnvelopes.length;
+    final repairFingerprint = b.manifest.isSpace && missingCount > 0
+        ? _spaceRepairFingerprint(
+            controls: missingCtl,
+            messages: missingMsgs,
+            reactions: missingRx,
+            posts: missingPosts,
+            epochEnvelopes: missingEpochEnvelopes,
+            channelEpochEnvelopes: missingChannelEpochEnvelopes,
+          )
+        : null;
+    _AcceptedSpaceReceipt? acceptedReceipt;
     if (b.manifest.isSpace) {
       _observeSpace(
         SpaceObservationType.p2pMissingObjects,
@@ -11955,12 +12067,27 @@ class GroupService {
       if (missingCount > 0) {
         _spaceHolderProofs.remove(_spaceHolderProofKey(gid, peer));
       }
-      await _acceptSpaceReceipt(
+      acceptedReceipt = await _acceptSpaceReceipt(
         peer,
         b,
         req['rack'],
         caughtUp: missingCount == 0,
       );
+      if (repairFingerprint != null &&
+          acceptedReceipt?.repairFingerprint == repairFingerprint) {
+        final token = req['rack'];
+        if (token is String) {
+          _rememberStalledSpaceReceipt(token, gid, peer, repairFingerprint);
+        }
+        _observeSpace(
+          SpaceObservationType.p2pBackfill,
+          SpaceObservationOutcome.noOp,
+          reason: SpaceObservationReason.duplicate,
+          amount: missingCount,
+          duration: attempt.elapsed,
+        );
+        return false;
+      }
     }
     if (missingMsgs.isEmpty &&
         missingCtl.isEmpty &&
@@ -11987,7 +12114,11 @@ class GroupService {
         ? _overlayDeltaId(gid, missingMsgs, missingRx, missingPosts)
         : null;
     if (overlayId != null) _rememberOverlayDelta(overlayId);
-    final receipt = _beginSpaceReceipt(b, peer);
+    final receipt = _beginSpaceReceipt(
+      b,
+      peer,
+      repairFingerprint: repairFingerprint,
+    );
     try {
       await send(
         peer,
@@ -15679,6 +15810,7 @@ class GroupService {
       pending.elapsed.stop();
     }
     _pendingSpaceReceipts.clear();
+    _stalledSpaceReceipts.clear();
     _spaceHolderProofs.clear();
     _pendingContentReceipts.clear();
     _outboundContentRequests.clear();
