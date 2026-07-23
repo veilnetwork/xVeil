@@ -8,6 +8,7 @@ import '../../domain/group.dart';
 import '../../domain/space_invite.dart';
 import '../../domain/space_join_request.dart';
 import '../../domain/space_lifecycle.dart';
+import '../../domain/space_membership.dart';
 import '../../domain/space_moderation.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
@@ -128,6 +129,39 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
           l.spaceModerationAppealAcknowledged,
       };
 
+  String _membershipStatusLabel(
+    BuildContext context,
+    SpaceMembershipProjection membership,
+  ) {
+    final l = AppL10n.of(context);
+    return switch (membership.status) {
+      SpaceMembershipStatus.pending => l.spaceMembershipPending,
+      SpaceMembershipStatus.active => l.spaceMembershipActive,
+      SpaceMembershipStatus.suspended when membership.untilMs != null =>
+        l.spaceMembershipSuspendedUntil(
+          _membershipDateTime(context, membership.untilMs!),
+        ),
+      SpaceMembershipStatus.suspended => l.spaceMembershipSuspended,
+      SpaceMembershipStatus.left => l.spaceMembershipLeft,
+      SpaceMembershipStatus.banned => l.spaceMembershipBanned,
+    };
+  }
+
+  String _membershipDateTime(BuildContext context, int milliseconds) {
+    final localizations = MaterialLocalizations.of(context);
+    final date = DateTime.fromMillisecondsSinceEpoch(milliseconds).toLocal();
+    return '${localizations.formatCompactDate(date)}, '
+        '${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(date))}';
+  }
+
+  IconData _membershipIcon(SpaceMembershipStatus status) => switch (status) {
+    SpaceMembershipStatus.pending => Icons.hourglass_top_outlined,
+    SpaceMembershipStatus.active => Icons.check_circle_outline,
+    SpaceMembershipStatus.suspended => Icons.pause_circle_outline,
+    SpaceMembershipStatus.left => Icons.logout_outlined,
+    SpaceMembershipStatus.banned => Icons.block_outlined,
+  };
+
   Future<void> _appeal(
     BuildContext context,
     GroupService service,
@@ -238,6 +272,7 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                     <SpaceModerationAppealCandidate>[],
                     <SpaceModerationAppealOutboxEntry>[],
                     <String, String>{},
+                    <SpaceMembershipProjection>[],
                   ])
                 : Future.wait<Object?>([
                     service.pendingSpaceInvites(),
@@ -245,6 +280,7 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                     service.appealableSpaceModerationActions(),
                     service.outgoingSpaceModerationAppeals(),
                     service.moderationAppealSpaceNames(),
+                    service.spaceMemberships(),
                   ]),
             builder: (context, inviteSnapshot) {
               if (service != null && !inviteSnapshot.hasData) {
@@ -266,6 +302,13 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
               final appealSpaceNames = data == null
                   ? const <String, String>{}
                   : data[4] as Map<String, String>;
+              final allMemberships = data == null
+                  ? const <SpaceMembershipProjection>[]
+                  : data[5] as List<SpaceMembershipProjection>;
+              final membershipBySpace = {
+                for (final membership in allMemberships)
+                  membership.spaceId.hex: membership,
+              };
               final invites = searching
                   ? allInvites
                         .where(
@@ -298,11 +341,30 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                         )
                         .toList(growable: false)
                   : allAppeals;
+              final listedIds = {for (final item in allItems) item.groupId.hex};
+              final appealSpaceIds = {
+                for (final candidate in allAppealCandidates)
+                  candidate.spaceId.hex,
+                for (final entry in allAppeals) entry.appeal.spaceId.hex,
+              };
+              final inactiveMemberships = allMemberships
+                  .where(
+                    (membership) =>
+                        !listedIds.contains(membership.spaceId.hex) &&
+                        membership.status != SpaceMembershipStatus.pending &&
+                        !appealSpaceIds.contains(membership.spaceId.hex) &&
+                        (!searching ||
+                            _matches(membership.name) ||
+                            _matches(membership.reason ?? '') ||
+                            _matches(membership.spaceId.hex)),
+                  )
+                  .toList(growable: false);
               if (items.isEmpty &&
                   invites.isEmpty &&
                   joinRequests.isEmpty &&
                   appealCandidates.isEmpty &&
-                  appeals.isEmpty) {
+                  appeals.isEmpty &&
+                  inactiveMemberships.isEmpty) {
                 return Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -437,6 +499,53 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                       ),
                     const SizedBox(height: 8),
                   ],
+                  if (inactiveMemberships.isNotEmpty) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      child: Text(
+                        l.spaceMembershipStatusTitle,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    for (final membership in inactiveMemberships)
+                      Card(
+                        key: ValueKey(
+                          'space-membership-${membership.status.name}-${membership.spaceId.hex}',
+                        ),
+                        margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            child: Icon(_membershipIcon(membership.status)),
+                          ),
+                          title: Text(
+                            membership.name.isEmpty
+                                ? membership.spaceId.short
+                                : membership.name,
+                          ),
+                          subtitle: Text(
+                            [
+                              _membershipStatusLabel(context, membership),
+                              if (membership.reason != null) membership.reason!,
+                            ].join('\n'),
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing:
+                              membership.status == SpaceMembershipStatus.left &&
+                                  service != null
+                              ? TextButton(
+                                  key: ValueKey(
+                                    'space-membership-rejoin-${membership.spaceId.hex}',
+                                  ),
+                                  onPressed: () =>
+                                      _requestJoin(context, service),
+                                  child: Text(l.spaceJoinAction),
+                                )
+                              : null,
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                  ],
                   if (appealCandidates.isNotEmpty || appeals.isNotEmpty) ...[
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -457,8 +566,16 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                           ),
                           title: Text(candidate.spaceName),
                           subtitle: Text(
-                            '${_moderationKindLabel(l, candidate.record.action.kind)} · '
-                            '${candidate.record.action.reason}',
+                            [
+                              if (membershipBySpace[candidate.spaceId.hex] !=
+                                  null)
+                                _membershipStatusLabel(
+                                  context,
+                                  membershipBySpace[candidate.spaceId.hex]!,
+                                ),
+                              '${_moderationKindLabel(l, candidate.record.action.kind)} · '
+                                  '${candidate.record.action.reason}',
+                            ].join('\n'),
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -493,6 +610,12 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                           ),
                           subtitle: Text(
                             [
+                              if (membershipBySpace[entry.appeal.spaceId.hex] !=
+                                  null)
+                                _membershipStatusLabel(
+                                  context,
+                                  membershipBySpace[entry.appeal.spaceId.hex]!,
+                                ),
                               _appealStatus(l, entry),
                               if (entry.decision?.reason != null)
                                 entry.decision!.reason,
@@ -516,6 +639,10 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                     Builder(
                       builder: (context) {
                         final space = items[index];
+                        final membership = membershipBySpace[space.groupId.hex];
+                        final membershipSuspended =
+                            membership?.status ==
+                            SpaceMembershipStatus.suspended;
                         final notificationMode = space.notificationMode;
                         final notificationPolicy = NotificationMutePolicy(
                           mode: notificationMode,
@@ -540,22 +667,44 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
                           ),
                           title: Text(space.name),
                           subtitle: Text(
-                            space.description.isNotEmpty
-                                ? space.description
-                                : space.preview.isEmpty
-                                ? space.groupId.short
-                                : space.preview,
-                            maxLines: 2,
+                            [
+                              if (membershipSuspended)
+                                _membershipStatusLabel(context, membership!),
+                              space.description.isNotEmpty
+                                  ? space.description
+                                  : space.preview.isEmpty
+                                  ? space.groupId.short
+                                  : space.preview,
+                            ].join('\n'),
+                            maxLines: membershipSuspended ? 3 : 2,
                             overflow: TextOverflow.ellipsis,
                           ),
                           trailing:
                               notificationMode == NotificationMuteMode.all &&
                                   !hasUnread &&
-                                  !hasLifecycleMarker
+                                  !hasLifecycleMarker &&
+                                  !membershipSuspended
                               ? null
                               : Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    if (membershipSuspended) ...[
+                                      Tooltip(
+                                        message: _membershipStatusLabel(
+                                          context,
+                                          membership!,
+                                        ),
+                                        child: const Icon(
+                                          Icons.pause_circle_outline,
+                                          size: 18,
+                                        ),
+                                      ),
+                                      if (notificationMode !=
+                                              NotificationMuteMode.all ||
+                                          hasLifecycleMarker ||
+                                          hasUnread)
+                                        const SizedBox(width: 10),
+                                    ],
                                     if (notificationMode !=
                                         NotificationMuteMode.all) ...[
                                       notificationMuteModeIndicator(

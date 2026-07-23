@@ -785,6 +785,29 @@ class AppL10nRu extends AppL10n {
   String get spaceJoinRequestDeclined => 'Отклонено';
 
   @override
+  String get spaceMembershipStatusTitle => 'Статус участия';
+
+  @override
+  String get spaceMembershipPending => 'Вступление ожидает подтверждения';
+
+  @override
+  String get spaceMembershipActive => 'Участие активно';
+
+  @override
+  String get spaceMembershipSuspended => 'Участие приостановлено';
+
+  @override
+  String spaceMembershipSuspendedUntil(String until) {
+    return 'Участие приостановлено до $until';
+  }
+
+  @override
+  String get spaceMembershipLeft => 'Вы больше не участник';
+
+  @override
+  String get spaceMembershipBanned => 'Участие заблокировано';
+
+  @override
   String get spaceJoinDismiss => 'Скрыть';
 
   @override

@@ -779,6 +779,29 @@ class AppL10nEn extends AppL10n {
   String get spaceJoinRequestDeclined => 'Declined';
 
   @override
+  String get spaceMembershipStatusTitle => 'Membership status';
+
+  @override
+  String get spaceMembershipPending => 'Membership pending';
+
+  @override
+  String get spaceMembershipActive => 'Active member';
+
+  @override
+  String get spaceMembershipSuspended => 'Membership suspended';
+
+  @override
+  String spaceMembershipSuspendedUntil(String until) {
+    return 'Membership suspended until $until';
+  }
+
+  @override
+  String get spaceMembershipLeft => 'No longer a member';
+
+  @override
+  String get spaceMembershipBanned => 'Membership banned';
+
+  @override
   String get spaceJoinDismiss => 'Dismiss';
 
   @override

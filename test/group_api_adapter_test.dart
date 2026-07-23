@@ -137,6 +137,12 @@ void main() {
       expect(listed['discoverable'], isFalse);
       expect(listed['notificationMode'], NotificationMuteMode.all.name);
       expect(listed['notificationUntil'], isNull);
+      final membership = (await api.listSpaceMemberships()).single;
+      expect(membership['spaceId'], space);
+      expect(membership['status'], 'active');
+      expect(membership['source'], 'manifest');
+      expect(membership['isMember'], isTrue);
+      expect(membership['canOpen'], isTrue);
 
       final notificationUntil = DateTime.now().add(const Duration(hours: 8));
       await service.setGroupNotificationPolicy(
@@ -1122,13 +1128,49 @@ void main() {
             },
         loadContent: storage.loadFile,
       );
-      final candidates = await memberApi.moderationAppeals(space);
-      expect(candidates['candidates'], hasLength(1));
+      var candidates = await memberApi.moderationAppeals(space);
+      expect(
+        candidates['candidates'],
+        isEmpty,
+        reason: 'A revoked moderation action is already resolved.',
+      );
       expect(
         await memberApi.moderationAppealAction(
           'appeal',
           space,
           created.actionId,
+          null,
+          'Review the full context.',
+          null,
+        ),
+        isNotNull,
+      );
+      expect(sentAppeals, isEmpty);
+
+      final appealable = await api.moderate(
+        space,
+        SpaceModerationKind.warning.name,
+        member.hex,
+        SpaceModerationScope.space.name,
+        'appealable warning',
+        null,
+        null,
+        null,
+        null,
+        null,
+      );
+      expect(appealable.error, isNull);
+      candidates = await memberApi.moderationAppeals(space);
+      expect(candidates['candidates'], hasLength(1));
+      expect(
+        candidates['candidates'].single['action']['actionId'],
+        appealable.actionId,
+      );
+      expect(
+        await memberApi.moderationAppealAction(
+          'appeal',
+          space,
+          appealable.actionId,
           null,
           'Review the full context.',
           null,
