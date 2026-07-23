@@ -9,6 +9,7 @@ import '../../domain/group.dart';
 import '../../domain/group_policy.dart';
 import '../../domain/space_channel.dart';
 import '../../domain/space_recommendation.dart';
+import '../../domain/space_retention.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/group_call_service.dart';
@@ -430,8 +431,9 @@ class SpaceScreen extends ConsumerWidget {
     GroupService service,
     NodeId spaceId,
     SpaceChannel channel,
-    List<SpaceChannel> channels,
-  ) async {
+    List<SpaceChannel> channels, {
+    required bool canManageRetention,
+  }) async {
     final l = AppL10n.of(context);
     final action = await showModalBottomSheet<_SpaceChannelAction>(
       context: context,
@@ -451,6 +453,14 @@ class SpaceScreen extends ConsumerWidget {
                 title: Text(l.spaceMembersTooltip),
                 onTap: () =>
                     Navigator.of(sheet).pop(_SpaceChannelAction.members),
+              ),
+            if (channel.kind == SpaceChannelKind.text && canManageRetention)
+              ListTile(
+                key: const ValueKey('space-channel-retention-action'),
+                leading: const Icon(Icons.history_toggle_off),
+                title: Text(l.spaceRetentionTitle),
+                onTap: () =>
+                    Navigator.of(sheet).pop(_SpaceChannelAction.retention),
               ),
             if (channel.kind == SpaceChannelKind.text &&
                 !channel.archived &&
@@ -485,6 +495,15 @@ class SpaceScreen extends ConsumerWidget {
     if (action == null || !context.mounted) return;
     var applied = false;
     switch (action) {
+      case _SpaceChannelAction.retention:
+        final saved = await _pickChannelRetention(
+          context,
+          service,
+          spaceId,
+          channel.channelId,
+        );
+        if (saved == null) return;
+        applied = saved;
       case _SpaceChannelAction.members:
         final saved = await _manageProtectedChannelMembers(
           context,
@@ -553,6 +572,71 @@ class SpaceScreen extends ConsumerWidget {
         ),
       );
     }
+  }
+
+  Future<bool?> _pickChannelRetention(
+    BuildContext context,
+    GroupService service,
+    NodeId spaceId,
+    NodeId channelId,
+  ) async {
+    final l = AppL10n.of(context);
+    final history = await service.spaceRetentionHistoryOf(spaceId);
+    SpaceRetentionPolicy current = SpaceRetentionPolicy(
+      mode: SpaceRetentionMode.inherit,
+      channelId: channelId,
+    );
+    for (final revision in history) {
+      if (revision.policy.channelId == channelId) current = revision.policy;
+    }
+    if (!context.mounted) return null;
+    final choices = <(String, SpaceRetentionMode, int?)>[
+      (l.spaceRetentionGlobal, SpaceRetentionMode.inherit, null),
+      (l.retentionUnlimited, SpaceRetentionMode.keepForever, null),
+      (l.retention7, SpaceRetentionMode.deleteAfter, 7),
+      (l.retention30, SpaceRetentionMode.deleteAfter, 30),
+      (l.retention90, SpaceRetentionMode.deleteAfter, 90),
+      (l.retention365, SpaceRetentionMode.deleteAfter, 365),
+    ];
+    final picked = await showDialog<(SpaceRetentionMode, int?)>(
+      context: context,
+      builder: (dialog) => SimpleDialog(
+        title: Text(l.spaceRetentionTitle),
+        children: [
+          for (final choice in choices)
+            SimpleDialogOption(
+              key: ValueKey(
+                'space-channel-retention-${choice.$2.name}-${choice.$3}',
+              ),
+              onPressed: () => Navigator.of(dialog).pop((choice.$2, choice.$3)),
+              child: Row(
+                children: [
+                  Icon(
+                    current.mode == choice.$2 &&
+                            (choice.$2 != SpaceRetentionMode.deleteAfter ||
+                                current.retentionMs ==
+                                    Duration(days: choice.$3!).inMilliseconds)
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text(choice.$1)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+    if (picked == null) return null;
+    final policy = SpaceRetentionPolicy(
+      mode: picked.$1,
+      channelId: channelId,
+      retentionMs: picked.$2 == null
+          ? null
+          : Duration(days: picked.$2!).inMilliseconds,
+    );
+    return service.setSpaceRetentionPolicy(spaceId, policy);
   }
 
   Future<void> _shareRecommendation(
@@ -736,9 +820,15 @@ class SpaceScreen extends ConsumerWidget {
               ),
             );
           }
-          final canManage = SpaceAcl(
-            state,
-          ).allows(service.selfId, SpacePermission.manageChannels);
+          final acl = SpaceAcl(state);
+          final canManage = acl.allows(
+            service.selfId,
+            SpacePermission.manageChannels,
+          );
+          final canManageRetention = acl.allows(
+            service.selfId,
+            SpacePermission.manageStorage,
+          );
           final archived = state.isArchived;
           return Scaffold(
             appBar: AppBar(
@@ -873,6 +963,7 @@ class SpaceScreen extends ConsumerWidget {
                                         spaceId,
                                         channel,
                                         channels,
+                                        canManageRetention: canManageRetention,
                                       ),
                                       icon: const Icon(Icons.more_vert),
                                     )
@@ -915,6 +1006,7 @@ class SpaceScreen extends ConsumerWidget {
                                       spaceId,
                                       channel,
                                       channels,
+                                      canManageRetention: canManageRetention,
                                     )
                                   : null,
                             );
@@ -930,7 +1022,14 @@ class SpaceScreen extends ConsumerWidget {
   }
 }
 
-enum _SpaceChannelAction { members, edit, makeDefault, archive, restore }
+enum _SpaceChannelAction {
+  members,
+  retention,
+  edit,
+  makeDefault,
+  archive,
+  restore,
+}
 
 class _SpaceChannelDraft {
   const _SpaceChannelDraft({

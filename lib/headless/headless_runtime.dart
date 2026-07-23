@@ -297,6 +297,8 @@ class HeadlessRuntime {
         setSpaceLifecycle: groupApi.setLifecycle,
         spaceRetention: groupApi.retention,
         setSpaceRetention: groupApi.setRetention,
+        spaceChannelRetention: groupApi.channelRetention,
+        setSpaceChannelRetention: groupApi.setChannelRetention,
         spaceRules: groupApi.rules,
         publishSpaceRules: groupApi.publishRules,
         acceptSpaceRules: groupApi.acceptRules,

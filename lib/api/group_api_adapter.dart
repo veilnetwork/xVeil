@@ -180,6 +180,7 @@ final class GroupApiAdapter {
     final bundle = await _groups.load(visible.$1);
     if (bundle == null || !bundle.manifest.isSpace) return null;
     final policy = visible.$2.effectiveRetentionPolicy();
+    final history = await _groups.spaceRetentionHistoryOf(visible.$1);
     final localDays = await _groups.localSpaceRetentionDays(visible.$1);
     return {
       'spaceId': visible.$1.hex,
@@ -189,7 +190,7 @@ final class GroupApiAdapter {
         'retentionDays': ?localDays,
       },
       'history': [
-        for (final revision in visible.$2.retentionHistory)
+        for (final revision in history)
           {
             'policy': revision.policy.toJson(),
             'activatedAt': revision.activatedAtMs,
@@ -226,6 +227,84 @@ final class GroupApiAdapter {
         ? const SpaceRetentionPolicy(mode: SpaceRetentionMode.keepForever)
         : SpaceRetentionPolicy(
             mode: SpaceRetentionMode.deleteAfter,
+            retentionMs: Duration(days: days).inMilliseconds,
+          );
+    return await _groups.setSpaceRetentionPolicy(visible.$1, policy)
+        ? null
+        : 'retention update failed';
+  }
+
+  Future<Map<String, dynamic>?> channelRetention(
+    String spaceHex,
+    String channelHex,
+  ) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return null;
+    final NodeId channelId;
+    try {
+      channelId = NodeId.fromHex(channelHex);
+    } catch (_) {
+      return null;
+    }
+    final policy = await _groups.spaceRetentionPolicyOf(
+      visible.$1,
+      channelId: channelId,
+    );
+    if (policy == null) return null;
+    final history = await _groups.spaceRetentionHistoryOf(visible.$1);
+    return {
+      'spaceId': visible.$1.hex,
+      'channelId': channelId.hex,
+      'policy': policy.toJson(),
+      'history': [
+        for (final revision in history)
+          if (revision.policy.channelId == channelId)
+            {
+              'policy': revision.policy.toJson(),
+              'activatedAt': revision.activatedAtMs,
+              'author': revision.author.hex,
+              'authorSeq': revision.authorSeq,
+            },
+      ],
+    };
+  }
+
+  Future<String?> setChannelRetention(
+    String spaceHex,
+    String channelHex,
+    int? days,
+    bool inherit,
+  ) async {
+    final visible = await _visible(spaceHex);
+    if (visible == null) return 'space not found';
+    final NodeId channelId;
+    try {
+      channelId = NodeId.fromHex(channelHex);
+    } catch (_) {
+      return 'channel not found';
+    }
+    if (days != null && (days <= 0 || days > 36500)) {
+      return 'invalid retention days';
+    }
+    if (inherit && days != null) return 'inherit cannot include days';
+    if (!SpaceAcl(
+      visible.$2,
+    ).allows(_groups.selfId, SpacePermission.manageStorage)) {
+      return 'operation rejected by space policy';
+    }
+    final policy = inherit
+        ? SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.inherit,
+            channelId: channelId,
+          )
+        : days == null
+        ? SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.keepForever,
+            channelId: channelId,
+          )
+        : SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.deleteAfter,
+            channelId: channelId,
             retentionMs: Duration(days: days).inMilliseconds,
           );
     return await _groups.setSpaceRetentionPolicy(visible.$1, policy)

@@ -44,6 +44,7 @@ class GroupState {
     this.rulesAcceptances,
     this.moderationRecords,
     this.protectedModeration,
+    this.protectedRetention,
     this.retentionHistory,
     this.postPins,
     this.recommendationCampaigns,
@@ -96,6 +97,11 @@ class GroupState {
   /// enclosing control-row id. Semantic enforcement happens only after an
   /// authorized device decrypts and validates the action.
   final Map<String, SpaceChannelModerationEnvelope> protectedModeration;
+
+  /// Accepted opaque restricted-channel retention evidence keyed by the
+  /// enclosing control-row id. The pure fold proves owner authority and the
+  /// channel epoch; authorized devices decrypt the semantic policy later.
+  final Map<String, SpaceChannelRetentionEnvelope> protectedRetention;
 
   /// Every accepted signed revision, retained for audit and irreversible
   /// expiry evaluation. A later relaxed policy cannot resurrect an item that
@@ -202,6 +208,7 @@ class GroupState {
     name,
     '',
     null,
+    const {},
     const {},
     const {},
     const {},
@@ -425,6 +432,7 @@ GroupFoldResult foldControlLog({
   final rulesAcceptances = <String, SpaceRulesAcceptance>{};
   final moderationRecords = <String, SpaceModerationRecord>{};
   final protectedModeration = <String, SpaceChannelModerationEnvelope>{};
+  final protectedRetention = <String, SpaceChannelRetentionEnvelope>{};
   final retentionHistory = <SpaceRetentionRevision>[];
   final postPins = <String, SpacePostPin>{};
   final recommendationCampaigns = <String, SpaceRecommendationCampaign>{};
@@ -747,17 +755,30 @@ GroupFoldResult foldControlLog({
     }
     if (e.op == ControlOp.setRetention) {
       final policy = e.retentionPolicy;
-      final channel = policy?.channelId == null
-          ? null
-          : channels[policy!.channelId!.hex];
-      if (e.version != 9 ||
-          policy == null ||
-          !policy.isStructurallyValid ||
-          (policy.channelId != null && channel == null)) {
-        rejected.add(e);
-        continue;
+      final protected = e.channelRetention;
+      if (protected != null) {
+        final channel = protectedChannels[protected.channelId.hex];
+        if (e.version != 15 ||
+            policy != null ||
+            protected.spaceId != e.groupId ||
+            channel == null ||
+            channel.channelEpoch != protected.channelEpoch) {
+          rejected.add(e);
+          continue;
+        }
+      } else {
+        final channel = policy?.channelId == null
+            ? null
+            : channels[policy!.channelId!.hex];
+        if (e.version != 9 ||
+            policy == null ||
+            !policy.isStructurallyValid ||
+            (policy.channelId != null && channel == null)) {
+          rejected.add(e);
+          continue;
+        }
       }
-    } else if (e.retentionPolicy != null) {
+    } else if (e.retentionPolicy != null || e.channelRetention != null) {
       rejected.add(e);
       continue;
     }
@@ -950,6 +971,11 @@ GroupFoldResult foldControlLog({
             ? lastRetentionActivationMs
             : e.createdAtMs;
         lastRetentionActivationMs = activatedAt;
+        final protected = e.channelRetention;
+        if (protected != null) {
+          protectedRetention['${e.author.hex}:${e.seq}'] = protected;
+          break;
+        }
         retentionHistory.add(
           SpaceRetentionRevision(
             policy: e.retentionPolicy!,
@@ -1132,6 +1158,7 @@ GroupFoldResult foldControlLog({
       Map.unmodifiable(rulesAcceptances),
       Map.unmodifiable(moderationRecords),
       Map.unmodifiable(protectedModeration),
+      Map.unmodifiable(protectedRetention),
       List.unmodifiable(retentionHistory),
       Map.unmodifiable(postPins),
       Map.unmodifiable(recommendationCampaigns),
