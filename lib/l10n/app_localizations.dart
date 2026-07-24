@@ -1273,6 +1273,18 @@ abstract class AppL10n {
   /// **'Search by name, or paste an exact node_id from a trusted source.'**
   String get spaceDiscoveryIdle;
 
+  /// No description provided for @spaceDiscoverySearching.
+  ///
+  /// In en, this message translates to:
+  /// **'Searching verified public communities'**
+  String get spaceDiscoverySearching;
+
+  /// No description provided for @spaceDiscoveryResults.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 verified community} other{{count} verified communities}}'**
+  String spaceDiscoveryResults(int count);
+
   /// No description provided for @spaceDiscoveryNoVerifiedResults.
   ///
   /// In en, this message translates to:

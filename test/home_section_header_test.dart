@@ -138,4 +138,88 @@ void main() {
     expect(find.byKey(const ValueKey('feed-filter')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('compact header keeps contextual actions in one overflow', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(402, 874));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    var discoveryOpens = 0;
+    final searchController = TextEditingController();
+    addTearDown(searchController.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sessionCountProvider.overrideWith((ref) => Stream.value(1)),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(size: const Size(402, 874)),
+            child: child!,
+          ),
+          home: HomeNavigationScope(
+            openNavigation: () {},
+            navigationAtEnd: false,
+            child: HomeSectionScaffold(
+              title: 'Communities',
+              searchController: searchController,
+              onSearchStart: () {},
+              onSearchClose: () {},
+              onSearchChanged: (_) {},
+              contextActions: [
+                IconButton(
+                  key: const ValueKey('compact-mentions'),
+                  tooltip: 'Mentions',
+                  onPressed: () {},
+                  icon: const Icon(Icons.alternate_email),
+                ),
+                IconButton(
+                  key: const ValueKey('compact-discovery'),
+                  tooltip: 'Find public communities',
+                  onPressed: () => discoveryOpens++,
+                  icon: const Icon(Icons.travel_explore_outlined),
+                ),
+                IconButton(
+                  key: const ValueKey('compact-join'),
+                  tooltip: 'Join by link',
+                  onPressed: () {},
+                  icon: const Icon(Icons.link),
+                ),
+              ],
+              body: const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('home-navigation-menu')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-search-open')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-security-center')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('home-context-actions-overflow')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('compact-discovery')), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey('home-context-actions-overflow')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mentions'), findsOneWidget);
+    expect(find.text('Find public communities'), findsOneWidget);
+    expect(find.text('Join by link'), findsOneWidget);
+    expect(find.byKey(const ValueKey('compact-discovery')), findsOneWidget);
+    await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+
+    await tester.tap(find.byKey(const ValueKey('compact-discovery')));
+    await tester.pumpAndSettle();
+    expect(discoveryOpens, 1);
+    expect(tester.takeException(), isNull);
+  });
 }
