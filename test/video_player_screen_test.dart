@@ -134,4 +134,32 @@ void main() {
     expect(find.text('Could not play this video'), findsOneWidget);
     expect(find.byKey(const ValueKey('native-video-surface')), findsNothing);
   });
+
+  test('engine pick routes WebM to the native layer off-Android', () {
+    bool pick(String name, {bool linux = false, bool android = false}) =>
+        VideoPlayerScreen.prefersNativeEngine(
+          name: name,
+          isLinux: linux,
+          isAndroid: android,
+        );
+    // Linux is always native (no plugin exists there at all).
+    expect(pick('movie.mp4', linux: true), isTrue);
+    // Apple/Windows: AVFoundation/WMF cannot decode VP8 — WebM/MKV go native,
+    // OS-native containers stay on the plugin.
+    expect(pick('clip.webm'), isTrue);
+    expect(pick('CLIP.MKV'), isTrue);
+    expect(pick('movie.mp4'), isFalse);
+    // Android ExoPlayer decodes WebM natively — plugin everywhere.
+    expect(pick('clip.webm', android: true), isFalse);
+    // The test override wins over any platform reasoning.
+    expect(
+      VideoPlayerScreen.prefersNativeEngine(
+        name: 'clip.webm',
+        isLinux: false,
+        isAndroid: false,
+        override: false,
+      ),
+      isFalse,
+    );
+  });
 }

@@ -51,6 +51,25 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
   @visibleForTesting
   static bool? debugUseNative;
 
+  /// Engine pick: Linux has no plugin at all, so it is always native. On the
+  /// other desktop/Apple platforms the OS engine (AVFoundation/WMF) cannot
+  /// decode VP8/WebM — media_kit used to cover that and was removed — so
+  /// WebM/Matroska names route to the codec-stripped native layer instead of
+  /// dying with a playback error. Android keeps the plugin everywhere:
+  /// ExoPlayer decodes WebM natively.
+  static bool prefersNativeEngine({
+    required String name,
+    required bool isLinux,
+    required bool isAndroid,
+    bool? override,
+  }) {
+    if (override != null) return override;
+    if (isLinux) return true;
+    if (isAndroid) return false;
+    final lower = name.toLowerCase();
+    return lower.endsWith('.webm') || lower.endsWith('.mkv');
+  }
+
   @override
   ConsumerState<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
 }
@@ -62,8 +81,12 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   Object? _error;
   bool _unsupported = false;
 
-  static bool get _useNative =>
-      VideoPlayerScreen.debugUseNative ?? Platform.isLinux;
+  bool get _useNative => VideoPlayerScreen.prefersNativeEngine(
+    name: widget.name,
+    isLinux: Platform.isLinux,
+    isAndroid: Platform.isAndroid,
+    override: VideoPlayerScreen.debugUseNative,
+  );
 
   @override
   void initState() {
