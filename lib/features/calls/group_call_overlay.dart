@@ -119,7 +119,7 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
       appControllerProvider.select((s) => s.phase == AppPhase.ready),
     );
     if (!ready) return const SizedBox.shrink();
-    final call = ref.watch(currentGroupCallProvider).valueOrNull;
+    final call = ref.watch(currentGroupCallProvider).value;
     final calls = ref.watch(groupCallServiceProvider);
     final groups = ref.watch(groupServiceProvider);
     if (call == null || !call.isLive || calls == null || groups == null) {

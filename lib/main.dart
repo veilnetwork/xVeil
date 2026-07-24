@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,6 +30,8 @@ import 'state/providers.dart';
 import 'state/storage_preferences.dart';
 import 'state/video_player_backend.dart';
 import 'package:xveil/core/log.dart';
+
+Duration? _disableAutomaticProviderRetry(int retryCount, Object error) => null;
 
 Future<void> main() async {
   // Root-zone safety net. The app does heavy lifecycle churn (unlock,
@@ -91,6 +94,11 @@ Future<void> main() async {
       runApp(
         ProviderScope(
           overrides: await _bootstrapOverrides(),
+          // Riverpod 3 retries failed providers by default. Preserve the
+          // established fail-fast behavior here: operational retries already
+          // live in the mailbox/node services with their own bounded backoff,
+          // while retrying provider construction could duplicate side effects.
+          retry: _disableAutomaticProviderRetry,
           child: const DesktopTrayHost(
             child: DebugSoakHookHost(child: XVeilApp()),
           ),

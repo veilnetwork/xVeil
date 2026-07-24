@@ -16,8 +16,7 @@ class NodeManagementScreen extends ConsumerWidget {
 
   ManagedNode? _node(WidgetRef ref) {
     for (final node
-        in ref.watch(managedNodesProvider).valueOrNull ??
-            const <ManagedNode>[]) {
+        in ref.watch(managedNodesProvider).value ?? const <ManagedNode>[]) {
       if (node.id == nodeId) return node;
     }
     return null;

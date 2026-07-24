@@ -124,7 +124,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // Keep document ingress wired for this unlocked identity even before the
   // document UI exists; pending invites must survive until explicit adopt.
   ref.watch(cloudDocumentReplicationServiceProvider);
-  final signer = ref.watch(groupSignerProvider).valueOrNull;
+  final signer = ref.watch(groupSignerProvider).value;
   if (signer == null) return null;
   final messaging = ref.read(messagingServiceProvider);
   final transport = ref.watch(veilTransportProvider);

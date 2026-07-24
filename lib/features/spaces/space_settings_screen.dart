@@ -1161,7 +1161,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     final service = ref.watch(groupServiceProvider);
     final spaceId = _spaceId;
     final conversations =
-        ref.watch(conversationsProvider).valueOrNull ?? const <Conversation>[];
+        ref.watch(conversationsProvider).value ?? const <Conversation>[];
     if (service == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }

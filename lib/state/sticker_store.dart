@@ -58,12 +58,12 @@ class StickerPack {
   final bool signed;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'items': items,
-        if (authorHex != null) 'author': authorHex,
-        if (signed) 'signed': true,
-      };
+    'id': id,
+    'name': name,
+    'items': items,
+    if (authorHex != null) 'author': authorHex,
+    if (signed) 'signed': true,
+  };
 
   static StickerPack? fromJson(Object? j) {
     if (j is! Map) return null;
@@ -82,12 +82,12 @@ class StickerPack {
   }
 
   StickerPack copyWith({String? name, List<String>? items}) => StickerPack(
-        id: id,
-        name: name ?? this.name,
-        items: items ?? this.items,
-        authorHex: authorHex,
-        signed: signed,
-      );
+    id: id,
+    name: name ?? this.name,
+    items: items ?? this.items,
+    authorHex: authorHex,
+    signed: signed,
+  );
 }
 
 /// The pack a bare import (no explicit target) lands in.
@@ -125,7 +125,9 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
   Future<StickerPack> _forkFromOriginal(StickerPack p) async {
     if (!p.signed && p.authorHex == null) return p;
     try {
-      await ref.read(storageProvider).deleteStoredFile(stickerPackBlobKey(p.id));
+      await ref
+          .read(storageProvider)
+          .deleteStoredFile(stickerPackBlobKey(p.id));
     } catch (_) {}
     return StickerPack(id: p.id, name: p.name, items: p.items);
   }
@@ -140,7 +142,7 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
     String packName = 'My stickers',
   }) async {
     final storage = ref.read(storageProvider);
-    final packs = List<StickerPack>.of(state.valueOrNull ?? await _load());
+    final packs = List<StickerPack>.of(state.value ?? await _load());
     final targetId = packId ?? kDefaultStickerPackId;
     var idx = packs.indexWhere((p) => p.id == targetId);
     if (idx < 0) {
@@ -154,21 +156,23 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
       final norm = await normalizeStickerBytes(img);
       if (norm == null) continue;
       final itemId = const Uuid().v4();
-      await storage.storeFile(stickerFileKey(itemId), norm,
-          name: 'sticker$kStickerFileExt');
+      await storage.storeFile(
+        stickerFileKey(itemId),
+        norm,
+        name: 'sticker$kStickerFileExt',
+      );
       items.add(itemId);
       added++;
     }
     if (added == 0) return 0;
-    packs[idx] =
-        (await _forkFromOriginal(packs[idx])).copyWith(items: items);
+    packs[idx] = (await _forkFromOriginal(packs[idx])).copyWith(items: items);
     await _save(packs);
     return added;
   }
 
   /// Create an empty pack named [name]; returns its id (import target).
   Future<String> createPack(String name) async {
-    final packs = List<StickerPack>.of(state.valueOrNull ?? await _load());
+    final packs = List<StickerPack>.of(state.value ?? await _load());
     final id = const Uuid().v4();
     packs.add(StickerPack(id: id, name: name, items: const []));
     await _save(packs);
@@ -179,11 +183,10 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
   /// an installed signed pack forks it (an honest re-share carries OUR
   /// signature over the new name, not the original author's over the old).
   Future<void> renamePack(String packId, String name) async {
-    final packs = List<StickerPack>.of(state.valueOrNull ?? await _load());
+    final packs = List<StickerPack>.of(state.value ?? await _load());
     final idx = packs.indexWhere((p) => p.id == packId);
     if (idx < 0) return;
-    packs[idx] =
-        (await _forkFromOriginal(packs[idx])).copyWith(name: name);
+    packs[idx] = (await _forkFromOriginal(packs[idx])).copyWith(name: name);
     await _save(packs);
   }
 
@@ -192,7 +195,7 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
   /// uuids, so the bytes can't be referenced from elsewhere).
   Future<void> deletePack(String packId) async {
     final storage = ref.read(storageProvider);
-    final packs = List<StickerPack>.of(state.valueOrNull ?? await _load());
+    final packs = List<StickerPack>.of(state.value ?? await _load());
     final idx = packs.indexWhere((p) => p.id == packId);
     if (idx < 0) return;
     for (final itemId in packs[idx].items) {
@@ -210,12 +213,11 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
   /// Remove a sticker from its pack (bytes are left in the store — cheap, and a
   /// re-add would want them; a full GC is a later concern).
   Future<void> removeSticker(String packId, String itemId) async {
-    final packs = List<StickerPack>.of(state.valueOrNull ?? await _load());
+    final packs = List<StickerPack>.of(state.value ?? await _load());
     final idx = packs.indexWhere((p) => p.id == packId);
     if (idx < 0) return;
     final items = List<String>.of(packs[idx].items)..remove(itemId);
-    packs[idx] =
-        (await _forkFromOriginal(packs[idx])).copyWith(items: items);
+    packs[idx] = (await _forkFromOriginal(packs[idx])).copyWith(items: items);
     await _save(packs);
   }
 
@@ -232,7 +234,7 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
   /// by our own identity when one is unlocked (legacy v1 otherwise: sharing
   /// never hard-requires crypto).
   Future<Uint8List?> packToBlob(String packId) async {
-    final packs = state.valueOrNull ?? await _load();
+    final packs = state.value ?? await _load();
     final pack = packs.where((p) => p.id == packId).firstOrNull;
     if (pack == null) return null;
     final storage = ref.read(storageProvider);
@@ -274,31 +276,40 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
       if (!ok) throw StickerPackBadSignature();
     }
     final storage = ref.read(storageProvider);
-    final packs = List<StickerPack>.of(state.valueOrNull ?? await _load());
+    final packs = List<StickerPack>.of(state.value ?? await _load());
     final items = <String>[];
     for (final img in bundle.images) {
       final norm = await normalizeStickerBytes(img);
       if (norm == null) continue;
       final itemId = const Uuid().v4();
-      await storage.storeFile(stickerFileKey(itemId), norm,
-          name: 'sticker$kStickerFileExt');
+      await storage.storeFile(
+        stickerFileKey(itemId),
+        norm,
+        name: 'sticker$kStickerFileExt',
+      );
       items.add(itemId);
     }
     if (items.isEmpty) return 0;
     final packId = const Uuid().v4();
     if (bundle.isSigned) {
       // Keep the signed original verbatim so a re-share preserves provenance.
-      await storage.storeFile(stickerPackBlobKey(packId), blob,
-          name: 'pack$kStickerPackFileExt');
+      await storage.storeFile(
+        stickerPackBlobKey(packId),
+        blob,
+        name: 'pack$kStickerPackFileExt',
+      );
     }
-    packs.add(StickerPack(
-      id: packId,
-      name: bundle.name.isEmpty ? 'Shared pack' : bundle.name,
-      items: items,
-      authorHex:
-          bundle.isSigned ? NodeId(Uint8List.fromList(bundle.authorId!)).hex : null,
-      signed: bundle.isSigned,
-    ));
+    packs.add(
+      StickerPack(
+        id: packId,
+        name: bundle.name.isEmpty ? 'Shared pack' : bundle.name,
+        items: items,
+        authorHex: bundle.isSigned
+            ? NodeId(Uint8List.fromList(bundle.authorId!)).hex
+            : null,
+        signed: bundle.isSigned,
+      ),
+    );
     await _save(packs);
     return items.length;
   }
@@ -306,5 +317,5 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
 
 final stickerControllerProvider =
     AsyncNotifierProvider<StickerController, List<StickerPack>>(
-  StickerController.new,
-);
+      StickerController.new,
+    );

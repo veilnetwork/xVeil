@@ -155,7 +155,7 @@ class _MentionComposerRegionState extends ConsumerState<MentionComposerRegion> {
 
   List<_MentionChoice> _choices() {
     final conversations =
-        ref.watch(conversationsProvider).valueOrNull ?? const <Conversation>[];
+        ref.watch(conversationsProvider).value ?? const <Conversation>[];
     final contacts = {
       for (final conversation in conversations)
         conversation.peer.nodeId.hex: conversation.peer,
@@ -183,8 +183,8 @@ class _MentionComposerRegionState extends ConsumerState<MentionComposerRegion> {
               ),
             ),
           )
-          .valueOrNull;
-      final binding = ref.watch(peerNicknameProvider(hex)).valueOrNull;
+          .value;
+      final binding = ref.watch(peerNicknameProvider(hex)).value;
       final dhtName =
           identity?.dhtName ??
           (binding != null && !binding.ownerChanged ? binding.name : null);

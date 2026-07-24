@@ -274,7 +274,7 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
         data: (allItems) {
           final searching = _query.trim().isNotEmpty;
           final allPublicItems =
-              publicSubscriptions.valueOrNull ??
+              publicSubscriptions.value ??
               const <SpacePublicSubscriptionView>[];
           final publicItems = searching
               ? allPublicItems

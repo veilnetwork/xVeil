@@ -41,7 +41,7 @@ final cloudDocumentReplicationServiceProvider =
       if (self == null) return null;
       final session = ref.watch(sessionProvider);
       final active = ref.watch(activeIdentityProvider);
-      final signer = ref.watch(cloudDocumentSignerProvider).valueOrNull;
+      final signer = ref.watch(cloudDocumentSignerProvider).value;
       final attached =
           <
             ({

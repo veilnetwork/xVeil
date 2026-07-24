@@ -161,7 +161,9 @@ class _DesktopTrayHostState extends ConsumerState<DesktopTrayHost>
     final app = ref.read(appControllerProvider);
     _lastUnread = _totalUnread();
     try {
-      await trayManager.setContextMenu(buildTrayMenu(l, app, unread: _lastUnread));
+      await trayManager.setContextMenu(
+        buildTrayMenu(l, app, unread: _lastUnread),
+      );
       await trayManager.setToolTip(trayTooltip(app));
     } catch (e) {
       devLog(() => 'xVeil[tray]: menu refresh FAILED: $e');
@@ -171,9 +173,9 @@ class _DesktopTrayHostState extends ConsumerState<DesktopTrayHost>
   /// Total unread across all conversations (0 when the roster stream has no
   /// value yet, e.g. while locked).
   int _totalUnread() => folderUnreadCount(
-        ref.read(conversationsProvider).valueOrNull ?? const <Conversation>[],
-        null,
-      );
+    ref.read(conversationsProvider).value ?? const <Conversation>[],
+    null,
+  );
 
   // Last unread total pushed to the tray — the roster stream ticks often, so
   // the menu is only rebuilt when this actually changes.
@@ -219,8 +221,11 @@ class _DesktopTrayHostState extends ConsumerState<DesktopTrayHost>
     // preventClose is armed (initDesktopWindow), so the window won't close on
     // its own — we decide. Close-to-tray on → hide; off → really quit.
     final closeToTray = ref.read(closeToTrayProvider);
-    devLog(() => 'xVeil[tray]: window close intercepted, '
-        'closeToTray=$closeToTray');
+    devLog(
+      () =>
+          'xVeil[tray]: window close intercepted, '
+          'closeToTray=$closeToTray',
+    );
     if (closeToTray) {
       await windowManager.hide();
     } else {
@@ -277,7 +282,7 @@ class _DesktopTrayHostState extends ConsumerState<DesktopTrayHost>
       // moves.
       ref.listen(conversationsProvider, (_, next) {
         final now = folderUnreadCount(
-          next.valueOrNull ?? const <Conversation>[],
+          next.value ?? const <Conversation>[],
           null,
         );
         if (now != _lastUnread) _refreshMenu();

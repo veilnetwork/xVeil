@@ -104,13 +104,11 @@ final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>
   final self = ref.watch(appControllerProvider).identity?.nodeId;
   if (self == null) return const [];
   final conversations =
-      ref.watch(conversationsProvider).valueOrNull ?? const <Conversation>[];
-  final groups =
-      ref.watch(groupListProvider).valueOrNull ?? const <GroupListEntry>[];
-  final spaces =
-      ref.watch(spaceListProvider).valueOrNull ?? const <GroupListEntry>[];
+      ref.watch(conversationsProvider).value ?? const <Conversation>[];
+  final groups = ref.watch(groupListProvider).value ?? const <GroupListEntry>[];
+  final spaces = ref.watch(spaceListProvider).value ?? const <GroupListEntry>[];
   final publicSubscriptions =
-      ref.watch(publicSpaceSubscriptionListProvider).valueOrNull ??
+      ref.watch(publicSpaceSubscriptionListProvider).value ??
       const <SpacePublicSubscriptionView>[];
   final storage = ref.watch(storageProvider);
   final service = ref.watch(groupServiceProvider);
@@ -345,7 +343,7 @@ class _MentionTile extends ConsumerWidget {
     final identity = ref.watch(
       mentionIdentityProvider(MentionIdentityKey(entry.author.hex)),
     );
-    final author = identity.valueOrNull?.label ?? entry.author.short;
+    final author = identity.value?.label ?? entry.author.short;
     final locale = Localizations.localeOf(context).toLanguageTag();
     final time = DateFormat.yMMMd(
       locale,

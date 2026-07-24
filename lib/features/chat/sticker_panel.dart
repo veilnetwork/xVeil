@@ -73,7 +73,7 @@ class _StickerPickerState extends ConsumerState<StickerPicker> {
       // Which pack the import lands in: with an existing library the user
       // picks (or creates) the target; an empty library skips the question.
       final ctrl = ref.read(stickerControllerProvider.notifier);
-      final packs = ref.read(stickerControllerProvider).valueOrNull ?? const [];
+      final packs = ref.read(stickerControllerProvider).value ?? const [];
       String? packId;
       if (packs.isNotEmpty) {
         packId = await _pickTargetPack(packs);

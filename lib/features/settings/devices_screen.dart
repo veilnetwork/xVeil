@@ -177,8 +177,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     final ready =
         ref.watch(groupServiceProvider) != null &&
         ref.watch(realStackProvider) != null;
-    final phraseBacked =
-        ref.watch(identityOriginProvider).valueOrNull == 'phrase';
+    final phraseBacked = ref.watch(identityOriginProvider).value == 'phrase';
     final canOwn = ready && (_hasSovereignBundle || phraseBacked);
     return Scaffold(
       appBar: AppBar(title: Text(l.settingsDevices)),

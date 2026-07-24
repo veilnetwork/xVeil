@@ -356,8 +356,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// the loaded window at all, grow the window (one page) and retry briefly.
   Future<void> _jumpToMessage(String id, {int maxAttempts = 3}) async {
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
-      final list =
-          ref.read(messagesProvider(widget.peerHex)).valueOrNull ?? const [];
+      final list = ref.read(messagesProvider(widget.peerHex)).value ?? const [];
       if (list.any((m) => m.id == id)) {
         if (await _scrollUntilVisible(id) && mounted) _flash(id);
         return; // flashed, or in the window but never mounted — stop either way
@@ -504,7 +503,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Toggle a reaction to [m]: tapping the emoji you already set removes it.
   Future<void> _react(Message m, String emoji) async {
     final myHex = ref.read(appControllerProvider).identity?.nodeId.hex;
-    final current = ref.read(reactionsProvider(widget.peerHex)).valueOrNull;
+    final current = ref.read(reactionsProvider(widget.peerHex)).value;
     final mine = myHex == null ? null : current?[m.id]?[myHex];
     await ref
         .read(messagingServiceProvider)
@@ -516,7 +515,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   String _reactorName(String hex, String? selfHex, AppL10n l) {
     if (hex == selfHex) return l.reactorsYou;
     if (hex == widget.peerHex) {
-      final convos = ref.read(conversationsProvider).valueOrNull;
+      final convos = ref.read(conversationsProvider).value;
       for (final c in convos ?? const <Conversation>[]) {
         if (c.peer.nodeId.hex == hex) return c.peer.label;
       }
@@ -527,9 +526,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Long-press (or right-click) on a reaction chip: who set what on [m].
   Future<void> _showReactors(Message m) async {
     final l = AppL10n.of(context);
-    final forMsg = ref
-        .read(reactionsProvider(widget.peerHex))
-        .valueOrNull?[m.id];
+    final forMsg = ref.read(reactionsProvider(widget.peerHex)).value?[m.id];
     if (forMsg == null || forMsg.isEmpty) return;
     final selfHex = ref.read(appControllerProvider).identity?.nodeId.hex;
     await showReactorsSheet(
@@ -763,8 +760,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// every downloaded image of the loaded conversation, positioned on [m].
   void _openImageGallery(Message m) {
     final items = conversationGalleryItems(
-      ref.read(messagesProvider(widget.peerHex)).valueOrNull ??
-          const <Message>[],
+      ref.read(messagesProvider(widget.peerHex)).value ?? const <Message>[],
     );
     if (items.isEmpty) return;
     var initial = items.indexWhere((it) => it.id == m.id);
@@ -1998,14 +1994,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               IconButton(
                 tooltip: l.chatMsgCopy,
                 icon: const Icon(Icons.copy_outlined),
-                onPressed: () =>
-                    _copySelected(messages.valueOrNull ?? const []),
+                onPressed: () => _copySelected(messages.value ?? const []),
               ),
               IconButton(
                 tooltip: l.chatMsgForward,
                 icon: const Icon(Icons.forward_outlined),
                 onPressed: () => _forwardMessages(
-                  (messages.valueOrNull ?? const [])
+                  (messages.value ?? const [])
                       .where((m) => _selected.contains(m.id))
                       .toList(),
                 ),
@@ -2013,8 +2008,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               IconButton(
                 tooltip: l.chatMsgDelete,
                 icon: const Icon(Icons.delete_outline),
-                onPressed: () =>
-                    _deleteSelected(messages.valueOrNull ?? const []),
+                onPressed: () => _deleteSelected(messages.value ?? const []),
               ),
             ],
           )
@@ -2047,7 +2041,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ? null
                           : ref
                                 .watch(peerNicknameProvider(widget.peerHex))
-                                .valueOrNull;
+                                .value;
                       if (nick == null) {
                         return Text(title, overflow: TextOverflow.ellipsis);
                       }

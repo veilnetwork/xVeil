@@ -20,6 +20,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import '../core/ids.dart';
@@ -115,8 +116,9 @@ class NicknameState {
       hashesDone: hashesDone ?? this.hashesDone,
       ownedName: clearOwned ? null : (ownedName ?? this.ownedName),
       ownedWeight: clearOwned ? 0 : (ownedWeight ?? this.ownedWeight),
-      ownedTakenOver:
-          clearOwned ? false : (ownedTakenOver ?? this.ownedTakenOver),
+      ownedTakenOver: clearOwned
+          ? false
+          : (ownedTakenOver ?? this.ownedTakenOver),
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -357,11 +359,7 @@ class NicknameController extends StateNotifier<NicknameState> {
     _cancel = true;
   }
 
-  Future<void> _mineAndPublish(
-    String norm,
-    Uint8List self,
-    int target,
-  ) async {
+  Future<void> _mineAndPublish(String norm, Uint8List self, int target) async {
     // Resume from the persisted seed cache when it matches this name.
     Uint8List seeds = Uint8List(0);
     try {
@@ -449,7 +447,7 @@ class NicknameController extends StateNotifier<NicknameState> {
 /// [storageProvider] / [messagingServiceProvider]) re-points.
 final nicknameControllerProvider =
     StateNotifierProvider<NicknameController, NicknameState>((ref) {
-  ref.watch(sessionProvider);
-  ref.watch(activeIdentityProvider);
-  return NicknameController(ref);
-});
+      ref.watch(sessionProvider);
+      ref.watch(activeIdentityProvider);
+      return NicknameController(ref);
+    });
