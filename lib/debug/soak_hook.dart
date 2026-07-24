@@ -625,6 +625,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_call_join':
           await _groupCallAction(req, (service) => service.join());
           return;
+        case '/group_call_join_room':
+          await _groupCallJoinRoom(req);
+          return;
         case '/group_call_leave':
           await _groupCallAction(req, (service) async {
             await service.leave();
@@ -5072,6 +5075,35 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       channelId: channelId,
     );
     await _groupCallState(req, actionOk: ok);
+  }
+
+  /// Join an ongoing room via the passive-banner path (`joinRoom`) — the
+  /// production route for re-entering after a decline, a missed ring, or a
+  /// leave in the SAME process (the room is locally `ended` then and the
+  /// ringing-only `/group_call_join` cannot re-enter it). Stand driver for
+  /// the same-process rejoin scenarios (Android mic-capture tail).
+  Future<void> _groupCallJoinRoom(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final groupHex = req.uri.queryParameters['group'];
+    if (groupHex == null) {
+      return _json(req, {'ok': false, 'error': 'group required'}, status: 400);
+    }
+    final NodeId groupId;
+    final NodeId? channelId;
+    try {
+      groupId = NodeId.fromHex(groupHex);
+      final channelHex = req.uri.queryParameters['channel'];
+      channelId = channelHex == null ? null : NodeId.fromHex(channelHex);
+    } catch (_) {
+      return _json(req, {
+        'ok': false,
+        'error': 'bad group/channel',
+      }, status: 400);
+    }
+    await _groupCallAction(
+      req,
+      (service) => service.joinRoom(groupId, channelId: channelId),
+    );
   }
 
   Future<void> _groupCallAction(
