@@ -155,6 +155,48 @@ void main() {
     });
   });
 
+  group('notificationContent (hidden/full privacy split)', () {
+    const uuidPreview = '📎 3f2b8a54-9c1d-4e7f-8a2b-6d5c4e3f2a1b.opus';
+
+    test('hidden reveals NOTHING sender- or message-derived', () {
+      final content = notificationContent(
+        mode: NotificationPreview.hidden,
+        contactName: 'Alice',
+        shortId: 'abcd1234',
+        preview: uuidPreview,
+        hiddenBody: 'New message',
+      );
+      expect(content.title, 'xVeil');
+      expect(content.body, 'New message');
+      expect(content.title.contains('Alice'), isFalse);
+      expect(content.title.contains('abcd1234'), isFalse);
+      expect(content.body.contains('3f2b8a54'), isFalse);
+    });
+
+    test('full shows the saved contact name and the derived preview', () {
+      final content = notificationContent(
+        mode: NotificationPreview.full,
+        contactName: 'Alice',
+        shortId: 'abcd1234',
+        preview: '🎤 Voice message (0:07)',
+        hiddenBody: 'New message',
+      );
+      expect(content.title, 'Alice');
+      expect(content.body, '🎤 Voice message (0:07)');
+    });
+
+    test('full without a saved name falls back to the short id', () {
+      final content = notificationContent(
+        mode: NotificationPreview.full,
+        contactName: '  ',
+        shortId: 'abcd1234',
+        preview: 'hi',
+        hiddenBody: 'New message',
+      );
+      expect(content.title, 'abcd1234');
+    });
+  });
+
   group('notification payload routes', () {
     test('community publications open the Space publication surface', () {
       expect(notificationRouteForPayload('space:abc'), '/space/abc/posts');

@@ -63,6 +63,30 @@ bool shouldNotifySpaceComment({
   SpaceCommentNotificationMode.none => false,
 };
 
+/// The title/body privacy split for one message notification (pure — the
+/// binder feeds it localized strings). [NotificationPreview.hidden] reveals
+/// NOTHING message- or sender-derived: a fixed app title plus the caller's
+/// generic [hiddenBody]; [preview] and the contact identity are used only
+/// under [NotificationPreview.full].
+({String title, String body}) notificationContent({
+  required NotificationPreview mode,
+  required String? contactName,
+  required String shortId,
+  required String preview,
+  required String hiddenBody,
+}) {
+  if (mode != NotificationPreview.full) {
+    return (title: 'xVeil', body: hiddenBody);
+  }
+  // Prefer the contact's saved name; fall back to a short id (never the full
+  // node id on a notification).
+  final cn = contactName?.trim();
+  return (
+    title: (cn != null && cn.isNotEmpty) ? cn : shortId,
+    body: preview,
+  );
+}
+
 /// All message alerts intentionally reuse one OS notification id. A mailbox
 /// replay can restore many unread conversations at startup; assigning an id per
 /// conversation would turn that replay into a notification storm. Reusing one

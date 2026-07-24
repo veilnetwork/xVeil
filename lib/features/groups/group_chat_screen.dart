@@ -45,6 +45,7 @@ import '../../state/vnote_record_controller.dart';
 import '../../state/voice_message.dart' show formatVoiceDuration;
 import '../../state/voice_play_controller.dart';
 import '../../state/voice_record_controller.dart';
+import '../chat/attachment_preview.dart';
 import '../chat/vnote_preview.dart';
 import '../chat/cancelable_download_progress.dart';
 import '../chat/camera_capture_screen.dart';
@@ -460,18 +461,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     );
   }
 
-  /// A one-line preview of [m] for the reply bar / quote block.
-  String _msgPreview(GroupMessage m, AppL10n l) {
-    if (m.body.isNotEmpty) return m.body;
-    final k = m.attachment?.kind;
-    if (k == 'image') return '🖼 ${l.groupAttachImage}';
-    if (k == 'sticker') return '😊 ${l.groupSendSticker}';
-    if (k == 'voice') return '🎤 ${l.groupVoiceMessage}';
-    if (k == 'vnote') return '📹 ${l.groupVnoteRecord}';
-    if (k == 'video') return '🎞 ${m.attachment?.name ?? ''}'.trim();
-    if (k == 'file') return '📎 ${m.attachment?.name ?? ''}'.trim();
-    return '…';
-  }
+  /// A one-line preview of [m] for the reply bar / quote block (shared helper
+  /// — attachments show a human kind label, never an opaque container name).
+  String _msgPreview(GroupMessage m, AppL10n l) => groupMessagePreviewText(l, m);
 
   /// Tap the mic: register the clip in the encrypted content store and keep
   /// only its strict reference in the signed/encrypted message. This avoids an
@@ -1644,18 +1636,10 @@ class _GroupBubble extends StatelessWidget {
     );
   }
 
-  /// One-line preview of the quoted message for the in-bubble quote block.
-  static String _preview(GroupMessage m) {
-    if (m.body.isNotEmpty) return m.body;
-    final k = m.attachment?.kind;
-    if (k == 'image') return '🖼';
-    if (k == 'sticker') return '😊';
-    if (k == 'voice') return '🎤';
-    if (k == 'vnote') return '📹';
-    if (k == 'video') return '🎞 ${m.attachment?.name ?? ''}'.trim();
-    if (k == 'file') return '📎 ${m.attachment?.name ?? ''}'.trim();
-    return '…';
-  }
+  /// One-line preview of the quoted message for the in-bubble quote block
+  /// (shared helper — kind labels, never an opaque container name).
+  static String _preview(AppL10n l, GroupMessage m) =>
+      groupMessagePreviewText(l, m);
 
   Widget _quoteBlock(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -1679,7 +1663,7 @@ class _GroupBubble extends StatelessWidget {
             ).textTheme.labelSmall?.copyWith(color: scheme.primary),
           ),
           Text(
-            _preview(q),
+            _preview(AppL10n.of(context), q),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodySmall,

@@ -17,6 +17,7 @@ import '../../core/ids.dart';
 import '../../data/serve_source.dart';
 import '../../data/transport/wire_envelope.dart' show isChatDeletedMarker;
 import '../../core/log.dart';
+import 'attachment_preview.dart';
 import 'chat_actions.dart';
 import 'chat_search.dart';
 import 'message_markdown.dart';
@@ -2619,9 +2620,9 @@ Future<bool> _savedFileLooksComplete(String path, {int? expectedSize}) async {
   }
 }
 
-/// The one-line preview text for a quoted/replied message (file → its name).
-String _quotePreview(AppL10n l, Message m) =>
-    m.isFile ? (m.fileName ?? l.chatFileLabel) : m.body;
+/// The one-line preview text for a quoted/replied message (shared helper —
+/// attachments show a human kind label, never an opaque uuid container name).
+String _quotePreview(AppL10n l, Message m) => messagePreviewText(l, m);
 
 /// Banner above the composer while replying: a leading accent bar, the quoted
 /// preview, and an X to cancel the reply.

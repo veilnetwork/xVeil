@@ -808,6 +808,8 @@ class MessagingService {
     String preview, {
     required bool isFile,
     String? messageId,
+    String? fileName,
+    String? sidecar,
   }) {
     if (!_incoming.isClosed) {
       _incoming.add(
@@ -816,6 +818,8 @@ class MessagingService {
           preview: preview,
           isFile: isFile,
           messageId: messageId,
+          fileName: fileName,
+          sidecar: sidecar,
         ),
       );
     }

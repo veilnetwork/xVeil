@@ -18,6 +18,7 @@ import '../../state/messaging.dart';
 import '../../state/mention_identity.dart';
 import '../../state/notifications.dart';
 import '../../state/providers.dart';
+import 'attachment_preview.dart';
 import 'message_mentions.dart';
 
 /// Bridges the active messaging service's [MessagingService.incoming] stream to
@@ -166,7 +167,16 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           : notice.from.hex,
       name: contact?.name,
       shortId: notice.from.short,
-      preview: notice.preview,
+      // A file notice's [preview] echoes the stored `📎 <name>` body, which
+      // for voice/video notes/stickers is an opaque uuid container name —
+      // derive the human kind label instead (display-only).
+      preview: notice.isFile
+          ? attachmentPreviewText(
+              AppL10n.of(context),
+              name: notice.fileName,
+              duration: sidecarDuration(notice.sidecar),
+            )
+          : notice.preview,
       settings: settings,
       allowReply: !isMention,
       isMention: isMention,
@@ -216,22 +226,17 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           : 'group:${n.groupId.hex}',
       name: (name != null && name.trim().isNotEmpty) ? name : null,
       shortId: n.groupId.short,
-      preview: _groupPreview(n.message),
+      preview: _groupPreview(AppL10n.of(context), n.message),
       settings: settings,
       allowReply: !isMention,
       isMention: isMention,
     );
   }
 
-  static String _groupPreview(GroupMessage m) {
-    if (m.body.isNotEmpty) return m.body;
-    final k = m.attachment?.kind;
-    if (k == 'image') return '🖼';
-    if (k == 'sticker') return '😊';
-    if (k == 'voice') return '🎤';
-    if (k == 'vnote') return '📹';
-    return '…';
-  }
+  /// Kind-labelled attachment preview (shared helper). Callers pass the
+  /// localized strings they captured under a mounted guard.
+  static String _groupPreview(AppL10n l, GroupMessage m) =>
+      groupMessagePreviewText(l, m);
 
   /// A publication is a Space-native event, not a group message. Its local
   /// notification preference is independent from whether that Space appears
@@ -510,7 +515,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       convHex: payload,
       name: (name != null && name.trim().isNotEmpty) ? name : null,
       shortId: n.spaceId.short,
-      preview: _groupPreview(n.message),
+      preview: _groupPreview(AppL10n.of(context), n.message),
       timestampMs: n.message.createdAtMs,
       allowReply: false,
       isMention: isMention,
@@ -605,6 +610,9 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
 
   Future<void> _flushUnread() async {
     if (!mounted) return;
+    // Captured once before any await: the localized labels the per-candidate
+    // previews below need (the loop bodies sit past async gaps).
+    final l = AppL10n.of(context);
     final generation = ++_notificationGeneration;
     final settings = ref.read(notificationSettingsProvider);
     devLog(() => 'xVeil[notify]: flush-unread (enabled=${settings.enabled})');
@@ -659,7 +667,9 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             (c.lastMessage == null
                 ? ''
                 : (parseSpaceRecommendationMessage(c.lastMessage!.body)?.name ??
-                      c.lastMessage!.body)),
+                      // Kind label instead of the stored `📎 <uuid>` body for
+                      // voice/video-note/sticker files (display-only).
+                      messagePreviewText(l, c.lastMessage!))),
         timestampMs:
             mention?.timestamp.millisecondsSinceEpoch ??
             c.lastMessage?.timestamp.millisecondsSinceEpoch ??
@@ -703,7 +713,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
                   ),
             name: g.name.trim().isNotEmpty ? g.name : null,
             shortId: g.groupId.short,
-            preview: mention == null ? '' : _groupPreview(mention),
+            preview: mention == null ? '' : _groupPreview(l, mention),
             timestampMs: mention?.createdAtMs ?? g.lastTs,
             allowReply: mention == null,
             isMention: mention != null,
@@ -838,27 +848,27 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   }) async {
     if (!mounted) return;
     final l = AppL10n.of(context);
-    final String title;
-    final String body;
     final full = settings.preview == NotificationPreview.full;
-    if (full) {
-      // Prefer the contact's saved name; fall back to a short id (never the full
-      // node id on a notification).
-      final cn = name?.trim();
-      title = (cn != null && cn.isNotEmpty) ? cn : shortId;
-      body = await resolveMentionsForLocalDisplay(ref, preview);
-      if (!mounted) return;
-    } else {
+    // Mentions only resolve for a FULL preview — the hidden branch must not
+    // even touch the message text.
+    final resolved = full
+        ? await resolveMentionsForLocalDisplay(ref, preview)
+        : '';
+    if (!mounted) return;
+    final content = notificationContent(
+      mode: settings.preview,
+      contactName: name,
+      shortId: shortId,
+      preview: resolved,
       // Hidden: no sender, no text — just that something arrived.
-      title = 'xVeil';
-      body = isMention ? l.notificationMention : l.notificationNewMessage;
-    }
+      hiddenBody: isMention ? l.notificationMention : l.notificationNewMessage,
+    );
     await ref
         .read(notificationServiceProvider)
         .show(
           id: notificationIdForIncomingMessage(convHex),
-          title: title,
-          body: body,
+          title: content.title,
+          body: content.body,
           payload: convHex, // tap → open this chat
           // Offer inline reply ONLY when the sender is visible (full preview) —
           // replying to an anonymous "new message" would be confusing, and it

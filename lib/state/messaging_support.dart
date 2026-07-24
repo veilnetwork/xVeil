@@ -257,11 +257,23 @@ class IncomingNotice {
     required this.preview,
     required this.isFile,
     this.messageId,
+    this.fileName,
+    this.sidecar,
   });
   final NodeId from;
   final String preview;
   final bool isFile;
   final String? messageId;
+
+  /// The attachment's container name when [isFile] — voice/vnote/sticker names
+  /// are opaque uuids, so the notification layer derives a kind label from it
+  /// instead of echoing [preview] (which keeps the raw `📎 <name>` body for
+  /// API/headless consumers).
+  final String? fileName;
+
+  /// The attachment's `thumb` sidecar (`vw1:`/`vn1:` carry the clip length)
+  /// when it already travelled with the offer; null otherwise.
+  final String? sidecar;
 }
 
 /// An author-side prompt: [peer] asked us to attest authorship of message

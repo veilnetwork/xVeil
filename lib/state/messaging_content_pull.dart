@@ -2284,7 +2284,7 @@ extension _MessagingContentPull on MessagingService {
       seq: seq,
       timestamp: ts != null ? DateTime.fromMillisecondsSinceEpoch(ts) : _now(),
     );
-    _emitIncoming(peer, '📎 $name', isFile: true);
+    _emitIncoming(peer, '📎 $name', isFile: true, fileName: name, sidecar: thumb);
     _signal();
     devLog(
       () =>
