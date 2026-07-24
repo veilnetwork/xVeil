@@ -345,7 +345,7 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
     String? pin;
     if (existingId != null) {
       final nodes =
-          ref.read(managedNodesProvider).valueOrNull ?? const <ManagedNode>[];
+          ref.read(managedNodesProvider).value ?? const <ManagedNode>[];
       for (final n in nodes) {
         if (n.id == existingId) {
           if (n.sshHost == sshHost &&

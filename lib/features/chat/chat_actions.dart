@@ -247,7 +247,7 @@ Future<void> pickFolders(
     builder: (sheet) => SafeArea(
       child: Consumer(
         builder: (ctx, r, _) {
-          final folders = r.watch(chatFoldersProvider).valueOrNull ?? const [];
+          final folders = r.watch(chatFoldersProvider).value ?? const [];
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -67,12 +68,15 @@ class CameraCaptureScreen extends StatefulWidget {
   State<CameraCaptureScreen> createState() => _CameraCaptureScreenState();
 }
 
-class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
+class _CameraCaptureScreenState extends State<CameraCaptureScreen>
+    with WidgetsBindingObserver {
   CameraController? _controller;
   List<CameraDescription> _cameras = const [];
   int _cameraIndex = 0;
+  int _openEpoch = 0;
   Object? _error;
   bool _busy = false;
+  bool _pausedForLifecycle = false;
   Timer? _autoStop;
 
   String _captureName(String path, String fallbackExtension) {
@@ -87,10 +91,12 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_open());
   }
 
   Future<void> _open([int? index]) async {
+    final epoch = ++_openEpoch;
     setState(() {
       _busy = true;
       _error = null;
@@ -106,7 +112,8 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
       _cameraIndex = requested < 0 ? 0 : requested % _cameras.length;
       final old = _controller;
       _controller = null;
-      await old?.dispose();
+      await _discardController(old);
+      if (!mounted || epoch != _openEpoch) return;
       final controller = CameraController(
         _cameras[_cameraIndex],
         ResolutionPreset.medium,
@@ -114,15 +121,49 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await controller.initialize();
-      if (!mounted) {
-        await controller.dispose();
+      final lifecycle = WidgetsBinding.instance.lifecycleState;
+      if (!mounted ||
+          epoch != _openEpoch ||
+          (lifecycle != null && lifecycle != AppLifecycleState.resumed)) {
+        if (epoch == _openEpoch &&
+            lifecycle != null &&
+            lifecycle != AppLifecycleState.resumed) {
+          _pausedForLifecycle = true;
+        }
+        await _discardController(controller);
         return;
       }
+      _pausedForLifecycle = false;
       setState(() => _controller = controller);
     } catch (error) {
-      if (mounted) setState(() => _error = error);
+      if (mounted && epoch == _openEpoch) {
+        setState(() => _error = error);
+      }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted && epoch == _openEpoch) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _discardController(CameraController? controller) async {
+    if (controller == null) return;
+    XFile? abandonedRecording;
+    try {
+      if (controller.value.isRecordingVideo) {
+        abandonedRecording = await controller.stopVideoRecording();
+      }
+    } catch (_) {
+      // The platform may have already revoked the camera while backgrounding.
+    }
+    try {
+      await controller.dispose();
+    } catch (_) {}
+    final path = abandonedRecording?.path;
+    if (path != null && path.isNotEmpty) {
+      try {
+        await File(path).delete();
+      } catch (_) {}
     }
   }
 
@@ -144,7 +185,12 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
         if (mounted) setState(() => _busy = false);
       } else {
         final file = await controller.takePicture();
-        if (!mounted) return;
+        if (!mounted || !identical(_controller, controller)) {
+          try {
+            await File(file.path).delete();
+          } catch (_) {}
+          return;
+        }
         Navigator.of(context).pop(
           CapturedComposerMedia(
             path: file.path,
@@ -168,7 +214,12 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
     setState(() => _busy = true);
     try {
       final file = await controller.stopVideoRecording();
-      if (!mounted) return;
+      if (!mounted || !identical(_controller, controller)) {
+        try {
+          await File(file.path).delete();
+        } catch (_) {}
+        return;
+      }
       Navigator.of(context).pop(
         CapturedComposerMedia(
           path: file.path,
@@ -184,14 +235,44 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
   }
 
   Future<void> _switchCamera() async {
-    if (_cameras.length < 2 || _busy) return;
+    if (_cameras.length < 2 ||
+        _busy ||
+        (_controller?.value.isRecordingVideo ?? false)) {
+      return;
+    }
     await _open((_cameraIndex + 1) % _cameras.length);
   }
 
   @override
-  void dispose() {
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (_pausedForLifecycle) {
+        _pausedForLifecycle = false;
+        unawaited(_open(_cameraIndex));
+      }
+      return;
+    }
+
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    _pausedForLifecycle = true;
+    _openEpoch++;
     _autoStop?.cancel();
-    unawaited(_controller?.dispose());
+    _autoStop = null;
+    _controller = null;
+    if (mounted) {
+      setState(() => _busy = false);
+    }
+    unawaited(_discardController(controller));
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _openEpoch++;
+    _autoStop?.cancel();
+    unawaited(_discardController(_controller));
+    _controller = null;
     super.dispose();
   }
 
@@ -211,7 +292,7 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen> {
         actions: [
           if (_cameras.length > 1)
             IconButton(
-              onPressed: _switchCamera,
+              onPressed: recording ? null : _switchCamera,
               icon: const Icon(Icons.cameraswitch_outlined),
             ),
         ],

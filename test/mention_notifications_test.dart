@@ -312,12 +312,6 @@ void main() {
       ],
     );
     addTearDown(container.dispose);
-    await Future.wait([
-      container.read(conversationsProvider.future),
-      container.read(groupListProvider.future),
-      container.read(spaceListProvider.future),
-      container.read(publicSpaceSubscriptionListProvider.future),
-    ]);
     final inboxSubscription = container.listen(
       mentionInboxProvider,
       (_, _) {},

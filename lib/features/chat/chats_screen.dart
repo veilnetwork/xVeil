@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 
@@ -101,7 +102,7 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
     });
     final storage = ref.read(storageProvider);
     final convos =
-        ref.read(conversationsProvider).valueOrNull ?? const <Conversation>[];
+        ref.read(conversationsProvider).value ?? const <Conversation>[];
     const cap = 100;
     final hits = <(Conversation, Message)>[];
     for (final c in convos) {
@@ -193,7 +194,7 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
     // Folder state lives at Scaffold level so the drawer variants can render
     // it independently of the conversation list's async state.
     final panelPos = ref.watch(folderPanelPositionProvider);
-    final folders = ref.watch(chatFoldersProvider).valueOrNull ?? const [];
+    final folders = ref.watch(chatFoldersProvider).value ?? const [];
     var selectedFolder = ref.watch(selectedFolderProvider);
     // If the selected folder was deleted, fall back to All.
     if (selectedFolder != null && !folders.any((f) => f.id == selectedFolder)) {
@@ -258,8 +259,8 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
       body: _searching && _query.trim().isNotEmpty
           ? _searchResults(
               l,
-              convos.valueOrNull ?? const [],
-              ref.watch(groupListProvider).valueOrNull ?? const [],
+              convos.value ?? const [],
+              ref.watch(groupListProvider).value ?? const [],
               scheme,
             )
           : convos.when(
@@ -269,7 +270,7 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
                 // Group chats share the Chats timeline with 1:1 chats. Custom
                 // folders are peer-based for now, so they only affect 1:1 rows.
                 final groups = folder == null
-                    ? ref.watch(groupListProvider).valueOrNull ??
+                    ? ref.watch(groupListProvider).value ??
                           const <GroupListEntry>[]
                     : const <GroupListEntry>[];
                 if (list.isEmpty && groups.isEmpty) {
@@ -463,7 +464,7 @@ class HomeNavigationDrawer extends ConsumerWidget {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final convos =
-        ref.watch(conversationsProvider).valueOrNull ?? const <Conversation>[];
+        ref.watch(conversationsProvider).value ?? const <Conversation>[];
     final app = ref.watch(appControllerProvider);
     final anon = ref.read(appControllerProvider.notifier).activeIsAnonymous;
     final label =
@@ -643,7 +644,7 @@ class _FolderBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
     final convos =
-        ref.watch(conversationsProvider).valueOrNull ?? const <Conversation>[];
+        ref.watch(conversationsProvider).value ?? const <Conversation>[];
     return SizedBox(
       height: 48,
       child: ListView(

@@ -52,7 +52,7 @@ final mentionIdentityProvider =
       key,
     ) async {
       final nodeId = NodeId.fromHex(key.nodeHex);
-      final conversations = ref.watch(conversationsProvider).valueOrNull;
+      final conversations = ref.watch(conversationsProvider).value;
       if (conversations != null) {
         for (final conversation in conversations) {
           if (conversation.peer.nodeId == nodeId) {

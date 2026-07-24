@@ -10,6 +10,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart' show StateController;
 import 'package:go_router/go_router.dart';
 
 import '../../core/ids.dart';
@@ -417,7 +418,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   String _reactorName(NodeId id, GroupService svc, AppL10n l) {
     if (id == svc.selfId) return l.reactorsYou;
     final convos =
-        ref.read(conversationsProvider).valueOrNull ?? const <Conversation>[];
+        ref.read(conversationsProvider).value ?? const <Conversation>[];
     for (final c in convos) {
       if (c.peer.nodeId == id) return c.peer.label;
     }
@@ -1186,7 +1187,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   Future<void> _addMember(GroupService svc, GroupState state) async {
     final l = AppL10n.of(context);
     final convos =
-        ref.read(conversationsProvider).valueOrNull ?? const <Conversation>[];
+        ref.read(conversationsProvider).value ?? const <Conversation>[];
     final candidates = [
       for (final c in convos)
         if (c.peer.status == ContactStatus.accepted &&

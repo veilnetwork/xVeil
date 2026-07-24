@@ -622,7 +622,7 @@ class _FormattedTextState extends ConsumerState<FormattedText> {
                 ),
               ),
             )
-            .valueOrNull;
+            .value;
         final label = resolved?.label ?? mention.nodeId.short;
         final mentionStyle = hideImages
             ? style

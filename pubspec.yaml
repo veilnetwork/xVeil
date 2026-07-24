@@ -39,7 +39,7 @@ dependencies:
 
   # State management — chosen for testability and the ports/adapters
   # architecture (fakes injected via ProviderScope overrides).
-  flutter_riverpod: ^2.6.1
+  flutter_riverpod: ^3.3.2
   # Declarative routing with redirect-based gating (lock screen / onboarding).
   go_router: ^17.3.0
   # i18n — primary audience is Russian-speaking users in censored regions.
@@ -69,10 +69,10 @@ dependencies:
   # native Apple Vision stack instead of ML Kit on iOS, so the same production
   # plugin works on device and ARM64 Simulator without a fake scanner package.
   mobile_scanner: ^7.4.0
-  # Camera frame capture for the video-call SEND path on Android (macOS uses a
-  # native AVCaptureSession inside libveil_media). startImageStream gives YUV420
-  # planes that a Dart capturer converts to I420 and pushes into the engine.
-  camera: ^0.11.0+2
+  # Camera capture for photo/video attachments and the compatibility call path.
+  # Production Android calls use the app-owned native Camera2 path; macOS uses
+  # AVCaptureSession inside libveil_media.
+  camera: ^0.12.0+2
   # Pure-Dart SSH client for "My nodes" — connect to a server you run and
   # provision/check a veil node over SSH (no native code).
   dartssh2: ^2.9.0
@@ -131,6 +131,9 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # Direct test seam for the attachment camera lifecycle. The production
+  # implementation remains selected by package:camera at runtime.
+  camera_platform_interface: ^2.13.1
   # Used directly by deterministic call timing tests. Keep them explicit
   # instead of relying on flutter_test's transitive dependency graph.
   clock: ^1.1.2

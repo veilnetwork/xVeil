@@ -752,7 +752,7 @@ class SpaceScreen extends ConsumerWidget {
       );
     }
     if (campaign == null || !context.mounted) return;
-    final contacts = (ref.read(conversationsProvider).valueOrNull ?? const [])
+    final contacts = (ref.read(conversationsProvider).value ?? const [])
         .where(
           (conversation) =>
               conversation.peer.status == ContactStatus.accepted &&

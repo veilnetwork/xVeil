@@ -58,11 +58,10 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
     final service = ref.watch(groupServiceProvider);
     final availableById = <String, ({NodeId id, String name})>{
       for (final space
-          in ref.watch(spaceListProvider).valueOrNull ??
-              const <GroupListEntry>[])
+          in ref.watch(spaceListProvider).value ?? const <GroupListEntry>[])
         space.groupId.hex: (id: space.groupId, name: space.name),
       for (final public
-          in ref.watch(publicSpaceSubscriptionListProvider).valueOrNull ??
+          in ref.watch(publicSpaceSubscriptionListProvider).value ??
               const <SpacePublicSubscriptionView>[])
         public.descriptor.spaceId.hex: (
           id: public.descriptor.spaceId,
