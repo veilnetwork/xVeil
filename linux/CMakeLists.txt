@@ -72,12 +72,6 @@ set_target_properties(${BINARY_NAME}
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
-# media_kit_libs_linux defaults to downloading and compiling a static mimalloc
-# archive during CMake configuration, even though applications must explicitly
-# link that object themselves. xVeil does not replace the process allocator, so
-# disable the unused network fetch and keep Linux builds reproducible/offline.
-set(MIMALLOC_USE_STATIC_LIBS OFF CACHE BOOL
-  "Do not build the unused media_kit mimalloc override" FORCE)
 include(flutter/generated_plugins.cmake)
 
 
