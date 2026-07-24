@@ -1339,6 +1339,7 @@
   "settingsNickname": "Никнейм",
   "settingsNicknameHint": "Занять @имя, по которому вас найдут",
   "videoPlayError": "Не удалось воспроизвести видео",
+  "videoPlayUnsupported": "Этот формат здесь не воспроизвести. На Linux играются только WebM (VP8).",
   "emojiSearchHint": "Поиск эмодзи",
   "chatEmojiTooltip": "Эмодзи",
   "chatMoreActions": "Дополнительные действия",

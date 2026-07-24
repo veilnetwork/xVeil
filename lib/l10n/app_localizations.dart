@@ -7632,6 +7632,12 @@ abstract class AppL10n {
   /// **'Could not play this video'**
   String get videoPlayError;
 
+  /// No description provided for @videoPlayUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'This format can\'t be played here. On Linux only WebM (VP8) videos play.'**
+  String get videoPlayUnsupported;
+
   /// No description provided for @emojiSearchHint.
   ///
   /// In en, this message translates to:

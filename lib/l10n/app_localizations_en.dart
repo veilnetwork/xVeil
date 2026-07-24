@@ -4215,6 +4215,10 @@ class AppL10nEn extends AppL10n {
   String get videoPlayError => 'Could not play this video';
 
   @override
+  String get videoPlayUnsupported =>
+      'This format can\'t be played here. On Linux only WebM (VP8) videos play.';
+
+  @override
   String get emojiSearchHint => 'Search emoji';
 
   @override

@@ -2,18 +2,29 @@
 // loopback media server — the encrypted blob is decrypted to RAM and served
 // on 127.0.0.1 with Range support, so ExoPlayer/AVPlayer can seek and
 // NOTHING plaintext ever touches disk. Android/iOS/macOS use the official
-// backend; Linux registers video_player_media_kit over the distro's libmpv.
+// video_player backend. Linux has no such backend and ships no OS media stack
+// (media_kit/libmpv rejected: LGPL + 40-80 MB); it plays through the NATIVE
+// veil_media bricks instead — the WebM is demuxed in Dart, VP8 frames stream
+// through the windowed VNOTE1 player and Opus audio through the voice player,
+// which doubles as the clock (see NativeVideoPlayer). Same screen, same
+// controls; only the playback engine forks.
 
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../state/media_stream_server.dart';
+import '../../state/native_video_player.dart';
 import '../../state/providers.dart';
+import '../../state/vnote_play_controller.dart'
+    show vnoteFramePlayerFactoryProvider;
+import '../../state/voice_play_controller.dart' show voicePlayerFactoryProvider;
+import '../calls/video_frame_view.dart';
 
 class VideoPlayerScreen extends ConsumerStatefulWidget {
   const VideoPlayerScreen({
@@ -35,6 +46,11 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
   final String? sourcePath;
   final String name;
 
+  /// Overrides the platform pick of the playback engine (tests exercise the
+  /// native path off-Linux and the plugin path everywhere).
+  @visibleForTesting
+  static bool? debugUseNative;
+
   @override
   ConsumerState<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
 }
@@ -42,7 +58,12 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
 class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   final _server = LocalMediaServer();
   VideoPlayerController? _controller;
+  NativeVideoPlayer? _native;
   Object? _error;
+  bool _unsupported = false;
+
+  static bool get _useNative =>
+      VideoPlayerScreen.debugUseNative ?? Platform.isLinux;
 
   @override
   void initState() {
@@ -50,8 +71,19 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     unawaited(_load());
   }
 
+  Future<Uint8List?> _loadBytes() async {
+    if (widget.sourcePath != null) {
+      return File(widget.sourcePath!).readAsBytes();
+    }
+    return ref.read(storageProvider).loadFile(widget.fileKey!);
+  }
+
   Future<void> _load() async {
     try {
+      if (_useNative) {
+        await _loadNative();
+        return;
+      }
       final VideoPlayerController controller;
       if (widget.sourcePath != null) {
         controller = VideoPlayerController.file(File(widget.sourcePath!));
@@ -77,9 +109,36 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     }
   }
 
+  Future<void> _loadNative() async {
+    final bytes = await _loadBytes();
+    if (!mounted) return;
+    if (bytes == null) {
+      setState(() => _error = StateError('blob missing'));
+      return;
+    }
+    final native = await NativeVideoPlayer.open(
+      bytes,
+      frameFactory: ref.read(vnoteFramePlayerFactoryProvider),
+      audioFactory: ref.read(voicePlayerFactoryProvider),
+    );
+    if (!mounted) {
+      native?.dispose();
+      return;
+    }
+    if (native == null) {
+      // Honest boundary: the codec-stripped native layer plays WebM (VP8 +
+      // Opus). H.264/mp4 attachments cannot decode on Linux — say so.
+      setState(() => _unsupported = true);
+      return;
+    }
+    setState(() => _native = native);
+    await native.play();
+  }
+
   @override
   void dispose() {
     _controller?.dispose();
+    _native?.dispose();
     unawaited(_server.stop());
     super.dispose();
   }
@@ -87,7 +146,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    final c = _controller;
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -95,76 +153,215 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         foregroundColor: Colors.white,
         title: Text(widget.name, overflow: TextOverflow.ellipsis),
       ),
-      body: _error != null
-          ? Center(
-              child: Text(
-                l.videoPlayError,
-                style: const TextStyle(color: Colors.white70),
+      body: _body(l),
+    );
+  }
+
+  Widget _body(AppL10n l) {
+    if (_error != null || _unsupported) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            _unsupported ? l.videoPlayUnsupported : l.videoPlayError,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white70),
+          ),
+        ),
+      );
+    }
+    final native = _native;
+    if (native != null) return _NativeVideoBody(player: native);
+    final c = _controller;
+    if (c == null) return const Center(child: CircularProgressIndicator());
+    return Column(
+      children: [
+        Expanded(
+          child: Center(
+            child: AspectRatio(
+              aspectRatio: c.value.aspectRatio == 0
+                  ? 16 / 9
+                  : c.value.aspectRatio,
+              child: GestureDetector(
+                onTap: () => c.value.isPlaying ? c.pause() : c.play(),
+                child: VideoPlayer(c),
               ),
-            )
-          : c == null
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+            ),
+          ),
+        ),
+        // Controls: scrubber + play/pause + position.
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: Center(
-                    child: AspectRatio(
-                      aspectRatio: c.value.aspectRatio == 0
-                          ? 16 / 9
-                          : c.value.aspectRatio,
-                      child: GestureDetector(
-                        onTap: () => c.value.isPlaying ? c.pause() : c.play(),
-                        child: VideoPlayer(c),
-                      ),
-                    ),
+                VideoProgressIndicator(
+                  c,
+                  allowScrubbing: true,
+                  colors: VideoProgressColors(
+                    playedColor: Theme.of(context).colorScheme.primary,
                   ),
                 ),
-                // Controls: scrubber + play/pause + position.
-                SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        VideoProgressIndicator(
-                          c,
-                          allowScrubbing: true,
-                          colors: VideoProgressColors(
-                            playedColor: Theme.of(context).colorScheme.primary,
-                          ),
-                        ),
-                        Row(
-                          children: [
-                            ValueListenableBuilder<VideoPlayerValue>(
-                              valueListenable: c,
-                              builder: (_, v, _) => IconButton(
-                                color: Colors.white,
-                                icon: Icon(
-                                  v.isPlaying ? Icons.pause : Icons.play_arrow,
-                                ),
-                                onPressed: () =>
-                                    v.isPlaying ? c.pause() : c.play(),
-                              ),
-                            ),
-                            ValueListenableBuilder<VideoPlayerValue>(
-                              valueListenable: c,
-                              builder: (_, v, _) => Text(
-                                '${_fmt(v.position)} / ${_fmt(v.duration)}',
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                ValueListenableBuilder<VideoPlayerValue>(
+                  valueListenable: c,
+                  builder: (_, v, _) => _ControlsRow(
+                    playing: v.isPlaying,
+                    position: v.position,
+                    duration: v.duration,
+                    onToggle: () => v.isPlaying ? c.pause() : c.play(),
                   ),
                 ),
               ],
             ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The Linux body: frames from the native player, transport off its state.
+class _NativeVideoBody extends StatefulWidget {
+  const _NativeVideoBody({required this.player});
+
+  final NativeVideoPlayer player;
+
+  @override
+  State<_NativeVideoBody> createState() => _NativeVideoBodyState();
+}
+
+class _NativeVideoBodyState extends State<_NativeVideoBody> {
+  /// Non-null while the user drags the scrubber: the slider follows the drag
+  /// (not playback), and only the release seeks — a live per-pixel seek would
+  /// thrash the native frame windows.
+  double? _dragFraction;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.player;
+    return AnimatedBuilder(
+      animation: p,
+      builder: (context, _) {
+        final duration = Duration(milliseconds: p.durationMs);
+        final position = _dragFraction != null
+            ? Duration(
+                milliseconds: (p.durationMs * _dragFraction!).round(),
+              )
+            : Duration(milliseconds: p.positionMs);
+        final fraction = _dragFraction != null
+            ? _dragFraction!
+            : (p.durationMs > 0
+                  ? (p.positionMs / p.durationMs).clamp(0.0, 1.0)
+                  : 0.0);
+        return Column(
+          children: [
+            Expanded(
+              child: Center(
+                child: AspectRatio(
+                  aspectRatio: p.aspectRatio == 0 ? 16 / 9 : p.aspectRatio,
+                  child: GestureDetector(
+                    key: const ValueKey('native-video-surface'),
+                    onTap: p.togglePlay,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        CallVideoFrameView(
+                          frameListenable: p.frame,
+                          freshnessToken: 'attachment-video',
+                          waitingLabel: '',
+                          placeholderIcon: p.hasVideo
+                              ? Icons.movie_outlined
+                              : Icons.music_note_outlined,
+                        ),
+                        if (p.ended)
+                          const ColoredBox(
+                            color: Colors.black38,
+                            child: Center(
+                              child: Icon(
+                                Icons.replay,
+                                color: Colors.white,
+                                size: 56,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 2,
+                        thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 6,
+                        ),
+                      ),
+                      child: Slider(
+                        value: fraction,
+                        onChanged: (v) => setState(() => _dragFraction = v),
+                        onChangeEnd: (v) {
+                          setState(() => _dragFraction = null);
+                          unawaited(p.seekFraction(v));
+                        },
+                        activeColor: Theme.of(context).colorScheme.primary,
+                        inactiveColor: Colors.white24,
+                      ),
+                    ),
+                    _ControlsRow(
+                      playing: p.isPlaying,
+                      position: position,
+                      duration: duration,
+                      onToggle: () => unawaited(p.togglePlay()),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Play/pause + position readout, shared by both playback engines.
+class _ControlsRow extends StatelessWidget {
+  const _ControlsRow({
+    required this.playing,
+    required this.position,
+    required this.duration,
+    required this.onToggle,
+  });
+
+  final bool playing;
+  final Duration position;
+  final Duration duration;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        IconButton(
+          color: Colors.white,
+          icon: Icon(playing ? Icons.pause : Icons.play_arrow),
+          onPressed: onToggle,
+        ),
+        Text(
+          '${_fmt(position)} / ${_fmt(duration)}',
+          style: const TextStyle(color: Colors.white70, fontSize: 12),
+        ),
+      ],
     );
   }
 
