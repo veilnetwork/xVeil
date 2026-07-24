@@ -12,6 +12,19 @@ import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/veil_call_media.dart';
 
 void main() {
+  test(
+    'native screen source kinds preserve windows as a local-only choice',
+    () {
+      expect(screenSourceDeviceKind('screen'), CallMediaDeviceKind.screen);
+      expect(screenSourceDeviceKind('window'), CallMediaDeviceKind.window);
+      expect(
+        screenSourceDeviceKind('unknown'),
+        CallMediaDeviceKind.screen,
+        reason: 'older display backends remain compatible',
+      );
+    },
+  );
+
   test('initial camera capture follows camera posture, not video receive', () {
     final base = Call(
       callId: 'initial-camera-posture',

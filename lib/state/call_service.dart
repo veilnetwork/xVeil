@@ -19,7 +19,12 @@ import 'veil_call_media.dart';
 const _uuid = Uuid();
 Future<bool> _neverP2P(NodeId peer) async => false;
 
-enum CallMediaDeviceKind { camera, microphone, screen }
+enum CallMediaDeviceKind { camera, microphone, screen, window }
+
+CallMediaDeviceKind screenSourceDeviceKind(String nativeKind) =>
+    nativeKind == 'window'
+    ? CallMediaDeviceKind.window
+    : CallMediaDeviceKind.screen;
 
 /// A locally available capture device. IDs never leave this endpoint; call
 /// signaling only carries the media set, not hardware details.
@@ -141,6 +146,8 @@ abstract class CallMediaController {
   Future<bool> selectCamera(String id) async => false;
   Future<bool> selectMicrophone(String id) async => false;
   Future<bool> selectScreen(String id) async => false;
+  bool get screenCaptureAccessGranted => true;
+  bool requestScreenCaptureAccess() => true;
 
   /// Mount the video pipeline (send + receive) on the live session of a call
   /// that started audio-only — the mid-call audio→video upgrade. Does NOT
@@ -516,6 +523,12 @@ class CallService {
     if (c == null || !c.isLive) return false;
     return await _media?.selectScreen(id) ?? false;
   }
+
+  bool get screenCaptureAccessGranted =>
+      _media?.screenCaptureAccessGranted ?? true;
+
+  bool requestScreenCaptureAccess() =>
+      _media?.requestScreenCaptureAccess() ?? true;
 
   /// Phone-oriented one-tap front/back switch. Multiple lenses of the same
   /// facing remain available in the full device picker.

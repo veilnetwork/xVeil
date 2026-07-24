@@ -21,6 +21,7 @@ import '../../state/veil_call_media.dart'
 import 'call_lifecycle_bridge.dart' show callPipMode;
 import 'call_device_picker.dart';
 import 'call_surface.dart';
+import 'screen_capture_permission.dart';
 import 'video_frame_view.dart';
 
 /// Full-screen call UI that floats above every route. Mounted once from
@@ -51,6 +52,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
   bool _pipActive = false;
   bool _captureDevicesLoading = false;
   List<CallMediaDevice>? _captureDevices;
+  bool _startScreenAfterDeviceSelection = false;
 
   Future<void> _openCaptureDevicePicker(
     CallService svc, {
@@ -58,7 +60,10 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     required bool includeScreens,
   }) async {
     if (_captureDevicesLoading) return;
-    setState(() => _captureDevicesLoading = true);
+    setState(() {
+      _captureDevicesLoading = true;
+      _startScreenAfterDeviceSelection = false;
+    });
     final results = await Future.wait([
       if (includeCameras)
         svc.listCameras()
@@ -84,17 +89,68 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     CallService svc,
     CallMediaDevice device,
   ) async {
-    setState(() => _captureDevices = null);
-    final ok = switch (device.kind) {
+    final startScreen =
+        _startScreenAfterDeviceSelection &&
+        (device.kind == CallMediaDeviceKind.screen ||
+            device.kind == CallMediaDeviceKind.window);
+    setState(() {
+      _captureDevices = null;
+      _startScreenAfterDeviceSelection = false;
+    });
+    var ok = switch (device.kind) {
       CallMediaDeviceKind.camera => await svc.selectCamera(device.id),
       CallMediaDeviceKind.microphone => await svc.selectMicrophone(device.id),
-      CallMediaDeviceKind.screen => await svc.selectScreen(device.id),
+      CallMediaDeviceKind.screen ||
+      CallMediaDeviceKind.window => await svc.selectScreen(device.id),
     };
+    if (ok && startScreen) {
+      await svc.setScreenShareEnabled(true);
+      ok = svc.current?.screenOn == true;
+    }
     if (!ok && mounted) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(content: Text(AppL10n.of(context).callDeviceSwitchFailed)),
       );
     }
+  }
+
+  Future<void> _toggleScreen(CallService svc, Call call) async {
+    if (call.screenOn) {
+      await svc.setScreenShareEnabled(false);
+      return;
+    }
+    if (!Platform.isMacOS) {
+      await svc.setScreenShareEnabled(true);
+      return;
+    }
+    if (!svc.screenCaptureAccessGranted && !svc.requestScreenCaptureAccess()) {
+      if (mounted) {
+        showScreenCapturePermissionSnackBar(context);
+      }
+      return;
+    }
+    if (_captureDevicesLoading) return;
+    setState(() => _captureDevicesLoading = true);
+    final devices = await svc.listScreens();
+    if (!mounted) return;
+    setState(() => _captureDevicesLoading = false);
+    if (devices.length <= 1) {
+      var selected = true;
+      if (devices case [final only]) {
+        selected = await svc.selectScreen(only.id);
+      }
+      if (selected) await svc.setScreenShareEnabled(true);
+      if (svc.current?.screenOn != true && mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text(AppL10n.of(context).callDeviceSwitchFailed)),
+        );
+      }
+      return;
+    }
+    setState(() {
+      _startScreenAfterDeviceSelection = true;
+      _captureDevices = devices;
+    });
   }
 
   @override
@@ -163,6 +219,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
       _selfPreviewHidden = false;
       _captureDevices = null;
       _captureDevicesLoading = false;
+      _startScreenAfterDeviceSelection = false;
       _mode = _OverlayMode.full;
     }
     final videoStage = _isVideoStage(call);
@@ -197,6 +254,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
                     includeCameras: call.media.video,
                     includeScreens: call.media.video && Platform.isMacOS,
                   ),
+                  onToggleScreen: (svc) => _toggleScreen(svc, call),
                   onMinimize: canMinimize
                       ? () => setState(() => _mode = _OverlayMode.mini)
                       : null,
@@ -253,7 +311,10 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
                 if (_captureDevices case final devices?)
                   CallDevicePickerPanel(
                     devices: devices,
-                    onDismiss: () => setState(() => _captureDevices = null),
+                    onDismiss: () => setState(() {
+                      _captureDevices = null;
+                      _startScreenAfterDeviceSelection = false;
+                    }),
                     onSelect: (device) => _selectCaptureDevice(
                       ref.read(callServiceProvider),
                       device,
@@ -314,6 +375,7 @@ class _CallBody extends ConsumerWidget {
     required this.onSelfPreviewHide,
     required this.onSelfPreviewShow,
     required this.onShowDevices,
+    required this.onToggleScreen,
   });
   final Call call;
   final VoidCallback? onMinimize;
@@ -325,6 +387,7 @@ class _CallBody extends ConsumerWidget {
   final VoidCallback onSelfPreviewHide;
   final VoidCallback onSelfPreviewShow;
   final ValueChanged<CallService> onShowDevices;
+  final ValueChanged<CallService> onToggleScreen;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -387,7 +450,12 @@ class _CallBody extends ConsumerWidget {
           ),
         ],
         const Spacer(),
-        _Controls(call: call, svc: svc, l: l),
+        _Controls(
+          call: call,
+          svc: svc,
+          l: l,
+          onScreen: () => onToggleScreen(svc),
+        ),
         const SizedBox(height: 24),
       ],
     );
@@ -461,7 +529,11 @@ class _CallBody extends ConsumerWidget {
           left: 12,
           right: 12,
           bottom: 18,
-          child: _VideoControlsBar(call: call, svc: svc),
+          child: _VideoControlsBar(
+            call: call,
+            svc: svc,
+            onScreen: () => onToggleScreen(svc),
+          ),
         ),
       ],
     );
@@ -1191,10 +1263,15 @@ class _ShowSelfPreviewButton extends StatelessWidget {
 }
 
 class _VideoControlsBar extends StatelessWidget {
-  const _VideoControlsBar({required this.call, required this.svc});
+  const _VideoControlsBar({
+    required this.call,
+    required this.svc,
+    required this.onScreen,
+  });
 
   final Call call;
   final CallService svc;
+  final VoidCallback onScreen;
 
   @override
   Widget build(BuildContext context) {
@@ -1234,7 +1311,7 @@ class _VideoControlsBar extends StatelessWidget {
             key: const ValueKey('call-screen'),
             icon: call.screenOn ? Icons.stop_screen_share : Icons.screen_share,
             label: call.screenOn ? l.callScreenOn : l.callScreenOff,
-            onPressed: () => svc.setScreenShareEnabled(!call.screenOn),
+            onPressed: onScreen,
           ),
         if (callAudioRouter.supportsPhoneRouting) const CallAudioRouteAction(),
         CallControlAction(
@@ -1250,10 +1327,16 @@ class _VideoControlsBar extends StatelessWidget {
 }
 
 class _Controls extends StatelessWidget {
-  const _Controls({required this.call, required this.svc, required this.l});
+  const _Controls({
+    required this.call,
+    required this.svc,
+    required this.l,
+    required this.onScreen,
+  });
   final Call call;
   final CallService svc;
   final AppL10n l;
+  final VoidCallback onScreen;
 
   @override
   Widget build(BuildContext context) {
@@ -1313,7 +1396,7 @@ class _Controls extends StatelessWidget {
                     ? Icons.stop_screen_share
                     : Icons.screen_share,
                 label: call.screenOn ? l.callScreenOn : l.callScreenOff,
-                onPressed: () => svc.setScreenShareEnabled(!call.screenOn),
+                onPressed: onScreen,
               ),
             if (callAudioRouter.supportsPhoneRouting)
               const CallAudioRouteAction(),

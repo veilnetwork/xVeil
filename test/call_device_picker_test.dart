@@ -43,22 +43,27 @@ void main() {
     expect(find.text('No capture devices available'), findsOneWidget);
   });
 
-  testWidgets('screen devices have a dedicated selectable section', (
+  testWidgets('display and window sources have dedicated selectable sections', (
     tester,
   ) async {
     CallMediaDevice? selected;
     var dismissed = 0;
     const screen = CallMediaDevice(
-      id: '42',
+      id: 'display:42',
       label: 'Main display (2560x1440)',
       kind: CallMediaDeviceKind.screen,
       selected: true,
+    );
+    const window = CallMediaDevice(
+      id: 'window:99',
+      label: 'Editor — ROADMAP.md (1280x900)',
+      kind: CallMediaDeviceKind.window,
     );
 
     await tester.pumpWidget(
       _host(
         CallDevicePickerPanel(
-          devices: const [screen],
+          devices: const [screen, window],
           onDismiss: () => dismissed++,
           onSelect: (device) => selected = device,
         ),
@@ -67,13 +72,16 @@ void main() {
     await tester.tap(find.text('Video'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Screens'), findsOneWidget);
+    expect(find.text('Displays'), findsOneWidget);
+    expect(find.text('Windows'), findsOneWidget);
     expect(find.text(screen.label), findsOneWidget);
+    expect(find.text(window.label), findsOneWidget);
     expect(find.byIcon(Icons.monitor), findsOneWidget);
+    expect(find.byIcon(Icons.web_asset), findsOneWidget);
     expect(find.byIcon(Icons.check), findsOneWidget);
 
-    await tester.tap(find.text(screen.label));
-    expect(selected, screen);
+    await tester.tap(find.text(window.label));
+    expect(selected, window);
     expect(dismissed, 0);
   });
 }

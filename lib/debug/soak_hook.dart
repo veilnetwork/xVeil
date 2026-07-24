@@ -147,7 +147,7 @@ String groupPostHookText(Uri uri) {
 ///   GET  /messages?peer=NODE_HEX[&limit=50]
 ///   POST /send_message?peer=NODE_HEX&text=...        (or JSON body)
 ///   GET  /call_devices
-///   POST /call_select_device?kind=camera|microphone&id=OPAQUE_ID
+///   POST /call_select_device?kind=camera|microphone|screen|window&id=OPAQUE_ID
 ///
 /// If [path] is omitted for /download_file, the file is downloaded into the
 /// encrypted app tier. If present, bytes are written unencrypted to that path.
@@ -4891,11 +4891,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final results = await Future.wait([
       svc.listCameras(),
       svc.listMicrophones(),
+      svc.listScreens(),
     ]);
     await _json(req, {
       'ok': true,
       'devices': [
-        for (final device in [...results[0], ...results[1]])
+        for (final device in [...results[0], ...results[1], ...results[2]])
           {
             'id': device.id,
             'label': device.label,
@@ -4912,9 +4913,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final id = _required(req, 'id');
     if (id == null) return;
     final svc = ref.read(callServiceProvider);
-    final ok = req.uri.queryParameters['kind'] == 'camera'
-        ? await svc.selectCamera(id)
-        : await svc.selectMicrophone(id);
+    final ok = switch (req.uri.queryParameters['kind']) {
+      'camera' => await svc.selectCamera(id),
+      'screen' || 'window' => await svc.selectScreen(id),
+      _ => await svc.selectMicrophone(id),
+    };
     await _json(req, {'ok': ok});
   }
 

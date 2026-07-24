@@ -4152,6 +4152,12 @@ class AppL10nRu extends AppL10n {
   String get callScreens => 'Экраны';
 
   @override
+  String get callDisplays => 'Дисплеи';
+
+  @override
+  String get callWindows => 'Окна';
+
+  @override
   String get callNoCaptureDevices => 'Устройства захвата недоступны';
 
   @override
@@ -4168,6 +4174,13 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get callScreenWaiting => 'Ожидание показа экрана…';
+
+  @override
+  String get callScreenPermissionRequired =>
+      'Разрешите запись экрана для xveil в Системных настройках и попробуйте снова';
+
+  @override
+  String get callOpenScreenSettings => 'Открыть настройки';
 
   @override
   String get groupCallOngoing => 'Идёт групповой звонок';

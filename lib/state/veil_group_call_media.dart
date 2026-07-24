@@ -10,7 +10,7 @@ import '../data/transport/veil_flutter_transport.dart';
 import '../domain/group_call.dart';
 import 'android_camera_capture.dart';
 import 'android_screen_capture.dart';
-import 'call_service.dart' show CallMediaDevice, CallMediaDeviceKind;
+import 'call_service.dart' show CallMediaDevice, screenSourceDeviceKind;
 import 'call_audio_route.dart';
 import 'group_call_service.dart';
 import 'mac_media_permissions.dart';
@@ -217,6 +217,14 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
 
   @override
   Stream<void> get screenShareStopped => _screenShareStops.stream;
+
+  @override
+  bool get screenCaptureAccessGranted =>
+      !Platform.isMacOS || platformScreenCaptureAccessGranted;
+
+  @override
+  bool requestScreenCaptureAccess() =>
+      !Platform.isMacOS || requestPlatformScreenCaptureAccess();
 
   @override
   Future<bool> start(GroupCall call) => _locked(() async {
@@ -488,17 +496,14 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
 
   @override
   Future<List<CallMediaDevice>> listScreens() async {
-    final engine = _engine;
-    if (engine == null || !Platform.isMacOS) return const [];
+    if (!Platform.isMacOS) return const [];
     try {
-      return engine
-          .listScreens()
-          .indexed
+      return listPlatformScreenInputs().indexed
           .map(
             (entry) => CallMediaDevice(
               id: entry.$2.id,
               label: entry.$2.label,
-              kind: CallMediaDeviceKind.screen,
+              kind: screenSourceDeviceKind(entry.$2.kind),
               selected:
                   entry.$2.id == _selectedScreenId ||
                   (_selectedScreenId == null && entry.$1 == 0),

@@ -7434,6 +7434,18 @@ abstract class AppL10n {
   /// **'Screens'**
   String get callScreens;
 
+  /// No description provided for @callDisplays.
+  ///
+  /// In en, this message translates to:
+  /// **'Displays'**
+  String get callDisplays;
+
+  /// No description provided for @callWindows.
+  ///
+  /// In en, this message translates to:
+  /// **'Windows'**
+  String get callWindows;
+
   /// No description provided for @callNoCaptureDevices.
   ///
   /// In en, this message translates to:
@@ -7469,6 +7481,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Waiting for shared screen…'**
   String get callScreenWaiting;
+
+  /// No description provided for @callScreenPermissionRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow Screen Recording for xveil in System Settings, then try again'**
+  String get callScreenPermissionRequired;
+
+  /// No description provided for @callOpenScreenSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Settings'**
+  String get callOpenScreenSettings;
 
   /// No description provided for @groupCallOngoing.
   ///
