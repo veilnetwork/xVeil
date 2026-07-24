@@ -2,7 +2,7 @@
 // composer that posts (auto-fanned to members by the service). The member
 // count sits in the app bar; an overflow menu opens the member sheet.
 
-import 'dart:async' show Timer, unawaited;
+import 'dart:async' show Timer, scheduleMicrotask, unawaited;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -201,8 +201,20 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
 
   @override
   void dispose() {
-    if (_activeConversation?.state == _conversationKey) {
-      _activeConversation!.state = null;
+    final activeConversation = _activeConversation;
+    final conversationKey = _conversationKey;
+    if (activeConversation?.state == conversationKey) {
+      // Riverpod forbids provider mutations while Flutter finalizes a route's
+      // widget tree. Clear the marker after the synchronous navigation frame.
+      scheduleMicrotask(() {
+        try {
+          if (activeConversation!.state == conversationKey) {
+            activeConversation.state = null;
+          }
+        } catch (_) {
+          // The ProviderScope may already be gone during test/app teardown.
+        }
+      });
     }
     _input.dispose();
     _inputFocus.dispose();
