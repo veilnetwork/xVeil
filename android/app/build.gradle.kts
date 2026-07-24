@@ -4,9 +4,12 @@ import java.security.MessageDigest
 
 plugins {
     id("com.android.application")
-    // MainActivity is Kotlin and AGP 8 does not provide built-in Kotlin, so
-    // the app module must apply the Kotlin plugin explicitly.
-    id("org.jetbrains.kotlin.android")
+    // AGP 9: this module's Kotlin (MainActivity etc.) is compiled by AGP's
+    // built-in Kotlin. The per-module opt-in plugin is used because
+    // android.builtInKotlin must stay false globally while unmigrated plugin
+    // modules (veil_flutter, hidden_volume, file_picker, ...) still apply the
+    // legacy Kotlin Android plugin — see android/settings.gradle.kts.
+    id("com.android.built-in-kotlin")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
@@ -112,7 +115,11 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
-    sourceSets.getByName("main").assets.srcDir(generatedWhisperAssets)
+    // AGP 9 rejects Provider instances in the legacy SourceSet API. Resolve the
+    // generated dir eagerly instead: the producing task is wired explicitly
+    // below (preBuild dependsOn prepareWhisperModel), so no implicit task
+    // dependency is lost by handing over a plain path.
+    sourceSets.getByName("main").assets.srcDir(generatedWhisperAssets.get().asFile)
     androidResources {
         // The quantized model is already entropy-dense. Keeping it uncompressed
         // avoids an expensive inflate pass before the one-time private install.
@@ -125,6 +132,17 @@ android {
         // Required by flutter_local_notifications (uses java.time on older API
         // levels): backport the desugared JDK libs.
         isCoreLibraryDesugaringEnabled = true
+    }
+
+    packaging {
+        jniLibs {
+            // Same behavior the manifest used to request via
+            // android:extractNativeLibs="true" (native libs compressed in the
+            // APK and extracted at install). AGP 9 rejects the explicit
+            // manifest attribute and requires expressing it here instead; the
+            // merged manifest still ends up with extractNativeLibs="true".
+            useLegacyPackaging = true
+        }
     }
 
     defaultConfig {
