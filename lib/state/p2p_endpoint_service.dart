@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:veil_flutter/veil_ffi.dart' show VeilHolePunchStatus;
 
 import '../core/ids.dart';
 import '../core/log.dart';
@@ -12,6 +13,12 @@ import '../data/transport/veil_flutter_transport.dart';
 import 'messaging.dart';
 import 'p2p_policy_controller.dart';
 import 'providers.dart';
+
+/// Outcome of one explicit call-path hole-punch attempt as the endpoint
+/// service consumes it: whether a direct session came up, plus a short,
+/// address-free reason (structured stage name) for the transport badge/log
+/// when it did not.
+typedef P2PPunchResult = ({bool connected, String reason});
 
 /// P2P direct-session establishment, app side (real-P2P epic, layer 1+2).
 ///
@@ -49,6 +56,7 @@ class P2PEndpointService {
     required this._lanListenEnabled,
     Future<List<String>> Function()? localAddresses,
     this._listenTransports,
+    this._attemptHolePunch,
     DateTime Function()? now,
   }) : _localAddresses = localAddresses ?? _defaultLocalAddresses,
        _now = now ?? DateTime.now;
@@ -63,6 +71,13 @@ class P2PEndpointService {
   final String Function() _listenScheme;
   final bool Function() _lanListenEnabled;
   final Future<List<String>> Function() _localAddresses;
+
+  /// Explicit call-path hole punch (real-P2P Stage B). Runs one bounded
+  /// native attempt toward the peer and reports whether a direct session
+  /// came up plus a short, address-free reason. Null when the running stack
+  /// can't punch (loopback/dev transport) — the ladder then skips straight
+  /// to relay. Injected so tests can drive the ladder with a mock.
+  final Future<P2PPunchResult> Function(Uint8List peer)? _attemptHolePunch;
 
   /// Daemon listener-URI snapshot (null when the running stack can't provide
   /// one — loopback/dev transport). After the node's server-reflexive NAT
@@ -85,11 +100,22 @@ class P2PEndpointService {
   /// Per-peer in-flight dial guard.
   final Set<String> _dialing = {};
 
+  /// Short, address-free reason the last [ensureReady] ladder fell back to
+  /// relay for a peer (structured hole-punch outcome / stage name). Read by
+  /// the transport-badge/log layer; cleared when a direct session comes up.
+  final Map<String, String> _fallbackReason = {};
+
   void Function(NodeId, String)? _handler;
   bool _started = false;
 
   static const _shareThrottle = Duration(minutes: 3);
   static const _maxEndpointsPerFrame = 4;
+
+  /// Host/LAN-dial slice of the call-time ladder: how long to poll for the
+  /// cheap same-network dial to admit a session before escalating to the
+  /// explicit hole punch. Kept short so the punch (up to its own ~5 s daemon
+  /// budget) still fits inside the call FSM's signaling window.
+  static const _hostDialWindow = Duration(milliseconds: 1500);
 
   void start() {
     if (_started) return;
@@ -108,9 +134,22 @@ class P2PEndpointService {
   List<String> knownEndpoints(NodeId peer) =>
       List.unmodifiable(_peerEndpoints[peer.hex] ?? const []);
 
+  /// Why the last call-time [ensureReady] for [peer] settled on relay, as a
+  /// short address-free phrase (structured hole-punch outcome / stage), or
+  /// null when the direct route is up / was never attempted. Fed into the
+  /// transport-badge/log layer; never carries peer addresses.
+  String? lastFallbackReason(NodeId peer) => _fallbackReason[peer.hex];
+
   /// Share our direct endpoints with [peer] if policy + posture allow.
-  /// Throttled per peer unless [force].
-  Future<void> maybeShare(NodeId peer, {bool force = false}) async {
+  /// Throttled per peer unless [force]. When [requestReshare] is set the
+  /// frame asks the receiver to reply with FRESH endpoints even inside its
+  /// own throttle window — call-time exchange must be mutual (a one-sided
+  /// exchange, the receiver's throttled non-reply, was the Stage B bug).
+  Future<void> maybeShare(
+    NodeId peer, {
+    bool force = false,
+    bool requestReshare = false,
+  }) async {
     if (!_lanListenEnabled()) return; // loopback bind — nothing dialable
     if (!await _localAllowsP2P(peer)) return;
     final at = _lastSharedAt[peer.hex];
@@ -120,33 +159,91 @@ class P2PEndpointService {
     if (uris.isEmpty) return;
     _lastSharedAt[peer.hex] = now;
     final ts = now.millisecondsSinceEpoch;
-    final body = jsonEncode({'v': 1, 'ts': ts, 'e': uris});
+    final body = jsonEncode({
+      'v': 1,
+      'ts': ts,
+      'e': uris,
+      if (requestReshare) 'r': 1,
+    });
     await _messaging.sendP2PEndpoints(peer, body, sentAtMs: ts);
   }
 
   /// Call-time gate: make "peer reachable for P2P" mean "a live direct session
-  /// exists (or came up within [budget])". Kicks a share+dial as a side
-  /// effect, so even a `false` now warms the path for the next attempt.
+  /// exists (or came up within the ladder)". Strict ladder, escalating only
+  /// when the cheaper rung fails, matching the Stage B design order:
+  ///
+  ///   existing admitted → host/LAN dial → explicit hole punch → relay.
+  ///
+  /// Call-time exchange bypasses the 3-minute share throttle on BOTH sides
+  /// (forced reshare + reshare-request flag), so the peer always has fresh
+  /// endpoints to dial back. A relay fallback records a short, address-free
+  /// reason ([lastFallbackReason]); a side-effect punch keeps running
+  /// daemon-side even past [budget], warming the direct route for the next
+  /// attempt. Anonymity never reaches here — [_localAllowsP2P] denies P2P
+  /// for an anonymous local identity, and the daemon refuses a punch under
+  /// an onion-service posture regardless.
   Future<bool> ensureReady(
     NodeId peer, {
     Duration budget = const Duration(milliseconds: 2500),
   }) async {
     if (!await _localAllowsP2P(peer)) return false;
+
+    // Rung 1 — existing admitted session short-circuits (idempotent). Still
+    // force a mutual reshare so the peer's own renewal has fresh endpoints.
     if (await _admitted(peer)) {
-      // Fresh addresses for the peer's own dial/renewal, off the hot path.
-      unawaited(maybeShare(peer));
+      _fallbackReason.remove(peer.hex);
+      unawaited(maybeShare(peer, force: true, requestReshare: true));
       return true;
     }
-    unawaited(maybeShare(peer));
+
+    // Force a mutual, throttle-bypassing endpoint exchange before dialing:
+    // both sides must reshare fresh endpoints at call time.
+    await maybeShare(peer, force: true, requestReshare: true);
+
+    // Rung 2 — host/LAN dial: redeem the peer's shared endpoints (also
+    // REGISTERS the peer with the daemon, a precondition for the punch) and
+    // give the cheap same-network route a short window to admit.
     unawaited(_dialPeer(peer));
-    // Real elapsed time, not the injectable wall clock: the poll below is
-    // bounded by actual delays, and a frozen test clock must not turn the
-    // budget into an infinite loop.
-    final sw = Stopwatch()..start();
-    while (sw.elapsed < budget) {
+    // Real elapsed time, not the injectable wall clock: the poll is bounded
+    // by actual delays, and a frozen test clock must not turn it into an
+    // infinite loop.
+    final hostSw = Stopwatch()..start();
+    final hostWindow = budget < _hostDialWindow ? budget : _hostDialWindow;
+    while (hostSw.elapsed < hostWindow) {
       await Future<void>.delayed(const Duration(milliseconds: 300));
-      if (await _admitted(peer)) return true;
+      if (await _admitted(peer)) {
+        _fallbackReason.remove(peer.hex);
+        return true;
+      }
     }
+
+    // Rung 3 — explicit hole punch, BEFORE relay. Skipped only when the stack
+    // can't punch (loopback/dev). The native attempt is bounded and single-
+    // flight daemon-side; on success `admitted` flips the standard way.
+    final punch = _attemptHolePunch;
+    if (punch != null) {
+      try {
+        final result = await punch(peer.bytes);
+        if (result.connected || await _admitted(peer)) {
+          _fallbackReason.remove(peer.hex);
+          return true;
+        }
+        _fallbackReason[peer.hex] = result.reason;
+        devLog(
+          () =>
+              'xVeil[p2p]: hole punch for ${peer.short} did not connect '
+              '(${result.reason})',
+        );
+      } catch (e) {
+        _fallbackReason[peer.hex] = 'direct punch failed';
+        devLog(() => 'xVeil[p2p]: hole punch failed for ${peer.short}: $e');
+      }
+    } else {
+      _fallbackReason[peer.hex] = 'direct session unavailable';
+    }
+
+    // Rung 4 — relay fallback (the caller downgrades to relay). Reason stays
+    // for the transport badge / log.
     return false;
   }
 
@@ -169,10 +266,12 @@ class P2PEndpointService {
       if (!await _localAllowsP2P(peer)) return;
       List<String> uris;
       int ts;
+      bool reshareRequested;
       try {
         final m = jsonDecode(bodyJson);
         if (m is! Map || m['v'] != 1) return;
         ts = (m['ts'] as num?)?.toInt() ?? 0;
+        reshareRequested = m['r'] == 1;
         uris = [
           for (final e in (m['e'] as List? ?? const []))
             if (e is String && e.isNotEmpty) e,
@@ -188,10 +287,13 @@ class P2PEndpointService {
       devLog(
         () =>
             'xVeil[p2p]: peer ${peer.short} shared ${uris.length} '
-            'endpoint(s)',
+            'endpoint(s)${reshareRequested ? ' (reshare requested)' : ''}',
       );
-      // Symmetric warm-up: answer with ours (throttled), then dial theirs.
-      unawaited(maybeShare(peer));
+      // Symmetric warm-up: answer with ours (forced fresh when the peer asked
+      // — call-time mutual exchange — else throttled), then dial theirs. The
+      // reply never re-requests a reshare, so the exchange settles in one
+      // round trip each way rather than ping-ponging.
+      unawaited(maybeShare(peer, force: reshareRequested));
       await _dialPeer(peer);
     }());
   }
@@ -365,7 +467,30 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
     listenScheme: () => stack.listenScheme,
     lanListenEnabled: () => stack.lanListen,
     listenTransports: transport.listenTransports,
+    attemptHolePunch: (peer) async {
+      final status = await transport.attemptP2PHolePunch(peer);
+      return (
+        connected: status == VeilHolePunchStatus.connected,
+        reason: p2pPunchReasonPhrase(status),
+      );
+    },
   )..start();
   ref.onDispose(svc.dispose);
   return svc;
 });
+
+/// Short, address-free reason phrase for a non-connected hole-punch outcome —
+/// the structured stage name surfaced to the transport badge / `/call_state`
+/// / logs. Never carries peer addresses.
+String p2pPunchReasonPhrase(VeilHolePunchStatus status) => switch (status) {
+  VeilHolePunchStatus.connected => 'direct session up',
+  VeilHolePunchStatus.noReflector => 'no NAT reflector',
+  VeilHolePunchStatus.signalingTimeout => 'NAT signaling timed out',
+  VeilHolePunchStatus.mappingUnusable => 'no usable NAT mapping',
+  VeilHolePunchStatus.punchTimeout => 'hole punch timed out',
+  VeilHolePunchStatus.quicFailed => 'direct QUIC failed',
+  VeilHolePunchStatus.refusedAnonymous => 'anonymous mode',
+  VeilHolePunchStatus.unknownPeer => 'peer not yet exchanged',
+  VeilHolePunchStatus.unsupported => 'punch unsupported',
+  VeilHolePunchStatus.unknown => 'direct punch failed',
+};

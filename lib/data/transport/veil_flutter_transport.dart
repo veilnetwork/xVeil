@@ -263,6 +263,22 @@ class VeilFlutterTransport
   /// `ip:port` endpoint candidate.
   Future<List<String>> listenTransports() => _client.listenTransports();
 
+  /// Run one explicit, bounded UDP hole-punch attempt toward [peerNode]
+  /// (real-P2P epic, Stage B: punch in the call path). The node drives
+  /// reflector mapping discovery, coordinator signaling, the
+  /// token-authenticated simultaneous punch, same-socket QUIC promotion and
+  /// normal session registration under one 5-second budget;
+  /// [VeilHolePunchStatus.connected] means a live direct session now exists
+  /// and [peerPnetStatus] reports `admitted: true` the standard way. Repeat
+  /// and concurrent calls for the same peer coalesce daemon-side.
+  ///
+  /// Runs on the CAPABILITY connection, not the main/media/realtime clients:
+  /// the attempt holds its connection's mutex for up to ~10 s, so it must
+  /// stay off the chat send path AND off the live-call media path — the very
+  /// thing being negotiated.
+  Future<VeilHolePunchStatus> attemptP2PHolePunch(Uint8List peerNode) =>
+      _capabilityClient.attemptP2PHolePunch(peerNode);
+
   /// Native CLOUD-2B primitive: host a blinded service under a random
   /// application-owned identity. [identitySeed] is scrubbed by veil_flutter
   /// before this future yields and again by native at the ABI boundary.
