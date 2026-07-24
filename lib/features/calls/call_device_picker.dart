@@ -28,6 +28,9 @@ class CallDevicePickerPanel extends StatelessWidget {
     final screens = devices
         .where((device) => device.kind == CallMediaDeviceKind.screen)
         .toList(growable: false);
+    final windows = devices
+        .where((device) => device.kind == CallMediaDeviceKind.window)
+        .toList(growable: false);
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -130,14 +133,24 @@ class CallDevicePickerPanel extends StatelessWidget {
                                   ),
                               ],
                               if (screens.isNotEmpty) ...[
-                                _SectionLabel(l.callScreens),
+                                _SectionLabel(l.callDisplays),
                                 for (final device in screens)
                                   _DeviceTile(
                                     device: device,
                                     onTap: () => onSelect(device),
                                   ),
                               ],
-                              if (cameras.isEmpty && screens.isEmpty)
+                              if (windows.isNotEmpty) ...[
+                                _SectionLabel(l.callWindows),
+                                for (final device in windows)
+                                  _DeviceTile(
+                                    device: device,
+                                    onTap: () => onSelect(device),
+                                  ),
+                              ],
+                              if (cameras.isEmpty &&
+                                  screens.isEmpty &&
+                                  windows.isEmpty)
                                 Padding(
                                   padding: const EdgeInsets.all(24),
                                   child: Text(
@@ -213,6 +226,7 @@ class _DeviceTile extends StatelessWidget {
       CallMediaDeviceKind.camera => Icons.videocam,
       CallMediaDeviceKind.microphone => Icons.mic,
       CallMediaDeviceKind.screen => Icons.monitor,
+      CallMediaDeviceKind.window => Icons.web_asset,
     }),
     title: Text(device.label),
     trailing: device.selected ? const Icon(Icons.check) : null,

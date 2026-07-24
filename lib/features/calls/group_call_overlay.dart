@@ -21,6 +21,7 @@ import '../../state/veil_group_call_media.dart';
 import 'call_lifecycle_bridge.dart' show callPipMode;
 import 'call_device_picker.dart';
 import 'call_surface.dart';
+import 'screen_capture_permission.dart';
 import 'video_frame_view.dart';
 
 /// Global room surface for the signed group-call control plane.
@@ -68,6 +69,13 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
     }
     if (!Platform.isMacOS) {
       await calls.setScreenShareEnabled(true);
+      return;
+    }
+    if (!calls.screenCaptureAccessGranted &&
+        !calls.requestScreenCaptureAccess()) {
+      if (mounted) {
+        showScreenCapturePermissionSnackBar(context);
+      }
       return;
     }
     if (_screenDevicesLoading) return;
