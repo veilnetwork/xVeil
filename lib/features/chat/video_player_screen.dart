@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../core/log.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/media_stream_server.dart';
 import '../../state/native_video_player.dart';
@@ -128,6 +129,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       setState(() => _controller = controller);
       await controller.play();
     } catch (e) {
+      devLog(() => 'xVeil[video]: playback failed (${widget.name}): $e');
       if (mounted) setState(() => _error = e);
     }
   }
