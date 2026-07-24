@@ -402,7 +402,19 @@ extension _MessagingInboundDispatch on MessagingService {
               'xVeil[p2p]: in endpoints from=${m.src.short} '
               '(${env.body.length} B)',
         );
-        onP2PEndpoints?.call(m.src, env.body);
+        final endpointsHandler = onP2PEndpoints;
+        if (endpointsHandler == null) {
+          // Mirror of the realtime-path guard: a null callback means the
+          // endpoint service was never instantiated — log instead of
+          // silently losing the peer's endpoint share.
+          devLog(
+            () =>
+                'xVeil[p2p]: endpoints frame from ${m.src.short} dropped '
+                '(no endpoint service attached)',
+          );
+        } else {
+          endpointsHandler(m.src, env.body);
+        }
         return;
       case WireKind.spaceInvite:
         // A proposal, not authorization. Keep it contact-gated and let the
