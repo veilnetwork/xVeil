@@ -415,6 +415,29 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     }
   }
 
+  @override
+  Future<void> invalidatePeerChannel(NodeId peer) => _locked(() async {
+    final engine = _engine;
+    final cached = _peers.remove(peer.hex);
+    if (cached == null) return;
+    _lastRxPackets.remove(peer.hex);
+    _lastRxAt.remove(peer.hex);
+    _peerVideoFrames[peer.hex]?.value = null;
+    if (engine != null) {
+      try {
+        engine.removePeer(cached.nodeId);
+      } catch (_) {}
+    }
+    try {
+      _transport.close(cached.channel);
+    } catch (_) {}
+    devLog(
+      () =>
+          'xVeil[group-call-media]: invalidated stale channel to '
+          '${peer.short} (peer rejoined)',
+    );
+  });
+
   ValueListenable<VeilVideoFrame?> videoFrameFor(NodeId peer) =>
       _peerVideoFrames.putIfAbsent(peer.hex, () => ValueNotifier(null));
 

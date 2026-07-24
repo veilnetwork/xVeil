@@ -136,6 +136,7 @@ class _Media extends GroupCallMediaController {
   int starts = 0;
   int updates = 0;
   int stops = 0;
+  final List<NodeId> invalidated = [];
   GroupCall? latest;
   String? selectedScreenId;
   final StreamController<void> screenStops = StreamController.broadcast();
@@ -172,6 +173,11 @@ class _Media extends GroupCallMediaController {
   @override
   Future<void> stop() async {
     stops++;
+  }
+
+  @override
+  Future<void> invalidatePeerChannel(NodeId peer) async {
+    invalidated.add(peer);
   }
 
   @override
@@ -636,9 +642,14 @@ void main() {
         contains(voiceChannel),
       );
 
+      // The channel-epoch re-ring rides a real 300 ms one-shot Timer; poll for
+      // it rather than sleeping a hair over 300 ms, which races under parallel
+      // test load (the timer can miss a fixed 350 ms window on a busy machine).
       final before = ownerFrames.length;
-      await Future<void>.delayed(const Duration(milliseconds: 350));
-      await pumpEventQueue();
+      for (var i = 0; i < 40 && ownerFrames.length == before; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await pumpEventQueue();
+      }
       expect(ownerFrames.skip(before).map((entry) => entry.peer), [carol]);
       expect(carolCalls.current?.status, GroupCallStatus.ringing);
       expect(carolCalls.current?.channelEpoch, 2);
@@ -885,6 +896,96 @@ void main() {
         (await ownerStorage.loadFile('group:${groupId.hex}'))!,
       );
       expect(persisted, isNot(contains('private-call-id')));
+    },
+  );
+
+  test(
+    'a repeated JOIN from a known participant invalidates its media channel',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final bobStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      late GroupService ownerGroups;
+      late GroupService bobGroups;
+      ownerGroups = GroupService(
+        ownerStorage,
+        _Signer(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+        sendGroupCallFrame: (peer, signal, json) async {
+          if (peer == bob) await bobGroups.ingestGroupCallFrame(owner, json);
+        },
+      );
+      final groupId = await ownerGroups.createGroup('Rejoin room');
+      await ownerGroups.addControlOp(
+        groupId,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      );
+      bobGroups = GroupService(
+        bobStorage,
+        _Signer(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+        sendGroupCallFrame: (peer, signal, json) async {
+          if (peer == owner) await ownerGroups.ingestGroupCallFrame(bob, json);
+        },
+      );
+      expect(
+        await bobGroups.ingestSnapshot(
+          ownerGroups.snapshotJson(
+            (await ownerGroups.load(groupId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+
+      final ownerMedia = _Media();
+      final bobMedia = _Media();
+      final ownerCalls = GroupCallService(ownerGroups, media: ownerMedia)
+        ..start();
+      final bobCalls = GroupCallService(bobGroups, media: bobMedia)..start();
+      addTearDown(ownerCalls.dispose);
+      addTearDown(bobCalls.dispose);
+
+      expect(
+        await ownerCalls.startCall(groupId, const CallMedia(audio: true)),
+        isTrue,
+      );
+      await pumpEventQueue();
+      expect(bobCalls.current?.status, GroupCallStatus.ringing);
+
+      // First join must NOT invalidate anything — there is no stale channel.
+      expect(await bobCalls.join(), isTrue);
+      await pumpEventQueue();
+      expect(
+        ownerCalls.current?.participants.keys,
+        containsAll([owner.hex, bob.hex]),
+      );
+      expect(ownerMedia.invalidated, isEmpty);
+
+      // Bob's app restarts and re-enters the room: the owner sees a JOIN for
+      // an already-known participant. The channel toward Bob's previous media
+      // session is dead — keeping it silently sends audio into the void
+      // (live stand, 2026-07-24), so it must be dropped for a fresh dial.
+      expect(
+        await bobGroups.broadcastGroupCallSignal(
+          groupId,
+          callId: bobCalls.current!.callId,
+          type: GroupCallSignalType.join,
+          media: const CallMedia(audio: true),
+        ),
+        isNotNull,
+      );
+      await pumpEventQueue();
+      expect(ownerMedia.invalidated, [bob]);
+      // The following roster sync re-dials: media update ran after the join.
+      expect(ownerMedia.updates, greaterThanOrEqualTo(2));
     },
   );
 
