@@ -95,6 +95,17 @@ class _PublicSpacePostsScreenState
     });
   }
 
+  void _goBack() {
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+    // Direct-route entry (deep link, comments fallback) left no stack below —
+    // without an explicit leading the flat router shows no back affordance at
+    // all and the screen becomes a dead end. Home is the only safe anchor.
+    context.go('/home');
+  }
+
   Future<void> _refresh(
     GroupService service,
     NodeId spaceId, {
@@ -157,7 +168,9 @@ class _PublicSpacePostsScreenState
       if (context.canPop()) {
         context.pop();
       } else {
-        context.go('/spaces');
+        // A standalone '/spaces' would itself have no back affordance (flat
+        // router, empty stack) — anchor at home instead of another dead end.
+        context.go('/home');
       }
     } else {
       ScaffoldMessenger.of(
@@ -174,7 +187,15 @@ class _PublicSpacePostsScreenState
     try {
       spaceId = NodeId.fromHex(widget.spaceIdHex);
     } catch (_) {
-      return Scaffold(body: Center(child: Text(l.spaceOperationFailed)));
+      return Scaffold(
+        appBar: AppBar(
+          leading: BackButton(
+            key: const ValueKey('public-space-posts-back'),
+            onPressed: _goBack,
+          ),
+        ),
+        body: Center(child: Text(l.spaceOperationFailed)),
+      );
     }
     if (service == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -192,7 +213,12 @@ class _PublicSpacePostsScreenState
               );
             }
             return Scaffold(
-              appBar: AppBar(),
+              appBar: AppBar(
+                leading: BackButton(
+                  key: const ValueKey('public-space-posts-back'),
+                  onPressed: _goBack,
+                ),
+              ),
               body: Center(child: Text(l.spaceOperationFailed)),
             );
           }
@@ -204,6 +230,10 @@ class _PublicSpacePostsScreenState
           });
           return Scaffold(
             appBar: AppBar(
+              leading: BackButton(
+                key: const ValueKey('public-space-posts-back'),
+                onPressed: _goBack,
+              ),
               title: Text(view.descriptor.name),
               actions: [
                 IconButton(

@@ -401,7 +401,13 @@ class _SpacePostCommentsScreenState
       context.pop();
       return;
     }
-    context.go('/space/${widget.spaceIdHex}/posts');
+    // Direct-route entry left no stack below. A bare go() to the posts surface
+    // would strand the user on a screen whose AppBar has no back affordance
+    // (flat router → canPop stays false). Root the stack at home first, then
+    // push the posts surface — back from there leads home, like a normal open.
+    GoRouter.of(context)
+      ..go('/home')
+      ..push('/space/${widget.spaceIdHex}/posts');
   }
 
   void _scheduleTail(int commentCount) {
@@ -429,7 +435,15 @@ class _SpacePostCommentsScreenState
     try {
       spaceId = NodeId.fromHex(widget.spaceIdHex);
     } catch (_) {
-      return Scaffold(body: Center(child: Text(l.spaceOperationFailed)));
+      return Scaffold(
+        appBar: AppBar(
+          leading: BackButton(
+            key: const ValueKey('space-post-comments-back'),
+            onPressed: _goBack,
+          ),
+        ),
+        body: Center(child: Text(l.spaceOperationFailed)),
+      );
     }
     if (service == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
