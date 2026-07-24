@@ -823,6 +823,17 @@ class SpaceScreen extends ConsumerWidget {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
+  void _goBack(BuildContext context) {
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+    // Direct-route entry (deep link, notification tap) left no stack below —
+    // without an explicit leading the flat router shows no back affordance at
+    // all and the screen becomes a dead end. Home is the only safe anchor.
+    context.go('/home');
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
@@ -831,7 +842,17 @@ class SpaceScreen extends ConsumerWidget {
     try {
       spaceId = NodeId.fromHex(spaceIdHex);
     } catch (_) {
-      return Scaffold(body: Center(child: Text(l.spaceOperationFailed)));
+      // A malformed deep link must still offer a way out — a bare error body
+      // would be a dead end.
+      return Scaffold(
+        appBar: AppBar(
+          leading: BackButton(
+            key: const ValueKey('space-screen-back'),
+            onPressed: () => _goBack(context),
+          ),
+        ),
+        body: Center(child: Text(l.spaceOperationFailed)),
+      );
     }
     if (service == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -857,11 +878,27 @@ class SpaceScreen extends ConsumerWidget {
           final recommendationCampaigns =
               snapshot.data![2] as List<SpaceRecommendationCampaign>;
           if (state == null) {
-            return Scaffold(body: Center(child: Text(l.spaceOperationFailed)));
+            // An unknown or already-left space (stale deep link) must still
+            // offer a way out — a bare error body would be a dead end.
+            return Scaffold(
+              appBar: AppBar(
+                leading: BackButton(
+                  key: const ValueKey('space-screen-back'),
+                  onPressed: () => _goBack(context),
+                ),
+              ),
+              body: Center(child: Text(l.spaceOperationFailed)),
+            );
           }
           if (state.isDeleted) {
             return Scaffold(
-              appBar: AppBar(title: Text(state.name)),
+              appBar: AppBar(
+                leading: BackButton(
+                  key: const ValueKey('space-screen-back'),
+                  onPressed: () => _goBack(context),
+                ),
+                title: Text(state.name),
+              ),
               body: Center(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
@@ -901,6 +938,10 @@ class SpaceScreen extends ConsumerWidget {
           final archived = state.isArchived;
           return Scaffold(
             appBar: AppBar(
+              leading: BackButton(
+                key: const ValueKey('space-screen-back'),
+                onPressed: () => _goBack(context),
+              ),
               title: Text(state.name),
               actions: [
                 if (SpaceAcl(state).allows(

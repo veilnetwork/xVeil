@@ -26,6 +26,7 @@ import 'package:xveil/features/spaces/space_list_screen.dart';
 import 'package:xveil/features/spaces/space_moderation_screen.dart';
 import 'package:xveil/features/spaces/space_post_comments_screen.dart';
 import 'package:xveil/features/spaces/space_posts_screen.dart';
+import 'package:xveil/features/spaces/space_screen.dart';
 import 'package:xveil/features/spaces/public_space_posts_screen.dart';
 import 'package:xveil/features/spaces/public_space_post_comments_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
@@ -1412,6 +1413,76 @@ void main() {
       expect(find.byKey(const ValueKey('space-posts-back')), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('space-posts-back')));
+      await tester.pumpAndSettle();
+      expect(find.text('Home anchor'), findsOneWidget);
+    },
+  );
+
+  testWidgets('Space hub on a bare direct route still offers a way home', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _Signer(_id(19)));
+    final spaceId = await service.createSpace(
+      'Deep link hub',
+      visibility: SpaceVisibility.public,
+    );
+    final router = GoRouter(
+      initialLocation: '/space/${spaceId.hex}',
+      routes: [
+        GoRoute(
+          path: '/home',
+          builder: (_, _) => const Scaffold(body: Text('Home anchor')),
+        ),
+        GoRoute(
+          path: '/space/:id',
+          builder: (_, state) =>
+              SpaceScreen(spaceIdHex: state.pathParameters['id']!),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(_routerHost(service, router, storage: storage));
+    await tester.pumpAndSettle();
+    expect(find.byType(SpaceScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('space-screen-back')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('space-screen-back')));
+    await tester.pumpAndSettle();
+    expect(find.text('Home anchor'), findsOneWidget);
+  });
+
+  testWidgets(
+    'Space hub error surface for an unknown space still offers a way home',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _Signer(_id(19)));
+      // A stale deep link (left/unknown space) renders the failure body; it
+      // must keep a live back affordance instead of a bare dead-end screen.
+      final router = GoRouter(
+        initialLocation: '/space/${_id(88).hex}',
+        routes: [
+          GoRoute(
+            path: '/home',
+            builder: (_, _) => const Scaffold(body: Text('Home anchor')),
+          ),
+          GoRoute(
+            path: '/space/:id',
+            builder: (_, state) =>
+                SpaceScreen(spaceIdHex: state.pathParameters['id']!),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(_routerHost(service, router, storage: storage));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('space-screen-back')), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('space-screen-back')));
       await tester.pumpAndSettle();
       expect(find.text('Home anchor'), findsOneWidget);
     },
