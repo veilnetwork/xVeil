@@ -1284,50 +1284,193 @@ void main() {
     expect(find.byType(SpacePostCommentsScreen), findsNothing);
   });
 
-  testWidgets('Space comments back button has a direct-route fallback', (
-    tester,
-  ) async {
-    final storage = FakeHvContainer().storage();
-    await storage.open(password: 'pw', createIfMissing: true);
-    final service = GroupService(storage, _Signer(_id(19)));
-    final spaceId = await service.createSpace(
-      'Back fallback',
-      visibility: SpaceVisibility.public,
-    );
-    final post = (await service.publishSpacePost(
-      spaceId,
-      title: 'Fallback post',
-      body: '',
-      broadcast: false,
-    ))!;
-    final router = GoRouter(
-      initialLocation:
-          '/space/${spaceId.hex}/comments?post='
-          '${Uri.encodeQueryComponent(post.postId)}',
-      routes: [
-        GoRoute(
-          path: '/space/:id/posts',
-          builder: (_, _) => const Scaffold(body: Text('Posts fallback')),
-        ),
-        GoRoute(
-          path: '/space/:id/comments',
-          builder: (_, state) => SpacePostCommentsScreen(
-            spaceIdHex: state.pathParameters['id']!,
-            postId: state.uri.queryParameters['post']!,
+  testWidgets(
+    'Space comments direct-route fallback never strands the user',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _Signer(_id(19)));
+      final spaceId = await service.createSpace(
+        'Back fallback',
+        visibility: SpaceVisibility.public,
+      );
+      final post = (await service.publishSpacePost(
+        spaceId,
+        title: 'Fallback post',
+        body: '',
+        broadcast: false,
+      ))!;
+      final router = GoRouter(
+        initialLocation:
+            '/space/${spaceId.hex}/comments?post='
+            '${Uri.encodeQueryComponent(post.postId)}',
+        routes: [
+          GoRoute(
+            path: '/home',
+            builder: (_, _) => const Scaffold(body: Text('Home anchor')),
           ),
-        ),
-      ],
-    );
-    addTearDown(router.dispose);
+          GoRoute(
+            path: '/space/:id/posts',
+            builder: (_, state) =>
+                SpacePostsScreen(spaceIdHex: state.pathParameters['id']!),
+          ),
+          GoRoute(
+            path: '/space/:id/comments',
+            builder: (_, state) => SpacePostCommentsScreen(
+              spaceIdHex: state.pathParameters['id']!,
+              postId: state.uri.queryParameters['post']!,
+            ),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
 
-    await tester.pumpWidget(_routerHost(service, router, storage: storage));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('space-post-comments-back')));
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(_routerHost(service, router, storage: storage));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('space-post-comments-back')));
+      await tester.pumpAndSettle();
 
-    expect(find.text('Posts fallback'), findsOneWidget);
-    expect(find.byType(SpacePostCommentsScreen), findsNothing);
-  });
+      // The fallback lands on the REAL publications screen with the stack
+      // rooted at home — the screen must show a live back arrow, not become
+      // the dead end it used to be (title with no leading, canPop false).
+      expect(find.byType(SpacePostsScreen), findsOneWidget);
+      expect(find.text('Fallback post'), findsOneWidget);
+      expect(find.byType(SpacePostCommentsScreen), findsNothing);
+      expect(router.canPop(), isTrue);
+      expect(find.byKey(const ValueKey('space-posts-back')), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('space-posts-back')));
+      await tester.pumpAndSettle();
+      expect(find.text('Home anchor'), findsOneWidget);
+      expect(find.byType(SpacePostsScreen), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Publications screen on a bare direct route still offers a way home',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _Signer(_id(19)));
+      final spaceId = await service.createSpace(
+        'Deep link posts',
+        visibility: SpaceVisibility.public,
+      );
+      final router = GoRouter(
+        initialLocation: '/space/${spaceId.hex}/posts',
+        routes: [
+          GoRoute(
+            path: '/home',
+            builder: (_, _) => const Scaffold(body: Text('Home anchor')),
+          ),
+          GoRoute(
+            path: '/space/:id/posts',
+            builder: (_, state) =>
+                SpacePostsScreen(spaceIdHex: state.pathParameters['id']!),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(_routerHost(service, router, storage: storage));
+      await tester.pumpAndSettle();
+      expect(find.byType(SpacePostsScreen), findsOneWidget);
+      expect(find.byKey(const ValueKey('space-posts-back')), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('space-posts-back')));
+      await tester.pumpAndSettle();
+      expect(find.text('Home anchor'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Publications error surface for an unknown space still offers a way home',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _Signer(_id(19)));
+      // A stale deep link (left/unknown space) renders the failure body; it
+      // must keep a live back affordance instead of a bare dead-end screen.
+      final router = GoRouter(
+        initialLocation: '/space/${_id(88).hex}/posts',
+        routes: [
+          GoRoute(
+            path: '/home',
+            builder: (_, _) => const Scaffold(body: Text('Home anchor')),
+          ),
+          GoRoute(
+            path: '/space/:id/posts',
+            builder: (_, state) =>
+                SpacePostsScreen(spaceIdHex: state.pathParameters['id']!),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(_routerHost(service, router, storage: storage));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('space-posts-back')), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('space-posts-back')));
+      await tester.pumpAndSettle();
+      expect(find.text('Home anchor'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Public comments direct-route fallback roots the public feed at home',
+    (tester) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _Signer(_id(19)));
+      // No subscription on purpose: even the failure surfaces of both public
+      // screens must keep a live back affordance on a bare direct route.
+      final spaceId = _id(77);
+      final router = GoRouter(
+        initialLocation: '/space/${spaceId.hex}/public-comments?post=p1',
+        routes: [
+          GoRoute(
+            path: '/home',
+            builder: (_, _) => const Scaffold(body: Text('Home anchor')),
+          ),
+          GoRoute(
+            path: '/space/:id/public-posts',
+            builder: (_, state) => PublicSpacePostsScreen(
+              spaceIdHex: state.pathParameters['id']!,
+              initialPostId: state.uri.queryParameters['post'],
+            ),
+          ),
+          GoRoute(
+            path: '/space/:id/public-comments',
+            builder: (_, state) => PublicSpacePostCommentsScreen(
+              spaceIdHex: state.pathParameters['id']!,
+              postId: state.uri.queryParameters['post'] ?? '',
+            ),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(_routerHost(service, router, storage: storage));
+      await tester.pumpAndSettle();
+      expect(find.byType(PublicSpacePostCommentsScreen), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey('public-space-comments-back')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PublicSpacePostsScreen), findsOneWidget);
+      expect(router.canPop(), isTrue);
+      expect(
+        find.byKey(const ValueKey('public-space-posts-back')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('public-space-posts-back')));
+      await tester.pumpAndSettle();
+      expect(find.text('Home anchor'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'Space publication composer persists, publishes and edits shared media refs',

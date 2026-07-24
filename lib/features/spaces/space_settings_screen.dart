@@ -1015,7 +1015,10 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
       _failure();
       return;
     }
-    if (mounted) context.go('/spaces');
+    // The whole space stack (hub, settings) is gone with the membership; a
+    // standalone '/spaces' would have no back affordance (flat router, empty
+    // stack) — anchor at home, whose shell keeps the communities tab alive.
+    if (mounted) context.go('/home');
   }
 
   Future<void> _setArchived(

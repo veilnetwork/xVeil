@@ -64,10 +64,33 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
 
   @override
   void dispose() {
-    if (_activeConversation?.state == _conversationKey) {
-      _activeConversation!.state = null;
+    final activeConversation = _activeConversation;
+    final conversationKey = _conversationKey;
+    if (activeConversation?.state == conversationKey) {
+      // Riverpod forbids provider mutations while Flutter finalizes a route's
+      // widget tree. Clear the marker after the synchronous navigation frame.
+      scheduleMicrotask(() {
+        try {
+          if (activeConversation!.state == conversationKey) {
+            activeConversation.state = null;
+          }
+        } catch (_) {
+          // The ProviderScope may already be gone during test/app teardown.
+        }
+      });
     }
     super.dispose();
+  }
+
+  void _goBack() {
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+    // Direct-route entry (deep link, comments fallback) left no stack below —
+    // without an explicit leading the flat router shows no back affordance at
+    // all and the screen becomes a dead end. Home is the only safe anchor.
+    context.go('/home');
   }
 
   Future<MediaObject?> _registerVoice(WidgetRef ref, VoiceClip clip) =>
@@ -354,7 +377,15 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
     try {
       spaceId = NodeId.fromHex(widget.spaceIdHex);
     } catch (_) {
-      return Scaffold(body: Center(child: Text(l.spaceOperationFailed)));
+      return Scaffold(
+        appBar: AppBar(
+          leading: BackButton(
+            key: const ValueKey('space-posts-back'),
+            onPressed: _goBack,
+          ),
+        ),
+        body: Center(child: Text(l.spaceOperationFailed)),
+      );
     }
     if (service == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -381,7 +412,17 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
           final reactions = snapshot.data![3] as Map<String, MessageReactions>;
           final scheduled = snapshot.data![4] as List<ScheduledSpacePost>;
           if (state == null) {
-            return Scaffold(body: Center(child: Text(l.spaceOperationFailed)));
+            // An unknown or already-left space (stale deep link) must still
+            // offer a way out — a bare error body would be a dead end.
+            return Scaffold(
+              appBar: AppBar(
+                leading: BackButton(
+                  key: const ValueKey('space-posts-back'),
+                  onPressed: _goBack,
+                ),
+              ),
+              body: Center(child: Text(l.spaceOperationFailed)),
+            );
           }
           final canPublish = SpaceAcl(
             state,
@@ -404,6 +445,10 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
           });
           return Scaffold(
             appBar: AppBar(
+              leading: BackButton(
+                key: const ValueKey('space-posts-back'),
+                onPressed: _goBack,
+              ),
               title: Text(l.spacePostsTitle),
               actions: [
                 IconButton(
