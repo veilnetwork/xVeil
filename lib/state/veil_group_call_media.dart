@@ -8,6 +8,7 @@ import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/group_call.dart';
+import 'android_call_foreground.dart';
 import 'android_camera_capture.dart';
 import 'android_screen_capture.dart';
 import 'call_service.dart' show CallMediaDevice, screenSourceDeviceKind;
@@ -245,6 +246,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     final engine = _engineFactory(localId);
     if (engine == null) return false;
     _engine = engine;
+    // Before capture opens: keeps AudioRecord unmuted once the screen locks;
+    // released by _stopLocked on every teardown path.
+    if (call.media.audio) {
+      await AndroidCallForegroundService.setActive(true);
+    }
     await _syncPeersLocked(call);
     final audioReady = !call.media.audio || engine.startAudio();
     if (audioReady && call.media.audio) {
@@ -622,6 +628,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _lastRxAt.clear();
     _localIdHex = null;
     await callAudioRouter.release();
+    await AndroidCallForegroundService.setActive(false);
   }
 
   Future<void> _startAndroidCamera(GroupAudioEngine engine) async {

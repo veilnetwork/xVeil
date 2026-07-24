@@ -38,6 +38,7 @@ class MainActivity : FlutterActivity() {
     private val audioDevicesChannelName = "xveil/audio_devices"
     private val callAudioRouteChannelName = "xveil/call_audio_route"
     private val callNetworkChannelName = "xveil/call_network"
+    private val callForegroundChannelName = "xveil/call_foreground"
     private val whisperModelChannelName = "xveil/whisper_model"
     private val micRequestCode = 0x4D49 // 'MI'
     private val screenCaptureRequestCode = 0x5343 // 'SC'
@@ -89,6 +90,23 @@ class MainActivity : FlutterActivity() {
                     result.success(setCallNetworkActive(active))
                 }
                 "isActive" -> result.success(callWifiLock?.isHeld == true)
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            callForegroundChannelName,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "setActive" -> {
+                    val active = call.argument<Boolean>("active") ?: false
+                    if (active) {
+                        result.success(CallMicrophoneService.start(this))
+                    } else {
+                        CallMicrophoneService.stop(this)
+                        result.success(true)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -652,6 +670,9 @@ class MainActivity : FlutterActivity() {
         nativeCallVideoRenderer?.stop()
         nativeCallVideoRenderer = null
         stopScreenCapture()
+        // The Dart owner is gone; never leave the ongoing-call notification
+        // (and its microphone grant) dangling past the engine.
+        CallMicrophoneService.stop(this)
         screenCaptureChannel?.let(ScreenCaptureBridge::detach)
         screenCaptureChannel = null
         super.cleanUpFlutterEngine(flutterEngine)

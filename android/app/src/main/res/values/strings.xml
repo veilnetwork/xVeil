@@ -3,4 +3,7 @@
     <string name="screen_share_channel_name">Screen sharing</string>
     <string name="screen_share_channel_description">Shows when xVeil is sharing your screen</string>
     <string name="screen_share_notification_text">Screen sharing is active</string>
+    <string name="call_mic_channel_name">Ongoing call</string>
+    <string name="call_mic_channel_description">Keeps the microphone available while a call is active</string>
+    <string name="call_mic_notification_text">Call in progress</string>
 </resources>
