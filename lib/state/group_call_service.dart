@@ -301,9 +301,24 @@ class GroupCallService {
       call.groupId,
       call.channelId,
     );
-    if (state == null ||
-        admission == null ||
-        !admission.recipients.contains(_groups.selfId)) {
+    if (state == null || admission == null) {
+      // TRANSIENT unavailability: the group snapshot or the (possibly
+      // rotated) channel admission simply has not arrived yet — announces
+      // and control frames ride the relay and can lag the ring by tens of
+      // seconds. Ending the room here turned every eager join into
+      // "join → ended" on the live stand (2026-07-24). Keep ringing so a
+      // retry (user tap, hook, or the next announce) can succeed.
+      devLog(
+        () =>
+            'xVeil[group-call]: join deferred — '
+            '${state == null ? 'group state' : 'channel admission'} '
+            'not available yet (still ringing)',
+      );
+      return false;
+    }
+    if (!admission.recipients.contains(_groups.selfId)) {
+      // AUTHORITATIVE exclusion: the admission is present and we are not in
+      // it — kicked or channel membership revoked. This one is final.
       _end(CallEndReason.error, roomOver: true);
       return false;
     }
