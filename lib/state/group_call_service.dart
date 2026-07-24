@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/ids.dart';
+import '../core/log.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call_signal.dart';
 import '../domain/group.dart';
@@ -19,6 +20,15 @@ const _uuid = Uuid();
 const Duration kGroupCallRingTimeout = Duration(seconds: 45);
 const Duration kGroupCallHeartbeatInterval = Duration(seconds: 5);
 const Duration kGroupCallLivenessTimeout = Duration(seconds: 20);
+
+/// How long a live unmuted participant may stay silent before we treat our
+/// inbound leg from them as black-holed and re-announce a JOIN so they
+/// re-dial us (stale-rendezvous media circuit repair).
+const Duration kGroupCallMediaRepairSilence = Duration(seconds: 10);
+
+/// Floor between two repair JOIN re-announces so a genuinely unreachable
+/// peer cannot make us spam the room.
+const Duration kGroupCallMediaRepairMinInterval = Duration(seconds: 15);
 const Duration kGroupCallReannounceInterval = Duration(seconds: 60);
 const Duration kGroupCallTombstoneTtl = Duration(minutes: 3);
 
@@ -70,6 +80,13 @@ abstract class GroupCallMediaController {
   bool requestScreenCaptureAccess() => true;
   Stream<void> get screenShareStopped => const Stream<void>.empty();
   DateTime? lastMediaRxAt(NodeId peer) => null;
+
+  /// Drop any cached media channel toward [peer] so the next roster sync
+  /// dials a fresh one. A JOIN signal from an already-known participant means
+  /// the peer (re)started its media session — its old rendezvous/circuit is
+  /// dead, and keeping the cached channel silently sends audio into the void
+  /// (live stand, 2026-07-24: restarted phone rejoined and heard nothing).
+  Future<void> invalidatePeerChannel(NodeId peer) async {}
 }
 
 class GroupCallService {
@@ -116,6 +133,7 @@ class GroupCallService {
   Timer? _ringTimer;
   Timer? _heartbeatTimer;
   Timer? _reannounceTimer;
+  DateTime? _lastMediaRepairJoinAt;
   final List<Timer> _channelEpochReannounceTimers = [];
   GroupCall? _current;
   bool _started = false;
@@ -597,7 +615,13 @@ class GroupCallService {
     }
     switch (signal.type) {
       case GroupCallSignalType.join:
+        final rejoined = call.participants.containsKey(signal.author.hex);
         _touchParticipant(signal, joinedIfMissing: true);
+        if (rejoined) {
+          // The peer restarted its media session (leave/crash/app restart);
+          // the channel we opened toward its previous session is dead.
+          await _media?.invalidatePeerChannel(signal.author);
+        }
         await _syncMedia();
       case GroupCallSignalType.leave:
         _removeParticipant(signal.author);
@@ -716,6 +740,56 @@ class GroupCallService {
     screen: call.media.video && call.screenOn,
   );
 
+  /// A media circuit can silently black-hole: the sender's channel resolved a
+  /// stale rendezvous (peer restarted moments earlier) and every datagram is
+  /// swallowed downstream while the local enqueue keeps "succeeding" — the
+  /// native no-route self-heal never fires (live stand, 2026-07-24: restarted
+  /// pair, mac→phone audio flowed, phone→mac stayed at zero packets forever).
+  /// Only the RECEIVER can see the silence, so it re-announces its own JOIN;
+  /// the repeat-join handler on every peer invalidates its channel toward us
+  /// and re-dials with a fresh rendezvous resolve.
+  void _maybeRequestMediaRepair(GroupCall call) {
+    final media = _media;
+    if (media == null) return;
+    final now = _now();
+    var starved = false;
+    for (final participant in call.participants.values) {
+      if (participant.nodeId == _groups.selfId) continue;
+      // A muted peer legitimately sends nothing.
+      if (!participant.media.audio) continue;
+      if (now.difference(participant.joinedAt) < kGroupCallMediaRepairSilence) {
+        continue;
+      }
+      final rxAt = media.lastMediaRxAt(participant.nodeId);
+      if (rxAt == null ||
+          now.difference(rxAt) > kGroupCallMediaRepairSilence) {
+        starved = true;
+        break;
+      }
+    }
+    if (!starved) return;
+    final last = _lastMediaRepairJoinAt;
+    if (last != null &&
+        now.difference(last) < kGroupCallMediaRepairMinInterval) {
+      return;
+    }
+    _lastMediaRepairJoinAt = now;
+    devLog(
+      () =>
+          'xVeil[group-call]: no media from a live unmuted participant — '
+          're-announcing join so peers re-dial our channel',
+    );
+    unawaited(
+      _groups.broadcastGroupCallSignal(
+        call.groupId,
+        channelId: call.channelId,
+        callId: call.callId,
+        type: GroupCallSignalType.join,
+        media: _localMedia(call),
+      ),
+    );
+  }
+
   Future<void> _heartbeat() async {
     final call = _current;
     if (call == null || !call.isLive || !call.isJoined(_groups.selfId)) return;
@@ -729,6 +803,7 @@ class GroupCallService {
       // instead of retaining a stale mic/camera state indefinitely.
       media: _localMedia(call),
     );
+    _maybeRequestMediaRepair(call);
     final now = _now();
     final participants = Map<String, GroupCallParticipant>.from(
       call.participants,

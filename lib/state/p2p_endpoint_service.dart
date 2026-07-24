@@ -263,38 +263,84 @@ class P2PEndpointService {
   /// silence is indistinguishable from an older build).
   void _onFrame(NodeId peer, String bodyJson) {
     unawaited(() async {
-      if (!await _localAllowsP2P(peer)) return;
-      List<String> uris;
-      int ts;
-      bool reshareRequested;
+      // Every early exit names its reason in the dev log. The WIRE stays
+      // silent for a denied peer (no policy oracle for the sender), but a
+      // silent local drop already cost a live-stand session: both call-time
+      // exchanges vanished without a trace and the call fell back to relay
+      // (2026-07-24). The outer catch also covers a throwing policy/provider
+      // read — an exception in this unawaited closure is otherwise invisible.
       try {
-        final m = jsonDecode(bodyJson);
-        if (m is! Map || m['v'] != 1) return;
-        ts = (m['ts'] as num?)?.toInt() ?? 0;
-        reshareRequested = m['r'] == 1;
-        uris = [
-          for (final e in (m['e'] as List? ?? const []))
-            if (e is String && e.isNotEmpty) e,
-        ];
-      } catch (_) {
-        return;
+        if (!await _localAllowsP2P(peer)) {
+          devLog(
+            () =>
+                'xVeil[p2p]: drop endpoints from ${peer.short} '
+                '(local policy denies)',
+          );
+          return;
+        }
+        List<String> uris;
+        int ts;
+        bool reshareRequested;
+        try {
+          final m = jsonDecode(bodyJson);
+          if (m is! Map || m['v'] != 1) {
+            devLog(
+              () =>
+                  'xVeil[p2p]: drop endpoints from ${peer.short} '
+                  '(unsupported frame version)',
+            );
+            return;
+          }
+          ts = (m['ts'] as num?)?.toInt() ?? 0;
+          reshareRequested = m['r'] == 1;
+          uris = [
+            for (final e in (m['e'] as List? ?? const []))
+              if (e is String && e.isNotEmpty) e,
+          ];
+        } catch (_) {
+          devLog(
+            () =>
+                'xVeil[p2p]: drop endpoints from ${peer.short} '
+                '(unparseable frame)',
+          );
+          return;
+        }
+        if (uris.isEmpty || uris.length > _maxEndpointsPerFrame) {
+          devLog(
+            () =>
+                'xVeil[p2p]: drop endpoints from ${peer.short} '
+                '(endpoint count ${uris.length})',
+          );
+          return;
+        }
+        final prevTs = _peerEndpointTs[peer.hex] ?? 0;
+        if (ts <= prevTs) {
+          // stale re-drive/out-of-order
+          devLog(
+            () =>
+                'xVeil[p2p]: drop endpoints from ${peer.short} '
+                '(stale ts $ts <= $prevTs)',
+          );
+          return;
+        }
+        _peerEndpointTs[peer.hex] = ts;
+        _peerEndpoints[peer.hex] = uris;
+        devLog(
+          () =>
+              'xVeil[p2p]: peer ${peer.short} shared ${uris.length} '
+              'endpoint(s)${reshareRequested ? ' (reshare requested)' : ''}',
+        );
+        // Symmetric warm-up: answer with ours (forced fresh when the peer
+        // asked — call-time mutual exchange — else throttled), then dial
+        // theirs. The reply never re-requests a reshare, so the exchange
+        // settles in one round trip each way rather than ping-ponging.
+        unawaited(maybeShare(peer, force: reshareRequested));
+        await _dialPeer(peer);
+      } catch (e) {
+        devLog(
+          () => 'xVeil[p2p]: endpoints frame from ${peer.short} failed: $e',
+        );
       }
-      if (uris.isEmpty || uris.length > _maxEndpointsPerFrame) return;
-      final prevTs = _peerEndpointTs[peer.hex] ?? 0;
-      if (ts <= prevTs) return; // stale re-drive/out-of-order
-      _peerEndpointTs[peer.hex] = ts;
-      _peerEndpoints[peer.hex] = uris;
-      devLog(
-        () =>
-            'xVeil[p2p]: peer ${peer.short} shared ${uris.length} '
-            'endpoint(s)${reshareRequested ? ' (reshare requested)' : ''}',
-      );
-      // Symmetric warm-up: answer with ours (forced fresh when the peer asked
-      // — call-time mutual exchange — else throttled), then dial theirs. The
-      // reply never re-requests a reshare, so the exchange settles in one
-      // round trip each way rather than ping-ponging.
-      unawaited(maybeShare(peer, force: reshareRequested));
-      await _dialPeer(peer);
     }());
   }
 

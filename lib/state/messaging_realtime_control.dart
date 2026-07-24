@@ -81,7 +81,19 @@ class _MessagingRealtimeControl {
             'xVeil[p2p]: realtime in endpoints from=${message.src.short} '
             '(${envelope.body.length} B)',
       );
-      onP2PEndpoints?.call(message.src, envelope.body);
+      final endpointsHandler = onP2PEndpoints;
+      if (endpointsHandler == null) {
+        // The endpoint service registers this callback in start(); losing a
+        // frame here means the service was never instantiated (see the eager
+        // watch in app.dart) — say so instead of vanishing the frame.
+        devLog(
+          () =>
+              'xVeil[p2p]: endpoints frame from ${message.src.short} dropped '
+              '(no endpoint service attached)',
+        );
+      } else {
+        endpointsHandler(message.src, envelope.body);
+      }
       return;
     }
 

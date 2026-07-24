@@ -180,7 +180,17 @@ class VeilFlutterTransport
       throw ArgumentError('media channel cannot be both direct and relay');
     }
     if (!direct && !relay) {
-      return _mediaClient.openMediaChannel(dstNodeId: dstNode);
+      // ANONYMOUS-circuit media (group voice channels, onion 1:1 media) must
+      // ride the MAIN client: its connection owns the node's single
+      // onion-stream hub (endpoint 12, bound by the anon accept loop at
+      // startup), and send/close/recvCount below already live on `_client`.
+      // Opening on the dedicated media client binds a SECOND hub on another
+      // connection and the node rejects it ("endpoint 12 is already bound") —
+      // this silently killed every group voice channel when media moved to
+      // its own connection (564008c). IPC head-of-line blocking on the main
+      // connection has since been closed architecturally by per-request ids,
+      // so anon media on `_client` is safe again.
+      return _client.openMediaChannel(dstNodeId: dstNode);
     }
     final peer = NodeId(dstNode);
     if (relay) {

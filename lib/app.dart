@@ -13,6 +13,7 @@ import 'state/cloud_service.dart';
 import 'state/device_sync_bridge.dart';
 import 'state/group_service_providers.dart';
 import 'state/group_call_service.dart';
+import 'state/p2p_endpoint_service.dart';
 import 'state/locale_controller.dart';
 import 'theme/app_theme.dart';
 
@@ -63,6 +64,15 @@ class _GroupBridge extends ConsumerWidget {
     // Keep ephemeral group-call signaling attached from identity-ready onward;
     // an incoming announce must not be lost merely because no call UI is open.
     ref.watch(groupCallServiceProvider);
+    // Keep the P2P endpoint service attached from identity-ready onward. The
+    // provider is lazy, and until something reads it the realtime
+    // `onP2PEndpoints` callback stays null — every inbound endpoints frame is
+    // then dropped right after the "realtime in endpoints" log line. On a
+    // fresh start that silently ate the peer's call-time endpoint exchange
+    // until a call (or debug hook) happened to instantiate the service, so
+    // the first calls after a restart stayed on relay (live stand,
+    // 2026-07-24).
+    ref.watch(p2pEndpointServiceProvider);
     // Multi-device brick 4: contacts/settings/call-journal sync taps, plus the
     // journal recorder itself (calls are journaled even without a journal UI).
     ref.watch(deviceSyncBridgeProvider);

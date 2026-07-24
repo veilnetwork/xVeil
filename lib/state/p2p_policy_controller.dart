@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
+import '../core/log.dart';
 import '../domain/chat.dart';
 import '../domain/p2p_policy.dart';
 import 'app_controller.dart';
@@ -58,15 +59,31 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
   Future<bool> allowsPeer(NodeId peer) async {
     try {
       final contact = await ref.read(storageProvider).getContact(peer);
-      return p2pPolicyAllows(
+      final override = contact?.p2pOverride ?? kDefaultContactP2POverride;
+      final accepted = contact?.status == ContactStatus.accepted;
+      final blocked = contact?.status == ContactStatus.blocked;
+      final anonymous = localAnonymous;
+      final allowed = p2pPolicyAllows(
         global: state,
-        override: contact?.p2pOverride ?? kDefaultContactP2POverride,
+        override: override,
         contactKnown: contact != null,
-        contactAccepted: contact?.status == ContactStatus.accepted,
-        contactBlocked: contact?.status == ContactStatus.blocked,
-        localAnonymous: localAnonymous,
+        contactAccepted: accepted,
+        contactBlocked: blocked,
+        localAnonymous: anonymous,
       );
-    } catch (_) {
+      if (!allowed) {
+        // Name the exact deny input: a silent false here once cost a live
+        // session to a phantom "transient endpoint-frame drop" (2026-07-24).
+        devLog(
+          () =>
+              'xVeil[p2p]: policy denies ${peer.short} (global=${state.name} '
+              'override=${override.name} known=${contact != null} '
+              'accepted=$accepted blocked=$blocked anonymous=$anonymous)',
+        );
+      }
+      return allowed;
+    } catch (e) {
+      devLog(() => 'xVeil[p2p]: policy check failed for ${peer.short}: $e');
       return false;
     }
   }
