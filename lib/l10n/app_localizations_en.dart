@@ -1549,6 +1549,15 @@ class AppL10nEn extends AppL10n {
   String get chatVnoteTooltip => 'Video message';
 
   @override
+  String get attachmentPreviewPhoto => 'Photo';
+
+  @override
+  String get attachmentPreviewVideo => 'Video';
+
+  @override
+  String get attachmentPreviewSticker => 'Sticker';
+
+  @override
   String get stickerTitle => 'Stickers';
 
   @override

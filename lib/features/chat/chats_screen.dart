@@ -20,9 +20,8 @@ import 'chat_search.dart';
 import 'message_markdown.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/folder_panel_controller.dart';
-import '../../state/vnote_message.dart';
-import '../../state/voice_message.dart';
 import '../../state/providers.dart';
+import 'attachment_preview.dart';
 import '../contacts/invite_exchange_sheet.dart';
 import '../groups/group_tile.dart';
 import '../home/home_section_scaffold.dart';
@@ -917,22 +916,19 @@ class _ConversationTile extends ConsumerWidget {
             ? Text(hint, style: TextStyle(color: hintColor))
             : (last == null
                   ? null
-                  : (isVnoteFileName(last.fileName) ||
-                            isVoiceFileName(last.fileName) ||
+                  : (last.isFile ||
                             isChatDeletedMarker(last.body) ||
                             recommendation != null
                         ? Text(
-                            // Voice/video notes are sent under opaque uuid filenames —
-                            // the preview line shows the human kind instead; a
+                            // Attachments render the shared human kind label
+                            // (voice/video notes/stickers travel under opaque
+                            // uuid container names — never show those); a
                             // chatDeleted farewell marker shows its system notice.
-                            isVnoteFileName(last.fileName)
-                                ? l.chatVnoteTooltip
-                                : (isVoiceFileName(last.fileName)
-                                      ? l.chatVoiceTooltip
-                                      : (isChatDeletedMarker(last.body)
-                                            ? l.chatDeletedByPeer
-                                            : (recommendation?.name ??
-                                                  last.body))),
+                            last.isFile
+                                ? messagePreviewText(l, last)
+                                : (isChatDeletedMarker(last.body)
+                                      ? l.chatDeletedByPeer
+                                      : (recommendation?.name ?? last.body)),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           )

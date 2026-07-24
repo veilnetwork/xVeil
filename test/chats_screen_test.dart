@@ -21,6 +21,8 @@ import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/state/vnote_message.dart';
+import 'package:xveil/state/voice_message.dart';
 
 import 'support/fake_hv_container.dart';
 
@@ -189,6 +191,56 @@ void main() {
     // Pending incoming contact is flagged.
     expect(find.textContaining('wants to connect'), findsOneWidget);
     expect(find.byIcon(Icons.fiber_new), findsOneWidget);
+  });
+
+  testWidgets('attachment previews show kind labels, never uuid names', (
+    tester,
+  ) async {
+    const uuid = '3f2b8a54-9c1d-4e7f-8a2b-6d5c4e3f2a1b';
+    Conversation fileConv(int seed, String name, Message message) =>
+        Conversation(
+          peer: Contact(nodeId: _id(seed), name: name),
+          lastMessage: message,
+        );
+    Message fileMsg(int seed, String fileName, {String? thumb}) => Message(
+      id: 'f$seed',
+      conversationId: _id(seed).hex,
+      direction: MessageDirection.incoming,
+      body: '📎 $fileName',
+      timestamp: DateTime(2026, 1, 1),
+      fileId: 'cid$seed',
+      fileName: fileName,
+      thumb: thumb,
+    );
+    await tester.pumpWidget(
+      _host([
+        fileConv(
+          1,
+          'Alice',
+          fileMsg(
+            1,
+            '$uuid.opus',
+            thumb: encodeVoiceSidecar(7000, List.filled(48, 0.5)),
+          ),
+        ),
+        fileConv(
+          2,
+          'Bob',
+          fileMsg(2, '$uuid.vnote', thumb: encodeVnoteSidecar(5000, null)),
+        ),
+        fileConv(3, 'Carol', fileMsg(3, 'report.pdf')),
+      ]),
+    );
+    await tester.pump();
+
+    final l = AppL10n.of(tester.element(find.byType(ChatsScreen)));
+    // Voice/video notes travel under opaque uuid container names — the list
+    // shows the human kind label (with the clip length), never the uuid.
+    expect(find.text('🎤 ${l.chatVoiceTooltip} (0:07)'), findsOneWidget);
+    expect(find.text('📹 ${l.chatVnoteTooltip} (0:05)'), findsOneWidget);
+    // A human-named file keeps its name.
+    expect(find.text('📎 report.pdf'), findsOneWidget);
+    expect(find.textContaining(uuid), findsNothing);
   });
 
   testWidgets('empty state prompts to start a chat', (tester) async {
