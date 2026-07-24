@@ -63,6 +63,8 @@ class HomeSectionScaffold extends ConsumerWidget {
   final Widget? endDrawer;
   final Widget? floatingActionButton;
 
+  static const _compactContextActionsWidth = 600.0;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
@@ -77,12 +79,55 @@ class HomeSectionScaffold extends ConsumerWidget {
         onSearchStart != null &&
         onSearchClose != null &&
         onSearchChanged != null;
+    final iconContextActions = contextActions.whereType<IconButton>().toList(
+      growable: false,
+    );
+    final useContextOverflow =
+        MediaQuery.sizeOf(context).width < _compactContextActionsWidth &&
+        contextActions.length > 1 &&
+        iconContextActions.length == contextActions.length;
 
     Widget navigationButton() => IconButton(
       key: const ValueKey('home-navigation-menu'),
       icon: const Icon(Icons.menu),
       tooltip: MaterialLocalizations.of(context).openAppDrawerTooltip,
       onPressed: navigation!.openNavigation,
+    );
+
+    Widget contextOverflow() => PopupMenuButton<int>(
+      key: const ValueKey('home-context-actions-overflow'),
+      tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
+      icon: const Icon(Icons.more_vert),
+      onSelected: (index) => iconContextActions[index].onPressed?.call(),
+      itemBuilder: (context) => [
+        for (var index = 0; index < iconContextActions.length; index++)
+          PopupMenuItem<int>(
+            key: iconContextActions[index].key,
+            value: index,
+            enabled: iconContextActions[index].onPressed != null,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: Center(
+                    child: IconTheme.merge(
+                      data: const IconThemeData(size: 20),
+                      child: iconContextActions[index].icon,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    iconContextActions[index].tooltip ??
+                        MaterialLocalizations.of(context).moreButtonTooltip,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
 
     return Scaffold(
@@ -146,7 +191,8 @@ class HomeSectionScaffold extends ConsumerWidget {
               tooltip: searchHint ?? l.searchHint,
               onPressed: onSearchStart,
             ),
-          if (!searching) ...contextActions,
+          if (!searching && useContextOverflow) contextOverflow(),
+          if (!searching && !useContextOverflow) ...contextActions,
           if (!searching)
             IconButton(
               key: const ValueKey('home-security-center'),

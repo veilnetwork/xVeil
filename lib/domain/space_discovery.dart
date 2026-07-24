@@ -22,6 +22,192 @@ typedef SpacePublicSignatureVerifier =
       required Uint8List signature,
     });
 
+/// Minimal public projection of one accepted V6 ownership transfer.
+///
+/// The signature is the original control-entry signature, but the public wire
+/// exposes only the fields needed to reconstruct those exact signed bytes.
+/// Roster, roles, policy contents, channels and the rest of the control log
+/// never cross the discovery boundary.
+class SpacePublicAuthorityLink {
+  SpacePublicAuthorityLink({
+    required this.previousOwner,
+    required this.nextOwner,
+    required this.authorSeq,
+    required this.authorPreviousHash,
+    required this.policyVersion,
+    required this.transferredAtMs,
+    required this.previousOwnerPublicKey,
+    required this.signature,
+  });
+
+  static const int version = 1;
+
+  final NodeId previousOwner;
+  final NodeId nextOwner;
+  final int authorSeq;
+  final String authorPreviousHash;
+  final int policyVersion;
+  final int transferredAtMs;
+  final Uint8List previousOwnerPublicKey;
+  final Uint8List signature;
+
+  bool get isStructurallyValid =>
+      previousOwner != nextOwner &&
+      authorSeq >= 0 &&
+      policyVersion >= 0 &&
+      transferredAtMs >= 0 &&
+      (authorSeq == 0
+          ? authorPreviousHash.isEmpty
+          : _hex32Pattern.hasMatch(authorPreviousHash)) &&
+      previousOwnerPublicKey.length == 32 &&
+      signature.length == 64;
+
+  Uint8List transferCanonicalBytes(NodeId spaceId) => Uint8List.fromList(
+    utf8.encode(
+      jsonEncode({
+        'v': 6,
+        'gid': spaceId.hex,
+        'author': previousOwner.hex,
+        'seq': authorSeq,
+        'prev': authorPreviousHash,
+        'op': ControlOp.transferOwnership.name,
+        'target': nextOwner.hex,
+        'pv': policyVersion,
+        'ts': transferredAtMs,
+      }),
+    ),
+  );
+
+  bool verifyFor({
+    required NodeId spaceId,
+    required NodeId expectedPreviousOwner,
+    required int descriptorIssuedAtMs,
+    required SpacePublicSignatureVerifier verify,
+  }) =>
+      isStructurallyValid &&
+      previousOwner == expectedPreviousOwner &&
+      transferredAtMs <=
+          descriptorIssuedAtMs + kSpacePublicClockSkew.inMilliseconds &&
+      verify(
+        signer: previousOwner,
+        publicKey: previousOwnerPublicKey,
+        message: transferCanonicalBytes(spaceId),
+        signature: signature,
+      );
+
+  Map<String, dynamic> toJson() => {
+    'v': version,
+    'from': previousOwner.hex,
+    'to': nextOwner.hex,
+    'seq': authorSeq,
+    'prev': authorPreviousHash,
+    'pv': policyVersion,
+    'ts': transferredAtMs,
+    'key': base64Encode(previousOwnerPublicKey),
+    'sig': base64Encode(signature),
+  };
+
+  static SpacePublicAuthorityLink? fromControlEntry(ControlEntry entry) {
+    if (entry.version != 6 ||
+        entry.op != ControlOp.transferOwnership ||
+        entry.groupId == null ||
+        entry.target == null ||
+        !entry.isStructurallyValid ||
+        entry.authorPubKey.length != 32 ||
+        entry.signature.length != 64) {
+      return null;
+    }
+    return SpacePublicAuthorityLink(
+      previousOwner: entry.author,
+      nextOwner: entry.target!,
+      authorSeq: entry.seq,
+      authorPreviousHash: entry.prevHash,
+      policyVersion: entry.policyVersion,
+      transferredAtMs: entry.createdAtMs,
+      previousOwnerPublicKey: Uint8List.fromList(entry.authorPubKey),
+      signature: Uint8List.fromList(entry.signature),
+    );
+  }
+
+  static SpacePublicAuthorityLink? fromJson(Object? value) {
+    if (value is! Map ||
+        !_hasOnlyKeys(value, const {
+          'v',
+          'from',
+          'to',
+          'seq',
+          'prev',
+          'pv',
+          'ts',
+          'key',
+          'sig',
+        }) ||
+        value['v'] != version ||
+        value['from'] is! String ||
+        value['to'] is! String ||
+        value['seq'] is! int ||
+        value['prev'] is! String ||
+        value['pv'] is! int ||
+        value['ts'] is! int ||
+        value['key'] is! String ||
+        value['sig'] is! String) {
+      return null;
+    }
+    try {
+      final link = SpacePublicAuthorityLink(
+        previousOwner: NodeId.fromHex(value['from'] as String),
+        nextOwner: NodeId.fromHex(value['to'] as String),
+        authorSeq: value['seq'] as int,
+        authorPreviousHash: value['prev'] as String,
+        policyVersion: value['pv'] as int,
+        transferredAtMs: value['ts'] as int,
+        previousOwnerPublicKey: Uint8List.fromList(
+          base64Decode(value['key'] as String),
+        ),
+        signature: Uint8List.fromList(base64Decode(value['sig'] as String)),
+      );
+      return link.isStructurallyValid ? link : null;
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+/// Independent upper bound for the complete descriptor + holder JSON payload.
+///
+/// The compact authority chain is bounded separately; the final payload check
+/// remains authoritative because profile and capability fields are variable.
+const int kSpacePublicDiscoveryPayloadMaxBytes = 16 * 1024;
+
+// Hard causal-history bound. The final carrier still enforces its independent
+// total payload budget above.
+const int kSpacePublicAuthorityMaxLinks = 24;
+const int _spacePublicAuthorityLinkBytes = 185;
+const List<int> _spacePublicAuthorityMagic = <int>[0x58, 0x41, 0x01]; // XA1
+
+/// Project the accepted ownership hand-offs in their causal fold order.
+///
+/// A mismatch means the supplied log cannot be represented as one public
+/// genesis-rooted authority chain and therefore must fail closed.
+List<SpacePublicAuthorityLink>? buildSpacePublicAuthorityChain({
+  required NodeId spaceId,
+  required NodeId genesisOwner,
+  required Iterable<ControlEntry> acceptedControl,
+}) {
+  var currentOwner = genesisOwner;
+  final result = <SpacePublicAuthorityLink>[];
+  for (final entry in acceptedControl) {
+    if (entry.op != ControlOp.transferOwnership) continue;
+    if (entry.groupId != spaceId || entry.author != currentOwner) return null;
+    final link = SpacePublicAuthorityLink.fromControlEntry(entry);
+    if (link == null) return null;
+    result.add(link);
+    if (result.length > kSpacePublicAuthorityMaxLinks) return null;
+    currentOwner = link.nextOwner;
+  }
+  return List<SpacePublicAuthorityLink>.unmodifiable(result);
+}
+
 /// Owner-published, allowlisted projection used by public Space discovery.
 ///
 /// This is deliberately not a serialized [SpaceManifest] or control-log
@@ -31,8 +217,11 @@ typedef SpacePublicSignatureVerifier =
 /// representation in this wire type.
 class SpacePublicDescriptor {
   SpacePublicDescriptor({
+    this.wireVersion = version,
     required this.spaceId,
     required this.publisher,
+    Uint8List? publisherPublicKey,
+    Iterable<SpacePublicAuthorityLink> authorityChain = const [],
     required this.genesisManifest,
     required this.controlHeadHash,
     required this.revision,
@@ -50,13 +239,23 @@ class SpacePublicDescriptor {
     required this.expiresAtMs,
     required this.joinCode,
     Uint8List? signature,
-  }) : signature = signature ?? Uint8List(0);
+  }) : publisherPublicKey = Uint8List.fromList(
+         publisherPublicKey ?? genesisManifest.genesisPubKey,
+       ),
+       authorityChain = List<SpacePublicAuthorityLink>.unmodifiable(
+         authorityChain,
+       ),
+       signature = signature ?? Uint8List(0);
 
-  static const int version = 2;
+  static const int legacyVersion = 2;
+  static const int version = 3;
   static const String kind = 'xveil.space.public';
 
+  final int wireVersion;
   final NodeId spaceId;
   final NodeId publisher;
+  final Uint8List publisherPublicKey;
+  final List<SpacePublicAuthorityLink> authorityChain;
   final SpaceManifest genesisManifest;
   final String controlHeadHash;
   final int revision;
@@ -75,14 +274,30 @@ class SpacePublicDescriptor {
   final String joinCode;
   final Uint8List signature;
 
+  int get authorityGeneration => authorityChain.length;
+
+  String get authorityHash => crypto.sha256
+      .convert(_encodeSpacePublicAuthorityChain(authorityChain))
+      .toString();
+
   bool isStructurallyValidAt(int nowMs) {
-    if (!genesisManifest.isSpace ||
+    if ((wireVersion != legacyVersion && wireVersion != version) ||
+        !genesisManifest.isSpace ||
         genesisManifest.groupId != spaceId ||
-        genesisManifest.owner != publisher ||
         genesisManifest.visibility != SpaceVisibility.public ||
         genesisManifest.discoverable != true ||
         genesisManifest.genesisPubKey.length != 32 ||
         genesisManifest.signature.length != 64 ||
+        publisherPublicKey.length != 32 ||
+        authorityChain.length > kSpacePublicAuthorityMaxLinks ||
+        authorityChain.any((link) => !link.isStructurallyValid) ||
+        (wireVersion == legacyVersion &&
+            (publisher != genesisManifest.owner ||
+                !_sameBytes(
+                  publisherPublicKey,
+                  genesisManifest.genesisPubKey,
+                ) ||
+                authorityChain.isNotEmpty)) ||
         !_validContentId(genesisManifest.avatarContentId) ||
         !_validContentId(genesisManifest.coverContentId) ||
         signature.length != 64 ||
@@ -115,6 +330,7 @@ class SpacePublicDescriptor {
     try {
       final ticket = SpaceJoinCode.parse(joinCode);
       return ticket.spaceId == spaceId &&
+          ticket.approver == publisher &&
           !ticket.isExpiredAt(nowMs) &&
           ticket.createdAtMs <= issuedAtMs &&
           ticket.expiresAtMs >= expiresAtMs;
@@ -131,20 +347,43 @@ class SpacePublicDescriptor {
         message: genesisManifest.canonicalBytes(),
         signature: genesisManifest.signature,
       ) &&
+      _verifyAuthorityChain(verify) &&
       verify(
         signer: publisher,
-        publicKey: genesisManifest.genesisPubKey,
+        publicKey: publisherPublicKey,
         message: canonicalBytes(),
         signature: signature,
       );
 
+  bool _verifyAuthorityChain(SpacePublicSignatureVerifier verify) {
+    var currentOwner = genesisManifest.owner;
+    for (final link in authorityChain) {
+      if (!link.verifyFor(
+        spaceId: spaceId,
+        expectedPreviousOwner: currentOwner,
+        descriptorIssuedAtMs: issuedAtMs,
+        verify: verify,
+      )) {
+        return false;
+      }
+      currentOwner = link.nextOwner;
+    }
+    return currentOwner == publisher;
+  }
+
   Uint8List canonicalBytes() => Uint8List.fromList(
     utf8.encode(
       jsonEncode({
-        'v': version,
+        'v': wireVersion,
         'kind': kind,
         'space': spaceId.hex,
         'publisher': publisher.hex,
+        if (wireVersion >= version)
+          'publisherKey': base64Encode(publisherPublicKey),
+        if (wireVersion >= version)
+          'authority': base64Encode(
+            _encodeSpacePublicAuthorityChain(authorityChain),
+          ),
         'genesis': genesisManifest.toJson(),
         'controlHeadHash': controlHeadHash,
         'revision': revision,
@@ -173,8 +412,11 @@ class SpacePublicDescriptor {
   }
 
   SpacePublicDescriptor withSignature(Uint8List value) => SpacePublicDescriptor(
+    wireVersion: wireVersion,
     spaceId: spaceId,
     publisher: publisher,
+    publisherPublicKey: publisherPublicKey,
+    authorityChain: authorityChain,
     genesisManifest: genesisManifest,
     controlHeadHash: controlHeadHash,
     revision: revision,
@@ -206,6 +448,8 @@ class SpacePublicDescriptor {
           'kind',
           'space',
           'publisher',
+          'publisherKey',
+          'authority',
           'genesis',
           'controlHeadHash',
           'revision',
@@ -224,7 +468,7 @@ class SpacePublicDescriptor {
           'joinCode',
           'signature',
         }) ||
-        value['v'] != version ||
+        (value['v'] != legacyVersion && value['v'] != version) ||
         value['kind'] != kind ||
         value['space'] is! String ||
         value['publisher'] is! String ||
@@ -245,6 +489,12 @@ class SpacePublicDescriptor {
         value['expiresAt'] is! int ||
         value['joinCode'] is! String ||
         value['signature'] is! String) {
+      return null;
+    }
+    final wireVersion = value['v'] as int;
+    if (wireVersion == legacyVersion
+        ? value.containsKey('publisherKey') || value.containsKey('authority')
+        : value['publisherKey'] is! String || value['authority'] is! String) {
       return null;
     }
     try {
@@ -269,12 +519,24 @@ class SpacePublicDescriptor {
       }
       final genesis = SpaceManifest.fromJson(genesisJson);
       if (genesis == null) return null;
+      final authority = wireVersion == legacyVersion
+          ? const <SpacePublicAuthorityLink>[]
+          : _decodeSpacePublicAuthorityChain(
+              Uint8List.fromList(base64Decode(value['authority'] as String)),
+              genesis.owner,
+            );
+      if (authority == null) return null;
       final signature = Uint8List.fromList(
         base64Decode(value['signature'] as String),
       );
       return SpacePublicDescriptor(
+        wireVersion: wireVersion,
         spaceId: NodeId.fromHex(value['space'] as String),
         publisher: NodeId.fromHex(value['publisher'] as String),
+        publisherPublicKey: wireVersion == legacyVersion
+            ? genesis.genesisPubKey
+            : Uint8List.fromList(base64Decode(value['publisherKey'] as String)),
+        authorityChain: authority,
         genesisManifest: genesis,
         controlHeadHash: value['controlHeadHash'] as String,
         revision: value['revision'] as int,
@@ -475,7 +737,9 @@ class SpacePublicDiscoveryPayload {
   }
 
   static SpacePublicDiscoveryPayload? fromBytes(Uint8List bytes) {
-    if (bytes.isEmpty || bytes.length > 16 * 1024) return null;
+    if (bytes.isEmpty || bytes.length > kSpacePublicDiscoveryPayloadMaxBytes) {
+      return null;
+    }
     try {
       return fromJson(jsonDecode(utf8.decode(bytes, allowMalformed: false)));
     } catch (_) {
@@ -541,7 +805,8 @@ List<SpacePublicDescriptor> mergeSpacePublicDiscovery({
       continue;
     }
     final current = bestBySpace[descriptor.spaceId];
-    if (current == null || _descriptorOrder(descriptor, current) > 0) {
+    if (current == null ||
+        compareSpacePublicDescriptors(descriptor, current) > 0) {
       bestBySpace[descriptor.spaceId] = descriptor;
     }
   }
@@ -554,7 +819,18 @@ List<SpacePublicDescriptor> mergeSpacePublicDiscovery({
   return List<SpacePublicDescriptor>.unmodifiable(result);
 }
 
-int _descriptorOrder(SpacePublicDescriptor left, SpacePublicDescriptor right) {
+/// Deterministic newest-authority-first order shared by discovery, caches and
+/// durable public-only rollback protection.
+int compareSpacePublicDescriptors(
+  SpacePublicDescriptor left,
+  SpacePublicDescriptor right,
+) {
+  final byAuthorityGeneration = left.authorityGeneration.compareTo(
+    right.authorityGeneration,
+  );
+  if (byAuthorityGeneration != 0) return byAuthorityGeneration;
+  final byAuthorityHash = left.authorityHash.compareTo(right.authorityHash);
+  if (byAuthorityHash != 0) return byAuthorityHash;
   final byFeedRevision = left.publicFeedRevision.compareTo(
     right.publicFeedRevision,
   );
@@ -570,8 +846,121 @@ int _descriptorOrder(SpacePublicDescriptor left, SpacePublicDescriptor right) {
   return left.descriptorHash.compareTo(right.descriptorHash);
 }
 
+Uint8List _encodeSpacePublicAuthorityChain(
+  Iterable<SpacePublicAuthorityLink> links,
+) {
+  final rows = links.toList(growable: false);
+  if (rows.length > kSpacePublicAuthorityMaxLinks) {
+    throw ArgumentError.value(
+      rows.length,
+      'links',
+      'exceeds public authority limit',
+    );
+  }
+  final bytes = BytesBuilder(copy: false)
+    ..add(_spacePublicAuthorityMagic)
+    ..addByte(rows.length);
+  for (final link in rows) {
+    bytes
+      ..add(link.nextOwner.bytes)
+      ..add(_u64le(link.authorSeq))
+      ..addByte(link.authorPreviousHash.isEmpty ? 0 : 1)
+      ..add(
+        link.authorPreviousHash.isEmpty
+            ? Uint8List(32)
+            : _hexToBytes(link.authorPreviousHash),
+      )
+      ..add(_u64le(link.policyVersion))
+      ..add(_u64le(link.transferredAtMs))
+      ..add(link.previousOwnerPublicKey)
+      ..add(link.signature);
+  }
+  return bytes.toBytes();
+}
+
+List<SpacePublicAuthorityLink>? _decodeSpacePublicAuthorityChain(
+  Uint8List bytes,
+  NodeId genesisOwner,
+) {
+  if (bytes.length < 4 ||
+      !_sameBytes(bytes.sublist(0, 3), _spacePublicAuthorityMagic)) {
+    return null;
+  }
+  final count = bytes[3];
+  if (count > kSpacePublicAuthorityMaxLinks ||
+      bytes.length != 4 + count * _spacePublicAuthorityLinkBytes) {
+    return null;
+  }
+  var offset = 4;
+  var previousOwner = genesisOwner;
+  final result = <SpacePublicAuthorityLink>[];
+  for (var index = 0; index < count; index++) {
+    final nextOwner = NodeId(
+      Uint8List.fromList(bytes.sublist(offset, offset + 32)),
+    );
+    offset += 32;
+    final authorSeq = _readU64le(bytes, offset);
+    offset += 8;
+    final hasPrevious = bytes[offset++];
+    if (hasPrevious != 0 && hasPrevious != 1) return null;
+    final previousBytes = bytes.sublist(offset, offset + 32);
+    offset += 32;
+    if (hasPrevious == 0 && previousBytes.any((byte) => byte != 0)) {
+      return null;
+    }
+    final policyVersion = _readU64le(bytes, offset);
+    offset += 8;
+    final transferredAtMs = _readU64le(bytes, offset);
+    offset += 8;
+    final publicKey = Uint8List.fromList(bytes.sublist(offset, offset + 32));
+    offset += 32;
+    final signature = Uint8List.fromList(bytes.sublist(offset, offset + 64));
+    offset += 64;
+    final link = SpacePublicAuthorityLink(
+      previousOwner: previousOwner,
+      nextOwner: nextOwner,
+      authorSeq: authorSeq,
+      authorPreviousHash: hasPrevious == 0 ? '' : _bytesToHex(previousBytes),
+      policyVersion: policyVersion,
+      transferredAtMs: transferredAtMs,
+      previousOwnerPublicKey: publicKey,
+      signature: signature,
+    );
+    if (!link.isStructurallyValid) return null;
+    result.add(link);
+    previousOwner = nextOwner;
+  }
+  return List<SpacePublicAuthorityLink>.unmodifiable(result);
+}
+
+Uint8List _u64le(int value) {
+  if (value < 0) throw ArgumentError.value(value, 'value', 'must be positive');
+  final data = ByteData(8)..setUint64(0, value, Endian.little);
+  return data.buffer.asUint8List();
+}
+
+int _readU64le(Uint8List bytes, int offset) =>
+    ByteData.sublistView(bytes, offset, offset + 8).getUint64(0, Endian.little);
+
+Uint8List _hexToBytes(String value) => Uint8List.fromList([
+  for (var offset = 0; offset < value.length; offset += 2)
+    int.parse(value.substring(offset, offset + 2), radix: 16),
+]);
+
+String _bytesToHex(List<int> value) =>
+    value.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+
 bool _validContentId(String? value) =>
     value == null || _hex32Pattern.hasMatch(value);
+
+bool _sameBytes(List<int> left, List<int> right) {
+  if (left.length != right.length) return false;
+  var difference = 0;
+  for (var index = 0; index < left.length; index++) {
+    difference |= left[index] ^ right[index];
+  }
+  return difference == 0;
+}
 
 bool _hasOnlyKeys(Map<dynamic, dynamic> value, Set<String> allowed) {
   for (final key in value.keys) {

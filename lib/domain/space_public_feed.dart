@@ -747,7 +747,7 @@ class SpacePublicFeedPackage {
         expectedManifestHash: descriptor.publicFeedManifestHash,
         expectedSpaceId: descriptor.spaceId,
         expectedPublisher: descriptor.publisher,
-        publisherPublicKey: descriptor.genesisManifest.genesisPubKey,
+        publisherPublicKey: descriptor.publisherPublicKey,
         expectedControlHeadHash: descriptor.controlHeadHash,
         verifySignature: verifySignature,
         verifyPost: verifyPost,

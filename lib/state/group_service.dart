@@ -2640,7 +2640,7 @@ class GroupService {
       ],
     );
     final signed = _signer.signDetached(unsigned.canonicalBytes());
-    if (!_listEquals(signed.publicKey, bundle.manifest.genesisPubKey)) {
+    if (!_listEquals(signed.publicKey, _signer.selfPubKey)) {
       return null;
     }
     final manifest = unsigned.withSignature(signed.signature);
@@ -2654,7 +2654,7 @@ class GroupService {
           expectedManifestHash: manifest.manifestHash,
           expectedSpaceId: bundle.manifest.groupId,
           expectedPublisher: selfId,
-          publisherPublicKey: bundle.manifest.genesisPubKey,
+          publisherPublicKey: _signer.selfPubKey,
           expectedControlHeadHash: controlHeadHash,
           verifySignature: _signer.verifyDetached,
           verifyPost: _signer.verifyPost,
@@ -2664,13 +2664,8 @@ class GroupService {
   }
 
   /// Build the strict public descriptor + holder attestation carried by the
-  /// native discovery DHT. V2 advertises only after the same owner has built
-  /// and re-verified a complete content-addressed public feed projection.
-  ///
-  /// It deliberately publishes only from the immutable genesis owner: after
-  /// ownership transfer it fails closed until the public authority-chain
-  /// revision lands, rather than letting an unprovable actor rewrite a global
-  /// search result.
+  /// native discovery DHT. V3 proves the effective publisher through a
+  /// genesis-rooted chain of exact signed V6 ownership hand-offs.
   Future<SpacePublicDiscoveryPayload?> buildSpacePublicDiscoveryPayload(
     NodeId spaceId,
   ) async => (await buildSpacePublicDiscoveryPublication(spaceId))?.discovery;
@@ -2682,8 +2677,7 @@ class GroupService {
     if (bundle == null ||
         !bundle.manifest.isSpace ||
         bundle.manifest.visibility != SpaceVisibility.public ||
-        bundle.manifest.discoverable != true ||
-        bundle.manifest.owner != selfId) {
+        bundle.manifest.discoverable != true) {
       return null;
     }
     final folded = foldControlLog(
@@ -2699,6 +2693,17 @@ class GroupService {
         if (member.role == GroupRole.owner) member.nodeId,
     ];
     if (!state.isActive || owners.length != 1 || owners.single != selfId) {
+      return null;
+    }
+    final authorityChain = buildSpacePublicAuthorityChain(
+      spaceId: spaceId,
+      genesisOwner: bundle.manifest.owner,
+      acceptedControl: folded.accepted,
+    );
+    if (authorityChain == null ||
+        (authorityChain.isEmpty
+            ? bundle.manifest.owner != selfId
+            : authorityChain.last.nextOwner != selfId)) {
       return null;
     }
     final feedMaterial = await _spacePublicFeedMaterial(bundle);
@@ -2751,6 +2756,8 @@ class GroupService {
     final unsignedDescriptor = SpacePublicDescriptor(
       spaceId: spaceId,
       publisher: selfId,
+      publisherPublicKey: _signer.selfPubKey,
+      authorityChain: authorityChain,
       genesisManifest: bundle.manifest,
       controlHeadHash: controlHeadHash,
       revision: folded.accepted.length,
@@ -2773,7 +2780,7 @@ class GroupService {
     );
     if (!_listEquals(
       descriptorSignature.publicKey,
-      bundle.manifest.genesisPubKey,
+      unsignedDescriptor.publisherPublicKey,
     )) {
       return null;
     }
@@ -2811,13 +2818,14 @@ class GroupService {
       descriptor: descriptor,
       holder: holder,
     );
-    if (!payload.verifyAt(wallNow, _signer.verifyDetached) ||
+    if (payload.toBytes().length > kSpacePublicDiscoveryPayloadMaxBytes ||
+        !payload.verifyAt(wallNow, _signer.verifyDetached) ||
         !feed.verifyAt(
           nowMs: wallNow,
           expectedManifestHash: descriptor.publicFeedManifestHash,
           expectedSpaceId: descriptor.spaceId,
           expectedPublisher: descriptor.publisher,
-          publisherPublicKey: descriptor.genesisManifest.genesisPubKey,
+          publisherPublicKey: descriptor.publisherPublicKey,
           expectedControlHeadHash: descriptor.controlHeadHash,
           verifySignature: _signer.verifyDetached,
           verifyPost: _signer.verifyPost,
@@ -2898,7 +2906,7 @@ class GroupService {
           expectedManifestHash: descriptor.publicFeedManifestHash,
           expectedSpaceId: descriptor.spaceId,
           expectedPublisher: descriptor.publisher,
-          publisherPublicKey: descriptor.genesisManifest.genesisPubKey,
+          publisherPublicKey: descriptor.publisherPublicKey,
           expectedControlHeadHash: descriptor.controlHeadHash,
           verifySignature: _signer.verifyDetached,
           verifyPost: _signer.verifyPost,
@@ -2973,12 +2981,11 @@ class GroupService {
         continue;
       }
       if (cached == null ||
-          candidate.descriptor.publicFeedRevision >
-              cached.descriptor.publicFeedRevision ||
-          (candidate.descriptor.publicFeedRevision ==
-                  cached.descriptor.publicFeedRevision &&
-              candidate.descriptor.publicFeedUpdatedAtMs >
-                  cached.descriptor.publicFeedUpdatedAtMs)) {
+          compareSpacePublicDescriptors(
+                candidate.descriptor,
+                cached.descriptor,
+              ) >
+              0) {
         cached = candidate;
       }
     }
@@ -3791,7 +3798,7 @@ class GroupService {
             nowMs: _now(),
             expectedSpaceId: descriptor.spaceId,
             expectedPublisher: descriptor.publisher,
-            publisherPublicKey: descriptor.genesisManifest.genesisPubKey,
+            publisherPublicKey: descriptor.publisherPublicKey,
             verify: _signer.verifyDetached,
           )) {
         continue;
@@ -3886,7 +3893,7 @@ class GroupService {
         expectedManifestHash: descriptor.publicFeedManifestHash,
         expectedSpaceId: descriptor.spaceId,
         expectedPublisher: descriptor.publisher,
-        publisherPublicKey: descriptor.genesisManifest.genesisPubKey,
+        publisherPublicKey: descriptor.publisherPublicKey,
         expectedControlHeadHash: descriptor.controlHeadHash,
         verifySignature: _signer.verifyDetached,
         verifyPost: _signer.verifyPost,
@@ -14313,9 +14320,21 @@ class GroupService {
         : null;
     if (prior != null) {
       final current = prior.package.descriptor;
-      if (descriptor.revision < current.revision ||
-          descriptor.publicFeedRevision < current.publicFeedRevision ||
-          descriptor.publicFeedUpdatedAtMs < current.publicFeedUpdatedAtMs) {
+      final authorityOrder = descriptor.authorityGeneration.compareTo(
+        current.authorityGeneration,
+      );
+      final sameGeneration = authorityOrder == 0;
+      final authorityForkOrder = descriptor.authorityHash.compareTo(
+        current.authorityHash,
+      );
+      if (authorityOrder < 0 ||
+          (sameGeneration && authorityForkOrder < 0) ||
+          (sameGeneration &&
+              authorityForkOrder == 0 &&
+              (descriptor.revision < current.revision ||
+                  descriptor.publicFeedRevision < current.publicFeedRevision ||
+                  descriptor.publicFeedUpdatedAtMs <
+                      current.publicFeedUpdatedAtMs))) {
         return null;
       }
     }

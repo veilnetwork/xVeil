@@ -176,7 +176,11 @@ class _PublicSpaceDiscoverySheetState
 
   Widget _statusBody(AppL10n l) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return _DiscoveryStatus(
+        icon: Icons.travel_explore_outlined,
+        text: l.spaceDiscoverySearching,
+        progress: true,
+      );
     }
     if (!_searched) {
       return _DiscoveryStatus(
@@ -220,7 +224,10 @@ class _PublicSpaceDiscoverySheetState
               autofocus: true,
               textInputAction: TextInputAction.search,
               autocorrect: false,
+              enableSuggestions: false,
+              textCapitalization: TextCapitalization.none,
               decoration: InputDecoration(
+                labelText: l.searchHint,
                 hintText: l.spaceDiscoveryHint,
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _query.text.isEmpty
@@ -248,99 +255,112 @@ class _PublicSpaceDiscoverySheetState
           Expanded(
             child: _results.isEmpty
                 ? _statusBody(l)
-                : ListView.builder(
-                    key: const ValueKey('public-space-discovery-results'),
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
-                    itemCount: _results.length,
-                    itemBuilder: (context, index) {
-                      final result = _results[index];
-                      final descriptor = result.descriptor;
-                      final id = descriptor.spaceId.hex;
-                      final open =
-                          _memberIds.contains(id) ||
-                          _subscriptionIds.contains(id);
-                      final busy = _busySpace == id;
-                      return Card(
-                        key: ValueKey('public-space-discovery-result-$id'),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              ListTile(
-                                leading: const CircleAvatar(
-                                  child: Icon(Icons.public),
-                                ),
-                                title: Text(descriptor.name),
-                                subtitle: Text(
-                                  [
-                                    if (descriptor.description.isNotEmpty)
-                                      descriptor.description,
-                                    [
-                                      l.spaceDiscoveryPosts(
-                                        descriptor.publicPostCount,
-                                      ),
-                                      l.spaceDiscoverySources(
-                                        result.holders.length,
-                                      ),
-                                    ].join(' · '),
-                                  ].join('\n'),
-                                  maxLines: 4,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                ),
-                                child: Wrap(
-                                  alignment: WrapAlignment.end,
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    TextButton.icon(
-                                      key: ValueKey(
-                                        'public-space-discovery-join-$id',
-                                      ),
-                                      onPressed: busy
-                                          ? null
-                                          : () => _join(result),
-                                      icon: const Icon(Icons.link),
-                                      label: Text(l.spaceJoinAction),
-                                    ),
-                                    FilledButton.tonalIcon(
-                                      key: ValueKey(
-                                        'public-space-discovery-subscribe-$id',
-                                      ),
-                                      onPressed: busy
-                                          ? null
-                                          : () => _openOrSubscribe(result),
-                                      icon: busy
-                                          ? const SizedBox.square(
-                                              dimension: 18,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                              ),
-                                            )
-                                          : Icon(
-                                              open
-                                                  ? Icons.open_in_new
-                                                  : Icons.add_circle_outline,
-                                            ),
-                                      label: Text(
-                                        open
-                                            ? l.actionOpen
-                                            : l.spacePublicSubscribe,
+                : Semantics(
+                    container: true,
+                    liveRegion: true,
+                    label: l.spaceDiscoveryResults(_results.length),
+                    child: ListView.builder(
+                      key: const ValueKey('public-space-discovery-results'),
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+                      itemCount: _results.length,
+                      itemBuilder: (context, index) {
+                        final result = _results[index];
+                        final descriptor = result.descriptor;
+                        final id = descriptor.spaceId.hex;
+                        final open =
+                            _memberIds.contains(id) ||
+                            _subscriptionIds.contains(id);
+                        final busy = _busySpace == id;
+                        return Semantics(
+                          container: true,
+                          explicitChildNodes: true,
+                          child: Card(
+                            key: ValueKey('public-space-discovery-result-$id'),
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  ListTile(
+                                    leading: const ExcludeSemantics(
+                                      child: CircleAvatar(
+                                        child: Icon(Icons.public),
                                       ),
                                     ),
-                                  ],
-                                ),
+                                    title: Text(descriptor.name),
+                                    subtitle: Text(
+                                      [
+                                        if (descriptor.description.isNotEmpty)
+                                          descriptor.description,
+                                        [
+                                          l.spaceDiscoveryPosts(
+                                            descriptor.publicPostCount,
+                                          ),
+                                          l.spaceDiscoverySources(
+                                            result.holders.length,
+                                          ),
+                                        ].join(' · '),
+                                      ].join('\n'),
+                                      maxLines: 4,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                    child: Wrap(
+                                      alignment: WrapAlignment.end,
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        TextButton.icon(
+                                          key: ValueKey(
+                                            'public-space-discovery-join-$id',
+                                          ),
+                                          onPressed: busy
+                                              ? null
+                                              : () => _join(result),
+                                          icon: const Icon(Icons.link),
+                                          label: Text(l.spaceJoinAction),
+                                        ),
+                                        FilledButton.tonalIcon(
+                                          key: ValueKey(
+                                            'public-space-discovery-subscribe-$id',
+                                          ),
+                                          onPressed: busy
+                                              ? null
+                                              : () => _openOrSubscribe(result),
+                                          icon: busy
+                                              ? const SizedBox.square(
+                                                  dimension: 18,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                      ),
+                                                )
+                                              : Icon(
+                                                  open
+                                                      ? Icons.open_in_new
+                                                      : Icons
+                                                            .add_circle_outline,
+                                                ),
+                                          label: Text(
+                                            open
+                                                ? l.actionOpen
+                                                : l.spacePublicSubscribe,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
           ),
         ],
@@ -350,26 +370,41 @@ class _PublicSpaceDiscoverySheetState
 }
 
 class _DiscoveryStatus extends StatelessWidget {
-  const _DiscoveryStatus({required this.icon, required this.text});
+  const _DiscoveryStatus({
+    required this.icon,
+    required this.text,
+    this.progress = false,
+  });
 
   final IconData icon;
   final String text;
+  final bool progress;
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 48,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+  Widget build(BuildContext context) => Semantics(
+    container: true,
+    liveRegion: true,
+    label: text,
+    child: ExcludeSemantics(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (progress)
+                const CircularProgressIndicator()
+              else
+                Icon(
+                  icon,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              const SizedBox(height: 12),
+              Text(text, textAlign: TextAlign.center),
+            ],
           ),
-          const SizedBox(height: 12),
-          Text(text, textAlign: TextAlign.center),
-        ],
+        ),
       ),
     ),
   );

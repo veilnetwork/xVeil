@@ -70,6 +70,8 @@ class HeadlessRuntime {
     bool createIfMissing = false,
     String? identityPhrase,
     String? apiToken,
+    int? debugMetricsPort,
+    VeilMailboxCrypto? groupEpochCryptoOverride,
   }) async {
     if (password.isEmpty) throw ArgumentError('password must not be empty');
     await Directory(config.storePath).parent.create(recursive: true);
@@ -108,6 +110,7 @@ class HeadlessRuntime {
         udpReflectors: config.udpReflectors,
         obfs4Psk: psk,
         identityPhrase: identityPhrase,
+        debugMetricsPort: debugMetricsPort,
         lib: _veilNativeHandle(),
       );
       final nodeId = await stack.transport.nodeId();
@@ -141,9 +144,14 @@ class HeadlessRuntime {
         selfPubKey: groupProbe.publicKey,
         lib: groupNative,
       );
-      final epochCrypto = stack.transport is VeilFlutterTransport
-          ? (stack.transport as VeilFlutterTransport).mailboxCrypto()
-          : LoopbackMailboxCrypto(senderForOpen: nodeId);
+      // The override is an integration-test seam for exercising unrelated
+      // public protocols without waiting for cold ML-KEM DHT publication.
+      // Production callers always use the live node mailbox crypto below.
+      final epochCrypto =
+          groupEpochCryptoOverride ??
+          (stack.transport is VeilFlutterTransport
+              ? (stack.transport as VeilFlutterTransport).mailboxCrypto()
+              : LoopbackMailboxCrypto(senderForOpen: nodeId));
       final activePeerTransport = stack.transport;
       groups = GroupService(
         storage,

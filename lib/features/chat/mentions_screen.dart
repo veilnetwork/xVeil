@@ -8,6 +8,7 @@ import '../../data/transport/wire_envelope.dart' show isServiceEchoBody;
 import '../../domain/chat.dart';
 import '../../domain/group_message.dart';
 import '../../domain/space_channel.dart';
+import '../../domain/space_post.dart';
 import '../../domain/space_public_discussion.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
@@ -69,6 +70,31 @@ MentionInboxEntry? publicSpaceCommentMentionInboxEntry({
     timestampMs: comment.createdAtMs,
     route:
         '/space/${spaceId.hex}/public-comments?post=${Uri.encodeQueryComponent(comment.root.postId)}&comment=${Uri.encodeQueryComponent(comment.ref)}',
+  );
+}
+
+MentionInboxEntry? publicSpacePostMentionInboxEntry({
+  required NodeId self,
+  required NodeId spaceId,
+  required String spaceName,
+  required SpacePostView post,
+}) {
+  final postText = [
+    if (post.title.trim().isNotEmpty) post.title,
+    if (post.body.trim().isNotEmpty) post.body,
+  ].join('\n');
+  if (post.author == self || !messageMentionsNode(postText, self)) {
+    return null;
+  }
+  return MentionInboxEntry(
+    id: 'public-space-post:${spaceId.hex}:${post.postId}',
+    kind: MentionSourceKind.spacePost,
+    author: post.author,
+    contextName: spaceName,
+    body: postText,
+    timestampMs: post.publishedAtMs,
+    route:
+        '/space/${spaceId.hex}/public-posts?post=${Uri.encodeQueryComponent(post.postId)}',
   );
 }
 
@@ -228,25 +254,14 @@ final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>
 
     for (final public in publicSubscriptions) {
       for (final post in public.feed.posts) {
-        final postText = [
-          if (post.title.trim().isNotEmpty) post.title,
-          if (post.body.trim().isNotEmpty) post.body,
-        ].join('\n');
-        if (post.author != self &&
-            !await isBlocked(post.author) &&
-            messageMentionsNode(postText, self)) {
-          entries.add(
-            MentionInboxEntry(
-              id: 'public-space-post:${public.descriptor.spaceId.hex}:${post.postId}',
-              kind: MentionSourceKind.spacePost,
-              author: post.author,
-              contextName: public.descriptor.name,
-              body: postText,
-              timestampMs: post.publishedAtMs,
-              route:
-                  '/space/${public.descriptor.spaceId.hex}/public-posts?post=${Uri.encodeQueryComponent(post.postId)}',
-            ),
+        if (!await isBlocked(post.author)) {
+          final entry = publicSpacePostMentionInboxEntry(
+            self: self,
+            spaceId: public.descriptor.spaceId,
+            spaceName: public.descriptor.name,
+            post: post,
           );
+          if (entry != null) entries.add(entry);
         }
         final comments = await service.publicSpacePostComments(
           public.descriptor.spaceId,

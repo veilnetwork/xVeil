@@ -201,6 +201,10 @@ class RealVeilStack {
     List<String> udpReflectors = const [],
     String? obfs4Psk,
     ProxyRouting proxy = ProxyRouting.disabled,
+    // Test/headless multi-node runs may host several embedded nodes in one
+    // process. Give each one a distinct loopback-only metrics port; ordinary
+    // app boots keep the established platform default.
+    int? debugMetricsPort,
     // First-run only (onboarding-phrase epic P2): when set and no node config
     // is stored yet, the identity is DERIVED from this master phrase instead
     // of mined at random — node_id becomes deterministic in the phrase, so
@@ -294,7 +298,8 @@ class RealVeilStack {
         const bool.fromEnvironment('XVEIL_DEBUG_HOOK', defaultValue: true)) {
       fullConfig = EmbeddedNode.withDebugMetrics(
         fullConfig,
-        (Platform.isAndroid || Platform.isIOS) ? 39998 : 39997,
+        debugMetricsPort ??
+            ((Platform.isAndroid || Platform.isIOS) ? 39998 : 39997),
       );
     }
     if (proxy.isActive) {

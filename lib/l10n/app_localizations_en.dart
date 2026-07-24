@@ -647,6 +647,20 @@ class AppL10nEn extends AppL10n {
       'Search by name, or paste an exact node_id from a trusted source.';
 
   @override
+  String get spaceDiscoverySearching => 'Searching verified public communities';
+
+  @override
+  String spaceDiscoveryResults(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count verified communities',
+      one: '1 verified community',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get spaceDiscoveryNoVerifiedResults =>
       'No public community reached verified holder quorum.';
 

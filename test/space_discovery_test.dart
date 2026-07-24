@@ -32,6 +32,7 @@ SpacePublicDescriptor _descriptor({
   int revision = 1,
   String name = 'Public Space',
   NodeId? spaceId,
+  int wireVersion = SpacePublicDescriptor.version,
 }) {
   final space = spaceId ?? _id(1);
   final publisher = _id(2);
@@ -58,6 +59,7 @@ SpacePublicDescriptor _descriptor({
     _signature(publisher, publisher.bytes, unsignedGenesis.canonicalBytes()),
   );
   final unsigned = SpacePublicDescriptor(
+    wireVersion: wireVersion,
     spaceId: space,
     publisher: publisher,
     genesisManifest: genesis,
@@ -79,6 +81,75 @@ SpacePublicDescriptor _descriptor({
   );
   return unsigned.withSignature(
     _signature(publisher, publisher.bytes, unsigned.canonicalBytes()),
+  );
+}
+
+SpacePublicDescriptor _transferredDescriptor({
+  required int now,
+  required int revision,
+  required NodeId spaceId,
+}) {
+  final genesisOwner = _id(2);
+  final nextOwner = _id(8);
+  final base = _descriptor(now: now, revision: revision, spaceId: spaceId);
+  final unsignedTransfer = ControlEntry(
+    version: 6,
+    groupId: spaceId,
+    author: genesisOwner,
+    seq: 0,
+    prevHash: '',
+    op: ControlOp.transferOwnership,
+    target: nextOwner,
+    role: null,
+    policyVersion: 0,
+    createdAtMs: now - 1000,
+    signature: Uint8List(0),
+  );
+  final transfer = unsignedTransfer.withSignature(
+    _signature(
+      genesisOwner,
+      genesisOwner.bytes,
+      unsignedTransfer.canonicalBytes(),
+    ),
+    genesisOwner.bytes,
+  );
+  final authority = buildSpacePublicAuthorityChain(
+    spaceId: spaceId,
+    genesisOwner: genesisOwner,
+    acceptedControl: [transfer],
+  );
+  final ticket = SpaceJoinTicket(
+    ticketId: '12' * 32,
+    spaceId: spaceId,
+    approver: nextOwner,
+    spaceName: base.name,
+    createdAtMs: now - 500,
+    expiresAtMs: now + kSpaceJoinTicketLifetime.inMilliseconds,
+  );
+  final unsigned = SpacePublicDescriptor(
+    spaceId: spaceId,
+    publisher: nextOwner,
+    publisherPublicKey: nextOwner.bytes,
+    authorityChain: authority!,
+    genesisManifest: base.genesisManifest,
+    controlHeadHash: '66' * 32,
+    revision: revision,
+    publicFeedManifestHash: '77' * 32,
+    publicFeedRevision: revision,
+    publicFeedUpdatedAtMs: now - 250,
+    publicPostCount: revision,
+    name: base.name,
+    description: base.description,
+    avatarContentId: base.avatarContentId,
+    coverContentId: base.coverContentId,
+    createdAtMs: base.createdAtMs,
+    updatedAtMs: now - 500,
+    issuedAtMs: now,
+    expiresAtMs: now + const Duration(days: 1).inMilliseconds,
+    joinCode: SpaceJoinCode.encode(ticket),
+  );
+  return unsigned.withSignature(
+    _signature(nextOwner, nextOwner.bytes, unsigned.canonicalBytes()),
   );
 }
 
@@ -159,6 +230,74 @@ void main() {
     expect(decoded!.toJson(), encoded);
     expect(decoded.descriptorHash, descriptor.descriptorHash);
     expect(decoded.verifyAt(now, _verify), isTrue);
+  });
+
+  test(
+    'authority chain transfers publisher and outranks a stale genesis owner',
+    () {
+      const now = 1500000;
+      final spaceId = _id(1);
+      final stale = _descriptor(now: now, revision: 99, spaceId: spaceId);
+      final transferred = _transferredDescriptor(
+        now: now,
+        revision: 1,
+        spaceId: spaceId,
+      );
+
+      expect(transferred.verifyAt(now, _verify), isTrue);
+      expect(transferred.authorityGeneration, 1);
+      expect(transferred.publisher, _id(8));
+      expect(
+        transferred.toJson()['authority'],
+        isA<String>(),
+        reason: 'authority history stays in the compact signed binary block',
+      );
+      final roundTrip = SpacePublicDescriptor.fromJson(
+        jsonDecode(jsonEncode(transferred.toJson())),
+      );
+      expect(roundTrip?.toJson(), transferred.toJson());
+      expect(roundTrip?.verifyAt(now, _verify), isTrue);
+
+      final staleHolder = _holder(descriptor: stale, holder: _id(3), now: now);
+      final currentHolder = _holder(
+        descriptor: transferred,
+        holder: _id(4),
+        now: now,
+      );
+      final merged = mergeSpacePublicDiscovery(
+        descriptors: [stale, transferred],
+        holders: [staleHolder, currentHolder],
+        nowMs: now,
+        verify: _verify,
+      );
+      expect(merged.single.descriptorHash, transferred.descriptorHash);
+
+      final tampered = transferred.toJson();
+      final authority = base64Decode(tampered['authority'] as String);
+      authority[authority.length - 1] ^= 0x01;
+      tampered['authority'] = base64Encode(authority);
+      expect(
+        SpacePublicDescriptor.fromJson(tampered)?.verifyAt(now, _verify),
+        isFalse,
+      );
+    },
+  );
+
+  test('legacy V2 genesis-owner descriptors remain byte-compatible', () {
+    const now = 1750000;
+    final legacy = _descriptor(
+      now: now,
+      wireVersion: SpacePublicDescriptor.legacyVersion,
+    );
+    expect(legacy.verifyAt(now, _verify), isTrue);
+    expect(legacy.toJson(), isNot(contains('publisherKey')));
+    expect(legacy.toJson(), isNot(contains('authority')));
+    final decoded = SpacePublicDescriptor.fromJson(
+      jsonDecode(jsonEncode(legacy.toJson())),
+    );
+    expect(decoded?.wireVersion, SpacePublicDescriptor.legacyVersion);
+    expect(decoded?.canonicalBytes(), legacy.canonicalBytes());
+    expect(decoded?.verifyAt(now, _verify), isTrue);
   });
 
   test(
