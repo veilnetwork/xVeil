@@ -185,6 +185,7 @@ class _MessagingFileTransfer {
       message.src,
       '📎 ${incoming.name ?? 'file'}',
       isFile: true,
+      fileName: incoming.name,
     );
     await _owner._ackTo(message, transferId);
     _owner._signal();

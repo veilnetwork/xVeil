@@ -2772,6 +2772,24 @@ abstract class AppL10n {
   /// **'Video message'**
   String get chatVnoteTooltip;
 
+  /// No description provided for @attachmentPreviewPhoto.
+  ///
+  /// In en, this message translates to:
+  /// **'Photo'**
+  String get attachmentPreviewPhoto;
+
+  /// No description provided for @attachmentPreviewVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Video'**
+  String get attachmentPreviewVideo;
+
+  /// No description provided for @attachmentPreviewSticker.
+  ///
+  /// In en, this message translates to:
+  /// **'Sticker'**
+  String get attachmentPreviewSticker;
+
   /// No description provided for @stickerTitle.
   ///
   /// In en, this message translates to:
