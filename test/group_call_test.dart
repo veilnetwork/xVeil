@@ -132,6 +132,27 @@ class _Signer implements GroupSigner {
   }) => false;
 }
 
+/// [GroupService] whose voice-channel admission can be switched off to model
+/// the live-stand window where the ring already arrived but the (rotated)
+/// admission control has not — the transient the soft-fail join covers.
+class _GateableAdmissionGroups extends GroupService {
+  _GateableAdmissionGroups(
+    super.storage,
+    super.signer, {
+    required super.epochService,
+    super.sendGroupCallFrame,
+  });
+
+  bool admissionAvailable = true;
+
+  @override
+  Future<({Set<NodeId> recipients, int? channelEpoch})?>
+  currentVoiceChannelAdmission(NodeId groupId, NodeId? channelId) async {
+    if (!admissionAvailable) return null;
+    return super.currentVoiceChannelAdmission(groupId, channelId);
+  }
+}
+
 class _Media extends GroupCallMediaController {
   int starts = 0;
   int updates = 0;
@@ -896,6 +917,79 @@ void main() {
         (await ownerStorage.loadFile('group:${groupId.hex}'))!,
       );
       expect(persisted, isNot(contains('private-call-id')));
+    },
+  );
+
+  test(
+    'join defers while admission is unavailable instead of ending the room',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final bobStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      late GroupService ownerGroups;
+      late _GateableAdmissionGroups bobGroups;
+      ownerGroups = GroupService(
+        ownerStorage,
+        _Signer(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+        sendGroupCallFrame: (peer, signal, json) async {
+          if (peer == bob) await bobGroups.ingestGroupCallFrame(owner, json);
+        },
+      );
+      final groupId = await ownerGroups.createGroup('Deferred room');
+      await ownerGroups.addControlOp(
+        groupId,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      );
+      bobGroups = _GateableAdmissionGroups(
+        bobStorage,
+        _Signer(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+        sendGroupCallFrame: (peer, signal, json) async {
+          if (peer == owner) await ownerGroups.ingestGroupCallFrame(bob, json);
+        },
+      );
+      expect(
+        await bobGroups.ingestSnapshot(
+          ownerGroups.snapshotJson(
+            (await ownerGroups.load(groupId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+
+      final ownerCalls = GroupCallService(ownerGroups, media: _Media())
+        ..start();
+      final bobCalls = GroupCallService(bobGroups, media: _Media())..start();
+      addTearDown(ownerCalls.dispose);
+      addTearDown(bobCalls.dispose);
+
+      expect(
+        await ownerCalls.startCall(groupId, const CallMedia(audio: true)),
+        isTrue,
+      );
+      await pumpEventQueue();
+      expect(bobCalls.current?.status, GroupCallStatus.ringing);
+
+      // The (possibly rotated) admission has not arrived yet: joining must
+      // fail SOFT — the room keeps ringing so a later retry can succeed.
+      // Pre-fix this ended the room ("join → ended" on the live stand).
+      bobGroups.admissionAvailable = false;
+      expect(await bobCalls.join(), isFalse);
+      expect(bobCalls.current?.status, GroupCallStatus.ringing);
+
+      bobGroups.admissionAvailable = true;
+      expect(await bobCalls.join(), isTrue);
+      await pumpEventQueue();
+      expect(bobCalls.current?.status, GroupCallStatus.active);
     },
   );
 
