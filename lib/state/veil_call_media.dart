@@ -13,6 +13,7 @@ import '../core/log.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call.dart';
 import '../domain/call_signal.dart';
+import 'android_call_foreground.dart';
 import 'android_camera_capture.dart';
 import 'android_native_call_camera.dart';
 import 'android_native_call_video.dart';
@@ -501,6 +502,11 @@ class VeilCallMediaController implements CallMediaController {
     _activeCall = call;
     await _loadDevicePreferences();
     await _setAndroidCallNetworkActive(true);
+    // Before capture opens: the grant must exist by the time the screen can
+    // lock, and the typed service may only start while the app is visible.
+    if (call.media.audio) {
+      await AndroidCallForegroundService.setActive(true);
+    }
     // Present the platform mic/camera prompts before native capture starts,
     // but do not serialize them: two independent five-second waits used to
     // exceed CallService's whole media-start budget and tear down an otherwise
@@ -997,11 +1003,12 @@ class VeilCallMediaController implements CallMediaController {
       } catch (_) {}
     }
     // A route repair tears down and recreates only the media session. Keep the
-    // radio in low-latency mode across that internal gap; release it only when
-    // the call itself ends.
+    // radio in low-latency mode and the microphone foreground grant across
+    // that internal gap; release them only when the call itself ends.
     if (clearActiveCall) {
       await callAudioRouter.release();
       await _setAndroidCallNetworkActive(false);
+      await AndroidCallForegroundService.setActive(false);
     }
   }
 
