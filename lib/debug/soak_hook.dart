@@ -143,7 +143,10 @@ String groupPostHookText(Uri uri) {
 ///   POST /tap?node=ID|label=TEXT[&index=N]|x=&y=  [&long=true]
 ///   POST /scroll?dx=&dy=[&x=&y=|&label=TEXT][&steps=16]
 ///   POST /enter_text?text=...[&node=ID|label=TEXT]   (or JSON body)
-///   POST /navigate?path=/chat/HEX     GET /route     POST /back
+///   POST /navigate?path=/chat/HEX[&bare=1]     GET /route     POST /back
+///     (/chat/ and /space/ paths are rooted at /home and pushed, matching
+///      what a user sees on a flat router; bare=1 keeps the raw go() for
+///      diagnostics that deliberately model an orphaned stack)
 ///   GET  /messages?peer=NODE_HEX[&limit=50]
 ///   POST /send_message?peer=NODE_HEX&text=...        (or JSON body)
 ///   GET  /call_devices
@@ -4404,10 +4407,15 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   Future<void> _navigate(HttpRequest req) async {
     final path = _required(req, 'path');
     if (path == null) return;
-    // Chat routes are ROOTED like the product does it (home under the chat →
-    // the back button exists); a bare go() replaces the stack and smoke
-    // screenshots silently diverge from what a user sees.
-    if (path.startsWith('/chat/')) {
+    // Chat and space routes are ROOTED like the product does it (home under
+    // the pushed screen → the back button exists); a bare go() replaces the
+    // stack and smoke screenshots silently diverge from what a user sees.
+    // bare=1 opts out for diagnostics that deliberately model an orphaned
+    // stack (direct-route deep-link entry).
+    final bare = req.uri.queryParameters['bare'] == '1';
+    final rooted =
+        !bare && (path.startsWith('/chat/') || path.startsWith('/space/'));
+    if (rooted) {
       ref.read(routerProvider)
         ..go('/home')
         ..push(path);
