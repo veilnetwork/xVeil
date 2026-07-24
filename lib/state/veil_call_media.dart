@@ -478,6 +478,14 @@ class VeilCallMediaController implements CallMediaController {
   Stream<void> get screenShareStopped => _screenShareStops.stream;
 
   @override
+  bool get screenCaptureAccessGranted =>
+      !Platform.isMacOS || platformScreenCaptureAccessGranted;
+
+  @override
+  bool requestScreenCaptureAccess() =>
+      !Platform.isMacOS || requestPlatformScreenCaptureAccess();
+
+  @override
   Future<bool> start(Call call) async {
     devLog(
       () =>
@@ -1207,17 +1215,14 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Future<List<CallMediaDevice>> listScreens() async {
-    final engine = _engine;
-    if (engine == null || !Platform.isMacOS) return const [];
+    if (!Platform.isMacOS) return const [];
     try {
-      return engine
-          .listScreenInputs()
-          .indexed
+      return listPlatformScreenInputs().indexed
           .map(
             (entry) => CallMediaDevice(
               id: entry.$2.id,
               label: entry.$2.label,
-              kind: CallMediaDeviceKind.screen,
+              kind: screenSourceDeviceKind(entry.$2.kind),
               selected:
                   entry.$2.id == _selectedScreenId ||
                   (_selectedScreenId == null && entry.$1 == 0),
