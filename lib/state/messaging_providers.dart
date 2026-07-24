@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../core/ids.dart';
 import '../core/log.dart';
@@ -133,8 +134,8 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   // while offline stay `sent` and go out the moment transport is up again. Also
   // (re)attempt mailbox registration — the DHT resolve needs the node connected.
   ref.listen<AsyncValue<NodeStatus>>(nodeStatusProvider, (prev, next) {
-    final was = prev?.valueOrNull?.phase;
-    final now = next.valueOrNull?.phase;
+    final was = prev?.value?.phase;
+    final now = next.value?.phase;
     if (now == NodePhase.connected && was != NodePhase.connected) {
       // Reconcile on reconnect: fire the gap-fill beacons immediately + flush the
       // outbox so messages composed while offline (and any the peer missed) heal.

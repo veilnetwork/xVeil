@@ -3329,7 +3329,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final n = await ref
         .read(stickerControllerProvider.notifier)
         .installPack(bytes);
-    final packs = ref.read(stickerControllerProvider).valueOrNull ?? const [];
+    final packs = ref.read(stickerControllerProvider).value ?? const [];
     return _json(req, {
       'ok': n > 0,
       'installed': n,
@@ -3353,7 +3353,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final n = await ref.read(stickerControllerProvider.notifier).importImages([
       bytes,
     ]);
-    final packs = ref.read(stickerControllerProvider).valueOrNull ?? const [];
+    final packs = ref.read(stickerControllerProvider).value ?? const [];
     final items = [for (final p in packs) ...p.items];
     return _json(req, {'ok': n > 0, 'added': n, 'library': items.length});
   }

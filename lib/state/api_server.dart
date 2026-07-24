@@ -138,7 +138,7 @@ class ApiServerController extends Notifier<ApiConfig> {
 
   Future<List<Map<String, dynamic>>> _contacts() async {
     final convos =
-        ref.read(conversationsProvider).valueOrNull ?? const <Conversation>[];
+        ref.read(conversationsProvider).value ?? const <Conversation>[];
     return [
       for (final c in convos)
         if (c.peer.status == ContactStatus.accepted)

@@ -44,7 +44,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     final l = AppL10n.of(context);
     final panelPosition = ref.watch(folderPanelPositionProvider);
     final atEnd = panelPosition == FolderPanelPosition.right;
-    final folders = ref.watch(chatFoldersProvider).valueOrNull ?? const [];
+    final folders = ref.watch(chatFoldersProvider).value ?? const [];
     var selectedFolder = ref.watch(selectedFolderProvider);
     if (selectedFolder != null &&
         !folders.any((folder) => folder.id == selectedFolder)) {

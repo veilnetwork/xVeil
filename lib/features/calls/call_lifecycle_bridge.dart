@@ -71,7 +71,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
   @override
   Widget build(BuildContext context) {
     final call = ref.watch(currentCallProvider);
-    final groupCall = ref.watch(currentGroupCallProvider).valueOrNull;
+    final groupCall = ref.watch(currentGroupCallProvider).value;
     final wasVideoCallActive = _videoCallActive;
     _videoCallActive =
         _isVideoCallActive(call) || _isGroupVideoCallActive(groupCall);
