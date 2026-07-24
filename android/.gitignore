@@ -1,5 +1,7 @@
 gradle-wrapper.jar
 /.gradle
+# Kotlin 2.x (built-in Kotlin / KGP 2.3) project-level artifact dir.
+/.kotlin/
 /captures/
 /gradlew
 /gradlew.bat
