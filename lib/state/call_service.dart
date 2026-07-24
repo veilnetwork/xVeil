@@ -203,6 +203,7 @@ class CallService {
     bool startMuted = false,
     Future<bool> Function(NodeId peer)? localAllowsP2P,
     Future<bool> Function(NodeId peer)? peerReachableForP2P,
+    String? Function(NodeId peer)? p2pFallbackReason,
   }) : _now = now ?? DateTime.now,
        // ignore: prefer_initializing_formals — public `media:` param → private field.
        _media = media,
@@ -213,7 +214,9 @@ class CallService {
        _signalProtocolVersion =
            media?.signalProtocolVersion ?? kCallSignalProtocolVersion,
        _localAllowsP2P = localAllowsP2P ?? _neverP2P,
-       _peerReachableForP2P = peerReachableForP2P ?? _neverP2P;
+       _peerReachableForP2P = peerReachableForP2P ?? _neverP2P,
+       // ignore: prefer_initializing_formals — public `p2pFallbackReason:` → private field.
+       _p2pFallbackReason = p2pFallbackReason;
 
   final MessagingService _messaging;
   final DateTime Function() _now;
@@ -223,6 +226,12 @@ class CallService {
   final int _signalProtocolVersion;
   final Future<bool> Function(NodeId peer) _localAllowsP2P;
   final Future<bool> Function(NodeId peer) _peerReachableForP2P;
+
+  /// Short, address-free reason the P2P endpoint service last settled on relay
+  /// for a peer (structured hole-punch stage). Folded into
+  /// [transportFallbackReason] so `/call_state` and logs name the real cause;
+  /// the UI badge still shows only its generic localized phrase.
+  final String? Function(NodeId peer)? _p2pFallbackReason;
 
   /// Give endpoint exchange and direct dialing a bounded setup window. The
   /// reachability probe keeps running after the timeout and can still warm a
@@ -275,13 +284,20 @@ class CallService {
 
   /// Why relay is in use despite locally permitted P2P. The media controller
   /// owns late route failures; the FSM owns an initially unavailable direct
-  /// session. Policy-denied and anonymous calls deliberately return null.
-  String? get transportFallbackReason =>
-      _media?.transportFallbackReason ??
-      (_current?.transport == CallTransportKind.relay &&
-              _directSessionUnavailable
-          ? 'direct session unavailable'
-          : null);
+  /// session — enriched with the P2P endpoint service's structured stage
+  /// (no addresses) so `/call_state` and logs name the real cause. Policy-
+  /// denied and anonymous calls deliberately return null.
+  String? get transportFallbackReason {
+    final mediaReason = _media?.transportFallbackReason;
+    if (mediaReason != null) return mediaReason;
+    final c = _current;
+    if (c != null &&
+        c.transport == CallTransportKind.relay &&
+        _directSessionUnavailable) {
+      return _p2pFallbackReason?.call(c.peer) ?? 'direct session unavailable';
+    }
+    return null;
+  }
 
   /// Emits on every FSM transition, and null when the call slot clears.
   Stream<Call?> get changes => _changes.stream;
@@ -1258,6 +1274,11 @@ final callServiceProvider = Provider<CallService>((ref) {
       if (p2p == null) return true;
       return p2p.ensureReady(peer);
     },
+    // Surface the endpoint service's structured relay-fallback reason (a
+    // short, address-free stage name) into the transport badge / `/call_state`
+    // / logs. Null when the service isn't up (loopback/dev stack).
+    p2pFallbackReason: (peer) =>
+        ref.read(p2pEndpointServiceProvider)?.lastFallbackReason(peer),
   )..start();
   ref.onDispose(svc.dispose);
   return svc;
