@@ -4252,6 +4252,10 @@ class AppL10nRu extends AppL10n {
   String get videoPlayError => 'Не удалось воспроизвести видео';
 
   @override
+  String get videoPlayUnsupported =>
+      'Этот формат здесь не воспроизвести. На Linux играются только WebM (VP8).';
+
+  @override
   String get emojiSearchHint => 'Поиск эмодзи';
 
   @override

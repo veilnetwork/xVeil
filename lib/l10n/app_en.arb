@@ -1340,6 +1340,7 @@
   "settingsNickname": "Nickname",
   "settingsNicknameHint": "Claim an @name others can find you by",
   "videoPlayError": "Could not play this video",
+  "videoPlayUnsupported": "This format can't be played here. On Linux only WebM (VP8) videos play.",
   "emojiSearchHint": "Search emoji",
   "chatEmojiTooltip": "Emoji",
   "chatMoreActions": "More actions",
