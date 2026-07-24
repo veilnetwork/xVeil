@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/crypto/blake3.dart';
@@ -258,6 +259,8 @@ Widget _routerHost(GroupService service, GoRouter router, {Storage? storage}) =>
     );
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   testWidgets('Feed renders a separate chronological Space publication', (
     tester,
   ) async {
@@ -785,6 +788,19 @@ void main() {
         find.byKey(const ValueKey('space-public-discovery-action')),
       );
       await tester.pumpAndSettle();
+      final semantics = tester.ensureSemantics();
+      final queryField = tester.widget<TextField>(
+        find.byKey(const ValueKey('public-space-discovery-query')),
+      );
+      expect(queryField.autocorrect, isFalse);
+      expect(queryField.enableSuggestions, isFalse);
+      expect(queryField.decoration?.labelText, 'Search');
+      expect(
+        find.bySemanticsLabel(
+          'Search by name, or paste an exact node_id from a trusted source.',
+        ),
+        findsOneWidget,
+      );
       await tester.enterText(
         find.byKey(const ValueKey('public-space-discovery-query')),
         'Exact discovery',
@@ -812,7 +828,16 @@ void main() {
         find.byKey(ValueKey('public-space-discovery-result-${spaceId.hex}')),
         findsOneWidget,
       );
+      expect(find.bySemanticsLabel('1 verified community'), findsOneWidget);
       expect(find.textContaining('1 verified source'), findsOneWidget);
+      await expectLater(
+        tester,
+        meetsGuideline(labeledTapTargetGuideline),
+      );
+      await expectLater(
+        tester,
+        meetsGuideline(textContrastGuideline),
+      );
 
       await tester.tap(
         find.byKey(ValueKey('public-space-discovery-subscribe-${spaceId.hex}')),
@@ -830,6 +855,7 @@ void main() {
         find.byKey(ValueKey('public-space-subscription-${spaceId.hex}')),
         findsOneWidget,
       );
+      semantics.dispose();
     },
   );
 

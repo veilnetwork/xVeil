@@ -654,6 +654,22 @@ class AppL10nRu extends AppL10n {
       'Ищите по названию или вставьте точный node_id из доверенного источника.';
 
   @override
+  String get spaceDiscoverySearching => 'Ищу проверенные публичные сообщества';
+
+  @override
+  String spaceDiscoveryResults(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count проверенного сообщества',
+      many: '$count проверенных сообществ',
+      few: '$count проверенных сообщества',
+      one: '1 проверенное сообщество',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get spaceDiscoveryNoVerifiedResults =>
       'Нет публичных сообществ с подтверждённым кворумом распространителей.';
 

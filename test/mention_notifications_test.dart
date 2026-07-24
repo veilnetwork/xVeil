@@ -7,6 +7,7 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/message_mention.dart';
+import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_public_discussion.dart';
 import 'package:xveil/features/chat/chat_actions.dart';
 import 'package:xveil/features/chat/mentions_screen.dart';
@@ -216,6 +217,53 @@ void main() {
         spaceId: space,
         spaceName: 'Public Space',
         comment: comment,
+      ),
+      isNull,
+      reason: 'an author must not create a mention entry for themselves',
+    );
+  });
+
+  test('public post mention keeps an exact read-only destination', () {
+    final self = _id(7);
+    final author = _id(8);
+    final space = _id(9);
+    final root = SpacePost(
+      spaceId: space,
+      author: author,
+      seq: 4,
+      prevHash: '',
+      type: SpacePostType.post,
+      visibility: SpacePostVisibility.public,
+      title: 'Release',
+      body: 'Ping ${encodeMessageMention(self)}',
+      policyVersion: 0,
+      createdAtMs: 41,
+      publishedAtMs: 42,
+      signature: Uint8List(64),
+      authorPubKey: author.bytes,
+    );
+    final post = SpacePostView(root: root, effective: root);
+
+    final entry = publicSpacePostMentionInboxEntry(
+      self: self,
+      spaceId: space,
+      spaceName: 'Public Space',
+      post: post,
+    );
+    expect(entry, isNotNull);
+    expect(entry!.kind, MentionSourceKind.spacePost);
+    expect(entry.author, author);
+    expect(
+      entry.route,
+      '/space/${space.hex}/public-posts?post='
+      '${Uri.encodeQueryComponent(post.postId)}',
+    );
+    expect(
+      publicSpacePostMentionInboxEntry(
+        self: author,
+        spaceId: space,
+        spaceName: 'Public Space',
+        post: post,
       ),
       isNull,
       reason: 'an author must not create a mention entry for themselves',

@@ -1,0 +1,8 @@
+# TEST-ONLY identity. The private key is intentionally public and must never
+# be used outside isolated integration tests.
+[Identity]
+algo = "ed25519"
+public_key = "p7Y9qJVL7UiqOEvnW0s6nf2iypSQDj8sFK2giB9ewFY="
+private_key = "XekOCMnQ9P/MezotZwxiaj4iHrrG2NzwInGhwaoiDBE="
+nonce = "ADs25w=="
+node_id = "27a7d20fdf256217a92a46fa3a6e75e4df4cf856f932aabb2abdcac80ece62bd"

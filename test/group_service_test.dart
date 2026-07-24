@@ -158,6 +158,29 @@ class _FakeSigner implements GroupSigner {
       _bytesEqual(_fakeSovereignSignature(publicKey, message), signature);
 }
 
+/// Keeps the control and detached fake signatures cryptographically
+/// interchangeable, matching the production identity key used by public
+/// authority links.
+class _AuthorityFakeSigner extends _FakeSigner {
+  _AuthorityFakeSigner(super._self);
+
+  @override
+  ControlEntry signControl(ControlEntry value) => value.withSignature(
+    _fakeSovereignSignature(selfPubKey, value.canonicalBytes()),
+    selfPubKey,
+  );
+
+  @override
+  bool verifyControl(ControlEntry value) =>
+      value.authorPubKey.length == 32 &&
+      value.signature.length == 64 &&
+      value.author == NodeId(Uint8List.fromList(value.authorPubKey)) &&
+      _bytesEqual(
+        _fakeSovereignSignature(value.authorPubKey, value.canonicalBytes()),
+        value.signature,
+      );
+}
+
 class _NativeSovereignVerifier extends _FakeSigner {
   _NativeSovereignVerifier(super._self);
 
@@ -225,6 +248,8 @@ class _DiscoveryFakeSigner extends _FakeSigner {
 
 class _FakeSpaceDiscoveryTransport implements SpaceDiscoveryTransport {
   final List<Uint8List> records = <Uint8List>[];
+  final List<SpaceDiscoveryCarrierRoute> resolvedRoutes =
+      <SpaceDiscoveryCarrierRoute>[];
   bool returnUnrelatedRecords = true;
 
   @override
@@ -236,13 +261,18 @@ class _FakeSpaceDiscoveryTransport implements SpaceDiscoveryTransport {
   Future<List<Uint8List>> resolve(
     SpaceDiscoveryCarrierRoute route, {
     Duration timeout = const Duration(seconds: 8),
-  }) async => [
-    for (final record in records)
-      if (returnUnrelatedRecords ||
-          (SpaceDiscoveryCarrier.fromBytes(record)?.route.sameAs(route) ??
-              false))
-        Uint8List.fromList(record),
-  ];
+  }) async {
+    resolvedRoutes.add(
+      SpaceDiscoveryCarrierRoute(route.kind, Uint8List.fromList(route.body)),
+    );
+    return [
+      for (final record in records)
+        if (returnUnrelatedRecords ||
+            (SpaceDiscoveryCarrier.fromBytes(record)?.route.sameAs(route) ??
+                false))
+          Uint8List.fromList(record),
+    ];
+  }
 }
 
 bool _bytesEqual(Uint8List a, Uint8List b) {
@@ -4281,11 +4311,11 @@ void main() {
   );
 
   test(
-    'public discovery payload is signed, allowlisted and stops after transfer',
+    'public discovery payload transfers through a genesis-rooted authority chain',
     () async {
       final storage = FakeHvContainer().storage();
       await storage.open(password: 'owner', createIfMissing: true);
-      final service = GroupService(storage, _FakeSigner(owner));
+      final service = GroupService(storage, _AuthorityFakeSigner(owner));
       addTearDown(service.dispose);
 
       final privateSpace = await service.createSpace('Private');
@@ -4313,7 +4343,7 @@ void main() {
       expect(
         initial!.verifyAt(
           initial.descriptor.issuedAtMs,
-          _FakeSigner(owner).verifyDetached,
+          _AuthorityFakeSigner(owner).verifyDetached,
         ),
         isTrue,
       );
@@ -4382,10 +4412,56 @@ void main() {
       expect(
         await service.buildSpacePublicDiscoveryPayload(spaceId),
         isNull,
-        reason:
-            'v1 fails closed after transfer until a public authority chain '
-            'can prove the new owner',
+        reason: 'the revoked publisher must stop immediately after transfer',
       );
+      final nextOwnerService = GroupService(storage, _AuthorityFakeSigner(bob));
+      addTearDown(nextOwnerService.dispose);
+      final transferredBundle = (await nextOwnerService.load(spaceId))!;
+      final transferredFold = foldControlLog(
+        owner: transferredBundle.manifest.owner,
+        entries: transferredBundle.control,
+        verify: _AuthorityFakeSigner(bob).verifyControl,
+      );
+      expect(transferredFold.state.roleOf(bob), GroupRole.owner);
+      final publicAuthority = buildSpacePublicAuthorityChain(
+        spaceId: spaceId,
+        genesisOwner: transferredBundle.manifest.owner,
+        acceptedControl: transferredFold.accepted,
+      );
+      expect(publicAuthority, isNotNull);
+      expect(publicAuthority, hasLength(1));
+      expect(await nextOwnerService.createSpaceJoinCode(spaceId), isNotNull);
+      final transferred = await nextOwnerService
+          .buildSpacePublicDiscoveryPublication(spaceId);
+      expect(transferred, isNotNull);
+      expect(transferred!.discovery.descriptor.publisher, bob);
+      expect(transferred.discovery.descriptor.authorityGeneration, 1);
+      expect(transferred.discovery.descriptor.publisherPublicKey, bob.bytes);
+      expect(
+        transferred.discovery.toBytes().length,
+        lessThanOrEqualTo(kSpacePublicDiscoveryPayloadMaxBytes),
+      );
+      expect(
+        transferred.discovery.verifyAt(
+          transferred.discovery.holder.issuedAtMs,
+          _AuthorityFakeSigner(bob).verifyDetached,
+        ),
+        isTrue,
+      );
+      expect(
+        SpaceJoinCode.parse(transferred.discovery.descriptor.joinCode).approver,
+        bob,
+      );
+      final transferredWire = utf8.decode(transferred.discovery.toBytes());
+      for (final forbidden in const [
+        '"members"',
+        '"roles"',
+        '"channels"',
+        '"categoryId"',
+        '"epochEnvelopes"',
+      ]) {
+        expect(transferredWire, isNot(contains(forbidden)));
+      }
     },
   );
 
@@ -5422,6 +5498,19 @@ void main() {
       );
       expect(searchable, hasLength(1));
       expect(searchable.single.holders, hasLength(1));
+      final resolvedSearchRoutes = transport.resolvedRoutes
+          .where((route) => route.kind == SpaceDiscoveryCarrierRouteKind.search)
+          .toList(growable: false);
+      expect(resolvedSearchRoutes, isNotEmpty);
+      expect(
+        resolvedSearchRoutes.any((route) => route.sameAs(prefixRoute)),
+        isTrue,
+      );
+      final routeWire = utf8.decode([
+        for (final route in resolvedSearchRoutes) ...route.body,
+      ], allowMalformed: true);
+      expect(routeWire, isNot(contains('откр')));
+      expect(routeWire, isNot(contains('Открытый Сад')));
       expect(
         await service.searchPublicSpaces('откр'),
         isEmpty,

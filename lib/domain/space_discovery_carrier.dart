@@ -5,7 +5,8 @@ import '../crypto/blake3.dart';
 import 'space_discovery.dart';
 
 const int kSpaceDiscoveryCarrierVersion = 1;
-const int kSpaceDiscoveryCarrierPayloadMaxBytes = 16 * 1024;
+const int kSpaceDiscoveryCarrierPayloadMaxBytes =
+    kSpacePublicDiscoveryPayloadMaxBytes;
 const Duration kSpaceDiscoveryCarrierLifetime = Duration(hours: 2);
 const Duration kSpaceDiscoveryCarrierClockSkew = Duration(minutes: 5);
 
