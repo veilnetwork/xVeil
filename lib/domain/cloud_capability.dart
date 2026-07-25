@@ -648,6 +648,51 @@ class CloudCapabilityCodec {
     );
   }
 
+  /// Per-file subkey for a MEMBER content share: HMAC(epochKey, domain + cid).
+  /// The root key is the document's CURRENT epoch key. Rotating the epoch (on
+  /// revoke) changes every subkey, so a removed member — who never receives
+  /// the new epoch key — can no longer derive a valid subkey and is cut off
+  /// from future byte pulls with the usual silent denial.
+  static Uint8List memberFileKey(Uint8List epochKey, String contentId) =>
+      Uint8List.fromList(
+        crypto.Hmac(crypto.sha256, epochKey)
+            .convert(
+              (BytesBuilder(copy: false)
+                    ..add(utf8.encode('xveil.cloud.member.file.v1'))
+                    ..add(utf8.encode(contentId)))
+                  .toBytes(),
+            )
+            .bytes,
+      );
+
+  /// The synthetic per-file capability both a member host and a member client
+  /// derive from (documentId, current epoch key, manifest). shareId is the
+  /// document id bytes; the key is [memberFileKey]. Reuses the piece/chunk/
+  /// request paths byte-for-byte.
+  static CloudCapability memberFileCapability({
+    required Uint8List documentId,
+    required Uint8List epochKey,
+    required ContentManifest manifest,
+    required Uint8List servicePublicKey,
+    required Uint8List appId,
+    required int endpointId,
+    required int expiresAtMs,
+    String? mime,
+  }) {
+    _require32(documentId, 'documentId');
+    return CloudCapability(
+      shareId: documentId,
+      key: memberFileKey(epochKey, manifest.contentId),
+      servicePublicKey: servicePublicKey,
+      appId: appId,
+      endpointId: endpointId,
+      expiresAtMs: expiresAtMs,
+      manifest: manifest,
+      revision: 1,
+      mime: mime,
+    );
+  }
+
   /// Transcript-bound proof for the `listing` wire op.
   static Uint8List listingRequestMac({
     required CloudFolderCapability capability,
