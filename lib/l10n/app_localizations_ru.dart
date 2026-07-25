@@ -207,6 +207,24 @@ class AppL10nRu extends AppL10n {
   String get spaceDescriptionEditTitle => 'Изменить описание';
 
   @override
+  String get spaceProfileMediaTitle => 'Изображения сообщества';
+
+  @override
+  String get spaceProfileMediaEmpty => 'Аватар и обложка не заданы';
+
+  @override
+  String get spaceProfileMediaSet => 'Аватар и обложка доступны участникам';
+
+  @override
+  String get spaceAvatarChange => 'Изменить аватар';
+
+  @override
+  String get spaceCoverChange => 'Изменить обложку';
+
+  @override
+  String get spaceProfileMediaClear => 'Убрать изображения';
+
+  @override
   String get spaceDescriptionSave => 'Сохранить описание';
 
   @override

@@ -463,6 +463,42 @@ abstract class AppL10n {
   /// **'Edit description'**
   String get spaceDescriptionEditTitle;
 
+  /// No description provided for @spaceProfileMediaTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Community images'**
+  String get spaceProfileMediaTitle;
+
+  /// No description provided for @spaceProfileMediaEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No avatar or cover yet'**
+  String get spaceProfileMediaEmpty;
+
+  /// No description provided for @spaceProfileMediaSet.
+  ///
+  /// In en, this message translates to:
+  /// **'Avatar and cover are shared with members'**
+  String get spaceProfileMediaSet;
+
+  /// No description provided for @spaceAvatarChange.
+  ///
+  /// In en, this message translates to:
+  /// **'Change avatar'**
+  String get spaceAvatarChange;
+
+  /// No description provided for @spaceCoverChange.
+  ///
+  /// In en, this message translates to:
+  /// **'Change cover'**
+  String get spaceCoverChange;
+
+  /// No description provided for @spaceProfileMediaClear.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove images'**
+  String get spaceProfileMediaClear;
+
   /// No description provided for @spaceDescriptionSave.
   ///
   /// In en, this message translates to:
