@@ -340,7 +340,31 @@ class CloudMemberContentClient {
   final Duration _timeout;
   final Uint8List Function(int count) _randomBytes;
 
+  /// Fetches the whole file into memory.
+  ///
+  /// Only safe for content that is known to be small; a shared folder can hold
+  /// a multi-GB file, and this holds all of it at once. Prefer
+  /// [fetchFileStreaming], which never accumulates.
   Future<Uint8List> fetchFile(ContentManifest manifest) async {
+    final assembled = BytesBuilder(copy: false);
+    await fetchFileStreaming(
+      manifest,
+      (_, bytes) async => assembled.add(bytes),
+    );
+    return assembled.toBytes();
+  }
+
+  /// Streams the file, handing each piece to [onPiece] once its hash is
+  /// verified, and returns the total byte count.
+  ///
+  /// Nothing is retained here: peak memory is one piece plus whatever the sink
+  /// keeps, so a few-GB shared file is bounded by disk rather than by RAM. A
+  /// piece is only ever passed on AFTER [ContentManifest.verifyPiece] accepts
+  /// it, so a sink may persist it immediately — unverified bytes never escape.
+  Future<int> fetchFileStreaming(
+    ContentManifest manifest,
+    Future<void> Function(int pieceIndex, Uint8List bytes) onPiece,
+  ) async {
     final capability = CloudCapabilityCodec.memberFileCapability(
       documentId: documentId,
       epochKey: epochKey,
@@ -351,7 +375,7 @@ class CloudMemberContentClient {
       expiresAtMs: expiresAtMs,
     );
     final contentIdBytes = _contentIdBytes(manifest.contentId);
-    final assembled = BytesBuilder(copy: false);
+    var total = 0;
     for (var piece = 0; piece < manifest.pieceCount; piece++) {
       final clearPiece = BytesBuilder(copy: false);
       final chunks = CloudCapabilityCodec.chunkCount(capability, piece);
@@ -406,12 +430,15 @@ class CloudMemberContentClient {
       if (!manifest.verifyPiece(piece, bytes)) {
         throw StateError('member content piece hash mismatch');
       }
-      assembled.add(bytes);
+      total += bytes.length;
+      await onPiece(piece, bytes);
     }
-    final whole = assembled.toBytes();
-    if (whole.length != manifest.size) {
+    // Checked after the fact rather than up front: the per-piece hashes already
+    // pin the content, and this catches a host that returned the right pieces
+    // for a manifest describing a different length.
+    if (total != manifest.size) {
       throw StateError('member content size mismatch');
     }
-    return whole;
+    return total;
   }
 }

@@ -1923,6 +1923,11 @@ void main() {
       expect(fetched, isNotNull);
       expect(editorFiles.files[manifest.contentId], bytes);
       expect(editorFiles.files.containsKey('mf:${manifest.contentId}'), isTrue);
+      // 1500 bytes over a 1 KiB piece size is two pieces, and each reached
+      // storage on its own: adopting a shared file streams to disk instead of
+      // assembling it, so a multi-GB one is bounded by disk rather than RAM.
+      expect(manifest.pieceCount, 2);
+      expect(editorFiles.piecesSeen[manifest.contentId], [0, 1]);
       expect(
         await editorService.isSharedFileLocal(manifest.contentId),
         isTrue,
@@ -2025,6 +2030,33 @@ class _MemberStorage implements CloudMemberFolderStoragePort {
     String? name,
   }) async {
     files[contentId] = Uint8List.fromList(bytes);
+  }
+
+  /// Pieces seen per contentId, in arrival order — lets a test prove the fetch
+  /// streamed rather than assembled.
+  final piecesSeen = <String, List<int>>{};
+  final _partial = <String, Map<int, Uint8List>>{};
+
+  @override
+  Future<void> storeFilePiece(
+    String contentId,
+    int pieceIndex,
+    int pieceCount,
+    int pieceSize,
+    int totalSize,
+    Uint8List bytes, {
+    String? name,
+  }) async {
+    (piecesSeen[contentId] ??= <int>[]).add(pieceIndex);
+    final parts = _partial[contentId] ??= <int, Uint8List>{};
+    parts[pieceIndex] = Uint8List.fromList(bytes);
+    if (parts.length != pieceCount) return; // still incomplete: not a file yet
+    final whole = BytesBuilder(copy: false);
+    for (var i = 0; i < pieceCount; i++) {
+      whole.add(parts[i]!);
+    }
+    files[contentId] = whole.toBytes();
+    _partial.remove(contentId);
   }
 }
 
