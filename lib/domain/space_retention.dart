@@ -190,27 +190,40 @@ class SpaceChannelRetentionEnvelope {
 ///
 /// Message rows form strict per-`(scope, author)` hash chains, so deleting an
 /// expired prefix would otherwise hide the whole retained suffix ("missing
-/// predecessor"). The cut re-anchors the fold at `throughSeq + 1`. It is not a
-/// signed wire object: locally it is written only by the retention sweep, and
-/// a remote hint is merged only after the receiver has re-validated the
-/// claimed boundary against its own fold of the signed retention revisions.
+/// predecessor"). The cut re-anchors the fold at the first surviving row whose
+/// `prevHash` equals [throughHash] — the hash of the last physically deleted
+/// row. Matching on the hash (not `throughSeq + 1`) is required because an
+/// author's seq is global across channels, so a single chain scope legitimately
+/// has seq gaps; a seq-contiguity assumption would hide the retained suffix.
+/// It is not a signed wire object: locally it is written only by the retention
+/// sweep, and a remote hint is merged only after the receiver re-validates the
+/// claimed boundary against its own fold of the signed retention revisions AND
+/// its own chain matches [throughHash].
 class SpaceRetentionCut {
   const SpaceRetentionCut({
     required this.scope,
     required this.author,
     required this.throughSeq,
+    required this.throughHash,
     required this.throughCreatedAtMs,
   });
 
   final String scope;
   final NodeId author;
   final int throughSeq;
+
+  /// Hash of the last deleted row; the retained anchor's `prevHash` must equal
+  /// this. Empty only for a legacy cut that predates hash re-anchoring.
+  final String throughHash;
   final int throughCreatedAtMs;
+
+  static final RegExp _hashPattern = RegExp(r'^[0-9a-f]{64}$');
 
   bool get isStructurallyValid =>
       scope.isNotEmpty &&
       scope.length <= 512 &&
       throughSeq >= 0 &&
+      (throughHash.isEmpty || _hashPattern.hasMatch(throughHash)) &&
       throughCreatedAtMs > 0;
 
   Map<String, dynamic> toJson() => {
@@ -218,6 +231,7 @@ class SpaceRetentionCut {
     'scope': scope,
     'a': author.hex,
     's': throughSeq,
+    if (throughHash.isNotEmpty) 'h': throughHash,
     't': throughCreatedAtMs,
   };
 
@@ -227,6 +241,7 @@ class SpaceRetentionCut {
         value['scope'] is! String ||
         value['a'] is! String ||
         value['s'] is! int ||
+        (value['h'] != null && value['h'] is! String) ||
         value['t'] is! int) {
       return null;
     }
@@ -235,6 +250,7 @@ class SpaceRetentionCut {
         scope: value['scope'] as String,
         author: NodeId.fromHex(value['a'] as String),
         throughSeq: value['s'] as int,
+        throughHash: value['h'] as String? ?? '',
         throughCreatedAtMs: value['t'] as int,
       );
       return cut.isStructurallyValid ? cut : null;
