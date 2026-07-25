@@ -219,24 +219,27 @@ void main() {
     final capability =
         ((await CloudCapabilityCodec.parseLink(link)) as ParsedCloudFolderLink)
             .capability;
+    final aManifest = ContentManifest.fromBytes(
+      'a.bin',
+      Uint8List.fromList(List.generate(24, (i) => i)),
+    );
+    final bManifest = ContentManifest.fromBytes(
+      'b.txt',
+      Uint8List.fromList(List.generate(4, (i) => i)),
+    );
     final listing = CloudFolderListing(
       name: 'Проекты',
       revision: 3,
       entries: [
-        const CloudFolderListingEntry.file(
+        CloudFolderListingEntry.file(
           name: 'a.bin',
-          size: 10,
-          link: 'xveil://cloud/v1#AAAA',
+          manifest: aManifest,
           mime: 'application/octet-stream',
         ),
-        const CloudFolderListingEntry.folder(
+        CloudFolderListingEntry.folder(
           name: 'вложенная',
           entries: [
-            CloudFolderListingEntry.file(
-              name: 'b.txt',
-              size: 4,
-              link: 'xveil://cloud/v1#BBBB',
-            ),
+            CloudFolderListingEntry.file(name: 'b.txt', manifest: bManifest),
           ],
         ),
       ],
@@ -300,17 +303,14 @@ void main() {
   });
 
   test('listing bounds fail closed', () async {
+    final tiny = ContentManifest.fromBytes('t', Uint8List.fromList(const [1]));
     // Entry-count cap.
     final flood = CloudFolderListing(
       name: 'flood',
       revision: 1,
       entries: [
         for (var i = 0; i < CloudFolderListing.maxTotalEntries + 1; i++)
-          CloudFolderListingEntry.file(
-            name: 'f$i',
-            size: 1,
-            link: 'xveil://cloud/v1#X',
-          ),
+          CloudFolderListingEntry.file(name: 'f$i', manifest: tiny),
       ],
     );
     expect(CloudFolderListing.fromJson(flood.toJson()), isNull);
@@ -328,18 +328,116 @@ void main() {
       entries: [nested],
     );
     expect(CloudFolderListing.fromJson(deep.toJson()), isNull);
-    // A within-bounds listing round-trips.
+    // A within-bounds listing round-trips with the manifest intact.
     final fine = CloudFolderListing(
       name: 'fine',
       revision: 2,
-      entries: const [
-        CloudFolderListingEntry.file(
-          name: 'ok',
-          size: 1,
-          link: 'xveil://cloud/v1#OK',
-        ),
-      ],
+      entries: [CloudFolderListingEntry.file(name: 'ok', manifest: tiny)],
     );
-    expect(CloudFolderListing.fromJson(fine.toJson())?.revision, 2);
+    final parsedFine = CloudFolderListing.fromJson(fine.toJson());
+    expect(parsedFine?.revision, 2);
+    expect(parsedFine?.entries.single.manifest?.contentId, tiny.contentId);
+  });
+
+  test('per-file subkeys serve chunks through the folder share', () async {
+    final link = await folderLink();
+    final capability =
+        ((await CloudCapabilityCodec.parseLink(link)) as ParsedCloudFolderLink)
+            .capability;
+    final fileBytes = Uint8List.fromList(List.generate(700, (i) => i & 0xff));
+    final fileManifest = ContentManifest.fromBytes(
+      'served.bin',
+      fileBytes,
+      pieceSize: 256,
+    );
+    final entry = CloudFolderListingEntry.file(
+      name: 'served.bin',
+      manifest: fileManifest,
+    );
+    // Host and requester derive the SAME synthetic capability from the
+    // folder link + listing entry; the existing chunk path round-trips.
+    final host = CloudCapabilityCodec.folderFileCapability(capability, entry);
+    final requester = CloudCapabilityCodec.folderFileCapability(
+      capability,
+      entry,
+    );
+    expect(host.key, requester.key);
+    expect(
+      host.key,
+      isNot(capability.key),
+      reason: 'the folder root key never seals file bytes directly',
+    );
+    final otherEntry = CloudFolderListingEntry.file(
+      name: 'other.bin',
+      manifest: ContentManifest.fromBytes(
+        'other.bin',
+        Uint8List.fromList(const [9, 9, 9]),
+      ),
+    );
+    expect(
+      CloudCapabilityCodec.folderFileCapability(capability, otherEntry).key,
+      isNot(host.key),
+      reason: 'each contentId gets its own subkey',
+    );
+    final clear = Uint8List.sublistView(fileBytes, 0, 256);
+    final sealed = await CloudCapabilityCodec.sealChunk(
+      capability: host,
+      pieceIndex: 0,
+      chunkIndex: 0,
+      clear: Uint8List.fromList(
+        clear.sublist(
+          0,
+          CloudCapabilityCodec.publicChunkBytes > 256
+              ? 256
+              : CloudCapabilityCodec.publicChunkBytes,
+        ),
+      ),
+    );
+    final opened = await CloudCapabilityCodec.openChunk(
+      capability: requester,
+      pieceIndex: 0,
+      chunkIndex: 0,
+      sealed: sealed,
+    );
+    expect(opened, clear);
+  });
+
+  test('listing request MAC binds share, return alias and nonce', () async {
+    final link = await folderLink();
+    final capability =
+        ((await CloudCapabilityCodec.parseLink(link)) as ParsedCloudFolderLink)
+            .capability;
+    final returnKey = Uint8List.fromList(List.filled(32, 3));
+    final returnApp = Uint8List.fromList(List.filled(32, 4));
+    final nonce = Uint8List.fromList(List.generate(16, (i) => i));
+    final mac = CloudCapabilityCodec.listingRequestMac(
+      capability: capability,
+      returnServicePublicKey: returnKey,
+      returnAppId: returnApp,
+      returnEndpointId: 48,
+      requestNonce: nonce,
+    );
+    expect(mac, hasLength(32));
+    expect(
+      CloudCapabilityCodec.listingRequestMac(
+        capability: capability,
+        returnServicePublicKey: returnKey,
+        returnAppId: returnApp,
+        returnEndpointId: 49,
+        requestNonce: nonce,
+      ),
+      isNot(mac),
+    );
+    final otherNonce = Uint8List.fromList(List.generate(16, (i) => i + 1));
+    expect(
+      CloudCapabilityCodec.listingRequestMac(
+        capability: capability,
+        returnServicePublicKey: returnKey,
+        returnAppId: returnApp,
+        returnEndpointId: 48,
+        requestNonce: otherNonce,
+      ),
+      isNot(mac),
+    );
   });
 }
