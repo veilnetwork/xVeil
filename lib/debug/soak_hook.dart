@@ -3027,8 +3027,23 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     try {
       switch (action) {
         case 'host_state':
+          // Every device of an identity derives the SAME member host seed and
+          // alias, so providerSlot is the only field that tells two of them
+          // apart on the wire. Report it: a two-device check has nothing else
+          // to observe, and a silent collision looks exactly like success.
+          int? providerSlot;
+          String? providerSlotError;
+          try {
+            providerSlot = await (service.memberProviderSlot?.call() ??
+                Future.value(0));
+          } catch (error) {
+            providerSlotError = '$error'; // e.g. past the device limit
+          }
           return _json(req, {
             'ok': true,
+            if (providerSlot != null) 'providerSlot': providerSlot,
+            if (providerSlotError != null)
+              'providerSlotError': providerSlotError,
             'hosts': {
               for (final entry in service.memberHostDiagnostics().entries)
                 entry.key: {
