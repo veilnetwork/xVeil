@@ -8,6 +8,7 @@ import 'package:characters/characters.dart';
 import 'package:crypto/crypto.dart' as crypto;
 
 import '../core/ids.dart';
+import '../core/log.dart';
 import '../crypto/blake3.dart';
 import '../domain/cloud_capability.dart';
 import '../domain/cloud_collection_crdt.dart';
@@ -1287,7 +1288,12 @@ class CloudDocumentReplicationService {
       } finally {
         await endpoint.close();
       }
-    } catch (_) {
+    } catch (error) {
+      // Returning null alone makes an unreachable host, an expired epoch and a
+      // storage failure indistinguishable — the caller only sees "no file", so
+      // a real defect reads as a flaky network. Keep swallowing (a failed
+      // adopt is not fatal) but say why.
+      devLog(() => 'xVeil[cloud-member]: shared folder fetch failed: $error');
       return null;
     } finally {
       epochKey.fillRange(0, epochKey.length, 0);
