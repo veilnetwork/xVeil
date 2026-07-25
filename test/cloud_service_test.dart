@@ -1309,6 +1309,79 @@ void main() {
   );
 
   test(
+    'file rename is metadata-only and refuses notes and bad names',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final sync = _FakeSync(_id(1));
+      var clock = 90000;
+      final ids = ['folder-e', 'file-e', 'note-e'].iterator;
+      final service = CloudService(
+        storage,
+        sync,
+        contentReceived: const Stream.empty(),
+        now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+        newId: () {
+          ids.moveNext();
+          return ids.current;
+        },
+        integrityChecks: false,
+      );
+      final folder = await service.createFolder('Docs');
+      final bytes = _bytes(24);
+      final file = await service.importContent(
+        name: 'old-name.bin',
+        size: bytes.length,
+        readRange: _reader(bytes),
+        folderId: folder.id,
+      );
+
+      final renamed = await service.renameItem(file.id, '  new-name.bin  ');
+      expect(renamed.name, 'new-name.bin');
+      expect(renamed.folderId, folder.id, reason: 'rename keeps the folder');
+      expect(renamed.contentId, file.contentId);
+      expect(
+        renamed.revision,
+        file.revision,
+        reason: 'rename is metadata-only',
+      );
+      expect(renamed.modifiedAtMs, greaterThan(file.modifiedAtMs));
+      expect((await service.listItems()).single.name, 'new-name.bin');
+      expect(
+        sync.rows
+            .where((row) => row.event.kind == DeviceSyncKind.cloudEntry)
+            .map((row) => CloudItem.fromEvent(row.event)?.name),
+        contains('new-name.bin'),
+        reason: 'the renamed row travels the signed device-group log',
+      );
+
+      await expectLater(
+        service.renameItem(file.id, '   '),
+        throwsArgumentError,
+      );
+      await expectLater(
+        service.renameItem(file.id, 'x' * 513),
+        throwsArgumentError,
+      );
+
+      final note = await service.saveTextNote(title: 'Note', body: 'x');
+      await expectLater(
+        service.renameItem(note.id, 'not-a-file'),
+        throwsA(isA<StateError>()),
+        reason: 'notes rename through the editor, never through renameItem',
+      );
+
+      await service.deleteItem(file.id);
+      await expectLater(
+        service.renameItem(file.id, 'zombie.bin'),
+        throwsA(isA<StateError>()),
+      );
+      await service.close();
+      await storage.close();
+    },
+  );
+
+  test(
     'a concurrent edit is not clobbered by a folder move that wins LWW',
     () async {
       final storage = FakeHvContainer().storage();
