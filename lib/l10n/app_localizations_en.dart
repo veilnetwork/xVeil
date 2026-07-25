@@ -1999,6 +1999,57 @@ class AppL10nEn extends AppL10n {
       'The item will disappear from every linked device. This cannot be undone.';
 
   @override
+  String get cloudNewFolder => 'New folder';
+
+  @override
+  String get cloudFolderNameHint => 'Folder name';
+
+  @override
+  String get cloudFolderCreate => 'Create';
+
+  @override
+  String get cloudFolderRename => 'Rename folder';
+
+  @override
+  String get cloudFolderDelete => 'Delete folder';
+
+  @override
+  String cloudFolderDeleteTitle(String name) {
+    return 'Delete folder \"$name\"?';
+  }
+
+  @override
+  String get cloudFolderDeleteBody =>
+      'Documents inside it move to the root. Nothing is deleted from your cloud.';
+
+  @override
+  String get cloudFolderEmpty => 'This folder is empty';
+
+  @override
+  String cloudFolderItems(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items',
+      one: '1 item',
+      zero: 'empty',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get cloudMoveToFolder => 'Move to folder';
+
+  @override
+  String get cloudMoveToRoot => 'Storage root';
+
+  @override
+  String get cloudFolderMoved => 'Document moved';
+
+  @override
+  String get cloudFolderFailed => 'Could not update the folder';
+
+  @override
   String get cloudNoteNew => 'New note';
 
   @override

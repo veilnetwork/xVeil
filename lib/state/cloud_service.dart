@@ -31,6 +31,7 @@ abstract class CloudSyncPort {
   Stream<void> get changes;
   Future<List<DeviceSyncRecord>> records();
   Future<bool> postItem(CloudItem item);
+  Future<bool> postFolder(CloudFolder folder);
   Future<bool> postClaim(CloudReplicaClaim claim);
   Future<List<NodeId>> members();
   Future<bool> fetch(String contentId, NodeId holder);
@@ -73,6 +74,10 @@ class GroupCloudSyncPort implements CloudSyncPort {
             cid: item.contentId,
           ),
   );
+
+  @override
+  Future<bool> postFolder(CloudFolder folder) =>
+      _group.postDeviceEvent(folder.toEvent());
 
   @override
   Future<bool> postClaim(CloudReplicaClaim claim) =>
@@ -126,6 +131,7 @@ class CloudService {
 
   final Map<String, CloudItem> _items = {};
   final Map<String, List<CloudItem>> _noteHeads = {};
+  final Map<String, CloudFolder> _folders = {};
   final Map<String, CloudReplicaClaim> _claims = {};
   final StreamController<void> _changes = StreamController.broadcast();
   final Set<String> _fetching = {};
@@ -192,6 +198,7 @@ class CloudService {
           ];
           _items.addAll(foldCloudItems(events));
           _noteHeads.addAll(foldCloudNoteHeads(events));
+          _folders.addAll(foldCloudFolders(events));
         }
       } catch (_) {}
     }
@@ -287,7 +294,10 @@ class CloudService {
 
   Future<void> _saveIndex() => _saveMaterialized(
     _indexSetting,
-    jsonEncode([for (final item in _indexRows()) item.toEvent().toBody()]),
+    jsonEncode([
+      for (final item in _indexRows()) item.toEvent().toBody(),
+      for (final folder in _folders.values) folder.toEvent().toBody(),
+    ]),
   );
 
   Iterable<CloudItem> _indexRows() sync* {
@@ -318,13 +328,16 @@ class CloudService {
   Future<void> _reconcile() async {
     if (_closed) return;
     final beforeRows = _indexRows().toList();
+    final beforeFolders = _folders.values.toList();
     final remote = await _sync.records();
     final mergedEvents = [
       for (final item in beforeRows) item.toEvent(),
+      for (final folder in beforeFolders) folder.toEvent(),
       for (final row in remote) row.event,
     ];
     final mergedItems = foldCloudItems(mergedEvents);
     final mergedHeads = foldCloudNoteHeads(mergedEvents);
+    final mergedFolders = foldCloudFolders(mergedEvents);
     final mergedClaims = foldCloudReplicaClaims([
       for (final claim in _claims.values)
         (event: claim.toEvent(), author: claim.deviceId),
@@ -336,9 +349,32 @@ class CloudService {
     _noteHeads
       ..clear()
       ..addAll(mergedHeads);
+    _folders
+      ..clear()
+      ..addAll(mergedFolders);
     _claims
       ..clear()
       ..addAll(mergedClaims);
+    // A metadata-only rewrite (folder move) can win the LWW row while a
+    // concurrent edit advanced the note DAG past the rewritten cid. When no
+    // head carries the winner's cid anymore, promote the top head — keeping
+    // the winner's folder choice — so displayed content never regresses
+    // behind the DAG. One round converges: the promoted row then IS a head.
+    for (final entry in _noteHeads.entries) {
+      final winner = _items[entry.key];
+      final heads = entry.value;
+      if (winner == null ||
+          winner.deleted ||
+          winner.kind != CloudItemKind.note ||
+          heads.isEmpty ||
+          heads.any((head) => head.contentId == winner.contentId)) {
+        continue;
+      }
+      _items[entry.key] = heads.first.movedToFolder(
+        winner.folderId,
+        _nextTimestamp(),
+      );
+    }
     await _saveIndex();
     await _saveClaims();
 
@@ -360,6 +396,11 @@ class CloudService {
         _postItemBestEffort(item);
       }
     }
+    for (final folder in _folders.values) {
+      if (!remoteBodies.contains(folder.toEvent().toBody())) {
+        _postFolderBestEffort(folder);
+      }
+    }
     for (final claim in _claims.values) {
       if (claim.deviceId == _sync.selfId &&
           !remoteBodies.contains(claim.toEvent().toBody())) {
@@ -370,11 +411,21 @@ class CloudService {
     _autoReplicate();
   }
 
+  /// A requested target folder, degraded to the root when it is not (or no
+  /// longer) alive: a create/import must not fail because another device
+  /// deleted the folder a moment ago.
+  String? _liveFolderOrNull(String? folderId) {
+    if (folderId == null) return null;
+    final folder = _folders[folderId];
+    return folder != null && !folder.deleted ? folderId : null;
+  }
+
   Future<CloudItem> importContent({
     required String name,
     required int size,
     required Future<Uint8List> Function(int offset, int length) readRange,
     String? mime,
+    String? folderId,
   }) async {
     await start();
     if (name.isEmpty || name.length > 512 || size < 0 || size > (1 << 50)) {
@@ -447,6 +498,7 @@ class CloudService {
           modifiedAtMs: now,
           revision: 1,
           deleted: false,
+          folderId: _liveFolderOrNull(folderId),
         );
         _items[item.id] = item;
         await _saveIndex();
@@ -487,6 +539,7 @@ class CloudService {
     int? expectedRevision,
     String? expectedContentId,
     Iterable<String>? mergeParentContentIds,
+    String? folderId,
   }) async {
     await start();
     final normalizedTitle = title.trim();
@@ -558,6 +611,11 @@ class CloudService {
         modifiedAtMs: now,
         revision: parentRevision + 1,
         deleted: false,
+        // An edit must keep the note where it lives; only a brand-new note
+        // takes the caller's (still-live) target folder.
+        folderId: previous != null
+            ? previous.folderId
+            : _liveFolderOrNull(folderId),
         parentContentIds: List.unmodifiable(encodedParents),
       );
       final oldHeads = List<CloudItem>.from(previousHeads);
@@ -686,6 +744,154 @@ class CloudService {
       }
       _emit();
     });
+  }
+
+  static const _maxLiveFolders = 512;
+
+  /// Live folders, name-sorted. Folders are flat in v1 (a deliberate
+  /// low-regret scope choice; the event vocabulary can grow a parent later).
+  List<CloudFolder> listFolders() {
+    final folders = [
+      for (final folder in _folders.values)
+        if (!folder.deleted) folder,
+    ];
+    folders.sort((a, b) {
+      final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      return byName != 0 ? byName : a.id.compareTo(b.id);
+    });
+    return folders;
+  }
+
+  Stream<List<CloudFolder>> watchFolders() async* {
+    await start();
+    yield listFolders();
+    await for (final _ in _changes.stream) {
+      yield listFolders();
+    }
+  }
+
+  /// Where the item renders: its folder while that folder is alive, otherwise
+  /// the root. Dangling refs are resolved here instead of rewriting item rows
+  /// on folder delete, so a delete can never LWW-clobber a concurrent edit.
+  String? effectiveFolderId(CloudItem item) {
+    final folderId = item.folderId;
+    if (folderId == null) return null;
+    final folder = _folders[folderId];
+    return folder != null && !folder.deleted ? folderId : null;
+  }
+
+  Future<CloudFolder> createFolder(String name) async {
+    await start();
+    final normalized = name.trim();
+    if (normalized.isEmpty || normalized.length > 512) {
+      throw ArgumentError('invalid folder name');
+    }
+    return _serialized(() async {
+      if (listFolders().length >= _maxLiveFolders) {
+        throw StateError('too many folders');
+      }
+      final now = _nextTimestamp();
+      final folder = CloudFolder(
+        id: _newId().replaceAll(RegExp('[^A-Za-z0-9_-]'), '_'),
+        name: normalized,
+        createdAtMs: now,
+        modifiedAtMs: now,
+        revision: 1,
+        deleted: false,
+      );
+      _folders[folder.id] = folder;
+      await _saveIndex();
+      _postFolderBestEffort(folder);
+      _emit();
+      return folder;
+    });
+  }
+
+  Future<CloudFolder> renameFolder(String folderId, String name) async {
+    await start();
+    final normalized = name.trim();
+    if (normalized.isEmpty || normalized.length > 512) {
+      throw ArgumentError('invalid folder name');
+    }
+    return _serialized(() async {
+      final current = _folders[folderId];
+      if (current == null || current.deleted) {
+        throw StateError('folder no longer exists');
+      }
+      final renamed = CloudFolder(
+        id: current.id,
+        name: normalized,
+        createdAtMs: current.createdAtMs,
+        modifiedAtMs: _nextTimestamp(),
+        revision: current.revision + 1,
+        deleted: false,
+      );
+      _folders[folderId] = renamed;
+      await _saveIndex();
+      _postFolderBestEffort(renamed);
+      _emit();
+      return renamed;
+    });
+  }
+
+  /// Tombstone the folder only. Contained items keep their rows untouched and
+  /// surface in the root via [effectiveFolderId] — nothing is deleted or
+  /// rewritten, so this cannot race a concurrent edit of any document.
+  Future<void> deleteFolder(String folderId) async {
+    await start();
+    await _serialized(() async {
+      final current = _folders[folderId];
+      if (current == null || current.deleted) return;
+      final tombstone = current.tombstone(_nextTimestamp());
+      _folders[folderId] = tombstone;
+      await _saveIndex();
+      _postFolderBestEffort(tombstone);
+      _emit();
+    });
+  }
+
+  /// Move one document into [folderId] (null = root). Metadata-only LWW
+  /// rewrite: revision and content stay untouched.
+  Future<CloudItem> moveItemToFolder(String itemId, String? folderId) async {
+    await start();
+    return _serialized(() async {
+      final current = _items[itemId];
+      if (current == null || current.deleted) {
+        throw StateError('cloud item no longer exists');
+      }
+      if (folderId != null) {
+        final folder = _folders[folderId];
+        if (folder == null || folder.deleted) {
+          throw StateError('folder no longer exists');
+        }
+      }
+      if (current.folderId == folderId) return current;
+      final moved = current.movedToFolder(folderId, _nextTimestamp());
+      _items[itemId] = moved;
+      if (moved.kind == CloudItemKind.note) {
+        final oldHeads = noteHeads(current);
+        _noteHeads[itemId] =
+            foldCloudNoteHeads([
+              for (final head in oldHeads) head.toEvent(),
+              moved.toEvent(),
+            ])[itemId] ??
+            [moved];
+      }
+      await _saveIndex();
+      _postItemBestEffort(moved);
+      _emit();
+      return moved;
+    });
+  }
+
+  void _postFolderBestEffort(CloudFolder folder) {
+    try {
+      final attempt = _sync.postFolder(folder);
+      unawaited(attempt.catchError((_) => false));
+    } catch (_) {
+      // Folder rows are durable in the materialized index before publish;
+      // reconciliation backfills them like item rows.
+    }
   }
 
   Future<void> _dropContentIfUnreferenced(CloudItem previous) async {
@@ -1041,4 +1247,9 @@ final cloudServiceProvider = Provider<CloudService?>((ref) {
 final cloudItemsProvider = StreamProvider<List<CloudItem>>((ref) {
   final service = ref.watch(cloudServiceProvider);
   return service?.watchItems() ?? Stream.value(const []);
+});
+
+final cloudFoldersProvider = StreamProvider<List<CloudFolder>>((ref) {
+  final service = ref.watch(cloudServiceProvider);
+  return service?.watchFolders() ?? Stream.value(const []);
 });

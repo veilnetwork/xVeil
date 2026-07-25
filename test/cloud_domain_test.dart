@@ -269,6 +269,122 @@ void main() {
     expect(folded[first.key]?.present, isFalse);
   });
 
+  test('cloud folder round-trips and rejects malformed rows fail-closed', () {
+    final folder = CloudFolder(
+      id: 'folder_1',
+      name: 'Работа',
+      createdAtMs: 5,
+      modifiedAtMs: 10,
+      revision: 1,
+      deleted: false,
+    );
+    final parsed = CloudFolder.fromEvent(folder.toEvent());
+    expect(parsed?.name, 'Работа');
+    expect(parsed?.createdAtMs, 5);
+    expect(parsed?.revision, 1);
+    final event = folder.toEvent();
+    for (final payload in [
+      {...event.payload, 'name': ''},
+      {...event.payload, 'name': 'x' * 513},
+      {...event.payload, 'rev': 0},
+      {...event.payload, 'created': 'nope'},
+    ]) {
+      expect(
+        CloudFolder.fromEvent(
+          DeviceSyncEvent(
+            kind: event.kind,
+            key: event.key,
+            tsMs: event.tsMs,
+            payload: payload,
+          ),
+        ),
+        isNull,
+      );
+    }
+    expect(
+      CloudFolder.fromEvent(
+        DeviceSyncEvent(
+          kind: event.kind,
+          key: 'bad id!',
+          tsMs: event.tsMs,
+          payload: event.payload,
+        ),
+      ),
+      isNull,
+    );
+  });
+
+  test('folder fold is LWW and a tombstone absorbs stale offline upserts', () {
+    final folder = CloudFolder(
+      id: 'folder_1',
+      name: 'Old',
+      createdAtMs: 5,
+      modifiedAtMs: 10,
+      revision: 1,
+      deleted: false,
+    );
+    final renamed = CloudFolder(
+      id: 'folder_1',
+      name: 'New',
+      createdAtMs: 5,
+      modifiedAtMs: 20,
+      revision: 2,
+      deleted: false,
+    );
+    expect(
+      foldCloudFolders([renamed.toEvent(), folder.toEvent()])['folder_1']?.name,
+      'New',
+      reason: 'order-independent newest-wins',
+    );
+    final deleted = renamed.tombstone(30);
+    final folded = foldCloudFolders([
+      deleted.toEvent(),
+      folder.toEvent(),
+      renamed.toEvent(),
+    ]);
+    expect(folded['folder_1']?.deleted, isTrue);
+  });
+
+  test('item folder assignment survives the wire and stays fail-closed', () {
+    final inFolder = _item().movedToFolder('folder_1', 30);
+    final parsed = CloudItem.fromEvent(inFolder.toEvent());
+    expect(parsed?.folderId, 'folder_1');
+    expect(parsed?.revision, _item().revision, reason: 'metadata-only move');
+    final rootAgain = inFolder.movedToFolder(null, 40);
+    expect(CloudItem.fromEvent(rootAgain.toEvent())?.folderId, isNull);
+    final event = inFolder.toEvent();
+    expect(
+      CloudItem.fromEvent(
+        DeviceSyncEvent(
+          kind: event.kind,
+          key: event.key,
+          tsMs: event.tsMs,
+          payload: {...event.payload, 'folder': 'bad id!'},
+        ),
+      ),
+      isNull,
+    );
+    // Legacy rows without the key parse to the root.
+    expect(CloudItem.fromEvent(_item().toEvent())?.folderId, isNull);
+  });
+
+  test('a folder move wins the LWW row without disturbing note DAG heads', () {
+    final root = _note('a');
+    final edit = _note(
+      'b',
+      modified: 20,
+      revision: 2,
+      parents: [root.contentId!],
+    );
+    final moved = edit.movedToFolder('folder_1', 30);
+    final events = [root.toEvent(), edit.toEvent(), moved.toEvent()];
+    final winner = foldCloudItems(events)['note_1']!;
+    expect(winner.folderId, 'folder_1');
+    expect(winner.contentId, edit.contentId);
+    final heads = foldCloudNoteHeads(events)['note_1']!;
+    expect(heads.single.contentId, edit.contentId);
+  });
+
   test('replication profile is local, bounded and defaults index-only', () {
     expect(
       CloudReplicationProfile.decode(null).mode,

@@ -39,7 +39,14 @@ enum DeviceSyncKind {
   /// travels only inside the sovereign device group; it contains the random
   /// per-share seed/link needed for another owner device to host the same
   /// pseudonymous alias, never in the public DHT advertisement.
-  cloudCapability;
+  cloudCapability,
+
+  /// A personal-cloud folder (upsert or tombstone). Folders are private
+  /// organization of the owner's own index — they carry no content refs and
+  /// never leave the sovereign device group. Devices from before this
+  /// vocabulary entry skip the kind entirely (unknown-kind events parse to
+  /// null), so mixed device groups degrade to a flat view, never to loss.
+  cloudFolder;
 
   static DeviceSyncKind? fromName(String? n) {
     for (final k in values) {

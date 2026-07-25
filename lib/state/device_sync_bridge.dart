@@ -306,6 +306,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
         break; // applied by the group_service bridge (brick 3)
       case DeviceSyncKind.cloudEntry:
       case DeviceSyncKind.cloudReplica:
+      case DeviceSyncKind.cloudFolder:
         break; // applied by CloudService
       case DeviceSyncKind.cloudCapability:
         break; // applied by CloudCapabilityService (contains secret registry)

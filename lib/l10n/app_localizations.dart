@@ -3576,6 +3576,84 @@ abstract class AppL10n {
   /// **'The item will disappear from every linked device. This cannot be undone.'**
   String get cloudDeleteBody;
 
+  /// No description provided for @cloudNewFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'New folder'**
+  String get cloudNewFolder;
+
+  /// No description provided for @cloudFolderNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Folder name'**
+  String get cloudFolderNameHint;
+
+  /// No description provided for @cloudFolderCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Create'**
+  String get cloudFolderCreate;
+
+  /// No description provided for @cloudFolderRename.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename folder'**
+  String get cloudFolderRename;
+
+  /// No description provided for @cloudFolderDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete folder'**
+  String get cloudFolderDelete;
+
+  /// No description provided for @cloudFolderDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete folder \"{name}\"?'**
+  String cloudFolderDeleteTitle(String name);
+
+  /// No description provided for @cloudFolderDeleteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Documents inside it move to the root. Nothing is deleted from your cloud.'**
+  String get cloudFolderDeleteBody;
+
+  /// No description provided for @cloudFolderEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'This folder is empty'**
+  String get cloudFolderEmpty;
+
+  /// No description provided for @cloudFolderItems.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{empty} =1{1 item} other{{count} items}}'**
+  String cloudFolderItems(int count);
+
+  /// No description provided for @cloudMoveToFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to folder'**
+  String get cloudMoveToFolder;
+
+  /// No description provided for @cloudMoveToRoot.
+  ///
+  /// In en, this message translates to:
+  /// **'Storage root'**
+  String get cloudMoveToRoot;
+
+  /// No description provided for @cloudFolderMoved.
+  ///
+  /// In en, this message translates to:
+  /// **'Document moved'**
+  String get cloudFolderMoved;
+
+  /// No description provided for @cloudFolderFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not update the folder'**
+  String get cloudFolderFailed;
+
   /// No description provided for @cloudNoteNew.
   ///
   /// In en, this message translates to:

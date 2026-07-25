@@ -47,6 +47,17 @@ class _FakeSync implements CloudSyncPort {
   }
 
   @override
+  Future<bool> postFolder(CloudFolder folder) async {
+    if (throwPosts) throw StateError('transport unavailable');
+    if (!connected) return false;
+    final gate = postGate;
+    if (gate != null) return gate.future;
+    rows.add((event: folder.toEvent(), author: selfId));
+    controller.add(null);
+    return true;
+  }
+
+  @override
   Future<bool> postClaim(CloudReplicaClaim claim) async {
     if (throwPosts) throw StateError('transport unavailable');
     if (!connected) return false;
@@ -967,4 +978,241 @@ void main() {
     await service.close();
     await storage.close();
   });
+
+  test('folder lifecycle persists, syncs, and survives a restart', () async {
+    final container = FakeHvContainer();
+    final storage = container.storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sync = _FakeSync(_id(1));
+    var clock = 10000;
+    final ids = ['folder-a', 'note-a'].iterator;
+    final service = CloudService(
+      storage,
+      sync,
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () {
+        ids.moveNext();
+        return ids.current;
+      },
+      integrityChecks: false,
+    );
+
+    final folder = await service.createFolder('  Работа  ');
+    expect(folder.name, 'Работа');
+    expect(service.listFolders().single.id, folder.id);
+    expect(
+      sync.rows.where((row) => row.event.kind == DeviceSyncKind.cloudFolder),
+      hasLength(1),
+      reason: 'folder rows travel the signed device-group log',
+    );
+
+    final note = await service.saveTextNote(
+      title: 'In folder',
+      body: 'text',
+      folderId: folder.id,
+    );
+    expect(note.folderId, folder.id);
+
+    final renamed = await service.renameFolder(folder.id, 'Личное');
+    expect(renamed.revision, 2);
+
+    // A second service over the same storage sees folders and assignment.
+    await service.close();
+    final restarted = CloudService(
+      storage,
+      _FakeSync(_id(1)),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      integrityChecks: false,
+    );
+    await restarted.start();
+    expect(restarted.listFolders().single.name, 'Личное');
+    final reloaded = (await restarted.listItems()).single;
+    expect(reloaded.folderId, folder.id);
+    expect(restarted.effectiveFolderId(reloaded), folder.id);
+    await restarted.close();
+    await storage.close();
+  });
+
+  test(
+    'deleting a folder reassigns documents to root without rewrites',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final sync = _FakeSync(_id(1));
+      var clock = 20000;
+      final ids = ['folder-b', 'file-b'].iterator;
+      final service = CloudService(
+        storage,
+        sync,
+        contentReceived: const Stream.empty(),
+        now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+        newId: () {
+          ids.moveNext();
+          return ids.current;
+        },
+        integrityChecks: false,
+      );
+      final folder = await service.createFolder('Docs');
+      final bytes = _bytes(16);
+      final file = await service.importContent(
+        name: 'doc.bin',
+        size: bytes.length,
+        readRange: _reader(bytes),
+        folderId: folder.id,
+      );
+      expect(service.effectiveFolderId(file), folder.id);
+
+      final itemRowsBefore = sync.rows
+          .where((row) => row.event.kind == DeviceSyncKind.cloudEntry)
+          .length;
+      await service.deleteFolder(folder.id);
+      expect(service.listFolders(), isEmpty);
+      final current = (await service.listItems()).single;
+      expect(current.deleted, isFalse, reason: 'the document is never lost');
+      expect(current.folderId, folder.id, reason: 'row is not rewritten');
+      expect(
+        service.effectiveFolderId(current),
+        isNull,
+        reason: 'dangling folder resolves to root at view time',
+      );
+      expect(
+        sync.rows
+            .where((row) => row.event.kind == DeviceSyncKind.cloudEntry)
+            .length,
+        itemRowsBefore,
+        reason: 'folder delete must not repost item rows (no LWW clobber)',
+      );
+
+      // Tombstone wins the fold against the stale upsert on a fresh merge.
+      final folded = foldCloudFolders([for (final row in sync.rows) row.event]);
+      expect(folded[folder.id]?.deleted, isTrue);
+
+      await expectLater(
+        service.moveItemToFolder(current.id, folder.id),
+        throwsA(isA<StateError>()),
+      );
+      await service.close();
+      await storage.close();
+    },
+  );
+
+  test('moves are metadata-only and remote folders reconcile in', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sync = _FakeSync(_id(1));
+    var clock = 30000;
+    final ids = ['folder-c', 'note-c'].iterator;
+    final service = CloudService(
+      storage,
+      sync,
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () {
+        ids.moveNext();
+        return ids.current;
+      },
+      integrityChecks: false,
+    );
+    final folder = await service.createFolder('Target');
+    final note = await service.saveTextNote(title: 'Movable', body: 'v1');
+    expect(note.folderId, isNull);
+
+    final moved = await service.moveItemToFolder(note.id, folder.id);
+    expect(moved.folderId, folder.id);
+    expect(moved.revision, note.revision, reason: 'move is metadata-only');
+    expect(moved.contentId, note.contentId);
+
+    // The open-editor optimistic check still matches after a move, and the
+    // edit keeps the note in its folder.
+    final edited = await service.saveTextNote(
+      itemId: note.id,
+      expectedRevision: note.revision,
+      expectedContentId: note.contentId,
+      title: 'Movable',
+      body: 'v2',
+    );
+    expect(edited.folderId, folder.id, reason: 'edits keep the folder');
+    expect(edited.revision, note.revision + 1);
+
+    // A folder authored on another device appears after reconcile.
+    final remoteFolder = CloudFolder(
+      id: 'remote-folder',
+      name: 'From phone',
+      createdAtMs: clock,
+      modifiedAtMs: clock + 1,
+      revision: 1,
+      deleted: false,
+    );
+    sync.rows.add((event: remoteFolder.toEvent(), author: _id(2)));
+    sync.controller.add(null);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    expect(
+      service.listFolders().map((entry) => entry.id),
+      containsAll(['folder-c', 'remote-folder']),
+    );
+    await service.close();
+    await storage.close();
+  });
+
+  test(
+    'a concurrent edit is not clobbered by a folder move that wins LWW',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final sync = _FakeSync(_id(1));
+      var clock = 40000;
+      final ids = ['folder-d', 'note-d'].iterator;
+      final service = CloudService(
+        storage,
+        sync,
+        contentReceived: const Stream.empty(),
+        now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+        newId: () {
+          ids.moveNext();
+          return ids.current;
+        },
+        integrityChecks: false,
+      );
+      final folder = await service.createFolder('Race');
+      final note = await service.saveTextNote(title: 'Raced', body: 'v1');
+      // The local move happens with a LATER wall clock than the remote edit.
+      clock += 1000;
+      final moved = await service.moveItemToFolder(note.id, folder.id);
+
+      // Another device edited the same note offline before the move's ts.
+      final remoteEdit = CloudItem(
+        id: note.id,
+        kind: CloudItemKind.note,
+        name: 'Raced',
+        contentId: List.filled(64, 'e').join(),
+        size: 9,
+        mime: 'text/plain; charset=utf-8',
+        createdAtMs: note.createdAtMs,
+        modifiedAtMs: moved.modifiedAtMs - 500,
+        revision: note.revision + 1,
+        deleted: false,
+        parentContentIds: [note.contentId!],
+      );
+      sync.rows.add((event: remoteEdit.toEvent(), author: _id(2)));
+      sync.controller.add(null);
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+
+      final winner = (await service.listItems()).single;
+      expect(
+        winner.contentId,
+        remoteEdit.contentId,
+        reason: 'reconcile promotes the DAG head over the stale metadata row',
+      );
+      expect(
+        winner.folderId,
+        folder.id,
+        reason: 'the promoted head carries the move destination',
+      );
+      expect(winner.revision, remoteEdit.revision);
+      await service.close();
+      await storage.close();
+    },
+  );
 }
