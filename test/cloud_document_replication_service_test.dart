@@ -1982,6 +1982,50 @@ void main() {
       expect(refetch, isNull);
       expect(editorFiles.files, isEmpty);
 
+      // RE-GRANT after revoke. The revoked editor still holds the stale
+      // bundle, and an invite used to be dropped outright whenever the
+      // document existed locally — silently, because the frame handler acks a
+      // rejected ingest so the sender stops retrying. Revoke was therefore
+      // permanent: nothing could put the member back.
+      sent.clear();
+      expect(
+        await ownerService.grant(documentId, editor, CloudDocumentRole.editor),
+        isNotNull,
+      );
+      final reInvite = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(
+        await editorService.ingest(owner, reInvite.encode()),
+        isTrue,
+        reason: 'a stale bundle that no longer admits us must not block re-entry',
+      );
+      expect(await editorService.adopt(documentId), isTrue);
+      final regranted = (await editorService.loadSharedFolder(documentId))!;
+      expect(regranted.map((f) => f.contentId), [manifest.contentId]);
+      // Read the row id back rather than reusing `entry`: the remove/re-add
+      // above minted a new row for the same content.
+      final regrantedEntry = regranted.single;
+      // ...and the restored access is real: the file downloads again over the
+      // member path, on the epoch the re-grant rotated to.
+      await ownerService.reconcileMemberHosting();
+      expect(ownerService.memberHostDiagnostics()[documentId]?.servable, [
+        manifest.contentId,
+      ], reason: 'owner must be hosting again on the re-granted epoch');
+      expect(
+        await editorService.downloadSharedFolderFile(
+          documentId,
+          regrantedEntry.id,
+        ),
+        isNotNull,
+      );
+      expect(editorFiles.files[manifest.contentId], bytes);
+
+      // Replaying that same invite must NOT reinstall the document. Its epoch
+      // no longer leads the local bundle, so it is refused at ingest and never
+      // becomes pending — adopt saves a frame wholesale, so an active member's
+      // state has to stay theirs.
+      expect(await editorService.ingest(owner, reInvite.encode()), isFalse);
+      expect(await editorService.adopt(documentId), isFalse);
+
       // Restart: a fresh service over the same store re-hosts on reconcile.
       await ownerService.close();
       final restarted = build(

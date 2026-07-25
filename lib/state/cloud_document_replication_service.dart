@@ -2622,14 +2622,42 @@ class CloudDocumentReplicationService {
     }
   }
 
-  Future<bool> _ingestInvite(NodeId sender, CloudDocumentFrame frame) async {
-    if (sender != frame.root.owner ||
-        await _store.load(frame.root.documentId.hex) != null) {
-      return false;
+  /// Latest membership epoch of a locally stored bundle, or null when it
+  /// cannot be folded (unreadable local state supersedes nothing).
+  int? _storedLatestEpoch(CloudDocumentStoredBundle stored) {
+    try {
+      final frame = _frameFromStored(CloudDocumentFrameKind.snapshot, stored);
+      final fold = _fold(frame);
+      if (!_completeAndValid(frame, fold)) return null;
+      return fold.epochs.keys.reduce((a, b) => a > b ? a : b);
+    } catch (_) {
+      return null;
     }
+  }
+
+  Future<bool> _ingestInvite(NodeId sender, CloudDocumentFrame frame) async {
+    if (sender != frame.root.owner) return false;
     final fold = _fold(frame);
     if (!_completeAndValid(frame, fold)) return false;
     final latest = fold.epochs.keys.reduce((a, b) => a > b ? a : b);
+    // Refusing whenever the document merely EXISTS locally made re-granting a
+    // revoked member impossible: a revoke never reaches the member being cut
+    // off, so their stale bundle still lists them at ITS latest epoch and
+    // every later invite was dropped — silently, because the frame handler
+    // acks a rejected ingest to stop the sender retrying. Revoke worked and
+    // nothing could undo it.
+    //
+    // "Do we still look like a member locally" cannot tell the two apart, for
+    // exactly that reason. What can: only the owner rotates epochs, so an
+    // invite carrying a STRICTLY newer epoch is authoritative news we do not
+    // have. An equal-or-older one supersedes nothing and is refused — which is
+    // what keeps a replayed invite from reinstalling a document over an active
+    // member's state, since adopt saves the frame wholesale.
+    final existing = await _store.load(frame.root.documentId.hex);
+    if (existing != null) {
+      final local = _storedLatestEpoch(existing);
+      if (local != null && latest <= local) return false;
+    }
     if (!fold.epochs[latest]!.members.containsKey(localNodeId.hex)) {
       return false;
     }
@@ -2662,6 +2690,18 @@ class CloudDocumentReplicationService {
     final latest = fold.epochs.keys.reduce((a, b) => a > b ? a : b);
     if (!fold.epochs[latest]!.members.containsKey(localNodeId.hex)) {
       return false;
+    }
+    // Re-checked here, not just at ingest: adopting SAVES the frame wholesale,
+    // and the local bundle can catch up in between (a re-grant also arriving
+    // as a control frame). Installing a snapshot that is no longer ahead would
+    // drop whatever the bundle has since accumulated.
+    final existing = await _store.load(documentId);
+    if (existing != null) {
+      final local = _storedLatestEpoch(existing);
+      if (local != null && latest <= local) {
+        await _store.removePendingInvite(documentId);
+        return false;
+      }
     }
     final keys = <int, Uint8List>{};
     try {
