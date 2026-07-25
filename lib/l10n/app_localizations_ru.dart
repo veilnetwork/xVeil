@@ -2081,6 +2081,60 @@ class AppL10nRu extends AppL10n {
   String get cloudFolderFailed => 'Не удалось изменить папку';
 
   @override
+  String get cloudRename => 'Переименовать';
+
+  @override
+  String get cloudRenameHint => 'Имя файла';
+
+  @override
+  String get cloudRenameFailed => 'Не удалось переименовать файл';
+
+  @override
+  String get cloudSearch => 'Поиск';
+
+  @override
+  String get cloudSearchHint => 'Поиск в хранилище';
+
+  @override
+  String get cloudSearchEmpty => 'Ничего не найдено';
+
+  @override
+  String get cloudSort => 'Сортировка';
+
+  @override
+  String get cloudSortByName => 'По имени';
+
+  @override
+  String get cloudSortByDate => 'По дате';
+
+  @override
+  String get cloudSortBySize => 'По размеру';
+
+  @override
+  String cloudSelectedCount(int count) {
+    return 'Выбрано: $count';
+  }
+
+  @override
+  String cloudBulkDeleteTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count объектов',
+      few: '$count объекта',
+      one: '1 объект',
+    );
+    return 'Удалить из облака $_temp0?';
+  }
+
+  @override
+  String get cloudFolderEmptyHint =>
+      'Созданные здесь заметки и файлы останутся в этой папке.';
+
+  @override
+  String get cloudSingleCopy => 'единственная копия';
+
+  @override
   String get cloudNoteNew => 'Новая заметка';
 
   @override

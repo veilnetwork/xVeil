@@ -3666,6 +3666,90 @@ abstract class AppL10n {
   /// **'Could not update the folder'**
   String get cloudFolderFailed;
 
+  /// No description provided for @cloudRename.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get cloudRename;
+
+  /// No description provided for @cloudRenameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'File name'**
+  String get cloudRenameHint;
+
+  /// No description provided for @cloudRenameFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not rename the file'**
+  String get cloudRenameFailed;
+
+  /// No description provided for @cloudSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Search'**
+  String get cloudSearch;
+
+  /// No description provided for @cloudSearchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search in storage'**
+  String get cloudSearchHint;
+
+  /// No description provided for @cloudSearchEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing found'**
+  String get cloudSearchEmpty;
+
+  /// No description provided for @cloudSort.
+  ///
+  /// In en, this message translates to:
+  /// **'Sort'**
+  String get cloudSort;
+
+  /// No description provided for @cloudSortByName.
+  ///
+  /// In en, this message translates to:
+  /// **'By name'**
+  String get cloudSortByName;
+
+  /// No description provided for @cloudSortByDate.
+  ///
+  /// In en, this message translates to:
+  /// **'By date'**
+  String get cloudSortByDate;
+
+  /// No description provided for @cloudSortBySize.
+  ///
+  /// In en, this message translates to:
+  /// **'By size'**
+  String get cloudSortBySize;
+
+  /// No description provided for @cloudSelectedCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} selected'**
+  String cloudSelectedCount(int count);
+
+  /// No description provided for @cloudBulkDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete {count, plural, =1{1 item} other{{count} items}} from your cloud?'**
+  String cloudBulkDeleteTitle(int count);
+
+  /// No description provided for @cloudFolderEmptyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Notes and files you create here will stay in this folder.'**
+  String get cloudFolderEmptyHint;
+
+  /// No description provided for @cloudSingleCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'single copy'**
+  String get cloudSingleCopy;
+
   /// No description provided for @cloudNoteNew.
   ///
   /// In en, this message translates to:

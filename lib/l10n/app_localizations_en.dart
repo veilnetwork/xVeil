@@ -2056,6 +2056,59 @@ class AppL10nEn extends AppL10n {
   String get cloudFolderFailed => 'Could not update the folder';
 
   @override
+  String get cloudRename => 'Rename';
+
+  @override
+  String get cloudRenameHint => 'File name';
+
+  @override
+  String get cloudRenameFailed => 'Could not rename the file';
+
+  @override
+  String get cloudSearch => 'Search';
+
+  @override
+  String get cloudSearchHint => 'Search in storage';
+
+  @override
+  String get cloudSearchEmpty => 'Nothing found';
+
+  @override
+  String get cloudSort => 'Sort';
+
+  @override
+  String get cloudSortByName => 'By name';
+
+  @override
+  String get cloudSortByDate => 'By date';
+
+  @override
+  String get cloudSortBySize => 'By size';
+
+  @override
+  String cloudSelectedCount(int count) {
+    return '$count selected';
+  }
+
+  @override
+  String cloudBulkDeleteTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items',
+      one: '1 item',
+    );
+    return 'Delete $_temp0 from your cloud?';
+  }
+
+  @override
+  String get cloudFolderEmptyHint =>
+      'Notes and files you create here will stay in this folder.';
+
+  @override
+  String get cloudSingleCopy => 'single copy';
+
+  @override
   String get cloudNoteNew => 'New note';
 
   @override

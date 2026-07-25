@@ -1039,6 +1039,49 @@ class CloudService {
     });
   }
 
+  /// Rename one FILE row. Notes are renamed through the note editor (their
+  /// title is part of the content-addressed body), so this refuses every
+  /// non-file kind. Like [moveItemToFolder] this is a metadata-only LWW
+  /// rewrite: revision and content stay untouched, so an open viewer keeps
+  /// its optimistic check and a concurrent edit can never be clobbered.
+  Future<CloudItem> renameItem(String itemId, String newName) async {
+    await start();
+    final normalized = newName.trim();
+    if (normalized.isEmpty || normalized.length > 512) {
+      throw ArgumentError('invalid cloud item name');
+    }
+    return _serialized(() async {
+      final current = _items[itemId];
+      if (current == null || current.deleted) {
+        throw StateError('cloud item no longer exists');
+      }
+      if (current.kind != CloudItemKind.file) {
+        throw StateError('only files can be renamed');
+      }
+      if (current.name == normalized) return current;
+      final renamed = CloudItem(
+        id: current.id,
+        kind: current.kind,
+        name: normalized,
+        contentId: current.contentId,
+        size: current.size,
+        mime: current.mime,
+        createdAtMs: current.createdAtMs,
+        modifiedAtMs: _nextTimestamp(),
+        revision: current.revision,
+        deleted: false,
+        // A rename must keep the file where it lives.
+        folderId: current.folderId,
+        parentContentIds: current.parentContentIds,
+      );
+      _items[itemId] = renamed;
+      await _saveIndex();
+      _postItemBestEffort(renamed);
+      _emit();
+      return renamed;
+    });
+  }
+
   void _postFolderBestEffort(CloudFolder folder) {
     try {
       final attempt = _sync.postFolder(folder);

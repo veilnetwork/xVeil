@@ -32,6 +32,9 @@ class CloudStorageScreen extends ConsumerStatefulWidget {
   ConsumerState<CloudStorageScreen> createState() => _CloudStorageScreenState();
 }
 
+/// Session-only document ordering. Folders always list first, name-sorted.
+enum _CloudSortMode { name, date, size }
+
 class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
   bool _busy = false;
 
@@ -39,6 +42,19 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
   /// tombstoned by another device the view falls back to the root on its own
   /// (the id simply stops resolving to a live folder).
   String? _openFolderId;
+
+  /// Search is a view-only filter over the current level and everything
+  /// below it; matches render as one flat list with their folder path.
+  bool _searching = false;
+  String _query = '';
+  final TextEditingController _searchController = TextEditingController();
+
+  _CloudSortMode _sort = _CloudSortMode.date;
+
+  /// Multi-select over documents (never folders). Entered by long-press,
+  /// left through the AppBar close button or system back.
+  bool _selecting = false;
+  final Set<String> _selectedIds = {};
 
   CloudService? get _service => ref.read(cloudServiceProvider);
   CloudCapabilityService? get _capabilityService =>
@@ -489,6 +505,245 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
   }
 
   @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _startSearch() => setState(() => _searching = true);
+
+  void _stopSearch() {
+    _searchController.clear();
+    setState(() {
+      _searching = false;
+      _query = '';
+    });
+  }
+
+  void _enterSelection(String itemId) {
+    setState(() {
+      _selecting = true;
+      _selectedIds.add(itemId);
+    });
+  }
+
+  void _toggleSelection(String itemId) {
+    setState(() {
+      if (!_selectedIds.add(itemId)) _selectedIds.remove(itemId);
+      if (_selectedIds.isEmpty) _selecting = false;
+    });
+  }
+
+  void _exitSelection() {
+    setState(() {
+      _selecting = false;
+      _selectedIds.clear();
+    });
+  }
+
+  /// Destination picker shared by the bulk move action: '' means the root,
+  /// null means the sheet was dismissed.
+  Future<String?> _pickBulkTarget() {
+    final l = AppL10n.of(context);
+    final rows = _folderTreeRows();
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+          ),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(title: Text(l.cloudMoveToFolder)),
+              ListTile(
+                key: const ValueKey('cloud-bulk-move-root'),
+                leading: const Icon(Icons.home_outlined),
+                title: Text(l.cloudMoveToRoot),
+                onTap: () => Navigator.pop(context, ''),
+              ),
+              for (final row in rows)
+                ListTile(
+                  key: ValueKey('cloud-bulk-move-${row.folder.id}'),
+                  leading: Padding(
+                    padding: EdgeInsetsDirectional.only(
+                      start: 16.0 * row.depth,
+                    ),
+                    child: const Icon(Icons.folder_outlined),
+                  ),
+                  title: Text(
+                    row.folder.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onTap: () => Navigator.pop(context, row.folder.id),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _bulkMove() async {
+    final service = _service;
+    if (service == null || _selectedIds.isEmpty) return;
+    final l = AppL10n.of(context);
+    final target = await _pickBulkTarget();
+    if (target == null || !mounted) return;
+    var failures = 0;
+    for (final id in List.of(_selectedIds)) {
+      try {
+        await service.moveItemToFolder(id, target.isEmpty ? null : target);
+      } catch (_) {
+        failures++;
+      }
+    }
+    if (!mounted) return;
+    _exitSelection();
+    _notice(failures == 0 ? l.cloudFolderMoved : l.cloudFolderFailed);
+  }
+
+  Future<void> _bulkDelete() async {
+    final service = _service;
+    if (service == null || _selectedIds.isEmpty) return;
+    final l = AppL10n.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l.cloudBulkDeleteTitle(_selectedIds.length)),
+        content: Text(l.cloudDeleteBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(l.cloudDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    for (final id in List.of(_selectedIds)) {
+      try {
+        await service.deleteItem(id);
+      } catch (_) {}
+    }
+    if (mounted) _exitSelection();
+  }
+
+  void _sortDocuments(List<CloudItem> documents) {
+    switch (_sort) {
+      case _CloudSortMode.name:
+        documents.sort((a, b) {
+          final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+          return byName != 0
+              ? byName
+              : b.modifiedAtMs.compareTo(a.modifiedAtMs);
+        });
+      case _CloudSortMode.date:
+        documents.sort((a, b) => b.modifiedAtMs.compareTo(a.modifiedAtMs));
+      case _CloudSortMode.size:
+        documents.sort((a, b) {
+          final bySize = b.size.compareTo(a.size);
+          return bySize != 0
+              ? bySize
+              : b.modifiedAtMs.compareTo(a.modifiedAtMs);
+        });
+    }
+  }
+
+  /// Human-readable folder chain for a search result, rooted at the storage
+  /// root label.
+  String _pathLabel(CloudService service, String? folderId) {
+    final l = AppL10n.of(context);
+    if (folderId == null) return l.cloudStorageRoot;
+    final path = service
+        .folderPath(folderId)
+        .map((folder) => folder.name)
+        .join(' / ');
+    return path.isEmpty ? l.cloudStorageRoot : '${l.cloudStorageRoot} / $path';
+  }
+
+  /// Flat search results over the subtree rooted at the open folder: every
+  /// matching live folder and document below (and at) the current level.
+  Widget _searchResults(
+    CloudService service,
+    List<CloudItem> rows,
+    String query,
+  ) {
+    final l = AppL10n.of(context);
+    final tree = service.folderChildrenIndex();
+    final parents = service.effectiveFolderParents();
+    final rootId = _openFolderId != null && parents.containsKey(_openFolderId)
+        ? _openFolderId
+        : null;
+    final scopeIds = <String?>{rootId};
+    final matchedFolders = <CloudFolder>[];
+    void walk(String? parentId, int depth) {
+      if (depth > 32) return;
+      for (final folder in tree[parentId] ?? const <CloudFolder>[]) {
+        scopeIds.add(folder.id);
+        if (folder.name.toLowerCase().contains(query)) {
+          matchedFolders.add(folder);
+        }
+        walk(folder.id, depth + 1);
+      }
+    }
+
+    walk(rootId, 0);
+    final matchedDocuments = [
+      for (final item in rows)
+        if (scopeIds.contains(service.effectiveFolderId(item)) &&
+            item.name.toLowerCase().contains(query))
+          item,
+    ];
+    _sortDocuments(matchedDocuments);
+    if (matchedFolders.isEmpty && matchedDocuments.isEmpty) {
+      return Center(child: Text(l.cloudSearchEmpty));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.only(bottom: 96),
+      itemCount: matchedFolders.length + matchedDocuments.length,
+      itemBuilder: (context, index) {
+        if (index < matchedFolders.length) {
+          final folder = matchedFolders[index];
+          return ListTile(
+            key: ValueKey('cloud-search-folder-${folder.id}'),
+            leading: const Icon(Icons.folder_outlined),
+            title: Text(
+              folder.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(_pathLabel(service, parents[folder.id])),
+            onTap: () {
+              _stopSearch();
+              setState(() => _openFolderId = folder.id);
+            },
+          );
+        }
+        final item = matchedDocuments[index - matchedFolders.length];
+        return _CloudItemTile(
+          key: ValueKey('${item.id}:${item.revision}'),
+          item: item,
+          service: service,
+          capabilityService: ref.watch(cloudCapabilityServiceProvider),
+          pathLabel: _pathLabel(service, service.effectiveFolderId(item)),
+          selectionMode: _selecting,
+          selected: _selectedIds.contains(item.id),
+          onToggleSelection: () => _toggleSelection(item.id),
+          onEnterSelection: () => _enterSelection(item.id),
+        );
+      },
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final service = ref.watch(cloudServiceProvider);
@@ -507,26 +762,107 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     }
 
     return PopScope(
-      canPop: openFolder == null,
+      canPop: openFolder == null && !_selecting && !_searching,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) goUp();
+        if (didPop) return;
+        if (_selecting) {
+          _exitSelection();
+        } else if (_searching) {
+          _stopSearch();
+        } else {
+          goUp();
+        }
       },
       child: Scaffold(
         appBar: AppBar(
-          leading: openFolder == null ? null : BackButton(onPressed: goUp),
-          title: Text(openFolder?.name ?? l.cloudTitle),
+          leading: _selecting
+              ? IconButton(
+                  key: const ValueKey('cloud-selection-close'),
+                  tooltip: l.actionCancel,
+                  onPressed: _exitSelection,
+                  icon: const Icon(Icons.close),
+                )
+              : openFolder == null
+              ? null
+              : BackButton(onPressed: goUp),
+          title: _selecting
+              ? Text(l.cloudSelectedCount(_selectedIds.length))
+              : _searching
+              ? TextField(
+                  key: const ValueKey('cloud-search-field'),
+                  controller: _searchController,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    hintText: l.cloudSearchHint,
+                    border: InputBorder.none,
+                  ),
+                  onChanged: (value) => setState(() => _query = value),
+                )
+              : Text(openFolder?.name ?? l.cloudTitle),
           actions: [
-            if (ref.watch(cloudCapabilityServiceProvider) != null)
+            if (_selecting) ...[
               IconButton(
-                tooltip: l.cloudPublicImport,
-                onPressed: _busy ? null : _importPublicLink,
-                icon: const Icon(Icons.link),
+                key: const ValueKey('cloud-bulk-move'),
+                tooltip: l.cloudMoveToFolder,
+                onPressed: service == null ? null : _bulkMove,
+                icon: const Icon(Icons.drive_file_move_outlined),
               ),
-            IconButton(
-              tooltip: l.cloudVerify,
-              onPressed: service == null || _busy ? null : _verifyAll,
-              icon: const Icon(Icons.health_and_safety_outlined),
-            ),
+              IconButton(
+                key: const ValueKey('cloud-bulk-delete'),
+                tooltip: l.cloudDelete,
+                onPressed: service == null ? null : _bulkDelete,
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ] else if (_searching)
+              IconButton(
+                key: const ValueKey('cloud-search-close'),
+                tooltip: l.actionCancel,
+                onPressed: _stopSearch,
+                icon: const Icon(Icons.close),
+              )
+            else ...[
+              IconButton(
+                key: const ValueKey('cloud-search'),
+                tooltip: l.cloudSearch,
+                onPressed: service == null ? null : _startSearch,
+                icon: const Icon(Icons.search),
+              ),
+              PopupMenuButton<_CloudSortMode>(
+                key: const ValueKey('cloud-sort'),
+                tooltip: l.cloudSort,
+                icon: const Icon(Icons.sort),
+                initialValue: _sort,
+                onSelected: (mode) => setState(() => _sort = mode),
+                itemBuilder: (context) => [
+                  CheckedPopupMenuItem(
+                    value: _CloudSortMode.name,
+                    checked: _sort == _CloudSortMode.name,
+                    child: Text(l.cloudSortByName),
+                  ),
+                  CheckedPopupMenuItem(
+                    value: _CloudSortMode.date,
+                    checked: _sort == _CloudSortMode.date,
+                    child: Text(l.cloudSortByDate),
+                  ),
+                  CheckedPopupMenuItem(
+                    value: _CloudSortMode.size,
+                    checked: _sort == _CloudSortMode.size,
+                    child: Text(l.cloudSortBySize),
+                  ),
+                ],
+              ),
+              if (ref.watch(cloudCapabilityServiceProvider) != null)
+                IconButton(
+                  tooltip: l.cloudPublicImport,
+                  onPressed: _busy ? null : _importPublicLink,
+                  icon: const Icon(Icons.link),
+                ),
+              IconButton(
+                tooltip: l.cloudVerify,
+                onPressed: service == null || _busy ? null : _verifyAll,
+                icon: const Icon(Icons.health_and_safety_outlined),
+              ),
+            ],
             if (_busy)
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),
@@ -590,6 +926,12 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                   Expanded(
                     child: items.when(
                       data: (rows) {
+                        final query = _searching
+                            ? _query.trim().toLowerCase()
+                            : '';
+                        if (query.isNotEmpty) {
+                          return _searchResults(service, rows, query);
+                        }
                         // A dangling folderId (folder deleted elsewhere) resolves
                         // to the root here — documents are never hidden.
                         final visible = [
@@ -598,6 +940,7 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                                 openFolder?.id)
                               item,
                         ];
+                        _sortDocuments(visible);
                         final counts = <String, int>{};
                         for (final item in rows) {
                           final effective = service.effectiveFolderId(item);
@@ -609,12 +952,16 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                           openFolder?.id,
                         );
                         if (shownFolders.isEmpty && visible.isEmpty) {
-                          return openFolder == null
-                              ? _EmptyCloud(
-                                  onImport: _busy ? null : _importFile,
-                                  onNote: _busy ? null : _createNote,
-                                )
-                              : Center(child: Text(l.cloudFolderEmpty));
+                          return _EmptyCloud(
+                            title: openFolder == null
+                                ? null
+                                : l.cloudFolderEmpty,
+                            hint: openFolder == null
+                                ? null
+                                : l.cloudFolderEmptyHint,
+                            onImport: _busy ? null : _importFile,
+                            onNote: _busy ? null : _createNote,
+                          );
                         }
                         return ListView.builder(
                           padding: const EdgeInsets.only(bottom: 96),
@@ -674,6 +1021,11 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                               capabilityService: ref.watch(
                                 cloudCapabilityServiceProvider,
                               ),
+                              selectionMode: _selecting,
+                              selected: _selectedIds.contains(item.id),
+                              onToggleSelection: () =>
+                                  _toggleSelection(item.id),
+                              onEnterSelection: () => _enterSelection(item.id),
                             );
                           },
                         );
@@ -706,11 +1058,13 @@ class _FolderNameDialog extends StatefulWidget {
     required this.title,
     required this.confirmLabel,
     this.initial,
+    this.hint,
   });
 
   final String title;
   final String confirmLabel;
   final String? initial;
+  final String? hint;
 
   @override
   State<_FolderNameDialog> createState() => _FolderNameDialogState();
@@ -736,7 +1090,9 @@ class _FolderNameDialogState extends State<_FolderNameDialog> {
         key: const ValueKey('cloud-folder-name'),
         controller: _name,
         autofocus: true,
-        decoration: InputDecoration(hintText: l.cloudFolderNameHint),
+        decoration: InputDecoration(
+          hintText: widget.hint ?? l.cloudFolderNameHint,
+        ),
       ),
       actions: [
         TextButton(
@@ -1488,10 +1844,19 @@ class _ReplicationProfileState extends State<_ReplicationProfile> {
 }
 
 class _EmptyCloud extends StatelessWidget {
-  const _EmptyCloud({required this.onImport, required this.onNote});
+  const _EmptyCloud({
+    required this.onImport,
+    required this.onNote,
+    this.title,
+    this.hint,
+  });
 
   final VoidCallback? onImport;
   final VoidCallback? onNote;
+
+  /// Overrides for the empty-FOLDER variant; the root defaults stay intact.
+  final String? title;
+  final String? hint;
 
   @override
   Widget build(BuildContext context) {
@@ -1504,9 +1869,12 @@ class _EmptyCloud extends StatelessWidget {
           children: [
             const Icon(Icons.cloud_outlined, size: 56),
             const SizedBox(height: 16),
-            Text(l.cloudEmpty, style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              title ?? l.cloudEmpty,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
-            Text(l.cloudEmptyHint, textAlign: TextAlign.center),
+            Text(hint ?? l.cloudEmptyHint, textAlign: TextAlign.center),
             const SizedBox(height: 20),
             Wrap(
               spacing: 12,
@@ -1538,11 +1906,26 @@ class _CloudItemTile extends StatefulWidget {
     required this.item,
     required this.service,
     required this.capabilityService,
+    this.pathLabel,
+    this.selectionMode = false,
+    this.selected = false,
+    this.onToggleSelection,
+    this.onEnterSelection,
   });
 
   final CloudItem item;
   final CloudService service;
   final CloudCapabilityService? capabilityService;
+
+  /// Folder chain shown under search results.
+  final String? pathLabel;
+
+  /// Bulk-selection wiring: while [selectionMode] is on, tap toggles the
+  /// checkbox instead of opening/fetching; long-press enters the mode.
+  final bool selectionMode;
+  final bool selected;
+  final VoidCallback? onToggleSelection;
+  final VoidCallback? onEnterSelection;
 
   @override
   State<_CloudItemTile> createState() => _CloudItemTileState();
@@ -1743,6 +2126,28 @@ class _CloudItemTileState extends State<_CloudItemTile> {
     }
   }
 
+  Future<void> _rename() async {
+    if (_working || widget.item.kind != CloudItemKind.file) return;
+    final l = AppL10n.of(context);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => _FolderNameDialog(
+        title: l.cloudRename,
+        confirmLabel: l.cloudRename,
+        initial: widget.item.name,
+        hint: l.cloudRenameHint,
+      ),
+    );
+    if (name == null || name.isEmpty || name == widget.item.name || !mounted) {
+      return;
+    }
+    try {
+      await widget.service.renameItem(widget.item.id, name);
+    } catch (_) {
+      if (mounted) _notice(l.cloudRenameFailed);
+    }
+  }
+
   Future<void> _move() async {
     if (_working) return;
     final l = AppL10n.of(context);
@@ -1829,8 +2234,25 @@ class _CloudItemTileState extends State<_CloudItemTile> {
     final noteHeads = widget.item.kind == CloudItemKind.note
         ? widget.service.noteHeads(widget.item).length
         : 1;
+    // A locally-present file with fewer than two verified replicas would be
+    // lost with this device — surface that as an inline warning.
+    final singleCopy =
+        widget.item.kind == CloudItemKind.file &&
+        _local == true &&
+        replicas < 2;
+    final subtitle =
+        '${_formatBytes(widget.item.size)} · '
+        '${_local == true ? l.cloudLocal : l.cloudRemote} · '
+        '${l.cloudReplicas(replicas)}'
+        '${singleCopy ? ' · ${l.cloudSingleCopy}' : ''}'
+        '${noteHeads > 1 ? ' · ${l.cloudNoteBranches(noteHeads)}' : ''}';
     return ListTile(
-      leading: _working
+      leading: widget.selectionMode
+          ? Checkbox(
+              value: widget.selected,
+              onChanged: (_) => widget.onToggleSelection?.call(),
+            )
+          : _working
           ? const SizedBox.square(
               dimension: 24,
               child: CircularProgressIndicator(strokeWidth: 2),
@@ -1848,52 +2270,66 @@ class _CloudItemTileState extends State<_CloudItemTile> {
         overflow: TextOverflow.ellipsis,
       ),
       subtitle: Text(
-        '${_formatBytes(widget.item.size)} · '
-        '${_local == true ? l.cloudLocal : l.cloudRemote} · '
-        '${l.cloudReplicas(replicas)}'
-        '${noteHeads > 1 ? ' · ${l.cloudNoteBranches(noteHeads)}' : ''}',
+        widget.pathLabel == null ? subtitle : '$subtitle\n${widget.pathLabel}',
       ),
-      onTap: widget.item.kind == CloudItemKind.note && _local == true
+      selected: widget.selectionMode && widget.selected,
+      onTap: widget.selectionMode
+          ? widget.onToggleSelection
+          : widget.item.kind == CloudItemKind.note && _local == true
           ? _openNote
           : _local == true
           ? null
           : _fetch,
-      trailing: PopupMenuButton<String>(
-        onSelected: (action) {
-          switch (action) {
-            case 'fetch':
-              unawaited(_fetch());
-            case 'selected':
-              unawaited(_toggleSelected());
-            case 'move':
-              unawaited(_move());
-            case 'verify':
-              unawaited(widget.service.verifyItem(widget.item, repair: true));
-            case 'share':
-              unawaited(_share());
-            case 'public':
-              unawaited(_sharePublic());
-            case 'delete':
-              unawaited(_delete());
-          }
-        },
-        itemBuilder: (context) => [
-          if (_local != true)
-            PopupMenuItem(value: 'fetch', child: Text(l.cloudDownload)),
-          PopupMenuItem(
-            value: 'selected',
-            child: Text(selected ? l.cloudUnselect : l.cloudSelect),
-          ),
-          PopupMenuItem(value: 'move', child: Text(l.cloudMoveToFolder)),
-          if (_local == true)
-            PopupMenuItem(value: 'verify', child: Text(l.cloudVerify)),
-          if (_local == true)
-            PopupMenuItem(value: 'share', child: Text(l.cloudShare)),
-          if (_local == true && widget.capabilityService != null)
-            PopupMenuItem(value: 'public', child: Text(l.cloudPublicLink)),
-          PopupMenuItem(value: 'delete', child: Text(l.cloudDelete)),
-        ],
-      ),
+      onLongPress: widget.selectionMode
+          ? widget.onToggleSelection
+          : widget.onEnterSelection,
+      trailing: widget.selectionMode
+          ? null
+          : PopupMenuButton<String>(
+              onSelected: (action) {
+                switch (action) {
+                  case 'fetch':
+                    unawaited(_fetch());
+                  case 'selected':
+                    unawaited(_toggleSelected());
+                  case 'rename':
+                    unawaited(_rename());
+                  case 'move':
+                    unawaited(_move());
+                  case 'verify':
+                    unawaited(
+                      widget.service.verifyItem(widget.item, repair: true),
+                    );
+                  case 'share':
+                    unawaited(_share());
+                  case 'public':
+                    unawaited(_sharePublic());
+                  case 'delete':
+                    unawaited(_delete());
+                }
+              },
+              itemBuilder: (context) => [
+                if (_local != true)
+                  PopupMenuItem(value: 'fetch', child: Text(l.cloudDownload)),
+                PopupMenuItem(
+                  value: 'selected',
+                  child: Text(selected ? l.cloudUnselect : l.cloudSelect),
+                ),
+                if (widget.item.kind == CloudItemKind.file)
+                  PopupMenuItem(value: 'rename', child: Text(l.cloudRename)),
+                PopupMenuItem(value: 'move', child: Text(l.cloudMoveToFolder)),
+                if (_local == true)
+                  PopupMenuItem(value: 'verify', child: Text(l.cloudVerify)),
+                if (_local == true)
+                  PopupMenuItem(value: 'share', child: Text(l.cloudShare)),
+                if (_local == true && widget.capabilityService != null)
+                  PopupMenuItem(
+                    value: 'public',
+                    child: Text(l.cloudPublicLink),
+                  ),
+                PopupMenuItem(value: 'delete', child: Text(l.cloudDelete)),
+              ],
+            ),
     );
   }
 }

@@ -988,7 +988,11 @@ void main() {
 
     expect(find.text('Personal cloud'), findsOneWidget);
     expect(find.text('proof.bin'), findsOneWidget);
-    expect(find.text('4 B · on this device · 1 verified copy'), findsOneWidget);
+    expect(
+      find.text('4 B · on this device · 1 verified copy · single copy'),
+      findsOneWidget,
+      reason: 'a local file with fewer than two replicas warns inline',
+    );
     expect(find.textContaining('1 verified copy'), findsOneWidget);
     expect(find.text('Index only'), findsOneWidget);
     expect(find.byIcon(Icons.health_and_safety_outlined), findsOneWidget);
@@ -999,5 +1003,386 @@ void main() {
     await tester.tap(find.text('Share with contact'));
     await tester.pumpAndSettle();
     expect(find.text('No accepted contacts to share with'), findsOneWidget);
+  });
+
+  testWidgets('file rename flows through its context menu dialog', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    var clock = 13000;
+    final service = CloudService(
+      storage,
+      _Sync(),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () => 'rename_ui',
+      integrityChecks: false,
+    );
+    addTearDown(() {
+      unawaited(service.close());
+      unawaited(storage.close());
+    });
+    final bytes = Uint8List.fromList(List.filled(16, 3));
+    final imported = await service.importContent(
+      name: 'draft.bin',
+      size: bytes.length,
+      readRange: (offset, length) async =>
+          Uint8List.sublistView(bytes, offset, offset + length),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [cloudServiceProvider.overrideWithValue(service)],
+        child: const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: CloudStorageScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Rename'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('cloud-folder-name')),
+      'final.bin',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Rename'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('final.bin'), findsOneWidget);
+    expect(find.text('draft.bin'), findsNothing);
+    final renamed = (await service.listItems()).single;
+    expect(renamed.name, 'final.bin');
+    expect(renamed.revision, imported.revision);
+    expect(renamed.contentId, imported.contentId);
+  });
+
+  testWidgets('search filters the subtree and shows flat results with paths', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    var clock = 14000;
+    final ids = ['fd1', 'nb', 'na'].iterator;
+    final service = CloudService(
+      storage,
+      _Sync(),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () {
+        ids.moveNext();
+        return ids.current;
+      },
+      integrityChecks: false,
+    );
+    addTearDown(() {
+      unawaited(service.close());
+      unawaited(storage.close());
+    });
+    final folder = await service.createFolder('Docs');
+    await service.saveTextNote(
+      title: 'Beta report',
+      body: 'x',
+      folderId: folder.id,
+    );
+    await service.saveTextNote(title: 'Alpha note', body: 'y');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [cloudServiceProvider.overrideWithValue(service)],
+        child: const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: CloudStorageScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('Alpha note'), findsOneWidget);
+    expect(
+      find.text('Beta report'),
+      findsNothing,
+      reason: 'the note lives inside the folder, not at the root',
+    );
+
+    // A deep match surfaces from inside the folder with its path label.
+    await tester.tap(find.byKey(const ValueKey('cloud-search')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('cloud-search-field')),
+      'beta',
+    );
+    await tester.pump();
+    expect(find.text('Beta report'), findsOneWidget);
+    expect(find.text('Alpha note'), findsNothing);
+    expect(find.textContaining('Storage / Docs'), findsOneWidget);
+
+    // A folder matches by name; tapping it opens the folder and ends search.
+    await tester.enterText(
+      find.byKey(const ValueKey('cloud-search-field')),
+      'doc',
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('cloud-search-folder-fd1')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('cloud-search-folder-fd1')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('cloud-search-field')), findsNothing);
+    expect(find.text('Docs'), findsWidgets);
+    expect(find.text('Beta report'), findsOneWidget);
+
+    // No matches renders an explicit empty state.
+    await tester.tap(find.byKey(const ValueKey('cloud-search')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('cloud-search-field')),
+      'zzz',
+    );
+    await tester.pump();
+    expect(find.text('Nothing found'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('cloud-search-close')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('cloud-search-field')), findsNothing);
+  });
+
+  testWidgets('sort toggle reorders documents by name, date, and size', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    var clock = 15000;
+    final ids = ['s1', 's2', 's3'].iterator;
+    final service = CloudService(
+      storage,
+      _Sync(),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () {
+        ids.moveNext();
+        return ids.current;
+      },
+      integrityChecks: false,
+    );
+    addTearDown(() {
+      unawaited(service.close());
+      unawaited(storage.close());
+    });
+    Future<void> import(String name, int size) async {
+      final bytes = Uint8List.fromList(
+        List.generate(size, (index) => (index * 7 + name.length) & 0xff),
+      );
+      await service.importContent(
+        name: name,
+        size: size,
+        readRange: (offset, length) async =>
+            Uint8List.sublistView(bytes, offset, offset + length),
+      );
+    }
+
+    await import('apple.bin', 50);
+    await import('zebra.bin', 3000);
+    await import('mango.bin', 10);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [cloudServiceProvider.overrideWithValue(service)],
+        child: const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: CloudStorageScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    List<String> visibleOrder() {
+      final entries = <(double, String)>[
+        for (final name in const ['apple.bin', 'zebra.bin', 'mango.bin'])
+          (tester.getTopLeft(find.text(name)).dy, name),
+      ];
+      entries.sort((a, b) => a.$1.compareTo(b.$1));
+      return [for (final entry in entries) entry.$2];
+    }
+
+    expect(visibleOrder(), [
+      'mango.bin',
+      'zebra.bin',
+      'apple.bin',
+    ], reason: 'newest-first is the default ordering');
+
+    await tester.tap(find.byKey(const ValueKey('cloud-sort')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('By name'));
+    await tester.pumpAndSettle();
+    expect(visibleOrder(), ['apple.bin', 'mango.bin', 'zebra.bin']);
+
+    await tester.tap(find.byKey(const ValueKey('cloud-sort')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('By size'));
+    await tester.pumpAndSettle();
+    expect(visibleOrder(), ['zebra.bin', 'apple.bin', 'mango.bin']);
+
+    await tester.tap(find.byKey(const ValueKey('cloud-sort')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('By date'));
+    await tester.pumpAndSettle();
+    expect(visibleOrder(), ['mango.bin', 'zebra.bin', 'apple.bin']);
+  });
+
+  testWidgets('long-press selection supports bulk move and bulk delete', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    var clock = 16000;
+    final ids = ['bulk_folder', 'na', 'nb'].iterator;
+    final service = CloudService(
+      storage,
+      _Sync(),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () {
+        ids.moveNext();
+        return ids.current;
+      },
+      integrityChecks: false,
+    );
+    addTearDown(() {
+      unawaited(service.close());
+      unawaited(storage.close());
+    });
+    await service.createFolder('Docs');
+    await service.saveTextNote(title: 'Note A', body: 'a');
+    await service.saveTextNote(title: 'Note B', body: 'b');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [cloudServiceProvider.overrideWithValue(service)],
+        child: const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: CloudStorageScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // Long-press enters selection; a tap on the second row extends it.
+    await tester.longPress(find.text('Note A'));
+    await tester.pump();
+    expect(find.text('1 selected'), findsOneWidget);
+    expect(find.byType(Checkbox), findsNWidgets(2));
+    await tester.tap(find.text('Note B'));
+    await tester.pump();
+    expect(find.text('2 selected'), findsOneWidget);
+
+    // Bulk move: both documents land in the picked folder.
+    await tester.tap(find.byKey(const ValueKey('cloud-bulk-move')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cloud-bulk-move-bulk_folder')));
+    await tester.pumpAndSettle();
+    expect(find.byType(Checkbox), findsNothing, reason: 'selection mode ends');
+    final moved = await service.listItems();
+    expect(moved, hasLength(2));
+    expect(moved.map((item) => item.folderId), everyElement('bulk_folder'));
+    expect(find.text('2 items'), findsOneWidget);
+
+    // Bulk delete inside the folder: one confirm carries the count.
+    await tester.tap(find.byKey(const ValueKey('cloud-folder-bulk_folder')));
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('Note A'));
+    await tester.pump();
+    await tester.tap(find.text('Note B'));
+    await tester.pump();
+    expect(find.text('2 selected'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('cloud-bulk-delete')));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete 2 items from your cloud?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+    expect(await service.listItems(), isEmpty);
+    expect(find.byType(Checkbox), findsNothing);
+  });
+
+  testWidgets('an empty folder offers creating a note or file inside it', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    var clock = 17000;
+    final ids = ['ef', 'note_ef'].iterator;
+    final service = CloudService(
+      storage,
+      _Sync(),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () {
+        ids.moveNext();
+        return ids.current;
+      },
+      integrityChecks: false,
+    );
+    addTearDown(() {
+      unawaited(service.close());
+      unawaited(storage.close());
+    });
+    await service.createFolder('Inbox');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [cloudServiceProvider.overrideWithValue(service)],
+        child: const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: CloudStorageScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(find.byKey(const ValueKey('cloud-folder-ef')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('This folder is empty'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'New note'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'Add file'), findsOneWidget);
+
+    // The shortcut creates the note in the CURRENT folder.
+    await tester.tap(find.widgetWithText(FilledButton, 'New note'));
+    await _pumpTransition(tester);
+    await tester.enterText(find.byType(TextField).at(0), 'Folder note');
+    await tester.enterText(find.byType(TextField).at(1), 'body');
+    await tester.tap(find.text('Save'));
+    await _pumpTransition(tester);
+
+    expect(find.text('Folder note'), findsOneWidget);
+    final created = (await service.listItems()).single;
+    expect(created.folderId, 'ef');
+    expect(
+      find.textContaining('single copy'),
+      findsNothing,
+      reason: 'the single-copy warning applies to files, not notes',
+    );
   });
 }
