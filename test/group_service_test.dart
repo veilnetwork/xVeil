@@ -13615,6 +13615,81 @@ void main() {
     });
 
     test(
+      'a fresh peer sees the retained suffix when the server has NOT swept yet '
+      '(expired-in-grace prefix)',
+      () async {
+        // The read-time serve filter excludes the expired prefix, but the
+        // server has not run its sweep (grace not over) so no physical cut
+        // exists. The served snapshot must still carry a cut so the retained
+        // suffix re-anchors on the receiver instead of being orphaned.
+        final ownerStorage = FakeHvContainer().storage();
+        final memberStorage = FakeHvContainer().storage();
+        for (final storage in [ownerStorage, memberStorage]) {
+          await storage.open(password: 'pw', createIfMissing: true);
+        }
+        final ownerSvc = GroupService(ownerStorage, _FakeSigner(owner));
+        final memberSvc = GroupService(memberStorage, _FakeSigner(bob));
+        addTearDown(ownerSvc.dispose);
+        addTearDown(memberSvc.dispose);
+        var wall = baseMs;
+        ownerSvc.debugWallClockMs = () => wall;
+        memberSvc.debugWallClockMs = () => wall;
+
+        final spaceId = await ownerSvc.createSpace(
+          'Grace-window serve',
+          visibility: SpaceVisibility.public,
+        );
+        expect(
+          await ownerSvc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: bob,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+        for (var i = 0; i < 2; i++) {
+          expect(
+            await ownerSvc.postMessage(spaceId, 'old-$i', broadcast: false),
+            isTrue,
+          );
+        }
+        expect(
+          await ownerSvc.setSpaceRetentionPolicy(
+            spaceId,
+            SpaceRetentionPolicy(
+              mode: SpaceRetentionMode.deleteAfter,
+              retentionMs: dayMs,
+            ),
+          ),
+          isTrue,
+        );
+        wall = baseMs + 7 * dayMs + 12 * 60 * 60 * 1000;
+        expect(
+          await ownerSvc.postMessage(spaceId, 'kept-fresh', broadcast: false),
+          isTrue,
+        );
+
+        // Read-time-expired (old-* are past retentionMs) but still WITHIN grace,
+        // so the sweep would not delete them yet. Deliberately do NOT sweep.
+        wall = baseMs + dayMs + 2 * 60 * 60 * 1000;
+        final snapshot = ownerSvc.snapshotJson(
+          (await ownerSvc.load(spaceId))!,
+          recipient: bob,
+        );
+        expect(await memberSvc.ingestSnapshot(snapshot), isTrue);
+
+        expect(
+          (await memberSvc.messagesOf(spaceId)).map((m) => m.body),
+          contains('kept-fresh'),
+          reason:
+              'serve-time retention exclusion must not orphan the live suffix '
+              'on a receiver, even before the server sweeps',
+        );
+      },
+    );
+
+    test(
       'a fresh peer receiving a post-sweep snapshot sees the retained suffix',
       () async {
         // Two independent devices. The owner sweeps, then serves ONLY the
