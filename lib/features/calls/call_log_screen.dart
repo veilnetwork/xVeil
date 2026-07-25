@@ -12,6 +12,7 @@ import '../../core/format.dart';
 import '../../core/ids.dart';
 import '../../domain/call_log.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/call_log.dart';
 import '../../state/providers.dart';
 
@@ -23,7 +24,10 @@ class CallLogScreen extends ConsumerWidget {
     final l = AppL10n.of(context);
     final store = ref.watch(callLogStoreProvider);
     return Scaffold(
-      appBar: AppBar(title: Text(l.navCalls)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.navCalls),
+      ),
       body: ValueListenableBuilder<int>(
         valueListenable: store.changes,
         builder: (context, _, _) => FutureBuilder<List<_Row>>(

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
 
 String fmtBytes(int b) {
@@ -88,7 +89,10 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
     final l = AppL10n.of(context);
     final ctrl = ref.read(appControllerProvider.notifier);
     return Scaffold(
-      appBar: AppBar(title: Text(l.settingsCatData)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.settingsCatData),
+      ),
       body: !_loaded
           ? const Center(child: CircularProgressIndicator())
           : ListView(

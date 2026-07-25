@@ -49,7 +49,7 @@ import '../state/app_controller.dart';
 /// location except `/lock` redirects to `/lock`, and a deep link into `/chat`
 /// while locked bounces to `/lock`. Extracted so this invariant is unit-testable
 /// without pumping a full router.
-String? redirectForPhase(AppPhase phase, String location, {String? resumeTo}) {
+String? redirectForPhase(AppPhase phase, String location) {
   switch (phase) {
     case AppPhase.bootstrapping:
       return location == '/splash' ? null : '/splash';
@@ -68,16 +68,16 @@ String? redirectForPhase(AppPhase phase, String location, {String? resumeTo}) {
       return location == '/preparing' ? null : '/preparing';
     case AppPhase.ready:
       // Bounce the gate screens to home; allow everything else (chat, settings,
-      // add-identity, decoy). Leaving /preparing honours [resumeTo] — the
-      // location the user was bounced OUT of when a node-config change
-      // restarted the node (e.g. the lazy-mining toggle in settings): they
-      // return to the same page instead of being dumped into chats.
+      // add-identity, decoy). Leaving /preparing lands on home too — restoring
+      // the page a node-config change bounced the user out of is the ROUTER's
+      // job, not the gate's, because that restore has to PUSH onto home rather
+      // than replace it (see the redirect in [routerProvider]).
       if (location == '/splash' ||
           location == '/lock' ||
           location == '/onboarding' ||
           location == '/pick-identity' ||
           location == '/preparing') {
-        return (location == '/preparing' ? resumeTo : null) ?? '/home';
+        return '/home';
       }
       return null;
   }
@@ -106,7 +106,8 @@ final routerProvider = Provider<GoRouter>((ref) {
   // so resuming is safe even when the restart switched the active identity.
   String? resumeAfterPrepare;
 
-  return GoRouter(
+  late final GoRouter router;
+  router = GoRouter(
     navigatorKey: rootNavigatorKey,
     initialLocation: '/splash',
     refreshListenable: refresh,
@@ -116,12 +117,28 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (phase == AppPhase.preparingNode && location.startsWith('/settings')) {
         resumeAfterPrepare = location; // about to be bounced to /preparing
       }
-      final resume = resumeAfterPrepare;
-      final target = redirectForPhase(phase, location, resumeTo: resume);
       if (phase == AppPhase.ready && location == '/preparing') {
+        final resume = resumeAfterPrepare;
         resumeAfterPrepare = null; // consumed (or defaulted to /home)
+        if (resume != null) {
+          // Land on home FIRST, then push the settings page on top. A redirect
+          // REPLACES the stack, so returning `resume` here would drop the user
+          // onto a settings screen with nothing below it — and the flat router
+          // turns that into a screen whose back arrow has nowhere to go. This
+          // is the pattern notification taps and the comments fallback use.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            try {
+              router.push(resume);
+            } catch (_) {
+              // An identity switch can tear the router down between the
+              // redirect and the next frame. Losing the restore is fine;
+              // being left on home is not a dead end.
+            }
+          });
+          return '/home';
+        }
       }
-      return target;
+      return redirectForPhase(phase, location);
     },
     routes: [
       GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),
@@ -284,4 +301,5 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
     ],
   );
+  return router;
 });

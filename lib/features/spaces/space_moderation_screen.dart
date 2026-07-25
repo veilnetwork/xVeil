@@ -8,6 +8,7 @@ import '../../domain/group_policy.dart';
 import '../../domain/space_abuse_report.dart';
 import '../../domain/space_moderation.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/group_service_providers.dart';
 
 class SpaceModerationScreen extends ConsumerWidget {
@@ -429,7 +430,10 @@ class SpaceModerationScreen extends ConsumerWidget {
           ).allows(service.selfId, SpacePermission.moderate);
           final now = DateTime.now().millisecondsSinceEpoch;
           return Scaffold(
-            appBar: AppBar(title: Text(l.spaceModerationTitle)),
+            appBar: AppBar(
+              leading: const RootedBackButton(),
+              title: Text(l.spaceModerationTitle),
+            ),
             floatingActionButton: canModerate
                 ? FloatingActionButton.extended(
                     key: const ValueKey('space-moderation-add'),

@@ -11,6 +11,7 @@ import '../../domain/space_channel.dart';
 import '../../domain/space_post.dart';
 import '../../domain/space_public_discussion.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/mention_identity.dart';
@@ -290,7 +291,10 @@ class MentionsScreen extends ConsumerWidget {
     final l = AppL10n.of(context);
     final mentions = ref.watch(mentionInboxProvider);
     return Scaffold(
-      appBar: AppBar(title: Text(l.mentionsTitle)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.mentionsTitle),
+      ),
       body: mentions.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => Center(child: Text(l.mentionsLoadFailed)),

@@ -7,6 +7,7 @@ import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../../data/node/node_controller.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/background_node_controller.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/providers.dart';
@@ -48,7 +49,10 @@ class NetworkScreen extends ConsumerWidget {
     // which only carries phase). 0 until a real node is up.
     final peers = ref.watch(sessionCountProvider).asData?.value ?? 0;
     return Scaffold(
-      appBar: AppBar(title: Text(l.networkTitle)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.networkTitle),
+      ),
       body: ListView(
         children: [
           status.when(
