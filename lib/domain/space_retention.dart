@@ -186,6 +186,66 @@ class SpaceChannelRetentionEnvelope {
   }
 }
 
+/// A local record of a physically deleted retention-expired chain prefix.
+///
+/// Message rows form strict per-`(scope, author)` hash chains, so deleting an
+/// expired prefix would otherwise hide the whole retained suffix ("missing
+/// predecessor"). The cut re-anchors the fold at `throughSeq + 1`. It is not a
+/// signed wire object: locally it is written only by the retention sweep, and
+/// a remote hint is merged only after the receiver has re-validated the
+/// claimed boundary against its own fold of the signed retention revisions.
+class SpaceRetentionCut {
+  const SpaceRetentionCut({
+    required this.scope,
+    required this.author,
+    required this.throughSeq,
+    required this.throughCreatedAtMs,
+  });
+
+  final String scope;
+  final NodeId author;
+  final int throughSeq;
+  final int throughCreatedAtMs;
+
+  bool get isStructurallyValid =>
+      scope.isNotEmpty &&
+      scope.length <= 512 &&
+      throughSeq >= 0 &&
+      throughCreatedAtMs > 0;
+
+  Map<String, dynamic> toJson() => {
+    'v': 1,
+    'scope': scope,
+    'a': author.hex,
+    's': throughSeq,
+    't': throughCreatedAtMs,
+  };
+
+  static SpaceRetentionCut? fromJson(Object? value) {
+    if (value is! Map ||
+        value['v'] != 1 ||
+        value['scope'] is! String ||
+        value['a'] is! String ||
+        value['s'] is! int ||
+        value['t'] is! int) {
+      return null;
+    }
+    try {
+      final cut = SpaceRetentionCut(
+        scope: value['scope'] as String,
+        author: NodeId.fromHex(value['a'] as String),
+        throughSeq: value['s'] as int,
+        throughCreatedAtMs: value['t'] as int,
+      );
+      return cut.isStructurallyValid ? cut : null;
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+String retentionCutKey(String scope, NodeId author) => '$scope|${author.hex}';
+
 /// Returns true once any accepted policy interval has retired the item. Every
 /// revision is replayed, so changing a destructive rule back to "forever"
 /// freezes future expiry but never resurrects data already retired earlier.

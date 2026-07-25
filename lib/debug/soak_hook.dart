@@ -27,6 +27,8 @@ import '../domain/chat.dart';
 import '../domain/content_manifest.dart' show ContentManifest;
 import '../domain/device_sync.dart';
 import '../domain/group.dart';
+import '../domain/space_channel.dart';
+import '../domain/space_retention.dart';
 import '../domain/group_policy.dart';
 import '../domain/p2p_policy.dart';
 import '../state/group_crypto.dart';
@@ -639,6 +641,18 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/group_call_state':
           await _groupCallState(req);
+          return;
+        case '/space_retention_sweep':
+          await _spaceRetentionSweep(req);
+          return;
+        case '/space_create':
+          await _spaceCreate(req);
+          return;
+        case '/space_channel_create':
+          await _spaceChannelCreate(req);
+          return;
+        case '/space_retention_set':
+          await _spaceRetentionSet(req);
           return;
         case '/media_open':
           await _mediaOpen(req);
@@ -5041,6 +5055,154 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   }
 
   // ---- group-call control plane (no key/body material in debug output) ----
+
+  /// Stand driver for the retention sweep: `?now=<ms>` runs the REAL
+  /// production sweep with a deterministic clock so physical deletion can be
+  /// verified without waiting out day-scale retention windows.
+  Future<void> _spaceRetentionSweep(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(groupServiceProvider);
+    if (service == null) {
+      return _json(req, {'ok': false, 'error': 'no service'}, status: 409);
+    }
+    final nowMs = int.tryParse(req.uri.queryParameters['now'] ?? '');
+    try {
+      final sweep = await service.sweepSpaceRetention(nowMs: nowMs);
+      await _json(req, {
+        'ok': sweep.complete,
+        'scanned': sweep.scanned,
+        'messagesDeleted': sweep.messagesDeleted,
+        'postsDeleted': sweep.postsDeleted,
+        'reactionsDeleted': sweep.reactionsDeleted,
+        'cutsRecorded': sweep.cutsRecorded,
+        'failed': sweep.failed,
+      });
+    } catch (error) {
+      await _json(req, {'ok': false, 'error': '$error'}, status: 500);
+    }
+  }
+
+  /// Stand driver: create a Space (`?name=&visibility=private|public`) so
+  /// protected channels and retention can be exercised live without UI taps.
+  Future<void> _spaceCreate(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(groupServiceProvider);
+    if (service == null) {
+      return _json(req, {'ok': false, 'error': 'no service'}, status: 409);
+    }
+    final name = req.uri.queryParameters['name']?.trim() ?? '';
+    if (name.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'name required'}, status: 400);
+    }
+    final visibility = switch (req.uri.queryParameters['visibility']) {
+      'public' => SpaceVisibility.public,
+      'secret' => SpaceVisibility.secret,
+      _ => SpaceVisibility.private,
+    };
+    try {
+      final spaceId = await service.createSpace(name, visibility: visibility);
+      final channels = await service.channelsOf(spaceId);
+      await _json(req, {
+        'ok': true,
+        'spaceId': spaceId.hex,
+        'channels': [
+          for (final channel in channels)
+            {
+              'id': channel.channelId.hex,
+              'name': channel.name,
+              'kind': channel.kind.name,
+              'access': channel.access.name,
+            },
+        ],
+      });
+    } catch (error) {
+      await _json(req, {'ok': false, 'error': '$error'}, status: 500);
+    }
+  }
+
+  /// Stand driver: nested channel create
+  /// (`?space=&name=&kind=text|voice|category&access=space|restricted&members=hex,hex`).
+  Future<void> _spaceChannelCreate(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(groupServiceProvider);
+    final spaceHex = req.uri.queryParameters['space'];
+    final name = req.uri.queryParameters['name']?.trim() ?? '';
+    if (service == null || spaceHex == null || name.isEmpty) {
+      return _json(req, {
+        'ok': false,
+        'error': 'space and name required',
+      }, status: service == null ? 409 : 400);
+    }
+    final NodeId spaceId;
+    final List<NodeId> members;
+    try {
+      spaceId = NodeId.fromHex(spaceHex);
+      members = [
+        for (final hex in (req.uri.queryParameters['members'] ?? '').split(','))
+          if (hex.trim().isNotEmpty) NodeId.fromHex(hex.trim()),
+      ];
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'bad id'}, status: 400);
+    }
+    final kind = switch (req.uri.queryParameters['kind']) {
+      'voice' => SpaceChannelKind.voice,
+      'category' => SpaceChannelKind.category,
+      _ => SpaceChannelKind.text,
+    };
+    final access = switch (req.uri.queryParameters['access']) {
+      'restricted' => SpaceChannelAccess.restricted,
+      'secret' => SpaceChannelAccess.secret,
+      _ => SpaceChannelAccess.space,
+    };
+    try {
+      final channelId = await service.createChannel(
+        spaceId,
+        name: name,
+        kind: kind,
+        access: access,
+        members: members,
+      );
+      await _json(req, {
+        'ok': channelId != null,
+        if (channelId != null) 'channelId': channelId.hex,
+      }, status: channelId == null ? 409 : 200);
+    } catch (error) {
+      await _json(req, {'ok': false, 'error': '$error'}, status: 500);
+    }
+  }
+
+  /// Stand driver: set a bounded Space retention policy
+  /// (`?space=&days=`), so the sweep can be verified against real content.
+  Future<void> _spaceRetentionSet(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(groupServiceProvider);
+    final spaceHex = req.uri.queryParameters['space'];
+    final days = int.tryParse(req.uri.queryParameters['days'] ?? '');
+    if (service == null || spaceHex == null || days == null || days < 1) {
+      return _json(req, {
+        'ok': false,
+        'error': 'space and days>=1 required',
+      }, status: service == null ? 409 : 400);
+    }
+    final NodeId spaceId;
+    try {
+      spaceId = NodeId.fromHex(spaceHex);
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'bad id'}, status: 400);
+    }
+    try {
+      final ok = await service.setSpaceRetentionPolicy(
+        spaceId,
+        SpaceRetentionPolicy(
+          mode: SpaceRetentionMode.deleteAfter,
+          retentionMs: days * 24 * 60 * 60 * 1000,
+        ),
+      );
+      await _json(req, {'ok': ok}, status: ok ? 200 : 409);
+    } catch (error) {
+      await _json(req, {'ok': false, 'error': '$error'}, status: 500);
+    }
+  }
 
   Future<void> _groupCallStart(HttpRequest req) async {
     if (!_requireReady(req)) return;
