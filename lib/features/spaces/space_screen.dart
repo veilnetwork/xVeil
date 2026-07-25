@@ -14,6 +14,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/group_call_service.dart';
 import '../../state/messaging.dart' show conversationsProvider;
+import 'space_avatar.dart';
 
 class SpaceScreen extends ConsumerWidget {
   const SpaceScreen({super.key, required this.spaceIdHex});
@@ -942,7 +943,27 @@ class SpaceScreen extends ConsumerWidget {
                 key: const ValueKey('space-screen-back'),
                 onPressed: () => _goBack(context),
               ),
-              title: Text(state.name),
+              title: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SpaceAvatarImage(
+                    spaceId: spaceId,
+                    contentId: state.avatarContentId,
+                    owner: spaceOwnerOf(state),
+                    radius: 14,
+                    fallback: Text(
+                      state.name.isEmpty
+                          ? '#'
+                          : state.name.characters.first.toUpperCase(),
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(state.name, overflow: TextOverflow.ellipsis),
+                  ),
+                ],
+              ),
               actions: [
                 if (SpaceAcl(state).allows(
                       service.selfId,

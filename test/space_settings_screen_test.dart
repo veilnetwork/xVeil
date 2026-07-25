@@ -1060,12 +1060,17 @@ void main() {
     await tester.pumpAndSettle();
     expect((await service.stateOf(spaceId))!.roleOf(alice), GroupRole.admin);
 
-    await tester.scrollUntilVisible(
+    // Rename lives in the top card; scroll the list fully to the top so the
+    // button is on-screen regardless of how tall the settings body grows.
+    await tester.dragUntilVisible(
       find.byKey(const ValueKey('space-rename-button')),
-      -300,
-      scrollable: find.byType(Scrollable).first,
+      find.byType(Scrollable).first,
+      const Offset(0, 400),
     );
     await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('space-rename-button')),
+    );
     await tester.tap(find.byKey(const ValueKey('space-rename-button')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Renamed lab');
@@ -1228,11 +1233,13 @@ void main() {
       await tester.pumpAndSettle();
       final l = AppL10n.of(tester.element(find.byType(SpaceSettingsScreen)));
 
-      await tester.scrollUntilVisible(
+      await tester.dragUntilVisible(
         find.byIcon(Icons.more_vert),
-        300,
-        scrollable: find.byType(Scrollable).first,
+        find.byType(Scrollable).first,
+        const Offset(0, -300),
       );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byIcon(Icons.more_vert));
       await tester.tap(find.byIcon(Icons.more_vert));
       await tester.pumpAndSettle();
       await tester.tap(find.text(l.spaceMemberBan));
@@ -1313,6 +1320,9 @@ void main() {
     final l = AppL10n.of(tester.element(find.byType(SpaceSettingsScreen)));
 
     expect(find.byKey(const ValueKey('space-join-link-tile')), findsOneWidget);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('space-join-link-create')),
+    );
     await tester.tap(find.byKey(const ValueKey('space-join-link-create')));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
@@ -1326,9 +1336,15 @@ void main() {
     ).hideCurrentSnackBar();
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('space-join-link-revoke')),
+    );
     await tester.tap(find.byKey(const ValueKey('space-join-link-revoke')));
     await tester.pumpAndSettle();
     expect(await service.currentSpaceJoinCode(spaceId), isNull);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('space-join-link-create')),
+    );
     await tester.tap(find.byKey(const ValueKey('space-join-link-create')));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
