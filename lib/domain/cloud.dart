@@ -213,6 +213,7 @@ class CloudFolder {
     required this.modifiedAtMs,
     required this.revision,
     required this.deleted,
+    this.parentId,
   });
 
   final String id;
@@ -222,13 +223,33 @@ class CloudFolder {
   final int revision;
   final bool deleted;
 
+  /// Parent folder id; null = a root-level folder. Like [CloudItem.folderId]
+  /// this is decoration resolved at view time: a dangling/dead parent makes
+  /// the folder (and its contents) surface under the nearest LIVE ancestor,
+  /// and a cross-device merge that forms a parent cycle is broken
+  /// deterministically by the resolver — rows are never rewritten for
+  /// either, so structure changes can never LWW-clobber concurrent edits.
+  final String? parentId;
+
   DeviceSyncEvent toEvent() => DeviceSyncEvent(
     kind: DeviceSyncKind.cloudFolder,
     key: id,
     tsMs: modifiedAtMs,
     payload: deleted
-        ? {'del': true, 'rev': revision}
-        : {'name': name, 'created': createdAtMs, 'rev': revision},
+        // A tombstone keeps its parent pointer: the resolver walks DEAD
+        // folders through, lifting orphaned contents to the nearest LIVE
+        // ancestor instead of dumping them at the root.
+        ? {
+            'del': true,
+            'rev': revision,
+            if (parentId != null) 'parent': parentId,
+          }
+        : {
+            'name': name,
+            'created': createdAtMs,
+            'rev': revision,
+            if (parentId != null) 'parent': parentId,
+          },
   );
 
   CloudFolder tombstone(int atMs) => CloudFolder(
@@ -238,6 +259,7 @@ class CloudFolder {
     modifiedAtMs: atMs,
     revision: revision + 1,
     deleted: true,
+    parentId: parentId,
   );
 
   static CloudFolder? fromEvent(DeviceSyncEvent event) {
@@ -249,6 +271,13 @@ class CloudFolder {
     final p = event.payload;
     final revision = p['rev'];
     if (revision is! int || revision < 1) return null;
+    final rawParent = p['parent'];
+    final parent =
+        rawParent is String &&
+            CloudItem._validId(rawParent) &&
+            rawParent != event.key
+        ? rawParent
+        : null;
     if (p['del'] == true) {
       return CloudFolder(
         id: event.key,
@@ -257,6 +286,7 @@ class CloudFolder {
         modifiedAtMs: event.tsMs,
         revision: revision,
         deleted: true,
+        parentId: parent,
       );
     }
     final name = p['name'];
@@ -268,6 +298,9 @@ class CloudFolder {
         created < 1) {
       return null;
     }
+    // Parent is decoration like CloudItem.folderId: an unparseable value (a
+    // future vocabulary, or a self-reference) degrades to a root folder
+    // instead of hiding the whole row.
     return CloudFolder(
       id: event.key,
       name: name,
@@ -275,6 +308,7 @@ class CloudFolder {
       modifiedAtMs: event.tsMs,
       revision: revision,
       deleted: false,
+      parentId: parent,
     );
   }
 }
