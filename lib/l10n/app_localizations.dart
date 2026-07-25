@@ -3630,6 +3630,102 @@ abstract class AppL10n {
   /// **'Storage'**
   String get cloudStorageRoot;
 
+  /// No description provided for @cloudFolderShare.
+  ///
+  /// In en, this message translates to:
+  /// **'Share folder link'**
+  String get cloudFolderShare;
+
+  /// No description provided for @cloudFolderShareCreated.
+  ///
+  /// In en, this message translates to:
+  /// **'Folder link copied'**
+  String get cloudFolderShareCreated;
+
+  /// No description provided for @cloudFolderShareEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'This folder has no downloaded files to share yet'**
+  String get cloudFolderShareEmpty;
+
+  /// No description provided for @cloudFolderShareFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not create the folder link'**
+  String get cloudFolderShareFailed;
+
+  /// No description provided for @cloudFolderShareExisting.
+  ///
+  /// In en, this message translates to:
+  /// **'Folder link'**
+  String get cloudFolderShareExisting;
+
+  /// No description provided for @cloudFolderShareRevoke.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke link'**
+  String get cloudFolderShareRevoke;
+
+  /// No description provided for @cloudFolderShareRevoked.
+  ///
+  /// In en, this message translates to:
+  /// **'Folder link revoked'**
+  String get cloudFolderShareRevoked;
+
+  /// No description provided for @cloudFolderShareRefresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Update shared contents'**
+  String get cloudFolderShareRefresh;
+
+  /// No description provided for @cloudFolderShareRefreshed.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared folder updated'**
+  String get cloudFolderShareRefreshed;
+
+  /// No description provided for @cloudFolderOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open folder link'**
+  String get cloudFolderOpen;
+
+  /// No description provided for @cloudFolderOpenHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste an xveil://cloud folder link'**
+  String get cloudFolderOpenHint;
+
+  /// No description provided for @cloudFolderOpenTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared folder'**
+  String get cloudFolderOpenTitle;
+
+  /// No description provided for @cloudFolderOpenFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open the folder link'**
+  String get cloudFolderOpenFailed;
+
+  /// No description provided for @cloudFolderFileDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'Download'**
+  String get cloudFolderFileDownload;
+
+  /// No description provided for @cloudFolderFileDownloaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved to your cloud'**
+  String get cloudFolderFileDownloaded;
+
+  /// No description provided for @cloudFolderFileFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not download the file'**
+  String get cloudFolderFileFailed;
+
   /// No description provided for @cloudFolderEmpty.
   ///
   /// In en, this message translates to:
