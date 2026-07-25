@@ -4906,6 +4906,9 @@ class AppL10nRu extends AppL10n {
   String get cloudKindCalendar => 'Календарь';
 
   @override
+  String get cloudKindFiles => 'Общая папка';
+
+  @override
   String get cloudTasksTitle => 'Общие задачи';
 
   @override

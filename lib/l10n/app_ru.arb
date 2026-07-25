@@ -1545,6 +1545,7 @@
   "cloudKindNote": "Заметка",
   "cloudKindTasks": "Список задач",
   "cloudKindCalendar": "Календарь",
+  "cloudKindFiles": "Общая папка",
   "cloudTasksTitle": "Общие задачи",
   "cloudCalendarTitle": "Общий календарь",
   "cloudCollectionCollaborative": "Совместная коллекция с шифрованием",

@@ -8,7 +8,14 @@ import '../core/ids.dart';
 enum CloudDocumentKind {
   note,
   taskList,
-  calendar;
+  calendar,
+
+  /// A shared folder: a live collection of file references (name + content id
+  /// + size + mime + path) replicated to the member circle by the same
+  /// epoch-encrypted operation log. The actual file bytes travel a separate
+  /// member-authorized content path, so revoke (which rotates the epoch)
+  /// instantly cuts a removed member off from future byte pulls.
+  fileCollection;
 
   static CloudDocumentKind? fromName(String? value) {
     for (final kind in values) {

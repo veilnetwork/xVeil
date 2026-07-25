@@ -8772,6 +8772,12 @@ abstract class AppL10n {
   /// **'Calendar'**
   String get cloudKindCalendar;
 
+  /// No description provided for @cloudKindFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared folder'**
+  String get cloudKindFiles;
+
   /// No description provided for @cloudTasksTitle.
   ///
   /// In en, this message translates to:

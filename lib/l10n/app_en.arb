@@ -1546,6 +1546,7 @@
   "cloudKindNote": "Note",
   "cloudKindTasks": "Task list",
   "cloudKindCalendar": "Calendar",
+  "cloudKindFiles": "Shared folder",
   "cloudTasksTitle": "Shared tasks",
   "cloudCalendarTitle": "Shared calendar",
   "cloudCollectionCollaborative": "Encrypted collaborative collection",

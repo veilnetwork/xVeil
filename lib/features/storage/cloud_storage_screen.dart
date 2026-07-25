@@ -538,6 +538,7 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
         CloudDocumentKind.note => cloudRichTextCodecV1,
         CloudDocumentKind.taskList => cloudTaskListCodecV1,
         CloudDocumentKind.calendar => cloudCalendarCodecV1,
+        CloudDocumentKind.fileCollection => cloudFileCollectionCodecV1,
       };
       final created = await documents.createDocument(kind: kind, codec: codec);
       if (created != null) {
@@ -1391,13 +1392,51 @@ String _documentKindLabel(AppL10n l, CloudDocumentKind kind) => switch (kind) {
   CloudDocumentKind.note => l.cloudKindNote,
   CloudDocumentKind.taskList => l.cloudKindTasks,
   CloudDocumentKind.calendar => l.cloudKindCalendar,
+  CloudDocumentKind.fileCollection => l.cloudKindFiles,
 };
 
 IconData _documentKindIcon(CloudDocumentKind kind) => switch (kind) {
   CloudDocumentKind.note => Icons.description_outlined,
   CloudDocumentKind.taskList => Icons.task_alt_outlined,
   CloudDocumentKind.calendar => Icons.calendar_month_outlined,
+  CloudDocumentKind.fileCollection => Icons.folder_shared_outlined,
 };
+
+/// Interim shared-folder screen: the file browser is a later brick, but the
+/// ACL sheet is reachable so an adopted folder stays manageable.
+class _SharedFolderPlaceholder extends StatelessWidget {
+  const _SharedFolderPlaceholder({
+    required this.onClose,
+    required this.onManage,
+  });
+
+  final VoidCallback onClose;
+  final VoidCallback onManage;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return Scaffold(
+      appBar: AppBar(
+        leading: BackButton(onPressed: onClose),
+        title: Text(l.cloudKindFiles),
+        actions: [
+          IconButton(
+            tooltip: l.cloudRichManage,
+            onPressed: onManage,
+            icon: const Icon(Icons.group_outlined),
+          ),
+        ],
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Text(l.cloudKindFiles, textAlign: TextAlign.center),
+        ),
+      ),
+    );
+  }
+}
 
 class _SharedDocumentSection extends StatefulWidget {
   const _SharedDocumentSection({required this.service, required this.cloud});
@@ -1458,6 +1497,12 @@ class _SharedDocumentSectionState extends State<_SharedDocumentSection> {
             CloudDocumentKind.calendar => CloudCollectionEditor(
               service: widget.service,
               documentId: document.root.documentId.hex,
+              onClose: close,
+              onManage: openManage,
+            ),
+            // The shared-folder browser is a later brick; the ACL sheet is
+            // reachable here so an adopted folder is still manageable.
+            CloudDocumentKind.fileCollection => _SharedFolderPlaceholder(
               onClose: close,
               onManage: openManage,
             ),
