@@ -107,21 +107,19 @@ dependencies:
   # Opening http(s) links from message text — ONLY ever behind an explicit
   # tap → confirm dialog (never auto-open), so the user consciously hands the
   # URL to the system browser. Privacy: opening leaks the URL to the browser +
-  # destination, hence the deliberate consent step. The android impl is PINNED
-  # below 6.3.16 on purpose: newer url_launcher_android pulls androidx.core 1.17
-  # / androidx.browser 1.9 which demand AGP 8.9.1+, but we're pinned to AGP
-  # 8.7.3 (see memory mobile-builds). This older impl keeps androidx ≤ what
-  # 8.7.3 allows. Revisit the pin if/when the AGP pin moves.
-  # In-chat video playback (media epic). Latest floats: probed 2026-07-10 —
-  # media3 1.9.2 needs only compileSdk 35 (minAGP 1.0), so the AGP 8.7.3 pin
-  # holds WITHOUT a platform-package pin (unlike url_launcher_android).
-  # The official plugin still omits Linux; media_kit/libmpv is rejected for
-  # good (LGPL + codec stack). Linux plays video attachments through the
-  # native veil_media bricks instead (WebM demuxed in Dart, VP8 via the
-  # windowed VNOTE1 player, Opus via the voice player — NativeVideoPlayer).
+  # destination, hence the deliberate consent step.
+  # The android impl USED to be pinned below 6.3.16, because newer versions pull
+  # androidx.core 1.17 / androidx.browser 1.9 which demand AGP 8.9.1+ and the
+  # project sat on AGP 8.7.3. That pin said to revisit it once the AGP pin
+  # moved — it has: the project builds on AGP 9.0.1 / Gradle 9.1.0, so the
+  # androidx floor is met and the impl floats with url_launcher again.
+  # In-chat video playback (media epic). The official plugin still omits Linux;
+  # media_kit/libmpv is rejected for good (LGPL + codec stack). Linux plays
+  # video attachments through the native veil_media bricks instead (WebM
+  # demuxed in Dart, VP8 via the windowed VNOTE1 player, Opus via the voice
+  # player — NativeVideoPlayer).
   video_player: ^2.11.0
   url_launcher: ^6.3.0
-  url_launcher_android: 6.3.14
   # Non-call capture (attachments/video notes) still uses the plugin. Calls use
   # the app-owned native Camera2 path so preview and send capture never cross
   # Flutter's platform channel frame-by-frame.
