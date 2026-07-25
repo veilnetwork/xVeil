@@ -14214,6 +14214,43 @@ class GroupService {
     return accepted;
   }
 
+  /// Roots retired by an absorbing tombstone. A valid signed `delete` retires
+  /// its target root permanently, even when the delete row lands at a `seq`
+  /// that fork-quarantine ([_canonicalPostRows]) later drops from the canonical
+  /// chain. Without this, a second distinct row at the tombstone's seq — a
+  /// hostile equivocation, or two devices under one identity writing
+  /// concurrently while partitioned — would quarantine the whole suffix and
+  /// resurrect a deleted publication, re-granting its media. Deletion is a
+  /// one-way, branch-independent fact, so it must not be chosen by the same
+  /// fork lottery that (correctly) governs publish/edit content authority.
+  /// Mirrors the sticky-delete semantics already applied to post comments.
+  Set<int> _absorbingDeletedRoots(
+    NodeId spaceId,
+    Iterable<SpacePost> input,
+    NodeId author,
+    String generationHash,
+  ) {
+    final publishedSeqs = <int>{};
+    final deleteTargets = <int>{};
+    for (final post in input) {
+      if (post.author != author ||
+          _postGeneration(post) != generationHash ||
+          !_validPostFor(spaceId, post)) {
+        continue;
+      }
+      switch (post.operation) {
+        case SpacePostOperation.publish:
+          publishedSeqs.add(post.seq);
+        case SpacePostOperation.delete:
+          final target = post.targetSeq;
+          if (target != null && post.seq > target) deleteTargets.add(target);
+        case SpacePostOperation.edit:
+          break;
+      }
+    }
+    return deleteTargets.intersection(publishedSeqs);
+  }
+
   /// Validate only the immutable mutation topology. Content/ACL/AEAD checks
   /// happen elsewhere; this gate prevents a writer from extending a signed but
   /// nonsensical suffix (edit-of-edit, missing root, or resurrection).
@@ -14559,6 +14596,12 @@ class GroupService {
       }
       final roots = <int, SpacePostView>{};
       final deletedRoots = <int>{};
+      final absorbedDeleted = _absorbingDeletedRoots(
+        spaceId,
+        bundle.posts,
+        chainKey.author,
+        chainKey.generation,
+      );
       for (final post in acceptedAuthorChain) {
         if (!_postWithinLifecycleBoundary(state, post)) break;
         final authorized = post.isCausal
@@ -14625,6 +14668,7 @@ class GroupService {
               atMs: readAt,
             );
         if (deletedRoots.contains(entry.key) ||
+            absorbedDeleted.contains(entry.key) ||
             state.isModeratedContentRemoved(
               kind: SpaceModerationReferenceKind.spacePost,
               author: view.root.author,
