@@ -3606,6 +3606,72 @@ abstract class AppL10n {
   /// **'Could not download the file'**
   String get cloudSharedFetchFailed;
 
+  /// No description provided for @cloudPublicDirPublish.
+  ///
+  /// In en, this message translates to:
+  /// **'Publish under my nickname'**
+  String get cloudPublicDirPublish;
+
+  /// No description provided for @cloudPublicDirWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Anyone who knows your nickname will see this folder and that it belongs to you. This is public and tied to your identity — unlike a one-off share link. New files you add to the folder become visible too.'**
+  String get cloudPublicDirWarning;
+
+  /// No description provided for @cloudPublicDirConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Publish publicly'**
+  String get cloudPublicDirConfirm;
+
+  /// No description provided for @cloudPublicDirPublished.
+  ///
+  /// In en, this message translates to:
+  /// **'Folder published under your nickname'**
+  String get cloudPublicDirPublished;
+
+  /// No description provided for @cloudPublicDirFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not publish the directory'**
+  String get cloudPublicDirFailed;
+
+  /// No description provided for @cloudPublicDirOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open a public directory'**
+  String get cloudPublicDirOpen;
+
+  /// No description provided for @cloudPublicDirNicknameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'nickname'**
+  String get cloudPublicDirNicknameHint;
+
+  /// No description provided for @cloudPublicDirResolve.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get cloudPublicDirResolve;
+
+  /// No description provided for @cloudPublicDirNotFound.
+  ///
+  /// In en, this message translates to:
+  /// **'No public directory for that nickname'**
+  String get cloudPublicDirNotFound;
+
+  /// No description provided for @cloudPublicDirUnpublish.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop publishing'**
+  String get cloudPublicDirUnpublish;
+
+  /// No description provided for @cloudPublicDirUnpublished.
+  ///
+  /// In en, this message translates to:
+  /// **'Directory unpublished'**
+  String get cloudPublicDirUnpublished;
+
   /// No description provided for @cloudNewFolder.
   ///
   /// In en, this message translates to:

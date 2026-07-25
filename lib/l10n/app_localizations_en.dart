@@ -2014,6 +2014,40 @@ class AppL10nEn extends AppL10n {
   String get cloudSharedFetchFailed => 'Could not download the file';
 
   @override
+  String get cloudPublicDirPublish => 'Publish under my nickname';
+
+  @override
+  String get cloudPublicDirWarning =>
+      'Anyone who knows your nickname will see this folder and that it belongs to you. This is public and tied to your identity — unlike a one-off share link. New files you add to the folder become visible too.';
+
+  @override
+  String get cloudPublicDirConfirm => 'Publish publicly';
+
+  @override
+  String get cloudPublicDirPublished => 'Folder published under your nickname';
+
+  @override
+  String get cloudPublicDirFailed => 'Could not publish the directory';
+
+  @override
+  String get cloudPublicDirOpen => 'Open a public directory';
+
+  @override
+  String get cloudPublicDirNicknameHint => 'nickname';
+
+  @override
+  String get cloudPublicDirResolve => 'Open';
+
+  @override
+  String get cloudPublicDirNotFound => 'No public directory for that nickname';
+
+  @override
+  String get cloudPublicDirUnpublish => 'Stop publishing';
+
+  @override
+  String get cloudPublicDirUnpublished => 'Directory unpublished';
+
+  @override
   String get cloudNewFolder => 'New folder';
 
   @override
