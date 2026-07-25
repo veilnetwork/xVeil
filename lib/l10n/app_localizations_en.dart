@@ -1999,6 +1999,21 @@ class AppL10nEn extends AppL10n {
       'The item will disappear from every linked device. This cannot be undone.';
 
   @override
+  String get cloudSharedEmpty => 'No files in this shared folder yet';
+
+  @override
+  String get cloudSharedAddFile => 'Add a file from your cloud';
+
+  @override
+  String get cloudSharedAddEmpty => 'No local cloud files available to share';
+
+  @override
+  String get cloudSharedFetch => 'Download';
+
+  @override
+  String get cloudSharedFetchFailed => 'Could not download the file';
+
+  @override
   String get cloudNewFolder => 'New folder';
 
   @override

@@ -16,6 +16,9 @@ const int _maxPayloadBytes = 1024 * 1024;
 const int _maxTitleBytes = 512;
 const int _maxNotesBytes = 8192;
 const int _maxLocationBytes = 1024;
+// A ContentManifest JSON row: 32 B/piece hash, ~4096 pieces max ≈ 300 KiB of
+// hex + framing. Generous but bounded so one row cannot balloon the log.
+const int _maxManifestBytes = 384 * 1024;
 final RegExp _entityIdPattern = RegExp(r'^[0-9a-f]{64}$');
 
 String? cloudCollectionCodec(CloudDocumentKind kind) => switch (kind) {
@@ -282,6 +285,7 @@ class CloudFileEntry {
     required this.size,
     this.mime,
     this.path = '',
+    this.manifest,
   });
 
   final String id;
@@ -291,12 +295,18 @@ class CloudFileEntry {
   final String? mime;
   final String path;
 
+  /// Inline ContentManifest JSON. A member fetching bytes over the member
+  /// content path has no local `mf:<cid>` record, so the piece hashes must
+  /// travel with the metadata row for the download to be verifiable.
+  final String? manifest;
+
   Map<String, Object?> toFields() => {
     'name': name,
     'cid': contentId,
     'size': size,
     if (mime != null) 'mime': mime,
     'path': path,
+    if (manifest != null) 'manifest': manifest,
   };
 
   CloudCollectionRow toRow() => CloudCollectionRow(id: id, fields: toFields());
@@ -315,6 +325,7 @@ class CloudFileEntry {
       size: fields['size']! as int,
       mime: fields['mime'] as String?,
       path: (fields['path'] as String?) ?? '',
+      manifest: fields['manifest'] as String?,
     );
   }
 }
@@ -591,7 +602,14 @@ Map<String, Object?>? _parseFields(
       'allDay',
       'location',
     },
-    CloudDocumentKind.fileCollection => {'name', 'cid', 'size', 'mime', 'path'},
+    CloudDocumentKind.fileCollection => {
+      'name',
+      'cid',
+      'size',
+      'mime',
+      'path',
+      'manifest',
+    },
     CloudDocumentKind.note => const <String>{},
   };
   // task/calendar require every allowed field; fileCollection has optional
@@ -654,6 +672,13 @@ Map<String, Object?>? _parseFields(
       if (mime != null && !_boundedString(mime, 255)) return null;
       final path = fields['path'];
       if (path != null && !_boundedString(path, _maxLocationBytes)) return null;
+      // Inline manifest JSON: bounded only. Structural validity (JSON shape,
+      // cid/size agreement with this row) is enforced at use time by the
+      // member content coordinator, not per CRDT fold.
+      final manifest = fields['manifest'];
+      if (manifest != null && !_boundedString(manifest, _maxManifestBytes)) {
+        return null;
+      }
       break;
     case CloudDocumentKind.note:
       return null;

@@ -1,11 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
+import 'package:xveil/domain/cloud_capability.dart';
 import 'package:xveil/domain/cloud_collection_crdt.dart';
+import 'package:xveil/domain/content_manifest.dart';
+import 'package:xveil/state/cloud_capability_service.dart'
+    show CloudCapabilityEndpointPort, CloudCapabilityNetworkPort;
 import 'package:xveil/domain/cloud_document.dart';
 import 'package:xveil/domain/cloud_document_replication.dart';
 import 'package:xveil/domain/cloud_document_payload.dart';
@@ -1770,4 +1776,347 @@ void main() {
       );
     },
   );
+
+  test(
+    'shared folder member content: host/download/servable/instant revoke',
+    () async {
+      final owner = _id(1);
+      final editor = _id(2);
+      final envelopes = CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      );
+      final ownerStore = await _openStore(FakeHvContainer());
+      final editorStore = await _openStore(FakeHvContainer());
+      final sent = <({NodeId peer, String documentId, String json})>[];
+      final net = _MemberNet();
+      final ownerFiles = _MemberStorage();
+      final editorFiles = _MemberStorage();
+      CloudDocumentReplicationService build({
+        required NodeId self,
+        required CloudDocumentStore store,
+        required _MemberStorage files,
+        required int slot,
+        required CloudDocumentSigner signer,
+        CloudDocumentAcceptedContact? acceptedContact,
+        required int seed,
+      }) => CloudDocumentReplicationService(
+        localNodeId: self,
+        ourCertVersion: 0,
+        store: store,
+        envelopes: envelopes,
+        sendFrame: (peer, documentId, json) async {
+          sent.add((peer: peer, documentId: documentId, json: json));
+        },
+        signer: signer,
+        acceptedContact: acceptedContact,
+        random: Random(seed),
+        verifyRoot: (_) => true,
+        verifyControl: (_) => true,
+        verifyOperation: (_) => true,
+        verifyQuiescenceAck: (_) => true,
+        now: () => DateTime.fromMillisecondsSinceEpoch(9000),
+        memberContentNetwork: net,
+        memberContentStorage: files,
+        memberProviderSlot: () async => slot,
+        memberFetchTimeout: const Duration(milliseconds: 400),
+      );
+
+      final ownerService = build(
+        self: owner,
+        store: ownerStore,
+        files: ownerFiles,
+        slot: 0,
+        signer: _Signer(owner, 1),
+        acceptedContact: (peer) async => peer == editor,
+        seed: 511,
+      );
+      final editorService = build(
+        self: editor,
+        store: editorStore,
+        files: editorFiles,
+        slot: 1,
+        signer: _Signer(editor, 2),
+        seed: 512,
+      );
+
+      // Owner shares a real file: bytes + inline manifest.
+      final documentId = (await ownerService.createDocument(
+        kind: CloudDocumentKind.fileCollection,
+        codec: cloudFileCollectionCodecV1,
+      ))!.documentId;
+      final bytes = Uint8List.fromList([
+        for (var i = 0; i < 1500; i++) (i * 7) & 0xff,
+      ]);
+      final manifest = await ContentManifest.fromReader(
+        name: 'shared.bin',
+        size: bytes.length,
+        readRange: (offset, length) async =>
+            Uint8List.sublistView(bytes, offset, offset + length),
+        pieceSize: 1024,
+      );
+      ownerFiles.files[manifest.contentId] = bytes;
+      expect(
+        await ownerService.addSharedFolderFile(
+          documentId,
+          name: 'shared.bin',
+          contentId: manifest.contentId,
+          size: bytes.length,
+          mime: 'application/octet-stream',
+          manifest: jsonEncode(manifest.toJson()),
+        ),
+        isNotNull,
+      );
+
+      // The owner hosts the folder under the epoch-derived identity.
+      await ownerService.reconcileMemberHosting();
+      var diag = ownerService.memberHostDiagnostics();
+      expect(diag.keys, [documentId]);
+      expect(diag[documentId]!.servable, [manifest.contentId]);
+      final epochBeforeGrant = diag[documentId]!.epoch;
+
+      // Grant the editor; adoption gives them metadata + the new epoch key.
+      sent.clear();
+      expect(
+        await ownerService.grant(documentId, editor, CloudDocumentRole.editor),
+        isNotNull,
+      );
+      final invite = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(await editorService.ingest(owner, invite.encode()), isTrue);
+      expect(await editorService.adopt(documentId), isTrue);
+      final entry = (await editorService.loadSharedFolder(
+        documentId,
+      ))!.single;
+      expect(entry.manifest, isNotNull);
+      expect(
+        await editorService.isSharedFileLocal(manifest.contentId),
+        isFalse,
+      );
+
+      // The grant rotated the epoch — the owner re-keys to the new address.
+      await ownerService.reconcileMemberHosting();
+      diag = ownerService.memberHostDiagnostics();
+      expect(diag[documentId]!.epoch, greaterThan(epochBeforeGrant));
+
+      // Member download over the member content path, verified end-to-end.
+      final fetched = await editorService.downloadSharedFolderFile(
+        documentId,
+        entry.id,
+      );
+      expect(fetched, isNotNull);
+      expect(editorFiles.files[manifest.contentId], bytes);
+      expect(editorFiles.files.containsKey('mf:${manifest.contentId}'), isTrue);
+      expect(
+        await editorService.isSharedFileLocal(manifest.contentId),
+        isTrue,
+      );
+
+      // The editor now holds bytes → it becomes a provider too (slot 1).
+      await editorService.reconcileMemberHosting();
+      expect(
+        editorService.memberHostDiagnostics()[documentId]!.servable,
+        [manifest.contentId],
+      );
+
+      // Removing the row empties the servable set and tears the host down.
+      final removed = await ownerService.removeSharedFolderFile(
+        documentId,
+        entry.id,
+      );
+      expect(removed, isNotNull);
+      await ownerService.reconcileMemberHosting();
+      expect(ownerService.memberHostDiagnostics(), isEmpty);
+
+      // Re-add and re-host for the revoke stage.
+      expect(
+        await ownerService.addSharedFolderFile(
+          documentId,
+          name: 'shared.bin',
+          contentId: manifest.contentId,
+          size: bytes.length,
+          manifest: jsonEncode(manifest.toJson()),
+        ),
+        isNotNull,
+      );
+      await ownerService.reconcileMemberHosting();
+      expect(
+        ownerService.memberHostDiagnostics()[documentId]!.servable,
+        [manifest.contentId],
+      );
+
+      // INSTANT REVOKE: the epoch rotates, the owner re-keys, and the
+      // revoked editor — still holding only the old epoch key — can neither
+      // derive the new address nor a valid subkey. Its fetch fails.
+      editorFiles.files.clear();
+      expect(await ownerService.revoke(documentId, editor), isNotNull);
+      // The old-key host dies synchronously WITH the revoke mutation itself —
+      // no debounce window in which the revoked member can still pull bytes.
+      expect(ownerService.memberHostDiagnostics(), isEmpty);
+      await ownerService.reconcileMemberHosting();
+      final refetch = await editorService.downloadSharedFolderFile(
+        documentId,
+        entry.id,
+      );
+      expect(refetch, isNull);
+      expect(editorFiles.files, isEmpty);
+
+      // Restart: a fresh service over the same store re-hosts on reconcile.
+      await ownerService.close();
+      final restarted = build(
+        self: owner,
+        store: ownerStore,
+        files: ownerFiles,
+        slot: 0,
+        signer: _Signer(owner, 1),
+        seed: 513,
+      );
+      await restarted.reconcileMemberHosting();
+      expect(
+        restarted.memberHostDiagnostics()[documentId]!.servable,
+        [manifest.contentId],
+      );
+      await restarted.close();
+      await editorService.close();
+    },
+  );
+}
+
+/// In-memory member folder file store.
+class _MemberStorage implements CloudMemberFolderStoragePort {
+  final files = <String, Uint8List>{};
+
+  @override
+  Future<Uint8List?> readFileRange(
+    String contentId,
+    int offset,
+    int length,
+  ) async {
+    final bytes = files[contentId];
+    if (bytes == null || offset < 0 || offset + length > bytes.length) {
+      return null;
+    }
+    return Uint8List.sublistView(bytes, offset, offset + length);
+  }
+
+  @override
+  Future<bool> hasFile(String contentId) async => files.containsKey(contentId);
+
+  @override
+  Future<void> storeFile(
+    String contentId,
+    Uint8List bytes, {
+    String? name,
+  }) async {
+    files[contentId] = Uint8List.fromList(bytes);
+  }
+}
+
+/// Shared in-process anonymous network: endpoints registered by any service
+/// are routable from any other, keyed by (servicePublicKey, appId, endpoint).
+/// Service keys use the REAL ed25519-from-seed derivation so the coordinator's
+/// fail-closed identity check and the client's independent derivation agree.
+class _MemberNet implements CloudCapabilityNetworkPort {
+  final endpoints = <_MemberNetEndpoint>[];
+
+  static Uint8List _appIdFor(String alias) => Uint8List.fromList(
+    sha256.convert(utf8.encode('cap-app:$alias')).bytes,
+  );
+
+  @override
+  Future<CloudCapabilityEndpointPort> host({
+    required Uint8List identitySeed,
+    required String alias,
+    required int endpointId,
+    required int providerSlot,
+    bool transient = false,
+  }) async {
+    final seed = Uint8List.fromList(identitySeed);
+    identitySeed.fillRange(0, identitySeed.length, 0);
+    final serviceKey = await CloudCapabilityCodec.onionServicePublicKeyFromSeed(
+      seed,
+    );
+    final endpoint = _MemberNetEndpoint(
+      serviceKey,
+      _appIdFor(alias),
+      endpointId,
+      this,
+    );
+    endpoints.add(endpoint);
+    return endpoint;
+  }
+
+  @override
+  Future<Uint8List> capabilityAppId({
+    required String alias,
+    required int endpointId,
+  }) async => _appIdFor(alias);
+
+  Future<void> route({
+    required Uint8List servicePublicKey,
+    required Uint8List targetAppId,
+    required int targetEndpointId,
+    required Uint8List data,
+  }) async {
+    bool same(List<int> a, List<int> b) {
+      if (a.length != b.length) return false;
+      for (var i = 0; i < a.length; i++) {
+        if (a[i] != b[i]) return false;
+      }
+      return true;
+    }
+
+    for (final endpoint in endpoints) {
+      if (!endpoint.closed &&
+          same(endpoint.servicePublicKey, servicePublicKey) &&
+          same(endpoint.appId, targetAppId) &&
+          endpoint.endpointId == targetEndpointId) {
+        scheduleMicrotask(() {
+          if (!endpoint.closed) {
+            endpoint.controller.add(Uint8List.fromList(data));
+          }
+        });
+        return;
+      }
+    }
+  }
+}
+
+class _MemberNetEndpoint implements CloudCapabilityEndpointPort {
+  _MemberNetEndpoint(
+    this.servicePublicKey,
+    this.appId,
+    this.endpointId,
+    this._net,
+  );
+
+  @override
+  final Uint8List servicePublicKey;
+  @override
+  final Uint8List appId;
+  @override
+  final int endpointId;
+  final _MemberNet _net;
+  final controller = StreamController<Uint8List>.broadcast();
+  bool closed = false;
+
+  @override
+  Stream<Uint8List> get messages => controller.stream;
+
+  @override
+  Future<void> sendAnonymous({
+    required Uint8List servicePublicKey,
+    required Uint8List targetAppId,
+    required int targetEndpointId,
+    required Uint8List data,
+  }) => _net.route(
+    servicePublicKey: servicePublicKey,
+    targetAppId: targetAppId,
+    targetEndpointId: targetEndpointId,
+    data: data,
+  );
+
+  @override
+  Future<void> close() async {
+    closed = true;
+    await controller.close();
+  }
 }

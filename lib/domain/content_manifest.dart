@@ -354,9 +354,10 @@ class ContentManifest {
       final ps = j['ps'] as int;
       // chunkBytes is a transport hint (not in contentId); tolerate an older
       // sender that omits it by falling back to the default. Reject a nonsense
-      // value so chunk indexing can't divide by zero.
+      // value so chunk indexing can't divide by zero — and the same for
+      // pieceSize/size, which drive offset math and allocations downstream.
       final cb = (j['cb'] as int?) ?? defaultChunkBytes;
-      if (cb <= 0) return null;
+      if (cb <= 0 || ps <= 0 || size < 0) return null;
       final blob = _unhex(j['ph'] as String);
       if (blob.length % 32 != 0) return null;
       final hashes = <Uint8List>[

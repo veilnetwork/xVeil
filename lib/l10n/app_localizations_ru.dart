@@ -2023,6 +2023,22 @@ class AppL10nRu extends AppL10n {
       'Элемент исчезнет со всех связанных устройств. Это действие нельзя отменить.';
 
   @override
+  String get cloudSharedEmpty => 'В общей папке пока нет файлов';
+
+  @override
+  String get cloudSharedAddFile => 'Добавить файл из облака';
+
+  @override
+  String get cloudSharedAddEmpty =>
+      'Нет локальных файлов облака для добавления';
+
+  @override
+  String get cloudSharedFetch => 'Скачать';
+
+  @override
+  String get cloudSharedFetchFailed => 'Не удалось скачать файл';
+
+  @override
   String get cloudNewFolder => 'Новая папка';
 
   @override

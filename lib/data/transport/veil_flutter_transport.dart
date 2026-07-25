@@ -339,6 +339,31 @@ class VeilFlutterTransport
     }
   }
 
+  /// Derive the capability appId for [name] without hosting anything: a
+  /// short-lived IPC client binds the endpoint, reads the natively-derived
+  /// appId (node-independent for capability binds) and closes, which releases
+  /// the binding server-side. A member content client uses this to compute
+  /// the HOST's appId from the shared secret alias without registering the
+  /// onion identity — registering would make this node a bogus provider.
+  Future<Uint8List> capabilityAppId({
+    required String name,
+    required int endpointId,
+  }) async {
+    final client = await VeilClient.connect(_socketPath);
+    try {
+      final app = await client.bindCapability(
+        namespace: 'xveil-cloud-capability',
+        name: name,
+        endpointId: endpointId,
+      );
+      final appId = Uint8List.fromList(app.appId);
+      await app.close();
+      return appId;
+    } finally {
+      await client.close();
+    }
+  }
+
   /// One public download gets a short-lived IPC client. Closing that client
   /// releases its return endpoint server-side; AppHandle.close alone does not
   /// APP_UNBIND, so a shared client would eventually exhaust endpoint ids.
