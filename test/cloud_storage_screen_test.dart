@@ -1,18 +1,22 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/cloud.dart';
+import 'package:xveil/domain/cloud_capability.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/cloud_collection_crdt.dart';
 import 'package:xveil/domain/cloud_document.dart';
 import 'package:xveil/domain/cloud_document_replication.dart';
 import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/domain/device_sync.dart';
+import 'package:xveil/state/cloud_capability_service.dart';
 import 'package:xveil/features/storage/cloud_storage_screen.dart';
 import 'package:xveil/features/storage/cloud_collection_editor.dart';
 import 'package:xveil/features/storage/cloud_shared_document_editor.dart';
@@ -71,6 +75,93 @@ class _Sync implements CloudSyncPort {
     rows.add((event: item.toEvent(), author: author));
     _changes.add(null);
   }
+}
+
+/// Compact in-memory capability network routing datagrams between endpoints
+/// by (servicePublicKey, appId, endpointId) — mirrors the service test fake.
+class _CapEndpoint implements CloudCapabilityEndpointPort {
+  _CapEndpoint(this.servicePublicKey, this.appId, this.endpointId, this._net);
+  @override
+  final Uint8List servicePublicKey;
+  @override
+  final Uint8List appId;
+  @override
+  final int endpointId;
+  final _CapNetwork _net;
+  final controller = StreamController<Uint8List>.broadcast();
+  bool closed = false;
+  @override
+  Stream<Uint8List> get messages => controller.stream;
+  @override
+  Future<void> sendAnonymous({
+    required Uint8List servicePublicKey,
+    required Uint8List targetAppId,
+    required int targetEndpointId,
+    required Uint8List data,
+  }) async {
+    for (final endpoint in _net.endpoints) {
+      if (!endpoint.closed &&
+          _bytesEqual(endpoint.servicePublicKey, servicePublicKey) &&
+          _bytesEqual(endpoint.appId, targetAppId) &&
+          endpoint.endpointId == targetEndpointId) {
+        scheduleMicrotask(
+          () => endpoint.controller.add(Uint8List.fromList(data)),
+        );
+      }
+    }
+  }
+
+  @override
+  Future<void> close() async {
+    if (closed) return;
+    closed = true;
+    await controller.close();
+  }
+}
+
+class _CapNetwork implements CloudCapabilityNetworkPort {
+  final endpoints = <_CapEndpoint>[];
+  @override
+  Future<CloudCapabilityEndpointPort> host({
+    required Uint8List identitySeed,
+    required String alias,
+    required int endpointId,
+    required int providerSlot,
+    bool transient = false,
+  }) async {
+    final serviceKey = Uint8List.fromList(
+      crypto.sha256.convert(identitySeed).bytes,
+    );
+    final appId = Uint8List.fromList(
+      crypto.sha256.convert(utf8.encode(alias)).bytes,
+    );
+    identitySeed.fillRange(0, identitySeed.length, 0);
+    final endpoint = _CapEndpoint(serviceKey, appId, endpointId, this);
+    endpoints.add(endpoint);
+    return endpoint;
+  }
+}
+
+class _CapRandom implements Random {
+  _CapRandom(this.value);
+  int value;
+  @override
+  bool nextBool() => nextInt(2) == 1;
+  @override
+  double nextDouble() => nextInt(1 << 24) / (1 << 24);
+  @override
+  int nextInt(int max) {
+    value = (value * 1664525 + 1013904223) & 0x7fffffff;
+    return value % max;
+  }
+}
+
+bool _bytesEqual(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 class _DocumentSigner implements CloudDocumentSigner {
@@ -950,6 +1041,101 @@ void main() {
     final parents = service.effectiveFolderParents();
     expect(parents['fb'], isNull);
     expect(parents['fa'], isNull);
+  });
+
+  testWidgets('received folder link screen lists files and downloads one', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final network = _CapNetwork();
+
+    // Owner side: a folder with one downloaded file, hosted as a bearer share.
+    final ownerStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'o', createIfMissing: true);
+    final bytes = Uint8List.fromList(List.generate(600, (i) => (i * 7) & 0xff));
+    final manifest = ContentManifest.fromBytes(
+      'shared.bin',
+      bytes,
+      pieceSize: 256,
+    );
+    await ownerStorage.storeFile(manifest.contentId, bytes);
+    await ownerStorage.storeFile(
+      'mf:${manifest.contentId}',
+      Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+    );
+    final owner = CloudCapabilityService(
+      ownerStorage,
+      network,
+      now: () => DateTime(2030),
+      random: _CapRandom(1),
+      folderClientTimeout: const Duration(milliseconds: 400),
+    );
+    final share = await owner.createFolderShare(
+      folderId: 'shared-folder',
+      folderName: 'Shared',
+      entries: [
+        CloudFolderListingEntry.file(name: 'shared.bin', manifest: manifest),
+      ],
+    );
+
+    // Downloader side: an empty cloud + capability service over the same net.
+    final downloaderStorage = FakeHvContainer().storage();
+    await downloaderStorage.open(password: 'd', createIfMissing: true);
+    final downloaderCloud = CloudService(
+      downloaderStorage,
+      _Sync(),
+      contentReceived: const Stream.empty(),
+      integrityChecks: false,
+    );
+    final downloaderCaps = CloudCapabilityService(
+      downloaderStorage,
+      network,
+      now: () => DateTime(2030),
+      random: _CapRandom(99),
+      folderClientTimeout: const Duration(milliseconds: 400),
+    );
+    addTearDown(() {
+      unawaited(owner.close());
+      unawaited(downloaderCaps.close());
+      unawaited(downloaderCloud.close());
+      unawaited(ownerStorage.close());
+      unawaited(downloaderStorage.close());
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        home: CloudReceivedFolderScreen(
+          capabilities: downloaderCaps,
+          cloud: downloaderCloud,
+          link: share.link,
+        ),
+      ),
+    );
+    // The listing fetch is a real anonymous round-trip over the fake network;
+    // let its microtasks/timers run against the real clock, then render.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pump();
+    expect(find.text('Shared'), findsOneWidget);
+    expect(find.text('shared.bin'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(ValueKey('cloud-folder-file-${manifest.contentId}')),
+    );
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 150)),
+    );
+    await tester.pump();
+    expect(find.byIcon(Icons.cloud_done), findsOneWidget);
+    // The file is now in the downloader's cloud index.
+    final items = await downloaderCloud.listItems();
+    expect(items.single.contentId, manifest.contentId);
+    expect(await downloaderStorage.hasFile(manifest.contentId), isTrue);
   });
 
   testWidgets('personal cloud renders imported file and replication controls', (

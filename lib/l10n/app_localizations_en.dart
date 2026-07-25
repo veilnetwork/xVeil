@@ -2029,6 +2029,55 @@ class AppL10nEn extends AppL10n {
   String get cloudStorageRoot => 'Storage';
 
   @override
+  String get cloudFolderShare => 'Share folder link';
+
+  @override
+  String get cloudFolderShareCreated => 'Folder link copied';
+
+  @override
+  String get cloudFolderShareEmpty =>
+      'This folder has no downloaded files to share yet';
+
+  @override
+  String get cloudFolderShareFailed => 'Could not create the folder link';
+
+  @override
+  String get cloudFolderShareExisting => 'Folder link';
+
+  @override
+  String get cloudFolderShareRevoke => 'Revoke link';
+
+  @override
+  String get cloudFolderShareRevoked => 'Folder link revoked';
+
+  @override
+  String get cloudFolderShareRefresh => 'Update shared contents';
+
+  @override
+  String get cloudFolderShareRefreshed => 'Shared folder updated';
+
+  @override
+  String get cloudFolderOpen => 'Open folder link';
+
+  @override
+  String get cloudFolderOpenHint => 'Paste an xveil://cloud folder link';
+
+  @override
+  String get cloudFolderOpenTitle => 'Shared folder';
+
+  @override
+  String get cloudFolderOpenFailed => 'Could not open the folder link';
+
+  @override
+  String get cloudFolderFileDownload => 'Download';
+
+  @override
+  String get cloudFolderFileDownloaded => 'Saved to your cloud';
+
+  @override
+  String get cloudFolderFileFailed => 'Could not download the file';
+
+  @override
   String get cloudFolderEmpty => 'This folder is empty';
 
   @override

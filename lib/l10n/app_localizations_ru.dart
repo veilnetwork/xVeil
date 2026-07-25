@@ -2053,6 +2053,55 @@ class AppL10nRu extends AppL10n {
   String get cloudStorageRoot => 'Хранилище';
 
   @override
+  String get cloudFolderShare => 'Ссылка на папку';
+
+  @override
+  String get cloudFolderShareCreated => 'Ссылка на папку скопирована';
+
+  @override
+  String get cloudFolderShareEmpty =>
+      'В папке пока нет скачанных файлов для шаринга';
+
+  @override
+  String get cloudFolderShareFailed => 'Не удалось создать ссылку на папку';
+
+  @override
+  String get cloudFolderShareExisting => 'Ссылка на папку';
+
+  @override
+  String get cloudFolderShareRevoke => 'Отозвать ссылку';
+
+  @override
+  String get cloudFolderShareRevoked => 'Ссылка на папку отозвана';
+
+  @override
+  String get cloudFolderShareRefresh => 'Обновить содержимое';
+
+  @override
+  String get cloudFolderShareRefreshed => 'Общая папка обновлена';
+
+  @override
+  String get cloudFolderOpen => 'Открыть ссылку на папку';
+
+  @override
+  String get cloudFolderOpenHint => 'Вставьте ссылку xveil://cloud на папку';
+
+  @override
+  String get cloudFolderOpenTitle => 'Общая папка';
+
+  @override
+  String get cloudFolderOpenFailed => 'Не удалось открыть ссылку на папку';
+
+  @override
+  String get cloudFolderFileDownload => 'Скачать';
+
+  @override
+  String get cloudFolderFileDownloaded => 'Сохранено в облако';
+
+  @override
+  String get cloudFolderFileFailed => 'Не удалось скачать файл';
+
+  @override
   String get cloudFolderEmpty => 'Папка пуста';
 
   @override
