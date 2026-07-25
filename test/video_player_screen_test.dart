@@ -64,7 +64,12 @@ void main() {
   testWidgets('native branch: surface, scrubber and transport controls', (
     tester,
   ) async {
-    final host = await _host(buildStandardWebm(frameCount: 6, keyEvery: 3));
+    // A long container duration: the silent-playback clock is a REAL
+    // Stopwatch, so a 240 ms clip can reach its end before the assertions
+    // run on a slow machine and the pause affordance would already be gone.
+    final host = await _host(
+      buildStandardWebm(frameCount: 6, keyEvery: 3, durationTicks: 60000),
+    );
     await tester.pumpWidget(host);
     await _settle(tester);
 
@@ -72,7 +77,7 @@ void main() {
     expect(find.byType(Slider), findsOneWidget);
     // Autoplaying → the pause affordance is up.
     expect(find.byIcon(Icons.pause), findsOneWidget);
-    expect(find.textContaining('/ 00:00'), findsOneWidget);
+    expect(find.textContaining('/ 01:00'), findsOneWidget);
 
     // Tap the surface: pause.
     await tester.tap(find.byKey(const ValueKey('native-video-surface')));
