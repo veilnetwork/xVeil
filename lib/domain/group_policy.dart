@@ -59,8 +59,10 @@ class GroupState {
     this.recommendationPolicyHistory,
     this.lifecycleState,
     this.lifecycleTransition,
-    this.lifecycleTransitionHash,
-  );
+    this.lifecycleTransitionHash, {
+    this.avatarContentId,
+    this.coverContentId,
+  });
 
   /// nodeId hex -> member.
   final Map<String, GroupMember> members;
@@ -82,6 +84,12 @@ class GroupState {
   /// The current Space summary (genesis manifest description, updated by the
   /// signed control log). Legacy groups use an empty value.
   final String description;
+
+  /// Current Space avatar/cover shared-content ids (genesis manifest values,
+  /// updated by signed `setProfileMedia`). Null means no image; the blobs ride
+  /// the membership-authorized content path like any other Space media.
+  final String? avatarContentId;
+  final String? coverContentId;
 
   /// Signed recipient-envelope root for the current key epoch. Null means the
   /// legacy cleartext epoch or an epoch waiting for an authorized rekey.
@@ -837,6 +845,7 @@ final class SpaceAcl {
     return switch (op) {
       ControlOp.setName ||
       ControlOp.setDescription ||
+      ControlOp.setProfileMedia ||
       ControlOp.publishRules => denied(SpacePermission.manageSettings),
       ControlOp.createChannel ||
       ControlOp.updateChannel => denied(SpacePermission.manageChannels),
@@ -889,6 +898,7 @@ final class SpaceAcl {
     switch (op) {
       case ControlOp.setName:
       case ControlOp.setDescription:
+      case ControlOp.setProfileMedia:
       case ControlOp.publishRules:
         return has(SpacePermission.manageSettings);
       case ControlOp.createChannel:
@@ -953,6 +963,7 @@ final class SpaceAcl {
             targetRole != GroupRole.owner;
       case ControlOp.setName:
       case ControlOp.setDescription:
+      case ControlOp.setProfileMedia:
       case ControlOp.rotateEpoch:
       case ControlOp.createChannel:
       case ControlOp.updateChannel:
@@ -1282,6 +1293,8 @@ GroupFoldResult foldControlLog({
   required bool Function(ControlEntry entry) verify,
   String initialName = '',
   String initialDescription = '',
+  String? initialAvatarContentId,
+  String? initialCoverContentId,
 }) {
   final members = <String, GroupMember>{
     // Genesis owner predates every possible message timestamp, including the
@@ -1298,6 +1311,8 @@ GroupFoldResult foldControlLog({
   final accessPolicyHistory = <SpaceAccessPolicy>[];
   var name = initialName;
   var description = initialDescription;
+  var avatarContentId = initialAvatarContentId;
+  var coverContentId = initialCoverContentId;
   GroupEpochDescriptor? epochDescriptor;
   final channels = <String, SpaceChannel>{};
   final protectedChannels = <String, SpaceChannelControlEnvelope>{};
@@ -1507,7 +1522,9 @@ GroupFoldResult foldControlLog({
       continue;
     }
     final isTextSetting =
-        e.op == ControlOp.setName || e.op == ControlOp.setDescription;
+        e.op == ControlOp.setName ||
+        e.op == ControlOp.setDescription ||
+        e.op == ControlOp.setProfileMedia;
     if (isTextSetting) {
       if (e.text == null ||
           e.target != null ||
@@ -1517,6 +1534,13 @@ GroupFoldResult foldControlLog({
           e.channelControl != null ||
           e.postBoundary != null ||
           e.controlCheckpoint != null) {
+        rejected.add(e);
+        continue;
+      }
+      // The avatar/cover payload is structured: reject a row whose text is
+      // not the strict canonical shape instead of folding garbage.
+      if (e.op == ControlOp.setProfileMedia &&
+          decodeSpaceProfileMedia(e.text!) == null) {
         rejected.add(e);
         continue;
       }
@@ -1979,6 +2003,12 @@ GroupFoldResult foldControlLog({
         name = e.text ?? name;
       case ControlOp.setDescription:
         description = e.text ?? description;
+      case ControlOp.setProfileMedia:
+        final media = decodeSpaceProfileMedia(e.text ?? '');
+        if (media != null) {
+          avatarContentId = media.avatarContentId;
+          coverContentId = media.coverContentId;
+        }
       case ControlOp.publishRules:
         rulesHistory[e.rules!.version] = e.rules!;
       case ControlOp.acceptRules:
@@ -2147,6 +2177,8 @@ GroupFoldResult foldControlLog({
       lifecycleState,
       lifecycleTransition,
       lifecycleTransitionHash,
+      avatarContentId: avatarContentId,
+      coverContentId: coverContentId,
     ),
     rejected,
     List.unmodifiable(accepted),

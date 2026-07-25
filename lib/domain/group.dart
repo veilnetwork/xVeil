@@ -339,6 +339,7 @@ enum ControlOp {
   setPolicy,
   setName, // rename the group (payload in ControlEntry.text)
   setDescription, // update Space description (payload in ControlEntry.text)
+  setProfileMedia, // update Space avatar/cover (canonical JSON in .text)
   publishRules,
   acceptRules,
   moderate,
@@ -362,6 +363,40 @@ enum ControlOp {
     }
     return null;
   }
+}
+
+final RegExp _profileMediaContentId = RegExp(r'^[0-9a-f]{64}$');
+
+/// Canonical `setProfileMedia` payload carried in [ControlEntry.text].
+/// An absent key clears that slot; a present key must be a 64-hex shared
+/// content id served through the membership-authorized content path.
+String encodeSpaceProfileMedia({
+  String? avatarContentId,
+  String? coverContentId,
+}) => jsonEncode({'avatar': ?avatarContentId, 'cover': ?coverContentId});
+
+({String? avatarContentId, String? coverContentId})? decodeSpaceProfileMedia(
+  String text,
+) {
+  if (text.length > 256) return null;
+  Object? decoded;
+  try {
+    decoded = jsonDecode(text);
+  } catch (_) {
+    return null;
+  }
+  if (decoded is! Map) return null;
+  for (final entry in decoded.entries) {
+    if ((entry.key != 'avatar' && entry.key != 'cover') ||
+        entry.value is! String ||
+        !_profileMediaContentId.hasMatch(entry.value as String)) {
+      return null;
+    }
+  }
+  return (
+    avatarContentId: decoded['avatar'] as String?,
+    coverContentId: decoded['cover'] as String?,
+  );
 }
 
 /// Signed terminal of one member's publication chain at the instant their

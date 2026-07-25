@@ -13148,6 +13148,93 @@ void main() {
   );
 
   test(
+    'Space avatar/cover edits are signed, replicated and permission-gated',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      final bobStorage = FakeHvContainer().storage();
+      for (final storage in [ownerStorage, bobStorage]) {
+        await storage.open(password: 'pw', createIfMissing: true);
+      }
+      final ownerSvc = GroupService(ownerStorage, _FakeSigner(owner));
+      final bobSvc = GroupService(bobStorage, _FakeSigner(bob));
+      addTearDown(ownerSvc.dispose);
+      addTearDown(bobSvc.dispose);
+
+      final avatar = 'a' * 64;
+      final cover = 'b' * 64;
+      final spaceId = await ownerSvc.createSpace(
+        'Avatar space',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.setSpaceProfileMedia(
+          spaceId,
+          avatarContentId: avatar,
+          coverContentId: cover,
+        ),
+        isTrue,
+      );
+      final ownerState = (await ownerSvc.stateOf(spaceId))!;
+      expect(ownerState.avatarContentId, avatar);
+      expect(ownerState.coverContentId, cover);
+
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      final bobState = (await bobSvc.stateOf(spaceId))!;
+      expect(
+        bobState.avatarContentId,
+        avatar,
+        reason: 'the signed profile row replicates like any control state',
+      );
+      expect(bobState.coverContentId, cover);
+
+      expect(
+        await bobSvc.setSpaceProfileMedia(
+          spaceId,
+          avatarContentId: 'c' * 64,
+        ),
+        isFalse,
+        reason: 'a plain member cannot re-point the community profile',
+      );
+      expect(
+        await ownerSvc.setSpaceProfileMedia(
+          spaceId,
+          avatarContentId: 'not-a-content-id',
+        ),
+        isFalse,
+      );
+      expect(await ownerSvc.setSpaceProfileMedia(spaceId), isTrue);
+      expect((await ownerSvc.stateOf(spaceId))!.avatarContentId, isNull);
+
+      final seeded = await ownerSvc.createSpace(
+        'Genesis avatar',
+        avatarContentId: avatar,
+      );
+      expect(
+        (await ownerSvc.stateOf(seeded))!.avatarContentId,
+        avatar,
+        reason: 'stateOf seeds the fold from the genesis manifest',
+      );
+    },
+  );
+
+  test(
     'permanentBan cuts the banned device off from every holder and from '
     'rotated epoch material',
     () async {

@@ -654,6 +654,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/space_retention_set':
           await _spaceRetentionSet(req);
           return;
+        case '/space_profile_media':
+          await _spaceProfileMedia(req);
+          return;
         case '/media_open':
           await _mediaOpen(req);
           return;
@@ -5076,6 +5079,64 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'reactionsDeleted': sweep.reactionsDeleted,
         'cutsRecorded': sweep.cutsRecorded,
         'failed': sweep.failed,
+      });
+    } catch (error) {
+      await _json(req, {'ok': false, 'error': '$error'}, status: 500);
+    }
+  }
+
+  /// Stand driver for Space avatar/cover. `?space=&set=avatar|cover` registers
+  /// a tiny synthetic PNG through the real membership-authorized content path
+  /// and re-points the signed profile; `?space=&clear=1` clears both slots;
+  /// with neither it just reports the current folded ids. This exercises the
+  /// same `setSpaceProfileMedia` the UI calls, minus the file picker.
+  Future<void> _spaceProfileMedia(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(groupServiceProvider);
+    final spaceHex = req.uri.queryParameters['space'];
+    if (service == null || spaceHex == null) {
+      return _json(req, {
+        'ok': false,
+        'error': 'space required',
+      }, status: service == null ? 409 : 400);
+    }
+    final NodeId spaceId;
+    try {
+      spaceId = NodeId.fromHex(spaceHex);
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'bad id'}, status: 400);
+    }
+    try {
+      final state = await service.stateOf(spaceId);
+      if (state == null) {
+        return _json(req, {'ok': false, 'error': 'no space'}, status: 404);
+      }
+      var ok = true;
+      if (req.uri.queryParameters['clear'] == '1') {
+        ok = await service.setSpaceProfileMedia(spaceId);
+      } else {
+        final slot = req.uri.queryParameters['set'];
+        if (slot == 'avatar' || slot == 'cover') {
+          // A 1x1 PNG is enough to prove the content path + signed re-point.
+          final png = base64Decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJ'
+            'TYQAAAAASUVORK5CYII=',
+          );
+          final cid = await ref
+              .read(messagingServiceProvider)
+              .registerGroupContent(png, name: '$slot.png');
+          ok = await service.setSpaceProfileMedia(
+            spaceId,
+            avatarContentId: slot == 'avatar' ? cid : state.avatarContentId,
+            coverContentId: slot == 'cover' ? cid : state.coverContentId,
+          );
+        }
+      }
+      final after = await service.stateOf(spaceId);
+      await _json(req, {
+        'ok': ok,
+        'avatar': after?.avatarContentId,
+        'cover': after?.coverContentId,
       });
     } catch (error) {
       await _json(req, {'ok': false, 'error': '$error'}, status: 500);
