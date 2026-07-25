@@ -93,6 +93,49 @@ abstract interface class CloudCapabilityEndpointPort {
   Future<void> close();
 }
 
+/// This device's provider slot within its own device group.
+///
+/// Every device of a sovereign identity derives the SAME hosting seed and
+/// alias (they are a function of the shared secret, not of the device), so the
+/// slot is the only thing that keeps two of them from registering as the same
+/// provider. It is the device's index in the hex-sorted device list, which is
+/// stable and needs no coordination: each device computes its own from the
+/// group it already syncs.
+///
+/// The slot does NOT enter the onion identity — the service public key comes
+/// from the seed alone and clients address a host by alias + endpointId — so a
+/// non-zero slot stays reachable by every client.
+///
+/// Returns 0 when there is no device group (single-device identity, loopback
+/// and test transports). Throws past [kCloudProviderSlotLimit] devices: beyond
+/// that the registrations could not be told apart, so failing closed beats
+/// silently colliding.
+const int kCloudProviderSlotLimit = 8;
+
+/// [selfId]'s index among the hex-sorted union of itself and [devices].
+///
+/// Kept separate from [cloudProviderSlot] so a caller holding a device list
+/// (rather than a sync port) computes the SAME slot — two implementations of
+/// this would be free to drift, and a drifted slot is a silent provider
+/// collision.
+int cloudProviderSlotFor(NodeId selfId, Iterable<NodeId> devices) {
+  final byHex = <String>{selfId.hex};
+  for (final device in devices) {
+    byHex.add(device.hex);
+  }
+  final ordered = byHex.toList()..sort();
+  final slot = ordered.indexOf(selfId.hex);
+  if (slot < 0 || slot >= kCloudProviderSlotLimit) {
+    throw StateError('capability provider device limit reached');
+  }
+  return slot;
+}
+
+Future<int> cloudProviderSlot(CloudCapabilitySyncPort? sync) async {
+  if (sync == null) return 0;
+  return cloudProviderSlotFor(sync.selfId, await sync.members());
+}
+
 abstract interface class CloudCapabilityNetworkPort {
   Future<CloudCapabilityEndpointPort> host({
     required Uint8List identitySeed,
@@ -1248,20 +1291,7 @@ class CloudCapabilityService {
     name: 'cloud-capability-metadata',
   );
 
-  Future<int> _providerSlot() async {
-    final sync = _sync;
-    if (sync == null) return 0;
-    final byHex = <String, NodeId>{sync.selfId.hex: sync.selfId};
-    for (final member in await sync.members()) {
-      byHex[member.hex] = member;
-    }
-    final ordered = byHex.keys.toList()..sort();
-    final slot = ordered.indexOf(sync.selfId.hex);
-    if (slot < 0 || slot >= 8) {
-      throw StateError('capability provider device limit reached');
-    }
-    return slot;
-  }
+  Future<int> _providerSlot() => cloudProviderSlot(_sync);
 
   Future<T> _serialized<T>(Future<T> Function() body) {
     final result = _mutation.then((_) => body());
