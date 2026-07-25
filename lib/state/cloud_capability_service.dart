@@ -360,6 +360,7 @@ class CloudCapabilityService {
         storage: _FolderShareStorageAdapter(_storage),
         listing: listing,
         send: endpoint.sendAnonymous,
+        now: _now,
       );
       await host.ready;
       final hosted = _HostedFolderShare(
@@ -405,7 +406,7 @@ class CloudCapabilityService {
           lifetime <= Duration.zero) {
         throw StateError('cloud item cannot be shared');
       }
-      if (_rows.length >= maxActiveShares) {
+      if (_rows.length + _folderRows.length >= maxActiveShares) {
         throw StateError('public share limit reached');
       }
       if (_events.length >= maxShareHistory) {
@@ -587,6 +588,7 @@ class CloudCapabilityService {
           storage: _FolderShareStorageAdapter(_storage),
           listing: listing,
           send: endpoint.sendAnonymous,
+          now: _now,
         );
         await host.ready;
         final hosted = _HostedFolderShare(
@@ -643,7 +645,14 @@ class CloudCapabilityService {
       if (CloudFolderListing.fromJson(listing.toJson()) == null) {
         throw StateError('folder listing is invalid or too large');
       }
-      await hosted.host.setListing(listing);
+      // Persist the bumped revision + new listing BEFORE serving the new
+      // sealed ciphertext. The listing nonce is derived from the revision, so
+      // a crash after serving but before persisting would let the next
+      // refresh reuse revision N+1 for DIFFERENT content — an AEAD key+nonce
+      // reuse. Persisting first guarantees the durable revision is >= any
+      // revision whose ciphertext was ever served, and a restart re-seals the
+      // identical persisted listing under the same nonce (byte-identical, so
+      // no reuse).
       final updated = row.copyWith(
         folderName: folderName,
         listingRevision: nextRevision,
@@ -652,6 +661,7 @@ class CloudCapabilityService {
       _folderRows[shareId] = updated;
       hosted.row = updated;
       await _saveFolderRows();
+      await hosted.host.setListing(listing);
       return true;
     });
   }
@@ -718,6 +728,7 @@ class CloudCapabilityService {
           Uint8List(0),
           name: manifest.name,
         );
+        stored = true;
       } else {
         for (var piece = 0; piece < manifest.pieceCount; piece++) {
           final offset = piece * manifest.pieceSize;
@@ -731,9 +742,11 @@ class CloudCapabilityService {
             Uint8List.sublistView(bytes, offset, offset + length),
             name: manifest.name,
           );
+          // Mark stored as soon as the first piece lands so a mid-loop
+          // failure still scrubs the partial blob in the catch below.
+          stored = true;
         }
       }
-      stored = true;
       await _storage.storeFile(
         '$_manifestPrefix${manifest.contentId}',
         Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
