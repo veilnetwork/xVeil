@@ -9502,6 +9502,100 @@ class GroupService {
   /// first-class and conversion requires a separate user-confirmed workflow.
   /// A non-owner cannot manufacture genesis authority, so their copy remains
   /// readable until an owner-signed manifest arrives through normal sync.
+  /// Explicit owner-initiated conversion of ONE legacy group chat into a
+  /// Space. This is never run automatically (the canon keeps group chats as
+  /// chats); the user picks a specific chat and confirms. Idempotent: a group
+  /// already converted returns true, a non-owned/invalid one returns false.
+  Future<bool> convertGroupToSpace(NodeId groupId) async {
+    final outcome = await _serialized(
+      groupId,
+      () => _convertLegacyGroupLocked(groupId),
+    );
+    if (outcome == 'upgraded') changes.value++;
+    return outcome == 'upgraded' || outcome == 'current';
+  }
+
+  /// Convert one legacy group to a Space under an already-held per-group lock.
+  /// Returns 'upgraded' / 'current' (already a Space or device/sovereign) /
+  /// 'not-owner' / 'failed'.
+  Future<String> _convertLegacyGroupLocked(NodeId groupId) async {
+    final bundle = await load(groupId);
+    if (bundle == null) return 'failed';
+    final legacy = bundle.manifest;
+    if (legacy.isSpace ||
+        legacy.isSovereignDevice ||
+        legacy.name == kDeviceGroupName) {
+      return 'current';
+    }
+    if (!legacy.isLegacyGroup) return 'failed';
+    if (legacy.owner != _signer.selfId) return 'not-owner';
+    final unsigned = SpaceManifest.space(
+      spaceId: legacy.groupId,
+      owner: legacy.owner,
+      genesisPubKey: legacy.genesisPubKey,
+      name: legacy.name,
+      createdAtMs: legacy.createdAtMs,
+    );
+    final signed = _signer.signSpaceManifest(unsigned);
+    if (!legacy.sameImmutableRoot(signed) || !_validManifest(signed)) {
+      return 'failed';
+    }
+    final state = foldControlLog(
+      owner: legacy.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(legacy, entry),
+      initialName: legacy.name,
+    ).state;
+    final channelCreatedAt = _now();
+    final defaultChannel = SpaceChannel(
+      spaceId: legacy.groupId,
+      channelId: defaultSpaceChannelId(legacy.groupId),
+      kind: SpaceChannelKind.text,
+      name: 'general',
+      description: '',
+      position: 0,
+      isDefault: true,
+      archived: false,
+      history: SpaceChannelHistory.fromJoin,
+      createdBy: _signer.selfId,
+      createdAtMs: channelCreatedAt,
+    );
+    final link = _nextControlLink(legacy, bundle.control, _signer.selfId);
+    if (link.blocked) return 'failed';
+    final createChannel = _signer.signControl(
+      ControlEntry(
+        version: 2,
+        groupId: legacy.groupId,
+        author: _signer.selfId,
+        seq: link.seq,
+        prevHash: link.prevHash,
+        op: ControlOp.createChannel,
+        target: null,
+        role: null,
+        policyVersion: state.policyVersion,
+        createdAtMs: channelCreatedAt,
+        signature: Uint8List(0),
+        channel: defaultChannel,
+      ),
+    );
+    final candidate = [...bundle.control, createChannel];
+    final folded = foldControlLog(
+      owner: signed.owner,
+      entries: candidate,
+      verify: (entry) => _validControlFor(signed, entry),
+      initialName: signed.name,
+    );
+    if (folded.rejected.any(
+      (entry) =>
+          entry.author == createChannel.author &&
+          entry.seq == createChannel.seq,
+    )) {
+      return 'failed';
+    }
+    await _save(bundle.copyWith(manifest: signed, control: candidate));
+    return 'upgraded';
+  }
+
   Future<SpaceManifestMigration> migrateOwnedLegacyGroupsToSpaces() async {
     var upgraded = 0;
     var alreadyCurrent = 0;
@@ -9516,83 +9610,10 @@ class GroupService {
         failed++;
         continue;
       }
-      final outcome = await _serialized(groupId, () async {
-        final bundle = await load(groupId);
-        if (bundle == null) return 'failed';
-        final legacy = bundle.manifest;
-        if (legacy.isSpace ||
-            legacy.isSovereignDevice ||
-            legacy.name == kDeviceGroupName) {
-          return 'current';
-        }
-        if (!legacy.isLegacyGroup) return 'failed';
-        if (legacy.owner != _signer.selfId) return 'not-owner';
-        final unsigned = SpaceManifest.space(
-          spaceId: legacy.groupId,
-          owner: legacy.owner,
-          genesisPubKey: legacy.genesisPubKey,
-          name: legacy.name,
-          createdAtMs: legacy.createdAtMs,
-        );
-        final signed = _signer.signSpaceManifest(unsigned);
-        if (!legacy.sameImmutableRoot(signed) || !_validManifest(signed)) {
-          return 'failed';
-        }
-        final state = foldControlLog(
-          owner: legacy.owner,
-          entries: bundle.control,
-          verify: (entry) => _validControlFor(legacy, entry),
-          initialName: legacy.name,
-        ).state;
-        final channelCreatedAt = _now();
-        final defaultChannel = SpaceChannel(
-          spaceId: legacy.groupId,
-          channelId: defaultSpaceChannelId(legacy.groupId),
-          kind: SpaceChannelKind.text,
-          name: 'general',
-          description: '',
-          position: 0,
-          isDefault: true,
-          archived: false,
-          history: SpaceChannelHistory.fromJoin,
-          createdBy: _signer.selfId,
-          createdAtMs: channelCreatedAt,
-        );
-        final link = _nextControlLink(legacy, bundle.control, _signer.selfId);
-        if (link.blocked) return 'failed';
-        final createChannel = _signer.signControl(
-          ControlEntry(
-            version: 2,
-            groupId: legacy.groupId,
-            author: _signer.selfId,
-            seq: link.seq,
-            prevHash: link.prevHash,
-            op: ControlOp.createChannel,
-            target: null,
-            role: null,
-            policyVersion: state.policyVersion,
-            createdAtMs: channelCreatedAt,
-            signature: Uint8List(0),
-            channel: defaultChannel,
-          ),
-        );
-        final candidate = [...bundle.control, createChannel];
-        final folded = foldControlLog(
-          owner: signed.owner,
-          entries: candidate,
-          verify: (entry) => _validControlFor(signed, entry),
-          initialName: signed.name,
-        );
-        if (folded.rejected.any(
-          (entry) =>
-              entry.author == createChannel.author &&
-              entry.seq == createChannel.seq,
-        )) {
-          return 'failed';
-        }
-        await _save(bundle.copyWith(manifest: signed, control: candidate));
-        return 'upgraded';
-      });
+      final outcome = await _serialized(
+        groupId,
+        () => _convertLegacyGroupLocked(groupId),
+      );
       switch (outcome) {
         case 'upgraded':
           upgraded++;
