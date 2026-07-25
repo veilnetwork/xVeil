@@ -207,6 +207,24 @@ class AppL10nEn extends AppL10n {
   String get spaceDescriptionEditTitle => 'Edit description';
 
   @override
+  String get spaceProfileMediaTitle => 'Community images';
+
+  @override
+  String get spaceProfileMediaEmpty => 'No avatar or cover yet';
+
+  @override
+  String get spaceProfileMediaSet => 'Avatar and cover are shared with members';
+
+  @override
+  String get spaceAvatarChange => 'Change avatar';
+
+  @override
+  String get spaceCoverChange => 'Change cover';
+
+  @override
+  String get spaceProfileMediaClear => 'Remove images';
+
+  @override
   String get spaceDescriptionSave => 'Save description';
 
   @override
