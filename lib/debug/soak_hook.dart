@@ -1938,6 +1938,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         null || 'note' => CloudDocumentKind.note,
         'tasks' || 'taskList' => CloudDocumentKind.taskList,
         'calendar' => CloudDocumentKind.calendar,
+        'files' || 'fileCollection' => CloudDocumentKind.fileCollection,
         _ => null,
       };
       if (kind == null) {
@@ -1947,6 +1948,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         CloudDocumentKind.note => cloudRichTextCodecV1,
         CloudDocumentKind.taskList => cloudTaskListCodecV1,
         CloudDocumentKind.calendar => cloudCalendarCodecV1,
+        CloudDocumentKind.fileCollection => cloudFileCollectionCodecV1,
       };
       final created = await service.createDocument(kind: kind, codec: codec);
       if (created == null) {

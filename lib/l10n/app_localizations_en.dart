@@ -4862,6 +4862,9 @@ class AppL10nEn extends AppL10n {
   String get cloudKindCalendar => 'Calendar';
 
   @override
+  String get cloudKindFiles => 'Shared folder';
+
+  @override
   String get cloudTasksTitle => 'Shared tasks';
 
   @override
