@@ -80,30 +80,30 @@ class ParsedCloudFolderLink extends ParsedCloudLink {
   final CloudFolderCapability capability;
 }
 
-/// One row of a folder listing: a file entry carries its own bearer link;
+/// One row of a folder listing. A file entry carries the file's OWN content
+/// manifest inline — the requester derives the per-file subkey from the
+/// folder key and fetches pieces through the folder share's single endpoint;
 /// a subfolder nests its entries inline.
 class CloudFolderListingEntry {
   const CloudFolderListingEntry.file({
     required String this.name,
-    required int this.size,
-    required String this.link,
+    required ContentManifest this.manifest,
     this.mime,
   }) : entries = null;
 
   const CloudFolderListingEntry.folder({
     required String this.name,
     required List<CloudFolderListingEntry> this.entries,
-  }) : size = null,
-       mime = null,
-       link = null;
+  }) : manifest = null,
+       mime = null;
 
   final String? name;
-  final int? size;
+  final ContentManifest? manifest;
   final String? mime;
-  final String? link;
   final List<CloudFolderListingEntry>? entries;
 
   bool get isFolder => entries != null;
+  int? get size => manifest?.size;
 
   Map<String, dynamic> toJson() => isFolder
       ? {
@@ -111,7 +111,7 @@ class CloudFolderListingEntry {
           'name': name,
           'entries': [for (final entry in entries!) entry.toJson()],
         }
-      : {'t': 'f', 'name': name, 'size': size, 'link': link, 'mime': ?mime};
+      : {'t': 'f', 'name': name, 'manifest': manifest!.toJson(), 'mime': ?mime};
 
   static CloudFolderListingEntry? fromJson(Object? value, int depth) {
     if (value is! Map || depth > CloudFolderListing.maxDepth) return null;
@@ -119,22 +119,25 @@ class CloudFolderListingEntry {
     if (name is! String || name.isEmpty || name.length > 512) return null;
     switch (value['t']) {
       case 'f':
-        final size = value['size'];
-        final link = value['link'];
+        final rawManifest = value['manifest'];
         final mime = value['mime'];
-        if (size is! int ||
-            size < 0 ||
-            size > (1 << 50) ||
-            link is! String ||
-            link.isEmpty ||
-            link.length > 8192 ||
+        if (rawManifest is! Map ||
             (mime != null && (mime is! String || mime.length > 255))) {
+          return null;
+        }
+        final manifest = ContentManifest.fromJson(
+          Map<String, dynamic>.from(rawManifest),
+        );
+        if (manifest == null ||
+            !manifest.isSelfConsistent ||
+            manifest.size < 0 ||
+            manifest.size > (1 << 50) ||
+            manifest.name.length > 512) {
           return null;
         }
         return CloudFolderListingEntry.file(
           name: name,
-          size: size,
-          link: link,
+          manifest: manifest,
           mime: mime as String?,
         );
       case 'd':
@@ -599,6 +602,78 @@ class CloudCapabilityCodec {
       throw const FormatException('invalid folder listing');
     }
     return listing;
+  }
+
+  /// Per-file subkey inside a folder share: HMAC(folderKey, domain + cid).
+  /// Files are sealed/served under their subkey through the folder's single
+  /// endpoint, so nonce spaces never collide across files and a request for
+  /// a wrong contentId fails its MAC silently.
+  static Uint8List folderFileKey(
+    CloudFolderCapability capability,
+    String contentId,
+  ) => Uint8List.fromList(
+    crypto.Hmac(crypto.sha256, capability.key)
+        .convert(
+          (BytesBuilder(copy: false)
+                ..add(utf8.encode('xveil.cloud.folder.file.v1'))
+                ..add(utf8.encode(contentId)))
+              .toBytes(),
+        )
+        .bytes,
+  );
+
+  /// The synthetic per-file capability both sides derive from the folder
+  /// link and a listing entry. Revision is pinned to 1: the chunk AAD
+  /// already binds the contentId (and the subkey binds it cryptographically),
+  /// so the listing revision has no per-file meaning. Reuses the existing
+  /// piece/chunk/request paths byte-for-byte.
+  static CloudCapability folderFileCapability(
+    CloudFolderCapability capability,
+    CloudFolderListingEntry entry,
+  ) {
+    final manifest = entry.manifest;
+    if (manifest == null) {
+      throw ArgumentError('listing entry is not a file');
+    }
+    return CloudCapability(
+      shareId: capability.shareId,
+      key: folderFileKey(capability, manifest.contentId),
+      servicePublicKey: capability.servicePublicKey,
+      appId: capability.appId,
+      endpointId: capability.endpointId,
+      expiresAtMs: capability.expiresAtMs,
+      manifest: manifest,
+      revision: 1,
+      mime: entry.mime,
+    );
+  }
+
+  /// Transcript-bound proof for the `listing` wire op.
+  static Uint8List listingRequestMac({
+    required CloudFolderCapability capability,
+    required Uint8List returnServicePublicKey,
+    required Uint8List returnAppId,
+    required int returnEndpointId,
+    required Uint8List requestNonce,
+  }) {
+    _require32(returnServicePublicKey, 'returnServicePublicKey');
+    _require32(returnAppId, 'returnAppId');
+    if (requestNonce.length != 16) {
+      throw ArgumentError('invalid request nonce');
+    }
+    final transcript = BytesBuilder(copy: false)
+      ..add(utf8.encode('xveil.cloud.listing.req.v1'))
+      ..add(capability.shareId)
+      ..add(returnServicePublicKey)
+      ..add(returnAppId)
+      ..add(_u16(returnEndpointId))
+      ..add(requestNonce);
+    return Uint8List.fromList(
+      crypto.Hmac(
+        crypto.sha256,
+        capability.key,
+      ).convert(transcript.toBytes()).bytes,
+    );
   }
 
   static Uint8List _listingNonce(Uint8List shareId, int revision) {

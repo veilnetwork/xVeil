@@ -108,10 +108,16 @@ machinery and is out of scope for the link.
 
 Design (composition over new crypto):
 
-1. Sharing a folder auto-creates an ordinary per-file capability share for
-   every document currently inside it (recursively). The per-file wire
-   protocol is untouched: pieces/chunks keep their existing seal/open path,
-   caps and revocation semantics.
+1. REVISED while implementing (endpoint scarcity: only six provider
+   endpoints exist): a folder share uses ONE endpoint and creates NO child
+   shares. Every file inside is served through the folder share itself with
+   a per-file subkey HMAC(folderKey, contentId); requester and host both
+   build a synthetic per-file capability (folder shareId + subkey + the
+   entry's manifest, revision pinned to 1) so the EXISTING piece/chunk
+   seal/open/requestMac path is reused byte-for-byte. A wrong contentId
+   yields a wrong subkey and therefore a silent MAC mismatch. Listing
+   entries carry each file's ContentManifest inline instead of child
+   links.
 2. The folder itself is represented by a LISTING — a small sealed JSON
    document naming the folder and its entries (name, kind, size, mime,
    subfolder nesting, and each file's own capability link). The listing is
@@ -124,17 +130,20 @@ Design (composition over new crypto):
    folder mutation (add/remove/move/rename inside the shared subtree)
    re-publishes the listing and auto-creates/revokes per-file shares to
    match.
-4. Revocation: revoking the folder share revokes the listing endpoint AND
-   every auto-created child share; post-revoke requests get the same silent
-   denial as v1. Individual files may additionally be revoked out of a still
-   live folder share (they drop from the next listing revision).
+4. Revocation: one share, one endpoint - revoking the folder share ends
+   listing AND file serving at once; post-revoke requests get the same
+   silent denial as v1. Removing a file from the shared folder drops it
+   from the next listing revision and its pieces stop being served (the
+   host serves only contentIds present in the CURRENT listing).
 5. Registry: folder shares ride the same encrypted cloudCapability registry
-   rows (type-tagged), so any owner device can host them; the auto-created
-   child shares are owned by the folder row and follow its lifecycle.
-6. maxActiveShares accounting: child shares are folder-owned and do not
-   consume user-visible slots; the folder share consumes one. Bound the
-   listing (entries and bytes) explicitly; oversized folders refuse to share
-   rather than silently truncate.
+   rows, type-tagged and carrying the current listing revision plus the
+   sealed listing blob, so any owner device hosts and serves identically.
+   Pre-folder devices fail-closed on the unknown row keys and simply do not
+   host folder shares.
+6. maxActiveShares accounting: a folder share consumes exactly one slot and
+   one endpoint. The listing is bounded (depth 32, 512 entries, 256 KiB
+   sealed); oversized folders refuse to share rather than silently
+   truncate.
 
 Open implementation order: listing codec + seal/open (domain) → service
 publish/rehost/revoke lifecycle + listing op serving → download side
