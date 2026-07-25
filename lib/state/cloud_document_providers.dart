@@ -94,12 +94,25 @@ final cloudDocumentReplicationServiceProvider =
               ContactStatus.accepted,
           // Member content hosting for shared ACL folders. Loopback/test
           // transports leave the ports null: metadata replication works, no
-          // bytes are served. Provider slot 0 = single hosting device per
-          // identity; sovereign multi-device slot allocation is wired later.
+          // bytes are served.
           memberContentNetwork: transport == null
               ? null
               : VeilCloudCapabilityNetwork(transport),
           memberContentStorage: _StorageMemberFolderAdapter(storage),
+          // Slot 0 until the device group is known. Every device of an identity
+          // derives the SAME member host seed and alias (both come from
+          // documentId + epochKey), so a distinct slot is the only thing that
+          // keeps two sovereign devices from registering as one provider — but
+          // the device list lives in GroupService, which already watches THIS
+          // provider to keep ingress alive. Reading it back here would close a
+          // dependency cycle, so groupServiceProvider installs the real
+          // resolver via [CloudDocumentReplicationService.memberProviderSlot]
+          // once it is built.
+          // LIMIT: only the ACTIVE identity gets a GroupService, so in
+          // all-online mode the other identities' services keep slot 0. Two
+          // devices hosting the same shared folder for a NON-active identity
+          // can therefore still collide; closing that needs a per-identity
+          // device group, which does not exist yet.
           memberProviderSlot: () async => 0,
         );
         unawaited(service.reconcileMemberHosting());

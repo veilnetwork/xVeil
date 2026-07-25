@@ -1873,6 +1873,21 @@ void main() {
       expect(diag.keys, [documentId]);
       expect(diag[documentId]!.servable, [manifest.contentId]);
       final epochBeforeGrant = diag[documentId]!.epoch;
+      expect(net.hostedSlots, [0], reason: 'constructor default applies');
+
+      // A second sovereign device of the SAME identity derives an identical
+      // host seed and alias, so only the provider slot separates them. The
+      // device list lives in GroupService, which is built after this service
+      // and keeps it alive, so the slot arrives by installation rather than
+      // construction — that late binding is what this asserts.
+      net.hostedSlots.clear();
+      ownerService.memberProviderSlot = () async => 3;
+      await ownerService.reconcileMemberHosting();
+      expect(
+        net.hostedSlots,
+        isEmpty,
+        reason: 'an unchanged epoch must not re-register the host',
+      );
 
       // Grant the editor; adoption gives them metadata + the new epoch key.
       sent.clear();
@@ -1896,6 +1911,9 @@ void main() {
       await ownerService.reconcileMemberHosting();
       diag = ownerService.memberHostDiagnostics();
       expect(diag[documentId]!.epoch, greaterThan(epochBeforeGrant));
+      // Re-hosting reads the slot again, so the installed resolver wins over
+      // the constructor's default from here on.
+      expect(net.hostedSlots, [3]);
 
       // Member download over the member content path, verified end-to-end.
       final fetched = await editorService.downloadSharedFolderFile(
@@ -2017,6 +2035,11 @@ class _MemberStorage implements CloudMemberFolderStoragePort {
 class _MemberNet implements CloudCapabilityNetworkPort {
   final endpoints = <_MemberNetEndpoint>[];
 
+  /// providerSlot of every host() call, in order. All devices of an identity
+  /// derive the same seed and alias, so this is the only field that tells two
+  /// of them apart on the wire.
+  final hostedSlots = <int>[];
+
   static Uint8List _appIdFor(String alias) => Uint8List.fromList(
     sha256.convert(utf8.encode('cap-app:$alias')).bytes,
   );
@@ -2029,6 +2052,7 @@ class _MemberNet implements CloudCapabilityNetworkPort {
     required int providerSlot,
     bool transient = false,
   }) async {
+    hostedSlots.add(providerSlot);
     final seed = Uint8List.fromList(identitySeed);
     identitySeed.fillRange(0, identitySeed.length, 0);
     final serviceKey = await CloudCapabilityCodec.onionServicePublicKeyFromSeed(

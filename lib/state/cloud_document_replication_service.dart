@@ -272,7 +272,7 @@ class CloudDocumentReplicationService {
     required Duration memberFetchTimeout,
   }) : _memberNetwork = memberContentNetwork,
        _memberStorage = memberContentStorage,
-       _memberProviderSlot = memberProviderSlot,
+       memberProviderSlot = memberProviderSlot,
        _memberHostLimit = memberHostLimit,
        _memberFetchTimeout = memberFetchTimeout,
        assert(memberHostLimit >= 0),
@@ -313,7 +313,17 @@ class CloudDocumentReplicationService {
   // metadata path works as before and no bytes are served.
   final CloudCapabilityNetworkPort? _memberNetwork;
   final CloudMemberFolderStoragePort? _memberStorage;
-  final Future<int> Function()? _memberProviderSlot;
+  /// Resolves this device's provider slot for member content hosting.
+  ///
+  /// Settable because the device list lives in GroupService, which keeps THIS
+  /// service alive and so cannot be read from the provider that builds it
+  /// without closing a dependency cycle. GroupService installs the real
+  /// resolver once built; until then the constructor's default applies, which
+  /// is correct for a single-device identity.
+  ///
+  /// Resolved per host rather than captured: devices join and leave the group
+  /// while this service is alive, and the slot is an index into that group.
+  Future<int> Function()? memberProviderSlot;
   final int _memberHostLimit;
   final Duration _memberFetchTimeout;
   final Map<String, _MemberFolderHostState> _memberHosts = {};
@@ -1078,7 +1088,7 @@ class CloudDocumentReplicationService {
               epochKey: plan.epochKey,
             ),
             endpointId: CloudCapabilityCodec.memberHostEndpointId,
-            providerSlot: await (_memberProviderSlot?.call() ??
+            providerSlot: await (memberProviderSlot?.call() ??
                 Future.value(0)),
           );
           // close() may have run during the awaits above; inserting now would
