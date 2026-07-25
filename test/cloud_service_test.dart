@@ -1156,6 +1156,124 @@ void main() {
     await storage.close();
   });
 
+  test('folder tree: nesting, moves, subtree guard and breadcrumbs', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sync = _FakeSync(_id(1));
+    var clock = 60000;
+    final ids = ['tree-a', 'tree-b', 'tree-c', 'tree-note'].iterator;
+    final service = CloudService(
+      storage,
+      sync,
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () {
+        ids.moveNext();
+        return ids.current;
+      },
+      integrityChecks: false,
+    );
+    final a = await service.createFolder('A');
+    final b = await service.createFolder('B', parentId: a.id);
+    final c = await service.createFolder('C', parentId: b.id);
+    expect(b.parentId, a.id);
+    expect(service.childFolders(null).map((f) => f.id), [a.id]);
+    expect(service.childFolders(a.id).map((f) => f.id), [b.id]);
+    expect(service.folderPath(c.id).map((f) => f.name), ['A', 'B', 'C']);
+
+    // Rename keeps the folder where it lives.
+    final renamed = await service.renameFolder(b.id, 'B2');
+    expect(renamed.parentId, a.id);
+
+    // The local guard refuses self and own-subtree destinations.
+    await expectLater(
+      service.moveFolder(a.id, a.id),
+      throwsA(isA<ArgumentError>()),
+    );
+    await expectLater(
+      service.moveFolder(a.id, c.id),
+      throwsA(isA<ArgumentError>()),
+    );
+
+    // A legal move re-parents the subtree.
+    final movedC = await service.moveFolder(c.id, a.id);
+    expect(movedC.parentId, a.id);
+    expect(
+      service.childFolders(a.id).map((f) => f.id),
+      containsAll([b.id, c.id]),
+    );
+
+    // Deleting the middle folder lifts its contents to the nearest LIVE
+    // ancestor: the note inside B2 and nothing is rewritten.
+    final note = await service.saveTextNote(
+      title: 'inside B2',
+      body: 'x',
+      folderId: b.id,
+    );
+    await service.deleteFolder(b.id);
+    final row = (await service.listItems()).single;
+    expect(row.folderId, b.id, reason: 'item row untouched');
+    expect(
+      service.effectiveFolderId(row),
+      a.id,
+      reason: 'item lifts to the nearest live ancestor, not the root',
+    );
+    expect(note.folderId, b.id);
+    await service.close();
+    await storage.close();
+  });
+
+  test('a cross-device parent cycle is broken deterministically', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sync = _FakeSync(_id(1));
+    var clock = 70000;
+    final service = CloudService(
+      storage,
+      sync,
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      integrityChecks: false,
+    );
+    await service.start();
+    // Two devices concurrently move A under B and B under A; the merged
+    // fold weaves a live cycle no local guard could see.
+    final cycleA = CloudFolder(
+      id: 'cycle-aaa',
+      name: 'A',
+      createdAtMs: 1,
+      modifiedAtMs: 100,
+      revision: 2,
+      deleted: false,
+      parentId: 'cycle-bbb',
+    );
+    final cycleB = CloudFolder(
+      id: 'cycle-bbb',
+      name: 'B',
+      createdAtMs: 1,
+      modifiedAtMs: 101,
+      revision: 2,
+      deleted: false,
+      parentId: 'cycle-aaa',
+    );
+    sync.rows.add((event: cycleA.toEvent(), author: _id(2)));
+    sync.rows.add((event: cycleB.toEvent(), author: _id(3)));
+    sync.controller.add(null);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+
+    final parents = service.effectiveFolderParents();
+    expect(
+      parents['cycle-aaa'],
+      isNull,
+      reason: 'the smallest id of the cycle is promoted to the root',
+    );
+    expect(parents['cycle-bbb'], 'cycle-aaa');
+    expect(service.childFolders(null).map((f) => f.id), ['cycle-aaa']);
+    expect(service.childFolders('cycle-aaa').map((f) => f.id), ['cycle-bbb']);
+    await service.close();
+    await storage.close();
+  });
+
   test(
     'a remote move with a newer clock cannot resurrect a deleted item',
     () async {

@@ -825,7 +825,8 @@ void main() {
     // Enter the folder; the note is inside and back returns to the root.
     await tester.tap(find.byKey(const ValueKey('cloud-folder-folder_ui')));
     await tester.pumpAndSettle();
-    expect(find.text('Docs'), findsOneWidget);
+    // The name shows in the AppBar title and in the breadcrumb row.
+    expect(find.text('Docs'), findsWidgets);
     expect(find.text('Rooted note'), findsOneWidget);
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
@@ -844,6 +845,111 @@ void main() {
     final survived = (await service.listItems()).single;
     expect(survived.deleted, isFalse);
     expect(service.effectiveFolderId(survived), isNull);
+  });
+
+  testWidgets('nested folders: breadcrumbs, up-navigation and folder moves', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    var clock = 11000;
+    final ids = ['fa', 'fb'].iterator;
+    final service = CloudService(
+      storage,
+      _Sync(),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () {
+        ids.moveNext();
+        return ids.current;
+      },
+      integrityChecks: false,
+    );
+    addTearDown(() {
+      unawaited(service.close());
+      unawaited(storage.close());
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [cloudServiceProvider.overrideWithValue(service)],
+        child: const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: CloudStorageScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // Root folder Alpha, then Beta created INSIDE Alpha.
+    await tester.tap(find.text('Add to cloud'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New folder'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('cloud-folder-name')),
+      'Alpha',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cloud-folder-fa')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add to cloud'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New folder'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('cloud-folder-name')),
+      'Beta',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('cloud-folder-fb')),
+      findsOneWidget,
+      reason: 'the child folder lists inside its parent',
+    );
+
+    // Enter Beta: breadcrumbs show the full path; back goes UP, not to root.
+    await tester.tap(find.byKey(const ValueKey('cloud-folder-fb')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('cloud-breadcrumbs')), findsOneWidget);
+    expect(find.text('Storage'), findsOneWidget);
+    expect(find.text('Alpha'), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('cloud-folder-fb')),
+      findsOneWidget,
+      reason: 'back from Beta lands in Alpha, not at the root',
+    );
+
+    // Move Beta to the root through its menu.
+    await tester.tap(find.byKey(const ValueKey('cloud-folder-menu-fb')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Move folder'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cloud-folder-move-root')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('cloud-folder-fb')),
+      findsNothing,
+      reason: 'Beta left Alpha',
+    );
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('cloud-folder-fb')),
+      findsOneWidget,
+      reason: 'Beta now lives at the root',
+    );
+    final parents = service.effectiveFolderParents();
+    expect(parents['fb'], isNull);
+    expect(parents['fa'], isNull);
   });
 
   testWidgets('personal cloud renders imported file and replication controls', (

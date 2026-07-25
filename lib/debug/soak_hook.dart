@@ -1827,7 +1827,13 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'selected': service.profile.selectedItemIds.toList()..sort(),
       'folders': [
         for (final folder in service.listFolders())
-          {'id': folder.id, 'name': folder.name, 'revision': folder.revision},
+          {
+            'id': folder.id,
+            'name': folder.name,
+            'revision': folder.revision,
+            'parent': folder.parentId,
+            'parentEffective': service.effectiveFolderParents()[folder.id],
+          },
       ],
       'items': items,
     });
@@ -2361,12 +2367,32 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           if (name == null) {
             return _json(req, {'ok': false, 'error': 'need name'});
           }
-          final folder = await service.createFolder(name);
+          final folder = await service.createFolder(
+            name,
+            parentId: q['parent'],
+          );
           return _json(req, {
             'ok': true,
             'id': folder.id,
             'name': folder.name,
             'revision': folder.revision,
+            'parent': folder.parentId,
+          });
+        case 'move':
+          final id = q['id'];
+          if (id == null) {
+            return _json(req, {'ok': false, 'error': 'need id'});
+          }
+          final parent = q['parent'];
+          final moved = await service.moveFolder(
+            id,
+            parent == null || parent.isEmpty ? null : parent,
+          );
+          return _json(req, {
+            'ok': true,
+            'id': moved.id,
+            'parent': moved.parentId,
+            'revision': moved.revision,
           });
         case 'rename':
           final id = q['id'];

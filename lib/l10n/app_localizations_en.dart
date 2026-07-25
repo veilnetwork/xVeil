@@ -2020,7 +2020,13 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get cloudFolderDeleteBody =>
-      'Documents inside it move to the root. Nothing is deleted from your cloud.';
+      'Everything inside moves up to the nearest remaining folder. Nothing is deleted from your cloud.';
+
+  @override
+  String get cloudMoveFolder => 'Move folder';
+
+  @override
+  String get cloudStorageRoot => 'Storage';
 
   @override
   String get cloudFolderEmpty => 'This folder is empty';

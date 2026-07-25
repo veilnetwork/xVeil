@@ -770,17 +770,110 @@ class CloudService {
     }
   }
 
-  /// Where the item renders: its folder while that folder is alive, otherwise
-  /// the root. Dangling refs are resolved here instead of rewriting item rows
-  /// on folder delete, so a delete can never LWW-clobber a concurrent edit.
-  String? effectiveFolderId(CloudItem item) {
-    final folderId = item.folderId;
-    if (folderId == null) return null;
-    final folder = _folders[folderId];
-    return folder != null && !folder.deleted ? folderId : null;
+  /// Nearest LIVE folder on the parent chain starting at [startId] (which
+  /// may itself be live), or null for the root. Dead folders are walked
+  /// through, so deleting a folder lifts its contents to the closest living
+  /// ancestor; a dangling id, an over-deep chain or a revisit lands at the
+  /// root. Pure view-time resolution — no rows are ever rewritten.
+  String? _nearestLiveAncestor(String? startId) {
+    var current = startId;
+    final visited = <String>{};
+    while (current != null) {
+      if (!visited.add(current) || visited.length > 128) return null;
+      final folder = _folders[current];
+      if (folder == null) return null;
+      if (!folder.deleted) return current;
+      current = folder.parentId;
+    }
+    return null;
   }
 
-  Future<CloudFolder> createFolder(String name) async {
+  /// Where the item renders: the nearest live ancestor of its folder chain
+  /// (the folder itself while alive), otherwise the root. Resolution lives
+  /// here instead of rewriting item rows on folder delete, so a delete can
+  /// never LWW-clobber a concurrent edit.
+  String? effectiveFolderId(CloudItem item) =>
+      _nearestLiveAncestor(item.folderId);
+
+  /// The effective display parent of every LIVE folder: its nearest live
+  /// ancestor, with one deterministic exception — a cross-device merge can
+  /// weave live folders into a parent CYCLE, unreachable from the root.
+  /// Each such cycle is broken by promoting its smallest folder id to the
+  /// root, so every device renders the same tree and no subtree can vanish.
+  Map<String, String?> effectiveFolderParents() {
+    final parents = <String, String?>{
+      for (final folder in _folders.values)
+        if (!folder.deleted) folder.id: _nearestLiveAncestor(folder.parentId),
+    };
+    Set<String> reachable() {
+      final childrenOf = <String?, List<String>>{};
+      parents.forEach(
+        (id, parent) => childrenOf.putIfAbsent(parent, () => []).add(id),
+      );
+      final seen = <String>{};
+      final queue = <String?>[null];
+      while (queue.isNotEmpty) {
+        for (final child in childrenOf[queue.removeLast()] ?? const []) {
+          if (seen.add(child)) queue.add(child);
+        }
+      }
+      return seen;
+    }
+
+    for (var guard = 0; guard <= parents.length; guard++) {
+      final unreachable = parents.keys.toSet()..removeAll(reachable());
+      if (unreachable.isEmpty) break;
+      // An unreachable region contains exactly one cycle: every node in it
+      // has a non-null effective parent that is itself unreachable, so a
+      // walk from any member must revisit. Promote the cycle's smallest id.
+      var cursor = unreachable.first;
+      final trail = <String>[];
+      final seen = <String>{};
+      while (seen.add(cursor)) {
+        trail.add(cursor);
+        cursor = parents[cursor]!;
+      }
+      final cycle = trail.sublist(trail.indexOf(cursor));
+      final promoted = cycle.reduce((a, b) => a.compareTo(b) < 0 ? a : b);
+      parents[promoted] = null;
+    }
+    return parents;
+  }
+
+  /// Live folders rendered directly under [parentId] (null = root),
+  /// name-sorted. Uses [effectiveFolderParents], so children of deleted
+  /// folders and cycle members surface deterministically.
+  List<CloudFolder> childFolders(String? parentId) {
+    final parents = effectiveFolderParents();
+    final folders = [
+      for (final folder in _folders.values)
+        if (!folder.deleted && parents[folder.id] == parentId) folder,
+    ];
+    folders.sort((a, b) {
+      final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      return byName != 0 ? byName : a.id.compareTo(b.id);
+    });
+    return folders;
+  }
+
+  /// Breadcrumb chain from the root down to [folderId] (inclusive); empty
+  /// when the folder is not alive.
+  List<CloudFolder> folderPath(String folderId) {
+    final folder = _folders[folderId];
+    if (folder == null || folder.deleted) return const [];
+    final parents = effectiveFolderParents();
+    final path = <CloudFolder>[];
+    String? current = folderId;
+    while (current != null && path.length <= _folders.length) {
+      final node = _folders[current];
+      if (node == null || node.deleted) break;
+      path.add(node);
+      current = parents[current];
+    }
+    return path.reversed.toList();
+  }
+
+  Future<CloudFolder> createFolder(String name, {String? parentId}) async {
     await start();
     final normalized = name.trim();
     if (normalized.isEmpty || normalized.length > 512) {
@@ -798,6 +891,9 @@ class CloudService {
         modifiedAtMs: now,
         revision: 1,
         deleted: false,
+        // A parent that died between pick and write degrades to the root:
+        // creation must not fail on a remote race.
+        parentId: _liveFolderOrNull(parentId),
       );
       _folders[folder.id] = folder;
       await _saveIndex();
@@ -825,12 +921,61 @@ class CloudService {
         modifiedAtMs: _nextTimestamp(),
         revision: current.revision + 1,
         deleted: false,
+        // A rename must keep the folder where it lives.
+        parentId: current.parentId,
       );
       _folders[folderId] = renamed;
       await _saveIndex();
       _postFolderBestEffort(renamed);
       _emit();
       return renamed;
+    });
+  }
+
+  /// Move a folder under [parentId] (null = root). Refused into itself or
+  /// its own subtree — the LOCAL guard; a cycle formed by a concurrent
+  /// remote move is broken deterministically by [effectiveFolderParents].
+  Future<CloudFolder> moveFolder(String folderId, String? parentId) async {
+    await start();
+    return _serialized(() async {
+      final current = _folders[folderId];
+      if (current == null || current.deleted) {
+        throw StateError('folder no longer exists');
+      }
+      if (parentId != null) {
+        final target = _folders[parentId];
+        if (target == null || target.deleted) {
+          throw StateError('target folder no longer exists');
+        }
+        if (parentId == folderId) {
+          throw ArgumentError('cannot move a folder into itself');
+        }
+        final parents = effectiveFolderParents();
+        for (
+          String? cursor = parentId;
+          cursor != null;
+          cursor = parents[cursor]
+        ) {
+          if (cursor == folderId) {
+            throw ArgumentError('cannot move a folder into its own subtree');
+          }
+        }
+      }
+      if (current.parentId == parentId) return current;
+      final moved = CloudFolder(
+        id: current.id,
+        name: current.name,
+        createdAtMs: current.createdAtMs,
+        modifiedAtMs: _nextTimestamp(),
+        revision: current.revision + 1,
+        deleted: false,
+        parentId: parentId,
+      );
+      _folders[folderId] = moved;
+      await _saveIndex();
+      _postFolderBestEffort(moved);
+      _emit();
+      return moved;
     });
   }
 

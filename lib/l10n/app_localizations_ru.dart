@@ -2044,7 +2044,13 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get cloudFolderDeleteBody =>
-      'Документы из неё переместятся в корень. Из облака ничего не удалится.';
+      'Всё вложенное поднимется к ближайшей оставшейся папке. Из облака ничего не удалится.';
+
+  @override
+  String get cloudMoveFolder => 'Переместить папку';
+
+  @override
+  String get cloudStorageRoot => 'Хранилище';
 
   @override
   String get cloudFolderEmpty => 'Папка пуста';

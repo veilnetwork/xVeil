@@ -314,6 +314,42 @@ void main() {
     );
   });
 
+  test('folder parent round-trips and degrades to root when unparseable', () {
+    final child = CloudFolder(
+      id: 'child_1',
+      name: 'Child',
+      createdAtMs: 5,
+      modifiedAtMs: 10,
+      revision: 1,
+      deleted: false,
+      parentId: 'parent_1',
+    );
+    expect(CloudFolder.fromEvent(child.toEvent())?.parentId, 'parent_1');
+    final event = child.toEvent();
+    for (final bad in ['bad id!', 7, '', 'child_1']) {
+      final parsed = CloudFolder.fromEvent(
+        DeviceSyncEvent(
+          kind: event.kind,
+          key: event.key,
+          tsMs: event.tsMs,
+          payload: {...event.payload, 'parent': bad},
+        ),
+      );
+      expect(parsed, isNotNull, reason: 'row survives a bad parent ($bad)');
+      expect(parsed?.parentId, isNull, reason: 'bad parent degrades to root');
+    }
+    final tombstone = child.tombstone(20);
+    final parsedTombstone = CloudFolder.fromEvent(tombstone.toEvent());
+    expect(parsedTombstone?.deleted, isTrue);
+    expect(
+      parsedTombstone?.parentId,
+      'parent_1',
+      reason:
+          'a tombstone keeps its parent so orphans lift to the nearest '
+          'live ancestor instead of the root',
+    );
+  });
+
   test('folder fold is LWW and a tombstone absorbs stale offline upserts', () {
     final folder = CloudFolder(
       id: 'folder_1',

@@ -3615,8 +3615,20 @@ abstract class AppL10n {
   /// No description provided for @cloudFolderDeleteBody.
   ///
   /// In en, this message translates to:
-  /// **'Documents inside it move to the root. Nothing is deleted from your cloud.'**
+  /// **'Everything inside moves up to the nearest remaining folder. Nothing is deleted from your cloud.'**
   String get cloudFolderDeleteBody;
+
+  /// No description provided for @cloudMoveFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'Move folder'**
+  String get cloudMoveFolder;
+
+  /// No description provided for @cloudStorageRoot.
+  ///
+  /// In en, this message translates to:
+  /// **'Storage'**
+  String get cloudStorageRoot;
 
   /// No description provided for @cloudFolderEmpty.
   ///

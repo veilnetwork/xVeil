@@ -155,7 +155,82 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     );
     if (name == null || name.isEmpty || !mounted) return;
     try {
-      await service.createFolder(name);
+      await service.createFolder(name, parentId: _openFolderId);
+    } catch (_) {
+      if (mounted) _notice(AppL10n.of(context).cloudFolderFailed);
+    }
+  }
+
+  /// Depth-first flattening of the live folder tree for destination pickers:
+  /// (folder, depth) rows in display order, minus [excludeSubtreeOf] and its
+  /// descendants (a folder can never move into itself).
+  List<({CloudFolder folder, int depth})> _folderTreeRows({
+    String? excludeSubtreeOf,
+  }) {
+    final service = _service;
+    if (service == null) return const [];
+    final rows = <({CloudFolder folder, int depth})>[];
+    void walk(String? parentId, int depth) {
+      if (depth > 32) return;
+      for (final folder in service.childFolders(parentId)) {
+        if (folder.id == excludeSubtreeOf) continue;
+        rows.add((folder: folder, depth: depth));
+        walk(folder.id, depth + 1);
+      }
+    }
+
+    walk(null, 0);
+    return rows;
+  }
+
+  Future<void> _moveFolder(CloudFolder folder) async {
+    final service = _service;
+    if (service == null) return;
+    final l = AppL10n.of(context);
+    final rows = _folderTreeRows(excludeSubtreeOf: folder.id);
+    final target = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+          ),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(title: Text(l.cloudMoveFolder)),
+              ListTile(
+                key: const ValueKey('cloud-folder-move-root'),
+                leading: const Icon(Icons.home_outlined),
+                title: Text(l.cloudStorageRoot),
+                onTap: () => Navigator.pop(context, ''),
+              ),
+              for (final row in rows)
+                ListTile(
+                  key: ValueKey('cloud-folder-move-${row.folder.id}'),
+                  leading: Padding(
+                    padding: EdgeInsetsDirectional.only(
+                      start: 16.0 * row.depth,
+                    ),
+                    child: const Icon(Icons.folder_outlined),
+                  ),
+                  title: Text(
+                    row.folder.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onTap: () => Navigator.pop(context, row.folder.id),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (target == null || !mounted) return;
+    try {
+      await service.moveFolder(folder.id, target.isEmpty ? null : target);
+      if (mounted) _notice(l.cloudFolderMoved);
     } catch (_) {
       if (mounted) _notice(AppL10n.of(context).cloudFolderFailed);
     }
@@ -203,9 +278,10 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     );
     if (confirmed != true || !mounted) return;
     try {
+      final fallback = service.effectiveFolderParents()[folder.id];
       await service.deleteFolder(folder.id);
       if (mounted && _openFolderId == folder.id) {
-        setState(() => _openFolderId = null);
+        setState(() => _openFolderId = fallback);
       }
     } catch (_) {
       if (mounted) _notice(AppL10n.of(context).cloudFolderFailed);
@@ -422,18 +498,21 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
         .where((folder) => folder.id == _openFolderId)
         .firstOrNull;
     final documentService = ref.watch(cloudDocumentReplicationServiceProvider);
+    void goUp() {
+      if (openFolder == null) return;
+      setState(
+        () => _openFolderId = service?.effectiveFolderParents()[openFolder.id],
+      );
+    }
+
     return PopScope(
       canPop: openFolder == null,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) setState(() => _openFolderId = null);
+        if (!didPop) goUp();
       },
       child: Scaffold(
         appBar: AppBar(
-          leading: openFolder == null
-              ? null
-              : BackButton(
-                  onPressed: () => setState(() => _openFolderId = null),
-                ),
+          leading: openFolder == null ? null : BackButton(onPressed: goUp),
           title: Text(openFolder?.name ?? l.cloudTitle),
           actions: [
             if (ref.watch(cloudCapabilityServiceProvider) != null)
@@ -471,6 +550,41 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                       cloud: service,
                     ),
                   if (openFolder == null) _ReplicationProfile(service: service),
+                  if (openFolder != null)
+                    SizedBox(
+                      height: 40,
+                      child: ListView(
+                        key: const ValueKey('cloud-breadcrumbs'),
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        children: [
+                          TextButton(
+                            onPressed: () =>
+                                setState(() => _openFolderId = null),
+                            child: Text(l.cloudStorageRoot),
+                          ),
+                          for (final crumb in service.folderPath(
+                            openFolder.id,
+                          )) ...[
+                            const Center(
+                              child: Icon(Icons.chevron_right, size: 16),
+                            ),
+                            TextButton(
+                              onPressed: crumb.id == openFolder.id
+                                  ? null
+                                  : () => setState(
+                                      () => _openFolderId = crumb.id,
+                                    ),
+                              child: Text(
+                                crumb.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   const Divider(height: 1),
                   Expanded(
                     child: items.when(
@@ -490,9 +604,9 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                             counts[effective] = (counts[effective] ?? 0) + 1;
                           }
                         }
-                        final shownFolders = openFolder == null
-                            ? folders
-                            : const <CloudFolder>[];
+                        final shownFolders = service.childFolders(
+                          openFolder?.id,
+                        );
                         if (shownFolders.isEmpty && visible.isEmpty) {
                           return openFolder == null
                               ? _EmptyCloud(
@@ -528,6 +642,8 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                                     switch (action) {
                                       case 'rename':
                                         unawaited(_renameFolder(folder));
+                                      case 'moveFolder':
+                                        unawaited(_moveFolder(folder));
                                       case 'delete':
                                         unawaited(_deleteFolder(folder));
                                     }
@@ -536,6 +652,10 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                                     PopupMenuItem(
                                       value: 'rename',
                                       child: Text(l.cloudFolderRename),
+                                    ),
+                                    PopupMenuItem(
+                                      value: 'moveFolder',
+                                      child: Text(l.cloudMoveFolder),
                                     ),
                                     PopupMenuItem(
                                       value: 'delete',
@@ -1625,7 +1745,16 @@ class _CloudItemTileState extends State<_CloudItemTile> {
   Future<void> _move() async {
     if (_working) return;
     final l = AppL10n.of(context);
-    final folders = widget.service.listFolders();
+    final rows = <({CloudFolder folder, int depth})>[];
+    void walk(String? parentId, int depth) {
+      if (depth > 32) return;
+      for (final folder in widget.service.childFolders(parentId)) {
+        rows.add((folder: folder, depth: depth));
+        walk(folder.id, depth + 1);
+      }
+    }
+
+    walk(null, 0);
     final current = widget.service.effectiveFolderId(widget.item);
     final target = await showModalBottomSheet<String>(
       context: context,
@@ -1646,19 +1775,24 @@ class _CloudItemTileState extends State<_CloudItemTile> {
                 trailing: current == null ? const Icon(Icons.check) : null,
                 onTap: () => Navigator.pop(context, ''),
               ),
-              for (final folder in folders)
+              for (final row in rows)
                 ListTile(
-                  key: ValueKey('cloud-move-${folder.id}'),
-                  leading: const Icon(Icons.folder_outlined),
+                  key: ValueKey('cloud-move-${row.folder.id}'),
+                  leading: Padding(
+                    padding: EdgeInsetsDirectional.only(
+                      start: 16.0 * row.depth,
+                    ),
+                    child: const Icon(Icons.folder_outlined),
+                  ),
                   title: Text(
-                    folder.name,
+                    row.folder.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  trailing: current == folder.id
+                  trailing: current == row.folder.id
                       ? const Icon(Icons.check)
                       : null,
-                  onTap: () => Navigator.pop(context, folder.id),
+                  onTap: () => Navigator.pop(context, row.folder.id),
                 ),
             ],
           ),
