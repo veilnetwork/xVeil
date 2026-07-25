@@ -182,7 +182,10 @@ class CloudCapabilityService {
     CloudCapabilitySyncPort? sync,
     DateTime Function()? now,
     Random? random,
-    Duration folderClientTimeout = const Duration(seconds: 8),
+    // Per-chunk wait over the anonymous onion path: must cover our own
+    // request-send circuit build (~5 s) plus the host's reply. See the
+    // matching 30 s budget on the bearer download loop.
+    Duration folderClientTimeout = const Duration(seconds: 30),
   }) : _now = now ?? DateTime.now,
        _random = random ?? Random.secure(),
        // ignore: prefer_initializing_formals
@@ -881,6 +884,12 @@ class CloudCapabilityService {
               chunkIndex: chunk,
               nonce: nonce,
             );
+            // The timeout clock starts here, BEFORE our own sendAnonymous
+            // below — and over the anonymous onion path that request-send
+            // alone builds a rendezvous circuit that can take ~5 s, leaving
+            // the host's reply (another ~5 s circuit build + return traversal)
+            // no room inside a tight window. Budget for BOTH legs of the
+            // onion round-trip so a slow-but-delivered reply still matches.
             final pending = responses.stream
                 .firstWhere(
                   (response) =>
@@ -888,7 +897,7 @@ class CloudCapabilityService {
                       response.chunkIndex == chunk &&
                       _equal(response.nonce, nonce),
                 )
-                .timeout(const Duration(seconds: 8));
+                .timeout(const Duration(seconds: 30));
             try {
               await endpoint.sendAnonymous(
                 servicePublicKey: capability.servicePublicKey,

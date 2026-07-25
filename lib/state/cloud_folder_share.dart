@@ -493,7 +493,11 @@ class CloudFolderShareClient {
     required this.returnEndpointId,
     required this.incoming,
     required Future<void> Function(Uint8List data) send,
-    Duration timeout = const Duration(seconds: 8),
+    // Budget for BOTH legs of the anonymous onion round-trip: our own
+    // request-send builds a rendezvous circuit (~5 s) before the host's
+    // reply (another circuit build + return traversal). 8 s left a
+    // slow-but-delivered reply no room and every fetch timed out live.
+    Duration timeout = const Duration(seconds: 30),
     Uint8List Function(int count)? randomBytes,
     // ignore: prefer_initializing_formals
   }) : _send = send,
