@@ -169,10 +169,11 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
   }) {
     final service = _service;
     if (service == null) return const [];
+    final tree = service.folderChildrenIndex();
     final rows = <({CloudFolder folder, int depth})>[];
     void walk(String? parentId, int depth) {
       if (depth > 32) return;
-      for (final folder in service.childFolders(parentId)) {
+      for (final folder in tree[parentId] ?? const <CloudFolder>[]) {
         if (folder.id == excludeSubtreeOf) continue;
         rows.add((folder: folder, depth: depth));
         walk(folder.id, depth + 1);
@@ -1745,10 +1746,11 @@ class _CloudItemTileState extends State<_CloudItemTile> {
   Future<void> _move() async {
     if (_working) return;
     final l = AppL10n.of(context);
+    final tree = widget.service.folderChildrenIndex();
     final rows = <({CloudFolder folder, int depth})>[];
     void walk(String? parentId, int depth) {
       if (depth > 32) return;
-      for (final folder in widget.service.childFolders(parentId)) {
+      for (final folder in tree[parentId] ?? const <CloudFolder>[]) {
         rows.add((folder: folder, depth: depth));
         walk(folder.id, depth + 1);
       }

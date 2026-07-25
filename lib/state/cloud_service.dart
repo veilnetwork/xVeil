@@ -843,17 +843,27 @@ class CloudService {
   /// Live folders rendered directly under [parentId] (null = root),
   /// name-sorted. Uses [effectiveFolderParents], so children of deleted
   /// folders and cycle members surface deterministically.
-  List<CloudFolder> childFolders(String? parentId) {
+  List<CloudFolder> childFolders(String? parentId) =>
+      folderChildrenIndex()[parentId] ?? const [];
+
+  /// The whole resolved tree in one pass: effective parent → name-sorted
+  /// children. Tree walks (pickers, breadcrumb building) should use this
+  /// instead of calling [childFolders] per node, which would recompute the
+  /// cycle-broken parent map once per visited folder.
+  Map<String?, List<CloudFolder>> folderChildrenIndex() {
     final parents = effectiveFolderParents();
-    final folders = [
-      for (final folder in _folders.values)
-        if (!folder.deleted && parents[folder.id] == parentId) folder,
-    ];
-    folders.sort((a, b) {
-      final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
-      return byName != 0 ? byName : a.id.compareTo(b.id);
-    });
-    return folders;
+    final index = <String?, List<CloudFolder>>{};
+    for (final folder in _folders.values) {
+      if (folder.deleted) continue;
+      index.putIfAbsent(parents[folder.id], () => []).add(folder);
+    }
+    for (final children in index.values) {
+      children.sort((a, b) {
+        final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        return byName != 0 ? byName : a.id.compareTo(b.id);
+      });
+    }
+    return index;
   }
 
   /// Breadcrumb chain from the root down to [folderId] (inclusive); empty
