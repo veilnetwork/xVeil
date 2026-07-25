@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
 import '../../domain/cloud.dart';
+import '../../domain/cloud_capability.dart';
 import '../../domain/chat.dart';
 import '../../domain/cloud_collection_crdt.dart';
 import '../../domain/cloud_document.dart';
@@ -131,6 +132,12 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
               title: Text(l.cloudNewFolder),
               onTap: () => Navigator.pop(context, 'folder'),
             ),
+            if (_capabilityService != null)
+              ListTile(
+                leading: const Icon(Icons.folder_shared_outlined),
+                title: Text(l.cloudFolderOpen),
+                onTap: () => Navigator.pop(context, 'openFolder'),
+              ),
             if (_documentService?.canMutate == true)
               ListTile(
                 leading: const Icon(Icons.group_add_outlined),
@@ -145,6 +152,7 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     if (action == 'note') await _createNote();
     if (action == 'file') await _importFile();
     if (action == 'folder') await _createFolder();
+    if (action == 'openFolder') await _openFolderLink();
     if (action == 'shared') await _createSharedDocument();
   }
 
@@ -270,6 +278,120 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     } catch (_) {
       if (mounted) _notice(AppL10n.of(context).cloudFolderFailed);
     }
+  }
+
+  Future<void> _shareFolder(CloudFolder folder) async {
+    final cloud = _service;
+    final capabilities = _capabilityService;
+    if (cloud == null || capabilities == null || _busy) return;
+    final l = AppL10n.of(context);
+    setState(() => _busy = true);
+    try {
+      final existing = capabilities
+          .listFolderShares()
+          .where((share) => share.folderId == folder.id)
+          .firstOrNull;
+      if (existing != null) {
+        if (!mounted) return;
+        final action = await showDialog<String>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(l.cloudFolderShareExisting),
+            content: SelectableText(existing.link, maxLines: 5),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, 'revoke'),
+                child: Text(l.cloudFolderShareRevoke),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, 'refresh'),
+                child: Text(l.cloudFolderShareRefresh),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, 'copy'),
+                child: Text(l.cloudPublicCopy),
+              ),
+            ],
+          ),
+        );
+        if (action == 'revoke') {
+          await capabilities.revokeFolderShare(existing.shareId);
+          if (mounted) _notice(l.cloudFolderShareRevoked);
+        } else if (action == 'refresh') {
+          final entries = await cloud.buildFolderListingEntries(folder.id);
+          if (entries != null) {
+            await capabilities.refreshFolderShare(
+              existing.shareId,
+              folderName: folder.name,
+              entries: entries,
+            );
+          }
+          if (mounted) _notice(l.cloudFolderShareRefreshed);
+        } else if (action == 'copy') {
+          await Clipboard.setData(ClipboardData(text: existing.link));
+          if (mounted) _notice(l.cloudPublicCopied);
+        }
+        return;
+      }
+      final entries = await cloud.buildFolderListingEntries(folder.id);
+      if (entries == null || entries.isEmpty) {
+        if (mounted) _notice(l.cloudFolderShareEmpty);
+        return;
+      }
+      final share = await capabilities.createFolderShare(
+        folderId: folder.id,
+        folderName: folder.name,
+        entries: entries,
+      );
+      await Clipboard.setData(ClipboardData(text: share.link));
+      if (mounted) _notice(l.cloudFolderShareCreated);
+    } catch (_) {
+      if (mounted) _notice(AppL10n.of(context).cloudFolderShareFailed);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openFolderLink() async {
+    final capabilities = _capabilityService;
+    final cloud = _service;
+    if (capabilities == null || cloud == null) return;
+    final l = AppL10n.of(context);
+    final controller = TextEditingController();
+    final link = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l.cloudFolderOpen),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 2,
+          maxLines: 5,
+          decoration: InputDecoration(hintText: l.cloudFolderOpenHint),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: Text(l.cloudDownload),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (!mounted || link == null || link.isEmpty) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) => CloudReceivedFolderScreen(
+          capabilities: capabilities,
+          cloud: cloud,
+          link: link,
+        ),
+      ),
+    );
   }
 
   Future<void> _deleteFolder(CloudFolder folder) async {
@@ -992,6 +1114,8 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                                         unawaited(_renameFolder(folder));
                                       case 'moveFolder':
                                         unawaited(_moveFolder(folder));
+                                      case 'share':
+                                        unawaited(_shareFolder(folder));
                                       case 'delete':
                                         unawaited(_deleteFolder(folder));
                                     }
@@ -1005,6 +1129,11 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                                       value: 'moveFolder',
                                       child: Text(l.cloudMoveFolder),
                                     ),
+                                    if (_capabilityService != null)
+                                      PopupMenuItem(
+                                        value: 'share',
+                                        child: Text(l.cloudFolderShare),
+                                      ),
                                     PopupMenuItem(
                                       value: 'delete',
                                       child: Text(l.cloudFolderDelete),
@@ -2341,6 +2470,146 @@ String _formatBytes(int bytes) {
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MiB';
   }
   return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GiB';
+}
+
+/// Browses one received folder bearer link: fetches the listing anonymously,
+/// renders the (read-only) tree, and downloads+adopts individual files on
+/// demand. No content bytes are held until the user taps download.
+class CloudReceivedFolderScreen extends StatefulWidget {
+  const CloudReceivedFolderScreen({
+    super.key,
+    required this.capabilities,
+    required this.cloud,
+    required this.link,
+  });
+
+  final CloudCapabilityService capabilities;
+  final CloudService cloud;
+  final String link;
+
+  @override
+  State<CloudReceivedFolderScreen> createState() =>
+      _CloudReceivedFolderScreenState();
+}
+
+class _CloudReceivedFolderScreenState extends State<CloudReceivedFolderScreen> {
+  CloudFolderListing? _listing;
+  String? _error;
+  bool _loading = true;
+  final Set<String> _downloading = {};
+  final Set<String> _done = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final listing = await widget.capabilities.fetchFolderListing(widget.link);
+      if (mounted) setState(() => _listing = listing);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = AppL10n.of(context).cloudFolderOpenFailed);
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _download(CloudFolderListingEntry entry) async {
+    final cid = entry.manifest!.contentId;
+    if (_downloading.contains(cid)) return;
+    setState(() => _downloading.add(cid));
+    final l = AppL10n.of(context);
+    try {
+      final capability = await widget.capabilities.downloadFolderFile(
+        widget.link,
+        entry,
+      );
+      await widget.cloud.adoptCapability(capability);
+      if (mounted) {
+        setState(() => _done.add(cid));
+        _notice(l.cloudFolderFileDownloaded);
+      }
+    } catch (_) {
+      if (mounted) _notice(l.cloudFolderFileFailed);
+    } finally {
+      if (mounted) setState(() => _downloading.remove(cid));
+    }
+  }
+
+  void _notice(String text) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  List<Widget> _rows(List<CloudFolderListingEntry> entries, int depth) {
+    final widgets = <Widget>[];
+    for (final entry in entries) {
+      final pad = EdgeInsetsDirectional.only(start: 16.0 + 16.0 * depth);
+      if (entry.isFolder) {
+        widgets.add(
+          ListTile(
+            contentPadding: pad,
+            leading: const Icon(Icons.folder_outlined),
+            title: Text(
+              entry.name!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        );
+        widgets.addAll(_rows(entry.entries!, depth + 1));
+      } else {
+        final cid = entry.manifest!.contentId;
+        final l = AppL10n.of(context);
+        widgets.add(
+          ListTile(
+            contentPadding: pad,
+            leading: const Icon(Icons.insert_drive_file_outlined),
+            title: Text(
+              entry.name!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(_formatBytes(entry.size ?? 0)),
+            trailing: _done.contains(cid)
+                ? const Icon(Icons.cloud_done)
+                : _downloading.contains(cid)
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : TextButton(
+                    key: ValueKey('cloud-folder-file-$cid'),
+                    onPressed: () => unawaited(_download(entry)),
+                    child: Text(l.cloudFolderFileDownload),
+                  ),
+          ),
+        );
+      }
+    }
+    return widgets;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final listing = _listing;
+    return Scaffold(
+      appBar: AppBar(title: Text(listing?.name ?? l.cloudFolderOpenTitle)),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+          ? Center(child: Text(_error!))
+          : listing == null
+          ? Center(child: Text(l.cloudFolderOpenFailed))
+          : ListView(children: _rows(listing.entries, 0)),
+    );
+  }
 }
 
 /// A RandomAccessFile has one mutable cursor. [ContentManifest.fromReader]
