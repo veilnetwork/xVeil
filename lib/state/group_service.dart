@@ -7636,6 +7636,74 @@ class GroupService {
     );
   }
 
+  /// Serve-time retention cuts. The read-time filter drops the expired prefix
+  /// from a served snapshot, but until the sweep physically deletes it there is
+  /// no stored cut — so a receiver would orphan the retained suffix (its
+  /// prevHash points to an excluded row). Synthesize, per scope, a cut for the
+  /// read-time-retired prefix (matching the serve exclusion boundary) and merge
+  /// it with the bundle's own cuts, so the served rcut lets the receiver
+  /// re-anchor. Read-only: this never deletes; the sweep still owns deletion.
+  Map<String, SpaceRetentionCut> _serveRetentionCuts(
+    GroupBundle b,
+    List<SpaceRetentionRevision> revisions,
+    Map<String, int> hiddenThroughMs,
+    int atMs,
+  ) {
+    if (!b.manifest.isSpace ||
+        (revisions.isEmpty && hiddenThroughMs.isEmpty)) {
+      return b.retentionCuts;
+    }
+    final byChain = <String, List<GroupMessage>>{};
+    for (final m in b.messages) {
+      if (!_validMessageFor(b.manifest.groupId, m)) continue;
+      byChain
+          .putIfAbsent(
+            retentionCutKey(_messageChainScope(b.manifest, m), m.author),
+            () => [],
+          )
+          .add(m);
+    }
+    final forks = _messageForks(
+      b.manifest,
+      _retainedMessageRows(b.manifest, b.messages),
+    );
+    final cuts = <String, SpaceRetentionCut>{...b.retentionCuts};
+    for (final entry in byChain.entries) {
+      final rows = entry.value
+        ..sort((left, right) => left.seq.compareTo(right.seq));
+      final scope = _messageChainScope(b.manifest, rows.first);
+      final fork = forks[entry.key];
+      final priorCutSeq = b.retentionCuts[entry.key]?.throughSeq ?? -1;
+      GroupMessage? lastRetired;
+      for (final m in rows) {
+        if (m.seq <= priorCutSeq) continue;
+        if (fork != null && m.seq >= fork.seq) break;
+        if (!_retentionRetiresMessage(
+          manifest: b.manifest,
+          revisions: revisions,
+          hiddenThroughMs: hiddenThroughMs,
+          message: m,
+          atMs: atMs,
+        )) {
+          break;
+        }
+        lastRetired = m;
+      }
+      if (lastRetired == null) continue;
+      final prior = cuts[entry.key];
+      if (prior == null || lastRetired.seq > prior.throughSeq) {
+        cuts[entry.key] = SpaceRetentionCut(
+          scope: scope,
+          author: rows.first.author,
+          throughSeq: lastRetired.seq,
+          throughHash: groupMessageHash(lastRetired),
+          throughCreatedAtMs: lastRetired.createdAtMs,
+        );
+      }
+    }
+    return cuts;
+  }
+
   /// Validate a remote retention-cut hint against the local signed retention
   /// timeline. The claimed boundary must itself be expired under the fold and
   /// must not cover any locally retained, still-live row in the same chain.
@@ -16341,6 +16409,16 @@ class GroupService {
           )
         : null;
     if (overlayId != null) _rememberOverlayDelta(overlayId);
+    // Cuts covering the read-time-excluded prefix so the peer can re-anchor the
+    // retained suffix served above even before either side has swept.
+    final syncServeCuts = retention == null
+        ? b.retentionCuts
+        : _serveRetentionCuts(
+            b,
+            retention.revisions,
+            retention.hiddenThroughMs,
+            retireAtMs,
+          );
     final receipt = _beginSpaceReceipt(
       b,
       peer,
@@ -16374,8 +16452,8 @@ class GroupService {
               for (final envelope in missingChannelEpochEnvelopes)
                 envelope.toJson(),
             ],
-          if (b.retentionCuts.isNotEmpty)
-            'rcut': [for (final cut in b.retentionCuts.values) cut.toJson()],
+          if (syncServeCuts.isNotEmpty)
+            'rcut': [for (final cut in syncServeCuts.values) cut.toJson()],
           'ov': ?overlayId,
           'rcpt': ?receipt,
         }),
@@ -18471,6 +18549,14 @@ class GroupService {
     // sync path and by the physical sweep that removes the rows themselves.
     final retentionRevisions = _clearRetentionRevisions(b);
     final retireAtMs = _now();
+    // Include cuts for the prefix excluded above so the recipient can
+    // re-anchor the retained suffix even before this node has swept.
+    final serveCuts = _serveRetentionCuts(
+      b,
+      retentionRevisions,
+      const {},
+      retireAtMs,
+    );
     return jsonEncode({
       'm': b.manifest.toJson(),
       'c': b.control
@@ -18597,8 +18683,8 @@ class GroupService {
         'ke': epochEnvelopes.map((entry) => entry.toJson()).toList(),
       if (channelEpochEnvelopes.isNotEmpty)
         'cke': channelEpochEnvelopes.map((entry) => entry.toJson()).toList(),
-      if (distributesContent && b.retentionCuts.isNotEmpty)
-        'rcut': [for (final cut in b.retentionCuts.values) cut.toJson()],
+      if (distributesContent && serveCuts.isNotEmpty)
+        'rcut': [for (final cut in serveCuts.values) cut.toJson()],
       if (b.sovereignBundle != null) 's': base64Encode(b.sovereignBundle!),
       'rcpt': ?receipt,
     });
