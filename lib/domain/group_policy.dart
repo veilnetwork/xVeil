@@ -1922,7 +1922,7 @@ GroupFoldResult foldControlLog({
               (record) =>
                   record.action.target == id &&
                   record.action.kind.removesMembership &&
-                  record.isActiveAt(e.createdAtMs),
+                  record.barsReadmissionAt(e.createdAtMs),
             )) {
           rejected.add(e);
           continue;
