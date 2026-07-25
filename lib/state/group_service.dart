@@ -6374,7 +6374,8 @@ class GroupService {
   /// the OS clock steps backwards). Distributed fold still uses author/seq;
   /// this monotonic timestamp additionally makes `fromJoin` boundaries exact.
   int _now() {
-    final wall = debugWallClockMs?.call() ?? DateTime.now().millisecondsSinceEpoch;
+    final wall =
+        debugWallClockMs?.call() ?? DateTime.now().millisecondsSinceEpoch;
     _lastTimestampMs = wall > _lastTimestampMs ? wall : _lastTimestampMs + 1;
     return _lastTimestampMs;
   }
@@ -7567,8 +7568,7 @@ class GroupService {
     required GroupMessage message,
     required int atMs,
   }) {
-    if (!manifest.isSpace ||
-        (revisions.isEmpty && hiddenThroughMs.isEmpty)) {
+    if (!manifest.isSpace || (revisions.isEmpty && hiddenThroughMs.isEmpty)) {
       return false;
     }
     final NodeId? effectiveChannelId = message.spacePostId != null
@@ -7617,8 +7617,7 @@ class GroupService {
     required GroupReaction reaction,
     required int atMs,
   }) {
-    if (!manifest.isSpace ||
-        (revisions.isEmpty && hiddenThroughMs.isEmpty)) {
+    if (!manifest.isSpace || (revisions.isEmpty && hiddenThroughMs.isEmpty)) {
       return false;
     }
     final channelId = reaction.channelId;
@@ -7649,8 +7648,7 @@ class GroupService {
     Map<String, int> hiddenThroughMs,
     int atMs,
   ) {
-    if (!b.manifest.isSpace ||
-        (revisions.isEmpty && hiddenThroughMs.isEmpty)) {
+    if (!b.manifest.isSpace || (revisions.isEmpty && hiddenThroughMs.isEmpty)) {
       return b.retentionCuts;
     }
     final byChain = <String, List<GroupMessage>>{};
@@ -8264,6 +8262,66 @@ class GroupService {
   Future<void> _setIndex(List<String> ids) =>
       _storage.putSetting('groups.index', jsonEncode(ids));
 
+  // ── Group-kind hint index. PURE PERF HINT: the hourly maintenance loops
+  // (retention sweep, deleted-Space purge) used to load and decrypt EVERY
+  // bundle just to learn `manifest.isSpace` / "has any retention row" —
+  // ~30s on a grown store. The hint lets them skip bundles that cannot
+  // match. Correctness never depends on it: a missing/unreadable hint means
+  // "load the bundle as before" (fail-open), and it is recomputed from the
+  // full bundle on every save. The hint is written BEFORE the bundle blob so
+  // a crash between the two can only over-approximate (claim a retention row
+  // the old blob does not have yet), which costs one load — never a skipped
+  // enforcement.
+  //
+  // Values: 'g' legacy group; 's' Space with no setRetention control rows
+  // (can never have a bounded policy to enforce); 'sb' Space with at least
+  // one setRetention row (a syntactic over-approximation of "bounded":
+  // materialized revisions exist only for setRetention entries).
+
+  String _groupKindHintKey(String hex) => 'group.kind.v1.$hex';
+  final Map<String, String> _groupKindHints = {};
+
+  String _computeGroupKindHint(GroupBundle b) => !b.manifest.isSpace
+      ? 'g'
+      : b.control.any((entry) => entry.op == ControlOp.setRetention)
+      ? 'sb'
+      : 's';
+
+  Future<String?> _readGroupKindHint(String hex) async {
+    final cached = _groupKindHints[hex];
+    if (cached != null) return cached;
+    final raw = await _storage.getSetting(_groupKindHintKey(hex));
+    if (raw == 'g' || raw == 's' || raw == 'sb') {
+      _groupKindHints[hex] = raw!;
+      return raw;
+    }
+    return null;
+  }
+
+  Future<void> _writeGroupKindHint(String hex, String hint) async {
+    if (_groupKindHints[hex] == hint) return;
+    try {
+      if (await _storage.getSetting(_groupKindHintKey(hex)) != hint) {
+        await _storage.putSetting(_groupKindHintKey(hex), hint);
+      }
+      _groupKindHints[hex] = hint;
+    } catch (_) {
+      // Never let a hint write failure break a save; the next maintenance
+      // pass simply loads the bundle.
+      _groupKindHints.remove(hex);
+    }
+  }
+
+  Future<void> _clearGroupKindHint(String hex) async {
+    _groupKindHints.remove(hex);
+    try {
+      await _storage.putSetting(_groupKindHintKey(hex), '');
+    } catch (_) {
+      // A stale hint on a purged id is harmless: the bundle is gone, so a
+      // later maintenance load simply finds nothing.
+    }
+  }
+
   String _spaceDeletionTombstoneKey(NodeId spaceId) =>
       'space.deleted:${spaceId.hex}.v1';
 
@@ -8454,6 +8512,10 @@ class GroupService {
       if (b.retentionCuts.isNotEmpty)
         'rcut': [for (final cut in b.retentionCuts.values) cut.toJson()],
     });
+    // Hint first: a crash between the two writes may only claim MORE than
+    // the stored blob (e.g. a retention row the old blob lacks), which makes
+    // maintenance load the bundle — never skip one it must enforce.
+    await _writeGroupKindHint(b.manifest.groupId.hex, _computeGroupKindHint(b));
     await _storage.storeFile(
       _key(b.manifest.groupId),
       Uint8List.fromList(utf8.encode(json)),
@@ -8936,10 +8998,20 @@ class GroupService {
       } catch (_) {
         continue;
       }
+      // Kind hint: 'g' (not a Space) and 's' (Space with zero setRetention
+      // rows — materialized revisions can only come from such rows) cannot
+      // have anything to enforce; skip the expensive load. Missing hint →
+      // load as before and backfill so the next hourly pass skips.
+      final hint = await _readGroupKindHint(hex);
+      if (hint == 'g' || hint == 's') continue;
       try {
         await _serialized(spaceId, () async {
           final b = await load(spaceId);
-          if (b == null || !b.manifest.isSpace) return;
+          if (b == null) return;
+          if (hint == null) {
+            await _writeGroupKindHint(hex, _computeGroupKindHint(b));
+          }
+          if (!b.manifest.isSpace) return;
           final state = foldControlLog(
             owner: b.manifest.owner,
             entries: b.control,
@@ -9155,10 +9227,18 @@ class GroupService {
       } catch (_) {
         continue;
       }
+      // A hinted legacy group can never be a deleted Space; skip its load.
+      // (Index cleanup for missing bundles only ever applies to Space
+      // tombstones, which clear their hint on purge, so 'g' stays accurate.)
+      final hint = await _readGroupKindHint(hex);
+      if (hint == 'g') continue;
       final bundle = await load(spaceId);
       if (bundle == null) {
         if (await deletedSpaceTombstone(spaceId) != null) removedIds.add(hex);
         continue;
+      }
+      if (hint == null) {
+        await _writeGroupKindHint(hex, _computeGroupKindHint(bundle));
       }
       if (!bundle.manifest.isSpace) {
         continue;
@@ -9207,6 +9287,7 @@ class GroupService {
             ),
           );
           await _storage.deleteStoredFile(_key(spaceId));
+          await _clearGroupKindHint(spaceId.hex);
           return true;
         });
         if (didPurge) {

@@ -13275,10 +13275,7 @@ void main() {
       expect(bobState.coverContentId, cover);
 
       expect(
-        await bobSvc.setSpaceProfileMedia(
-          spaceId,
-          avatarContentId: 'c' * 64,
-        ),
+        await bobSvc.setSpaceProfileMedia(spaceId, avatarContentId: 'c' * 64),
         isFalse,
         reason: 'a plain member cannot re-point the community profile',
       );
@@ -13304,185 +13301,328 @@ void main() {
     },
   );
 
-  test(
-    'permanentBan cuts the banned device off from every holder and from '
-    'rotated epoch material',
-    () async {
-      final ownerStorage = FakeHvContainer().storage();
-      final bobStorage = FakeHvContainer().storage();
-      final carolStorage = FakeHvContainer().storage();
-      for (final storage in [ownerStorage, bobStorage, carolStorage]) {
-        await storage.open(password: 'pw', createIfMissing: true);
-      }
-      final bobGrants = <(NodeId, String)>[];
-      final ownerGrants = <(NodeId, String)>[];
-      final ownerSvc = GroupService(
-        ownerStorage,
-        _FakeSigner(owner),
-        grantContentServe: (peer, contentId) =>
-            ownerGrants.add((peer, contentId)),
-        contentGrantDelay: Duration.zero,
-      );
-      final bobSvc = GroupService(
-        bobStorage,
-        _FakeSigner(bob),
-        grantContentServe: (peer, contentId) =>
-            bobGrants.add((peer, contentId)),
-        contentGrantDelay: Duration.zero,
-      );
-      final carolSvc = GroupService(carolStorage, _FakeSigner(carol));
-      addTearDown(ownerSvc.dispose);
-      addTearDown(bobSvc.dispose);
-      addTearDown(carolSvc.dispose);
+  test('permanentBan cuts the banned device off from every holder and from '
+      'rotated epoch material', () async {
+    final ownerStorage = FakeHvContainer().storage();
+    final bobStorage = FakeHvContainer().storage();
+    final carolStorage = FakeHvContainer().storage();
+    for (final storage in [ownerStorage, bobStorage, carolStorage]) {
+      await storage.open(password: 'pw', createIfMissing: true);
+    }
+    final bobGrants = <(NodeId, String)>[];
+    final ownerGrants = <(NodeId, String)>[];
+    final ownerSvc = GroupService(
+      ownerStorage,
+      _FakeSigner(owner),
+      grantContentServe: (peer, contentId) =>
+          ownerGrants.add((peer, contentId)),
+      contentGrantDelay: Duration.zero,
+    );
+    final bobSvc = GroupService(
+      bobStorage,
+      _FakeSigner(bob),
+      grantContentServe: (peer, contentId) => bobGrants.add((peer, contentId)),
+      contentGrantDelay: Duration.zero,
+    );
+    final carolSvc = GroupService(carolStorage, _FakeSigner(carol));
+    addTearDown(ownerSvc.dispose);
+    addTearDown(bobSvc.dispose);
+    addTearDown(carolSvc.dispose);
 
-      final cid = sha256.convert(const [4, 2, 4]).toString();
-      final bytes = Uint8List.fromList(const [4, 2, 4]);
-      final spaceId = await ownerSvc.createSpace(
-        'Ban cut-off',
-        visibility: SpaceVisibility.public,
+    final cid = sha256.convert(const [4, 2, 4]).toString();
+    final bytes = Uint8List.fromList(const [4, 2, 4]);
+    final spaceId = await ownerSvc.createSpace(
+      'Ban cut-off',
+      visibility: SpaceVisibility.public,
+    );
+    for (final member in [bob, carol]) {
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: member,
+          role: GroupRole.member,
+        ),
+        isTrue,
       );
-      for (final member in [bob, carol]) {
+    }
+    expect(
+      await ownerSvc.publishSpacePost(
+        spaceId,
+        body: 'replicated media',
+        media: [
+          MediaObjectRef(contentId: cid, kind: 'file', size: bytes.length),
+        ],
+        broadcast: false,
+      ),
+      isNotNull,
+    );
+    await ownerStorage.storeFile(cid, bytes, name: 'owner');
+    await bobStorage.storeFile(cid, bytes, name: 'replica');
+    final beforeBan = (await ownerSvc.load(spaceId))!;
+    expect(
+      await bobSvc.ingestSnapshot(
+        ownerSvc.snapshotJson(beforeBan, recipient: bob),
+      ),
+      isTrue,
+    );
+    expect(
+      await carolSvc.ingestSnapshot(
+        ownerSvc.snapshotJson(beforeBan, recipient: carol),
+      ),
+      isTrue,
+    );
+    final epochBeforeBan = (await ownerSvc.stateOf(spaceId))!.epoch;
+
+    // The signed moderation row removes membership and rotates the epoch
+    // in one fold step.
+    final banId = await ownerSvc.moderateSpace(
+      spaceId,
+      kind: SpaceModerationKind.permanentBan,
+      target: carol,
+      scope: SpaceModerationScope.space,
+      reason: 'adversarial holder cut-off test',
+    );
+    expect(banId, isNotNull);
+    final stateAfterBan = (await ownerSvc.stateOf(spaceId))!;
+    expect(stateAfterBan.isMember(carol), isFalse);
+    expect(stateAfterBan.epoch, greaterThan(epochBeforeBan));
+
+    // Every holder that has folded the ban refuses the banned device with
+    // its OWN fold — the owner being offline is irrelevant.
+    expect(
+      await bobSvc.ingestSnapshot(
+        ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!, recipient: bob),
+      ),
+      isTrue,
+    );
+    final staleCarolRequest = _FakeSigner(carol).signContentRequest(
+      GroupContentRequest(
+        groupId: spaceId,
+        contentId: cid,
+        requester: carol,
+        nonce: 'banned-carol-stale-request',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+        signature: Uint8List(0),
+      ),
+    );
+    expect(
+      await bobSvc.handleContentRequest(jsonEncode(staleCarolRequest.toJson())),
+      isFalse,
+      reason: 'a banned member must not be served by a secondary holder',
+    );
+    expect(bobGrants, isEmpty);
+    expect(
+      (await bobSvc.spaceObservabilitySnapshot())
+          .counters['revokedDeliveryPrevented.reason.notMember'],
+      1,
+    );
+    expect(
+      await ownerSvc.handleContentRequest(
+        jsonEncode(
+          _FakeSigner(carol)
+              .signContentRequest(
+                GroupContentRequest(
+                  groupId: spaceId,
+                  contentId: cid,
+                  requester: carol,
+                  nonce: 'banned-carol-to-owner',
+                  tsMs: DateTime.now().millisecondsSinceEpoch,
+                  signature: Uint8List(0),
+                ),
+              )
+              .toJson(),
+        ),
+      ),
+      isFalse,
+    );
+    expect(ownerGrants, isEmpty);
+
+    // Post-ban rotated epoch material never reaches the banned device: the
+    // recipient-scoped snapshot carries no envelope for any epoch minted at
+    // or after the ban, so already-leaked ciphertext stays undecryptable.
+    final ownerAfterBan = (await ownerSvc.load(spaceId))!;
+    final carolEnvelopeEpochs = ownerAfterBan.epochEnvelopes
+        .where((envelope) => envelope.recipient == carol)
+        .map((envelope) => envelope.epoch)
+        .toSet();
+    expect(
+      carolEnvelopeEpochs.where((epoch) => epoch >= stateAfterBan.epoch),
+      isEmpty,
+      reason: 'no post-ban epoch envelope may be minted for the banned id',
+    );
+    final servedToCarol =
+        jsonDecode(ownerSvc.snapshotJson(ownerAfterBan, recipient: carol))
+            as Map<String, dynamic>;
+    expect(
+      (servedToCarol['ke'] as List? ?? const []),
+      isEmpty,
+      reason: 'a non-member snapshot must not carry epoch envelopes',
+    );
+
+    // Even force-feeding the full post-ban log to the banned device gives
+    // it nothing readable: its own fold removes its membership.
+    expect(
+      await carolSvc.ingestSnapshot(
+        ownerSvc.snapshotJson(ownerAfterBan, recipient: carol),
+      ),
+      isTrue,
+    );
+    expect(await carolSvc.messagesOf(spaceId), isEmpty);
+    expect(
+      (await carolSvc.stateOf(spaceId))!.isMember(carol),
+      isFalse,
+      reason: 'the banned device fold must converge to non-membership',
+    );
+  });
+
+  group('group-kind maintenance hint', () {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const graceMs = 7 * dayMs;
+    final baseMs = DateTime.now().millisecondsSinceEpoch;
+
+    String hintKey(NodeId id) => 'group.kind.v1.${id.hex}';
+
+    test('save keeps the kind hint fresh across the lifecycle', () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner));
+      var wall = baseMs;
+      service.debugWallClockMs = () => wall;
+
+      final groupId = await service.createGroup('Plain group');
+      expect(await storage.getSetting(hintKey(groupId)), 'g');
+
+      final spaceId = await service.createSpace('Hinted');
+      expect(await storage.getSetting(hintKey(spaceId)), 's');
+
+      expect(
+        await service.setSpaceRetentionPolicy(
+          spaceId,
+          SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.deleteAfter,
+            retentionMs: dayMs,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        await storage.getSetting(hintKey(spaceId)),
+        'sb',
+        reason: 'a setRetention control row upgrades the hint',
+      );
+
+      expect(await service.convertGroupToSpace(groupId), isTrue);
+      expect(
+        await storage.getSetting(hintKey(groupId)),
+        's',
+        reason: 'conversion re-derives the hint from the saved bundle',
+      );
+    });
+
+    test(
+      'a pre-hint store still enforces retention and backfills the hint',
+      () async {
+        final storage = FakeHvContainer().storage();
+        await storage.open(password: 'pw', createIfMissing: true);
+        final service = GroupService(storage, _FakeSigner(owner));
+        var wall = baseMs;
+        service.debugWallClockMs = () => wall;
+        final spaceId = await service.createSpace('Legacy store');
+        expect(await service.postMessage(spaceId, 'expired row'), isTrue);
         expect(
-          await ownerSvc.addControlOp(
+          await service.setSpaceRetentionPolicy(
             spaceId,
-            ControlOp.addMember,
-            target: member,
-            role: GroupRole.member,
+            SpaceRetentionPolicy(
+              mode: SpaceRetentionMode.deleteAfter,
+              retentionMs: dayMs,
+            ),
           ),
           isTrue,
         );
-      }
+        // Simulate a store written before the hint existed.
+        await storage.putSetting(hintKey(spaceId), '');
+
+        // A fresh service (empty hint cache) must fail OPEN: load the
+        // bundle, enforce, and backfill the hint for the next pass.
+        final restarted = GroupService(storage, _FakeSigner(owner));
+        restarted.debugWallClockMs = () => wall;
+        final sweepAt = baseMs + dayMs + graceMs + 60 * 60 * 1000;
+        wall = sweepAt;
+        final sweep = await restarted.sweepSpaceRetention(nowMs: sweepAt);
+        expect(sweep.complete, isTrue);
+        expect(sweep.messagesDeleted, 1);
+        expect(await storage.getSetting(hintKey(spaceId)), 'sb');
+      },
+    );
+
+    test(
+      'the sweep trusts the hint and skips non-candidates without loading',
+      () async {
+        final storage = FakeHvContainer().storage();
+        await storage.open(password: 'pw', createIfMissing: true);
+        final service = GroupService(storage, _FakeSigner(owner));
+        var wall = baseMs;
+        service.debugWallClockMs = () => wall;
+        final spaceId = await service.createSpace('Skipped');
+        expect(await service.postMessage(spaceId, 'expired row'), isTrue);
+        expect(
+          await service.setSpaceRetentionPolicy(
+            spaceId,
+            SpaceRetentionPolicy(
+              mode: SpaceRetentionMode.deleteAfter,
+              retentionMs: dayMs,
+            ),
+          ),
+          isTrue,
+        );
+        final sweepAt = baseMs + dayMs + graceMs + 60 * 60 * 1000;
+
+        // A (deliberately wrong) legacy-group hint makes a fresh service
+        // skip the Space entirely — proving the skip path never loads.
+        await storage.putSetting(hintKey(spaceId), 'g');
+        final hinted = GroupService(storage, _FakeSigner(owner));
+        hinted.debugWallClockMs = () => wall;
+        wall = sweepAt;
+        final skipped = await hinted.sweepSpaceRetention(nowMs: sweepAt);
+        expect(skipped.scanned, 0);
+        expect(skipped.messagesDeleted, 0);
+
+        // Clearing the hint restores enforcement (fail-open on missing).
+        await storage.putSetting(hintKey(spaceId), '');
+        final repaired = GroupService(storage, _FakeSigner(owner));
+        repaired.debugWallClockMs = () => wall;
+        final enforced = await repaired.sweepSpaceRetention(nowMs: sweepAt);
+        expect(enforced.messagesDeleted, 1);
+      },
+    );
+
+    test('purging a deleted Space clears its hint', () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner));
+      var wall = baseMs;
+      service.debugWallClockMs = () => wall;
+      final spaceId = await service.createSpace('Purged');
+      expect(await storage.getSetting(hintKey(spaceId)), 's');
       expect(
-        await ownerSvc.publishSpacePost(
+        await service.deleteSpace(
           spaceId,
-          body: 'replicated media',
-          media: [
-            MediaObjectRef(contentId: cid, kind: 'file', size: bytes.length),
-          ],
-          broadcast: false,
-        ),
-        isNotNull,
-      );
-      await ownerStorage.storeFile(cid, bytes, name: 'owner');
-      await bobStorage.storeFile(cid, bytes, name: 'replica');
-      final beforeBan = (await ownerSvc.load(spaceId))!;
-      expect(
-        await bobSvc.ingestSnapshot(
-          ownerSvc.snapshotJson(beforeBan, recipient: bob),
+          recoveryPeriod: const Duration(milliseconds: 1),
         ),
         isTrue,
       );
-      expect(
-        await carolSvc.ingestSnapshot(
-          ownerSvc.snapshotJson(beforeBan, recipient: carol),
-        ),
-        isTrue,
-      );
-      final epochBeforeBan = (await ownerSvc.stateOf(spaceId))!.epoch;
-
-      // The signed moderation row removes membership and rotates the epoch
-      // in one fold step.
-      final banId = await ownerSvc.moderateSpace(
+      final deadline = (await service.stateOf(
         spaceId,
-        kind: SpaceModerationKind.permanentBan,
-        target: carol,
-        scope: SpaceModerationScope.space,
-        reason: 'adversarial holder cut-off test',
-      );
-      expect(banId, isNotNull);
-      final stateAfterBan = (await ownerSvc.stateOf(spaceId))!;
-      expect(stateAfterBan.isMember(carol), isFalse);
-      expect(stateAfterBan.epoch, greaterThan(epochBeforeBan));
-
-      // Every holder that has folded the ban refuses the banned device with
-      // its OWN fold — the owner being offline is irrelevant.
+      ))!.lifecycleTransition!.recoveryDeadlineMs!;
+      expect((await service.purgeDeletedSpaces(nowMs: deadline)).purged, 1);
       expect(
-        await bobSvc.ingestSnapshot(
-          ownerSvc.snapshotJson(
-            (await ownerSvc.load(spaceId))!,
-            recipient: bob,
-          ),
-        ),
-        isTrue,
+        await storage.getSetting(hintKey(spaceId)),
+        anyOf(isNull, isEmpty),
+        reason: 'a purged Space leaves no stale hint behind',
       );
-      final staleCarolRequest = _FakeSigner(carol).signContentRequest(
-        GroupContentRequest(
-          groupId: spaceId,
-          contentId: cid,
-          requester: carol,
-          nonce: 'banned-carol-stale-request',
-          tsMs: DateTime.now().millisecondsSinceEpoch,
-          signature: Uint8List(0),
-        ),
-      );
-      expect(
-        await bobSvc.handleContentRequest(jsonEncode(staleCarolRequest.toJson())),
-        isFalse,
-        reason: 'a banned member must not be served by a secondary holder',
-      );
-      expect(bobGrants, isEmpty);
-      expect(
-        (await bobSvc.spaceObservabilitySnapshot())
-            .counters['revokedDeliveryPrevented.reason.notMember'],
-        1,
-      );
-      expect(
-        await ownerSvc.handleContentRequest(
-          jsonEncode(
-            _FakeSigner(carol).signContentRequest(
-              GroupContentRequest(
-                groupId: spaceId,
-                contentId: cid,
-                requester: carol,
-                nonce: 'banned-carol-to-owner',
-                tsMs: DateTime.now().millisecondsSinceEpoch,
-                signature: Uint8List(0),
-              ),
-            ).toJson(),
-          ),
-        ),
-        isFalse,
-      );
-      expect(ownerGrants, isEmpty);
-
-      // Post-ban rotated epoch material never reaches the banned device: the
-      // recipient-scoped snapshot carries no envelope for any epoch minted at
-      // or after the ban, so already-leaked ciphertext stays undecryptable.
-      final ownerAfterBan = (await ownerSvc.load(spaceId))!;
-      final carolEnvelopeEpochs = ownerAfterBan.epochEnvelopes
-          .where((envelope) => envelope.recipient == carol)
-          .map((envelope) => envelope.epoch)
-          .toSet();
-      expect(
-        carolEnvelopeEpochs.where((epoch) => epoch >= stateAfterBan.epoch),
-        isEmpty,
-        reason: 'no post-ban epoch envelope may be minted for the banned id',
-      );
-      final servedToCarol =
-          jsonDecode(ownerSvc.snapshotJson(ownerAfterBan, recipient: carol))
-              as Map<String, dynamic>;
-      expect(
-        (servedToCarol['ke'] as List? ?? const []),
-        isEmpty,
-        reason: 'a non-member snapshot must not carry epoch envelopes',
-      );
-
-      // Even force-feeding the full post-ban log to the banned device gives
-      // it nothing readable: its own fold removes its membership.
-      expect(
-        await carolSvc.ingestSnapshot(
-          ownerSvc.snapshotJson(ownerAfterBan, recipient: carol),
-        ),
-        isTrue,
-      );
-      expect(await carolSvc.messagesOf(spaceId), isEmpty);
-      expect(
-        (await carolSvc.stateOf(spaceId))!.isMember(carol),
-        isFalse,
-        reason: 'the banned device fold must converge to non-membership',
-      );
-    },
-  );
+    });
+  });
 
   group('retention execution', () {
     const dayMs = 24 * 60 * 60 * 1000;
@@ -13502,160 +13642,91 @@ void main() {
       return (service, spaceId, () => wall, (int value) => wall = value);
     }
 
-    test(
-      'sweep keeps the retained suffix visible when the chain scope has seq '
-      'gaps (author interleaves channels)',
-      () async {
-        final (service, spaceId, _, setWall) = await retentionSpace();
-        final defaultChannel = (await service.channelsOf(spaceId)).single
-            .channelId;
-        final second = await service.createChannel(
-          spaceId,
-          name: 'second',
-          kind: SpaceChannelKind.text,
-        );
-        expect(second, isNotNull);
-        // Interleave posts across two channels so each channel's per-author
-        // seq is NON-contiguous (author seq is global across channels). The
-        // default channel gets author seqs 0 and 2 (gap at 1).
-        expect(
-          await service.postMessage(spaceId, 'a-old', channelId: defaultChannel),
-          isTrue,
-        );
-        expect(
-          await service.postMessage(spaceId, 'b-0', channelId: second),
-          isTrue,
-        );
-        // Activate the policy at T0 so the expired prefix qualifies at the
-        // grace-adjusted sweep instant below (a late activation would predate
-        // the grace window and delete nothing).
-        expect(
-          await service.setSpaceRetentionPolicy(
-            spaceId,
-            SpaceRetentionPolicy(
-              mode: SpaceRetentionMode.deleteAfter,
-              retentionMs: dayMs,
-            ),
-          ),
-          isTrue,
-        );
-        // A fresh row in the default channel, authored much later so it stays
-        // live at the sweep instant. Its author seq is 2 (1 was the b-channel).
-        setWall(baseMs + 7 * dayMs + 12 * 60 * 60 * 1000);
-        expect(
-          await service.postMessage(
-            spaceId,
-            'a-fresh',
-            channelId: defaultChannel,
-          ),
-          isTrue,
-        );
-
-        final sweepAt = baseMs + dayMs + graceMs + 60 * 60 * 1000;
-        setWall(sweepAt);
-        final sweep = await service.sweepSpaceRetention(nowMs: sweepAt);
-        expect(sweep.complete, isTrue);
-        expect(
-          sweep.messagesDeleted,
-          greaterThanOrEqualTo(1),
-          reason: 'the expired a-old row is deleted',
-        );
-
-        // The regression: before the hash re-anchor fix, the cut re-anchored
-        // on seq==throughSeq+1, but a-fresh sits at seq 2 while the deleted
-        // a-old was seq 0 — so the retained suffix was hidden. It must stay
-        // visible now (the cut re-anchors on the deleted row's hash).
-        final defaultMsgs = await service.messagesOf(
-          spaceId,
-          channelId: defaultChannel,
-        );
-        expect(
-          defaultMsgs.map((m) => m.body),
-          contains('a-fresh'),
-          reason: 'retained suffix must survive a sweep across a seq gap',
-        );
-        expect(
-          defaultMsgs.map((m) => m.body),
-          isNot(contains('a-old')),
-          reason: 'the expired prefix row is gone',
-        );
-      },
-    );
-
-    test(
-      'sweep deletes the expired chain prefix, records a cut and keeps the '
-      'retained suffix readable and appendable',
-      () async {
-        final (service, spaceId, _, setWall) = await retentionSpace();
-        // Three rows at T0; two rows late enough that they are still live
-        // (not merely inside grace) at the sweep instant below.
-        for (var i = 0; i < 3; i++) {
-          expect(await service.postMessage(spaceId, 'old-$i'), isTrue);
-        }
-        expect(
-          await service.setSpaceRetentionPolicy(
-            spaceId,
-            SpaceRetentionPolicy(
-              mode: SpaceRetentionMode.deleteAfter,
-              retentionMs: dayMs,
-            ),
-          ),
-          isTrue,
-        );
-        setWall(baseMs + 7 * dayMs + 12 * 60 * 60 * 1000);
-        for (var i = 0; i < 2; i++) {
-          expect(await service.postMessage(spaceId, 'fresh-$i'), isTrue);
-        }
-        final beforeRows = (await service.load(spaceId))!.messages.length;
-
-        // T0 rows expired at T0+1d and left grace at T0+8d; the T0+7.5d rows
-        // expire only at T0+8.5d, so they are fully live at this instant.
-        final sweepAt = baseMs + dayMs + graceMs + 60 * 60 * 1000;
-        setWall(sweepAt);
-        final sweep = await service.sweepSpaceRetention(nowMs: sweepAt);
-        expect(sweep.complete, isTrue);
-        expect(sweep.messagesDeleted, 3);
-        expect(sweep.cutsRecorded, 1);
-
-        final bundle = (await service.load(spaceId))!;
-        expect(bundle.messages.length, beforeRows - 3);
-        final cut = bundle.retentionCuts.values.single;
-        expect(cut.author, owner);
-        expect(cut.throughSeq, 2, reason: 'seqs 0..2 are the expired prefix');
-
-        // The retained suffix must stay part of the accepted chain (the cut
-        // re-anchors the fold) even though its predecessor rows are gone.
-        final visible = await service.messagesOf(spaceId);
-        expect(
-          visible.where((m) => m.author == owner).length,
-          2,
-          reason: 'suffix must not be hidden as a broken chain',
-        );
-
-        // Idempotent: nothing else to delete at the same instant.
-        final again = await service.sweepSpaceRetention(nowMs: sweepAt);
-        expect(again.messagesDeleted, 0);
-        expect(again.complete, isTrue);
-
-        // The author keeps appending on top of the retained head and never
-        // reuses a physically deleted sequence number.
-        expect(await service.postMessage(spaceId, 'after-sweep'), isTrue);
-        final afterRows = (await service.load(spaceId))!.messages;
-        final ownSeqs =
-            afterRows.where((m) => m.author == owner).map((m) => m.seq).toList()
-              ..sort();
-        expect(ownSeqs.first, greaterThan(cut.throughSeq));
-        expect(
-          (await service.messagesOf(spaceId)).length,
-          greaterThanOrEqualTo(3),
-        );
-      },
-    );
-
-    test('holder stops serving retention-expired rows before deletion', () async {
+    test('sweep keeps the retained suffix visible when the chain scope has seq '
+        'gaps (author interleaves channels)', () async {
       final (service, spaceId, _, setWall) = await retentionSpace();
+      final defaultChannel = (await service.channelsOf(
+        spaceId,
+      )).single.channelId;
+      final second = await service.createChannel(
+        spaceId,
+        name: 'second',
+        kind: SpaceChannelKind.text,
+      );
+      expect(second, isNotNull);
+      // Interleave posts across two channels so each channel's per-author
+      // seq is NON-contiguous (author seq is global across channels). The
+      // default channel gets author seqs 0 and 2 (gap at 1).
+      expect(
+        await service.postMessage(spaceId, 'a-old', channelId: defaultChannel),
+        isTrue,
+      );
+      expect(
+        await service.postMessage(spaceId, 'b-0', channelId: second),
+        isTrue,
+      );
+      // Activate the policy at T0 so the expired prefix qualifies at the
+      // grace-adjusted sweep instant below (a late activation would predate
+      // the grace window and delete nothing).
+      expect(
+        await service.setSpaceRetentionPolicy(
+          spaceId,
+          SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.deleteAfter,
+            retentionMs: dayMs,
+          ),
+        ),
+        isTrue,
+      );
+      // A fresh row in the default channel, authored much later so it stays
+      // live at the sweep instant. Its author seq is 2 (1 was the b-channel).
+      setWall(baseMs + 7 * dayMs + 12 * 60 * 60 * 1000);
+      expect(
+        await service.postMessage(
+          spaceId,
+          'a-fresh',
+          channelId: defaultChannel,
+        ),
+        isTrue,
+      );
+
+      final sweepAt = baseMs + dayMs + graceMs + 60 * 60 * 1000;
+      setWall(sweepAt);
+      final sweep = await service.sweepSpaceRetention(nowMs: sweepAt);
+      expect(sweep.complete, isTrue);
+      expect(
+        sweep.messagesDeleted,
+        greaterThanOrEqualTo(1),
+        reason: 'the expired a-old row is deleted',
+      );
+
+      // The regression: before the hash re-anchor fix, the cut re-anchored
+      // on seq==throughSeq+1, but a-fresh sits at seq 2 while the deleted
+      // a-old was seq 0 — so the retained suffix was hidden. It must stay
+      // visible now (the cut re-anchors on the deleted row's hash).
+      final defaultMsgs = await service.messagesOf(
+        spaceId,
+        channelId: defaultChannel,
+      );
+      expect(
+        defaultMsgs.map((m) => m.body),
+        contains('a-fresh'),
+        reason: 'retained suffix must survive a sweep across a seq gap',
+      );
+      expect(
+        defaultMsgs.map((m) => m.body),
+        isNot(contains('a-old')),
+        reason: 'the expired prefix row is gone',
+      );
+    });
+
+    test('sweep deletes the expired chain prefix, records a cut and keeps the '
+        'retained suffix readable and appendable', () async {
+      final (service, spaceId, _, setWall) = await retentionSpace();
+      // Three rows at T0; two rows late enough that they are still live
+      // (not merely inside grace) at the sweep instant below.
       for (var i = 0; i < 3; i++) {
-        expect(await service.postMessage(spaceId, 'row-$i'), isTrue);
+        expect(await service.postMessage(spaceId, 'old-$i'), isTrue);
       }
       expect(
         await service.setSpaceRetentionPolicy(
@@ -13667,22 +13738,91 @@ void main() {
         ),
         isTrue,
       );
-      final bundle = (await service.load(spaceId))!;
-      final servedFresh = jsonDecode(
-        service.snapshotJson(bundle, recipient: owner),
-      );
-      expect((servedFresh['g'] as List).length, 3);
+      setWall(baseMs + 7 * dayMs + 12 * 60 * 60 * 1000);
+      for (var i = 0; i < 2; i++) {
+        expect(await service.postMessage(spaceId, 'fresh-$i'), isTrue);
+      }
+      final beforeRows = (await service.load(spaceId))!.messages.length;
 
-      // Expired but still physically present (grace not over): the serve
-      // boundary must already exclude the rows.
-      setWall(baseMs + dayMs + 60 * 60 * 1000);
-      final served = jsonDecode(service.snapshotJson(bundle, recipient: owner));
+      // T0 rows expired at T0+1d and left grace at T0+8d; the T0+7.5d rows
+      // expire only at T0+8.5d, so they are fully live at this instant.
+      final sweepAt = baseMs + dayMs + graceMs + 60 * 60 * 1000;
+      setWall(sweepAt);
+      final sweep = await service.sweepSpaceRetention(nowMs: sweepAt);
+      expect(sweep.complete, isTrue);
+      expect(sweep.messagesDeleted, 3);
+      expect(sweep.cutsRecorded, 1);
+
+      final bundle = (await service.load(spaceId))!;
+      expect(bundle.messages.length, beforeRows - 3);
+      final cut = bundle.retentionCuts.values.single;
+      expect(cut.author, owner);
+      expect(cut.throughSeq, 2, reason: 'seqs 0..2 are the expired prefix');
+
+      // The retained suffix must stay part of the accepted chain (the cut
+      // re-anchors the fold) even though its predecessor rows are gone.
+      final visible = await service.messagesOf(spaceId);
       expect(
-        (served['g'] as List? ?? const []).length,
-        0,
-        reason: 'expired rows must not be redistributed even before deletion',
+        visible.where((m) => m.author == owner).length,
+        2,
+        reason: 'suffix must not be hidden as a broken chain',
+      );
+
+      // Idempotent: nothing else to delete at the same instant.
+      final again = await service.sweepSpaceRetention(nowMs: sweepAt);
+      expect(again.messagesDeleted, 0);
+      expect(again.complete, isTrue);
+
+      // The author keeps appending on top of the retained head and never
+      // reuses a physically deleted sequence number.
+      expect(await service.postMessage(spaceId, 'after-sweep'), isTrue);
+      final afterRows = (await service.load(spaceId))!.messages;
+      final ownSeqs =
+          afterRows.where((m) => m.author == owner).map((m) => m.seq).toList()
+            ..sort();
+      expect(ownSeqs.first, greaterThan(cut.throughSeq));
+      expect(
+        (await service.messagesOf(spaceId)).length,
+        greaterThanOrEqualTo(3),
       );
     });
+
+    test(
+      'holder stops serving retention-expired rows before deletion',
+      () async {
+        final (service, spaceId, _, setWall) = await retentionSpace();
+        for (var i = 0; i < 3; i++) {
+          expect(await service.postMessage(spaceId, 'row-$i'), isTrue);
+        }
+        expect(
+          await service.setSpaceRetentionPolicy(
+            spaceId,
+            SpaceRetentionPolicy(
+              mode: SpaceRetentionMode.deleteAfter,
+              retentionMs: dayMs,
+            ),
+          ),
+          isTrue,
+        );
+        final bundle = (await service.load(spaceId))!;
+        final servedFresh = jsonDecode(
+          service.snapshotJson(bundle, recipient: owner),
+        );
+        expect((servedFresh['g'] as List).length, 3);
+
+        // Expired but still physically present (grace not over): the serve
+        // boundary must already exclude the rows.
+        setWall(baseMs + dayMs + 60 * 60 * 1000);
+        final served = jsonDecode(
+          service.snapshotJson(bundle, recipient: owner),
+        );
+        expect(
+          (served['g'] as List? ?? const []).length,
+          0,
+          reason: 'expired rows must not be redistributed even before deletion',
+        );
+      },
+    );
 
     test(
       'a fresh peer sees the retained suffix when the server has NOT swept yet '
@@ -13882,125 +14022,131 @@ void main() {
       );
     });
 
-    test('remote retention-cut hints are validated against the signed policy', () async {
-      final (service, spaceId, _, setWall) = await retentionSpace();
-      expect(await service.postMessage(spaceId, 'live'), isTrue);
-      expect(
-        await service.setSpaceRetentionPolicy(
-          spaceId,
-          SpaceRetentionPolicy(
-            mode: SpaceRetentionMode.deleteAfter,
-            retentionMs: dayMs,
+    test(
+      'remote retention-cut hints are validated against the signed policy',
+      () async {
+        final (service, spaceId, _, setWall) = await retentionSpace();
+        expect(await service.postMessage(spaceId, 'live'), isTrue);
+        expect(
+          await service.setSpaceRetentionPolicy(
+            spaceId,
+            SpaceRetentionPolicy(
+              mode: SpaceRetentionMode.deleteAfter,
+              retentionMs: dayMs,
+            ),
           ),
-        ),
-        isTrue,
-      );
-      setWall(baseMs + 2 * dayMs);
-      final bundle = (await service.load(spaceId))!;
-      final snapshot =
-          jsonDecode(service.snapshotJson(bundle, recipient: owner))
-              as Map<String, dynamic>;
-      final liveRow = bundle.messages.firstWhere((m) => m.author == owner);
-      final scope =
-          '${defaultSpaceChannelId(spaceId).hex}'
-          '|membershipEpoch:${liveRow.membershipEpoch}';
-      // Every forged remote cut here must be REJECTED. An unsigned remote cut
-      // is only trusted when it carries the deleted-boundary hash AND the
-      // receiver holds the retained anchor (prevHash == throughHash); these
-      // fabricated cuts have neither, so none may be merged.
-      snapshot['rcut'] = [
-        // (1) a live (non-expired) boundary — even with a hash it must fail
-        // the expiry check.
-        {
-          'v': 1,
-          'scope': scope,
-          'a': liveRow.author.hex,
-          's': liveRow.seq + 5,
-          'h': 'a' * 64,
-          't': baseMs + 2 * dayMs - 1000,
-        },
-        // (2) an expired boundary but NO throughHash — a hash-less remote cut
-        // is never accepted.
-        {
-          'v': 1,
-          'scope': scope,
-          'a': _id(42).hex,
-          's': 0,
-          't': baseMs - 10 * dayMs,
-        },
-        // (3) an expired boundary WITH a hash but for an author whose chain the
-        // receiver never synced (no local anchor with that prevHash) — the
-        // censorship defence: a peer must not pre-emptively hide rows we have
-        // not seen.
-        {
-          'v': 1,
-          'scope': scope,
-          'a': _id(43).hex,
-          's': 0,
-          'h': 'b' * 64,
-          't': baseMs - 10 * dayMs,
-        },
-      ];
-      expect(await service.ingestSnapshot(jsonEncode(snapshot)), isTrue);
-      final cuts = (await service.load(spaceId))!.retentionCuts;
-      expect(
-        cuts,
-        isEmpty,
-        reason:
-            'no forged remote cut (live boundary / hash-less / no local '
-            'anchor) may be merged',
-      );
-    });
+          isTrue,
+        );
+        setWall(baseMs + 2 * dayMs);
+        final bundle = (await service.load(spaceId))!;
+        final snapshot =
+            jsonDecode(service.snapshotJson(bundle, recipient: owner))
+                as Map<String, dynamic>;
+        final liveRow = bundle.messages.firstWhere((m) => m.author == owner);
+        final scope =
+            '${defaultSpaceChannelId(spaceId).hex}'
+            '|membershipEpoch:${liveRow.membershipEpoch}';
+        // Every forged remote cut here must be REJECTED. An unsigned remote cut
+        // is only trusted when it carries the deleted-boundary hash AND the
+        // receiver holds the retained anchor (prevHash == throughHash); these
+        // fabricated cuts have neither, so none may be merged.
+        snapshot['rcut'] = [
+          // (1) a live (non-expired) boundary — even with a hash it must fail
+          // the expiry check.
+          {
+            'v': 1,
+            'scope': scope,
+            'a': liveRow.author.hex,
+            's': liveRow.seq + 5,
+            'h': 'a' * 64,
+            't': baseMs + 2 * dayMs - 1000,
+          },
+          // (2) an expired boundary but NO throughHash — a hash-less remote cut
+          // is never accepted.
+          {
+            'v': 1,
+            'scope': scope,
+            'a': _id(42).hex,
+            's': 0,
+            't': baseMs - 10 * dayMs,
+          },
+          // (3) an expired boundary WITH a hash but for an author whose chain the
+          // receiver never synced (no local anchor with that prevHash) — the
+          // censorship defence: a peer must not pre-emptively hide rows we have
+          // not seen.
+          {
+            'v': 1,
+            'scope': scope,
+            'a': _id(43).hex,
+            's': 0,
+            'h': 'b' * 64,
+            't': baseMs - 10 * dayMs,
+          },
+        ];
+        expect(await service.ingestSnapshot(jsonEncode(snapshot)), isTrue);
+        final cuts = (await service.load(spaceId))!.retentionCuts;
+        expect(
+          cuts,
+          isEmpty,
+          reason:
+              'no forged remote cut (live boundary / hash-less / no local '
+              'anchor) may be merged',
+        );
+      },
+    );
 
-    test('sweep removes expired unpinned posts and preserves pinned ones', () async {
-      final storage = FakeHvContainer().storage();
-      await storage.open(password: 'pw', createIfMissing: true);
-      final service = GroupService(storage, _FakeSigner(owner));
-      var wall = baseMs;
-      service.debugWallClockMs = () => wall;
-      void setWall(int value) => wall = value;
-      final spaceId = await service.createSpace(
-        'Retained posts',
-        visibility: SpaceVisibility.public,
-      );
-      final pinned = await service.publishSpacePost(
-        spaceId,
-        body: 'keep me',
-        title: 'pinned',
-        broadcast: false,
-      );
-      final expired = await service.publishSpacePost(
-        spaceId,
-        body: 'drop me',
-        title: 'expired',
-        broadcast: false,
-      );
-      expect(pinned, isNotNull);
-      expect(expired, isNotNull);
-      expect(
-        await service.setSpacePostPinned(spaceId, pinned!.postId, true),
-        isTrue,
-      );
-      expect(
-        await service.setSpaceRetentionPolicy(
+    test(
+      'sweep removes expired unpinned posts and preserves pinned ones',
+      () async {
+        final storage = FakeHvContainer().storage();
+        await storage.open(password: 'pw', createIfMissing: true);
+        final service = GroupService(storage, _FakeSigner(owner));
+        var wall = baseMs;
+        service.debugWallClockMs = () => wall;
+        void setWall(int value) => wall = value;
+        final spaceId = await service.createSpace(
+          'Retained posts',
+          visibility: SpaceVisibility.public,
+        );
+        final pinned = await service.publishSpacePost(
           spaceId,
-          SpaceRetentionPolicy(
-            mode: SpaceRetentionMode.deleteAfter,
-            retentionMs: dayMs,
+          body: 'keep me',
+          title: 'pinned',
+          broadcast: false,
+        );
+        final expired = await service.publishSpacePost(
+          spaceId,
+          body: 'drop me',
+          title: 'expired',
+          broadcast: false,
+        );
+        expect(pinned, isNotNull);
+        expect(expired, isNotNull);
+        expect(
+          await service.setSpacePostPinned(spaceId, pinned!.postId, true),
+          isTrue,
+        );
+        expect(
+          await service.setSpaceRetentionPolicy(
+            spaceId,
+            SpaceRetentionPolicy(
+              mode: SpaceRetentionMode.deleteAfter,
+              retentionMs: dayMs,
+            ),
           ),
-        ),
-        isTrue,
-      );
-      final sweepAt = baseMs + dayMs + graceMs + 60 * 60 * 1000;
-      setWall(sweepAt);
-      final sweep = await service.sweepSpaceRetention(nowMs: sweepAt);
-      expect(sweep.postsDeleted, greaterThanOrEqualTo(1));
-      final posts = (await service.load(spaceId))!.posts;
-      expect(posts.map((post) => post.postId), contains(pinned.postId));
-      expect(
-        posts.map((post) => post.postId),
-        isNot(contains(expired!.postId)),
-      );
-    });
+          isTrue,
+        );
+        final sweepAt = baseMs + dayMs + graceMs + 60 * 60 * 1000;
+        setWall(sweepAt);
+        final sweep = await service.sweepSpaceRetention(nowMs: sweepAt);
+        expect(sweep.postsDeleted, greaterThanOrEqualTo(1));
+        final posts = (await service.load(spaceId))!.posts;
+        expect(posts.map((post) => post.postId), contains(pinned.postId));
+        expect(
+          posts.map((post) => post.postId),
+          isNot(contains(expired!.postId)),
+        );
+      },
+    );
   });
 }
