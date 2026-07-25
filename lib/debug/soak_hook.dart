@@ -28,6 +28,7 @@ import '../domain/content_manifest.dart' show ContentManifest;
 import '../domain/device_sync.dart';
 import '../domain/group.dart';
 import '../domain/space_channel.dart';
+import '../domain/space_moderation.dart';
 import '../domain/space_retention.dart';
 import '../domain/group_policy.dart';
 import '../domain/p2p_policy.dart';
@@ -657,6 +658,24 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/space_profile_media':
           await _spaceProfileMedia(req);
           return;
+        case '/space_invite':
+          await _spaceInvite(req);
+          return;
+        case '/space_invites':
+          await _spaceInvites(req);
+          return;
+        case '/space_invite_decide':
+          await _spaceInviteDecide(req);
+          return;
+        case '/space_members':
+          await _spaceMembers(req);
+          return;
+        case '/space_channel_messages':
+          await _spaceChannelMessages(req);
+          return;
+        case '/space_ban':
+          await _spaceBan(req);
+          return;
         case '/media_open':
           await _mediaOpen(req);
           return;
@@ -976,15 +995,98 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final gidHex = q['group'];
     if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
     final gid = NodeId.fromHex(gidHex);
+    // ?channel=<hex> targets a specific Space channel (e.g. a restricted one);
+    // absent = the default channel / legacy group.
+    NodeId? channelId;
+    if (q['channel'] != null) {
+      try {
+        channelId = NodeId.fromHex(q['channel']!);
+      } catch (_) {
+        return _json(req, {'ok': false, 'error': 'bad channel'});
+      }
+    }
     // ?silent=1 skips the delta fanout — a deterministic "lost delta" for
     // gap-fill verification (brick G1).
     final posted = await svc.postMessage(
       gid,
       groupPostHookText(req.uri),
+      channelId: channelId,
       broadcast: q['silent'] != '1',
     );
-    final msgs = await svc.messagesOf(gid);
+    final msgs = await svc.messagesOf(gid, channelId: channelId);
     return _json(req, {'ok': posted, 'messages': msgs.length});
+  }
+
+  /// Read the materialized messages of a Space channel (`?space=&channel=`),
+  /// so a two-device restricted-channel decrypt can be confirmed on the
+  /// recipient device. Returns count + plaintext bodies (stand-only).
+  Future<void> _spaceChannelMessages(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(groupServiceProvider);
+    final spaceHex = req.uri.queryParameters['space'];
+    if (service == null || spaceHex == null) {
+      return _json(req, {
+        'ok': false,
+        'error': 'space required',
+      }, status: service == null ? 409 : 400);
+    }
+    final NodeId spaceId;
+    NodeId? channelId;
+    try {
+      spaceId = NodeId.fromHex(spaceHex);
+      final channelHex = req.uri.queryParameters['channel'];
+      channelId = channelHex == null ? null : NodeId.fromHex(channelHex);
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'bad id'}, status: 400);
+    }
+    final messages = await service.messagesOf(spaceId, channelId: channelId);
+    await _json(req, {
+      'ok': true,
+      'count': messages.length,
+      'bodies': [for (final message in messages) message.body],
+    });
+  }
+
+  /// Stand driver: permanently ban a member (`?space=&target=<hex>&reason=`)
+  /// through the real moderation path (moderation row + membership removal +
+  /// epoch/key rotation in one signed step).
+  Future<void> _spaceBan(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(groupServiceProvider);
+    final spaceHex = req.uri.queryParameters['space'];
+    final targetHex = req.uri.queryParameters['target'];
+    if (service == null || spaceHex == null || targetHex == null) {
+      return _json(req, {
+        'ok': false,
+        'error': 'space and target required',
+      }, status: service == null ? 409 : 400);
+    }
+    final NodeId spaceId;
+    final NodeId target;
+    try {
+      spaceId = NodeId.fromHex(spaceHex);
+      target = NodeId.fromHex(targetHex);
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'bad id'}, status: 400);
+    }
+    try {
+      final actionId = await service.moderateSpace(
+        spaceId,
+        kind: SpaceModerationKind.permanentBan,
+        target: target,
+        scope: SpaceModerationScope.space,
+        reason: req.uri.queryParameters['reason'] ?? 'stand cut-off verify',
+      );
+      final state = await service.stateOf(spaceId);
+      await _json(req, {
+        'ok': actionId != null,
+        'actionId': actionId,
+        'epoch': state?.epoch ?? 0,
+        'stillMember': state?.isMember(target) ?? false,
+      });
+    } catch (error) {
+      await _json(req, {'ok': false, 'error': '$error'}, status: 500);
+    }
   }
 
   /// Toggle the automation API: ?on=1 enables (mints a token if none) + starts
@@ -5083,6 +5185,119 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     } catch (error) {
       await _json(req, {'ok': false, 'error': '$error'}, status: 500);
     }
+  }
+
+  /// Stand driver: invite a contact to a Space
+  /// (`?space=&invitee=<hex>&role=member|admin`). The invitee accepts via
+  /// `/space_invite_decide` on their device, then the owner materializes the
+  /// signed membership automatically on decision receipt.
+  Future<void> _spaceInvite(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(groupServiceProvider);
+    final spaceHex = req.uri.queryParameters['space'];
+    final inviteeHex = req.uri.queryParameters['invitee'];
+    if (service == null || spaceHex == null || inviteeHex == null) {
+      return _json(req, {
+        'ok': false,
+        'error': 'space and invitee required',
+      }, status: service == null ? 409 : 400);
+    }
+    final NodeId spaceId;
+    final NodeId invitee;
+    try {
+      spaceId = NodeId.fromHex(spaceHex);
+      invitee = NodeId.fromHex(inviteeHex);
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'bad id'}, status: 400);
+    }
+    final role = req.uri.queryParameters['role'] == 'admin'
+        ? GroupRole.admin
+        : GroupRole.member;
+    try {
+      final ok = await service.inviteToSpace(spaceId, invitee, role: role);
+      await _json(req, {'ok': ok}, status: ok ? 200 : 409);
+    } catch (error) {
+      await _json(req, {'ok': false, 'error': '$error'}, status: 500);
+    }
+  }
+
+  /// Stand driver: list incoming Space invites (inviteId to feed
+  /// `/space_invite_decide`).
+  Future<void> _spaceInvites(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(groupServiceProvider);
+    if (service == null) {
+      return _json(req, {'ok': false, 'error': 'no service'}, status: 409);
+    }
+    final pending = await service.pendingSpaceInvites();
+    await _json(req, {
+      'ok': true,
+      'invites': [
+        for (final entry in pending)
+          {
+            'inviteId': entry.invite.inviteId,
+            'spaceId': entry.invite.spaceId.hex,
+            'inviter': entry.invite.inviter.hex,
+            'spaceName': entry.invite.spaceName,
+            'accepted': entry.accepted,
+          },
+      ],
+    });
+  }
+
+  /// Stand driver: accept/decline an incoming Space invite
+  /// (`?id=<inviteId>&accept=1`).
+  Future<void> _spaceInviteDecide(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(groupServiceProvider);
+    final inviteId = req.uri.queryParameters['id'];
+    if (service == null || inviteId == null) {
+      return _json(req, {
+        'ok': false,
+        'error': 'id required',
+      }, status: service == null ? 409 : 400);
+    }
+    try {
+      final ok = await service.decideSpaceInvite(
+        inviteId,
+        accept: req.uri.queryParameters['accept'] != '0',
+      );
+      await _json(req, {'ok': ok}, status: ok ? 200 : 409);
+    } catch (error) {
+      await _json(req, {'ok': false, 'error': '$error'}, status: 500);
+    }
+  }
+
+  /// Stand driver: folded Space roster (node ids + roles), so a two-device
+  /// membership handshake can be confirmed on both ends.
+  Future<void> _spaceMembers(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(groupServiceProvider);
+    final spaceHex = req.uri.queryParameters['space'];
+    if (service == null || spaceHex == null) {
+      return _json(req, {
+        'ok': false,
+        'error': 'space required',
+      }, status: service == null ? 409 : 400);
+    }
+    final NodeId spaceId;
+    try {
+      spaceId = NodeId.fromHex(spaceHex);
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'bad id'}, status: 400);
+    }
+    final state = await service.stateOf(spaceId);
+    if (state == null) {
+      return _json(req, {'ok': false, 'error': 'no space'}, status: 404);
+    }
+    await _json(req, {
+      'ok': true,
+      'epoch': state.epoch,
+      'members': [
+        for (final member in state.members.values)
+          {'id': member.nodeId.hex, 'role': member.role.name},
+      ],
+    });
   }
 
   /// Stand driver for Space avatar/cover. `?space=&set=avatar|cover` registers
