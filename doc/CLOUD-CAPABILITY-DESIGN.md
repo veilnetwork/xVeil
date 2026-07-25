@@ -97,3 +97,48 @@ and the ninth-device no-publish rule, while the physical probe proves the exact
 native DHT/relay/failover path. Repairing that legacy fixture or using a fresh
 sovereign two-owner group remains useful for a full production-row convergence
 rerun; it is not a limitation of the verified multi-candidate transport.
+
+## Folder capability (Storage V2, decided 2026-07-25)
+
+User decisions: folder sharing ships at BOTH levels — a bearer folder LINK
+("everyone with the link") first, then a public directory published under the
+owner's identity/nickname (an explicit, warned identity binding). The
+limited-circle model is a separate slice reusing the shared-document ACL
+machinery and is out of scope for the link.
+
+Design (composition over new crypto):
+
+1. Sharing a folder auto-creates an ordinary per-file capability share for
+   every document currently inside it (recursively). The per-file wire
+   protocol is untouched: pieces/chunks keep their existing seal/open path,
+   caps and revocation semantics.
+2. The folder itself is represented by a LISTING — a small sealed JSON
+   document naming the folder and its entries (name, kind, size, mime,
+   subfolder nesting, and each file's own capability link). The listing is
+   sealed with the folder capability's key like a manifest payload.
+3. Liveness: the holder keeps ONE link while contents change, so the listing
+   cannot ride the immutable-manifest path. The wire gains one new
+   MAC-authorized op — `listing` — answering with the CURRENT sealed listing
+   (monotonic `listingRevision` in the AAD; nonce derived from
+   shareId+listingRevision so re-publication never reuses a nonce). Every
+   folder mutation (add/remove/move/rename inside the shared subtree)
+   re-publishes the listing and auto-creates/revokes per-file shares to
+   match.
+4. Revocation: revoking the folder share revokes the listing endpoint AND
+   every auto-created child share; post-revoke requests get the same silent
+   denial as v1. Individual files may additionally be revoked out of a still
+   live folder share (they drop from the next listing revision).
+5. Registry: folder shares ride the same encrypted cloudCapability registry
+   rows (type-tagged), so any owner device can host them; the auto-created
+   child shares are owned by the folder row and follow its lifecycle.
+6. maxActiveShares accounting: child shares are folder-owned and do not
+   consume user-visible slots; the folder share consumes one. Bound the
+   listing (entries and bytes) explicitly; oversized folders refuse to share
+   rather than silently truncate.
+
+Open implementation order: listing codec + seal/open (domain) → service
+publish/rehost/revoke lifecycle + listing op serving → download side
+(open link → browse listing → fetch files via embedded links) → UI (share
+folder, browse a received folder link) → adversarial review (new
+anonymous-serving surface: replay, listing rollback, revoked-child leak,
+nonce reuse) → live two-device verify.
