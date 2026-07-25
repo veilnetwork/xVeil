@@ -13614,6 +13614,92 @@ void main() {
       );
     });
 
+    test(
+      'a fresh peer receiving a post-sweep snapshot sees the retained suffix',
+      () async {
+        // Two independent devices. The owner sweeps, then serves ONLY the
+        // retained suffix + the cut to a member that never synced the deleted
+        // prefix. The member must display the suffix: the cut re-anchors on the
+        // deleted-row hash, and its anchor is delivered in this same snapshot.
+        final ownerStorage = FakeHvContainer().storage();
+        final memberStorage = FakeHvContainer().storage();
+        for (final storage in [ownerStorage, memberStorage]) {
+          await storage.open(password: 'pw', createIfMissing: true);
+        }
+        final ownerSvc = GroupService(ownerStorage, _FakeSigner(owner));
+        final memberSvc = GroupService(memberStorage, _FakeSigner(bob));
+        addTearDown(ownerSvc.dispose);
+        addTearDown(memberSvc.dispose);
+        var wall = baseMs;
+        ownerSvc.debugWallClockMs = () => wall;
+        // The member evaluates the cut's boundary-expiry at its own clock; in
+        // reality both peers are at a similar wall time when the sweep runs.
+        memberSvc.debugWallClockMs = () => wall;
+
+        final spaceId = await ownerSvc.createSpace(
+          'Cross-peer retention',
+          visibility: SpaceVisibility.public,
+        );
+        expect(
+          await ownerSvc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: bob,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+        for (var i = 0; i < 3; i++) {
+          expect(
+            await ownerSvc.postMessage(spaceId, 'old-$i', broadcast: false),
+            isTrue,
+          );
+        }
+        expect(
+          await ownerSvc.setSpaceRetentionPolicy(
+            spaceId,
+            SpaceRetentionPolicy(
+              mode: SpaceRetentionMode.deleteAfter,
+              retentionMs: dayMs,
+            ),
+          ),
+          isTrue,
+        );
+        wall = baseMs + 7 * dayMs + 12 * 60 * 60 * 1000;
+        expect(
+          await ownerSvc.postMessage(spaceId, 'kept-fresh', broadcast: false),
+          isTrue,
+        );
+
+        final sweepAt = baseMs + dayMs + graceMs + 60 * 60 * 1000;
+        wall = sweepAt;
+        final sweep = await ownerSvc.sweepSpaceRetention(nowMs: sweepAt);
+        expect(sweep.messagesDeleted, 3);
+        expect(sweep.cutsRecorded, 1);
+
+        // The owner now holds only the retained suffix + the cut; serve it to
+        // the fresh member.
+        final postSweep = ownerSvc.snapshotJson(
+          (await ownerSvc.load(spaceId))!,
+          recipient: bob,
+        );
+        expect(await memberSvc.ingestSnapshot(postSweep), isTrue);
+
+        expect(
+          (await memberSvc.messagesOf(spaceId)).map((m) => m.body),
+          contains('kept-fresh'),
+          reason:
+              'the retained suffix must be visible on a fresh peer even though '
+              'its predecessor was physically deleted before the snapshot',
+        );
+        expect(
+          (await memberSvc.load(spaceId))!.retentionCuts,
+          isNotEmpty,
+          reason: 'the legitimate cut (anchor present) must be accepted',
+        );
+      },
+    );
+
     test('a stale holder snapshot cannot resurrect swept rows', () async {
       final (service, spaceId, _, setWall) = await retentionSpace();
       for (var i = 0; i < 3; i++) {

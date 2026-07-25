@@ -18817,27 +18817,6 @@ class GroupService {
         ? await _materializedRetentionHistory(materialBundle, mergedState)
         : null;
     final ingestAtMs = _now();
-    final mergedRetentionCuts = <String, SpaceRetentionCut>{
-      ...?existing?.retentionCuts,
-    };
-    if (ingestRetention != null) {
-      for (final cut in inRetentionCuts) {
-        if (!_acceptableRemoteRetentionCut(
-          manifest: man,
-          revisions: ingestRetention.revisions,
-          localMessages: messages,
-          cut: cut,
-          atMs: ingestAtMs,
-        )) {
-          continue;
-        }
-        final key = retentionCutKey(cut.scope, cut.author);
-        final prior = mergedRetentionCuts[key];
-        if (prior == null || cut.throughSeq > prior.throughSeq) {
-          mergedRetentionCuts[key] = cut;
-        }
-      }
-    }
     final acceptedCommentRoots = <String>{...acceptedPostIdsBefore};
     if (man.isSpace) {
       for (final post in inPosts) {
@@ -18963,13 +18942,43 @@ class GroupService {
         messages.add(m);
       }
     }
+    // Merge remote retention cuts AFTER the message merge: the anchor check in
+    // _acceptableRemoteRetentionCut must run against the final, validated
+    // `messages` — a legitimate post-sweep snapshot delivers the retained
+    // anchor in this same payload, and checking pre-merge would reject it (and
+    // hide the suffix) while checking against raw unvalidated incoming rows
+    // would let a forged anchor re-open the censorship vector.
+    final mergedRetentionCuts = <String, SpaceRetentionCut>{
+      ...?existing?.retentionCuts,
+    };
+    if (ingestRetention != null) {
+      for (final cut in inRetentionCuts) {
+        if (!_acceptableRemoteRetentionCut(
+          manifest: man,
+          revisions: ingestRetention.revisions,
+          localMessages: messages,
+          cut: cut,
+          atMs: ingestAtMs,
+        )) {
+          continue;
+        }
+        final key = retentionCutKey(cut.scope, cut.author);
+        final prior = mergedRetentionCuts[key];
+        if (prior == null || cut.throughSeq > prior.throughSeq) {
+          mergedRetentionCuts[key] = cut;
+        }
+      }
+    }
     // Notify only rows that became part of an accepted scoped chain. A suffix
     // received before its predecessor stays silent; when gap-fill later closes
     // the chain, the predecessor and newly-unblocked suffix become visible in
     // one deterministic batch. Fork evidence never produces a notification.
     fresh.addAll(
       _acceptedMessagesWithinLifecycle(
-        materialBundle.copyWith(messages: messages),
+        materialBundle.copyWith(
+          messages: messages,
+          retentionCuts: mergedRetentionCuts,
+        ),
         mergedState,
       ).where(
         (message) =>
