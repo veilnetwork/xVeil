@@ -340,6 +340,20 @@ class SpaceModerationRecord {
       (revokedAtMs == null || atMs < revokedAtMs!) &&
       (action.expiresAtMs == null || atMs < action.expiresAtMs!);
 
+  /// Whether this record still bars re-admission for a control entry that
+  /// claims [entryCreatedAtMs]. Unlike [isActiveAt] it clamps the lower time
+  /// bound up to the record's own activation, so a backdated `addMember`
+  /// (self-asserted `createdAtMs` below the ban, yet folded after it under the
+  /// author's inviolable seq order) cannot evade a removal that is causally
+  /// prior in the fold. Expiry and revocation are still honoured at the later
+  /// of the two instants, so a genuine post-expiry/post-revocation re-add is
+  /// unaffected.
+  bool barsReadmissionAt(int entryCreatedAtMs) => isActiveAt(
+    entryCreatedAtMs > action.createdAtMs
+        ? entryCreatedAtMs
+        : action.createdAtMs,
+  );
+
   SpaceModerationRecord revoke({
     required NodeId actor,
     required SpaceModerationRevocation revocation,
