@@ -25,6 +25,7 @@ import '../../domain/inline_custom_emoji.dart';
 import '../../domain/space_channel.dart';
 import '../../domain/space_moderation.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/group_call_service.dart';
 import '../../state/messaging.dart'
@@ -1067,8 +1068,13 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       ).showSnackBar(SnackBar(content: Text(l.groupOperationFailed)));
       return;
     }
-    // The chat is now a Space; open it in the communities section.
-    context.go('/space/${_gid.hex}');
+    // The chat is now a Space; open it in the communities section. Root the
+    // stack at home and PUSH the space: a bare go() replaces the stack, so the
+    // space hub would have nothing below it (flat router → canPop false) and
+    // back — the arrow and the Android system gesture alike — would be stuck.
+    GoRouter.of(context)
+      ..go('/home')
+      ..push('/space/${_gid.hex}');
   }
 
   /// Confirm + leave the group: closes the member sheet and returns to the list.
@@ -1380,6 +1386,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     }
     return Scaffold(
       appBar: AppBar(
+        leading: const RootedBackButton(),
         title: FutureBuilder<List<Object?>>(
           future: Future.wait<Object?>([
             svc.stateOf(_gid),

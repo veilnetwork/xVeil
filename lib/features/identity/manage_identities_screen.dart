@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
 
 /// Explicit identity management for a master: bind an existing identity into
@@ -145,7 +146,10 @@ class _ManageIdentitiesScreenState
     );
 
     return Scaffold(
-      appBar: AppBar(title: Text(l.manageTitle)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.manageTitle),
+      ),
       body: Stack(
         children: [
           ListView(

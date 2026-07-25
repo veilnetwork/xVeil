@@ -17,6 +17,7 @@ import '../../domain/space_policy_audit.dart';
 import '../../domain/space_recommendation.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/messaging.dart' show conversationsProvider;
 import '../chat/chat_actions.dart';
@@ -1199,7 +1200,10 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
       return Scaffold(body: Center(child: Text(l.spaceOperationFailed)));
     }
     return Scaffold(
-      appBar: AppBar(title: Text(l.spaceSettingsTitle)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.spaceSettingsTitle),
+      ),
       body: StreamBuilder<int>(
         stream: service.changes.stream,
         builder: (context, changes) => FutureBuilder<List<Object?>>(

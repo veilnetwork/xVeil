@@ -11,6 +11,7 @@ import '../../data/transport/bootstrap_invite.dart';
 import '../../domain/device_link.dart';
 import '../../domain/sovereign_recovery.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/providers.dart';
@@ -180,7 +181,10 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     final phraseBacked = ref.watch(identityOriginProvider).value == 'phrase';
     final canOwn = ready && (_hasSovereignBundle || phraseBacked);
     return Scaffold(
-      appBar: AppBar(title: Text(l.settingsDevices)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.settingsDevices),
+      ),
       body: ListView(
         children: [
           if (_loading)

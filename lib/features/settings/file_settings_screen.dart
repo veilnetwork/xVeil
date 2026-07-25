@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/file_download_policy.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/messaging.dart';
 
 /// Per-identity incoming-file policy editor (Phase A1): the auto-download size
@@ -173,7 +174,10 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
     final l = AppL10n.of(context);
     final exts = _policy.blockedExts.toList()..sort();
     return Scaffold(
-      appBar: AppBar(title: Text(l.fileSettingsTitle)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.fileSettingsTitle),
+      ),
       body: ListView(
         children: [
           ListTile(

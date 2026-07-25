@@ -9,6 +9,7 @@ import '../../core/ids.dart';
 import '../../domain/space_public_discussion.dart';
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/notifications.dart' show activeConversationProvider;
 import 'space_post_actions.dart';
@@ -95,16 +96,7 @@ class _PublicSpacePostsScreenState
     });
   }
 
-  void _goBack() {
-    if (context.canPop()) {
-      context.pop();
-      return;
-    }
-    // Direct-route entry (deep link, comments fallback) left no stack below —
-    // without an explicit leading the flat router shows no back affordance at
-    // all and the screen becomes a dead end. Home is the only safe anchor.
-    context.go('/home');
-  }
+  void _goBack() => goBackOrHome(context);
 
   Future<void> _refresh(
     GroupService service,

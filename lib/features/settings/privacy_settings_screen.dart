@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../domain/chat.dart' show SignaturePolicy;
 import '../../domain/p2p_policy.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/api_server.dart';
 import '../../state/p2p_policy_controller.dart';
 import '../../state/signature_policy_controller.dart';
@@ -81,7 +82,10 @@ class PrivacySettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(l.settingsCatPrivacy)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.settingsCatPrivacy),
+      ),
       body: ListView(
         children: [
           Builder(

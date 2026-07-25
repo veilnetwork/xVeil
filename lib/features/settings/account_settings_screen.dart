@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
 import '../../state/keep_all_online_controller.dart';
 import '../../state/providers.dart';
@@ -122,7 +123,10 @@ class AccountSettingsScreen extends ConsumerWidget {
       appControllerProvider.select((s) => (s.isMaster, s.activeIdentity)),
     );
     return Scaffold(
-      appBar: AppBar(title: Text(l.settingsCatAccount)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.settingsCatAccount),
+      ),
       body: ListView(
         children: [
           // Honest recovery-phrase status of the ACTIVE identity (phrase epic

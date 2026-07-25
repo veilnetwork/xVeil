@@ -9,6 +9,7 @@ import '../../data/node/node_probe.dart';
 import '../../data/node/proxy_routing.dart';
 import '../../data/node/ssh_credentials.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/proxy_routing_controller.dart';
 import '../../state/ssh_credentials.dart';
@@ -29,7 +30,10 @@ class ManagedNodesScreen extends ConsumerWidget {
     final l = AppL10n.of(context);
     final nodesAsync = ref.watch(managedNodesProvider);
     return Scaffold(
-      appBar: AppBar(title: Text(l.nodesTitle)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.nodesTitle),
+      ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'xveil-managed-nodes-add',
         onPressed: () => _showManagedNodeCreateChooser(context),

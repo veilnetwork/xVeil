@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
 
 /// Settings root: the identity card + one tile per category (each a pushed
@@ -16,7 +17,10 @@ class SettingsScreen extends ConsumerWidget {
     final l = AppL10n.of(context);
     final identity = ref.watch(appControllerProvider.select((s) => s.identity));
     return Scaffold(
-      appBar: AppBar(title: Text(l.settingsTitle)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.settingsTitle),
+      ),
       body: ListView(
         children: [
           if (identity != null)

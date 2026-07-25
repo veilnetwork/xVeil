@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/folder_panel_controller.dart';
 import '../../state/locale_controller.dart';
 
@@ -82,7 +83,10 @@ class AppearanceSettingsScreen extends ConsumerWidget {
     final l = AppL10n.of(context);
     final locale = ref.watch(localeProvider);
     return Scaffold(
-      appBar: AppBar(title: Text(l.settingsAppearance)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.settingsAppearance),
+      ),
       body: ListView(
         children: [
           ListTile(

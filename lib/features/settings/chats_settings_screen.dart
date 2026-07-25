@@ -6,6 +6,7 @@ import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../../desktop/desktop_tray.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/background_node_controller.dart';
 import '../../state/chat_page_size_controller.dart';
 import '../../state/close_to_tray_controller.dart';
@@ -83,7 +84,10 @@ class ChatsSettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(l.settingsCatChats)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.settingsCatChats),
+      ),
       body: ListView(
         children: [
           // Notifications: a deniability messenger defaults to HIDDEN previews

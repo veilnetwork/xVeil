@@ -6,6 +6,7 @@ import '../../data/vpn/vpn_backend.dart';
 import '../../data/vpn/vpn_application_catalog.dart';
 import '../../data/vpn/vpn_routing_policy.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/proxy_routing_controller.dart';
 import '../../state/vpn_controller.dart';
 import '../../state/vpn_application_catalog.dart';
@@ -247,7 +248,10 @@ class _ProxyRoutingScreenState extends ConsumerState<ProxyRoutingScreen> {
     final listenInvalid = !ProxyRouting.isValidListen(_listen.text.trim());
 
     return Scaffold(
-      appBar: AppBar(title: Text(l.routeTitle)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.routeTitle),
+      ),
       body: ListView(
         children: [
           const _VpnSection(),
