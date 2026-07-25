@@ -7647,6 +7647,15 @@ class GroupService {
     required int atMs,
   }) {
     if (!manifest.isSpace || !cut.isStructurallyValid) return false;
+    // A remote cut is unsigned, so it must carry the deleted-boundary hash AND
+    // the receiver must already hold the retained anchor whose prevHash is that
+    // boundary. Without this a peer could forge a cut with a high throughSeq +
+    // an old throughCreatedAtMs and, delivered before the victim's rows sync,
+    // hide those rows (they land seq <= throughSeq and are filtered out). The
+    // anchor requirement means we only trust a cut for a chain we have actually
+    // synced past — where the "no live local row <= throughSeq" check below is
+    // meaningful. A hash-less legacy remote cut is never accepted.
+    if (cut.throughHash.isEmpty) return false;
     NodeId? channelId;
     final scopeHead = cut.scope.split('|').first;
     if (!scopeHead.startsWith('post:')) {
@@ -7664,12 +7673,14 @@ class GroupService {
     )) {
       return false;
     }
+    var hasAnchor = false;
     for (final message in localMessages) {
       if (message.author != cut.author ||
-          message.seq > cut.throughSeq ||
           _messageChainScope(manifest, message) != cut.scope) {
         continue;
       }
+      if (message.prevHash == cut.throughHash) hasAnchor = true;
+      if (message.seq > cut.throughSeq) continue;
       // A local row the cut claims to retire must genuinely be expired;
       // otherwise the hint would hide live history.
       if (!spaceRetentionRemoves(
@@ -7681,7 +7692,7 @@ class GroupService {
         return false;
       }
     }
-    return true;
+    return hasAnchor;
   }
 
   Future<GroupReaction?> _materializeEncryptedReaction(
@@ -8940,6 +8951,7 @@ class GroupService {
                 scope: scope,
                 author: rows.first.author,
                 throughSeq: lastDeleted.seq,
+                throughHash: groupMessageHash(lastDeleted),
                 throughCreatedAtMs: lastDeleted.createdAtMs,
               );
               cutsRecorded++;
@@ -13729,11 +13741,19 @@ class GroupService {
         if (strict) break;
       } else {
         if (predecessor == null) {
-          // A retention cut re-anchors the chain at exactly the first row
-          // after the physically deleted expired prefix. Any other missing
-          // predecessor keeps hiding the scoped suffix until anti-entropy
-          // supplies the exact missing row.
-          if (cut == null || message.seq != cut.throughSeq + 1) break;
+          // A retention cut re-anchors the chain at the first surviving row
+          // whose prevHash is the deleted boundary row. Matching the hash (not
+          // seq+1) is required because an author's seq is global across
+          // channels, so a chain scope legitimately has seq gaps. A legacy cut
+          // with no hash falls back to the old seq-contiguity check. Any other
+          // missing predecessor keeps hiding the scoped suffix until
+          // anti-entropy supplies the exact missing row.
+          if (cut == null) break;
+          if (cut.throughHash.isNotEmpty) {
+            if (message.prevHash != cut.throughHash) break;
+          } else if (message.seq != cut.throughSeq + 1) {
+            break;
+          }
         } else if (message.prevHash != groupMessageHash(predecessor)) {
           break;
         }
