@@ -7,10 +7,19 @@ import '../../l10n/app_localizations.dart';
 import '../../state/cloud_service.dart';
 
 class CloudNoteEditorScreen extends StatefulWidget {
-  const CloudNoteEditorScreen({super.key, required this.service, this.item});
+  const CloudNoteEditorScreen({
+    super.key,
+    required this.service,
+    this.item,
+    this.folderId,
+  });
 
   final CloudService service;
   final CloudItem? item;
+
+  /// Target folder for a brand-new note; ignored when editing (the service
+  /// keeps an edited note where it lives).
+  final String? folderId;
 
   @override
   State<CloudNoteEditorScreen> createState() => _CloudNoteEditorScreenState();
@@ -127,6 +136,7 @@ class _CloudNoteEditorScreenState extends State<CloudNoteEditorScreen> {
             title: _title.text,
             body: _body.text,
             mergeParentContentIds: _mergeParents,
+            folderId: widget.folderId,
           );
           if (!mounted) return;
           Navigator.pop(context, saved);

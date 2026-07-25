@@ -35,6 +35,11 @@ class CloudStorageScreen extends ConsumerStatefulWidget {
 class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
   bool _busy = false;
 
+  /// The flat folder currently open; null renders the root. If the folder is
+  /// tombstoned by another device the view falls back to the root on its own
+  /// (the id simply stops resolving to a live folder).
+  String? _openFolderId;
+
   CloudService? get _service => ref.read(cloudServiceProvider);
   CloudCapabilityService? get _capabilityService =>
       ref.read(cloudCapabilityServiceProvider);
@@ -62,6 +67,7 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
         name: name,
         size: size,
         readRange: reader.read,
+        folderId: _openFolderId,
       );
       if (mounted) _notice(AppL10n.of(context).cloudImported);
     } catch (_) {
@@ -78,7 +84,8 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     await Navigator.push<CloudItem>(
       context,
       MaterialPageRoute(
-        builder: (context) => CloudNoteEditorScreen(service: service),
+        builder: (context) =>
+            CloudNoteEditorScreen(service: service, folderId: _openFolderId),
       ),
     );
   }
@@ -103,6 +110,11 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
               title: Text(l.cloudAddFile),
               onTap: () => Navigator.pop(context, 'file'),
             ),
+            ListTile(
+              leading: const Icon(Icons.create_new_folder_outlined),
+              title: Text(l.cloudNewFolder),
+              onTap: () => Navigator.pop(context, 'folder'),
+            ),
             if (_documentService?.canMutate == true)
               ListTile(
                 leading: const Icon(Icons.group_add_outlined),
@@ -116,7 +128,88 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     if (!mounted) return;
     if (action == 'note') await _createNote();
     if (action == 'file') await _importFile();
+    if (action == 'folder') await _createFolder();
     if (action == 'shared') await _createSharedDocument();
+  }
+
+  Future<String?> _promptFolderName({
+    required String title,
+    required String confirmLabel,
+    String? initial,
+  }) => showDialog<String>(
+    context: context,
+    builder: (context) => _FolderNameDialog(
+      title: title,
+      confirmLabel: confirmLabel,
+      initial: initial,
+    ),
+  );
+
+  Future<void> _createFolder() async {
+    final service = _service;
+    if (service == null) return;
+    final l = AppL10n.of(context);
+    final name = await _promptFolderName(
+      title: l.cloudNewFolder,
+      confirmLabel: l.cloudFolderCreate,
+    );
+    if (name == null || name.isEmpty || !mounted) return;
+    try {
+      await service.createFolder(name);
+    } catch (_) {
+      if (mounted) _notice(AppL10n.of(context).cloudFolderFailed);
+    }
+  }
+
+  Future<void> _renameFolder(CloudFolder folder) async {
+    final service = _service;
+    if (service == null) return;
+    final l = AppL10n.of(context);
+    final name = await _promptFolderName(
+      title: l.cloudFolderRename,
+      confirmLabel: l.cloudFolderRename,
+      initial: folder.name,
+    );
+    if (name == null || name.isEmpty || name == folder.name || !mounted) {
+      return;
+    }
+    try {
+      await service.renameFolder(folder.id, name);
+    } catch (_) {
+      if (mounted) _notice(AppL10n.of(context).cloudFolderFailed);
+    }
+  }
+
+  Future<void> _deleteFolder(CloudFolder folder) async {
+    final service = _service;
+    if (service == null) return;
+    final l = AppL10n.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l.cloudFolderDeleteTitle(folder.name)),
+        content: Text(l.cloudFolderDeleteBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(l.cloudFolderDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await service.deleteFolder(folder.id);
+      if (mounted && _openFolderId == folder.id) {
+        setState(() => _openFolderId = null);
+      }
+    } catch (_) {
+      if (mounted) _notice(AppL10n.of(context).cloudFolderFailed);
+    }
   }
 
   Future<NodeId?> _pickAcceptedContact(
@@ -323,83 +416,217 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     final l = AppL10n.of(context);
     final service = ref.watch(cloudServiceProvider);
     final items = ref.watch(cloudItemsProvider);
+    final folders =
+        ref.watch(cloudFoldersProvider).asData?.value ?? const <CloudFolder>[];
+    final openFolder = folders
+        .where((folder) => folder.id == _openFolderId)
+        .firstOrNull;
     final documentService = ref.watch(cloudDocumentReplicationServiceProvider);
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(l.cloudTitle),
-        actions: [
-          if (ref.watch(cloudCapabilityServiceProvider) != null)
+    return PopScope(
+      canPop: openFolder == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) setState(() => _openFolderId = null);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: openFolder == null
+              ? null
+              : BackButton(
+                  onPressed: () => setState(() => _openFolderId = null),
+                ),
+          title: Text(openFolder?.name ?? l.cloudTitle),
+          actions: [
+            if (ref.watch(cloudCapabilityServiceProvider) != null)
+              IconButton(
+                tooltip: l.cloudPublicImport,
+                onPressed: _busy ? null : _importPublicLink,
+                icon: const Icon(Icons.link),
+              ),
             IconButton(
-              tooltip: l.cloudPublicImport,
-              onPressed: _busy ? null : _importPublicLink,
-              icon: const Icon(Icons.link),
+              tooltip: l.cloudVerify,
+              onPressed: service == null || _busy ? null : _verifyAll,
+              icon: const Icon(Icons.health_and_safety_outlined),
             ),
-          IconButton(
-            tooltip: l.cloudVerify,
-            onPressed: service == null || _busy ? null : _verifyAll,
-            icon: const Icon(Icons.health_and_safety_outlined),
-          ),
-          if (_busy)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Center(
-                child: SizedBox.square(
-                  dimension: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+            if (_busy)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Center(
+                  child: SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
                 ),
               ),
-            ),
-        ],
-      ),
-      body: service == null
-          ? Center(child: Text(l.cloudUnavailable))
-          : Column(
-              children: [
-                if (documentService != null)
-                  _PendingDocumentInvites(service: documentService),
-                if (documentService != null)
-                  _SharedDocumentSection(
-                    service: documentService,
-                    cloud: service,
-                  ),
-                _ReplicationProfile(service: service),
-                const Divider(height: 1),
-                Expanded(
-                  child: items.when(
-                    data: (rows) => rows.isEmpty
-                        ? _EmptyCloud(
-                            onImport: _busy ? null : _importFile,
-                            onNote: _busy ? null : _createNote,
-                          )
-                        : ListView.builder(
-                            padding: const EdgeInsets.only(bottom: 96),
-                            itemCount: rows.length,
-                            itemBuilder: (context, index) => _CloudItemTile(
-                              key: ValueKey(
-                                '${rows[index].id}:${rows[index].revision}',
-                              ),
-                              item: rows[index],
+          ],
+        ),
+        body: service == null
+            ? Center(child: Text(l.cloudUnavailable))
+            : Column(
+                children: [
+                  if (openFolder == null && documentService != null)
+                    _PendingDocumentInvites(service: documentService),
+                  if (openFolder == null && documentService != null)
+                    _SharedDocumentSection(
+                      service: documentService,
+                      cloud: service,
+                    ),
+                  if (openFolder == null) _ReplicationProfile(service: service),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: items.when(
+                      data: (rows) {
+                        // A dangling folderId (folder deleted elsewhere) resolves
+                        // to the root here — documents are never hidden.
+                        final visible = [
+                          for (final item in rows)
+                            if (service.effectiveFolderId(item) ==
+                                openFolder?.id)
+                              item,
+                        ];
+                        final counts = <String, int>{};
+                        for (final item in rows) {
+                          final effective = service.effectiveFolderId(item);
+                          if (effective != null) {
+                            counts[effective] = (counts[effective] ?? 0) + 1;
+                          }
+                        }
+                        final shownFolders = openFolder == null
+                            ? folders
+                            : const <CloudFolder>[];
+                        if (shownFolders.isEmpty && visible.isEmpty) {
+                          return openFolder == null
+                              ? _EmptyCloud(
+                                  onImport: _busy ? null : _importFile,
+                                  onNote: _busy ? null : _createNote,
+                                )
+                              : Center(child: Text(l.cloudFolderEmpty));
+                        }
+                        return ListView.builder(
+                          padding: const EdgeInsets.only(bottom: 96),
+                          itemCount: shownFolders.length + visible.length,
+                          itemBuilder: (context, index) {
+                            if (index < shownFolders.length) {
+                              final folder = shownFolders[index];
+                              return ListTile(
+                                key: ValueKey('cloud-folder-${folder.id}'),
+                                leading: const Icon(Icons.folder_outlined),
+                                title: Text(
+                                  folder.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  l.cloudFolderItems(counts[folder.id] ?? 0),
+                                ),
+                                onTap: () =>
+                                    setState(() => _openFolderId = folder.id),
+                                trailing: PopupMenuButton<String>(
+                                  key: ValueKey(
+                                    'cloud-folder-menu-${folder.id}',
+                                  ),
+                                  onSelected: (action) {
+                                    switch (action) {
+                                      case 'rename':
+                                        unawaited(_renameFolder(folder));
+                                      case 'delete':
+                                        unawaited(_deleteFolder(folder));
+                                    }
+                                  },
+                                  itemBuilder: (context) => [
+                                    PopupMenuItem(
+                                      value: 'rename',
+                                      child: Text(l.cloudFolderRename),
+                                    ),
+                                    PopupMenuItem(
+                                      value: 'delete',
+                                      child: Text(l.cloudFolderDelete),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+                            final item = visible[index - shownFolders.length];
+                            return _CloudItemTile(
+                              key: ValueKey('${item.id}:${item.revision}'),
+                              item: item,
                               service: service,
                               capabilityService: ref.watch(
                                 cloudCapabilityServiceProvider,
                               ),
-                            ),
-                          ),
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
-                    error: (_, _) => Center(child: Text(l.cloudLoadFailed)),
+                            );
+                          },
+                        );
+                      },
+                      loading: () =>
+                          const Center(child: CircularProgressIndicator()),
+                      error: (_, _) => Center(child: Text(l.cloudLoadFailed)),
+                    ),
                   ),
-                ),
-              ],
-            ),
-      floatingActionButton: service == null
-          ? null
-          : FloatingActionButton.extended(
-              heroTag: 'xveil-cloud-add',
-              onPressed: _busy ? null : _showAddMenu,
-              icon: const Icon(Icons.add),
-              label: Text(l.cloudAdd),
-            ),
+                ],
+              ),
+        floatingActionButton: service == null
+            ? null
+            : FloatingActionButton.extended(
+                heroTag: 'xveil-cloud-add',
+                onPressed: _busy ? null : _showAddMenu,
+                icon: const Icon(Icons.add),
+                label: Text(l.cloudAdd),
+              ),
+      ),
+    );
+  }
+}
+
+/// Owns its text controller so the dialog's exit animation never touches a
+/// disposed controller (disposing right after showDialog returns races the
+/// route's fade-out).
+class _FolderNameDialog extends StatefulWidget {
+  const _FolderNameDialog({
+    required this.title,
+    required this.confirmLabel,
+    this.initial,
+  });
+
+  final String title;
+  final String confirmLabel;
+  final String? initial;
+
+  @override
+  State<_FolderNameDialog> createState() => _FolderNameDialogState();
+}
+
+class _FolderNameDialogState extends State<_FolderNameDialog> {
+  late final TextEditingController _name = TextEditingController(
+    text: widget.initial ?? '',
+  );
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        key: const ValueKey('cloud-folder-name'),
+        controller: _name,
+        autofocus: true,
+        decoration: InputDecoration(hintText: l.cloudFolderNameHint),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _name.text.trim()),
+          child: Text(widget.confirmLabel),
+        ),
+      ],
     );
   }
 }
@@ -1395,6 +1622,61 @@ class _CloudItemTileState extends State<_CloudItemTile> {
     }
   }
 
+  Future<void> _move() async {
+    if (_working) return;
+    final l = AppL10n.of(context);
+    final folders = widget.service.listFolders();
+    final current = widget.service.effectiveFolderId(widget.item);
+    final target = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+          ),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(title: Text(l.cloudMoveToFolder)),
+              ListTile(
+                key: const ValueKey('cloud-move-root'),
+                leading: const Icon(Icons.home_outlined),
+                title: Text(l.cloudMoveToRoot),
+                trailing: current == null ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(context, ''),
+              ),
+              for (final folder in folders)
+                ListTile(
+                  key: ValueKey('cloud-move-${folder.id}'),
+                  leading: const Icon(Icons.folder_outlined),
+                  title: Text(
+                    folder.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: current == folder.id
+                      ? const Icon(Icons.check)
+                      : null,
+                  onTap: () => Navigator.pop(context, folder.id),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (target == null || !mounted) return;
+    try {
+      await widget.service.moveItemToFolder(
+        widget.item.id,
+        target.isEmpty ? null : target,
+      );
+      if (mounted) _notice(l.cloudFolderMoved);
+    } catch (_) {
+      if (mounted) _notice(l.cloudFolderFailed);
+    }
+  }
+
   void _notice(String text) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -1447,6 +1729,8 @@ class _CloudItemTileState extends State<_CloudItemTile> {
               unawaited(_fetch());
             case 'selected':
               unawaited(_toggleSelected());
+            case 'move':
+              unawaited(_move());
             case 'verify':
               unawaited(widget.service.verifyItem(widget.item, repair: true));
             case 'share':
@@ -1464,6 +1748,7 @@ class _CloudItemTileState extends State<_CloudItemTile> {
             value: 'selected',
             child: Text(selected ? l.cloudUnselect : l.cloudSelect),
           ),
+          PopupMenuItem(value: 'move', child: Text(l.cloudMoveToFolder)),
           if (_local == true)
             PopupMenuItem(value: 'verify', child: Text(l.cloudVerify)),
           if (_local == true)
