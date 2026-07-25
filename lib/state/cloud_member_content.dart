@@ -302,7 +302,10 @@ class CloudMemberContentClient {
     required this.returnEndpointId,
     required this.incoming,
     required Future<void> Function(Uint8List data) send,
-    Duration timeout = const Duration(seconds: 8),
+    // Budget for BOTH legs of the anonymous onion round-trip (request-send
+    // builds a ~5 s rendezvous circuit before the host's reply); 8 s left a
+    // slow-but-delivered reply no room and every fetch timed out live.
+    Duration timeout = const Duration(seconds: 30),
     required Uint8List Function(int count) randomBytes,
     // ignore: prefer_initializing_formals
   }) : _send = send,

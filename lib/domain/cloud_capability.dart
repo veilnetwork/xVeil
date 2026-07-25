@@ -227,7 +227,15 @@ class CloudCapabilityCodec {
   static const _version = 1;
   static const _fixedBytes = 4 + 32 + 32 + 32 + 32 + 2 + 8 + 12 + 4;
   static const _maxSealedManifestBytes = 1024 * 1024;
-  static const publicChunkBytes = 2048;
+  // Plaintext bytes per sealed wire chunk. Small on purpose, and for the same
+  // reason as [ContentManifest.defaultChunkBytes] (256): the sealed reply
+  // (62 B header + chunk + 16 B tag) travels the anonymous onion path, which
+  // fragments it into ceil(bytes/≈150 B) AuthDeliverFragment cells that must
+  // ALL arrive with no per-cell ARQ — delivery odds collapse as (1-p)^F. At
+  // 2048 a reply was ~2126 B ⇒ ~10-18 fragments ⇒ effectively never fully
+  // lands live (every cross-device fetch timed out on the first chunk). 256
+  // keeps a reply near ~3 fragments, matching the proven chat/content path.
+  static const publicChunkBytes = 256;
   static final Chacha20 _aead = Chacha20.poly1305Aead();
   static final Uint8List _magic = Uint8List.fromList(const [
     0x58,

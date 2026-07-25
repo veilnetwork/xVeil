@@ -383,7 +383,10 @@ void main() {
         chunkIndex: 0,
         sealed: Uint8List.fromList(response.sublist(62, 62 + sealedLength)),
       );
-      expect(clear, Uint8List.sublistView(bytes, 0, 2048));
+      expect(
+        clear,
+        Uint8List.sublistView(bytes, 0, CloudCapabilityCodec.publicChunkBytes),
+      );
 
       final recipientContainer = FakeHvContainer();
       final recipientStorage = recipientContainer.storage();
