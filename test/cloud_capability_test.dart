@@ -173,4 +173,173 @@ void main() {
     expect(mac(0), mac(0));
     expect(mac(1), isNot(mac(0)));
   });
+
+  Future<String> folderLink({int listingRevision = 1}) =>
+      CloudCapabilityCodec.createFolder(
+        folderName: 'Проекты',
+        listingRevision: listingRevision,
+        expiresAtMs: DateTime(2035).millisecondsSinceEpoch,
+        servicePublicKey: Uint8List.fromList(List.filled(32, 0x51)),
+        appId: Uint8List.fromList(List.filled(32, 0xA7)),
+        endpointId: 41,
+        random: _SequenceRandom(11),
+      );
+
+  test('folder link round-trips and legacy file parse fails closed', () async {
+    final link = await folderLink(listingRevision: 4);
+    final parsed = await CloudCapabilityCodec.parseLink(link);
+    expect(parsed, isA<ParsedCloudFolderLink>());
+    final capability = (parsed as ParsedCloudFolderLink).capability;
+    expect(capability.folderName, 'Проекты');
+    expect(capability.listingRevision, 4);
+    expect(capability.endpointId, 41);
+    await expectLater(
+      CloudCapabilityCodec.parse(link),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('folder link'),
+        ),
+      ),
+      reason: 'pre-folder callers must never mistake a listing for content',
+    );
+    // A file link keeps parsing through BOTH entry points.
+    final fileBytes = Uint8List.fromList(List.generate(64, (i) => i));
+    final fileLink = await _link(ContentManifest.fromBytes('f.bin', fileBytes));
+    expect(
+      await CloudCapabilityCodec.parseLink(fileLink),
+      isA<ParsedCloudFileLink>(),
+    );
+    expect((await CloudCapabilityCodec.parse(fileLink)).revision, 3);
+  });
+
+  test('listing seals per revision and rejects rollback and tamper', () async {
+    final link = await folderLink(listingRevision: 2);
+    final capability =
+        ((await CloudCapabilityCodec.parseLink(link)) as ParsedCloudFolderLink)
+            .capability;
+    final listing = CloudFolderListing(
+      name: 'Проекты',
+      revision: 3,
+      entries: [
+        const CloudFolderListingEntry.file(
+          name: 'a.bin',
+          size: 10,
+          link: 'xveil://cloud/v1#AAAA',
+          mime: 'application/octet-stream',
+        ),
+        const CloudFolderListingEntry.folder(
+          name: 'вложенная',
+          entries: [
+            CloudFolderListingEntry.file(
+              name: 'b.txt',
+              size: 4,
+              link: 'xveil://cloud/v1#BBBB',
+            ),
+          ],
+        ),
+      ],
+    );
+    final sealed = await CloudCapabilityCodec.sealListing(
+      capability: capability,
+      listing: listing,
+    );
+    final opened = await CloudCapabilityCodec.openListing(
+      capability: capability,
+      revision: 3,
+      sealed: sealed,
+    );
+    expect(opened.revision, 3);
+    expect(opened.entries, hasLength(2));
+    expect(opened.entries[1].isFolder, isTrue);
+    expect(opened.entries[1].entries!.single.name, 'b.txt');
+    expect(opened.totalEntries, 3);
+
+    // Rollback below the link's floor fails before any crypto.
+    await expectLater(
+      CloudCapabilityCodec.openListing(
+        capability: capability,
+        revision: 1,
+        sealed: sealed,
+      ),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('rollback'),
+        ),
+      ),
+    );
+    // A revision mismatch (server lying about the AAD-bound revision) fails
+    // authentication.
+    await expectLater(
+      CloudCapabilityCodec.openListing(
+        capability: capability,
+        revision: 4,
+        sealed: sealed,
+      ),
+      throwsA(isA<FormatException>()),
+    );
+    // Bit-flip fails authentication.
+    final tampered = Uint8List.fromList(sealed)..[8] ^= 1;
+    await expectLater(
+      CloudCapabilityCodec.openListing(
+        capability: capability,
+        revision: 3,
+        sealed: tampered,
+      ),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('authentication'),
+        ),
+      ),
+    );
+  });
+
+  test('listing bounds fail closed', () async {
+    // Entry-count cap.
+    final flood = CloudFolderListing(
+      name: 'flood',
+      revision: 1,
+      entries: [
+        for (var i = 0; i < CloudFolderListing.maxTotalEntries + 1; i++)
+          CloudFolderListingEntry.file(
+            name: 'f$i',
+            size: 1,
+            link: 'xveil://cloud/v1#X',
+          ),
+      ],
+    );
+    expect(CloudFolderListing.fromJson(flood.toJson()), isNull);
+    // Depth cap.
+    var nested = const CloudFolderListingEntry.folder(
+      name: 'leaf',
+      entries: [],
+    );
+    for (var i = 0; i < CloudFolderListing.maxDepth + 1; i++) {
+      nested = CloudFolderListingEntry.folder(name: 'd$i', entries: [nested]);
+    }
+    final deep = CloudFolderListing(
+      name: 'deep',
+      revision: 1,
+      entries: [nested],
+    );
+    expect(CloudFolderListing.fromJson(deep.toJson()), isNull);
+    // A within-bounds listing round-trips.
+    final fine = CloudFolderListing(
+      name: 'fine',
+      revision: 2,
+      entries: const [
+        CloudFolderListingEntry.file(
+          name: 'ok',
+          size: 1,
+          link: 'xveil://cloud/v1#OK',
+        ),
+      ],
+    );
+    expect(CloudFolderListing.fromJson(fine.toJson())?.revision, 2);
+  });
 }
