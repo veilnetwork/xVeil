@@ -49,6 +49,7 @@ import '../state/call_service.dart';
 import '../state/mailbox_service.dart';
 import '../state/cloud_service.dart';
 import '../state/cloud_capability_service.dart';
+import '../state/public_directory_providers.dart';
 import '../state/cloud_document_providers.dart';
 import '../state/cloud_document_replication_service.dart';
 import '../state/device_settings_sync.dart';
@@ -474,6 +475,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/cloud_shared_folder':
           await _cloudSharedFolderHook(req);
+          return;
+        case '/cloud_public_dir':
+          await _cloudPublicDirHook(req);
           return;
         case '/cloud_multi_provider_host':
           await _cloudMultiProviderHostHook(req);
@@ -2925,6 +2929,86 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   /// a public test tag, but publishes it in its explicit distinct slot. The
   /// request/response stays anonymous and carries only the slot as proof; no
   /// sovereign identity or secret seed is returned or written to disk.
+  /// Public file directory under a nickname.
+  /// ?action=publish&id=<folderId>&title=<t> | withdraw | status
+  ///        | resolve&nick=<nickname> | resolve&node=<hex>
+  Future<void> _cloudPublicDirHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final dir = ref.read(publicDirectoryServiceProvider);
+    final cloud = ref.read(cloudServiceProvider);
+    final capabilities = ref.read(cloudCapabilityServiceProvider);
+    final q = req.uri.queryParameters;
+    final action = q['action'] ?? 'status';
+    if (dir == null) {
+      return _json(req, {'ok': false, 'error': 'public directory unavailable'});
+    }
+    try {
+      await dir.start();
+      switch (action) {
+        case 'status':
+          final s = dir.status;
+          return _json(req, {
+            'ok': true,
+            'published': s.isPublished,
+            if (s.title != null) 'title': s.title,
+            if (s.shareId != null) 'shareId': s.shareId,
+            if (s.lastPublishedAtMs != null) 'ts': s.lastPublishedAtMs,
+          });
+        case 'publish':
+          final folderId = q['id'];
+          if (cloud == null || capabilities == null || folderId == null) {
+            return _json(req, {'ok': false, 'error': 'need cloud+id'});
+          }
+          final folder = cloud
+              .listFolders()
+              .where((entry) => entry.id == folderId)
+              .firstOrNull;
+          final entries = await cloud.buildFolderListingEntries(folderId);
+          if (folder == null || entries == null) {
+            return _json(req, {'ok': false, 'error': 'folder not found'});
+          }
+          final share = await capabilities.createFolderShare(
+            folderId: folderId,
+            folderName: folder.name,
+            entries: entries,
+          );
+          // The service replaces + revokes any prior directory's share; we
+          // only clean up THIS share if publishing itself failed.
+          final ok = await dir.publish(
+            folderId: folderId,
+            shareId: share.shareId,
+            link: share.link,
+            title: (q['title']?.trim().isNotEmpty ?? false)
+                ? q['title']!.trim()
+                : folder.name,
+          );
+          if (!ok) await capabilities.revokeFolderShare(share.shareId);
+          return _json(req, {'ok': ok, 'shareId': share.shareId});
+        case 'withdraw':
+          await dir.withdraw();
+          return _json(req, {'ok': true});
+        case 'resolve':
+          final pointer = q['node'] != null
+              ? await dir.resolveByNodeId(NodeId.fromHex(q['node']!))
+              : await dir.resolveByNickname(q['nick'] ?? '');
+          if (pointer == null) {
+            return _json(req, {'ok': false, 'error': 'no directory'});
+          }
+          return _json(req, {
+            'ok': true,
+            'owner': pointer.owner.hex,
+            'title': pointer.title,
+            'link': pointer.link,
+            'expiresAtMs': pointer.expiresAtUnixMs,
+          });
+        default:
+          return _json(req, {'ok': false, 'error': 'bad action'});
+      }
+    } catch (e) {
+      return _json(req, {'ok': false, 'error': '$e'});
+    }
+  }
+
   /// Shared ACL folder (fileCollection document) verify surface.
   /// ?doc=<documentId>&action=list|add|remove|fetch|host_state|reconcile
   ///   add:    &id=<personal cloud item id> — shares that item (manifest inline)
