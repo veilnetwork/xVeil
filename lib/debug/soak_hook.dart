@@ -3041,9 +3041,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           }
           return _json(req, {
             'ok': true,
-            if (providerSlot != null) 'providerSlot': providerSlot,
-            if (providerSlotError != null)
-              'providerSlotError': providerSlotError,
+            'providerSlot': ?providerSlot,
+            'providerSlotError': ?providerSlotError,
             'hosts': {
               for (final entry in service.memberHostDiagnostics().entries)
                 entry.key: {
