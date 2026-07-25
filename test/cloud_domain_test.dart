@@ -353,19 +353,64 @@ void main() {
     final rootAgain = inFolder.movedToFolder(null, 40);
     expect(CloudItem.fromEvent(rootAgain.toEvent())?.folderId, isNull);
     final event = inFolder.toEvent();
-    expect(
-      CloudItem.fromEvent(
+    // An unparseable folder value (a future vocabulary) must not hide the
+    // document: the row survives and degrades to the root.
+    for (final bad in ['bad id!', 7, '', 'a/b']) {
+      final parsed = CloudItem.fromEvent(
         DeviceSyncEvent(
           kind: event.kind,
           key: event.key,
           tsMs: event.tsMs,
-          payload: {...event.payload, 'folder': 'bad id!'},
+          payload: {...event.payload, 'folder': bad},
         ),
-      ),
-      isNull,
-    );
+      );
+      expect(parsed, isNotNull);
+      expect(parsed?.folderId, isNull);
+      expect(parsed?.contentId, inFolder.contentId);
+    }
     // Legacy rows without the key parse to the root.
     expect(CloudItem.fromEvent(_item().toEvent())?.folderId, isNull);
+  });
+
+  test('a metadata-only move cannot resurrect a tombstoned item', () {
+    final item = _item(modified: 10, revision: 5);
+    final deleted = item.tombstone(1000); // revision 6, ts 1000
+    final movedLater = item.movedToFolder('folder_1', 1001); // still rev 5
+    for (final order in [
+      [deleted.toEvent(), movedLater.toEvent()],
+      [movedLater.toEvent(), deleted.toEvent()],
+    ]) {
+      final folded = foldCloudItems(order);
+      expect(
+        folded[item.id]?.deleted,
+        isTrue,
+        reason: 'the tombstone absorbs same/lower-revision rows despite ts',
+      );
+    }
+    // And through the note-heads fold: a deleted winner yields no heads.
+    final note = _note('a', modified: 10, revision: 5);
+    final noteGone = note.tombstone(1000);
+    final noteMoved = note.movedToFolder('folder_1', 1001);
+    expect(
+      foldCloudNoteHeads([
+        note.toEvent(),
+        noteGone.toEvent(),
+        noteMoved.toEvent(),
+      ])['note_1'],
+      isNull,
+    );
+  });
+
+  test('a concurrent offline edit still recreates a deleted item by LWW', () {
+    final item = _item(modified: 10, revision: 5);
+    final deleted = item.tombstone(1000); // revision 6
+    final concurrentEdit = _item(modified: 1001, revision: 6); // new version
+    final folded = foldCloudItems([
+      deleted.toEvent(),
+      concurrentEdit.toEvent(),
+    ]);
+    expect(folded[item.id]?.deleted, isFalse);
+    expect(folded[item.id]?.revision, 6);
   });
 
   test('a folder move wins the LWW row without disturbing note DAG heads', () {
