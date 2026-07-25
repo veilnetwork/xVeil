@@ -416,6 +416,7 @@ class GroupBundle {
     this.channelEpochEnvelopes = const [],
     this.localChannelEpochKeys = const {},
     this.sovereignBundle,
+    this.retentionCuts = const {},
   });
   final GroupManifest manifest;
   final List<ControlEntry> control;
@@ -442,6 +443,10 @@ class GroupBundle {
   final Map<String, Uint8List> localChannelEpochKeys;
   final Uint8List? sovereignBundle;
 
+  /// `retentionCutKey(scope, author)` -> physically deleted chain prefix.
+  /// Local fold state, never a signed wire object (see [SpaceRetentionCut]).
+  final Map<String, SpaceRetentionCut> retentionCuts;
+
   GroupBundle copyWith({
     GroupManifest? manifest,
     List<ControlEntry>? control,
@@ -455,6 +460,7 @@ class GroupBundle {
     List<GroupEpochRecipientEnvelope>? channelEpochEnvelopes,
     Map<String, Uint8List>? localChannelEpochKeys,
     Uint8List? sovereignBundle,
+    Map<String, SpaceRetentionCut>? retentionCuts,
   }) => GroupBundle(
     manifest: manifest ?? this.manifest,
     control: control ?? this.control,
@@ -468,6 +474,7 @@ class GroupBundle {
     channelEpochEnvelopes: channelEpochEnvelopes ?? this.channelEpochEnvelopes,
     localChannelEpochKeys: localChannelEpochKeys ?? this.localChannelEpochKeys,
     sovereignBundle: sovereignBundle ?? this.sovereignBundle,
+    retentionCuts: retentionCuts ?? this.retentionCuts,
   );
 }
 
@@ -675,6 +682,28 @@ class SharedContentGcSweep {
   final int purged;
   final int failed;
   final bool complete;
+}
+
+class SpaceRetentionSweep {
+  const SpaceRetentionSweep({
+    required this.scanned,
+    required this.messagesDeleted,
+    required this.postsDeleted,
+    required this.reactionsDeleted,
+    required this.cutsRecorded,
+    required this.failed,
+    required this.complete,
+  });
+
+  final int scanned;
+  final int messagesDeleted;
+  final int postsDeleted;
+  final int reactionsDeleted;
+  final int cutsRecorded;
+  final int failed;
+  final bool complete;
+
+  int get deleted => messagesDeleted + postsDeleted + reactionsDeleted;
 }
 
 class ScheduledSpacePostSweep {
@@ -6345,10 +6374,14 @@ class GroupService {
   /// the OS clock steps backwards). Distributed fold still uses author/seq;
   /// this monotonic timestamp additionally makes `fromJoin` boundaries exact.
   int _now() {
-    final wall = DateTime.now().millisecondsSinceEpoch;
+    final wall = debugWallClockMs?.call() ?? DateTime.now().millisecondsSinceEpoch;
     _lastTimestampMs = wall > _lastTimestampMs ? wall : _lastTimestampMs + 1;
     return _lastTimestampMs;
   }
+
+  /// Test seam: retention expiry spans days, so deterministic tests drive the
+  /// wall clock instead of waiting it out. Never set in production code.
+  int Function()? debugWallClockMs;
 
   bool _validManifest(GroupManifest manifest) {
     if (manifest.isLegacyGroup) return manifest.genesisPubKey.length == 32;
@@ -7495,6 +7528,162 @@ class GroupService {
     return channel ?? space;
   }
 
+  /// Clear (V9) retention revisions only, with the same monotone activation
+  /// clamp as [_materializedRetentionHistory]. Synchronous callers (snapshot
+  /// assembly) use this subset; restricted-channel envelopes need key
+  /// decryption and are enforced by the async sync/sweep paths instead.
+  List<SpaceRetentionRevision> _clearRetentionRevisions(GroupBundle bundle) {
+    if (!bundle.manifest.isSpace) return const [];
+    final revisions = <SpaceRetentionRevision>[];
+    var lastActivationMs = 0;
+    for (final entry in _acceptedControl(bundle.manifest, bundle.control)) {
+      if (entry.op != ControlOp.setRetention) continue;
+      final activatedAt = entry.createdAtMs < lastActivationMs
+          ? lastActivationMs
+          : entry.createdAtMs;
+      lastActivationMs = activatedAt;
+      final policy = entry.retentionPolicy;
+      if (policy == null) continue;
+      revisions.add(
+        SpaceRetentionRevision(
+          policy: policy,
+          activatedAtMs: activatedAt,
+          author: entry.author,
+          authorSeq: entry.seq,
+        ),
+      );
+    }
+    return revisions;
+  }
+
+  /// True when the signed retention timeline retires this message row (or
+  /// space-post comment) at [atMs]. Used symmetrically at the read, serve
+  /// (sync/snapshot) and ingest boundaries so retired content is neither
+  /// shown, redistributed nor resurrected by a stale holder.
+  bool _retentionRetiresMessage({
+    required GroupManifest manifest,
+    required List<SpaceRetentionRevision> revisions,
+    required Map<String, int> hiddenThroughMs,
+    required GroupMessage message,
+    required int atMs,
+  }) {
+    if (!manifest.isSpace ||
+        (revisions.isEmpty && hiddenThroughMs.isEmpty)) {
+      return false;
+    }
+    final NodeId? effectiveChannelId = message.spacePostId != null
+        ? null
+        : (message.channelId ?? defaultSpaceChannelId(manifest.groupId));
+    final hiddenThrough = effectiveChannelId == null
+        ? null
+        : hiddenThroughMs[effectiveChannelId.hex];
+    if (hiddenThrough != null && message.createdAtMs <= hiddenThrough) {
+      return true;
+    }
+    return spaceRetentionRemoves(
+      revisions: revisions,
+      createdAtMs: message.createdAtMs,
+      atMs: atMs,
+      channelId: effectiveChannelId,
+    );
+  }
+
+  /// True when retention retires this post at [atMs]. Pinned posts are always
+  /// preserved (the policy is structurally required to preserve pins).
+  bool _retentionRetiresPost({
+    required GroupManifest manifest,
+    required GroupState state,
+    required List<SpaceRetentionRevision> revisions,
+    required SpacePost post,
+    required int atMs,
+  }) {
+    if (!manifest.isSpace ||
+        revisions.isEmpty ||
+        state.postPinFor(post.postId)?.pinned == true) {
+      return false;
+    }
+    return spaceRetentionRemoves(
+      revisions: revisions,
+      createdAtMs: post.createdAtMs,
+      atMs: atMs,
+      channelId: null,
+    );
+  }
+
+  bool _retentionRetiresReaction({
+    required GroupManifest manifest,
+    required List<SpaceRetentionRevision> revisions,
+    required Map<String, int> hiddenThroughMs,
+    required GroupReaction reaction,
+    required int atMs,
+  }) {
+    if (!manifest.isSpace ||
+        (revisions.isEmpty && hiddenThroughMs.isEmpty)) {
+      return false;
+    }
+    final channelId = reaction.channelId;
+    final hiddenThrough = channelId == null
+        ? null
+        : hiddenThroughMs[channelId.hex];
+    if (hiddenThrough != null && reaction.createdAtMs <= hiddenThrough) {
+      return true;
+    }
+    return spaceRetentionRemoves(
+      revisions: revisions,
+      createdAtMs: reaction.createdAtMs,
+      atMs: atMs,
+      channelId: channelId,
+    );
+  }
+
+  /// Validate a remote retention-cut hint against the local signed retention
+  /// timeline. The claimed boundary must itself be expired under the fold and
+  /// must not cover any locally retained, still-live row in the same chain.
+  bool _acceptableRemoteRetentionCut({
+    required GroupManifest manifest,
+    required List<SpaceRetentionRevision> revisions,
+    required Iterable<GroupMessage> localMessages,
+    required SpaceRetentionCut cut,
+    required int atMs,
+  }) {
+    if (!manifest.isSpace || !cut.isStructurallyValid) return false;
+    NodeId? channelId;
+    final scopeHead = cut.scope.split('|').first;
+    if (!scopeHead.startsWith('post:')) {
+      try {
+        channelId = NodeId.fromHex(scopeHead);
+      } catch (_) {
+        return false;
+      }
+    }
+    if (!spaceRetentionRemoves(
+      revisions: revisions,
+      createdAtMs: cut.throughCreatedAtMs,
+      atMs: atMs,
+      channelId: channelId,
+    )) {
+      return false;
+    }
+    for (final message in localMessages) {
+      if (message.author != cut.author ||
+          message.seq > cut.throughSeq ||
+          _messageChainScope(manifest, message) != cut.scope) {
+        continue;
+      }
+      // A local row the cut claims to retire must genuinely be expired;
+      // otherwise the hint would hide live history.
+      if (!spaceRetentionRemoves(
+        revisions: revisions,
+        createdAtMs: message.createdAtMs,
+        atMs: atMs,
+        channelId: channelId,
+      )) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<GroupReaction?> _materializeEncryptedReaction(
     GroupBundle bundle,
     GroupReaction reaction,
@@ -8109,6 +8298,16 @@ class GroupService {
           ? Uint8List.fromList(base64Decode(d['s'] as String))
           : null;
       if (!_validSovereignBundle(manifest, sovereignBundle)) return null;
+      final retentionCuts = <String, SpaceRetentionCut>{};
+      for (final raw in d['rcut'] as List? ?? const []) {
+        final cut = SpaceRetentionCut.fromJson(raw);
+        if (cut == null) continue;
+        final key = retentionCutKey(cut.scope, cut.author);
+        final prior = retentionCuts[key];
+        if (prior == null || cut.throughSeq > prior.throughSeq) {
+          retentionCuts[key] = cut;
+        }
+      }
       final material = await _mergeEpochMaterial(
         manifest: manifest,
         control: control,
@@ -8136,6 +8335,7 @@ class GroupService {
         channelEpochEnvelopes: channelMaterial.envelopes,
         localChannelEpochKeys: channelMaterial.keys,
         sovereignBundle: sovereignBundle,
+        retentionCuts: retentionCuts,
       );
     } catch (_) {
       return null;
@@ -8172,6 +8372,8 @@ class GroupService {
             entry.key: base64Encode(entry.value),
         },
       if (b.sovereignBundle != null) 's': base64Encode(b.sovereignBundle!),
+      if (b.retentionCuts.isNotEmpty)
+        'rcut': [for (final cut in b.retentionCuts.values) cut.toJson()],
     });
     await _storage.storeFile(
       _key(b.manifest.groupId),
@@ -8594,6 +8796,19 @@ class GroupService {
     _spaceDeletionMaintenanceRunning = true;
     try {
       await purgeDeletedSpaces();
+      // Retention rows first: freed media references become unreachable and
+      // the shared-content GC below can then mark/collect the blobs.
+      final retention = await sweepSpaceRetention();
+      if (retention.scanned > 0 || retention.deleted > 0) {
+        devLog(
+          () =>
+              'xVeil[retention]: scanned=${retention.scanned} '
+              'messages=${retention.messagesDeleted} '
+              'posts=${retention.postsDeleted} '
+              'reactions=${retention.reactionsDeleted} '
+              'cuts=${retention.cutsRecorded} failed=${retention.failed}',
+        );
+      }
       final gc = await sweepSharedContentGarbage();
       devLog(
         () =>
@@ -8605,6 +8820,230 @@ class GroupService {
     } finally {
       _spaceDeletionMaintenanceRunning = false;
     }
+  }
+
+  /// Physically delete retention-expired rows once their expiry is older than
+  /// the policy's physical-deletion grace.
+  ///
+  /// Message rows form strict per-(scope, author) hash chains, so only a
+  /// fully expired chain PREFIX is removed and a local [SpaceRetentionCut]
+  /// re-anchors the fold at the first retained row; fork evidence is never
+  /// deleted. Posts and reactions are not hash-chained and are removed
+  /// row-wise (a publication is removed only when its whole revision group is
+  /// expired and unpinned). Freed media references are collected by the
+  /// shared-content GC that runs after this sweep. The fail-closed
+  /// hidden-through boundary of an unreadable encrypted policy never deletes
+  /// anything. Bounded, idempotent, serialized per Space.
+  Future<SpaceRetentionSweep> sweepSpaceRetention({
+    int? nowMs,
+    int limit = 16,
+  }) async {
+    if (limit <= 0 || limit > 256) {
+      throw ArgumentError.value(limit, 'limit', 'must be 1..256');
+    }
+    final now = nowMs ?? _now();
+    var scanned = 0;
+    var messagesDeleted = 0;
+    var postsDeleted = 0;
+    var reactionsDeleted = 0;
+    var cutsRecorded = 0;
+    var failed = 0;
+    var budget = limit;
+    for (final hex in await _index()) {
+      if (budget == 0) break;
+      NodeId spaceId;
+      try {
+        spaceId = NodeId.fromHex(hex);
+      } catch (_) {
+        continue;
+      }
+      try {
+        await _serialized(spaceId, () async {
+          final b = await load(spaceId);
+          if (b == null || !b.manifest.isSpace) return;
+          final state = foldControlLog(
+            owner: b.manifest.owner,
+            entries: b.control,
+            verify: (entry) => _validControlFor(b.manifest, entry),
+            initialName: b.manifest.name,
+            initialDescription: b.manifest.description ?? '',
+          ).state;
+          final retention = await _materializedRetentionHistory(b, state);
+          final hasBoundedPolicy = retention.revisions.any(
+            (revision) =>
+                revision.policy.mode == SpaceRetentionMode.deleteAfter,
+          );
+          if (!hasBoundedPolicy) return;
+          scanned++;
+          budget--;
+
+          bool graceExpiredMessage(GroupMessage m) {
+            final channelId = m.spacePostId != null
+                ? null
+                : (m.channelId ?? defaultSpaceChannelId(b.manifest.groupId));
+            final grace = _effectiveRetentionPolicy(
+              retention.revisions,
+              channelId,
+            ).physicalDeletionGraceMs;
+            return _retentionRetiresMessage(
+              manifest: b.manifest,
+              revisions: retention.revisions,
+              hiddenThroughMs: const {},
+              message: m,
+              atMs: now - grace,
+            );
+          }
+
+          // Messages: expired createdAt is monotone along a chain, so the
+          // deletable region is always a prefix; stop at the first live row
+          // or at recorded fork evidence.
+          final byChain = <String, List<GroupMessage>>{};
+          final untouched = <GroupMessage>[];
+          for (final m in b.messages) {
+            if (!_validMessageFor(b.manifest.groupId, m)) {
+              untouched.add(m);
+              continue;
+            }
+            final scope = _messageChainScope(b.manifest, m);
+            byChain
+                .putIfAbsent(retentionCutKey(scope, m.author), () => [])
+                .add(m);
+          }
+          final forks = _messageForks(
+            b.manifest,
+            _retainedMessageRows(b.manifest, b.messages),
+          );
+          final deletedHashes = <String>{};
+          final newCuts = <String, SpaceRetentionCut>{...b.retentionCuts};
+          for (final entry in byChain.entries) {
+            final rows = entry.value
+              ..sort((left, right) => left.seq.compareTo(right.seq));
+            final scope = _messageChainScope(b.manifest, rows.first);
+            final fork = forks[entry.key];
+            final priorCutSeq = b.retentionCuts[entry.key]?.throughSeq ?? -1;
+            GroupMessage? lastDeleted;
+            for (final m in rows) {
+              if (m.seq <= priorCutSeq) {
+                // Straggler below an accepted cut: already retired.
+                deletedHashes.add(groupMessageHash(m));
+                continue;
+              }
+              if (fork != null && m.seq >= fork.seq) break;
+              if (!graceExpiredMessage(m)) break;
+              deletedHashes.add(groupMessageHash(m));
+              lastDeleted = m;
+            }
+            if (lastDeleted == null) continue;
+            final prior = newCuts[entry.key];
+            if (prior == null || lastDeleted.seq > prior.throughSeq) {
+              newCuts[entry.key] = SpaceRetentionCut(
+                scope: scope,
+                author: rows.first.author,
+                throughSeq: lastDeleted.seq,
+                throughCreatedAtMs: lastDeleted.createdAtMs,
+              );
+              cutsRecorded++;
+            }
+          }
+          final keptMessages = <GroupMessage>[
+            ...untouched,
+            for (final rows in byChain.values)
+              for (final m in rows)
+                if (!deletedHashes.contains(groupMessageHash(m))) m,
+          ];
+
+          // Publications: not hash-chained, but edit/delete revisions sign
+          // the root, so a postId group is removed only atomically and only
+          // when every revision is expired and unpinned.
+          final spaceGrace = _effectiveRetentionPolicy(
+            retention.revisions,
+          ).physicalDeletionGraceMs;
+          final byPostId = <String, List<SpacePost>>{};
+          final keptPosts = <SpacePost>[];
+          for (final post in b.posts) {
+            if (!_validPostFor(b.manifest.groupId, post)) {
+              keptPosts.add(post);
+              continue;
+            }
+            byPostId.putIfAbsent(post.postId, () => []).add(post);
+          }
+          var deletedPostRows = 0;
+          for (final group in byPostId.values) {
+            final allExpired = group.every(
+              (post) => _retentionRetiresPost(
+                manifest: b.manifest,
+                state: state,
+                revisions: retention.revisions,
+                post: post,
+                atMs: now - spaceGrace,
+              ),
+            );
+            if (allExpired) {
+              deletedPostRows += group.length;
+            } else {
+              keptPosts.addAll(group);
+            }
+          }
+
+          final keptReactions = <GroupReaction>[];
+          var deletedReactionRows = 0;
+          for (final r in b.reactions) {
+            final grace = _effectiveRetentionPolicy(
+              retention.revisions,
+              r.channelId,
+            ).physicalDeletionGraceMs;
+            if (_validReactionFor(b.manifest.groupId, r) &&
+                _retentionRetiresReaction(
+                  manifest: b.manifest,
+                  revisions: retention.revisions,
+                  hiddenThroughMs: const {},
+                  reaction: r,
+                  atMs: now - grace,
+                )) {
+              deletedReactionRows++;
+              continue;
+            }
+            keptReactions.add(r);
+          }
+
+          if (deletedHashes.isEmpty &&
+              deletedPostRows == 0 &&
+              deletedReactionRows == 0) {
+            return;
+          }
+          messagesDeleted += deletedHashes.length;
+          postsDeleted += deletedPostRows;
+          reactionsDeleted += deletedReactionRows;
+          await _save(
+            b.copyWith(
+              messages: keptMessages,
+              posts: keptPosts,
+              reactions: keptReactions,
+              retentionCuts: newCuts,
+            ),
+            notify: false,
+          );
+        });
+      } catch (_) {
+        failed++;
+      }
+    }
+    if (messagesDeleted + postsDeleted + reactionsDeleted > 0) {
+      try {
+        await _storage.scrubDeleted();
+      } catch (_) {
+        failed++;
+      }
+    }
+    return SpaceRetentionSweep(
+      scanned: scanned,
+      messagesDeleted: messagesDeleted,
+      postsDeleted: postsDeleted,
+      reactionsDeleted: reactionsDeleted,
+      cutsRecorded: cutsRecorded,
+      failed: failed,
+      complete: failed == 0,
+    );
   }
 
   /// Physically purge expired recoverable Space bundles in bounded batches.
@@ -11526,18 +11965,29 @@ class GroupService {
           (message) => _messageChainScope(b.manifest, message) == targetScope,
         )
         .toList();
+    final selfScopeCut =
+        b.retentionCuts[retentionCutKey(targetScope, _signer.selfId)];
     final acceptedScope = _acceptedMessageChain(
       b.manifest,
       canonicalSelf,
       _signer.selfId,
       targetScope,
+      cut: selfScopeCut,
     );
     if (acceptedScope.length != scopedSelf.length) {
       // Never author on top of a forked or broken local suffix. Gap-fill must
       // first recover the exact predecessor selected by the signed chain.
       return false;
     }
-    final mySeq = _nextSeq(retainedSelf.map((message) => message.seq));
+    var mySeq = _nextSeq(retainedSelf.map((message) => message.seq));
+    for (final cut in b.retentionCuts.values) {
+      // Physically deleted own rows must never free their sequence numbers:
+      // a reused (author, seq) would read as fork evidence on peers that
+      // still hold the retired row.
+      if (cut.author == _signer.selfId && cut.throughSeq >= mySeq) {
+        mySeq = cut.throughSeq + 1;
+      }
+    }
     // Sovereign device groups are compacted LWW state logs, not user history:
     // removing superseded rows is intentional there, so they retain the
     // legacy unchained shape until that CRDT gets its own checkpoint protocol.
@@ -13213,14 +13663,18 @@ class GroupService {
     GroupManifest manifest,
     Iterable<GroupMessage> input,
     NodeId author,
-    String scope,
-  ) {
+    String scope, {
+    SpaceRetentionCut? cut,
+  }) {
     final authored =
         _canonicalMessageRows(manifest, input)
             .where(
               (message) =>
                   message.author == author &&
-                  _messageChainScope(manifest, message) == scope,
+                  _messageChainScope(manifest, message) == scope &&
+                  // Rows at or below an accepted cut are retention-retired;
+                  // a straggler copy must not fork the re-anchored chain.
+                  (cut == null || message.seq > cut.throughSeq),
             )
             .toList()
           ..sort((left, right) => left.seq.compareTo(right.seq));
@@ -13232,8 +13686,13 @@ class GroupService {
       if (message.prevHash.isEmpty) {
         if (strict) break;
       } else {
-        if (predecessor == null ||
-            message.prevHash != groupMessageHash(predecessor)) {
+        if (predecessor == null) {
+          // A retention cut re-anchors the chain at exactly the first row
+          // after the physically deleted expired prefix. Any other missing
+          // predecessor keeps hiding the scoped suffix until anti-entropy
+          // supplies the exact missing row.
+          if (cut == null || message.seq != cut.throughSeq + 1) break;
+        } else if (message.prevHash != groupMessageHash(predecessor)) {
           break;
         }
         strict = true;
@@ -13246,8 +13705,9 @@ class GroupService {
 
   List<GroupMessage> _acceptedMessageRows(
     GroupManifest manifest,
-    Iterable<GroupMessage> input,
-  ) {
+    Iterable<GroupMessage> input, {
+    Map<String, SpaceRetentionCut> retentionCuts = const {},
+  }) {
     final canonical = _canonicalMessageRows(manifest, input);
     final chains = <String, ({NodeId author, String scope})>{};
     for (final message in canonical) {
@@ -13258,12 +13718,13 @@ class GroupService {
       );
     }
     final accepted = <GroupMessage>[
-      for (final chain in chains.values)
+      for (final chain in chains.entries)
         ..._acceptedMessageChain(
           manifest,
           canonical,
-          chain.author,
-          chain.scope,
+          chain.value.author,
+          chain.value.scope,
+          cut: retentionCuts[chain.key],
         ),
     ];
     accepted.sort((left, right) {
@@ -13407,7 +13868,11 @@ class GroupService {
     GroupBundle bundle,
     GroupState state,
   ) {
-    final accepted = _acceptedMessageRows(bundle.manifest, bundle.messages);
+    final accepted = _acceptedMessageRows(
+      bundle.manifest,
+      bundle.messages,
+      retentionCuts: bundle.retentionCuts,
+    );
     final transition = state.lifecycleTransition;
     if (transition == null) return accepted;
     final completePrefixes = <String>{};
@@ -15435,10 +15900,22 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
+    final retention = b.manifest.isSpace
+        ? await _materializedRetentionHistory(b, state)
+        : null;
+    final retireAtMs = _now();
     final retainedMessages = _retainedMessageRows(b.manifest, b.messages)
         .where(
           (message) =>
-              _messageWithinLifecycleBoundary(b.manifest, state, message),
+              _messageWithinLifecycleBoundary(b.manifest, state, message) &&
+              (retention == null ||
+                  !_retentionRetiresMessage(
+                    manifest: b.manifest,
+                    revisions: retention.revisions,
+                    hiddenThroughMs: retention.hiddenThroughMs,
+                    message: message,
+                    atMs: retireAtMs,
+                  )),
         )
         .toList();
     final localMessageForks = _messageForks(b.manifest, retainedMessages);
@@ -15615,6 +16092,14 @@ class GroupService {
     final missingRx = [
       for (final r in _acceptedReactionsWithinLifecycle(b, state))
         if (_validReactionFor(gid, r) &&
+            (retention == null ||
+                !_retentionRetiresReaction(
+                  manifest: b.manifest,
+                  revisions: retention.revisions,
+                  hiddenThroughMs: retention.hiddenThroughMs,
+                  reaction: r,
+                  atMs: retireAtMs,
+                )) &&
             r.seq > seen(reactionVectorFor(r), r.author) &&
             (r.isChannelEncrypted
                 ? _peerCanDecryptChannelEpoch(
@@ -15632,6 +16117,14 @@ class GroupService {
       for (final post in _retainedPostRows(gid, b.posts))
         if (_validPostFor(gid, post) &&
             _postWithinLifecycleBoundary(state, post) &&
+            (retention == null ||
+                !_retentionRetiresPost(
+                  manifest: b.manifest,
+                  state: state,
+                  revisions: retention.revisions,
+                  post: post,
+                  atMs: retireAtMs,
+                )) &&
             (post.seq > seen(postVectorFor(post), post.author) ||
                 (post.seq == seen(postVectorFor(post), post.author) &&
                     hasPostHash(postVectorFor(post), post.author) &&
@@ -15817,6 +16310,8 @@ class GroupService {
               for (final envelope in missingChannelEpochEnvelopes)
                 envelope.toJson(),
             ],
+          if (b.retentionCuts.isNotEmpty)
+            'rcut': [for (final cut in b.retentionCuts.values) cut.toJson()],
           'ov': ?overlayId,
           'rcpt': ?receipt,
         }),
@@ -17907,6 +18402,11 @@ class GroupService {
     final channelEpochEnvelopes = recipient == null || !distributesContent
         ? const <GroupEpochRecipientEnvelope>[]
         : _channelEpochEnvelopesFor(b, recipient);
+    // Snapshot assembly is synchronous, so only the clear retention timeline
+    // is applied here; restricted-channel policies are enforced by the async
+    // sync path and by the physical sweep that removes the rows themselves.
+    final retentionRevisions = _clearRetentionRevisions(b);
+    final retireAtMs = _now();
     return jsonEncode({
       'm': b.manifest.toJson(),
       'c': b.control
@@ -17920,6 +18420,13 @@ class GroupService {
             (message) =>
                 distributesContent &&
                 _validMessageFor(b.manifest.groupId, message) &&
+                !_retentionRetiresMessage(
+                  manifest: b.manifest,
+                  revisions: retentionRevisions,
+                  hiddenThroughMs: const {},
+                  message: message,
+                  atMs: retireAtMs,
+                ) &&
                 _messageWithinLifecycleBoundary(
                   b.manifest,
                   lifecycleState,
@@ -17951,6 +18458,13 @@ class GroupService {
               (post) =>
                   distributesContent &&
                   _validPostFor(b.manifest.groupId, post) &&
+                  !_retentionRetiresPost(
+                    manifest: b.manifest,
+                    state: lifecycleState,
+                    revisions: retentionRevisions,
+                    post: post,
+                    atMs: retireAtMs,
+                  ) &&
                   _postWithinLifecycleBoundary(lifecycleState, post) &&
                   (!post.isEncrypted ||
                       (recipient != null &&
@@ -17966,6 +18480,13 @@ class GroupService {
           .where(
             (reaction) =>
                 distributesContent &&
+                !_retentionRetiresReaction(
+                  manifest: b.manifest,
+                  revisions: retentionRevisions,
+                  hiddenThroughMs: const {},
+                  reaction: reaction,
+                  atMs: retireAtMs,
+                ) &&
                 (reaction.isChannelEncrypted
                     ? recipient != null &&
                           _peerCanDecryptChannelEpoch(
@@ -18012,6 +18533,8 @@ class GroupService {
         'ke': epochEnvelopes.map((entry) => entry.toJson()).toList(),
       if (channelEpochEnvelopes.isNotEmpty)
         'cke': channelEpochEnvelopes.map((entry) => entry.toJson()).toList(),
+      if (distributesContent && b.retentionCuts.isNotEmpty)
+        'rcut': [for (final cut in b.retentionCuts.values) cut.toJson()],
       if (b.sovereignBundle != null) 's': base64Encode(b.sovereignBundle!),
       'rcpt': ?receipt,
     });
@@ -18084,6 +18607,10 @@ class GroupService {
     final inChannelEpochEnvelopes = (d['cke'] as List? ?? const [])
         .map(GroupEpochRecipientEnvelope.fromJson)
         .whereType<GroupEpochRecipientEnvelope>()
+        .toList();
+    final inRetentionCuts = (d['rcut'] as List? ?? const [])
+        .map(SpaceRetentionCut.fromJson)
+        .whereType<SpaceRetentionCut>()
         .toList();
 
     final deletionTombstone = await deletedSpaceTombstone(manifest.groupId);
@@ -18220,6 +18747,33 @@ class GroupService {
         ? await _protectedChannelsOf(materialBundle, mergedState)
         : const <String, SpaceChannelControlCleartext>{};
     final encryptionEstablished = _encryptionEstablished(man, control);
+    // Retention is enforced symmetrically at ingest: a stale or malicious
+    // holder cannot resurrect rows the signed policy has already retired.
+    final ingestRetention = man.isSpace
+        ? await _materializedRetentionHistory(materialBundle, mergedState)
+        : null;
+    final ingestAtMs = _now();
+    final mergedRetentionCuts = <String, SpaceRetentionCut>{
+      ...?existing?.retentionCuts,
+    };
+    if (ingestRetention != null) {
+      for (final cut in inRetentionCuts) {
+        if (!_acceptableRemoteRetentionCut(
+          manifest: man,
+          revisions: ingestRetention.revisions,
+          localMessages: messages,
+          cut: cut,
+          atMs: ingestAtMs,
+        )) {
+          continue;
+        }
+        final key = retentionCutKey(cut.scope, cut.author);
+        final prior = mergedRetentionCuts[key];
+        if (prior == null || cut.throughSeq > prior.throughSeq) {
+          mergedRetentionCuts[key] = cut;
+        }
+      }
+    }
     final acceptedCommentRoots = <String>{...acceptedPostIdsBefore};
     if (man.isSpace) {
       for (final post in inPosts) {
@@ -18243,6 +18797,16 @@ class GroupService {
         continue;
       }
       if (!_messageWithinLifecycleBoundary(man, mergedState, m)) continue;
+      if (ingestRetention != null &&
+          _retentionRetiresMessage(
+            manifest: man,
+            revisions: ingestRetention.revisions,
+            hiddenThroughMs: ingestRetention.hiddenThroughMs,
+            message: m,
+            atMs: ingestAtMs,
+          )) {
+        continue;
+      }
       if (man.isSpace) {
         if (m.spacePostId != null) {
           if (m.channelId != null ||
@@ -18352,6 +18916,16 @@ class GroupService {
     for (final post in inPosts) {
       if (!man.isSpace || !_validPostFor(man.groupId, post)) continue;
       if (!_postWithinLifecycleBoundary(mergedState, post)) continue;
+      if (ingestRetention != null &&
+          _retentionRetiresPost(
+            manifest: man,
+            state: mergedState,
+            revisions: ingestRetention.revisions,
+            post: post,
+            atMs: ingestAtMs,
+          )) {
+        continue;
+      }
       final historicallyAuthorized =
           post.isCausal &&
           _causalPostHistoricallyAuthorized(man, control, post);
@@ -18416,6 +18990,7 @@ class GroupService {
       localEpochKeys: material.keys,
       channelEpochEnvelopes: channelMaterial.envelopes,
       localChannelEpochKeys: channelMaterial.keys,
+      retentionCuts: mergedRetentionCuts,
     );
     final visiblePostIds = man.isSpace
         ? {for (final post in await _postsOfBundle(targetBundle)) post.postId}
@@ -18444,6 +19019,16 @@ class GroupService {
             r.author,
             SpacePermission.publishMessages,
             atMs: r.createdAtMs,
+          )) {
+        continue;
+      }
+      if (ingestRetention != null &&
+          _retentionRetiresReaction(
+            manifest: man,
+            revisions: ingestRetention.revisions,
+            hiddenThroughMs: ingestRetention.hiddenThroughMs,
+            reaction: r,
+            atMs: ingestAtMs,
           )) {
         continue;
       }
@@ -18613,6 +19198,7 @@ class GroupService {
       channelEpochEnvelopes: channelMaterial.envelopes,
       localChannelEpochKeys: channelMaterial.keys,
       sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
+      retentionCuts: mergedRetentionCuts,
     );
     final feedAccessChanged = hadFeedAccess != hasFeedAccess;
     await _save(saved, notify: !feedAccessChanged);
