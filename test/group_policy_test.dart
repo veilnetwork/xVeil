@@ -627,6 +627,126 @@ void main() {
     expect(restored.state.epoch, 1);
   });
 
+  test('a backdated addMember cannot re-admit a permanently banned member', () {
+    final add = ControlEntry(
+      version: 2,
+      groupId: _owner,
+      author: _owner,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.addMember,
+      target: _bob,
+      role: GroupRole.member,
+      policyVersion: 0,
+      createdAtMs: 1000,
+      signature: Uint8List(0),
+    );
+    final ban = ControlEntry(
+      version: 8,
+      groupId: _owner,
+      author: _owner,
+      seq: 1,
+      prevHash: controlEntryHash(add),
+      op: ControlOp.moderate,
+      target: _bob,
+      role: null,
+      moderationAction: SpaceModerationAction(
+        kind: SpaceModerationKind.permanentBan,
+        target: _bob,
+        scope: SpaceModerationScope.space,
+        reason: 'Account compromise',
+        createdAtMs: 1100,
+      ),
+      postBoundary: const SpacePostBoundary(seq: -1, hash: ''),
+      policyVersion: 0,
+      createdAtMs: 1100,
+      signature: Uint8List(0),
+    );
+    // Same author => the seq order is inviolable, so this add is folded AFTER
+    // the ban even though it self-asserts a createdAtMs below the ban's
+    // activation. A createdAtMs-only active check would evade the guard.
+    final backdatedAdd = ControlEntry(
+      version: 2,
+      groupId: _owner,
+      author: _owner,
+      seq: 2,
+      prevHash: controlEntryHash(ban),
+      op: ControlOp.addMember,
+      target: _bob,
+      role: GroupRole.member,
+      policyVersion: 0,
+      createdAtMs: 50,
+      signature: Uint8List(0),
+    );
+    final result = foldControlLog(
+      owner: _owner,
+      entries: [add, ban, backdatedAdd],
+      verify: _ok,
+    );
+    expect(result.rejected, contains(backdatedAdd));
+    expect(result.state.isMember(_bob), isFalse);
+  });
+
+  test('a temporary ban still permits re-admission after it expires', () {
+    final add = ControlEntry(
+      version: 2,
+      groupId: _owner,
+      author: _owner,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.addMember,
+      target: _bob,
+      role: GroupRole.member,
+      policyVersion: 0,
+      createdAtMs: 1000,
+      signature: Uint8List(0),
+    );
+    final ban = ControlEntry(
+      version: 8,
+      groupId: _owner,
+      author: _owner,
+      seq: 1,
+      prevHash: controlEntryHash(add),
+      op: ControlOp.moderate,
+      target: _bob,
+      role: null,
+      moderationAction: SpaceModerationAction(
+        kind: SpaceModerationKind.temporaryBan,
+        target: _bob,
+        scope: SpaceModerationScope.space,
+        reason: 'Spam wave',
+        createdAtMs: 1100,
+        expiresAtMs: 1200,
+      ),
+      postBoundary: const SpacePostBoundary(seq: -1, hash: ''),
+      policyVersion: 0,
+      createdAtMs: 1100,
+      signature: Uint8List(0),
+    );
+    // createdAtMs 1500 is genuinely past the ban's 1200 expiry: the clamp must
+    // not over-block a legitimate re-admission.
+    final reAdd = ControlEntry(
+      version: 2,
+      groupId: _owner,
+      author: _owner,
+      seq: 2,
+      prevHash: controlEntryHash(ban),
+      op: ControlOp.addMember,
+      target: _bob,
+      role: GroupRole.member,
+      policyVersion: 0,
+      createdAtMs: 1500,
+      signature: Uint8List(0),
+    );
+    final result = foldControlLog(
+      owner: _owner,
+      entries: [add, ban, reAdd],
+      verify: _ok,
+    );
+    expect(result.rejected, isEmpty);
+    expect(result.state.isMember(_bob), isTrue);
+  });
+
   test('distinct same-seq control rows quarantine both fork branches', () {
     final r = foldControlLog(
       owner: _owner,
