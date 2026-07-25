@@ -9,6 +9,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/ids.dart';
 import '../../domain/cloud.dart';
 import '../../domain/cloud_capability.dart';
+import '../../domain/public_directory_pointer.dart';
+import '../../state/public_directory_providers.dart';
+import '../../state/public_directory_service.dart';
 import '../../domain/chat.dart';
 import '../../domain/cloud_collection_crdt.dart';
 import '../../domain/cloud_document.dart';
@@ -39,6 +42,19 @@ enum _CloudSortMode { name, date, size }
 class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
   bool _busy = false;
 
+  @override
+  void initState() {
+    super.initState();
+    // Restore any published public directory so the folder menu can offer
+    // "unpublish" for the right folder (start is idempotent + republishes).
+    final directory = ref.read(publicDirectoryServiceProvider);
+    if (directory != null) {
+      unawaited(directory.start().then((_) {
+        if (mounted) setState(() {});
+      }));
+    }
+  }
+
   /// The flat folder currently open; null renders the root. If the folder is
   /// tombstoned by another device the view falls back to the root on its own
   /// (the id simply stops resolving to a live folder).
@@ -62,6 +78,8 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
       ref.read(cloudCapabilityServiceProvider);
   CloudDocumentReplicationService? get _documentService =>
       ref.read(cloudDocumentReplicationServiceProvider);
+  PublicDirectoryService? get _publicDirectory =>
+      ref.read(publicDirectoryServiceProvider);
 
   Future<void> _importFile() async {
     final service = _service;
@@ -138,6 +156,12 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                 title: Text(l.cloudFolderOpen),
                 onTap: () => Navigator.pop(context, 'openFolder'),
               ),
+            if (_publicDirectory != null)
+              ListTile(
+                leading: const Icon(Icons.travel_explore_outlined),
+                title: Text(l.cloudPublicDirOpen),
+                onTap: () => Navigator.pop(context, 'openPublicDir'),
+              ),
             if (_documentService?.canMutate == true)
               ListTile(
                 leading: const Icon(Icons.group_add_outlined),
@@ -153,6 +177,7 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     if (action == 'file') await _importFile();
     if (action == 'folder') await _createFolder();
     if (action == 'openFolder') await _openFolderLink();
+    if (action == 'openPublicDir') await _openPublicDirectory();
     if (action == 'shared') await _createSharedDocument();
   }
 
@@ -352,6 +377,148 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     }
   }
 
+  /// Bind a folder to this identity's nickname as a PUBLIC directory. Warns
+  /// first: this is the opposite of an anonymous bearer link — anyone who
+  /// knows the nickname sees the folder and that it belongs to this identity.
+  Future<void> _publishFolderPublic(CloudFolder folder) async {
+    final cloud = _service;
+    final capabilities = _capabilityService;
+    final directory = _publicDirectory;
+    if (cloud == null || capabilities == null || directory == null || _busy) {
+      return;
+    }
+    final l = AppL10n.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l.cloudPublicDirPublish),
+        content: Text(l.cloudPublicDirWarning),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(l.cloudPublicDirConfirm),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      final entries = await cloud.buildFolderListingEntries(folder.id);
+      if (entries == null || entries.isEmpty) {
+        if (mounted) _notice(l.cloudFolderShareEmpty);
+        return;
+      }
+      await directory.start();
+      final share = await capabilities.createFolderShare(
+        folderId: folder.id,
+        folderName: folder.name,
+        entries: entries,
+      );
+      // The service revokes any prior directory's share on success; we only
+      // clean up THIS share if publishing failed.
+      final ok = await directory.publish(
+        folderId: folder.id,
+        shareId: share.shareId,
+        link: share.link,
+        title: folder.name,
+      );
+      if (!ok) {
+        await capabilities.revokeFolderShare(share.shareId);
+        if (mounted) _notice(l.cloudPublicDirFailed);
+        return;
+      }
+      if (mounted) _notice(l.cloudPublicDirPublished);
+    } catch (_) {
+      if (mounted) _notice(AppL10n.of(context).cloudPublicDirFailed);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Stop publishing this identity's public directory: withdraw the pointer
+  /// (it stops being republished and expires) and revoke the folder share so
+  /// it no longer serves bytes.
+  Future<void> _unpublishDirectory() async {
+    final directory = _publicDirectory;
+    if (directory == null || _busy) return;
+    final l = AppL10n.of(context);
+    setState(() => _busy = true);
+    try {
+      await directory.start();
+      await directory.withdraw();
+      if (mounted) _notice(l.cloudPublicDirUnpublished);
+    } catch (_) {
+      if (mounted) _notice(AppL10n.of(context).cloudPublicDirFailed);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Open someone's public directory by their nickname: resolve → verify →
+  /// browse the folder with the ordinary received-folder screen.
+  Future<void> _openPublicDirectory() async {
+    final directory = _publicDirectory;
+    final capabilities = _capabilityService;
+    final cloud = _service;
+    if (directory == null || capabilities == null || cloud == null) return;
+    final l = AppL10n.of(context);
+    final controller = TextEditingController();
+    final nickname = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l.cloudPublicDirOpen),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: l.cloudPublicDirNicknameHint,
+            prefixText: '@',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: Text(l.cloudPublicDirResolve),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (!mounted || nickname == null || nickname.isEmpty) return;
+    setState(() => _busy = true);
+    PublicDirectoryPointer? pointer;
+    try {
+      pointer = await directory.resolveByNickname(nickname);
+    } catch (_) {
+      pointer = null;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+    if (pointer == null) {
+      _notice(l.cloudPublicDirNotFound);
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) => CloudReceivedFolderScreen(
+          capabilities: capabilities,
+          cloud: cloud,
+          link: pointer!.link,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openFolderLink() async {
     final capabilities = _capabilityService;
     final cloud = _service;
@@ -417,6 +584,13 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     );
     if (confirmed != true || !mounted) return;
     try {
+      // Deleting the folder that is currently published as a public directory
+      // must also stop publishing + revoke its share — otherwise it would keep
+      // serving bytes for a folder the user just deleted.
+      final directory = _publicDirectory;
+      if (directory != null && directory.status.folderId == folder.id) {
+        await directory.withdraw();
+      }
       final fallback = service.effectiveFolderParents()[folder.id];
       await service.deleteFolder(folder.id);
       if (mounted && _openFolderId == folder.id) {
@@ -1117,6 +1291,10 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                                         unawaited(_moveFolder(folder));
                                       case 'share':
                                         unawaited(_shareFolder(folder));
+                                      case 'publishPublic':
+                                        unawaited(_publishFolderPublic(folder));
+                                      case 'unpublishPublic':
+                                        unawaited(_unpublishDirectory());
                                       case 'delete':
                                         unawaited(_deleteFolder(folder));
                                     }
@@ -1134,6 +1312,19 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                                       PopupMenuItem(
                                         value: 'share',
                                         child: Text(l.cloudFolderShare),
+                                      ),
+                                    if (_publicDirectory != null &&
+                                        _publicDirectory!.status.folderId !=
+                                            folder.id)
+                                      PopupMenuItem(
+                                        value: 'publishPublic',
+                                        child: Text(l.cloudPublicDirPublish),
+                                      ),
+                                    if (_publicDirectory?.status.folderId ==
+                                        folder.id)
+                                      PopupMenuItem(
+                                        value: 'unpublishPublic',
+                                        child: Text(l.cloudPublicDirUnpublish),
                                       ),
                                     PopupMenuItem(
                                       value: 'delete',

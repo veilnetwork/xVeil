@@ -2039,6 +2039,40 @@ class AppL10nRu extends AppL10n {
   String get cloudSharedFetchFailed => 'Не удалось скачать файл';
 
   @override
+  String get cloudPublicDirPublish => 'Опубликовать под ником';
+
+  @override
+  String get cloudPublicDirWarning =>
+      'Любой, кто знает ваш ник, увидит эту папку и то, что она принадлежит вам. Это публично и привязано к вашей личности — в отличие от разовой ссылки. Новые файлы, добавленные в папку, тоже станут видны.';
+
+  @override
+  String get cloudPublicDirConfirm => 'Опубликовать публично';
+
+  @override
+  String get cloudPublicDirPublished => 'Папка опубликована под вашим ником';
+
+  @override
+  String get cloudPublicDirFailed => 'Не удалось опубликовать директорию';
+
+  @override
+  String get cloudPublicDirOpen => 'Открыть публичную папку';
+
+  @override
+  String get cloudPublicDirNicknameHint => 'ник';
+
+  @override
+  String get cloudPublicDirResolve => 'Открыть';
+
+  @override
+  String get cloudPublicDirNotFound => 'У этого ника нет публичной директории';
+
+  @override
+  String get cloudPublicDirUnpublish => 'Снять с публикации';
+
+  @override
+  String get cloudPublicDirUnpublished => 'Директория снята с публикации';
+
+  @override
   String get cloudNewFolder => 'Новая папка';
 
   @override
