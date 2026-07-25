@@ -20,6 +20,7 @@ class CloudItem {
     required this.revision,
     required this.deleted,
     this.mime,
+    this.folderId,
     this.parentContentIds = const [],
   }) : assert(parentContentIds.length <= maxNoteParents);
 
@@ -33,6 +34,12 @@ class CloudItem {
   final int modifiedAtMs;
   final int revision;
   final bool deleted;
+
+  /// The [CloudFolder.id] this item lives in; null means the root. A dangling
+  /// id (folder tombstoned by another device) renders as root — resolution is
+  /// a view concern so a folder delete never rewrites item rows and can never
+  /// race a concurrent content edit.
+  final String? folderId;
 
   /// Immediate DAG parents for a whole-note revision. Empty on files, legacy
   /// rows, and a note's root revision. Multiple parents mean the author
@@ -55,6 +62,7 @@ class CloudItem {
             'created': createdAtMs,
             'rev': revision,
             if (mime != null) 'mime': mime,
+            if (folderId != null) 'folder': folderId,
             if (parentContentIds.isNotEmpty) 'parents': parentContentIds,
           },
   );
@@ -69,6 +77,24 @@ class CloudItem {
     modifiedAtMs: atMs,
     revision: revision + 1,
     deleted: true,
+  );
+
+  /// The same logical version relocated to [folderId] (null = root). A move is
+  /// a metadata-only LWW rewrite: revision and content are untouched so an
+  /// open editor keeps its optimistic check and the note DAG is unaffected.
+  CloudItem movedToFolder(String? folderId, int atMs) => CloudItem(
+    id: id,
+    kind: kind,
+    name: name,
+    contentId: contentId,
+    size: size,
+    mime: mime,
+    createdAtMs: createdAtMs,
+    modifiedAtMs: atMs,
+    revision: revision,
+    deleted: deleted,
+    folderId: folderId,
+    parentContentIds: parentContentIds,
   );
 
   static CloudItem? fromEvent(DeviceSyncEvent event) {
@@ -100,6 +126,10 @@ class CloudItem {
     final size = p['size'];
     final created = p['created'];
     final mime = p['mime'];
+    final folder = p['folder'];
+    if (folder != null && (folder is! String || !_validId(folder))) {
+      return null;
+    }
     final rawParents = p['parents'];
     final parents = <String>[];
     if (rawParents != null) {
@@ -148,6 +178,7 @@ class CloudItem {
       modifiedAtMs: event.tsMs,
       revision: revision,
       deleted: false,
+      folderId: folder as String?,
       parentContentIds: List.unmodifiable(parents),
     );
   }
@@ -158,6 +189,96 @@ class CloudItem {
   static final _itemId = RegExp(r'^[A-Za-z0-9_-]+$');
   static final _contentId = RegExp(r'^[0-9a-f]{64}$');
   static const _maxCloudBytes = 1 << 50; // current content tier: ~1 TiB
+}
+
+/// One flat personal-cloud folder. Folders are pure owner-side organization of
+/// the signed device-group index: no content refs, no sharing surface, no new
+/// crypto. Deletes are LWW tombstones exactly like [CloudItem]; contained
+/// items are NOT rewritten on delete — their dangling [CloudItem.folderId]
+/// resolves to the root at view time, so no document is ever lost.
+class CloudFolder {
+  const CloudFolder({
+    required this.id,
+    required this.name,
+    required this.createdAtMs,
+    required this.modifiedAtMs,
+    required this.revision,
+    required this.deleted,
+  });
+
+  final String id;
+  final String name;
+  final int createdAtMs;
+  final int modifiedAtMs;
+  final int revision;
+  final bool deleted;
+
+  DeviceSyncEvent toEvent() => DeviceSyncEvent(
+    kind: DeviceSyncKind.cloudFolder,
+    key: id,
+    tsMs: modifiedAtMs,
+    payload: deleted
+        ? {'del': true, 'rev': revision}
+        : {'name': name, 'created': createdAtMs, 'rev': revision},
+  );
+
+  CloudFolder tombstone(int atMs) => CloudFolder(
+    id: id,
+    name: '',
+    createdAtMs: createdAtMs,
+    modifiedAtMs: atMs,
+    revision: revision + 1,
+    deleted: true,
+  );
+
+  static CloudFolder? fromEvent(DeviceSyncEvent event) {
+    if (event.kind != DeviceSyncKind.cloudFolder ||
+        !CloudItem._validId(event.key) ||
+        event.tsMs < 1) {
+      return null;
+    }
+    final p = event.payload;
+    final revision = p['rev'];
+    if (revision is! int || revision < 1) return null;
+    if (p['del'] == true) {
+      return CloudFolder(
+        id: event.key,
+        name: '',
+        createdAtMs: event.tsMs,
+        modifiedAtMs: event.tsMs,
+        revision: revision,
+        deleted: true,
+      );
+    }
+    final name = p['name'];
+    final created = p['created'];
+    if (name is! String ||
+        name.isEmpty ||
+        name.length > 512 ||
+        created is! int ||
+        created < 1) {
+      return null;
+    }
+    return CloudFolder(
+      id: event.key,
+      name: name,
+      createdAtMs: created,
+      modifiedAtMs: event.tsMs,
+      revision: revision,
+      deleted: false,
+    );
+  }
+}
+
+Map<String, CloudFolder> foldCloudFolders(Iterable<DeviceSyncEvent> events) {
+  final folded = foldDeviceSync(events);
+  final folders = <String, CloudFolder>{};
+  for (final row in folded.entries) {
+    if (row.key.$1 != DeviceSyncKind.cloudFolder) continue;
+    final folder = CloudFolder.fromEvent(row.value);
+    if (folder != null) folders[folder.id] = folder;
+  }
+  return folders;
 }
 
 /// A device-authored proof-of-possession claim for one immutable cid. It is a

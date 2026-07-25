@@ -2023,6 +2023,58 @@ class AppL10nRu extends AppL10n {
       'Элемент исчезнет со всех связанных устройств. Это действие нельзя отменить.';
 
   @override
+  String get cloudNewFolder => 'Новая папка';
+
+  @override
+  String get cloudFolderNameHint => 'Название папки';
+
+  @override
+  String get cloudFolderCreate => 'Создать';
+
+  @override
+  String get cloudFolderRename => 'Переименовать папку';
+
+  @override
+  String get cloudFolderDelete => 'Удалить папку';
+
+  @override
+  String cloudFolderDeleteTitle(String name) {
+    return 'Удалить папку «$name»?';
+  }
+
+  @override
+  String get cloudFolderDeleteBody =>
+      'Документы из неё переместятся в корень. Из облака ничего не удалится.';
+
+  @override
+  String get cloudFolderEmpty => 'Папка пуста';
+
+  @override
+  String cloudFolderItems(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count объектов',
+      few: '$count объекта',
+      one: '1 объект',
+      zero: 'пусто',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get cloudMoveToFolder => 'Переместить в папку';
+
+  @override
+  String get cloudMoveToRoot => 'Корень хранилища';
+
+  @override
+  String get cloudFolderMoved => 'Документ перемещён';
+
+  @override
+  String get cloudFolderFailed => 'Не удалось изменить папку';
+
+  @override
   String get cloudNoteNew => 'Новая заметка';
 
   @override

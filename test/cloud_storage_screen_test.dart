@@ -50,6 +50,12 @@ class _Sync implements CloudSyncPort {
   }
 
   @override
+  Future<bool> postFolder(CloudFolder folder) async {
+    rows.add((event: folder.toEvent(), author: selfId));
+    return true;
+  }
+
+  @override
   Future<bool> postClaim(CloudReplicaClaim claim) async {
     rows.add((event: claim.toEvent(), author: selfId));
     return true;
@@ -739,6 +745,105 @@ void main() {
     expect(merged.revision, 3);
     expect(service.noteHeads(merged), hasLength(1));
     expect(await service.loadTextNote(merged), 'merged in UI');
+  });
+
+  testWidgets('folders: create, enter, move, and delete keep documents safe', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    var clock = 9000;
+    final ids = ['note_ui', 'folder_ui'].iterator;
+    final service = CloudService(
+      storage,
+      _Sync(),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () {
+        ids.moveNext();
+        return ids.current;
+      },
+      integrityChecks: false,
+    );
+    addTearDown(() {
+      unawaited(service.close());
+      unawaited(storage.close());
+    });
+    await service.saveTextNote(title: 'Rooted note', body: 'text');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [cloudServiceProvider.overrideWithValue(service)],
+        child: const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: CloudStorageScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('Rooted note'), findsOneWidget);
+
+    // Create a folder through the add menu.
+    await tester.tap(find.text('Add to cloud'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New folder'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('cloud-folder-name')),
+      'Docs',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('cloud-folder-folder_ui')),
+      findsOneWidget,
+    );
+    expect(find.text('empty'), findsOneWidget);
+
+    // Move the note into the folder from its context menu.
+    await tester.tap(
+      find.descendant(
+        of: find.widgetWithText(ListTile, 'Rooted note'),
+        matching: find.byIcon(Icons.more_vert),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Move to folder'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cloud-move-folder_ui')));
+    await tester.pumpAndSettle();
+    expect(find.text('Rooted note'), findsNothing);
+    expect(find.text('1 item'), findsOneWidget);
+    final moved = (await service.listItems()).single;
+    expect(moved.folderId, 'folder_ui');
+    expect(moved.revision, 1, reason: 'a move is metadata-only');
+
+    // Enter the folder; the note is inside and back returns to the root.
+    await tester.tap(find.byKey(const ValueKey('cloud-folder-folder_ui')));
+    await tester.pumpAndSettle();
+    expect(find.text('Docs'), findsOneWidget);
+    expect(find.text('Rooted note'), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('Personal cloud'), findsOneWidget);
+
+    // Deleting the folder reassigns the note to the root, losing nothing.
+    await tester.tap(find.byKey(const ValueKey('cloud-folder-menu-folder_ui')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete folder'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Delete folder "Docs"?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete folder'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('cloud-folder-folder_ui')), findsNothing);
+    expect(find.text('Rooted note'), findsOneWidget);
+    final survived = (await service.listItems()).single;
+    expect(survived.deleted, isFalse);
+    expect(service.effectiveFolderId(survived), isNull);
   });
 
   testWidgets('personal cloud renders imported file and replication controls', (
