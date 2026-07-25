@@ -217,6 +217,61 @@ Future<void> _settle() =>
     Future<void>.delayed(const Duration(milliseconds: 20));
 
 void main() {
+  group('cloudProviderSlotFor', () {
+    // Every device of an identity derives the SAME member/capability host seed
+    // and alias, so the slot is the ONLY thing keeping two of them from
+    // registering as one provider. Each device computes its own with no
+    // coordination, which only works while the rule stays a pure function of
+    // the device set — hence these cases.
+    NodeId id(int b) => NodeId(Uint8List.fromList(List.filled(32, b)));
+
+    test('a lone device takes slot 0', () {
+      expect(cloudProviderSlotFor(id(7), const []), 0);
+    });
+
+    test('slot is the position in hex order, not join order', () {
+      final low = id(1);
+      final mid = id(2);
+      final high = id(3);
+      // Same set, three different orderings of the member list: a device must
+      // land on the same slot every time, or two devices disagree about who
+      // owns which and collide.
+      expect(cloudProviderSlotFor(mid, [low, high]), 1);
+      expect(cloudProviderSlotFor(mid, [high, low]), 1);
+      expect(cloudProviderSlotFor(low, [high, mid]), 0);
+      expect(cloudProviderSlotFor(high, [mid, low]), 2);
+    });
+
+    test('every device of a group lands on a distinct slot', () {
+      final devices = [for (var i = 0; i < 5; i++) id(i)];
+      final slots = {
+        for (final self in devices) cloudProviderSlotFor(self, devices),
+      };
+      expect(slots, {0, 1, 2, 3, 4});
+    });
+
+    test('self listed among the members does not shift the slot', () {
+      final self = id(2);
+      // The device log can echo this device back as a member; deduplicating is
+      // what keeps the index from sliding by one against its peers.
+      expect(cloudProviderSlotFor(self, [id(1), self, id(3)]), 1);
+      expect(cloudProviderSlotFor(self, [id(1), id(3)]), 1);
+    });
+
+    test('past the device limit it fails closed instead of colliding', () {
+      final devices = [
+        for (var i = 0; i < kCloudProviderSlotLimit + 1; i++) id(i),
+      ];
+      // The last device would need slot 8, which does not exist: refusing to
+      // host beats silently registering as somebody else's provider.
+      expect(
+        () => cloudProviderSlotFor(devices.last, devices),
+        throwsStateError,
+      );
+      expect(cloudProviderSlotFor(devices.first, devices), 0);
+    });
+  });
+
   test(
     'owner devices converge active alias and revoke through device log',
     () async {

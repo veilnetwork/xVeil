@@ -14,6 +14,7 @@ import '../domain/group_message.dart';
 import '../domain/inline_custom_emoji.dart';
 import '../domain/space_public_feed_transport.dart';
 import 'app_controller.dart';
+import 'cloud_capability_service.dart' show cloudProviderSlotFor;
 import 'cloud_document_providers.dart';
 import 'group_epoch_service.dart';
 import 'group_service.dart';
@@ -123,7 +124,7 @@ final groupSignerProvider = FutureProvider<GroupSigner?>((ref) async {
 final groupServiceProvider = Provider<GroupService?>((ref) {
   // Keep document ingress wired for this unlocked identity even before the
   // document UI exists; pending invites must survive until explicit adopt.
-  ref.watch(cloudDocumentReplicationServiceProvider);
+  final replication = ref.watch(cloudDocumentReplicationServiceProvider);
   final signer = ref.watch(groupSignerProvider).value;
   if (signer == null) return null;
   final messaging = ref.read(messagingServiceProvider);
@@ -181,6 +182,14 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     spaceDiscoveryTransport: NativeSpaceDiscoveryTransport(signer.selfId),
   );
   ref.onDispose(() => unawaited(service.dispose()));
+  // Member content hosting: give every device of this identity its own
+  // provider slot. The host seed and alias come from documentId + epochKey, so
+  // they are identical on all of them and the slot is the only thing keeping
+  // two sovereign devices from registering as the same provider. The device
+  // list only exists here, and the replication service cannot read it back
+  // (it is built BEFORE this provider, which watches it), so install it now.
+  replication?.memberProviderSlot = () async =>
+      cloudProviderSlotFor(service.selfId, await service.deviceMembers());
   service.startSpaceLifecycleMaintenance();
   service.startScheduledSpacePostMaintenance();
   service.startPublicSpaceDiscoveryMaintenance();
