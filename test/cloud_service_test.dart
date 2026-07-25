@@ -1157,6 +1157,40 @@ void main() {
   });
 
   test(
+    'a remote move with a newer clock cannot resurrect a deleted item',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final sync = _FakeSync(_id(1));
+      var clock = 50000;
+      final service = CloudService(
+        storage,
+        sync,
+        contentReceived: const Stream.empty(),
+        now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+        newId: () => 'gone-note',
+        integrityChecks: false,
+      );
+      final note = await service.saveTextNote(title: 'Gone', body: 'v1');
+      await service.deleteItem(note.id);
+      expect(await service.listItems(), isEmpty);
+
+      // Another device moved the note into a folder while offline, with a
+      // wall clock AHEAD of the deletion. The tombstone must absorb it.
+      final remoteMove = note.movedToFolder('some-folder', clock + 5000);
+      sync.rows.add((event: remoteMove.toEvent(), author: _id(2)));
+      sync.controller.add(null);
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+
+      expect(await service.listItems(), isEmpty);
+      final all = await service.listItems(includeDeleted: true);
+      expect(all.single.deleted, isTrue);
+      await service.close();
+      await storage.close();
+    },
+  );
+
+  test(
     'a concurrent edit is not clobbered by a folder move that wins LWW',
     () async {
       final storage = FakeHvContainer().storage();

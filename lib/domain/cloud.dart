@@ -7,7 +7,11 @@ enum CloudItemKind { file, note, task, calendarEvent }
 
 /// One logical object in the personal-cloud index. The object id survives a
 /// content update; [contentId] addresses the current immutable bytes. Deletes
-/// are LWW tombstones so an offline device cannot resurrect an older version.
+/// are ABSORBING tombstones against anything at a lower revision: a stale row
+/// (including a metadata-only folder move, which never bumps revision) can
+/// never resurrect a deleted item on wall-clock alone. Only a row carrying a
+/// genuinely new version (revision >= the tombstone's) competes by LWW, which
+/// preserves the long-standing delete-vs-concurrent-edit semantics.
 class CloudItem {
   const CloudItem({
     required this.id,
@@ -126,10 +130,13 @@ class CloudItem {
     final size = p['size'];
     final created = p['created'];
     final mime = p['mime'];
-    final folder = p['folder'];
-    if (folder != null && (folder is! String || !_validId(folder))) {
-      return null;
-    }
+    // Folder assignment is decoration, not content. A value this vocabulary
+    // cannot parse (e.g. a future nested-path format) degrades to the root
+    // instead of hiding the whole document row.
+    final rawFolder = p['folder'];
+    final folder = rawFolder is String && _validId(rawFolder)
+        ? rawFolder
+        : null;
     final rawParents = p['parents'];
     final parents = <String>[];
     if (rawParents != null) {
@@ -178,7 +185,7 @@ class CloudItem {
       modifiedAtMs: event.tsMs,
       revision: revision,
       deleted: false,
-      folderId: folder as String?,
+      folderId: folder,
       parentContentIds: List.unmodifiable(parents),
     );
   }
@@ -193,9 +200,11 @@ class CloudItem {
 
 /// One flat personal-cloud folder. Folders are pure owner-side organization of
 /// the signed device-group index: no content refs, no sharing surface, no new
-/// crypto. Deletes are LWW tombstones exactly like [CloudItem]; contained
-/// items are NOT rewritten on delete — their dangling [CloudItem.folderId]
-/// resolves to the root at view time, so no document is ever lost.
+/// crypto. Deletes are plain LWW tombstones (every folder mutation bumps
+/// revision, so the same-revision resurrection [CloudItem]'s absorbing
+/// tombstone guards against cannot arise here); contained items are NOT
+/// rewritten on delete — their dangling [CloudItem.folderId] resolves to the
+/// root at view time, so no document is ever lost.
 class CloudFolder {
   const CloudFolder({
     required this.id,
@@ -402,14 +411,38 @@ class CloudReplicationProfile {
 }
 
 Map<String, CloudItem> foldCloudItems(Iterable<DeviceSyncEvent> events) {
-  final folded = foldDeviceSync(events);
-  final items = <String, CloudItem>{};
-  for (final row in folded.entries) {
-    if (row.key.$1 != DeviceSyncKind.cloudEntry) continue;
-    final item = CloudItem.fromEvent(row.value);
-    if (item != null) items[item.id] = item;
+  final source = events.toList();
+  // Absorbing guard, pass 1: the highest tombstone revision per id across the
+  // WHOLE log — a tombstone must absorb stale rows even when it loses the
+  // plain newest-timestamp race (e.g. to a concurrent metadata-only folder
+  // move, which never bumps revision).
+  final tombstoneRevision = <String, int>{};
+  for (final event in source) {
+    final item = CloudItem.fromEvent(event);
+    if (item == null || !item.deleted) continue;
+    final previous = tombstoneRevision[item.id];
+    if (previous == null || item.revision > previous) {
+      tombstoneRevision[item.id] = item.revision;
+    }
   }
-  return items;
+  // Pass 2: newest-wins over the surviving candidates. A live row below the
+  // tombstone's revision is a version the deletion already covered; only a
+  // genuinely newer version (concurrent edit, revision >= tombstone) may
+  // still recreate the item by LWW — the pre-folder semantics.
+  final winners = <String, ({CloudItem item, DeviceSyncEvent event})>{};
+  for (final event in source) {
+    final item = CloudItem.fromEvent(event);
+    if (item == null) continue;
+    final tombstone = tombstoneRevision[item.id];
+    if (!item.deleted && tombstone != null && item.revision < tombstone) {
+      continue;
+    }
+    final previous = winners[item.id];
+    if (previous == null || isNewerDeviceSync(event, previous.event)) {
+      winners[item.id] = (item: item, event: event);
+    }
+  }
+  return {for (final entry in winners.entries) entry.key: entry.value.item};
 }
 
 /// Fold every parent-aware whole-note revision into its unresolved DAG heads.
