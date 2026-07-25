@@ -36,6 +36,20 @@ abstract interface class CloudMemberFolderStoragePort
     implements CloudFolderShareStorage {
   Future<bool> hasFile(String contentId);
   Future<void> storeFile(String contentId, Uint8List bytes, {String? name});
+
+  /// Persist ONE verified piece of a streamed download, so adopting a shared
+  /// file never holds it whole in RAM. [hasFile] turns true only once every
+  /// piece has landed, which is what keeps a half-fetched file from looking
+  /// adopted. Idempotent per (contentId, pieceIndex).
+  Future<void> storeFilePiece(
+    String contentId,
+    int pieceIndex,
+    int pieceCount,
+    int pieceSize,
+    int totalSize,
+    Uint8List bytes, {
+    String? name,
+  });
 }
 
 const int defaultCloudDocumentAutoCompactionEntries = 256;
@@ -1246,8 +1260,22 @@ class CloudDocumentReplicationService {
           timeout: _memberFetchTimeout,
           randomBytes: _randomBytes,
         );
-        final bytes = await client.fetchFile(manifest);
-        await storage.storeFile(manifest.contentId, bytes, name: entry!.name);
+        // Stream straight to disk: a shared folder may hold a multi-GB file,
+        // and assembling it first made peak memory the file size. Each piece
+        // is already hash-verified before it arrives here, and hasFile() only
+        // flips once the last one lands, so an interrupted fetch cannot pass
+        // for an adopted file.
+        await client.fetchFileStreaming(manifest, (index, bytes) async {
+          await storage.storeFilePiece(
+            manifest!.contentId,
+            index,
+            manifest.pieceCount,
+            manifest.pieceSize,
+            manifest.size,
+            bytes,
+            name: entry!.name,
+          );
+        });
         await storage.storeFile(
           'mf:${manifest.contentId}',
           Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),

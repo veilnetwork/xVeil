@@ -35,6 +35,25 @@ class _StorageMemberFolderAdapter implements CloudMemberFolderStoragePort {
   @override
   Future<void> storeFile(String contentId, Uint8List bytes, {String? name}) =>
       _storage.storeFile(contentId, bytes, name: name);
+
+  @override
+  Future<void> storeFilePiece(
+    String contentId,
+    int pieceIndex,
+    int pieceCount,
+    int pieceSize,
+    int totalSize,
+    Uint8List bytes, {
+    String? name,
+  }) => _storage.storeFilePiece(
+    contentId,
+    pieceIndex,
+    pieceCount,
+    pieceSize,
+    totalSize,
+    bytes,
+    name: name,
+  );
 }
 
 /// Mutation signer for the identity currently visible in the UI. In all-online
