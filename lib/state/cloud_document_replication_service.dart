@@ -1359,6 +1359,7 @@ class CloudDocumentReplicationService {
       CloudDocumentKind.note => cloudRichTextCodecV1,
       CloudDocumentKind.taskList => cloudTaskListCodecV1,
       CloudDocumentKind.calendar => cloudCalendarCodecV1,
+      CloudDocumentKind.fileCollection => cloudFileCollectionCodecV1,
     };
     if (codec != expectedCodec) return null;
     final signer = _signer;

@@ -320,4 +320,82 @@ void main() {
       3000,
     );
   });
+
+  test('file collection entries are strict, kind-bound and materialize', () {
+    final cid = 'a' * 64;
+    final entry = CloudFileEntry(
+      id: _id(20),
+      name: 'report.pdf',
+      contentId: cid,
+      size: 4096,
+      mime: 'application/pdf',
+      path: 'docs',
+    );
+    final edit = CloudCollectionEdit.create(entry.id, entry.toFields());
+    final decoded = CloudCollectionEdit.decode(
+      edit.encode(),
+      documentKind: CloudDocumentKind.fileCollection,
+    );
+    expect(decoded?.kind, CloudCollectionEditKind.create);
+    final parsed = CloudFileEntry.fromRow(
+      CloudCollectionRow(id: entry.id, fields: decoded!.fields),
+    );
+    expect(parsed?.name, 'report.pdf');
+    expect(parsed?.contentId, cid);
+    expect(parsed?.size, 4096);
+    expect(parsed?.mime, 'application/pdf');
+    expect(parsed?.path, 'docs');
+
+    // The same bytes are rejected under a different document kind.
+    expect(
+      CloudCollectionEdit.decode(
+        edit.encode(),
+        documentKind: CloudDocumentKind.taskList,
+      ),
+      isNull,
+    );
+
+    // Missing required fields and a bad content id fail closed.
+    for (final bad in <String>[
+      '{"v":1,"k":"create","id":"${_id(20)}","f":{"name":"a","size":1}}',
+      '{"v":1,"k":"create","id":"${_id(20)}","f":{"name":"a","cid":"nothex","size":1}}',
+      '{"v":1,"k":"create","id":"${_id(20)}","f":{"cid":"$cid","size":1}}',
+      '{"v":1,"k":"create","id":"${_id(20)}","f":{"name":"a","cid":"$cid","size":-1}}',
+      '{"v":1,"k":"patch","id":"${_id(20)}","f":{"ghost":1}}',
+    ]) {
+      expect(
+        CloudCollectionEdit.decode(
+          Uint8List.fromList(utf8.encode(bad)),
+          documentKind: CloudDocumentKind.fileCollection,
+        ),
+        isNull,
+        reason: bad,
+      );
+    }
+
+    // A patch (partial fields) is allowed; delete-wins removes the row.
+    final second = CloudFileEntry(
+      id: _id(21),
+      name: 'note.txt',
+      contentId: 'b' * 64,
+      size: 12,
+    );
+    final ops = [
+      _operation(20, kind: CloudDocumentKind.fileCollection),
+      _operation(21, kind: CloudDocumentKind.fileCollection, parents: [20]),
+      _operation(22, kind: CloudDocumentKind.fileCollection, parents: [21]),
+    ];
+    final payloads = _payloads({
+      20: CloudCollectionEdit.create(entry.id, entry.toFields()),
+      21: CloudCollectionEdit.create(second.id, second.toFields()),
+      22: CloudCollectionEdit.delete(entry.id),
+    });
+    final snapshot = _materialize(
+      CloudDocumentKind.fileCollection,
+      ops,
+      payloads,
+    );
+    expect(snapshot.rows.map((row) => row.id), [second.id]);
+    expect(CloudFileEntry.fromRow(snapshot.rows.single)?.name, 'note.txt');
+  });
 }

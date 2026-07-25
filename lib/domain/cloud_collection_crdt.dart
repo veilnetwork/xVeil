@@ -6,8 +6,10 @@ import 'cloud_document.dart';
 
 const cloudTaskListCodecV1 = 'xveil.tasks.map.v1';
 const cloudCalendarCodecV1 = 'xveil.calendar.map.v1';
+const cloudFileCollectionCodecV1 = 'xveil.files.map.v1';
 const cloudTaskOperationType = 'tasks.v1';
 const cloudCalendarOperationType = 'calendar.v1';
+const cloudFileCollectionOperationType = 'files.v1';
 
 const int _maxRows = 4096;
 const int _maxPayloadBytes = 1024 * 1024;
@@ -19,12 +21,14 @@ final RegExp _entityIdPattern = RegExp(r'^[0-9a-f]{64}$');
 String? cloudCollectionCodec(CloudDocumentKind kind) => switch (kind) {
   CloudDocumentKind.taskList => cloudTaskListCodecV1,
   CloudDocumentKind.calendar => cloudCalendarCodecV1,
+  CloudDocumentKind.fileCollection => cloudFileCollectionCodecV1,
   CloudDocumentKind.note => null,
 };
 
 String? cloudCollectionOperationType(CloudDocumentKind kind) => switch (kind) {
   CloudDocumentKind.taskList => cloudTaskOperationType,
   CloudDocumentKind.calendar => cloudCalendarOperationType,
+  CloudDocumentKind.fileCollection => cloudFileCollectionOperationType,
   CloudDocumentKind.note => null,
 };
 
@@ -266,6 +270,55 @@ class CloudCalendarEvent {
   }
 }
 
+/// One file reference inside a shared (ACL) folder. [contentId] addresses the
+/// immutable bytes; the entry travels as a bounded CRDT row, and the bytes are
+/// pulled by members through the separate epoch-gated content path. [path] is
+/// the file's folder position INSIDE the shared folder ('' = its root).
+class CloudFileEntry {
+  const CloudFileEntry({
+    required this.id,
+    required this.name,
+    required this.contentId,
+    required this.size,
+    this.mime,
+    this.path = '',
+  });
+
+  final String id;
+  final String name;
+  final String contentId;
+  final int size;
+  final String? mime;
+  final String path;
+
+  Map<String, Object?> toFields() => {
+    'name': name,
+    'cid': contentId,
+    'size': size,
+    if (mime != null) 'mime': mime,
+    'path': path,
+  };
+
+  CloudCollectionRow toRow() => CloudCollectionRow(id: id, fields: toFields());
+
+  static CloudFileEntry? fromRow(CloudCollectionRow row) {
+    final fields = _parseFields(
+      row.fields,
+      CloudDocumentKind.fileCollection,
+      complete: true,
+    );
+    if (fields == null) return null;
+    return CloudFileEntry(
+      id: row.id,
+      name: fields['name']! as String,
+      contentId: fields['cid']! as String,
+      size: fields['size']! as int,
+      mime: fields['mime'] as String?,
+      path: (fields['path'] as String?) ?? '',
+    );
+  }
+}
+
 class CloudCollectionSnapshot {
   const CloudCollectionSnapshot({
     required this.rows,
@@ -459,6 +512,7 @@ CloudCollectionSnapshot materializeCloudCollection({
     final valid = switch (documentKind) {
       CloudDocumentKind.taskList => CloudTask.fromRow(row) != null,
       CloudDocumentKind.calendar => CloudCalendarEvent.fromRow(row) != null,
+      CloudDocumentKind.fileCollection => CloudFileEntry.fromRow(row) != null,
       CloudDocumentKind.note => false,
     };
     if (valid) rows.add(row);
@@ -537,10 +591,15 @@ Map<String, Object?>? _parseFields(
       'allDay',
       'location',
     },
+    CloudDocumentKind.fileCollection => {'name', 'cid', 'size', 'mime', 'path'},
     CloudDocumentKind.note => const <String>{},
   };
+  // task/calendar require every allowed field; fileCollection has optional
+  // mime/path, so its completeness is enforced by [missingRequired] below.
   if (fields.keys.any((key) => !allowed.contains(key)) ||
-      (complete && fields.keys.toSet().length != allowed.length)) {
+      (complete &&
+          kind != CloudDocumentKind.fileCollection &&
+          fields.keys.toSet().length != allowed.length)) {
     return null;
   }
   final title = fields['title'];
@@ -582,21 +641,41 @@ Map<String, Object?>? _parseFields(
         return null;
       }
       break;
+    case CloudDocumentKind.fileCollection:
+      final name = fields['name'];
+      if (name != null && !_boundedNonEmpty(name, _maxTitleBytes)) return null;
+      final cid = fields['cid'];
+      if (cid != null && (cid is! String || !_entityIdPattern.hasMatch(cid))) {
+        return null;
+      }
+      final size = fields['size'];
+      if (size != null && !_nonNegativeInt(size)) return null;
+      final mime = fields['mime'];
+      if (mime != null && !_boundedString(mime, 255)) return null;
+      final path = fields['path'];
+      if (path != null && !_boundedString(path, _maxLocationBytes)) return null;
+      break;
     case CloudDocumentKind.note:
       return null;
   }
-  if (complete &&
-      (fields['title'] == null ||
+  final missingRequired = switch (kind) {
+    CloudDocumentKind.taskList =>
+      fields['title'] == null ||
           fields['notes'] == null ||
-          (kind == CloudDocumentKind.taskList &&
-              (fields['completed'] == null || fields['position'] == null)) ||
-          (kind == CloudDocumentKind.calendar &&
-              (fields['start'] == null ||
-                  fields['end'] == null ||
-                  fields['allDay'] == null ||
-                  fields['location'] == null)))) {
-    return null;
-  }
+          fields['completed'] == null ||
+          fields['position'] == null,
+    CloudDocumentKind.calendar =>
+      fields['title'] == null ||
+          fields['notes'] == null ||
+          fields['start'] == null ||
+          fields['end'] == null ||
+          fields['allDay'] == null ||
+          fields['location'] == null,
+    CloudDocumentKind.fileCollection =>
+      fields['name'] == null || fields['cid'] == null || fields['size'] == null,
+    CloudDocumentKind.note => true,
+  };
+  if (complete && missingRequired) return null;
   return fields;
 }
 
