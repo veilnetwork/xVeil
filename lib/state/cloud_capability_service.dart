@@ -101,6 +101,14 @@ abstract interface class CloudCapabilityNetworkPort {
     required int providerSlot,
     bool transient = false,
   });
+
+  /// The capability appId for [alias] WITHOUT hosting or registering
+  /// anything. Used by a member content client to address a host whose alias
+  /// it derives from the document's current epoch key.
+  Future<Uint8List> capabilityAppId({
+    required String alias,
+    required int endpointId,
+  });
 }
 
 class VeilCloudCapabilityNetwork implements CloudCapabilityNetworkPort {
@@ -129,6 +137,12 @@ class VeilCloudCapabilityNetwork implements CloudCapabilityNetworkPort {
             providerSlot: providerSlot,
           )),
   );
+
+  @override
+  Future<Uint8List> capabilityAppId({
+    required String alias,
+    required int endpointId,
+  }) => _transport.capabilityAppId(name: alias, endpointId: endpointId);
 }
 
 class _VeilCapabilityEndpointPort implements CloudCapabilityEndpointPort {

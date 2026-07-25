@@ -114,6 +114,13 @@ class _Network implements CloudCapabilityNetworkPort {
     return endpoint;
   }
 
+  @override
+  Future<Uint8List> capabilityAppId({
+    required String alias,
+    required int endpointId,
+  }) async =>
+      Uint8List.fromList(crypto.sha256.convert(utf8.encode(alias)).bytes);
+
   Future<void> _sendAnonymous({
     required Uint8List servicePublicKey,
     required Uint8List targetAppId,
