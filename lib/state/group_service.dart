@@ -19735,16 +19735,78 @@ class GroupService {
     return (_deviceGidCache?.isEmpty ?? true) ? null : _deviceGidCache;
   }
 
-  Future<Uint8List?> localSovereignBundle() async {
+  /// Debug/stand repair for the historical broken state (2026-07-13) where
+  /// the `devices.gid` pointer survived while its group bundle was lost on
+  /// every device: with the pointer stuck, [linkDevice] loads the missing
+  /// bundle and fails before it can mint a fresh sovereign group. Clearing
+  /// is refused while the pointed-at bundle actually exists, so a working
+  /// device group can never be detached by this path.
+  Future<bool> clearStaleDeviceGroupPointer() async {
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return true;
+    try {
+      if (await load(NodeId.fromHex(hex)) != null) return false;
+    } catch (_) {
+      return false;
+    }
+    await _storage.putSetting('devices.gid', '');
+    _deviceGidCache = null;
+    _invalidateDeviceMembersCache();
+    return true;
+  }
+
+  /// The encrypted sovereign credential (XVSB/XVRC) is persisted in the
+  /// CHUNKED file store: the hybrid blob (~2.3 KiB raw, ~3.1 KiB base64)
+  /// exceeds a single hidden-volume settings record, so the settings path
+  /// failed with PayloadTooLarge on EVERY store — found live 2026-07-25 on
+  /// the first real link ceremony (the closed-loop tests run on a fake
+  /// store that does not enforce the record cap). The legacy settings key
+  /// is still read as a fallback so a store that did persist a credential
+  /// there keeps opening it.
+  Future<({Uint8List? bundle, bool corrupt})> _readSovereignCredential() async {
+    Uint8List? file;
+    try {
+      file = await _storage.loadFile(kSovereignBundleSetting);
+    } catch (_) {
+      return (bundle: null, corrupt: true);
+    }
+    if (file != null) {
+      if (file.isEmpty || file.length > 16 * 1024) {
+        return (bundle: null, corrupt: true);
+      }
+      return (bundle: Uint8List.fromList(file), corrupt: false);
+    }
     final raw = await _storage.getSetting(kSovereignBundleSetting);
-    if (raw == null || raw.isEmpty) return null;
+    if (raw == null || raw.isEmpty) return (bundle: null, corrupt: false);
     try {
       final value = Uint8List.fromList(base64Decode(raw));
-      return value.length <= 16 * 1024 ? value : null;
+      if (value.isEmpty || value.length > 16 * 1024) {
+        return (bundle: null, corrupt: true);
+      }
+      return (bundle: value, corrupt: false);
     } catch (_) {
-      return null;
+      return (bundle: null, corrupt: true);
     }
   }
+
+  Future<void> _writeSovereignCredential(Uint8List bundle) =>
+      _storage.storeFile(
+        kSovereignBundleSetting,
+        Uint8List.fromList(bundle),
+        name: 'sovereign-credential',
+      );
+
+  Future<void> _clearSovereignCredential() async {
+    try {
+      await _storage.deleteStoredFile(kSovereignBundleSetting);
+    } catch (_) {}
+    try {
+      await _storage.putSetting(kSovereignBundleSetting, '');
+    } catch (_) {}
+  }
+
+  Future<Uint8List?> localSovereignBundle() async =>
+      (await _readSovereignCredential()).bundle;
 
   /// Decrypt the persisted bundle in native RAM for one signing burst. The
   /// first phrase-backed operation creates and stores only an encrypted blob.
@@ -19752,20 +19814,16 @@ class GroupService {
     String phrase, {
     bool createIfMissing = true,
   }) async {
-    final stored = await _storage.getSetting(kSovereignBundleSetting);
-    Uint8List? bundle;
-    if (stored != null && stored.isNotEmpty) {
-      try {
-        bundle = Uint8List.fromList(base64Decode(stored));
-        if (bundle.isEmpty || bundle.length > 16 * 1024) {
-          throw const FormatException('sovereign bundle size');
-        }
-      } catch (_) {
-        throw StateError('Local sovereign bundle is corrupt');
-      }
-    } else if (createIfMissing) {
+    final stored = await _readSovereignCredential();
+    if (stored.corrupt) {
+      // Fail closed: an unreadable existing credential is never silently
+      // replaced (that would be a silent owner rotation).
+      throw StateError('Local sovereign bundle is corrupt');
+    }
+    var bundle = stored.bundle;
+    if (bundle == null && createIfMissing) {
       bundle = veil.createHybrid512SovereignBundle(phrase);
-      await _storage.putSetting(kSovereignBundleSetting, base64Encode(bundle));
+      await _writeSovereignCredential(bundle);
     }
     if (bundle == null) throw StateError('No local sovereign bundle');
     final magic = bundle.length >= 4
@@ -19837,20 +19895,17 @@ class GroupService {
     try {
       if (signer.algorithm != 'ed25519+falcon512') return null;
       if (existing == null) {
-        await _storage.putSetting(
-          kSovereignBundleSetting,
-          base64Encode(certificate),
-        );
+        await _writeSovereignCredential(certificate);
         installed = true;
       }
       final gid = await _mintSovereignDeviceGroup(signer, const []);
       if (gid == null && installed) {
-        await _storage.putSetting(kSovereignBundleSetting, '');
+        await _clearSovereignCredential();
       }
       return gid;
     } catch (_) {
       if (installed) {
-        await _storage.putSetting(kSovereignBundleSetting, '');
+        await _clearSovereignCredential();
       }
       rethrow;
     } finally {
@@ -19941,6 +19996,7 @@ class GroupService {
   }) async {
     final encryptedSovereign = await localSovereignBundle();
     if (sovereign.algorithm != 'ed25519' && encryptedSovereign == null) {
+      devLog(() => 'xVeil[devices]: mint refused: no persisted sovereign blob');
       return null;
     }
     final gid = _randomGroupId();
@@ -19960,7 +20016,15 @@ class GroupService {
     final manifest = unsignedManifest.withSignature(
       sovereign.sign(unsignedManifest.canonicalBytes()),
     );
-    if (!_validManifest(manifest)) return null;
+    if (!_validManifest(manifest)) {
+      devLog(
+        () =>
+            'xVeil[devices]: mint refused: manifest failed validation '
+            '(alg=${manifest.signatureAlgorithm} sig=${manifest.signature.length} '
+            'pk=${manifest.genesisPubKey.length})',
+      );
+      return null;
+    }
 
     final unique = <String, NodeId>{
       _signer.selfId.hex: _signer.selfId,
@@ -19998,6 +20062,12 @@ class GroupService {
       initialName: manifest.name,
     );
     if (folded.rejected.isNotEmpty || !folded.state.isMember(_signer.selfId)) {
+      devLog(
+        () =>
+            'xVeil[devices]: mint refused: control fold rejected='
+            '${folded.rejected.length} selfMember='
+            '${folded.state.isMember(_signer.selfId)}',
+      );
       return null;
     }
 
@@ -20053,6 +20123,91 @@ class GroupService {
     _publishDeviceMembersCache(manifest, folded.state);
     if (broadcastSnapshot) await broadcast(gid);
     return gid;
+  }
+
+  /// Debug-only stage report for a failing sovereign link: replays the mint
+  /// checks without persisting anything, so a stand operator can see WHICH
+  /// gate refuses (blob, manifest signature, control fold) instead of a
+  /// silent false. Never called from production UI.
+  Future<Map<String, Object?>> debugSovereignLinkDiagnostics(
+    SovereignGroupSigner sovereign,
+    NodeId device,
+  ) async {
+    final encryptedSovereign = await localSovereignBundle();
+    final gid = _randomGroupId();
+    final unsignedManifest = GroupManifest(
+      groupId: gid,
+      owner: sovereign.nodeId,
+      genesisPubKey: Uint8List.fromList(sovereign.publicKey),
+      name: kDeviceGroupName,
+      createdAtMs: _now(),
+      version: GroupManifest.sovereignDeviceVersion,
+      kind: GroupManifest.sovereignDeviceKind,
+      signatureAlgorithm: sovereign.algorithm,
+      sovereignBundleHash: encryptedSovereign == null
+          ? null
+          : _sha256(encryptedSovereign),
+    );
+    final manifest = unsignedManifest.withSignature(
+      sovereign.sign(unsignedManifest.canonicalBytes()),
+    );
+    final directVerify = _signer.verifySovereign(
+      algorithm: manifest.signatureAlgorithm!,
+      nodeId: manifest.owner,
+      publicKey: manifest.genesisPubKey,
+      message: manifest.canonicalBytes(),
+      signature: manifest.signature,
+    );
+    final unique = <String, NodeId>{
+      _signer.selfId.hex: _signer.selfId,
+      device.hex: device,
+    }..remove(sovereign.nodeId.hex);
+    final ordered = unique.values.toList()
+      ..sort((a, b) => a.hex.compareTo(b.hex));
+    final control = <ControlEntry>[];
+    final baseTs = _now();
+    for (var seq = 0; seq < ordered.length; seq++) {
+      final unsigned = ControlEntry(
+        version: 2,
+        groupId: gid,
+        author: sovereign.nodeId,
+        seq: seq,
+        prevHash: control.isEmpty ? '' : controlEntryHash(control.last),
+        op: ControlOp.addMember,
+        target: ordered[seq],
+        role: GroupRole.member,
+        policyVersion: 0,
+        createdAtMs: baseTs + seq,
+        signature: Uint8List(0),
+      );
+      control.add(
+        unsigned.withSignature(
+          sovereign.sign(unsigned.canonicalBytes()),
+          Uint8List.fromList(sovereign.publicKey),
+        ),
+      );
+    }
+    final folded = foldControlLog(
+      owner: manifest.owner,
+      entries: control,
+      verify: (e) => _validControlFor(manifest, e),
+      initialName: manifest.name,
+    );
+    return {
+      'algorithm': sovereign.algorithm,
+      'blobBytes': encryptedSovereign?.length,
+      'manifestValid': _validManifest(manifest),
+      'manifestVerifyDirect': directVerify,
+      'manifestSigBytes': manifest.signature.length,
+      'genesisPkBytes': manifest.genesisPubKey.length,
+      'controlEntries': control.length,
+      'controlStructValid': [for (final e in control) e.isStructurallyValid],
+      'controlValidFor': [
+        for (final e in control) _validControlFor(manifest, e),
+      ],
+      'foldRejected': folded.rejected.length,
+      'selfMember': folded.state.isMember(_signer.selfId),
+    };
   }
 
   Future<NodeId?> ensureDeviceGroup(SovereignGroupSigner sovereign) async {
@@ -20111,10 +20266,7 @@ class GroupService {
     if (!state.isMember(_signer.selfId)) return false;
     await _storage.putSetting('devices.gid', groupId.hex);
     if (bundle.sovereignBundle != null) {
-      await _storage.putSetting(
-        kSovereignBundleSetting,
-        base64Encode(bundle.sovereignBundle!),
-      );
+      await _writeSovereignCredential(bundle.sovereignBundle!);
     }
     _deviceGidCache = groupId.hex;
     _publishDeviceMembersCache(bundle.manifest, state);

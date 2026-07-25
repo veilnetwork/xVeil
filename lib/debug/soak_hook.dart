@@ -366,6 +366,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/sovereign_probe':
           await _sovereignProbeHook(req);
           return;
+        case '/device_group_clear':
+          await _deviceGroupClearHook(req);
+          return;
         case '/device_adopt':
           await _deviceAdoptHook(req);
           return;
@@ -1586,15 +1589,44 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     }
     NativeSovereignGroupSigner? sovereign;
     var ok = false;
+    String? error;
+    Map<String, Object?>? diag;
     try {
-      sovereign = await svc.openLocalSovereign(phrase);
+      sovereign = await svc.openLocalSovereign(phrase.trim());
       ok = await svc.linkDevice(NodeId.fromHex(peer), sovereign: sovereign);
-    } catch (_) {
+      if (!ok) {
+        diag = await svc.debugSovereignLinkDiagnostics(
+          sovereign,
+          NodeId.fromHex(peer),
+        );
+      }
+    } catch (caught) {
       ok = false;
+      error = '$caught';
     } finally {
       sovereign?.close();
     }
-    return _json(req, {'ok': ok, 'deviceGroup': await svc.deviceGroupIdHex()});
+    return _json(req, {
+      'ok': ok,
+      'deviceGroup': await svc.deviceGroupIdHex(),
+      'error': ?error,
+      'diag': ?diag,
+    });
+  }
+
+  /// Stand repair: drop a devices.gid pointer whose bundle is gone (refused
+  /// for a live group). Reports the sovereign credential kind so the operator
+  /// can tell whether a link phrase must match an existing blob.
+  Future<void> _deviceGroupClearHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final cleared = await svc.clearStaleDeviceGroupPointer();
+    return _json(req, {
+      'ok': cleared,
+      'deviceGroup': await svc.deviceGroupIdHex(),
+      'credential': await svc.sovereignCredentialKind(),
+    });
   }
 
   /// NEW device side of the handshake: adopt ?group= as MY device group (the
