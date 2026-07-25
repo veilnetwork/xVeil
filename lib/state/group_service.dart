@@ -9637,6 +9637,8 @@ class GroupService {
       verify: (e) => _validControlFor(b.manifest, e),
       initialName: b.manifest.name,
       initialDescription: b.manifest.description ?? '',
+      initialAvatarContentId: b.manifest.avatarContentId,
+      initialCoverContentId: b.manifest.coverContentId,
     ).state;
   }
 
@@ -10873,6 +10875,25 @@ class GroupService {
     final normalized = description.trim();
     if (normalized.length > 4096) return false;
     return addControlOp(spaceId, ControlOp.setDescription, text: normalized);
+  }
+
+  /// Replace the Space avatar/cover with shared-content ids (null clears a
+  /// slot). The image bytes must already be registered in the shared content
+  /// store, so they replicate through the same membership-authorized path as
+  /// publication media; this row only re-points the signed profile.
+  Future<bool> setSpaceProfileMedia(
+    NodeId spaceId, {
+    String? avatarContentId,
+    String? coverContentId,
+  }) async {
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return false;
+    final payload = encodeSpaceProfileMedia(
+      avatarContentId: avatarContentId,
+      coverContentId: coverContentId,
+    );
+    if (decodeSpaceProfileMedia(payload) == null) return false;
+    return addControlOp(spaceId, ControlOp.setProfileMedia, text: payload);
   }
 
   /// Publish a typed Space-wide or channel retention revision. Open channel
@@ -14151,6 +14172,7 @@ class GroupService {
         case ControlOp.setRetention:
         case ControlOp.setName:
         case ControlOp.setDescription:
+        case ControlOp.setProfileMedia:
         case ControlOp.publishRules:
         case ControlOp.acceptRules:
         case ControlOp.moderate:
@@ -14232,6 +14254,7 @@ class GroupService {
         case ControlOp.setPostPin:
         case ControlOp.setRecommendationCampaign:
         case ControlOp.setRecommendationPolicy:
+        case ControlOp.setProfileMedia:
         case ControlOp.checkpoint:
           break;
       }

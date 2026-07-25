@@ -201,6 +201,73 @@ void main() {
   );
 
   test(
+    'Space profile media is a signed folded setting with a strict payload',
+    () {
+      final avatar = 'a' * 64;
+      final cover = 'b' * 64;
+      final result = foldControlLog(
+        owner: _owner,
+        entries: [
+          _e(
+            _owner,
+            0,
+            ControlOp.addMember,
+            target: _bob,
+            role: GroupRole.member,
+          ),
+          // A plain member cannot re-point the profile.
+          _e(
+            _bob,
+            0,
+            ControlOp.setProfileMedia,
+            text: encodeSpaceProfileMedia(avatarContentId: 'f' * 64),
+          ),
+          _e(
+            _owner,
+            1,
+            ControlOp.setProfileMedia,
+            text: encodeSpaceProfileMedia(
+              avatarContentId: avatar,
+              coverContentId: cover,
+            ),
+          ),
+          // Garbage payloads are rejected instead of folding into state.
+          _e(_owner, 2, ControlOp.setProfileMedia, text: '{"avatar":"nope"}'),
+        ],
+        verify: _ok,
+        initialAvatarContentId: 'e' * 64,
+      );
+      expect(result.state.avatarContentId, avatar);
+      expect(result.state.coverContentId, cover);
+      expect(result.rejected, hasLength(2));
+
+      final cleared = foldControlLog(
+        owner: _owner,
+        entries: [
+          _e(_owner, 0, ControlOp.setProfileMedia, text: '{}'),
+        ],
+        verify: _ok,
+        initialAvatarContentId: 'e' * 64,
+        initialCoverContentId: 'd' * 64,
+      );
+      expect(cleared.state.avatarContentId, isNull);
+      expect(cleared.state.coverContentId, isNull);
+
+      final genesis = foldControlLog(
+        owner: _owner,
+        entries: const [],
+        verify: _ok,
+        initialAvatarContentId: 'e' * 64,
+      );
+      expect(
+        genesis.state.avatarContentId,
+        'e' * 64,
+        reason: 'the genesis manifest seeds the folded profile',
+      );
+    },
+  );
+
+  test(
     'ownership transfer is atomic and leaves exactly one effective owner',
     () {
       final add = ControlEntry(

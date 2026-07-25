@@ -20,6 +20,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/messaging.dart' show conversationsProvider;
 import '../chat/chat_actions.dart';
+import 'space_avatar.dart';
 
 enum _SpaceMemberAction { unmute, promote, demote, remove, ban, transferOwner }
 
@@ -362,6 +363,32 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     );
     if (description == null || description == current) return;
     if (!await service.setSpaceDescription(spaceId, description)) _failure();
+  }
+
+  /// Pick, downscale and register a new avatar/cover image, then re-point the
+  /// signed profile. The untouched slot is carried over explicitly because the
+  /// control payload replaces both slots atomically.
+  Future<void> _changeProfileImage(
+    GroupService service,
+    NodeId spaceId,
+    GroupState state, {
+    required bool avatar,
+  }) async {
+    final cid = await pickAndRegisterSpaceProfileImage(
+      ref,
+      name: avatar ? 'space-avatar.png' : 'space-cover.png',
+    );
+    if (cid == null) return;
+    final ok = await service.setSpaceProfileMedia(
+      spaceId,
+      avatarContentId: avatar ? cid : state.avatarContentId,
+      coverContentId: avatar ? state.coverContentId : cid,
+    );
+    if (!ok) _failure();
+  }
+
+  Future<void> _clearProfileMedia(GroupService service, NodeId spaceId) async {
+    if (!await service.setSpaceProfileMedia(spaceId)) _failure();
   }
 
   Future<void> _inviteMember(
@@ -1260,7 +1287,15 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                         child: Column(
                           children: [
                             ListTile(
-                              leading: const Icon(Icons.diversity_3_outlined),
+                              leading: SpaceAvatarImage(
+                                spaceId: spaceId,
+                                contentId: state.avatarContentId,
+                                owner: bundle?.manifest.owner,
+                                radius: 20,
+                                fallback: const Icon(
+                                  Icons.diversity_3_outlined,
+                                ),
+                              ),
                               title: Text(state.name),
                               subtitle: Text(
                                 '${_roleLabel(l, myRole)} · '
@@ -1308,6 +1343,67 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                     )
                                   : null,
                             ),
+                            if (canEditDescription) ...[
+                              const Divider(height: 1, indent: 56),
+                              ListTile(
+                                key: const ValueKey('space-profile-media'),
+                                leading: const Icon(Icons.image_outlined),
+                                title: Text(l.spaceProfileMediaTitle),
+                                subtitle: Text(
+                                  state.avatarContentId == null &&
+                                          state.coverContentId == null
+                                      ? l.spaceProfileMediaEmpty
+                                      : l.spaceProfileMediaSet,
+                                ),
+                                trailing: Wrap(
+                                  spacing: 0,
+                                  children: [
+                                    IconButton(
+                                      key: const ValueKey('space-avatar-pick'),
+                                      tooltip: l.spaceAvatarChange,
+                                      onPressed: () => _changeProfileImage(
+                                        service,
+                                        spaceId,
+                                        state,
+                                        avatar: true,
+                                      ),
+                                      icon: const Icon(
+                                        Icons.account_circle_outlined,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      key: const ValueKey('space-cover-pick'),
+                                      tooltip: l.spaceCoverChange,
+                                      onPressed: () => _changeProfileImage(
+                                        service,
+                                        spaceId,
+                                        state,
+                                        avatar: false,
+                                      ),
+                                      icon: const Icon(
+                                        Icons.panorama_outlined,
+                                      ),
+                                    ),
+                                    if (state.avatarContentId != null ||
+                                        state.coverContentId != null)
+                                      IconButton(
+                                        key: const ValueKey(
+                                          'space-profile-media-clear',
+                                        ),
+                                        tooltip: l.spaceProfileMediaClear,
+                                        onPressed: () =>
+                                            _clearProfileMedia(
+                                              service,
+                                              spaceId,
+                                            ),
+                                        icon: const Icon(
+                                          Icons.delete_outline,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
                             ExpansionTile(
                               key: const ValueKey(
                                 'space-subscription-settings',
