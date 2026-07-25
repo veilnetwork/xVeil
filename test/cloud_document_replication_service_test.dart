@@ -1675,4 +1675,99 @@ void main() {
       stored.wipeLocalEpochKeys();
     },
   );
+
+  test(
+    'shared folder: add/list/remove files replicate to a granted member',
+    () async {
+      final owner = _id(1);
+      final editor = _id(2);
+      final envelopes = CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      );
+      final ownerStore = await _openStore(FakeHvContainer());
+      final editorStore = await _openStore(FakeHvContainer());
+      final sent = <({NodeId peer, String documentId, String json})>[];
+      final ownerService = _service(
+        self: owner,
+        store: ownerStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(owner, 1),
+        acceptedContact: (peer) async => peer == editor,
+        random: Random(303),
+      );
+      final editorService = _service(
+        self: editor,
+        store: editorStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(editor, 2),
+        random: Random(304),
+      );
+
+      final documentId = (await ownerService.createDocument(
+        kind: CloudDocumentKind.fileCollection,
+        codec: cloudFileCollectionCodecV1,
+      ))!.documentId;
+      expect(await ownerService.loadSharedFolder(documentId), isEmpty);
+
+      final cidA = 'a' * 64;
+      final cidB = 'b' * 64;
+      expect(
+        await ownerService.addSharedFolderFile(
+          documentId,
+          name: 'a.bin',
+          contentId: cidA,
+          size: 10,
+          mime: 'application/octet-stream',
+        ),
+        isNotNull,
+      );
+      expect(
+        await ownerService.addSharedFolderFile(
+          documentId,
+          name: 'b.txt',
+          contentId: cidB,
+          size: 4,
+          path: 'sub',
+        ),
+        isNotNull,
+      );
+      final files = (await ownerService.loadSharedFolder(documentId))!;
+      expect(files.map((f) => f.contentId).toSet(), {cidA, cidB});
+      expect(files.firstWhere((f) => f.contentId == cidB).path, 'sub');
+
+      // Grant an editor; the file list replicates to them.
+      sent.clear();
+      expect(
+        await ownerService.grant(documentId, editor, CloudDocumentRole.editor),
+        isNotNull,
+      );
+      final invite = CloudDocumentFrame.decode(sent.removeLast().json)!;
+      expect(await editorService.ingest(owner, invite.encode()), isTrue);
+      expect(await editorService.adopt(documentId), isTrue);
+      final editorFiles = (await editorService.loadSharedFolder(documentId))!;
+      expect(editorFiles.map((f) => f.contentId).toSet(), {cidA, cidB});
+
+      // Remove one file; the owner's list drops it (the row is tombstoned).
+      final entryA = files.firstWhere((f) => f.contentId == cidA).id;
+      expect(
+        await ownerService.removeSharedFolderFile(documentId, entryA),
+        isNotNull,
+      );
+      final afterRemoval = (await ownerService.loadSharedFolder(documentId))!;
+      expect(afterRemoval.map((f) => f.contentId), [cidB]);
+
+      // Revoking the editor rotates the epoch but the metadata stays readable.
+      expect(await ownerService.revoke(documentId, editor), isNotNull);
+      final revokedState = (await ownerService.listDocuments()).single;
+      expect(revokedState.currentEpoch, greaterThan(0));
+      expect(
+        (await ownerService.loadSharedFolder(
+          documentId,
+        ))!.map((f) => f.contentId),
+        [cidB],
+      );
+    },
+  );
 }
