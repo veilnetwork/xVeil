@@ -1035,6 +1035,42 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     }
   }
 
+  /// Confirm + convert this group chat into a community (Space). Irreversible
+  /// in practice: the chat gains a signed Space manifest and a default text
+  /// channel, moves to «Сообщества», and keeps its members/history.
+  Future<void> _convertToCommunity(GroupService svc) async {
+    final l = AppL10n.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l.groupConvertToCommunity),
+        content: Text(l.groupConvertConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            key: const ValueKey('group-convert-confirm'),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(l.groupConvertAction),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final converted = await svc.convertGroupToSpace(_gid);
+    if (!mounted) return;
+    if (!converted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.groupOperationFailed)));
+      return;
+    }
+    // The chat is now a Space; open it in the communities section.
+    context.go('/space/${_gid.hex}');
+  }
+
   /// Confirm + leave the group: closes the member sheet and returns to the list.
   Future<void> _leaveGroup(GroupService svc) async {
     final l = AppL10n.of(context);
@@ -1426,6 +1462,30 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
             tooltip: l.groupSyncSettingsTooltip,
             onPressed: () => _showSyncSettings(svc),
           ),
+          // Owner-only, group-chat-only: the explicit "convert this chat into
+          // a community" action the canon reserves as a confirmed operation.
+          if (_channelId == null)
+            FutureBuilder<List<Object?>>(
+              future: Future.wait<Object?>([svc.stateOf(_gid), svc.load(_gid)]),
+              builder: (context, snap) {
+                final state = snap.data?.firstOrNull as GroupState?;
+                final bundle = snap.data != null && snap.data!.length > 1
+                    ? snap.data![1] as GroupBundle?
+                    : null;
+                final convertible =
+                    bundle != null &&
+                    bundle.manifest.isLegacyGroup &&
+                    !bundle.manifest.isSpace &&
+                    state?.roleOf(svc.selfId) == GroupRole.owner;
+                if (!convertible) return const SizedBox.shrink();
+                return IconButton(
+                  key: const ValueKey('group-convert-to-community'),
+                  icon: const Icon(Icons.workspaces_outline),
+                  tooltip: l.groupConvertToCommunity,
+                  onPressed: () => _convertToCommunity(svc),
+                );
+              },
+            ),
         ],
       ),
       body: Column(

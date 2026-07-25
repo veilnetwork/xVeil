@@ -1631,6 +1631,16 @@ class AppL10nRu extends AppL10n {
   String get groupSyncSettingsTooltip => 'Синхронизация чата';
 
   @override
+  String get groupConvertToCommunity => 'Преобразовать в сообщество';
+
+  @override
+  String get groupConvertConfirm =>
+      'Чат станет сообществом с каналами, публикациями и лентой. Участники и история сохранятся. Он переедет в «Сообщества». Отменить нельзя.';
+
+  @override
+  String get groupConvertAction => 'Преобразовать';
+
+  @override
   String get groupSyncNeighborsTitle => 'Синхронизация чата';
 
   @override

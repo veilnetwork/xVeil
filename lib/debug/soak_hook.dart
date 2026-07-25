@@ -676,6 +676,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/space_ban':
           await _spaceBan(req);
           return;
+        case '/space_convert':
+          await _spaceConvert(req);
+          return;
         case '/media_open':
           await _mediaOpen(req);
           return;
@@ -1045,6 +1048,39 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'count': messages.length,
       'bodies': [for (final message in messages) message.body],
     });
+  }
+
+  /// Stand driver: explicit owner conversion of one group chat into a Space
+  /// (`?group=<hex>`). Reports the resulting kind + channel count so the
+  /// convert-to-community flow can be verified live.
+  Future<void> _spaceConvert(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(groupServiceProvider);
+    final groupHex = req.uri.queryParameters['group'];
+    if (service == null || groupHex == null) {
+      return _json(req, {
+        'ok': false,
+        'error': 'group required',
+      }, status: service == null ? 409 : 400);
+    }
+    final NodeId groupId;
+    try {
+      groupId = NodeId.fromHex(groupHex);
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'bad id'}, status: 400);
+    }
+    try {
+      final ok = await service.convertGroupToSpace(groupId);
+      final bundle = await service.load(groupId);
+      final channels = await service.channelsOf(groupId);
+      await _json(req, {
+        'ok': ok,
+        'isSpace': bundle?.manifest.isSpace ?? false,
+        'channels': channels.length,
+      });
+    } catch (error) {
+      await _json(req, {'ok': false, 'error': '$error'}, status: 500);
+    }
   }
 
   /// Stand driver: permanently ban a member (`?space=&target=<hex>&reason=`)

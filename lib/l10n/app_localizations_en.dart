@@ -1613,6 +1613,16 @@ class AppL10nEn extends AppL10n {
   String get groupSyncSettingsTooltip => 'Chat synchronization';
 
   @override
+  String get groupConvertToCommunity => 'Convert to community';
+
+  @override
+  String get groupConvertConfirm =>
+      'This chat becomes a community with channels, publications and a feed. Members and history are kept. It moves to Communities. This cannot be undone.';
+
+  @override
+  String get groupConvertAction => 'Convert';
+
+  @override
   String get groupSyncNeighborsTitle => 'Chat synchronization';
 
   @override

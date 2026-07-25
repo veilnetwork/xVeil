@@ -2898,6 +2898,24 @@ abstract class AppL10n {
   /// **'Chat synchronization'**
   String get groupSyncSettingsTooltip;
 
+  /// No description provided for @groupConvertToCommunity.
+  ///
+  /// In en, this message translates to:
+  /// **'Convert to community'**
+  String get groupConvertToCommunity;
+
+  /// No description provided for @groupConvertConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'This chat becomes a community with channels, publications and a feed. Members and history are kept. It moves to Communities. This cannot be undone.'**
+  String get groupConvertConfirm;
+
+  /// No description provided for @groupConvertAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Convert'**
+  String get groupConvertAction;
+
   /// No description provided for @groupSyncNeighborsTitle.
   ///
   /// In en, this message translates to:
