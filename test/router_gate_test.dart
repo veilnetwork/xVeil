@@ -50,25 +50,18 @@ void main() {
     }
   });
 
-  test('ready resumes the pre-restart settings page from /preparing', () {
-    // A node-restarting settings toggle bounced the user out of settings:
-    // leaving /preparing honours resumeTo instead of dumping to /home.
-    expect(
-      redirectForPhase(AppPhase.ready, '/preparing',
-          resumeTo: '/settings/account'),
-      '/settings/account',
-    );
-    // Without a resume target the old behavior stands.
+  test('leaving /preparing lands on home, never on a bare deep screen', () {
+    // A node-restarting settings toggle bounces the user out of settings, and
+    // the gate brings them back to HOME — not straight onto the settings page.
+    // Restoring that page is the router's job and it PUSHES, because a
+    // redirect REPLACES the stack: landing directly on /settings/account would
+    // leave it with nothing below it, which the flat router renders without a
+    // back affordance at all. See back_affordance_invariant_test.dart.
     expect(redirectForPhase(AppPhase.ready, '/preparing'), '/home');
-    // resumeTo never hijacks the OTHER gate screens (lock → home as before).
+    expect(redirectForPhase(AppPhase.ready, '/lock'), '/home');
+    // The gate still pins the user to /preparing while the node restarts.
     expect(
-      redirectForPhase(AppPhase.ready, '/lock', resumeTo: '/settings/account'),
-      '/home',
-    );
-    // And never fires while still preparing.
-    expect(
-      redirectForPhase(AppPhase.preparingNode, '/settings/account',
-          resumeTo: '/settings/account'),
+      redirectForPhase(AppPhase.preparingNode, '/settings/account'),
       '/preparing',
     );
   });

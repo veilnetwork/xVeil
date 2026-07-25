@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/transport/veil_transport.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/providers.dart';
 import 'share_peers_sheet.dart';
 
@@ -24,6 +25,7 @@ class PeersScreen extends ConsumerWidget {
     final peersAsync = ref.watch(peersProvider);
     return Scaffold(
       appBar: AppBar(
+        leading: const RootedBackButton(),
         title: Text(l.peersTitle),
         actions: [
           IconButton(

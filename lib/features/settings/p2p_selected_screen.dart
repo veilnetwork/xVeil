@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/chat.dart';
 import '../../domain/p2p_policy.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/messaging.dart';
 
 /// Batch editor for the "Only selected" P2P set: every accepted contact with
@@ -19,7 +20,10 @@ class P2PSelectedScreen extends ConsumerWidget {
     final l = AppL10n.of(context);
     final convos = ref.watch(conversationsProvider);
     return Scaffold(
-      appBar: AppBar(title: Text(l.p2pSelectedTitle)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.p2pSelectedTitle),
+      ),
       body: convos.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('$e')),

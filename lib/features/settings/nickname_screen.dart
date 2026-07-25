@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/nickname_controller.dart';
 
 /// Settings → Identities & account → Nickname: claim a public @name for the
@@ -63,7 +64,10 @@ class _NicknameScreenState extends ConsumerState<NicknameScreen> {
     };
 
     return Scaffold(
-      appBar: AppBar(title: Text(l.nicknameTitle)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.nicknameTitle),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

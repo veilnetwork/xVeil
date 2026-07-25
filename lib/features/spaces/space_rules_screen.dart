@@ -5,6 +5,7 @@ import '../../core/ids.dart';
 import '../../domain/group_policy.dart';
 import '../../domain/space_rules.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/group_service_providers.dart';
 
 /// Versioned Space rules backed by the signed control log. Reading and
@@ -101,6 +102,7 @@ class SpaceRulesScreen extends ConsumerWidget {
             ..sort((a, b) => b.version.compareTo(a.version));
           return Scaffold(
             appBar: AppBar(
+              leading: const RootedBackButton(),
               title: Text(l.spaceRulesTitle),
               actions: [
                 if (canPublish)

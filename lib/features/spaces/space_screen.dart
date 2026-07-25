@@ -11,6 +11,7 @@ import '../../domain/space_channel.dart';
 import '../../domain/space_recommendation.dart';
 import '../../domain/space_retention.dart';
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/group_call_service.dart';
 import '../../state/messaging.dart' show conversationsProvider;
@@ -824,16 +825,7 @@ class SpaceScreen extends ConsumerWidget {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
-  void _goBack(BuildContext context) {
-    if (context.canPop()) {
-      context.pop();
-      return;
-    }
-    // Direct-route entry (deep link, notification tap) left no stack below —
-    // without an explicit leading the flat router shows no back affordance at
-    // all and the screen becomes a dead end. Home is the only safe anchor.
-    context.go('/home');
-  }
+  void _goBack(BuildContext context) => goBackOrHome(context);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

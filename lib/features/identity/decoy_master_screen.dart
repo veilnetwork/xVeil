@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
 
 /// Configure a DECOY (duress) master: a separate password that, under coercion,
@@ -75,7 +76,10 @@ class _DecoyMasterScreenState extends ConsumerState<DecoyMasterScreen> {
     final identities = ref.watch(appControllerProvider).identities;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l.decoyTitle)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.decoyTitle),
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),

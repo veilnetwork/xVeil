@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
 
 /// Form to add a new identity. On the FIRST add (single-identity mode) it also
@@ -85,7 +86,10 @@ class _AddIdentityScreenState extends ConsumerState<AddIdentityScreen> {
     final converting = !ref.watch(appControllerProvider).isMaster;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l.addIdentityTitle)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(l.addIdentityTitle),
+      ),
       body: Stack(
         children: [
           SafeArea(

@@ -10,6 +10,7 @@ import '../../core/ids.dart';
 import '../../domain/cloud.dart';
 import '../../domain/cloud_capability.dart';
 import '../../domain/public_directory_pointer.dart';
+import '../../routing/back_affordance.dart';
 import '../../state/public_directory_providers.dart';
 import '../../state/public_directory_service.dart';
 import '../../domain/chat.dart';
@@ -1080,7 +1081,12 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                   icon: const Icon(Icons.close),
                 )
               : openFolder == null
-              ? null
+              // At the cloud ROOT there is no folder to go up to, so back has
+              // to leave the screen. Leaving this null fell back to the
+              // automatic leading, which the flat router only renders when
+              // something sits below — entered with an empty stack the cloud
+              // was a dead end.
+              ? const RootedBackButton()
               : BackButton(onPressed: goUp),
           title: _selecting
               ? Text(l.cloudSelectedCount(_selectedIds.length))
@@ -3032,7 +3038,10 @@ class _CloudReceivedFolderScreenState extends State<CloudReceivedFolderScreen> {
     final l = AppL10n.of(context);
     final listing = _listing;
     return Scaffold(
-      appBar: AppBar(title: Text(listing?.name ?? l.cloudFolderOpenTitle)),
+      appBar: AppBar(
+        leading: const RootedBackButton(),
+        title: Text(listing?.name ?? l.cloudFolderOpenTitle),
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
