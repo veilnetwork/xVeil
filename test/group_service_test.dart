@@ -2959,6 +2959,64 @@ void main() {
   );
 
   test(
+    'sovereign credential lives in the chunked file store, not a setting',
+    () async {
+      // The hybrid XVSB blob (~3.1 KiB base64) exceeds a single hidden-volume
+      // settings record: the settings path threw PayloadTooLarge on EVERY
+      // real store (found live 2026-07-25 on the first link ceremony).
+      final phrase = veil.generateMasterPhrase();
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _NativeSovereignVerifier(owner));
+      final created = await service.openLocalSovereign(phrase);
+      created.close();
+      expect(
+        await storage.loadFile(GroupService.kSovereignBundleSetting),
+        isNotNull,
+        reason: 'credential must be written to the chunked file store',
+      );
+      final settingRaw = await storage.getSetting(
+        GroupService.kSovereignBundleSetting,
+      );
+      expect(
+        settingRaw == null || settingRaw.isEmpty,
+        isTrue,
+        reason: 'no oversized settings record may be written',
+      );
+
+      // The same phrase reopens the same owner from the file store, and the
+      // real link ceremony mints from it.
+      final signer = await service.openLocalSovereign(phrase);
+      expect(signer.algorithm, 'ed25519+falcon512');
+      expect(await service.linkDevice(bob, sovereign: signer), isTrue);
+      signer.close();
+      expect(await service.deviceGroupIdHex(), isNotNull);
+
+      // A pre-fix store that persisted a small credential in the legacy
+      // settings key keeps opening it (read fallback).
+      final legacyStorage = FakeHvContainer().storage();
+      await legacyStorage.open(password: 'pw', createIfMissing: true);
+      final legacyPhrase = veil.generateMasterPhrase();
+      final legacyBundle = veil.createHybrid512SovereignBundle(legacyPhrase);
+      await legacyStorage.putSetting(
+        GroupService.kSovereignBundleSetting,
+        base64Encode(legacyBundle),
+      );
+      final legacy = GroupService(
+        legacyStorage,
+        _NativeSovereignVerifier(owner),
+      );
+      expect(await legacy.localSovereignBundle(), legacyBundle);
+      final reopened = await legacy.openLocalSovereign(legacyPhrase);
+      expect(reopened.algorithm, 'ed25519+falcon512');
+      reopened.close();
+      await storage.close();
+      await legacyStorage.close();
+    },
+    skip: hasVeilFfi ? false : 'set VEIL_FFI_DYLIB to test hybrid XVSB',
+  );
+
+  test(
     'XVRC disaster recovery preserves sovereign node id and mints fresh gid',
     () async {
       final phrase = veil.generateMasterPhrase();
