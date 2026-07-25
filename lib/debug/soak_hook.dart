@@ -393,6 +393,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/cloud_note_probe':
           await _cloudNoteProbeHook(req);
           return;
+        case '/cloud_folder':
+          await _cloudFolderHook(req);
+          return;
+        case '/cloud_move':
+          await _cloudMoveHook(req);
+          return;
         case '/cloud_document_state':
           await _cloudDocumentStateHook(req);
           return;
@@ -1777,6 +1783,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
             ? service.noteHeads(item).length
             : 1,
         'deleted': item.deleted,
+        'folder': item.folderId,
+        'folderEffective': service.effectiveFolderId(item),
         'local': await service.isLocal(item),
         'replicas': service.replicaCount(item),
       });
@@ -1785,6 +1793,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'ok': true,
       'mode': service.profile.mode.name,
       'selected': service.profile.selectedItemIds.toList()..sort(),
+      'folders': [
+        for (final folder in service.listFolders())
+          {'id': folder.id, 'name': folder.name, 'revision': folder.revision},
+      ],
       'items': items,
     });
   }
@@ -2295,6 +2307,83 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'heads': service.noteHeads(item).length,
         'bytes': bytes.length,
         'sha256': crypto.sha256.convert(bytes).toString(),
+      });
+    } catch (error) {
+      return _json(req, {'ok': false, 'error': '$error'});
+    }
+  }
+
+  /// Folder metadata mutations for the stand: create/rename/delete a flat
+  /// personal-cloud folder. Names travel as query text; no content bytes.
+  Future<void> _cloudFolderHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudServiceProvider);
+    final q = req.uri.queryParameters;
+    if (service == null) {
+      return _json(req, {'ok': false, 'error': 'cloud unavailable'});
+    }
+    try {
+      switch (q['action'] ?? 'create') {
+        case 'create':
+          final name = q['name'];
+          if (name == null) {
+            return _json(req, {'ok': false, 'error': 'need name'});
+          }
+          final folder = await service.createFolder(name);
+          return _json(req, {
+            'ok': true,
+            'id': folder.id,
+            'name': folder.name,
+            'revision': folder.revision,
+          });
+        case 'rename':
+          final id = q['id'];
+          final name = q['name'];
+          if (id == null || name == null) {
+            return _json(req, {'ok': false, 'error': 'need id+name'});
+          }
+          final folder = await service.renameFolder(id, name);
+          return _json(req, {
+            'ok': true,
+            'id': folder.id,
+            'name': folder.name,
+            'revision': folder.revision,
+          });
+        case 'delete':
+          final id = q['id'];
+          if (id == null) {
+            return _json(req, {'ok': false, 'error': 'need id'});
+          }
+          await service.deleteFolder(id);
+          return _json(req, {'ok': true, 'id': id});
+        default:
+          return _json(req, {'ok': false, 'error': 'bad action'});
+      }
+    } catch (error) {
+      return _json(req, {'ok': false, 'error': '$error'});
+    }
+  }
+
+  Future<void> _cloudMoveHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudServiceProvider);
+    final q = req.uri.queryParameters;
+    final id = q['id'];
+    if (service == null || id == null) {
+      return _json(req, {'ok': false, 'error': 'need cloud+id'});
+    }
+    final folder = q['folder'];
+    try {
+      final moved = await service.moveItemToFolder(
+        id,
+        folder == null || folder.isEmpty ? null : folder,
+      );
+      return _json(req, {
+        'ok': true,
+        'id': moved.id,
+        'folder': moved.folderId,
+        'folderEffective': service.effectiveFolderId(moved),
+        'revision': moved.revision,
       });
     } catch (error) {
       return _json(req, {'ok': false, 'error': '$error'});
