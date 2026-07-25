@@ -172,6 +172,11 @@ class CloudCollectionDocumentState {
     if (kind != CloudDocumentKind.calendar) return const [];
     return snapshot.rows.map(CloudCalendarEvent.fromRow).nonNulls.toList();
   }
+
+  List<CloudFileEntry> get files {
+    if (kind != CloudDocumentKind.fileCollection) return const [];
+    return snapshot.rows.map(CloudFileEntry.fromRow).nonNulls.toList();
+  }
 }
 
 /// Replicates signed document logs without borrowing group authorization.
@@ -780,6 +785,46 @@ class CloudDocumentReplicationService {
       stored.wipeLocalEpochKeys();
     }
   });
+
+  /// The current file list of a shared (ACL) folder, or null if the document
+  /// is not a readable file collection for this member.
+  Future<List<CloudFileEntry>?> loadSharedFolder(String documentId) async {
+    final state = await loadCollection(documentId);
+    if (state == null || state.kind != CloudDocumentKind.fileCollection) {
+      return null;
+    }
+    return state.files;
+  }
+
+  /// Add one file reference to a shared folder (owner/editor). The bytes are
+  /// distributed by the member content path, not this metadata operation.
+  Future<CloudDocumentMutationResult?> addSharedFolderFile(
+    String documentId, {
+    required String name,
+    required String contentId,
+    required int size,
+    String? mime,
+    String path = '',
+  }) {
+    final entry = CloudFileEntry(
+      id: newCollectionEntityId(),
+      name: name,
+      contentId: contentId,
+      size: size,
+      mime: mime,
+      path: path,
+    );
+    return appendCollectionEdits(documentId, [
+      CloudCollectionEdit.create(entry.id, entry.toFields()),
+    ]);
+  }
+
+  /// Remove one file reference by its entry id. The row's tombstone stops the
+  /// member content host from serving that cid on the next republish.
+  Future<CloudDocumentMutationResult?> removeSharedFolderFile(
+    String documentId,
+    String entryId,
+  ) => appendCollectionEdits(documentId, [CloudCollectionEdit.delete(entryId)]);
 
   Future<CloudDocumentMutationResult?> saveRichText(
     String documentId, {
