@@ -4563,6 +4563,76 @@ void main() {
   );
 
   test(
+    'a fork at the tombstone seq does not resurrect a deleted post',
+    () async {
+      final storageA = FakeHvContainer().storage();
+      await storageA.open(password: 'owner', createIfMissing: true);
+      final svcA = GroupService(storageA, _FakeSigner(owner));
+      addTearDown(svcA.dispose);
+      final storageB = FakeHvContainer().storage();
+      await storageB.open(password: 'owner', createIfMissing: true);
+      final svcB = GroupService(storageB, _FakeSigner(owner));
+      addTearDown(svcB.dispose);
+
+      final spaceId = await svcA.createSpace(
+        'Fork tombstone',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      final root = await svcA.publishSpacePost(
+        spaceId,
+        title: 'Root',
+        body: 'Original body',
+        broadcast: false,
+      );
+      expect(root, isNotNull);
+
+      // The same identity's second device adopts the space at publish@0.
+      expect(
+        await svcB.ingestSnapshot(
+          svcA.snapshotJson((await svcA.load(spaceId))!, recipient: owner),
+        ),
+        isTrue,
+      );
+      expect((await svcB.postsOf(spaceId)).single.body, 'Original body');
+
+      // Partitioned: device A deletes the post while device B edits it. Both
+      // rows legitimately land at seq 1 (each saw only head seq 0).
+      expect(
+        await svcA.deleteSpacePost(spaceId, root!.postId, broadcast: false),
+        isTrue,
+      );
+      expect(await svcA.postsOf(spaceId), isEmpty);
+      final editedOnB = await svcB.editSpacePost(
+        spaceId,
+        root.postId,
+        title: 'Root',
+        body: 'Edited on device B',
+        broadcast: false,
+      );
+      expect(editedOnB?.body, 'Edited on device B');
+
+      // Merging B's divergent seq-1 row forks the tombstone's seq on A.
+      expect(
+        await svcA.ingestSnapshot(
+          svcB.snapshotJson((await svcB.load(spaceId))!, recipient: owner),
+        ),
+        isTrue,
+      );
+      final merged = (await svcA.load(spaceId))!;
+      expect(
+        merged.posts.where((p) => p.seq == 1 && p.author == owner).length,
+        greaterThanOrEqualTo(2),
+        reason: 'the two devices must actually fork seq 1',
+      );
+
+      // A tombstone is absorbing: the delete wins over the forked edit and the
+      // publication stays gone instead of resurrecting (and re-granting media).
+      expect(await svcA.postsOf(spaceId), isEmpty);
+    },
+  );
+
+  test(
     'public discussion is explicit, author-signed and committed by feed v2',
     () async {
       final storage = FakeHvContainer().storage();
