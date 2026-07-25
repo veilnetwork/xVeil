@@ -8248,8 +8248,23 @@ class GroupService {
     return result;
   }
 
+  /// The group index lists EVERY group/Space id, so in one settings record
+  /// it outgrows the hidden-volume record capacity at roughly 30+ groups
+  /// (~2.2 KiB) — from then on creating or even ingesting any new group
+  /// throws PayloadTooLarge (found live 2026-07-25 on the stand fixture,
+  /// right after container compaction proved the store itself healthy).
+  /// The index therefore lives in the chunked file store; the legacy
+  /// settings value is still read as a fallback for stores written before
+  /// the move. Consumers keep their own strictness: [_index] is lenient,
+  /// [_groupIdsForGc] stays fail-closed on malformed content.
+  Future<String?> _readIndexJson() async {
+    final blob = await _storage.loadFile('groups.index');
+    if (blob != null) return utf8.decode(blob, allowMalformed: true);
+    return _storage.getSetting('groups.index');
+  }
+
   Future<List<String>> _index() async {
-    final raw = await _storage.getSetting('groups.index');
+    final raw = await _readIndexJson();
     if (raw == null || raw.isEmpty) return [];
     try {
       final d = jsonDecode(raw);
@@ -8259,8 +8274,19 @@ class GroupService {
     }
   }
 
-  Future<void> _setIndex(List<String> ids) =>
-      _storage.putSetting('groups.index', jsonEncode(ids));
+  Future<void> _setIndex(List<String> ids) async {
+    await _storage.storeFile(
+      'groups.index',
+      Uint8List.fromList(utf8.encode(jsonEncode(ids))),
+      name: 'groups-index',
+    );
+    try {
+      await _storage.putSetting('groups.index', '');
+    } catch (_) {
+      // The file copy is authoritative; a lingering legacy value is inert
+      // because reads prefer the file.
+    }
+  }
 
   // ── Group-kind hint index. PURE PERF HINT: the hourly maintenance loops
   // (retention sweep, deleted-Space purge) used to load and decrypt EVERY
@@ -8654,7 +8680,7 @@ class GroupService {
   Future<({Set<String> groupIds, bool complete})> _groupIdsForGc() async {
     final groupIds = <String>{};
     try {
-      final raw = await _storage.getSetting('groups.index');
+      final raw = await _readIndexJson();
       if (raw != null && raw.isNotEmpty) {
         final decoded = jsonDecode(raw);
         if (decoded is! List || decoded.length > 100000) {

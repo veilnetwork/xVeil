@@ -13655,6 +13655,37 @@ void main() {
       },
     );
 
+    test(
+      'group index migrates from the legacy setting to the file store',
+      () async {
+        // One settings record caps out near 30+ groups; the index must live
+        // in the chunked file store while legacy stores stay readable.
+        final storage = FakeHvContainer().storage();
+        await storage.open(password: 'pw', createIfMissing: true);
+        final legacyId = List.filled(64, 'a').join();
+        await storage.putSetting('groups.index', jsonEncode([legacyId]));
+        final service = GroupService(storage, _FakeSigner(owner));
+        final groupId = await service.createGroup('Post-cap group');
+
+        final blob = await storage.loadFile('groups.index');
+        expect(blob, isNotNull, reason: 'index must move to the file store');
+        final ids = (jsonDecode(utf8.decode(blob!)) as List).cast<String>();
+        expect(
+          ids,
+          containsAll([legacyId, groupId.hex]),
+          reason: 'legacy ids merge with the new one',
+        );
+        final legacy = await storage.getSetting('groups.index');
+        expect(
+          legacy == null || legacy.isEmpty,
+          isTrue,
+          reason: 'no oversized settings record remains',
+        );
+        expect(await service.listGroups(), isNotEmpty);
+        await storage.close();
+      },
+    );
+
     test('purging a deleted Space clears its hint', () async {
       final storage = FakeHvContainer().storage();
       await storage.open(password: 'pw', createIfMissing: true);
