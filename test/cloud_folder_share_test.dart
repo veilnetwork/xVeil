@@ -202,6 +202,57 @@ void main() {
     },
   );
 
+  test(
+    'an expired folder share serves the same silence as a bad MAC',
+    () async {
+      final fixture = await buildFolder(fileCount: 1);
+      final sent = <Uint8List>[];
+      // A capability that expired in the past: the host must refuse to serve
+      // even a MAC-valid request from a bearer who still holds the folder key.
+      final expiredCap = CloudFolderCapability(
+        shareId: fixture.capability.shareId,
+        key: fixture.capability.key,
+        servicePublicKey: fixture.capability.servicePublicKey,
+        appId: fixture.capability.appId,
+        endpointId: fixture.capability.endpointId,
+        expiresAtMs: DateTime(2000).millisecondsSinceEpoch,
+        folderName: fixture.capability.folderName,
+        listingRevision: fixture.capability.listingRevision,
+      );
+      final host = CloudFolderShareHost(
+        capability: expiredCap,
+        storage: fixture.storage,
+        listing: fixture.listing,
+        now: () => DateTime(2030),
+        send:
+            ({
+              required servicePublicKey,
+              required targetAppId,
+              required targetEndpointId,
+              required data,
+            }) async => sent.add(data),
+      );
+      await host.ready;
+      final incoming = StreamController<Uint8List>.broadcast();
+      final client = CloudFolderShareClient(
+        capability: expiredCap,
+        returnServicePublicKey: Uint8List.fromList(List.filled(32, 3)),
+        returnAppId: Uint8List.fromList(List.filled(32, 4)),
+        returnEndpointId: 48,
+        incoming: incoming.stream,
+        send: (data) async => unawaited(host.serve(data)),
+        randomBytes: _counterBytes(),
+        timeout: const Duration(milliseconds: 200),
+      );
+      await expectLater(
+        client.fetchListing(),
+        throwsA(isA<TimeoutException>()),
+      );
+      expect(sent, isEmpty, reason: 'an expired share never answers');
+      await incoming.close();
+    },
+  );
+
   test('a rollback listing revision is rejected by the client', () async {
     final fixture = await buildFolder(fileCount: 1);
     final hostToClient = StreamController<Uint8List>.broadcast();

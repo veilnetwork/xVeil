@@ -242,8 +242,10 @@ class CloudFolderShareHost {
       required Uint8List data,
     })
     send,
+    DateTime Function()? now,
     // ignore: prefer_initializing_formals
-  }) : _send = send {
+  }) : _send = send,
+       _now = now ?? DateTime.now {
     _ready = setListing(listing);
   }
 
@@ -255,6 +257,7 @@ class CloudFolderShareHost {
 
   final CloudFolderCapability capability;
   final CloudFolderShareStorage storage;
+  final DateTime Function() _now;
   final Future<void> Function({
     required Uint8List servicePublicKey,
     required Uint8List targetAppId,
@@ -318,6 +321,9 @@ class CloudFolderShareHost {
   /// request follows the same silent path — never an existence oracle.
   Future<void> serve(Uint8List wire) async {
     try {
+      // An expired link is served the same silent denial as a bad MAC — the
+      // holder has the folder key but the capability is no longer valid.
+      if (_now().millisecondsSinceEpoch >= capability.expiresAtMs) return;
       // Answer against the latest published listing, never a half-sealed one.
       try {
         await _ready;
