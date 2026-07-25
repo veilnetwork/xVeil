@@ -413,6 +413,58 @@ void main() {
   });
 
   test(
+    'single-group convertGroupToSpace: owner-only, keeps history, idempotent',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _Signer(owner));
+      final chatId = await service.createGroup('Reading club');
+      final otherId = await service.createGroup('Other chat');
+      expect(
+        await service.postMessage(chatId, 'kept history', broadcast: false),
+        isTrue,
+      );
+
+      // Explicit conversion of exactly one chat; the other stays a chat.
+      expect(await service.convertGroupToSpace(chatId), isTrue);
+      final converted = (await service.load(chatId))!;
+      expect(converted.manifest.isSpace, isTrue);
+      expect((await service.messagesOf(chatId)).single.body, 'kept history');
+      expect(
+        (await service.channelsOf(chatId)).single.channelId,
+        defaultSpaceChannelId(chatId),
+      );
+      expect(
+        (await service.load(otherId))!.manifest.isSpace,
+        isFalse,
+        reason: 'only the selected chat is converted, not all chats',
+      );
+
+      // Idempotent: converting an already-Space returns true and no-ops.
+      expect(await service.convertGroupToSpace(chatId), isTrue);
+      expect((await service.channelsOf(chatId)), hasLength(1));
+
+      // A member (non-owner) cannot convert someone else's chat.
+      final memberStorage = FakeHvContainer().storage();
+      await memberStorage.open(password: 'pw', createIfMissing: true);
+      final memberLegacy = SpaceManifest(
+        groupId: _id(52),
+        owner: owner,
+        genesisPubKey: owner.bytes,
+        name: 'Not mine',
+        createdAtMs: 99,
+      );
+      await _seedLegacy(memberStorage, memberLegacy);
+      final memberService = GroupService(memberStorage, _Signer(member));
+      expect(await memberService.convertGroupToSpace(_id(52)), isFalse);
+      expect(
+        (await memberService.load(_id(52)))!.manifest.isLegacyGroup,
+        isTrue,
+      );
+    },
+  );
+
+  test(
     'explicit owner conversion preserves id, history and is idempotent',
     () async {
       final storage = FakeHvContainer().storage();
