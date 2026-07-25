@@ -13433,6 +13433,86 @@ void main() {
     }
 
     test(
+      'sweep keeps the retained suffix visible when the chain scope has seq '
+      'gaps (author interleaves channels)',
+      () async {
+        final (service, spaceId, _, setWall) = await retentionSpace();
+        final defaultChannel = (await service.channelsOf(spaceId)).single
+            .channelId;
+        final second = await service.createChannel(
+          spaceId,
+          name: 'second',
+          kind: SpaceChannelKind.text,
+        );
+        expect(second, isNotNull);
+        // Interleave posts across two channels so each channel's per-author
+        // seq is NON-contiguous (author seq is global across channels). The
+        // default channel gets author seqs 0 and 2 (gap at 1).
+        expect(
+          await service.postMessage(spaceId, 'a-old', channelId: defaultChannel),
+          isTrue,
+        );
+        expect(
+          await service.postMessage(spaceId, 'b-0', channelId: second),
+          isTrue,
+        );
+        // Activate the policy at T0 so the expired prefix qualifies at the
+        // grace-adjusted sweep instant below (a late activation would predate
+        // the grace window and delete nothing).
+        expect(
+          await service.setSpaceRetentionPolicy(
+            spaceId,
+            SpaceRetentionPolicy(
+              mode: SpaceRetentionMode.deleteAfter,
+              retentionMs: dayMs,
+            ),
+          ),
+          isTrue,
+        );
+        // A fresh row in the default channel, authored much later so it stays
+        // live at the sweep instant. Its author seq is 2 (1 was the b-channel).
+        setWall(baseMs + 7 * dayMs + 12 * 60 * 60 * 1000);
+        expect(
+          await service.postMessage(
+            spaceId,
+            'a-fresh',
+            channelId: defaultChannel,
+          ),
+          isTrue,
+        );
+
+        final sweepAt = baseMs + dayMs + graceMs + 60 * 60 * 1000;
+        setWall(sweepAt);
+        final sweep = await service.sweepSpaceRetention(nowMs: sweepAt);
+        expect(sweep.complete, isTrue);
+        expect(
+          sweep.messagesDeleted,
+          greaterThanOrEqualTo(1),
+          reason: 'the expired a-old row is deleted',
+        );
+
+        // The regression: before the hash re-anchor fix, the cut re-anchored
+        // on seq==throughSeq+1, but a-fresh sits at seq 2 while the deleted
+        // a-old was seq 0 — so the retained suffix was hidden. It must stay
+        // visible now (the cut re-anchors on the deleted row's hash).
+        final defaultMsgs = await service.messagesOf(
+          spaceId,
+          channelId: defaultChannel,
+        );
+        expect(
+          defaultMsgs.map((m) => m.body),
+          contains('a-fresh'),
+          reason: 'retained suffix must survive a sweep across a seq gap',
+        );
+        expect(
+          defaultMsgs.map((m) => m.body),
+          isNot(contains('a-old')),
+          reason: 'the expired prefix row is gone',
+        );
+      },
+    );
+
+    test(
       'sweep deletes the expired chain prefix, records a cut and keeps the '
       'retained suffix readable and appendable',
       () async {
@@ -13593,16 +13673,23 @@ void main() {
       final scope =
           '${defaultSpaceChannelId(spaceId).hex}'
           '|membershipEpoch:${liveRow.membershipEpoch}';
-      // A forged cut claiming a NON-expired boundary must be rejected; a
-      // boundary that the signed policy genuinely retired is merged.
+      // Every forged remote cut here must be REJECTED. An unsigned remote cut
+      // is only trusted when it carries the deleted-boundary hash AND the
+      // receiver holds the retained anchor (prevHash == throughHash); these
+      // fabricated cuts have neither, so none may be merged.
       snapshot['rcut'] = [
+        // (1) a live (non-expired) boundary — even with a hash it must fail
+        // the expiry check.
         {
           'v': 1,
           'scope': scope,
           'a': liveRow.author.hex,
           's': liveRow.seq + 5,
+          'h': 'a' * 64,
           't': baseMs + 2 * dayMs - 1000,
         },
+        // (2) an expired boundary but NO throughHash — a hash-less remote cut
+        // is never accepted.
         {
           'v': 1,
           'scope': scope,
@@ -13610,18 +13697,27 @@ void main() {
           's': 0,
           't': baseMs - 10 * dayMs,
         },
+        // (3) an expired boundary WITH a hash but for an author whose chain the
+        // receiver never synced (no local anchor with that prevHash) — the
+        // censorship defence: a peer must not pre-emptively hide rows we have
+        // not seen.
+        {
+          'v': 1,
+          'scope': scope,
+          'a': _id(43).hex,
+          's': 0,
+          'h': 'b' * 64,
+          't': baseMs - 10 * dayMs,
+        },
       ];
       expect(await service.ingestSnapshot(jsonEncode(snapshot)), isTrue);
       final cuts = (await service.load(spaceId))!.retentionCuts;
       expect(
-        cuts.values.where((cut) => cut.throughCreatedAtMs > baseMs),
+        cuts,
         isEmpty,
-        reason: 'a live boundary must never be accepted as retired',
-      );
-      expect(
-        cuts.values.where((cut) => cut.author == _id(42)).length,
-        1,
-        reason: 'a genuinely expired boundary is a valid anchor hint',
+        reason:
+            'no forged remote cut (live boundary / hash-less / no local '
+            'anchor) may be merged',
       );
     });
 
