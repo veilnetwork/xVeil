@@ -1082,6 +1082,63 @@ class CloudService {
     });
   }
 
+  /// Build the current listing tree of a folder for a bearer share: its live
+  /// subfolders recurse, and every locally-present file under it (its manifest
+  /// read from the content store) becomes a servable entry. Notes and files
+  /// whose bytes are not on this device are skipped — a bearer host can only
+  /// serve what it physically holds. Returns null if the folder is not alive.
+  Future<List<CloudFolderListingEntry>?> buildFolderListingEntries(
+    String folderId,
+  ) async {
+    await start();
+    final folder = _folders[folderId];
+    if (folder == null || folder.deleted) return null;
+    return _folderEntries(folderId, 0);
+  }
+
+  Future<List<CloudFolderListingEntry>> _folderEntries(
+    String? parentId,
+    int depth,
+  ) async {
+    if (depth > CloudFolderListing.maxDepth) return const [];
+    final entries = <CloudFolderListingEntry>[];
+    for (final child in childFolders(parentId)) {
+      entries.add(
+        CloudFolderListingEntry.folder(
+          name: child.name,
+          entries: await _folderEntries(child.id, depth + 1),
+        ),
+      );
+    }
+    for (final item in _items.values) {
+      if (item.deleted ||
+          item.kind == CloudItemKind.note ||
+          item.contentId == null ||
+          effectiveFolderId(item) != parentId) {
+        continue;
+      }
+      if (!await _storage.hasFile(item.contentId!)) continue;
+      final raw = await _storage.loadFile('$_manifestPrefix${item.contentId}');
+      if (raw == null) continue;
+      ContentManifest? manifest;
+      try {
+        final json = jsonDecode(utf8.decode(raw));
+        if (json is Map) {
+          manifest = ContentManifest.fromJson(Map<String, dynamic>.from(json));
+        }
+      } catch (_) {}
+      if (manifest == null || manifest.contentId != item.contentId) continue;
+      entries.add(
+        CloudFolderListingEntry.file(
+          name: item.name,
+          manifest: manifest,
+          mime: item.mime,
+        ),
+      );
+    }
+    return entries;
+  }
+
   void _postFolderBestEffort(CloudFolder folder) {
     try {
       final attempt = _sync.postFolder(folder);

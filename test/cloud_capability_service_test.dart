@@ -606,4 +606,188 @@ void main() {
     await service.close();
     await storage.close();
   });
+
+  test(
+    'folder share hosts, serves a listing+file, then revokes silently',
+    () async {
+      // Owner and downloader share one network so anonymous datagrams route.
+      final network = _Network();
+      final ownerBox = FakeHvContainer();
+      final ownerStorage = ownerBox.storage();
+      await ownerStorage.open(password: 'o', createIfMissing: true);
+      final entries = <CloudFolderListingEntry>[];
+      final plaintext = <String, Uint8List>{};
+      for (var i = 0; i < 2; i++) {
+        final bytes = Uint8List.fromList(
+          List.generate(500 + i * 120, (j) => (j * (i + 5)) & 0xff),
+        );
+        final manifest = ContentManifest.fromBytes(
+          'doc$i.bin',
+          bytes,
+          pieceSize: 256,
+        );
+        await ownerStorage.storeFile(manifest.contentId, bytes);
+        await ownerStorage.storeFile(
+          'mf:${manifest.contentId}',
+          Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+        );
+        plaintext[manifest.contentId] = bytes;
+        entries.add(
+          CloudFolderListingEntry.file(name: 'doc$i.bin', manifest: manifest),
+        );
+      }
+      final owner = CloudCapabilityService(
+        ownerStorage,
+        network,
+        now: () => DateTime(2030),
+        random: _Random(),
+        folderClientTimeout: const Duration(milliseconds: 400),
+      );
+      final share = await owner.createFolderShare(
+        folderId: 'folder-1',
+        folderName: 'Проекты',
+        entries: [
+          entries.first,
+          CloudFolderListingEntry.folder(
+            name: 'вложенная',
+            entries: [entries[1]],
+          ),
+        ],
+      );
+      expect(share.link, startsWith('xveil://cloud/v1#'));
+      expect(owner.listFolderShares().single.folderId, 'folder-1');
+
+      final downloaderBox = FakeHvContainer();
+      final downloaderStorage = downloaderBox.storage();
+      await downloaderStorage.open(password: 'd', createIfMissing: true);
+      final downloader = CloudCapabilityService(
+        downloaderStorage,
+        network,
+        now: () => DateTime(2030),
+        random: _Random()..value = 99,
+        folderClientTimeout: const Duration(milliseconds: 400),
+      );
+
+      final listing = await downloader.fetchFolderListing(share.link);
+      expect(listing.name, 'Проекты');
+      // One top-level file + the subfolder node + its one nested file.
+      expect(listing.totalEntries, 3);
+      final nested = listing.entries
+          .firstWhere((e) => e.isFolder)
+          .entries!
+          .single;
+
+      final capability = await downloader.downloadFolderFile(
+        share.link,
+        nested,
+      );
+      expect(
+        await downloaderStorage.hasFile(capability.manifest.contentId),
+        isTrue,
+      );
+      final fetched = await downloaderStorage.loadFile(
+        capability.manifest.contentId,
+      );
+      expect(fetched, plaintext[capability.manifest.contentId]);
+
+      // Revoke: the endpoint stops accepting, so a new open goes silent.
+      expect(await owner.revokeFolderShare(share.shareId), isTrue);
+      expect(owner.listFolderShares(), isEmpty);
+      await _settle();
+      await expectLater(
+        downloader.fetchFolderListing(share.link),
+        throwsA(anything),
+      );
+
+      await downloader.close();
+      await owner.close();
+      await ownerStorage.close();
+      await downloaderStorage.close();
+    },
+  );
+
+  test(
+    'a removed file stops downloading after the share is refreshed',
+    () async {
+      final network = _Network();
+      final ownerBox = FakeHvContainer();
+      final ownerStorage = ownerBox.storage();
+      await ownerStorage.open(password: 'o', createIfMissing: true);
+      final entries = <CloudFolderListingEntry>[];
+      for (var i = 0; i < 2; i++) {
+        final bytes = Uint8List.fromList(
+          List.generate(400 + i * 90, (j) => (j * (i + 2)) & 0xff),
+        );
+        final manifest = ContentManifest.fromBytes(
+          'r$i.bin',
+          bytes,
+          pieceSize: 256,
+        );
+        await ownerStorage.storeFile(manifest.contentId, bytes);
+        await ownerStorage.storeFile(
+          'mf:${manifest.contentId}',
+          Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+        );
+        entries.add(
+          CloudFolderListingEntry.file(name: 'r$i.bin', manifest: manifest),
+        );
+      }
+      final owner = CloudCapabilityService(
+        ownerStorage,
+        network,
+        now: () => DateTime(2030),
+        random: _Random(),
+        folderClientTimeout: const Duration(milliseconds: 400),
+      );
+      final share = await owner.createFolderShare(
+        folderId: 'folder-2',
+        folderName: 'Refresh',
+        entries: entries,
+      );
+      final downloaderBox = FakeHvContainer();
+      final downloaderStorage = downloaderBox.storage();
+      await downloaderStorage.open(password: 'd', createIfMissing: true);
+      final downloader = CloudCapabilityService(
+        downloaderStorage,
+        network,
+        now: () => DateTime(2030),
+        random: _Random()..value = 7,
+        folderClientTimeout: const Duration(milliseconds: 400),
+      );
+
+      // Republish with only the first file (revision bumped to 2).
+      expect(
+        await owner.refreshFolderShare(
+          share.shareId,
+          folderName: 'Refresh',
+          entries: [entries.first],
+        ),
+        isTrue,
+      );
+      expect(owner.listFolderShares().single.listingRevision, 2);
+      final listing = await downloader.fetchFolderListing(share.link);
+      expect(listing.revision, 2);
+      expect(listing.totalEntries, 1);
+
+      // The removed file is gone from the listing and no longer served.
+      await expectLater(
+        downloader.downloadFolderFile(share.link, entries[1]),
+        throwsA(anything),
+      );
+      // The retained file still downloads.
+      final capability = await downloader.downloadFolderFile(
+        share.link,
+        entries.first,
+      );
+      expect(
+        await downloaderStorage.hasFile(capability.manifest.contentId),
+        isTrue,
+      );
+
+      await downloader.close();
+      await owner.close();
+      await ownerStorage.close();
+      await downloaderStorage.close();
+    },
+  );
 }

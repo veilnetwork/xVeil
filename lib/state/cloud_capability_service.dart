@@ -12,8 +12,36 @@ import '../domain/cloud.dart';
 import '../domain/cloud_capability.dart';
 import '../domain/content_manifest.dart';
 import '../domain/device_sync.dart';
+import 'cloud_folder_share.dart';
 import 'group_service_providers.dart';
 import 'providers.dart';
+
+/// Bridges the app [Storage] into the folder-share host's minimal read surface.
+class _FolderShareStorageAdapter implements CloudFolderShareStorage {
+  _FolderShareStorageAdapter(this._storage);
+  final Storage _storage;
+  @override
+  Future<Uint8List?> readFileRange(String contentId, int offset, int length) =>
+      _storage.readFileRange(contentId, offset, length);
+}
+
+/// Public handle to one hosted folder bearer share.
+class CloudFolderShareInfo {
+  const CloudFolderShareInfo({
+    required this.shareId,
+    required this.folderId,
+    required this.folderName,
+    required this.link,
+    required this.listingRevision,
+    required this.expiresAtMs,
+  });
+  final String shareId;
+  final String folderId;
+  final String folderName;
+  final String link;
+  final int listingRevision;
+  final int expiresAtMs;
+}
 
 abstract interface class CloudCapabilitySyncPort {
   NodeId get selfId;
@@ -154,15 +182,22 @@ class CloudCapabilityService {
     CloudCapabilitySyncPort? sync,
     DateTime Function()? now,
     Random? random,
+    Duration folderClientTimeout = const Duration(seconds: 8),
   }) : _now = now ?? DateTime.now,
        _random = random ?? Random.secure(),
        // ignore: prefer_initializing_formals
+       _folderClientTimeout = folderClientTimeout,
+       // ignore: prefer_initializing_formals
        _sync = sync;
+
+  final Duration _folderClientTimeout;
 
   static const _registrySetting = 'cloud.capabilities.v1';
   static const _eventsSetting = 'cloud.capability.events.v1';
   static const _registryFile = 'cloud.capabilities.registry.v2';
   static const _eventsFile = 'cloud.capability.events.v2';
+  static const _folderRegistryFile = 'cloud.folder.capabilities.registry.v1';
+  static const _folderRegistrySetting = 'cloud.folder.capabilities.v1';
   static const _manifestPrefix = 'mf:';
   static const _providerEndpointBase = 40;
   static const _returnEndpointId = 48;
@@ -178,6 +213,14 @@ class CloudCapabilityService {
   final Map<String, _HostedShare> _shares = {};
   final Map<String, _RegistryRow> _rows = {};
   final Map<String, CloudCapability> _capabilities = {};
+  // Folder bearer shares are LOCAL-hosted only in v1: a folder link is an
+  // anonymous bearer capability, so the holder need not be in the owner's
+  // device group and no cross-device rehost is required for the core feature.
+  // Rows persist locally so hosting survives restart; sharing the same
+  // provider-endpoint pool and slot budget as file shares.
+  final Map<String, _HostedFolderShare> _folderShares = {};
+  final Map<String, _FolderRegistryRow> _folderRows = {};
+  final Map<String, CloudFolderCapability> _folderCaps = {};
   final Map<String, DeviceSyncEvent> _events = {};
   final Map<int, Future<void>> _retiringEndpoints = {};
   StreamSubscription<void>? _syncSubscription;
@@ -244,6 +287,95 @@ class CloudCapabilityService {
           () => unawaited(_serialized(_reconcileSync)),
         );
       });
+    }
+    await _loadFolderShares();
+  }
+
+  /// Re-host every persisted folder bearer share. A row whose network host
+  /// fails is kept encrypted for the next unlock; unhosted reveals nothing.
+  Future<void> _loadFolderShares() async {
+    final raw = await _loadMetadata(
+      _folderRegistryFile,
+      _folderRegistrySetting,
+    );
+    if (raw == null) return;
+    final keep = <_FolderRegistryRow>[];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return;
+      for (final value in decoded.take(maxActiveShares)) {
+        final row = _FolderRegistryRow.parse(value);
+        if (row == null) continue;
+        final listing = CloudFolderListing.fromJson(row.listingJson);
+        CloudFolderCapability capability;
+        try {
+          final parsed = await CloudCapabilityCodec.parseLink(row.link);
+          if (parsed is! ParsedCloudFolderLink) continue;
+          capability = parsed.capability;
+        } catch (_) {
+          continue;
+        }
+        if (listing == null ||
+            capability.expiresAtMs <= _now().millisecondsSinceEpoch ||
+            !_validProviderEndpoint(capability.endpointId)) {
+          continue;
+        }
+        final key = _shareKey(capability.shareId);
+        _folderRows[key] = row;
+        _folderCaps[key] = capability;
+        try {
+          await _hostFolder(row, capability, listing);
+        } catch (_) {}
+        keep.add(row);
+      }
+    } catch (_) {}
+    _folderRows.removeWhere(
+      (key, row) => !keep.any((kept) => identical(kept, row)),
+    );
+    await _saveFolderRows();
+  }
+
+  Future<void> _hostFolder(
+    _FolderRegistryRow row,
+    CloudFolderCapability capability,
+    CloudFolderListing listing,
+  ) async {
+    final seed = _decode32(row.seed);
+    CloudCapabilityEndpointPort? endpoint;
+    try {
+      final providerSlot = await _providerSlot();
+      endpoint = await _network.host(
+        identitySeed: seed,
+        alias: row.alias,
+        endpointId: capability.endpointId,
+        providerSlot: providerSlot,
+      );
+      if (!_equal(endpoint.servicePublicKey, capability.servicePublicKey) ||
+          !_equal(endpoint.appId, capability.appId) ||
+          endpoint.endpointId != capability.endpointId) {
+        throw StateError('folder capability endpoint mismatch');
+      }
+      final host = CloudFolderShareHost(
+        capability: capability,
+        storage: _FolderShareStorageAdapter(_storage),
+        listing: listing,
+        send: endpoint.sendAnonymous,
+      );
+      await host.ready;
+      final hosted = _HostedFolderShare(
+        row,
+        capability,
+        endpoint,
+        host,
+        providerSlot,
+      );
+      hosted.listen();
+      _folderShares[_shareKey(capability.shareId)] = hosted;
+    } catch (_) {
+      await endpoint?.close();
+      rethrow;
+    } finally {
+      seed.fillRange(0, seed.length, 0);
     }
   }
 
@@ -373,6 +505,315 @@ class CloudCapabilityService {
       return true;
     });
   }
+
+  List<CloudFolderShareInfo> listFolderShares() => [
+    for (final entry in _folderCaps.entries)
+      CloudFolderShareInfo(
+        shareId: entry.key,
+        folderId: _folderRows[entry.key]!.folderId,
+        folderName: _folderRows[entry.key]!.folderName,
+        link: _folderRows[entry.key]!.link,
+        listingRevision: _folderRows[entry.key]!.listingRevision,
+        expiresAtMs: entry.value.expiresAtMs,
+      ),
+  ];
+
+  /// Host a bearer share for one folder. [entries] is the folder's listing
+  /// tree built by the caller (recursive, locally-present files only). One
+  /// endpoint and one slot are consumed; the link pins listing revision 1 as
+  /// the holder's rollback floor.
+  Future<CloudFolderShareInfo> createFolderShare({
+    required String folderId,
+    required String folderName,
+    required List<CloudFolderListingEntry> entries,
+    Duration lifetime = defaultLifetime,
+  }) async {
+    await start();
+    return _serialized(() async {
+      if (_closed || lifetime <= Duration.zero) {
+        throw StateError('folder cannot be shared');
+      }
+      if (_rows.length + _folderRows.length >= maxActiveShares) {
+        throw StateError('public share limit reached');
+      }
+      final listing = CloudFolderListing(
+        name: folderName,
+        revision: 1,
+        entries: entries,
+      );
+      if (CloudFolderListing.fromJson(listing.toJson()) == null) {
+        throw StateError('folder listing is invalid or too large');
+      }
+      final seed = _randomBytes(32);
+      final storedSeed = Uint8List.fromList(seed);
+      final alias = _base64(_randomBytes(32));
+      final endpointId = _allocateProviderEndpoint();
+      CloudCapabilityEndpointPort? endpoint;
+      try {
+        final providerSlot = await _providerSlot();
+        endpoint = await _network.host(
+          identitySeed: seed,
+          alias: alias,
+          endpointId: endpointId,
+          providerSlot: providerSlot,
+        );
+        if (!seed.every((byte) => byte == 0)) {
+          throw StateError('native capability seed was not scrubbed');
+        }
+        final expiresAtMs = _now().add(lifetime).millisecondsSinceEpoch;
+        final link = await CloudCapabilityCodec.createFolder(
+          folderName: folderName,
+          listingRevision: 1,
+          expiresAtMs: expiresAtMs,
+          servicePublicKey: endpoint.servicePublicKey,
+          appId: endpoint.appId,
+          endpointId: endpoint.endpointId,
+          random: _random,
+        );
+        final capability =
+            (await CloudCapabilityCodec.parseLink(link))
+                as ParsedCloudFolderLink;
+        final row = _FolderRegistryRow(
+          folderId: folderId,
+          folderName: folderName,
+          seed: _base64(storedSeed),
+          alias: alias,
+          link: link,
+          listingRevision: 1,
+          listingJson: listing.toJson(),
+        );
+        final host = CloudFolderShareHost(
+          capability: capability.capability,
+          storage: _FolderShareStorageAdapter(_storage),
+          listing: listing,
+          send: endpoint.sendAnonymous,
+        );
+        await host.ready;
+        final hosted = _HostedFolderShare(
+          row,
+          capability.capability,
+          endpoint,
+          host,
+          providerSlot,
+        );
+        hosted.listen();
+        final shareKey = _shareKey(capability.capability.shareId);
+        _folderShares[shareKey] = hosted;
+        _folderRows[shareKey] = row;
+        _folderCaps[shareKey] = capability.capability;
+        try {
+          await _saveFolderRows();
+        } catch (_) {
+          _folderShares.remove(shareKey);
+          _folderRows.remove(shareKey);
+          _folderCaps.remove(shareKey);
+          await hosted.close();
+          rethrow;
+        }
+        return hosted.public;
+      } catch (_) {
+        await endpoint?.close();
+        rethrow;
+      } finally {
+        seed.fillRange(0, seed.length, 0);
+        storedSeed.fillRange(0, storedSeed.length, 0);
+      }
+    });
+  }
+
+  /// Republish a folder share with a fresh listing tree (revision bumped). A
+  /// file removed from [entries] stops being served the instant the host
+  /// swaps its listing. Returns false if the share is unknown.
+  Future<bool> refreshFolderShare(
+    String shareId, {
+    required String folderName,
+    required List<CloudFolderListingEntry> entries,
+  }) async {
+    await start();
+    return _serialized(() async {
+      final hosted = _folderShares[shareId];
+      final row = _folderRows[shareId];
+      if (hosted == null || row == null) return false;
+      final nextRevision = row.listingRevision + 1;
+      final listing = CloudFolderListing(
+        name: folderName,
+        revision: nextRevision,
+        entries: entries,
+      );
+      if (CloudFolderListing.fromJson(listing.toJson()) == null) {
+        throw StateError('folder listing is invalid or too large');
+      }
+      await hosted.host.setListing(listing);
+      final updated = row.copyWith(
+        folderName: folderName,
+        listingRevision: nextRevision,
+        listingJson: listing.toJson(),
+      );
+      _folderRows[shareId] = updated;
+      hosted.row = updated;
+      await _saveFolderRows();
+      return true;
+    });
+  }
+
+  Future<bool> revokeFolderShare(String shareId) async {
+    await start();
+    return _serialized(() async {
+      final hosted = _folderShares.remove(shareId);
+      final existed = _folderRows.remove(shareId) != null;
+      _folderCaps.remove(shareId);
+      if (!existed) return false;
+      await hosted?.stopAccepting();
+      if (hosted != null) _retireFolder(hosted);
+      await _saveFolderRows();
+      return true;
+    });
+  }
+
+  /// Anonymously fetch the current listing of a shared folder from its link.
+  Future<CloudFolderListing> fetchFolderListing(String link) async {
+    await start();
+    final parsed = await CloudCapabilityCodec.parseLink(link);
+    if (parsed is! ParsedCloudFolderLink) {
+      throw StateError('not a folder link');
+    }
+    final capability = parsed.capability;
+    if (capability.expiresAtMs <= _now().millisecondsSinceEpoch) {
+      throw StateError('folder capability expired');
+    }
+    return _withFolderClient(capability, (client) => client.fetchListing());
+  }
+
+  /// Anonymously fetch ONE file from a shared folder and commit it to the
+  /// deniable content store, returning the synthetic per-file capability so
+  /// the caller can adopt it into the cloud index via [CloudService].
+  Future<CloudCapability> downloadFolderFile(
+    String link,
+    CloudFolderListingEntry entry,
+  ) async {
+    await start();
+    final parsed = await CloudCapabilityCodec.parseLink(link);
+    if (parsed is! ParsedCloudFolderLink) {
+      throw StateError('not a folder link');
+    }
+    final capability = parsed.capability;
+    if (capability.expiresAtMs <= _now().millisecondsSinceEpoch) {
+      throw StateError('folder capability expired');
+    }
+    final fileCapability = CloudCapabilityCodec.folderFileCapability(
+      capability,
+      entry,
+    );
+    final manifest = fileCapability.manifest;
+    if (await _storage.hasFile(manifest.contentId)) return fileCapability;
+    final bytes = await _withFolderClient(
+      capability,
+      (client) => client.fetchFile(entry),
+    );
+    var stored = false;
+    try {
+      if (manifest.pieceCount == 0) {
+        await _storage.storeFile(
+          manifest.contentId,
+          Uint8List(0),
+          name: manifest.name,
+        );
+      } else {
+        for (var piece = 0; piece < manifest.pieceCount; piece++) {
+          final offset = piece * manifest.pieceSize;
+          final length = manifest.pieceLength(piece);
+          await _storage.storeFilePiece(
+            manifest.contentId,
+            piece,
+            manifest.pieceCount,
+            manifest.pieceSize,
+            manifest.size,
+            Uint8List.sublistView(bytes, offset, offset + length),
+            name: manifest.name,
+          );
+        }
+      }
+      stored = true;
+      await _storage.storeFile(
+        '$_manifestPrefix${manifest.contentId}',
+        Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+        name: 'cloud-manifest',
+      );
+      return fileCapability;
+    } catch (_) {
+      if (stored) {
+        await _storage.deleteStoredFile(manifest.contentId);
+        await _storage.deleteStoredFile(
+          '$_manifestPrefix${manifest.contentId}',
+        );
+        await _storage.scrubDeleted();
+      }
+      rethrow;
+    }
+  }
+
+  Future<T> _withFolderClient<T>(
+    CloudFolderCapability capability,
+    Future<T> Function(CloudFolderShareClient client) body,
+  ) async {
+    final seed = _randomBytes(32);
+    final alias = _base64(_randomBytes(32));
+    CloudCapabilityEndpointPort? endpoint;
+    StreamSubscription<Uint8List>? subscription;
+    final incoming = StreamController<Uint8List>.broadcast();
+    try {
+      endpoint = await _network.host(
+        identitySeed: seed,
+        alias: alias,
+        endpointId: _returnEndpointId,
+        providerSlot: 0,
+        transient: true,
+      );
+      if (!seed.every((byte) => byte == 0)) {
+        throw StateError('native return-service seed was not scrubbed');
+      }
+      subscription = endpoint.messages.listen(incoming.add);
+      final resolvedEndpoint = endpoint;
+      final client = CloudFolderShareClient(
+        capability: capability,
+        returnServicePublicKey: resolvedEndpoint.servicePublicKey,
+        returnAppId: resolvedEndpoint.appId,
+        returnEndpointId: resolvedEndpoint.endpointId,
+        incoming: incoming.stream,
+        send: (data) => resolvedEndpoint.sendAnonymous(
+          servicePublicKey: capability.servicePublicKey,
+          targetAppId: capability.appId,
+          targetEndpointId: capability.endpointId,
+          data: data,
+        ),
+        timeout: _folderClientTimeout,
+        randomBytes: _randomBytes,
+      );
+      return await body(client);
+    } finally {
+      seed.fillRange(0, seed.length, 0);
+      await subscription?.cancel();
+      await endpoint?.close();
+      await incoming.close();
+    }
+  }
+
+  void _retireFolder(_HostedFolderShare hosted) {
+    final endpointId = hosted.endpoint.endpointId;
+    late final Future<void> withdrawal;
+    withdrawal = hosted.withdraw().catchError((_) {}).whenComplete(() {
+      if (identical(_retiringEndpoints[endpointId], withdrawal)) {
+        _retiringEndpoints.remove(endpointId);
+      }
+    });
+    _retiringEndpoints[endpointId] = withdrawal;
+    unawaited(withdrawal);
+  }
+
+  Future<void> _saveFolderRows() => _saveMetadata(
+    _folderRegistryFile,
+    jsonEncode([for (final row in _folderRows.values) row.toJson()]),
+  );
 
   /// Download one bearer capability into the deniable content store. The
   /// requester publishes only a temporary random return service; neither side
@@ -802,6 +1243,11 @@ class CloudCapabilityService {
     for (final share in shares) {
       await share.close();
     }
+    final folderShares = _folderShares.values.toList();
+    _folderShares.clear();
+    for (final share in folderShares) {
+      await share.close();
+    }
     await Future.wait(_retiringEndpoints.values.toList());
     await _sync?.close();
   }
@@ -824,6 +1270,7 @@ class CloudCapabilityService {
   int _allocateProviderEndpoint() {
     final used = {
       for (final capability in _capabilities.values) capability.endpointId,
+      for (final capability in _folderCaps.values) capability.endpointId,
       ..._retiringEndpoints.keys,
     };
     for (var offset = 0; offset < maxActiveShares; offset++) {
@@ -900,6 +1347,145 @@ class _RegistryRow {
     } catch (_) {
       return null;
     }
+  }
+}
+
+class _FolderRegistryRow {
+  const _FolderRegistryRow({
+    required this.folderId,
+    required this.folderName,
+    required this.seed,
+    required this.alias,
+    required this.link,
+    required this.listingRevision,
+    required this.listingJson,
+  });
+  final String folderId;
+  final String folderName;
+  final String seed;
+  final String alias;
+  final String link;
+  final int listingRevision;
+  final Map<String, dynamic> listingJson;
+
+  _FolderRegistryRow copyWith({
+    String? folderName,
+    int? listingRevision,
+    Map<String, dynamic>? listingJson,
+  }) => _FolderRegistryRow(
+    folderId: folderId,
+    folderName: folderName ?? this.folderName,
+    seed: seed,
+    alias: alias,
+    link: link,
+    listingRevision: listingRevision ?? this.listingRevision,
+    listingJson: listingJson ?? this.listingJson,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'folder': folderId,
+    'name': folderName,
+    'seed': seed,
+    'alias': alias,
+    'link': link,
+    'lrev': listingRevision,
+    'listing': listingJson,
+  };
+
+  static _FolderRegistryRow? parse(Object? value) {
+    try {
+      if (value is! Map ||
+          value.keys.any(
+            (key) => !const {
+              'folder',
+              'name',
+              'seed',
+              'alias',
+              'link',
+              'lrev',
+              'listing',
+            }.contains(key),
+          )) {
+        return null;
+      }
+      final listing = value['listing'];
+      if (value['folder'] is! String ||
+          value['name'] is! String ||
+          value['seed'] is! String ||
+          value['alias'] is! String ||
+          value['link'] is! String ||
+          value['lrev'] is! int ||
+          (value['lrev'] as int) < 1 ||
+          listing is! Map) {
+        return null;
+      }
+      final row = _FolderRegistryRow(
+        folderId: value['folder'] as String,
+        folderName: value['name'] as String,
+        seed: value['seed'] as String,
+        alias: value['alias'] as String,
+        link: value['link'] as String,
+        listingRevision: value['lrev'] as int,
+        listingJson: Map<String, dynamic>.from(listing),
+      );
+      final seed = _decode32(row.seed);
+      seed.fillRange(0, seed.length, 0);
+      if (row.folderId.length > 128 ||
+          row.folderName.length > 512 ||
+          row.alias.length > 128 ||
+          row.link.length > 2 * 1024 * 1024) {
+        return null;
+      }
+      return row;
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+class _HostedFolderShare {
+  _HostedFolderShare(
+    this.row,
+    this.capability,
+    this.endpoint,
+    this.host,
+    this.providerSlot,
+  );
+  _FolderRegistryRow row;
+  final CloudFolderCapability capability;
+  final CloudCapabilityEndpointPort endpoint;
+  final CloudFolderShareHost host;
+  final int providerSlot;
+  StreamSubscription<Uint8List>? subscription;
+
+  CloudFolderShareInfo get public => CloudFolderShareInfo(
+    shareId: _shareKey(capability.shareId),
+    folderId: row.folderId,
+    folderName: row.folderName,
+    link: row.link,
+    listingRevision: row.listingRevision,
+    expiresAtMs: capability.expiresAtMs,
+  );
+
+  void listen() {
+    subscription = endpoint.messages.listen((data) {
+      unawaited(host.serve(data));
+    });
+  }
+
+  Future<void> close() async {
+    await stopAccepting();
+    await withdraw();
+  }
+
+  Future<void> stopAccepting() async {
+    final current = subscription;
+    subscription = null;
+    await current?.cancel();
+  }
+
+  Future<void> withdraw() async {
+    await endpoint.close();
   }
 }
 

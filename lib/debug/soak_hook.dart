@@ -38,6 +38,7 @@ import '../state/group_call_service.dart';
 import '../routing/router.dart';
 import '../domain/call_log.dart';
 import '../domain/cloud.dart';
+import '../domain/cloud_capability.dart';
 import '../domain/cloud_collection_crdt.dart';
 import '../domain/cloud_rich_text_crdt.dart';
 import '../domain/cloud_document.dart';
@@ -452,6 +453,18 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/cloud_public_revoke':
           await _cloudPublicRevokeHook(req);
+          return;
+        case '/cloud_folder_share':
+          await _cloudFolderShareHook(req);
+          return;
+        case '/cloud_folder_share_list':
+          await _cloudFolderShareListHook(req);
+          return;
+        case '/cloud_folder_open':
+          await _cloudFolderOpenHook(req);
+          return;
+        case '/cloud_folder_fetch':
+          await _cloudFolderFetchHook(req);
           return;
         case '/cloud_public_download':
           await _cloudPublicDownloadHook(req);
@@ -2618,6 +2631,192 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     } catch (error) {
       return _json(req, {'ok': false, 'error': '$error'});
     }
+  }
+
+  /// Folder bearer share: create (?id=folderId), revoke (?action=revoke&share=)
+  /// or refresh (?action=refresh&share=&id=folderId) — the last re-publishes
+  /// the listing from the folder's current tree.
+  Future<void> _cloudFolderShareHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final cloud = ref.read(cloudServiceProvider);
+    final capabilities = ref.read(cloudCapabilityServiceProvider);
+    final q = req.uri.queryParameters;
+    if (cloud == null || capabilities == null) {
+      return _json(req, {
+        'ok': false,
+        'error': 'need cloud capability service',
+      });
+    }
+    try {
+      switch (q['action'] ?? 'create') {
+        case 'create':
+          final folderId = q['id'];
+          if (folderId == null) {
+            return _json(req, {'ok': false, 'error': 'need id'});
+          }
+          final folder = cloud
+              .listFolders()
+              .where((entry) => entry.id == folderId)
+              .firstOrNull;
+          final entries = await cloud.buildFolderListingEntries(folderId);
+          if (folder == null || entries == null) {
+            return _json(req, {'ok': false, 'error': 'folder not found'});
+          }
+          final share = await capabilities.createFolderShare(
+            folderId: folderId,
+            folderName: folder.name,
+            entries: entries,
+          );
+          return _json(req, {
+            'ok': true,
+            'shareId': share.shareId,
+            'folderId': share.folderId,
+            'listingRevision': share.listingRevision,
+            'link': share.link,
+          });
+        case 'refresh':
+          final share = q['share'];
+          final folderId = q['id'];
+          if (share == null || folderId == null) {
+            return _json(req, {'ok': false, 'error': 'need share+id'});
+          }
+          final folder = cloud
+              .listFolders()
+              .where((entry) => entry.id == folderId)
+              .firstOrNull;
+          final entries = await cloud.buildFolderListingEntries(folderId);
+          if (folder == null || entries == null) {
+            return _json(req, {'ok': false, 'error': 'folder not found'});
+          }
+          final ok = await capabilities.refreshFolderShare(
+            share,
+            folderName: folder.name,
+            entries: entries,
+          );
+          return _json(req, {'ok': ok});
+        case 'revoke':
+          final share = q['share'];
+          if (share == null) {
+            return _json(req, {'ok': false, 'error': 'need share'});
+          }
+          return _json(req, {
+            'ok': await capabilities.revokeFolderShare(share),
+          });
+        default:
+          return _json(req, {'ok': false, 'error': 'bad action'});
+      }
+    } catch (error) {
+      return _json(req, {'ok': false, 'error': '$error'});
+    }
+  }
+
+  Future<void> _cloudFolderShareListHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudCapabilityServiceProvider);
+    if (service == null) {
+      return _json(req, {'ok': false, 'error': 'unavailable'});
+    }
+    return _json(req, {
+      'ok': true,
+      'shares': [
+        for (final share in service.listFolderShares())
+          {
+            'shareId': share.shareId,
+            'folderId': share.folderId,
+            'name': share.folderName,
+            'listingRevision': share.listingRevision,
+            'expiresAtMs': share.expiresAtMs,
+          },
+      ],
+    });
+  }
+
+  /// Open a received folder link and return its listing tree (names/sizes,
+  /// no content bytes).
+  Future<void> _cloudFolderOpenHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudCapabilityServiceProvider);
+    final link = req.uri.queryParameters['link'];
+    if (service == null || link == null) {
+      return _json(req, {'ok': false, 'error': 'need service+link'});
+    }
+    try {
+      final listing = await service.fetchFolderListing(link);
+      return _json(req, {
+        'ok': true,
+        'name': listing.name,
+        'revision': listing.revision,
+        'entries': _listingJson(listing.entries),
+      });
+    } catch (error) {
+      return _json(req, {'ok': false, 'error': '$error'});
+    }
+  }
+
+  List<Map<String, Object?>> _listingJson(
+    List<CloudFolderListingEntry> entries,
+  ) => [
+    for (final entry in entries)
+      if (entry.isFolder)
+        {
+          'type': 'folder',
+          'name': entry.name,
+          'entries': _listingJson(entry.entries!),
+        }
+      else
+        {
+          'type': 'file',
+          'name': entry.name,
+          'size': entry.size,
+          'cid': entry.manifest!.contentId,
+          if (entry.mime != null) 'mime': entry.mime,
+        },
+  ];
+
+  /// Fetch one file from a folder link (?link=&cid=) into the content store
+  /// and adopt it into the local cloud index.
+  Future<void> _cloudFolderFetchHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final cloud = ref.read(cloudServiceProvider);
+    final capabilities = ref.read(cloudCapabilityServiceProvider);
+    final q = req.uri.queryParameters;
+    final link = q['link'];
+    final cid = q['cid'];
+    if (cloud == null || capabilities == null || link == null || cid == null) {
+      return _json(req, {'ok': false, 'error': 'need service+link+cid'});
+    }
+    try {
+      final listing = await capabilities.fetchFolderListing(link);
+      final entry = _findListingFile(listing.entries, cid);
+      if (entry == null) {
+        return _json(req, {'ok': false, 'error': 'file not in listing'});
+      }
+      final capability = await capabilities.downloadFolderFile(link, entry);
+      final item = await cloud.adoptCapability(capability);
+      return _json(req, {
+        'ok': true,
+        'id': item.id,
+        'cid': item.contentId,
+        'size': item.size,
+      });
+    } catch (error) {
+      return _json(req, {'ok': false, 'error': '$error'});
+    }
+  }
+
+  CloudFolderListingEntry? _findListingFile(
+    List<CloudFolderListingEntry> entries,
+    String contentId,
+  ) {
+    for (final entry in entries) {
+      if (entry.isFolder) {
+        final found = _findListingFile(entry.entries!, contentId);
+        if (found != null) return found;
+      } else if (entry.manifest!.contentId == contentId) {
+        return entry;
+      }
+    }
+    return null;
   }
 
   /// Native CLOUD-2B F0 smoke: bind/register the same secret alias and identity
