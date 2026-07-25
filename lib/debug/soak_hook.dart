@@ -472,6 +472,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/cloud_capability_probe':
           await _cloudCapabilityProbeHook(req);
           return;
+        case '/cloud_shared_folder':
+          await _cloudSharedFolderHook(req);
+          return;
         case '/cloud_multi_provider_host':
           await _cloudMultiProviderHostHook(req);
           return;
@@ -2922,6 +2925,113 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   /// a public test tag, but publishes it in its explicit distinct slot. The
   /// request/response stays anonymous and carries only the slot as proof; no
   /// sovereign identity or secret seed is returned or written to disk.
+  /// Shared ACL folder (fileCollection document) verify surface.
+  /// ?doc=<documentId>&action=list|add|remove|fetch|host_state|reconcile
+  ///   add:    &id=<personal cloud item id> — shares that item (manifest inline)
+  ///   remove: &entry=<row id>
+  ///   fetch:  &entry=<row id> — member downloads bytes via the member path
+  Future<void> _cloudSharedFolderHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudDocumentReplicationServiceProvider);
+    final cloud = ref.read(cloudServiceProvider);
+    final q = req.uri.queryParameters;
+    final doc = q['doc'];
+    final action = q['action'] ?? 'list';
+    if (service == null || (doc == null && action != 'host_state')) {
+      return _json(req, {'ok': false, 'error': 'need documents+doc'});
+    }
+    try {
+      switch (action) {
+        case 'host_state':
+          return _json(req, {
+            'ok': true,
+            'hosts': {
+              for (final entry in service.memberHostDiagnostics().entries)
+                entry.key: {
+                  'epoch': entry.value.epoch,
+                  'servable': entry.value.servable,
+                },
+            },
+          });
+        case 'reconcile':
+          await service.reconcileMemberHosting();
+          return _json(req, {'ok': true});
+        case 'list':
+          final files = await service.loadSharedFolder(doc!);
+          if (files == null) {
+            return _json(req, {'ok': false, 'error': 'folder unavailable'});
+          }
+          return _json(req, {
+            'ok': true,
+            'files': [
+              for (final entry in files)
+                {
+                  'entry': entry.id,
+                  'name': entry.name,
+                  'cid': entry.contentId,
+                  'size': entry.size,
+                  if (entry.mime != null) 'mime': entry.mime,
+                  'path': entry.path,
+                  'manifest': entry.manifest != null,
+                  'local': await service.isSharedFileLocal(entry.contentId),
+                },
+            ],
+          });
+        case 'add':
+          final itemId = q['id'];
+          if (cloud == null || itemId == null) {
+            return _json(req, {'ok': false, 'error': 'need cloud+id'});
+          }
+          final item = (await cloud.listItems())
+              .where((row) => row.id == itemId)
+              .firstOrNull;
+          final cid = item?.contentId;
+          if (item == null || cid == null) {
+            return _json(req, {'ok': false, 'error': 'item not found'});
+          }
+          final manifestJson = await cloud.manifestJsonFor(cid);
+          if (manifestJson == null) {
+            return _json(req, {'ok': false, 'error': 'manifest missing'});
+          }
+          final result = await service.addSharedFolderFile(
+            doc!,
+            name: item.name,
+            contentId: cid,
+            size: item.size,
+            mime: item.mime,
+            manifest: manifestJson,
+          );
+          return _json(req, {'ok': result != null, 'cid': cid});
+        case 'remove':
+          final entry = q['entry'];
+          if (entry == null) {
+            return _json(req, {'ok': false, 'error': 'need entry'});
+          }
+          final result = await service.removeSharedFolderFile(doc!, entry);
+          return _json(req, {'ok': result != null});
+        case 'fetch':
+          final entry = q['entry'];
+          if (entry == null) {
+            return _json(req, {'ok': false, 'error': 'need entry'});
+          }
+          final fetched = await service.downloadSharedFolderFile(doc!, entry);
+          if (fetched == null) {
+            return _json(req, {'ok': false, 'error': 'fetch failed'});
+          }
+          return _json(req, {
+            'ok': true,
+            'cid': fetched.contentId,
+            'size': fetched.size,
+            'local': await service.isSharedFileLocal(fetched.contentId),
+          });
+        default:
+          return _json(req, {'ok': false, 'error': 'bad action'});
+      }
+    } catch (e) {
+      return _json(req, {'ok': false, 'error': '$e'});
+    }
+  }
+
   Future<void> _cloudMultiProviderHostHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final transport = ref.read(veilTransportProvider);

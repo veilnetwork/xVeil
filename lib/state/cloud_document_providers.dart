@@ -7,13 +7,35 @@ import '../data/storage/storage.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_mailbox.dart';
 import '../domain/chat.dart';
+import 'dart:typed_data';
+
 import 'app_controller.dart';
+import 'cloud_capability_service.dart' show VeilCloudCapabilityNetwork;
 import 'cloud_document_crypto.dart';
 import 'cloud_document_envelope_service.dart';
 import 'cloud_document_replication_service.dart';
 import 'cloud_document_store.dart';
 import 'messaging.dart';
 import 'providers.dart';
+
+/// Member content hosting reads and writes files through the same encrypted
+/// store the personal cloud uses; this adapter narrows [Storage] to the port
+/// the replication service's coordinator needs.
+class _StorageMemberFolderAdapter implements CloudMemberFolderStoragePort {
+  _StorageMemberFolderAdapter(this._storage);
+  final Storage _storage;
+
+  @override
+  Future<Uint8List?> readFileRange(String contentId, int offset, int length) =>
+      _storage.readFileRange(contentId, offset, length);
+
+  @override
+  Future<bool> hasFile(String contentId) => _storage.hasFile(contentId);
+
+  @override
+  Future<void> storeFile(String contentId, Uint8List bytes, {String? name}) =>
+      _storage.storeFile(contentId, bytes, name: name);
+}
 
 /// Mutation signer for the identity currently visible in the UI. In all-online
 /// mode every hosted identity still receives frames, but only the active
@@ -56,6 +78,7 @@ final cloudDocumentReplicationServiceProvider =
         required MessagingService messaging,
         required Storage storage,
         required VeilMailboxCrypto crypto,
+        required VeilFlutterTransport? transport,
         CloudDocumentSigner? signer,
       }) {
         final service = CloudDocumentReplicationService(
@@ -69,7 +92,17 @@ final cloudDocumentReplicationServiceProvider =
           acceptedContact: (peer) async =>
               (await storage.getContact(peer))?.status ==
               ContactStatus.accepted,
+          // Member content hosting for shared ACL folders. Loopback/test
+          // transports leave the ports null: metadata replication works, no
+          // bytes are served. Provider slot 0 = single hosting device per
+          // identity; sovereign multi-device slot allocation is wired later.
+          memberContentNetwork: transport == null
+              ? null
+              : VeilCloudCapabilityNetwork(transport),
+          memberContentStorage: _StorageMemberFolderAdapter(storage),
+          memberProviderSlot: () async => 0,
         );
+        unawaited(service.reconcileMemberHosting());
         Future<bool> handler(NodeId peer, String frameJson) async {
           try {
             // Invalid/unauthorized input is a terminal silent drop (ACK it so
@@ -107,6 +140,7 @@ final cloudDocumentReplicationServiceProvider =
             messaging: messaging,
             storage: storage,
             crypto: crypto,
+            transport: transport is VeilFlutterTransport ? transport : null,
             signer: label == active && signer?.selfId == stack.myInvite.nodeId
                 ? signer
                 : null,
@@ -123,6 +157,7 @@ final cloudDocumentReplicationServiceProvider =
           crypto: transport is VeilFlutterTransport
               ? transport.mailboxCrypto()
               : LoopbackMailboxCrypto(senderForOpen: self),
+          transport: transport is VeilFlutterTransport ? transport : null,
           signer: signer?.selfId == self ? signer : null,
         );
       }

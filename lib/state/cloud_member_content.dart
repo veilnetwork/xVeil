@@ -211,6 +211,9 @@ class CloudMemberContentHost {
   Uint8List _epochKey;
   final Map<String, ContentManifest> _servable = {};
 
+  /// Content ids currently served — diagnostics only.
+  List<String> get servableContentIds => _servable.keys.toList()..sort();
+
   void _setServable(Iterable<ContentManifest> manifests) {
     _servable
       ..clear()
@@ -218,10 +221,19 @@ class CloudMemberContentHost {
   }
 
   /// Rotate to a new epoch key and served set in one step. After this, any
-  /// request MAC'd under the old epoch key fails silently.
+  /// request MAC'd under the old epoch key fails silently. The previous key
+  /// buffer is zeroized before being dropped.
   void rekey(Uint8List epochKey, Iterable<ContentManifest> servable) {
+    final old = _epochKey;
     _epochKey = Uint8List.fromList(epochKey);
+    old.fillRange(0, old.length, 0);
     _setServable(servable);
+  }
+
+  /// Zeroize the held epoch key. Call on teardown; the host must not be used
+  /// afterwards (every subsequent request fails the MAC gate silently).
+  void wipe() {
+    _epochKey.fillRange(0, _epochKey.length, 0);
   }
 
   CloudCapability _capabilityFor(ContentManifest manifest) =>
@@ -396,6 +408,10 @@ class CloudMemberContentClient {
       }
       assembled.add(bytes);
     }
-    return assembled.toBytes();
+    final whole = assembled.toBytes();
+    if (whole.length != manifest.size) {
+      throw StateError('member content size mismatch');
+    }
+    return whole;
   }
 }

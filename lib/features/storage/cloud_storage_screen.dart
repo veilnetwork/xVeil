@@ -1402,38 +1402,233 @@ IconData _documentKindIcon(CloudDocumentKind kind) => switch (kind) {
   CloudDocumentKind.fileCollection => Icons.folder_shared_outlined,
 };
 
-/// Interim shared-folder screen: the file browser is a later brick, but the
-/// ACL sheet is reachable so an adopted folder stays manageable.
-class _SharedFolderPlaceholder extends StatelessWidget {
-  const _SharedFolderPlaceholder({
+/// Shared ACL-folder browser: the live file list every member sees, with
+/// per-file download over the member content path, and add/remove for
+/// owner/editor. Byte pulls are authorized by the document's CURRENT epoch
+/// key — a revoked member loses both the address and the subkeys instantly.
+class _SharedFolderScreen extends StatefulWidget {
+  const _SharedFolderScreen({
+    required this.service,
+    required this.cloud,
+    required this.documentId,
     required this.onClose,
     required this.onManage,
   });
 
+  final CloudDocumentReplicationService service;
+  final CloudService cloud;
+  final String documentId;
   final VoidCallback onClose;
   final VoidCallback onManage;
+
+  @override
+  State<_SharedFolderScreen> createState() => _SharedFolderScreenState();
+}
+
+class _SharedFolderScreenState extends State<_SharedFolderScreen> {
+  StreamSubscription<void>? _subscription;
+  List<CloudFileEntry> _files = const [];
+  Map<String, bool> _local = const {};
+  bool _canEdit = false;
+  bool _loaded = false;
+  final Set<String> _busy = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _subscription = widget.service.changes.listen((_) {
+      unawaited(_reload());
+    });
+    unawaited(_reload());
+  }
+
+  @override
+  void dispose() {
+    unawaited(_subscription?.cancel());
+    super.dispose();
+  }
+
+  Future<void> _reload() async {
+    final state = await widget.service.loadCollection(widget.documentId);
+    if (state == null || state.kind != CloudDocumentKind.fileCollection) {
+      if (mounted) setState(() => _loaded = true);
+      return;
+    }
+    final files = state.files;
+    final local = <String, bool>{
+      for (final entry in files)
+        entry.contentId: await widget.service.isSharedFileLocal(
+          entry.contentId,
+        ),
+    };
+    if (!mounted) return;
+    setState(() {
+      _files = files;
+      _local = local;
+      _canEdit = state.canEdit;
+      _loaded = true;
+    });
+  }
+
+  Future<void> _download(CloudFileEntry entry) async {
+    setState(() => _busy.add(entry.id));
+    try {
+      final fetched = await widget.service.downloadSharedFolderFile(
+        widget.documentId,
+        entry.id,
+      );
+      if (!mounted) return;
+      if (fetched == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppL10n.of(context).cloudSharedFetchFailed)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy.remove(entry.id));
+      unawaited(_reload());
+    }
+  }
+
+  Future<void> _remove(CloudFileEntry entry) async {
+    await widget.service.removeSharedFolderFile(widget.documentId, entry.id);
+    unawaited(_reload());
+  }
+
+  Future<void> _addFromCloud() async {
+    final l = AppL10n.of(context);
+    final items = (await widget.cloud.listItems())
+        .where(
+          (item) =>
+              item.kind == CloudItemKind.file &&
+              !item.deleted &&
+              item.contentId != null,
+        )
+        .toList();
+    final shared = _files.map((entry) => entry.contentId).toSet();
+    final candidates = <CloudItem>[];
+    for (final item in items) {
+      if (shared.contains(item.contentId)) continue;
+      if (await widget.cloud.isLocal(item)) candidates.add(item);
+    }
+    if (!mounted) return;
+    final picked = await showModalBottomSheet<CloudItem>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: candidates.isEmpty
+            ? Padding(
+                padding: const EdgeInsets.all(32),
+                child: Text(l.cloudSharedAddEmpty, textAlign: TextAlign.center),
+              )
+            : ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final item in candidates)
+                    ListTile(
+                      key: ValueKey('shared-add-${item.id}'),
+                      leading: const Icon(Icons.insert_drive_file_outlined),
+                      title: Text(item.name, overflow: TextOverflow.ellipsis),
+                      subtitle: Text(_formatBytes(item.size)),
+                      onTap: () => Navigator.pop(sheetContext, item),
+                    ),
+                ],
+              ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    final cid = picked.contentId!;
+    final manifest = await widget.cloud.manifestJsonFor(cid);
+    if (manifest == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppL10n.of(context).cloudSharedFetchFailed)),
+        );
+      }
+      return;
+    }
+    await widget.service.addSharedFolderFile(
+      widget.documentId,
+      name: picked.name,
+      contentId: cid,
+      size: picked.size,
+      mime: picked.mime,
+      manifest: manifest,
+    );
+    unawaited(_reload());
+  }
 
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     return Scaffold(
       appBar: AppBar(
-        leading: BackButton(onPressed: onClose),
+        leading: BackButton(onPressed: widget.onClose),
         title: Text(l.cloudKindFiles),
         actions: [
+          if (_canEdit)
+            IconButton(
+              key: const ValueKey('shared-folder-add'),
+              tooltip: l.cloudSharedAddFile,
+              onPressed: _addFromCloud,
+              icon: const Icon(Icons.add),
+            ),
           IconButton(
             tooltip: l.cloudRichManage,
-            onPressed: onManage,
+            onPressed: widget.onManage,
             icon: const Icon(Icons.group_outlined),
           ),
         ],
       ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Text(l.cloudKindFiles, textAlign: TextAlign.center),
-        ),
-      ),
+      body: !_loaded
+          ? const Center(child: CircularProgressIndicator())
+          : _files.isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Text(l.cloudSharedEmpty, textAlign: TextAlign.center),
+              ),
+            )
+          : ListView(
+              children: [
+                for (final entry in _files)
+                  ListTile(
+                    key: ValueKey('shared-file-${entry.id}'),
+                    leading: Icon(
+                      _local[entry.contentId] == true
+                          ? Icons.insert_drive_file
+                          : Icons.cloud_outlined,
+                    ),
+                    title: Text(entry.name, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(_formatBytes(entry.size)),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_busy.contains(entry.id))
+                          const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        else if (_local[entry.contentId] != true &&
+                            entry.manifest != null)
+                          IconButton(
+                            key: ValueKey('shared-fetch-${entry.id}'),
+                            tooltip: l.cloudSharedFetch,
+                            onPressed: () => unawaited(_download(entry)),
+                            icon: const Icon(Icons.download_outlined),
+                          ),
+                        if (_canEdit)
+                          IconButton(
+                            key: ValueKey('shared-remove-${entry.id}'),
+                            tooltip: l.cloudDelete,
+                            onPressed: () => unawaited(_remove(entry)),
+                            icon: const Icon(Icons.delete_outline),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
     );
   }
 }
@@ -1500,9 +1695,10 @@ class _SharedDocumentSectionState extends State<_SharedDocumentSection> {
               onClose: close,
               onManage: openManage,
             ),
-            // The shared-folder browser is a later brick; the ACL sheet is
-            // reachable here so an adopted folder is still manageable.
-            CloudDocumentKind.fileCollection => _SharedFolderPlaceholder(
+            CloudDocumentKind.fileCollection => _SharedFolderScreen(
+              service: widget.service,
+              cloud: widget.cloud,
+              documentId: document.root.documentId.hex,
               onClose: close,
               onManage: openManage,
             ),

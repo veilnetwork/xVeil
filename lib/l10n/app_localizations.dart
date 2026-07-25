@@ -3576,6 +3576,36 @@ abstract class AppL10n {
   /// **'The item will disappear from every linked device. This cannot be undone.'**
   String get cloudDeleteBody;
 
+  /// No description provided for @cloudSharedEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No files in this shared folder yet'**
+  String get cloudSharedEmpty;
+
+  /// No description provided for @cloudSharedAddFile.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a file from your cloud'**
+  String get cloudSharedAddFile;
+
+  /// No description provided for @cloudSharedAddEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No local cloud files available to share'**
+  String get cloudSharedAddEmpty;
+
+  /// No description provided for @cloudSharedFetch.
+  ///
+  /// In en, this message translates to:
+  /// **'Download'**
+  String get cloudSharedFetch;
+
+  /// No description provided for @cloudSharedFetchFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not download the file'**
+  String get cloudSharedFetchFailed;
+
   /// No description provided for @cloudNewFolder.
   ///
   /// In en, this message translates to:

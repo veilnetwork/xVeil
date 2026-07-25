@@ -140,6 +140,13 @@ class _CapNetwork implements CloudCapabilityNetworkPort {
     endpoints.add(endpoint);
     return endpoint;
   }
+
+  @override
+  Future<Uint8List> capabilityAppId({
+    required String alias,
+    required int endpointId,
+  }) async =>
+      Uint8List.fromList(crypto.sha256.convert(utf8.encode(alias)).bytes);
 }
 
 class _CapRandom implements Random {

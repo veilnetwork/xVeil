@@ -9,19 +9,34 @@ import 'package:crypto/crypto.dart' as crypto;
 
 import '../core/ids.dart';
 import '../crypto/blake3.dart';
+import '../domain/cloud_capability.dart';
 import '../domain/cloud_collection_crdt.dart';
 import '../domain/cloud_document.dart';
 import '../domain/cloud_document_envelope.dart';
 import '../domain/cloud_document_replication.dart';
 import '../domain/cloud_document_payload.dart';
 import '../domain/cloud_rich_text_crdt.dart';
+import '../domain/content_manifest.dart';
+import 'cloud_capability_service.dart'
+    show CloudCapabilityEndpointPort, CloudCapabilityNetworkPort;
 import 'cloud_document_crypto.dart';
 import 'cloud_document_envelope_service.dart';
 import 'cloud_document_store.dart';
+import 'cloud_folder_share.dart' show CloudFolderShareStorage;
+import 'cloud_member_content.dart';
 
 typedef CloudDocumentFrameSender =
     Future<void> Function(NodeId peer, String documentId, String frameJson);
 typedef CloudDocumentAcceptedContact = Future<bool> Function(NodeId peer);
+
+/// Storage surface the member content coordinator needs: range reads to
+/// serve chunks, presence checks to compute the servable set, and whole-file
+/// writes to adopt a downloaded file.
+abstract interface class CloudMemberFolderStoragePort
+    implements CloudFolderShareStorage {
+  Future<bool> hasFile(String contentId);
+  Future<void> storeFile(String contentId, Uint8List bytes, {String? name});
+}
 
 const int defaultCloudDocumentAutoCompactionEntries = 256;
 const int maxCloudDocumentQuiescenceRounds = 128;
@@ -201,6 +216,11 @@ class CloudDocumentReplicationService {
     Duration automaticQuiescenceDelay = const Duration(seconds: 2),
     Duration quiescenceAckMaxAge = const Duration(minutes: 2),
     Duration quiescenceFreezeDuration = const Duration(minutes: 10),
+    CloudCapabilityNetworkPort? memberContentNetwork,
+    CloudMemberFolderStoragePort? memberContentStorage,
+    Future<int> Function()? memberProviderSlot,
+    int memberHostLimit = 3,
+    Duration memberFetchTimeout = const Duration(seconds: 30),
   }) => CloudDocumentReplicationService._(
     localNodeId: localNodeId,
     ourCertVersion: ourCertVersion,
@@ -220,6 +240,11 @@ class CloudDocumentReplicationService {
     automaticQuiescenceDelay: automaticQuiescenceDelay,
     quiescenceAckMaxAge: quiescenceAckMaxAge,
     quiescenceFreezeDuration: quiescenceFreezeDuration,
+    memberContentNetwork: memberContentNetwork,
+    memberContentStorage: memberContentStorage,
+    memberProviderSlot: memberProviderSlot,
+    memberHostLimit: memberHostLimit,
+    memberFetchTimeout: memberFetchTimeout,
   );
 
   CloudDocumentReplicationService._({
@@ -240,7 +265,18 @@ class CloudDocumentReplicationService {
     required this._automaticQuiescenceDelay,
     required this._quiescenceAckMaxAge,
     required this._quiescenceFreezeDuration,
-  }) : assert(_automaticCompactionEntries >= 0),
+    required CloudCapabilityNetworkPort? memberContentNetwork,
+    required CloudMemberFolderStoragePort? memberContentStorage,
+    required Future<int> Function()? memberProviderSlot,
+    required int memberHostLimit,
+    required Duration memberFetchTimeout,
+  }) : _memberNetwork = memberContentNetwork,
+       _memberStorage = memberContentStorage,
+       _memberProviderSlot = memberProviderSlot,
+       _memberHostLimit = memberHostLimit,
+       _memberFetchTimeout = memberFetchTimeout,
+       assert(memberHostLimit >= 0),
+       assert(_automaticCompactionEntries >= 0),
        assert(!_automaticQuiescenceDelay.isNegative),
        assert(_quiescenceAckMaxAge > Duration.zero),
        assert(_quiescenceFreezeDuration >= _quiescenceAckMaxAge);
@@ -270,6 +306,21 @@ class CloudDocumentReplicationService {
   final Map<String, Timer> _automaticQuiescenceTimers = {};
   final Set<String> _scheduledQuiescentCompactions = {};
 
+  // ── Member content hosting (shared ACL folders) ──────────────────────────
+  // The epoch key never leaves this service: hosts are created and re-keyed
+  // here, and the derived rendezvous identity means only current members can
+  // even locate the endpoint. All ports are optional — without them the
+  // metadata path works as before and no bytes are served.
+  final CloudCapabilityNetworkPort? _memberNetwork;
+  final CloudMemberFolderStoragePort? _memberStorage;
+  final Future<int> Function()? _memberProviderSlot;
+  final int _memberHostLimit;
+  final Duration _memberFetchTimeout;
+  final Map<String, _MemberFolderHostState> _memberHosts = {};
+  Timer? _memberHostTimer;
+  Future<void> _memberHostTail = Future.value();
+  bool _memberHostsClosed = false;
+
   Stream<void> get changes => _changes.stream;
 
   bool get canMutate => _signer?.selfId == localNodeId;
@@ -286,9 +337,20 @@ class CloudDocumentReplicationService {
 
   void _emit() {
     if (!_changes.isClosed) _changes.add(null);
+    // Every visible state change funnels through here, which makes it the
+    // single reconcile trigger for member content hosting: epoch rotations
+    // re-key, file add/remove updates the servable set, revocation of our own
+    // membership tears the host down.
+    _scheduleMemberHostReconcile();
   }
 
   Future<void> close() async {
+    _memberHostsClosed = true;
+    _memberHostTimer?.cancel();
+    for (final state in _memberHosts.values) {
+      unawaited(state.close());
+    }
+    _memberHosts.clear();
     for (final timer in _automaticQuiescenceTimers.values) {
       timer.cancel();
     }
@@ -798,6 +860,8 @@ class CloudDocumentReplicationService {
 
   /// Add one file reference to a shared folder (owner/editor). The bytes are
   /// distributed by the member content path, not this metadata operation.
+  /// [manifest] is the file's ContentManifest JSON; without it members can
+  /// see the row but have no verifiable way to pull the bytes.
   Future<CloudDocumentMutationResult?> addSharedFolderFile(
     String documentId, {
     required String name,
@@ -805,6 +869,7 @@ class CloudDocumentReplicationService {
     required int size,
     String? mime,
     String path = '',
+    String? manifest,
   }) {
     final entry = CloudFileEntry(
       id: newCollectionEntityId(),
@@ -813,6 +878,7 @@ class CloudDocumentReplicationService {
       size: size,
       mime: mime,
       path: path,
+      manifest: manifest,
     );
     return appendCollectionEdits(documentId, [
       CloudCollectionEdit.create(entry.id, entry.toFields()),
@@ -825,6 +891,370 @@ class CloudDocumentReplicationService {
     String documentId,
     String entryId,
   ) => appendCollectionEdits(documentId, [CloudCollectionEdit.delete(entryId)]);
+
+  /// A row's inline manifest, structurally validated against the row itself.
+  /// Returns null (row unusable for byte transfer) on any disagreement.
+  ContentManifest? _sharedFolderManifest(CloudFileEntry? entry) {
+    final raw = entry?.manifest;
+    if (entry == null || raw == null) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return null;
+      final manifest = ContentManifest.fromJson(decoded);
+      if (manifest == null ||
+          manifest.contentId != entry.contentId ||
+          manifest.size != entry.size ||
+          // Mirror the bearer-path bounds: reject absurd sizes and degenerate
+          // piece geometry BEFORE any allocation is sized from them.
+          manifest.size < 0 ||
+          manifest.size > (1 << 50) ||
+          manifest.pieceSize <= 0 ||
+          manifest.pieceHashes.length !=
+              (manifest.size <= 0
+                  ? 0
+                  : (manifest.size + manifest.pieceSize - 1) ~/
+                        manifest.pieceSize) ||
+          !manifest.isSelfConsistent) {
+        return null;
+      }
+      return manifest;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Whether the bytes of a shared-folder file are locally present.
+  Future<bool> isSharedFileLocal(String contentId) async =>
+      await _memberStorage?.hasFile(contentId) ?? false;
+
+  void _scheduleMemberHostReconcile() {
+    if (_memberNetwork == null ||
+        _memberStorage == null ||
+        _memberHostsClosed) {
+      return;
+    }
+    _memberHostTimer?.cancel();
+    _memberHostTimer = Timer(const Duration(milliseconds: 300), () {
+      unawaited(reconcileMemberHosting());
+    });
+  }
+
+  /// Immediate teardown of one document's member host. Called synchronously
+  /// on every epoch rotation (local ACL mutation or ingested control) so a
+  /// just-revoked member cannot keep pulling bytes under the OLD epoch key
+  /// during the debounced-reconcile window — revocation must not wait 300ms
+  /// (or longer: ongoing edits keep resetting the debounce). The new-epoch
+  /// host comes back on the next reconcile.
+  Future<void> _closeMemberHostFor(String documentId) async {
+    final state = _memberHosts.remove(documentId);
+    if (state != null) await state.close();
+  }
+
+  /// Bring member content hosting in line with the stored documents: host
+  /// every fileCollection we are a current member of and hold bytes for
+  /// (newest first, bounded by the shared onion-service budget), re-key on
+  /// epoch change, tear down what is no longer eligible. Safe to call any
+  /// time; runs serialized against itself and never against the write tail.
+  Future<void> reconcileMemberHosting() {
+    final network = _memberNetwork;
+    final storage = _memberStorage;
+    if (network == null || storage == null || _memberHostsClosed) {
+      return Future.value();
+    }
+    final result = _memberHostTail.then(
+      (_) => _reconcileMemberHosts(network, storage),
+    );
+    _memberHostTail = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
+  Future<void> _reconcileMemberHosts(
+    CloudCapabilityNetworkPort network,
+    CloudMemberFolderStoragePort storage,
+  ) async {
+    if (_memberHostsClosed) return;
+    // Hosting is strictly best-effort: a failure here (store closed mid-
+    // teardown, network not ready) must never surface into the unawaited
+    // timer path or block metadata replication.
+    try {
+      await _reconcileMemberHostsInner(network, storage);
+    } catch (_) {}
+  }
+
+  Future<void> _reconcileMemberHostsInner(
+    CloudCapabilityNetworkPort network,
+    CloudMemberFolderStoragePort storage,
+  ) async {
+    final plans = <String, _MemberFolderHostPlan>{};
+    try {
+      for (final id in await _store.listDocumentIds()) {
+        final stored = await _store.load(id);
+        if (stored == null) continue;
+        try {
+          if (stored.root.kind != CloudDocumentKind.fileCollection ||
+              stored.root.codec != cloudFileCollectionCodecV1) {
+            continue;
+          }
+          final frame = _frameFromStored(
+            CloudDocumentFrameKind.snapshot,
+            stored,
+          );
+          final fold = _fold(frame);
+          if (!_completeAndValid(frame, fold)) continue;
+          final epoch = fold.epochs.keys.reduce((a, b) => a > b ? a : b);
+          if (!fold.epochs[epoch]!.members.containsKey(localNodeId.hex)) {
+            continue;
+          }
+          final key = stored.localEpochKeys[epoch];
+          if (key == null) continue;
+          final snapshot = await _materializeCollection(stored, fold);
+          if (snapshot == null) continue;
+          final servable = <ContentManifest>[];
+          for (final row in snapshot.rows) {
+            final manifest = _sharedFolderManifest(CloudFileEntry.fromRow(row));
+            if (manifest == null) continue;
+            if (!await storage.hasFile(manifest.contentId)) continue;
+            servable.add(manifest);
+          }
+          if (servable.isEmpty) continue;
+          plans[id] = _MemberFolderHostPlan(
+            epoch: epoch,
+            epochKey: Uint8List.fromList(key),
+            servable: servable,
+            createdAtMs: stored.root.createdAtMs,
+          );
+        } finally {
+          stored.wipeLocalEpochKeys();
+        }
+      }
+
+      // The onion-service budget is shared with bearer shares (native cap of
+      // 7 ephemeral services per node) — keep only the newest folders.
+      final keep = plans.keys.toList()
+        ..sort((a, b) {
+          final byTime = plans[b]!.createdAtMs.compareTo(plans[a]!.createdAtMs);
+          return byTime != 0 ? byTime : a.compareTo(b);
+        });
+      for (final id in keep.skip(_memberHostLimit)) {
+        plans.remove(id);
+      }
+
+      for (final id in _memberHosts.keys.toList()) {
+        if (_memberHostsClosed) return;
+        if (!plans.containsKey(id)) {
+          final state = _memberHosts.remove(id);
+          if (state != null) await state.close();
+        }
+      }
+
+      for (final entry in plans.entries) {
+        if (_memberHostsClosed) return;
+        final id = entry.key;
+        final plan = entry.value;
+        final existing = _memberHosts[id];
+        if (existing != null && existing.epoch == plan.epoch) {
+          // Same epoch — the key is unchanged; refresh the servable set.
+          existing.host.rekey(plan.epochKey, plan.servable);
+          continue;
+        }
+        if (existing != null) {
+          _memberHosts.remove(id);
+          await existing.close();
+        }
+        final docBytes = NodeId.fromHex(id).bytes;
+        final vkSeed = CloudCapabilityCodec.memberHostSeed(
+          documentId: docBytes,
+          epochKey: plan.epochKey,
+        );
+        final hostSeed = Uint8List.fromList(vkSeed);
+        CloudCapabilityEndpointPort? endpoint;
+        try {
+          final expectedVk =
+              await CloudCapabilityCodec.onionServicePublicKeyFromSeed(vkSeed);
+          endpoint = await network.host(
+            identitySeed: hostSeed,
+            alias: CloudCapabilityCodec.memberHostAlias(
+              documentId: docBytes,
+              epochKey: plan.epochKey,
+            ),
+            endpointId: CloudCapabilityCodec.memberHostEndpointId,
+            providerSlot: await (_memberProviderSlot?.call() ??
+                Future.value(0)),
+          );
+          // close() may have run during the awaits above; inserting now would
+          // orphan a live onion registration forever (close() already swept
+          // the map and no future reconcile runs). Fail closed instead.
+          if (_memberHostsClosed) {
+            throw StateError('member hosting closed during host setup');
+          }
+          // Fail closed on any derivation drift between this Dart client and
+          // the native runtime: a member would derive THIS key to reach us.
+          if (!_memberBytesEqual(endpoint.servicePublicKey, expectedVk)) {
+            throw StateError('member host identity derivation mismatch');
+          }
+          final host = CloudMemberContentHost(
+            documentId: docBytes,
+            servicePublicKey: endpoint.servicePublicKey,
+            appId: endpoint.appId,
+            endpointId: CloudCapabilityCodec.memberHostEndpointId,
+            expiresAtMs:
+                _now().millisecondsSinceEpoch + _memberHostLifetimeMs,
+            storage: storage,
+            epochKey: plan.epochKey,
+            servable: plan.servable,
+            send: endpoint.sendAnonymous,
+            now: _now,
+          );
+          final bound = endpoint;
+          final subscription = endpoint.messages.listen((wire) {
+            unawaited(host.serve(wire));
+          }, onError: (_) {});
+          _memberHosts[id] = _MemberFolderHostState(
+            epoch: plan.epoch,
+            endpoint: bound,
+            host: host,
+            subscription: subscription,
+          );
+        } catch (_) {
+          // Hosting is best-effort (budget exhaustion, network not ready).
+          // Metadata replication is unaffected; the next reconcile retries.
+          await endpoint?.close();
+        } finally {
+          vkSeed.fillRange(0, vkSeed.length, 0);
+          hostSeed.fillRange(0, hostSeed.length, 0);
+        }
+      }
+    } finally {
+      for (final plan in plans.values) {
+        plan.wipe();
+      }
+    }
+  }
+
+  /// Documents currently hosting member content, with their served cids —
+  /// diagnostics for hooks/tests only.
+  Map<String, ({int epoch, List<String> servable})> memberHostDiagnostics() => {
+    for (final entry in _memberHosts.entries)
+      entry.key: (
+        epoch: entry.value.epoch,
+        servable: entry.value.host.servableContentIds,
+      ),
+  };
+
+  /// Pull one shared-folder file from the member content host and store it
+  /// locally. Membership is proven with the CURRENT epoch key; the host's
+  /// address itself is derived from that key, so a revoked member can
+  /// neither find nor decrypt. Returns the entry on success (or when the
+  /// bytes were already local), null on any failure.
+  Future<CloudFileEntry?> downloadSharedFolderFile(
+    String documentId,
+    String entryId,
+  ) async {
+    final network = _memberNetwork;
+    final storage = _memberStorage;
+    if (network == null || storage == null || _memberHostsClosed) return null;
+    final stored = await _store.load(documentId);
+    if (stored == null) return null;
+    Uint8List? epochKey;
+    CloudFileEntry? entry;
+    ContentManifest? manifest;
+    try {
+      if (stored.root.kind != CloudDocumentKind.fileCollection ||
+          stored.root.codec != cloudFileCollectionCodecV1) {
+        return null;
+      }
+      final frame = _frameFromStored(CloudDocumentFrameKind.snapshot, stored);
+      final fold = _fold(frame);
+      if (!_completeAndValid(frame, fold)) return null;
+      final epoch = fold.epochs.keys.reduce((a, b) => a > b ? a : b);
+      if (!fold.epochs[epoch]!.members.containsKey(localNodeId.hex)) {
+        return null;
+      }
+      final key = stored.localEpochKeys[epoch];
+      if (key == null) return null;
+      final snapshot = await _materializeCollection(stored, fold);
+      if (snapshot == null) return null;
+      for (final row in snapshot.rows) {
+        if (row.id == entryId) {
+          entry = CloudFileEntry.fromRow(row);
+          break;
+        }
+      }
+      manifest = _sharedFolderManifest(entry);
+      if (manifest == null) return null;
+      epochKey = Uint8List.fromList(key);
+    } finally {
+      stored.wipeLocalEpochKeys();
+    }
+    try {
+      if (await storage.hasFile(manifest.contentId)) return entry;
+      final docBytes = NodeId.fromHex(documentId).bytes;
+      final vkSeed = CloudCapabilityCodec.memberHostSeed(
+        documentId: docBytes,
+        epochKey: epochKey,
+      );
+      final Uint8List hostVk;
+      try {
+        hostVk = await CloudCapabilityCodec.onionServicePublicKeyFromSeed(
+          vkSeed,
+        );
+      } finally {
+        vkSeed.fillRange(0, vkSeed.length, 0);
+      }
+      final hostAppId = await network.capabilityAppId(
+        alias: CloudCapabilityCodec.memberHostAlias(
+          documentId: docBytes,
+          epochKey: epochKey,
+        ),
+        endpointId: CloudCapabilityCodec.memberHostEndpointId,
+      );
+      final endpoint = await network.host(
+        identitySeed: _randomBytes(32),
+        alias: base64Url.encode(_randomBytes(32)),
+        endpointId: CloudCapabilityCodec.memberReturnEndpointId,
+        providerSlot: 0,
+        transient: true,
+      );
+      try {
+        final client = CloudMemberContentClient(
+          documentId: docBytes,
+          epochKey: epochKey,
+          servicePublicKey: hostVk,
+          appId: hostAppId,
+          endpointId: CloudCapabilityCodec.memberHostEndpointId,
+          expiresAtMs: _now().millisecondsSinceEpoch + _memberHostLifetimeMs,
+          returnServicePublicKey: endpoint.servicePublicKey,
+          returnAppId: endpoint.appId,
+          returnEndpointId: CloudCapabilityCodec.memberReturnEndpointId,
+          incoming: endpoint.messages,
+          send: (data) => endpoint.sendAnonymous(
+            servicePublicKey: hostVk,
+            targetAppId: hostAppId,
+            targetEndpointId: CloudCapabilityCodec.memberHostEndpointId,
+            data: data,
+          ),
+          timeout: _memberFetchTimeout,
+          randomBytes: _randomBytes,
+        );
+        final bytes = await client.fetchFile(manifest);
+        await storage.storeFile(manifest.contentId, bytes, name: entry!.name);
+        await storage.storeFile(
+          'mf:${manifest.contentId}',
+          Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+        );
+        // The adopted bytes make this device a servable replica: let the
+        // reconcile pick it up (multi-provider redundancy for the circle).
+        _scheduleMemberHostReconcile();
+        return entry;
+      } finally {
+        await endpoint.close();
+      }
+    } catch (_) {
+      return null;
+    } finally {
+      epochKey.fillRange(0, epochKey.length, 0);
+    }
+  }
 
   Future<CloudDocumentMutationResult?> saveRichText(
     String documentId, {
@@ -1949,6 +2379,9 @@ class CloudDocumentReplicationService {
             return null;
           }
           await _store.save(bundle);
+          // The epoch just rotated: kill the old-key host NOW, before any
+          // fanout or debounce — this is what makes revocation instant.
+          await _closeMemberHostFor(documentId);
           _emit();
           final failed = await _fanoutAclMutation(
             bundle: bundle,
@@ -2088,6 +2521,15 @@ class CloudDocumentReplicationService {
           payloads: merged.payloads,
         );
         await _store.save(bundle);
+        // An ingested epoch rotation must stop THIS replica's old-key host
+        // just as instantly as a local ACL mutation stops the owner's.
+        final mergedEpoch = fold.epochs.keys.reduce(
+          (left, right) => left > right ? left : right,
+        );
+        if (merged.root.kind == CloudDocumentKind.fileCollection &&
+            mergedEpoch != latestEpoch) {
+          await _closeMemberHostFor(merged.root.documentId.hex);
+        }
         if (merged.root.recordHash != existing.root.recordHash) {
           _memberFreezes.remove(merged.root.documentId.hex);
           await _store.removeQuiescenceFreeze(merged.root.documentId.hex);
@@ -2453,4 +2895,56 @@ class CloudDocumentReplicationService {
     }
     return true;
   }
+}
+
+/// One live member content host: the bound endpoint, the serving logic and
+/// the epoch it was keyed for. Closing tears down the subscription first so
+/// no request races the endpoint shutdown.
+class _MemberFolderHostState {
+  _MemberFolderHostState({
+    required this.epoch,
+    required this.endpoint,
+    required this.host,
+    required this.subscription,
+  });
+
+  final int epoch;
+  final CloudCapabilityEndpointPort endpoint;
+  final CloudMemberContentHost host;
+  final StreamSubscription<Uint8List> subscription;
+
+  Future<void> close() async {
+    await subscription.cancel();
+    await endpoint.close();
+    host.wipe();
+  }
+}
+
+class _MemberFolderHostPlan {
+  _MemberFolderHostPlan({
+    required this.epoch,
+    required this.epochKey,
+    required this.servable,
+    required this.createdAtMs,
+  });
+
+  final int epoch;
+  final Uint8List epochKey;
+  final List<ContentManifest> servable;
+  final int createdAtMs;
+
+  void wipe() {
+    epochKey.fillRange(0, epochKey.length, 0);
+  }
+}
+
+const int _memberHostLifetimeMs = 30 * 24 * 60 * 60 * 1000;
+
+bool _memberBytesEqual(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  var diff = 0;
+  for (var i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff == 0;
 }

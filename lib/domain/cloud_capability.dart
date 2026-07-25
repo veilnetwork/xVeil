@@ -701,6 +701,76 @@ class CloudCapabilityCodec {
     );
   }
 
+  // ── Member content host rendezvous ─────────────────────────────────────
+  // The host's onion-service identity is DERIVED from the document's CURRENT
+  // epoch key, so only current members can compute where the bytes live.
+  // Rotating the epoch (grant/revoke/rotate) moves the host to a fresh
+  // address automatically: a revoked member cannot even find the endpoint,
+  // on top of the per-request MAC gate that already rejects its stale key.
+
+  /// Fixed app endpoint id every member content host binds. All member hosts
+  /// share this id — they are distinct apps (per-document alias → distinct
+  /// appId) and distinct onion services (per-document seed), so routing never
+  /// collides. Distinct from the bearer provider pool (40-45), the bearer
+  /// return endpoint (48) and the diag endpoints (52/53).
+  static const memberHostEndpointId = 49;
+
+  /// Return endpoint id a member's transient download client binds.
+  static const memberReturnEndpointId = 50;
+
+  /// Onion-service identity seed of the member content host for [documentId]
+  /// under [epochKey]. Every current member derives the same seed; whichever
+  /// device holds the bytes may host it (distinct provider slots).
+  static Uint8List memberHostSeed({
+    required Uint8List documentId,
+    required Uint8List epochKey,
+  }) {
+    _require32(documentId, 'documentId');
+    return Uint8List.fromList(
+      crypto.Hmac(crypto.sha256, epochKey)
+          .convert(
+            (BytesBuilder(copy: false)
+                  ..add(utf8.encode('xveil.cloud.member.host.v1'))
+                  ..add(documentId))
+                .toBytes(),
+          )
+          .bytes,
+    );
+  }
+
+  /// Secret high-entropy capability alias for the member host bind. The
+  /// native capability appId is derived from this alias node-independently,
+  /// so every member computes the same appId while outsiders cannot link the
+  /// endpoint to the document.
+  static String memberHostAlias({
+    required Uint8List documentId,
+    required Uint8List epochKey,
+  }) {
+    _require32(documentId, 'documentId');
+    return base64Url.encode(
+      crypto.Hmac(crypto.sha256, epochKey)
+          .convert(
+            (BytesBuilder(copy: false)
+                  ..add(utf8.encode('xveil.cloud.member.alias.v1'))
+                  ..add(documentId))
+                .toBytes(),
+          )
+          .bytes,
+    );
+  }
+
+  /// The Ed25519 verifying key the native runtime derives for an onion
+  /// service registered with [seed] (RFC 8032 seed → public key, matching
+  /// `ed25519_public_from_seed` on the Rust side). A member client uses this
+  /// to address the host without ever registering the identity itself; a
+  /// host asserts the native-returned key equals this derivation fail-closed.
+  static Future<Uint8List> onionServicePublicKeyFromSeed(Uint8List seed) async {
+    if (seed.length != 32) throw ArgumentError('seed must be 32 bytes');
+    final pair = await Ed25519().newKeyPairFromSeed(seed);
+    final publicKey = await pair.extractPublicKey();
+    return Uint8List.fromList(publicKey.bytes);
+  }
+
   /// Transcript-bound proof for the `listing` wire op.
   static Uint8List listingRequestMac({
     required CloudFolderCapability capability,

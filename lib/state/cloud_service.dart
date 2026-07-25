@@ -1087,6 +1087,26 @@ class CloudService {
   /// read from the content store) becomes a servable entry. Notes and files
   /// whose bytes are not on this device are skipped — a bearer host can only
   /// serve what it physically holds. Returns null if the folder is not alive.
+  /// The stored ContentManifest JSON for a locally-present file, validated
+  /// against [contentId]. Used to inline piece hashes into shared-folder
+  /// metadata rows so members can verify a member-path download.
+  Future<String?> manifestJsonFor(String contentId) async {
+    await start();
+    if (!await _storage.hasFile(contentId)) return null;
+    final raw = await _storage.loadFile('$_manifestPrefix$contentId');
+    if (raw == null) return null;
+    try {
+      final text = utf8.decode(raw);
+      final json = jsonDecode(text);
+      if (json is! Map) return null;
+      final manifest = ContentManifest.fromJson(Map<String, dynamic>.from(json));
+      if (manifest == null || manifest.contentId != contentId) return null;
+      return text;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<List<CloudFolderListingEntry>?> buildFolderListingEntries(
     String folderId,
   ) async {
