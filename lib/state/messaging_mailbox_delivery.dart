@@ -56,6 +56,14 @@ class _MessagingMailboxDelivery {
   }
 
   Future<void> maybeStash(NodeId peer, String id, Uint8List wire) async {
+    // The backoff belongs HERE, at the one place a deposit is attempted, not
+    // at each call site. It was checked in the outbox flush loop only, so
+    // every other route — a user send finishes with its own background stash,
+    // and so do contact and content frames — walked straight past it and kept
+    // hammering the mailbox of a peer we had just failed to resolve. The frame
+    // stays durable regardless: the flush loop deposits it once the backoff
+    // expires.
+    if (peerBackedOff(peer.hex, DateTime.now())) return;
     final mailbox = _mailbox;
     if (mailbox == null) {
       devLog(
