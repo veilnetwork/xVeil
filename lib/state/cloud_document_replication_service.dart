@@ -287,8 +287,10 @@ class CloudDocumentReplicationService {
     required Duration memberFetchTimeout,
   }) : _memberNetwork = memberContentNetwork,
        _memberStorage = memberContentStorage,
+       // ignore: prefer_initializing_formals
        memberProviderSlot = memberProviderSlot,
        _memberHostLimit = memberHostLimit,
+       // ignore: prefer_initializing_formals
        _memberFetchTimeout = memberFetchTimeout,
        assert(memberHostLimit >= 0),
        assert(_automaticCompactionEntries >= 0),
