@@ -1411,6 +1411,24 @@ abstract class AppL10n {
   /// **'Members and settings'**
   String get spaceMembersTooltip;
 
+  /// No description provided for @spaceChannelRotateKey.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace the key'**
+  String get spaceChannelRotateKey;
+
+  /// No description provided for @spaceChannelRotateKeyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Same members, new key from now on'**
+  String get spaceChannelRotateKeyHint;
+
+  /// No description provided for @spaceChannelRotateKeyDone.
+  ///
+  /// In en, this message translates to:
+  /// **'The channel has a new key'**
+  String get spaceChannelRotateKeyDone;
+
   /// No description provided for @spaceRetentionTitle.
   ///
   /// In en, this message translates to:
