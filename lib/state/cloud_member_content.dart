@@ -214,6 +214,18 @@ class CloudMemberContentHost {
   /// Content ids currently served — diagnostics only.
   List<String> get servableContentIds => _servable.keys.toList()..sort();
 
+  int _requestsSeen = 0;
+  int _requestsAnswered = 0;
+
+  /// Requests this host was handed, and how many it answered — diagnostics
+  /// only. Every denial in [serve] is deliberately silent, so without these a
+  /// host that receives a request for content it does not hold is
+  /// indistinguishable from one that never heard the request at all. That
+  /// difference is exactly what tells "the network never reached us" from "we
+  /// answered our own request with nothing".
+  int get requestsSeen => _requestsSeen;
+  int get requestsAnswered => _requestsAnswered;
+
   void _setServable(Iterable<ContentManifest> manifests) {
     _servable
       ..clear()
@@ -248,6 +260,7 @@ class CloudMemberContentHost {
       );
 
   Future<void> serve(Uint8List wire) async {
+    _requestsSeen++;
     try {
       if (_now().millisecondsSinceEpoch >= expiresAtMs) return;
       final request = _MemberFileRequest.parse(wire);
@@ -282,6 +295,7 @@ class CloudMemberContentHost {
         chunkIndex: request.chunkIndex,
         clear: clear,
       );
+      _requestsAnswered++;
       await _send(
         servicePublicKey: request.returnServicePublicKey,
         targetAppId: request.returnAppId,
