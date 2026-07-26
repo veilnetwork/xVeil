@@ -62,13 +62,19 @@ void main() {
   Map<String, dynamic>? groupCall;
   Map<String, dynamic>? localSpacePostDraft;
   Map<String, dynamic>? localScheduledSpacePost;
+  var accountLocked = false;
+  var activeIdentity = 'personal';
+
   ApiHandler make({
     String token = 'secret-token',
     bool readOnly = false,
     bool callsAvailable = true,
     bool groupCallsAvailable = true,
     bool groupMediaAvailable = true,
+    bool accountAvailable = true,
   }) {
+    accountLocked = false;
+    activeIdentity = 'personal';
     sent.clear();
     groupPosts.clear();
     groupActions.clear();
@@ -119,6 +125,28 @@ void main() {
     leaves.clear();
     groupCall = null;
     return ApiHandler(
+      account: !accountAvailable
+          ? null
+          : () async => {
+              'ok': true,
+              'phase': 'ready',
+              'nodeId': 'abcd',
+              'isMaster': true,
+              'activeIdentity': activeIdentity,
+              'identities': const ['personal', 'work'],
+            },
+      lockAccount: !accountAvailable
+          ? null
+          : () async => accountLocked = true,
+      switchIdentity: !accountAvailable
+          ? null
+          : (label) async {
+              if (label != 'personal' && label != 'work') {
+                return 'unknown identity';
+              }
+              activeIdentity = label;
+              return null;
+            },
       tokens: token.isEmpty
           ? const []
           : [
@@ -907,6 +935,103 @@ void main() {
   }
 
   Uri u(String p) => Uri.parse(p);
+
+  test('the account surface reports, switches identity and locks', () async {
+    final h = make();
+
+    final read = await h.handle(
+      'GET',
+      Uri.parse('/v1/account'),
+      'Bearer secret-token',
+    );
+    expect(read.status, 200);
+    expect((read.body! as Map)['activeIdentity'], 'personal');
+    expect((read.body! as Map)['identities'], ['personal', 'work']);
+
+    final switched = await h.handle(
+      'POST',
+      Uri.parse('/v1/account/identity'),
+      'Bearer secret-token',
+      body: {'label': 'work'},
+    );
+    expect(switched.status, 200);
+    expect(
+      (switched.body! as Map)['activeIdentity'],
+      'work',
+      reason: 'the reply is the account as it now stands, not an echo',
+    );
+
+    final ghost = await h.handle(
+      'POST',
+      Uri.parse('/v1/account/identity'),
+      'Bearer secret-token',
+      body: {'label': 'ghost'},
+    );
+    expect(ghost.status, 400);
+    expect(activeIdentity, 'work', reason: 'a refusal changes nothing');
+
+    final missingLabel = await h.handle(
+      'POST',
+      Uri.parse('/v1/account/identity'),
+      'Bearer secret-token',
+      body: const {},
+    );
+    expect(missingLabel.status, 400);
+
+    final lock = await h.handle(
+      'POST',
+      Uri.parse('/v1/account/lock'),
+      'Bearer secret-token',
+    );
+    expect(lock.status, 200);
+    expect((lock.body! as Map)['locked'], isTrue);
+    expect(accountLocked, isTrue);
+  });
+
+  test('a read-only token may read the account but not act on it', () async {
+    final h = make(readOnly: true);
+    expect(
+      (await h.handle(
+        'GET',
+        Uri.parse('/v1/account'),
+        'Bearer secret-token',
+      )).status,
+      200,
+    );
+    expect(
+      (await h.handle(
+        'POST',
+        Uri.parse('/v1/account/lock'),
+        'Bearer secret-token',
+      )).status,
+      403,
+    );
+    expect(
+      (await h.handle(
+        'POST',
+        Uri.parse('/v1/account/identity'),
+        'Bearer secret-token',
+        body: {'label': 'work'},
+      )).status,
+      403,
+    );
+    expect(accountLocked, isFalse);
+    expect(activeIdentity, 'personal');
+  });
+
+  test('a host without the account surface says so, not "not found"', () async {
+    final h = make(accountAvailable: false);
+    final r = await h.handle(
+      'GET',
+      Uri.parse('/v1/account'),
+      'Bearer secret-token',
+    );
+    expect(
+      r.status,
+      501,
+      reason: 'the route exists in v1; this host just does not serve it',
+    );
+  });
 
   test('every endpoint rejects a missing / wrong / malformed bearer', () async {
     final h = make();
