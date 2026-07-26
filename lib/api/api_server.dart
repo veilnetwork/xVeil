@@ -13,6 +13,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:io';
 
 import '../domain/group_message.dart';
@@ -602,6 +603,102 @@ Map<String, dynamic> openApiSpec() {
               'activeIdentity': {'type': 'string'},
             },
           }),
+        },
+      },
+      '/cloud/items': {
+        'get': {
+          'summary': 'Personal-cloud index',
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'items': {
+                'type': 'array',
+                'items': {'type': obj},
+              },
+            },
+          }),
+        },
+        'delete': {
+          'summary': 'Delete one item by ?id=',
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'ok': {'type': 'boolean'},
+            },
+          }),
+        },
+      },
+      '/cloud/folders': {
+        'get': {
+          'summary': 'Personal-cloud folders',
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'folders': {
+                'type': 'array',
+                'items': {'type': obj},
+              },
+            },
+          }),
+        },
+      },
+      '/cloud/usage': {
+        'get': {
+          'summary': 'What the cloud uses here, in total, and per device',
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'logicalItems': {'type': 'integer'},
+              'logicalBytes': {'type': 'integer', 'format': 'int64'},
+              'localItems': {'type': 'integer'},
+              'localBytes': {'type': 'integer', 'format': 'int64'},
+              'indexOnlyItems': {'type': 'integer'},
+              'devices': {
+                'type': 'array',
+                'items': {'type': obj},
+              },
+            },
+          }),
+        },
+      },
+      '/cloud/file': {
+        'get': {
+          'summary':
+              'Bytes of one item by ?id=, pulled from another device first '
+              'when this one keeps only the index',
+          'responses': {
+            '200': {
+              'description': 'OK',
+              'content': {
+                'application/octet-stream': {
+                  'schema': {'type': 'string', 'format': 'binary'},
+                },
+              },
+            },
+          },
+        },
+      },
+      '/cloud/notes': {
+        'post': {
+          'summary': 'Create or update a text note',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['title', 'body'],
+                  'properties': {
+                    'id': {'type': 'string'},
+                    'title': {'type': 'string'},
+                    'body': {'type': 'string'},
+                    'folder': {'type': 'string'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({'type': obj}),
         },
       },
       '/contacts': {
@@ -3264,6 +3361,12 @@ class ApiHandler {
     this.account,
     this.lockAccount,
     this.switchIdentity,
+    this.cloudItems,
+    this.cloudFolders,
+    this.cloudUsage,
+    this.cloudFile,
+    this.saveCloudNote,
+    this.deleteCloudItem,
   });
 
   /// The issued tokens; the presented bearer must match one (whose scope then
@@ -3689,6 +3792,26 @@ class ApiHandler {
   /// Switch the active identity of an unlocked master space.
   final Future<String?> Function(String label)? switchIdentity;
 
+  /// Personal-cloud projections. Null on a host without a cloud — those 501.
+  final Future<List<Map<String, dynamic>>> Function()? cloudItems;
+  final Future<List<Map<String, dynamic>>> Function()? cloudFolders;
+  final Future<Map<String, dynamic>> Function()? cloudUsage;
+
+  /// Bytes of one item, pulled from another device first if need be. Null for
+  /// an unknown id and for content that could not be had — one outcome, since
+  /// the difference tells a caller about content it cannot read anyway.
+  final Future<Uint8List?> Function(String itemId)? cloudFile;
+
+  final Future<({Map<String, dynamic>? item, String? error})> Function({
+    String? id,
+    required String title,
+    required String body,
+    String? folderId,
+  })?
+  saveCloudNote;
+
+  final Future<String?> Function(String id)? deleteCloudItem;
+
   /// Constant-time compare of a raw token (localhost, but no reason to leak
   /// length/prefix). Used directly by the WebSocket path (token in the query,
   /// since a browser/ws client can't set an Authorization header on upgrade).
@@ -3745,6 +3868,74 @@ class ApiHandler {
       return const ApiResponse(501, {
         'error': 'account surface unavailable on this host',
       });
+    }
+    if (path.startsWith('/v1/cloud') && cloudItems == null) {
+      return const ApiResponse(501, {
+        'error': 'cloud unavailable on this host',
+      });
+    }
+    if (method == 'GET' && path == '/v1/cloud/items') {
+      return ApiResponse(200, {'items': await cloudItems!()});
+    }
+    if (method == 'GET' && path == '/v1/cloud/folders') {
+      if (cloudFolders == null) {
+        return const ApiResponse(501, {'error': 'folders unavailable'});
+      }
+      return ApiResponse(200, {'folders': await cloudFolders!()});
+    }
+    if (method == 'GET' && path == '/v1/cloud/usage') {
+      if (cloudUsage == null) {
+        return const ApiResponse(501, {'error': 'usage unavailable'});
+      }
+      return ApiResponse(200, await cloudUsage!());
+    }
+    if (method == 'GET' && path == '/v1/cloud/file') {
+      if (cloudFile == null) {
+        return const ApiResponse(501, {'error': 'download unavailable'});
+      }
+      final id = uri.queryParameters['id'];
+      if (id == null || id.isEmpty) {
+        return const ApiResponse(400, {'error': 'id required'});
+      }
+      final bytes = await cloudFile!(id);
+      return bytes == null
+          ? const ApiResponse(404, {'error': 'not available'})
+          : ApiResponse.binary(bytes);
+    }
+    if (method == 'POST' && path == '/v1/cloud/notes') {
+      if (saveCloudNote == null) {
+        return const ApiResponse(501, {'error': 'notes unavailable'});
+      }
+      final title = body?['title'];
+      final text = body?['body'];
+      if (title is! String || text is! String) {
+        return const ApiResponse(400, {'error': 'title + body required'});
+      }
+      final id = body?['id'];
+      final folder = body?['folder'];
+      final saved = await saveCloudNote!(
+        id: id is String && id.isNotEmpty ? id : null,
+        title: title,
+        body: text,
+        folderId: folder is String && folder.isNotEmpty ? folder : null,
+      );
+      final item = saved.item;
+      return item == null
+          ? ApiResponse(409, {'error': saved.error ?? 'note refused'})
+          : ApiResponse(200, item);
+    }
+    if (method == 'DELETE' && path == '/v1/cloud/items') {
+      if (deleteCloudItem == null) {
+        return const ApiResponse(501, {'error': 'delete unavailable'});
+      }
+      final id = uri.queryParameters['id'];
+      if (id == null || id.isEmpty) {
+        return const ApiResponse(400, {'error': 'id required'});
+      }
+      final err = await deleteCloudItem!(id);
+      return err == null
+          ? const ApiResponse(200, {'ok': true})
+          : ApiResponse(400, {'error': err});
     }
     if (method == 'GET' && path == '/v1/account') {
       return ApiResponse(200, await account!());
