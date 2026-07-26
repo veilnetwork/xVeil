@@ -7069,6 +7069,67 @@ void main() {
     },
   );
 
+  test('a channel cannot claim to be secret while nothing hides it', () async {
+    // `secret` exists in the enum but a channel is never created as one: the
+    // protected-channel writer takes `restricted` and nothing else. That is
+    // the right answer while the Space control chain still shows a
+    // non-recipient that a protected channel exists, who wrote to it, when,
+    // how large and to how many — a name promising invisibility over that
+    // would be a claim the transport does not keep.
+    //
+    // The day a real secret scope arrives, this fails, and whoever writes it
+    // has to revisit the same claim everywhere else it is made: the API's
+    // advertised access values and the label and lock icon in
+    // space_screen.dart.
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(
+      storage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    );
+    final spaceId = await service.createSpace('Claims');
+
+    expect(
+      await service.createChannel(
+        spaceId,
+        name: 'restricted',
+        kind: SpaceChannelKind.text,
+        access: SpaceChannelAccess.restricted,
+      ),
+      isNotNull,
+      reason: 'the protection that IS delivered still works',
+    );
+    expect(
+      await service.createChannel(
+        spaceId,
+        name: 'secret',
+        kind: SpaceChannelKind.text,
+        access: SpaceChannelAccess.secret,
+      ),
+      isNull,
+      reason: 'refused, rather than quietly made into a restricted channel '
+          'wearing a better name',
+    );
+
+    final state = (await service.stateOf(spaceId))!;
+    expect(
+      state.protectedChannels.length,
+      1,
+      reason: 'the refusal left nothing behind',
+    );
+    expect(
+      state.channels.values.any(
+        (channel) => channel.access == SpaceChannelAccess.secret,
+      ),
+      isFalse,
+    );
+
+    await storage.close();
+  });
+
   test('a protected channel key can be replaced without touching its ACL', () async {
     final storage = FakeHvContainer().storage();
     await storage.open(password: 'pw', createIfMissing: true);

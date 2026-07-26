@@ -357,7 +357,12 @@ Map<String, dynamic> openApiSpec() {
             'historySince': {'type': 'integer', 'format': 'int64'},
             'access': {
               'type': 'string',
-              'enum': ['space', 'restricted', 'secret'],
+              // `secret` is a value of the domain enum but never a channel a
+              // caller can create: the writer takes `restricted` and refuses
+              // the rest, because nothing yet hides a channel's existence,
+              // author, timing or size from a non-recipient. Advertising it
+              // here would promise a channel this API cannot make.
+              'enum': ['space', 'restricted'],
             },
           },
         },

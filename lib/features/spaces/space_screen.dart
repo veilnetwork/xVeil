@@ -1128,11 +1128,17 @@ class SpaceScreen extends ConsumerWidget {
                                     )
                                   : channel.access == SpaceChannelAccess.space
                                   ? null
-                                  : Icon(
-                                      channel.access ==
-                                              SpaceChannelAccess.secret
-                                          ? Icons.visibility_off_outlined
-                                          : Icons.lock_outline,
+                                  : const Icon(
+                                      // Both get the lock, and only the lock.
+                                      // A `secret` channel is today byte-for-
+                                      // byte a `restricted` one: the Space
+                                      // control chain still shows a
+                                      // non-recipient that it exists, who
+                                      // wrote to it, when, how large and to
+                                      // how many. An eye-with-a-slash would
+                                      // promise invisibility that nothing
+                                      // behind it delivers.
+                                      Icons.lock_outline,
                                       size: 18,
                                     ),
                               onTap:
