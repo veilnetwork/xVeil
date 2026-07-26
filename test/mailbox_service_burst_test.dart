@@ -144,10 +144,43 @@ void main() {
     );
   });
 
-  test('nudgeDrain opens the burst window too', () async {
+  test('a live frame drains once and does NOT open the burst window', () async {
+    // The frames that arrive without anyone doing anything — acks, and the
+    // sync beacons another device of this identity emits every few seconds —
+    // all land here. Measured on a paired phone they came every ~20 s, so a
+    // window armed by them would never close and an idle pair would poll at
+    // the burst cadence for as long as both devices were online.
     await svc.start(relays: [_id(7)]);
     await Future<void>.delayed(const Duration(milliseconds: 400));
     final before = orch.drains;
+    svc.nudgeDrain();
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    final nudged = orch.drains - before;
+    expect(
+      nudged,
+      greaterThanOrEqualTo(1),
+      reason: 'the frame still earns one prompt drain — that is the latency '
+          'lever for a dropped live introduce',
+    );
+    expect(
+      nudged,
+      lessThan(5),
+      reason: 'but not the fast cadence: 20 hot ticks fit in this window',
+    );
+    // A nudge also leaves the empty-drain streak alone, so the escalation
+    // keeps escalating across beacons. Not asserted here: the 2 s nudge
+    // debounce puts the several escalation steps it would take to see the
+    // difference out of reach of a fast test, and an assertion that passes
+    // with the behaviour removed is worse than none. Verified on a device
+    // instead — the streak climbs there where it used to be pinned at 1.
+  });
+
+  test('a live frame that reveals mail DOES open the window', () async {
+    // The evidence-based half of the same rule: heat follows actual mail.
+    await svc.start(relays: [_id(7)]);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    final before = orch.drains;
+    orch.queued.add([_mail()]);
     svc.nudgeDrain();
     await Future<void>.delayed(const Duration(milliseconds: 200));
     expect(orch.drains - before, greaterThanOrEqualTo(5));
