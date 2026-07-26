@@ -121,6 +121,10 @@ class CloudService {
   static const _wireChunkBytes = 4096;
   static const maxTextNoteBytes = 1024 * 1024;
 
+  /// Ceiling for an import-time preview. Small enough that a row's preview
+  /// never competes with the file, generous enough for a legible thumbnail.
+  static const maxThumbnailBytes = 32 * 1024;
+
   final Storage _storage;
   final CloudSyncPort _sync;
   final Stream<String> contentReceived;
@@ -531,6 +535,7 @@ class CloudService {
     required Future<Uint8List> Function(int offset, int length) readRange,
     String? mime,
     String? folderId,
+    Uint8List? thumbnail,
   }) async {
     await start();
     if (name.isEmpty || name.length > 512 || size < 0 || size > (1 << 50)) {
@@ -591,6 +596,25 @@ class CloudService {
           Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
           name: 'cloud-manifest',
         );
+        // Stored as its own content object, addressed by its own hash: two
+        // imports of the same picture then share one preview, and it travels
+        // by the same path as any other content instead of needing one of its
+        // own. Oversized input is dropped rather than stored — a "preview"
+        // that rivals the file it previews is not one.
+        String? thumbId;
+        if (thumbnail != null && thumbnail.isNotEmpty) {
+          if (thumbnail.length <= maxThumbnailBytes) {
+            final thumbManifest = ContentManifest.fromBytes('thumb', thumbnail);
+            if (!await _storage.hasFile(thumbManifest.contentId)) {
+              await _storage.storeFile(
+                thumbManifest.contentId,
+                thumbnail,
+                name: 'cloud-thumb',
+              );
+            }
+            thumbId = thumbManifest.contentId;
+          }
+        }
         final now = _nextTimestamp();
         item = CloudItem(
           id: _newId().replaceAll(RegExp('[^A-Za-z0-9_-]'), '_'),
@@ -604,6 +628,7 @@ class CloudService {
           revision: 1,
           deleted: false,
           folderId: _liveFolderOrNull(folderId),
+          thumbContentId: thumbId,
         );
         _items[item.id] = item;
         await _saveIndex();
@@ -1175,8 +1200,9 @@ class CloudService {
         modifiedAtMs: _nextTimestamp(),
         revision: current.revision,
         deleted: false,
-        // A rename must keep the file where it lives.
+        // A rename must keep the file where it lives — and looking the same.
         folderId: current.folderId,
+        thumbContentId: current.thumbContentId,
         parentContentIds: current.parentContentIds,
       );
       _items[itemId] = renamed;
@@ -1383,6 +1409,16 @@ class CloudService {
       .map((claim) => claim.deviceId.hex)
       .toSet()
       .length;
+
+  /// The item's preview bytes, if this device holds them.
+  ///
+  /// Null is the ordinary answer, not a failure: an item may predate previews,
+  /// not be an image, or simply not have had its preview pulled here yet.
+  Future<Uint8List?> loadThumbnail(CloudItem item) async {
+    final id = item.thumbContentId;
+    if (id == null) return null;
+    return _storage.loadFile(id);
+  }
 
   Future<bool> isLocal(CloudItem item) async =>
       item.contentId != null && await _storage.hasFile(item.contentId!);

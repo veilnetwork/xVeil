@@ -25,6 +25,7 @@ class CloudItem {
     required this.deleted,
     this.mime,
     this.folderId,
+    this.thumbContentId,
     this.parentContentIds = const [],
   }) : assert(parentContentIds.length <= maxNoteParents);
 
@@ -44,6 +45,15 @@ class CloudItem {
   /// a view concern so a folder delete never rewrites item rows and can never
   /// race a concurrent content edit.
   final String? folderId;
+
+  /// Content id of a small preview generated when the file was imported.
+  ///
+  /// A separate content object rather than bytes inline: the row replicates to
+  /// every device of the identity and to everyone a folder is shared with, and
+  /// a picture per row would bloat something that is read far more often than
+  /// any single preview is looked at. Null for anything with no preview —
+  /// notes, non-images, and everything imported before this existed.
+  final String? thumbContentId;
 
   /// Immediate DAG parents for a whole-note revision. Empty on files, legacy
   /// rows, and a note's root revision. Multiple parents mean the author
@@ -67,6 +77,7 @@ class CloudItem {
             'rev': revision,
             if (mime != null) 'mime': mime,
             if (folderId != null) 'folder': folderId,
+            if (thumbContentId != null) 'thumb': thumbContentId,
             if (parentContentIds.isNotEmpty) 'parents': parentContentIds,
           },
   );
@@ -98,6 +109,7 @@ class CloudItem {
     revision: revision,
     deleted: deleted,
     folderId: folderId,
+    thumbContentId: thumbContentId,
     parentContentIds: parentContentIds,
   );
 
@@ -136,6 +148,12 @@ class CloudItem {
     final rawFolder = p['folder'];
     final folder = rawFolder is String && _validId(rawFolder)
         ? rawFolder
+        : null;
+    // Same forgiving treatment as the folder: a preview is decoration, so an
+    // unparsable value costs the preview, never the row.
+    final rawThumb = p['thumb'];
+    final thumb = rawThumb is String && _contentId.hasMatch(rawThumb)
+        ? rawThumb
         : null;
     final rawParents = p['parents'];
     final parents = <String>[];
@@ -186,6 +204,7 @@ class CloudItem {
       revision: revision,
       deleted: false,
       folderId: folder,
+      thumbContentId: thumb,
       parentContentIds: List.unmodifiable(parents),
     );
   }
