@@ -315,3 +315,19 @@ bool _bytesEqual(Uint8List a, Uint8List b) {
   }
   return true;
 }
+
+/// The recipient has no mailbox we can seal to right now — no rendezvous
+/// replica carries a usable KEM key for them.
+///
+/// A named type rather than a message to grep for: the sender's retry logic
+/// has to recognise this condition to back off, and it used to do that by
+/// matching the native error's spelling. The Dart side reaches the same dead
+/// end by a different route and said so in different words, so the backoff
+/// never fired for it — a peer that was merely asleep got a hot retry loop
+/// for as long as it stayed away.
+class MailboxPeerUnresolved implements Exception {
+  const MailboxPeerUnresolved(this.message);
+  final String message;
+  @override
+  String toString() => 'MailboxPeerUnresolved: $message';
+}
