@@ -221,6 +221,57 @@ void main() {
     await hostToClient.close();
   });
 
+  test('a silently dropped request is retried, not thrown away', () async {
+    // Denials in the anonymous path are silent by design, so a lost request
+    // is indistinguishable from a refusal until the deadline passes. Without
+    // a retry one dropped datagram discards every chunk already pulled — on
+    // the live stand that was minutes of work lost to a single loss.
+    final f = fixture();
+    final hostToClient = StreamController<Uint8List>.broadcast();
+    final host = CloudMemberContentHost(
+      documentId: documentId,
+      servicePublicKey: servicePublicKey,
+      appId: appId,
+      endpointId: endpointId,
+      expiresAtMs: expiresAtMs,
+      storage: f.storage,
+      epochKey: epoch1,
+      servable: [f.manifest],
+      send:
+          ({
+            required servicePublicKey,
+            required targetAppId,
+            required targetEndpointId,
+            required data,
+          }) async => hostToClient.add(data),
+    );
+    var sent = 0;
+    final member = CloudMemberContentClient(
+      documentId: documentId,
+      epochKey: epoch1,
+      servicePublicKey: servicePublicKey,
+      appId: appId,
+      endpointId: endpointId,
+      expiresAtMs: expiresAtMs,
+      returnServicePublicKey: Uint8List.fromList(List.filled(32, 3)),
+      returnAppId: Uint8List.fromList(List.filled(32, 4)),
+      returnEndpointId: 48,
+      incoming: hostToClient.stream,
+      send: (data) async {
+        sent++;
+        if (sent == 2) return; // this one never reaches the host
+        unawaited(host.serve(data));
+      },
+      timeout: const Duration(milliseconds: 200),
+      randomBytes: _counterBytes(),
+    );
+    // 700 bytes over 256-byte pieces of one chunk each: three chunks, plus one
+    // re-send of the one that vanished.
+    expect(await member.fetchFile(f.manifest), f.bytes);
+    expect(sent, 4, reason: 'the dropped request was sent again');
+    await hostToClient.close();
+  });
+
   test(
     'a slow send does not spend the reply budget of the chunks behind it',
     () async {
