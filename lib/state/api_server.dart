@@ -660,7 +660,7 @@ class ApiServerController extends Notifier<ApiConfig> {
           ? (_, _, _) async => 'groups unavailable'
           : groupApi.sendMessage,
       sendGroupFile: groupApi == null
-          ? (_, _, _, _, _) async =>
+          ? (_, _, _, _, _, {kind, width, height, durationMs}) async =>
                 (error: 'group media unavailable', contentId: null)
           : groupApi.sendFile,
       fetchGroupFile: groupApi == null

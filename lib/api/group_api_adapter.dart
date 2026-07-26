@@ -1894,13 +1894,94 @@ final class GroupApiAdapter {
   /// and post only its signed content reference to the group. The source is
   /// hashed and served by bounded range reads: no all-file RAM copy and no
   /// plaintext staging file, including for multi-gigabyte inputs.
+  /// Media kinds a caller may author, and what each one needs to render as
+  /// itself rather than as a generic file row.
+  ///
+  /// The old restriction here — everything but video becomes a file — rested
+  /// on needing a micro-thumbnail that a headless host cannot make. That is
+  /// true only of the INLINE form. The reference form the app itself falls
+  /// back to needs no picture at all, just the dimensions or the duration, and
+  /// a caller authoring the content knows both. So it may say so.
+  static const _authorableKinds = {'file', 'image', 'video', 'voice', 'vnote'};
+
+  /// Build the attachment for an authored upload, or null when the caller's
+  /// metadata contradicts the kind it asked for.
+  ///
+  /// A plain group row carries its attachment in ONE shape — the legacy
+  /// canonical one, `kind` plus `w`/`h` plus the content id. The strict
+  /// reference shape exists only inside an encrypted payload, so posting one
+  /// here would be silently dropped on the way to disk. Everything below
+  /// therefore says what it means within that shape, which turns out to be
+  /// enough: readers lay an image out from w/h, and for voice and video notes
+  /// the app already writes the duration into w and 1 into h.
+  ///
+  /// Refusing on contradiction is the point: a row claiming to be an image
+  /// with no size, or a voice message with no length, renders as a broken
+  /// thing on every device that reads it, and the row is signed — nobody can
+  /// quietly fix it afterwards. Better to reject the request than to publish
+  /// a lie about it.
+  MediaObject? _attachment({
+    required String cid,
+    required String name,
+    required int size,
+    required String? kind,
+    required int? width,
+    required int? height,
+    required int? durationMs,
+  }) {
+    // Say nothing and nothing changes: a video by name, a plain file
+    // otherwise, exactly as this call always posted it.
+    if (kind == null) {
+      return MediaObject(
+        kind: isVideoFileName(name) ? 'video' : 'file',
+        dataB64: 'QQ==',
+        w: size,
+        h: 1,
+        cid: cid,
+        name: name,
+      );
+    }
+    if (!_authorableKinds.contains(kind)) return null;
+    final int w;
+    final int h;
+    switch (kind) {
+      case 'image':
+      case 'video':
+        if (width == null || height == null || width <= 0 || height <= 0) {
+          return null;
+        }
+        w = width;
+        h = height;
+      case 'voice':
+      case 'vnote':
+        if (durationMs == null || durationMs <= 0) return null;
+        w = durationMs;
+        h = 1;
+      default:
+        w = size;
+        h = 1;
+    }
+    return MediaObject(
+      kind: kind,
+      dataB64: 'QQ==',
+      w: w,
+      h: h,
+      cid: cid,
+      name: name,
+    );
+  }
+
   Future<({String? error, String? contentId})> sendFile(
     String groupHex,
     String path,
     String? requestedName,
     String caption,
-    String? replyTo,
-  ) async {
+    String? replyTo, {
+    String? kind,
+    int? width,
+    int? height,
+    int? durationMs,
+  }) async {
     final visible = await _visible(groupHex, isSpace: false);
     if (visible == null) {
       return (error: 'group not found', contentId: null);
@@ -1936,21 +2017,23 @@ final class GroupApiAdapter {
         close: source.close,
         sourcePath: file.absolute.path,
       );
+      final attachment = _attachment(
+        cid: cid,
+        name: name,
+        size: size,
+        kind: kind,
+        width: width,
+        height: height,
+        durationMs: durationMs,
+      );
+      if (attachment == null) {
+        return (error: 'attachment metadata does not match kind', contentId: null);
+      }
       final posted = await _groups.postMessage(
         visible.$1,
         caption,
         replyTo: replyTo,
-        attachment: MediaObject(
-          // A video has a dedicated player even without a poster. Other
-          // sources use the generic file row; image-specific rendering needs
-          // a real signed micro-thumbnail, which headless cannot fabricate.
-          kind: isVideoFileName(name) ? 'video' : 'file',
-          dataB64: 'QQ==',
-          w: size,
-          h: 1,
-          cid: cid,
-          name: name,
-        ),
+        attachment: attachment,
       );
       return posted
           ? (error: null, contentId: cid)

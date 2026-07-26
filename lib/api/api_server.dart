@@ -2706,6 +2706,15 @@ Map<String, dynamic> openApiSpec() {
                     'name': {'type': 'string', 'maxLength': 255},
                     'caption': {'type': 'string', 'maxLength': 524288},
                     'replyTo': {'type': 'string'},
+                    // Say what the upload IS and the little a reader needs to
+                    // lay it out. Omit them all and it posts as before.
+                    'kind': {
+                      'type': 'string',
+                      'enum': ['file', 'image', 'video', 'voice', 'vnote'],
+                    },
+                    'width': {'type': 'integer', 'minimum': 1},
+                    'height': {'type': 'integer', 'minimum': 1},
+                    'durationMs': {'type': 'integer', 'minimum': 1},
                   },
                 },
               },
@@ -3435,8 +3444,12 @@ class ApiHandler {
     String path,
     String? name,
     String caption,
-    String? replyTo,
-  )
+    String? replyTo, {
+    String? kind,
+    int? width,
+    int? height,
+    int? durationMs,
+  })
   sendGroupFile;
   final Future<String?> Function(String groupHex, String messageRef)
   fetchGroupFile;
@@ -5631,12 +5644,30 @@ class ApiHandler {
       if (utf8.encode(caption).length > 512 * 1024) {
         return const ApiResponse(413, {'error': 'group caption too large'});
       }
+      // Optional authoring metadata: what this upload IS, and the little a
+      // reader needs to lay it out. Absent, the host keeps its old guess.
+      final kind = body?['kind'];
+      final width = body?['width'];
+      final height = body?['height'];
+      final durationMs = body?['durationMs'];
+      if ((kind != null && kind is! String) ||
+          (width != null && width is! int) ||
+          (height != null && height is! int) ||
+          (durationMs != null && durationMs is! int)) {
+        return const ApiResponse(400, {
+          'error': 'kind must be a string; width/height/durationMs ints',
+        });
+      }
       final result = await sendGroupFile(
         group,
         filePath,
         name as String?,
         caption,
         replyTo as String?,
+        kind: kind as String?,
+        width: width as int?,
+        height: height as int?,
+        durationMs: durationMs as int?,
       );
       return result.error == null
           ? ApiResponse(200, {'ok': true, 'contentId': result.contentId})
