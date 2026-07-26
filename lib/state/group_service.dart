@@ -352,6 +352,33 @@ class GroupService {
   /// the first stream open. Injectable so closed-loop tests need no wall clock.
   final Duration contentGrantDelay;
 
+  /// Extra content ids a higher layer vouches for inside one group, on top of
+  /// what a visible message attachment or post media already references.
+  ///
+  /// The rule this widens is deliberate: a member may pull only what something
+  /// it can see points at, so a guessed id buys nothing. Some content is real
+  /// and legitimately referenced, but by a row whose MEANING lives above this
+  /// layer — a personal-cloud row naming its preview, for instance. Rather
+  /// than teach group code to parse those payloads, the owning layer says
+  /// which ids its own rows vouch for and this layer keeps the same rule.
+  ///
+  /// Consulted ONLY where the reference namespace is the ordinary one. A
+  /// protected channel's namespace is never widened: it is exactly the set of
+  /// attachments in that channel, and a voucher living outside the channel has
+  /// no standing to add to it.
+  Future<Set<String>> Function(NodeId groupId)? vouchedContent;
+
+  Future<Set<String>> _vouched(NodeId groupId) async {
+    final resolve = vouchedContent;
+    if (resolve == null) return const <String>{};
+    try {
+      return await resolve(groupId);
+    } catch (_) {
+      // A voucher that cannot answer must not deny the ordinary references.
+      return const <String>{};
+    }
+  }
+
   /// Bumped on every persisted mutation (local op/post OR an ingested
   /// snapshot) so open group screens re-fetch. Cheap: the UI reads on change.
   final GroupChangeSignal changes = GroupChangeSignal();
@@ -17511,6 +17538,7 @@ class GroupService {
               message.attachment!.cid!,
           for (final post in posts)
             for (final media in post.media) media.contentId!,
+          ...await _vouched(request.groupId),
         },
         categoryId: null,
       );
@@ -17743,7 +17771,8 @@ class GroupService {
               message.attachment?.cid == cid &&
               (message.spacePostId == null ||
                   visiblePostIds.contains(message.spacePostId)),
-        );
+        ) ||
+        (await _vouched(bundle.manifest.groupId)).contains(cid);
     if (ordinaryReference) {
       final acl = SpaceAcl(state);
       final candidates = [

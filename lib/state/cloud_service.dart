@@ -36,6 +36,12 @@ abstract class CloudSyncPort {
   Future<List<NodeId>> members();
   Future<bool> fetch(String contentId, NodeId holder);
   Future<void> close();
+
+  /// Declare content this layer's own rows point at but no attachment names.
+  /// A preview is stored under its own hash, so nothing in the device log
+  /// references it and neither device would authorize the pull. Concrete and
+  /// empty by default: a port that has no such content simply ignores it.
+  void vouchForContent(Future<Set<String>> Function() ids) {}
 }
 
 /// Device-group adapter: signed LWW rows are the replicated index, and a
@@ -91,6 +97,18 @@ class GroupCloudSyncPort implements CloudSyncPort {
     final gid = await _group.deviceGroupIdHex();
     if (gid == null) return false;
     return _group.fetchGroupContent(NodeId.fromHex(gid), contentId, holder);
+  }
+
+  /// Answers only for THIS device group. The same GroupService also holds
+  /// chats and Spaces, and a cloud row has no standing to widen what their
+  /// members may pull from each other.
+  @override
+  void vouchForContent(Future<Set<String>> Function() ids) {
+    _group.vouchedContent = (groupId) async {
+      final gid = await _group.deviceGroupIdHex();
+      if (gid == null || gid != groupId.hex) return const <String>{};
+      return ids();
+    };
   }
 
   @override
@@ -160,6 +178,7 @@ class CloudService {
 
   Future<void> _start() async {
     await _loadLocal();
+    _sync.vouchForContent(thumbnailContentIds);
     await _reconcile();
     _syncSub = _sync.changes.listen((_) => _scheduleReconcile());
     _contentSub = contentReceived.listen((cid) {
@@ -1562,6 +1581,23 @@ class CloudService {
     }
   }
 
+  /// Every preview the index currently points at.
+  ///
+  /// Read fresh on each ask rather than cached: an item imported a second ago
+  /// must be previewable now, and a deleted row's preview must stop being
+  /// vouched for the moment its tombstone lands. Bounded by the index, and a
+  /// preview id is only ever a hash the index itself wrote.
+  ///
+  /// Deliberately does NOT await [start]: it is registered from inside the
+  /// startup it would be waiting on, and the group layer can ask during the
+  /// very first reconcile. The index it reads is already loaded by then.
+  Future<Set<String>> thumbnailContentIds() async {
+    return {
+      for (final item in _indexRows())
+        if (!item.deleted && item.thumbContentId != null) item.thumbContentId!,
+    };
+  }
+
   /// Devices worth asking for [item]'s bytes: the ones that claim to hold them
   /// first, then the rest of the group. A claim is a hint, not a guarantee, so
   /// the others stay in the list behind it.
@@ -1592,14 +1628,11 @@ class CloudService {
   /// to fetch it there would leave previews visible only where they were made,
   /// which is the one place they are least needed.
   ///
-  /// ⚠️ DOES NOT YET REACH ANOTHER DEVICE, verified live between two of them.
-  /// The pull ends in `GroupService.fetchGroupContent`, whose
-  /// `_contentFetchScope` only authorises a cid that some Space post's media or
-  /// some message attachment already references. A preview id is neither, so
-  /// the request is refused before it reaches the network and this returns
-  /// false. Teaching that scope about `CloudItem.thumbContentId` is what is
-  /// missing — and it widens what one device may pull from another, so it wants
-  /// its own pass rather than being tacked onto this one.
+  /// Crossing to another device takes one more thing: a preview is stored
+  /// under its own hash, so no attachment in the device log names it and
+  /// BOTH devices would refuse — the asking one before sending, the holding
+  /// one before serving. [thumbnailContentIds] is what the group layer asks
+  /// to close that gap; see [CloudSyncPort.vouchForContent].
   Future<bool> ensureThumbnail(CloudItem item) async {
     await start();
     final thumbId = item.thumbContentId;
