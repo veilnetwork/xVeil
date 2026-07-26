@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:convert';
 import 'dart:io';
 
@@ -64,6 +65,12 @@ void main() {
   Map<String, dynamic>? localScheduledSpacePost;
   var accountLocked = false;
   var activeIdentity = 'personal';
+  final cloudRows = <Map<String, dynamic>>[
+    {'id': 'n1', 'name': 'Note', 'kind': 'note', 'size': 12, 'deleted': false},
+    {'id': 'f1', 'name': 'a.bin', 'kind': 'file', 'size': 4, 'deleted': false},
+  ];
+  final cloudDeletes = <String>[];
+  final cloudNotes = <Map<String, Object?>>[];
 
   ApiHandler make({
     String token = 'secret-token',
@@ -72,9 +79,12 @@ void main() {
     bool groupCallsAvailable = true,
     bool groupMediaAvailable = true,
     bool accountAvailable = true,
+    bool cloudAvailable = true,
   }) {
     accountLocked = false;
     activeIdentity = 'personal';
+    cloudDeletes.clear();
+    cloudNotes.clear();
     sent.clear();
     groupPosts.clear();
     groupActions.clear();
@@ -125,6 +135,46 @@ void main() {
     leaves.clear();
     groupCall = null;
     return ApiHandler(
+      cloudItems: !cloudAvailable ? null : () async => cloudRows,
+      cloudFolders: !cloudAvailable
+          ? null
+          : () async => [
+              {'id': 'fold1', 'name': 'Docs', 'revision': 1},
+            ],
+      cloudUsage: !cloudAvailable
+          ? null
+          : () async => {
+              'logicalItems': 2,
+              'logicalBytes': 16,
+              'localItems': 1,
+              'localBytes': 4,
+              'indexOnlyItems': 1,
+              'devices': const [],
+            },
+      cloudFile: !cloudAvailable
+          ? null
+          : (id) async =>
+                id == 'f1' ? Uint8List.fromList(const [1, 2, 3, 4]) : null,
+      saveCloudNote: !cloudAvailable
+          ? null
+          : ({String? id, required String title, required String body,
+              String? folderId}) async {
+              if (title == 'stale') {
+                return (item: null, error: 'the note changed elsewhere');
+              }
+              cloudNotes.add({'id': id, 'title': title, 'body': body});
+              return (
+                item: {'id': id ?? 'new', 'name': title, 'kind': 'note'},
+                error: null,
+              );
+            },
+      deleteCloudItem: !cloudAvailable
+          ? null
+          : (id) async {
+              if (id == 'ghost') return 'unknown item';
+              cloudDeletes.add(id);
+              return null;
+            },
       account: !accountAvailable
           ? null
           : () async => {
@@ -935,6 +985,145 @@ void main() {
   }
 
   Uri u(String p) => Uri.parse(p);
+
+  test('the cloud surface lists, downloads, writes notes and deletes', () async {
+    final h = make();
+
+    final items = await h.handle(
+      'GET',
+      Uri.parse('/v1/cloud/items'),
+      'Bearer secret-token',
+    );
+    expect(items.status, 200);
+    expect(((items.body! as Map)['items'] as List), hasLength(2));
+
+    final folders = await h.handle(
+      'GET',
+      Uri.parse('/v1/cloud/folders'),
+      'Bearer secret-token',
+    );
+    expect(folders.status, 200);
+    expect(((folders.body! as Map)['folders'] as List).single['name'], 'Docs');
+
+    final usage = await h.handle(
+      'GET',
+      Uri.parse('/v1/cloud/usage'),
+      'Bearer secret-token',
+    );
+    expect(usage.status, 200);
+    expect((usage.body! as Map)['indexOnlyItems'], 1);
+
+    final file = await h.handle(
+      'GET',
+      Uri.parse('/v1/cloud/file?id=f1'),
+      'Bearer secret-token',
+    );
+    expect(file.status, 200);
+    expect(file.bytes, [1, 2, 3, 4]);
+    expect(file.contentType, 'application/octet-stream');
+
+    final missing = await h.handle(
+      'GET',
+      Uri.parse('/v1/cloud/file?id=nope'),
+      'Bearer secret-token',
+    );
+    expect(
+      missing.status,
+      404,
+      reason: 'an unknown id and unreachable content answer the same',
+    );
+
+    final noId = await h.handle(
+      'GET',
+      Uri.parse('/v1/cloud/file'),
+      'Bearer secret-token',
+    );
+    expect(noId.status, 400);
+
+    final note = await h.handle(
+      'POST',
+      Uri.parse('/v1/cloud/notes'),
+      'Bearer secret-token',
+      body: {'title': 'Shopping', 'body': 'milk'},
+    );
+    expect(note.status, 200);
+    expect((note.body! as Map)['name'], 'Shopping');
+    expect(cloudNotes.single['title'], 'Shopping');
+
+    final stale = await h.handle(
+      'POST',
+      Uri.parse('/v1/cloud/notes'),
+      'Bearer secret-token',
+      body: {'id': 'n1', 'title': 'stale', 'body': 'x'},
+    );
+    expect(
+      stale.status,
+      409,
+      reason: 'a note that moved on elsewhere is a conflict, not a failure',
+    );
+
+    final deleted = await h.handle(
+      'DELETE',
+      Uri.parse('/v1/cloud/items?id=n1'),
+      'Bearer secret-token',
+    );
+    expect(deleted.status, 200);
+    expect(cloudDeletes, ['n1']);
+
+    final ghost = await h.handle(
+      'DELETE',
+      Uri.parse('/v1/cloud/items?id=ghost'),
+      'Bearer secret-token',
+    );
+    expect(ghost.status, 400);
+  });
+
+  test('a read-only token reads the cloud but cannot change it', () async {
+    final h = make(readOnly: true);
+    expect(
+      (await h.handle(
+        'GET',
+        Uri.parse('/v1/cloud/items'),
+        'Bearer secret-token',
+      )).status,
+      200,
+    );
+    expect(
+      (await h.handle(
+        'POST',
+        Uri.parse('/v1/cloud/notes'),
+        'Bearer secret-token',
+        body: {'title': 't', 'body': 'b'},
+      )).status,
+      403,
+    );
+    expect(
+      (await h.handle(
+        'DELETE',
+        Uri.parse('/v1/cloud/items?id=n1'),
+        'Bearer secret-token',
+      )).status,
+      403,
+    );
+    expect(cloudNotes, isEmpty);
+    expect(cloudDeletes, isEmpty);
+  });
+
+  test('a host without a cloud says so on every cloud route', () async {
+    final h = make(cloudAvailable: false);
+    for (final route in [
+      '/v1/cloud/items',
+      '/v1/cloud/folders',
+      '/v1/cloud/usage',
+      '/v1/cloud/file?id=f1',
+    ]) {
+      expect(
+        (await h.handle('GET', Uri.parse(route), 'Bearer secret-token')).status,
+        501,
+        reason: route,
+      );
+    }
+  });
 
   test('the account surface reports, switches identity and locks', () async {
     final h = make();
