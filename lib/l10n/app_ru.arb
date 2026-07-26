@@ -99,7 +99,7 @@
   "spaceChannelAccess": "Доступ",
   "spaceChannelAccessSpace": "Все участники сообщества",
   "spaceChannelAccessRestricted": "Закрытый · сначала только администраторы",
-  "spaceChannelAccessSecret": "Секретный · сначала только администраторы",
+  "spaceChannelAccessSecret": "Секретный · сначала только администраторы; ПОКА НЕ СКРЫТ — защита как у закрытого",
   "spaceChannelHistory": "История для новых участников",
   "spaceChannelHistoryFromJoin": "Только с момента вступления",
   "spaceChannelHistoryFull": "Вся история канала",
