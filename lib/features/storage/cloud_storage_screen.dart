@@ -2661,13 +2661,22 @@ class _CloudItemTileState extends State<_CloudItemTile> {
         : await widget.service.isLocal(widget.item);
     // Null is the ordinary answer — no preview was made, or its bytes have not
     // reached this device — and the icon stands in for it.
-    final preview = await widget.service.loadThumbnail(widget.item);
+    var preview = await widget.service.loadThumbnail(widget.item);
     if (mounted) {
       setState(() {
         _local = local;
         _localNoteHead = localHead;
         _preview = preview;
       });
+    }
+    // Not here yet: ask for it. Bounded by what is on screen, and cheap enough
+    // to be worth doing even on a device that keeps only the index — showing
+    // what it is NOT storing is the whole point of a preview.
+    if (preview == null && widget.item.thumbContentId != null) {
+      if (await widget.service.ensureThumbnail(widget.item)) {
+        preview = await widget.service.loadThumbnail(widget.item);
+        if (mounted && preview != null) setState(() => _preview = preview);
+      }
     }
   }
 
