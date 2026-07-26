@@ -1799,6 +1799,7 @@ void main() {
         required CloudDocumentSigner signer,
         CloudDocumentAcceptedContact? acceptedContact,
         required int seed,
+        _MemberNetDevice? netDevice,
       }) => CloudDocumentReplicationService(
         localNodeId: self,
         ourCertVersion: 0,
@@ -1815,7 +1816,9 @@ void main() {
         verifyOperation: (_) => true,
         verifyQuiescenceAck: (_) => true,
         now: () => DateTime.fromMillisecondsSinceEpoch(9000),
-        memberContentNetwork: net,
+        // Per-device binding view: a shared fake would let a hosting member
+        // derive an appId it cannot actually bind in production.
+        memberContentNetwork: netDevice ?? net.device(),
         memberContentStorage: files,
         memberProviderSlot: () async => slot,
         memberFetchTimeout: const Duration(milliseconds: 400),
@@ -2150,6 +2153,14 @@ class _MemberNet implements CloudCapabilityNetworkPort {
     required int endpointId,
   }) async => _appIdFor(alias);
 
+  /// A per-device view of the shared network.
+  ///
+  /// The real runtime binds an endpointId exclusively per node, and
+  /// capabilityAppId — despite the name — BINDS to read the id back. A shared
+  /// fake with no binding at all is more permissive than production, which is
+  /// how "a member that hosts can never fetch" stayed invisible to tests.
+  _MemberNetDevice device() => _MemberNetDevice(this);
+
   Future<void> route({
     required Uint8List servicePublicKey,
     required Uint8List targetAppId,
@@ -2177,6 +2188,85 @@ class _MemberNet implements CloudCapabilityNetworkPort {
         return;
       }
     }
+  }
+}
+
+/// One node's view of [_MemberNet], enforcing exclusive endpointId binding.
+///
+/// Routing stays shared (that IS the network); only the binding table is
+/// per-device, which is what production does. capabilityAppId binds too, so it
+/// collides with a host this device already runs — the exact constraint that
+/// made a hosting member unable to fetch.
+class _MemberNetDevice implements CloudCapabilityNetworkPort {
+  _MemberNetDevice(this._net);
+  final _MemberNet _net;
+  final bound = <int>{};
+
+  @override
+  Future<CloudCapabilityEndpointPort> host({
+    required Uint8List identitySeed,
+    required String alias,
+    required int endpointId,
+    required int providerSlot,
+    bool transient = false,
+  }) async {
+    if (!bound.add(endpointId)) {
+      throw StateError('bind failed: endpoint $endpointId is already bound');
+    }
+    final endpoint = await _net.host(
+      identitySeed: identitySeed,
+      alias: alias,
+      endpointId: endpointId,
+      providerSlot: providerSlot,
+      transient: transient,
+    );
+    return _UnbindingEndpoint(endpoint, () => bound.remove(endpointId));
+  }
+
+  @override
+  Future<Uint8List> capabilityAppId({
+    required String alias,
+    required int endpointId,
+  }) async {
+    if (bound.contains(endpointId)) {
+      throw StateError('bind failed: endpoint $endpointId is already bound');
+    }
+    return _net.capabilityAppId(alias: alias, endpointId: endpointId);
+  }
+}
+
+/// Releases the device's binding when the endpoint closes.
+class _UnbindingEndpoint implements CloudCapabilityEndpointPort {
+  _UnbindingEndpoint(this._inner, this._release);
+  final CloudCapabilityEndpointPort _inner;
+  final void Function() _release;
+
+  @override
+  Uint8List get servicePublicKey => _inner.servicePublicKey;
+  @override
+  Uint8List get appId => _inner.appId;
+  @override
+  int get endpointId => _inner.endpointId;
+  @override
+  Stream<Uint8List> get messages => _inner.messages;
+
+  @override
+  Future<void> sendAnonymous({
+    required Uint8List servicePublicKey,
+    required Uint8List targetAppId,
+    required int targetEndpointId,
+    required Uint8List data,
+  }) => _inner.sendAnonymous(
+    servicePublicKey: servicePublicKey,
+    targetAppId: targetAppId,
+    targetEndpointId: targetEndpointId,
+    data: data,
+  );
+
+  @override
+  Future<void> close() async {
+    _release();
+    await _inner.close();
   }
 }
 
