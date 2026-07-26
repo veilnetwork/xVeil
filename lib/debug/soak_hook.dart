@@ -403,6 +403,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/cloud_put':
           await _cloudPutHook(req);
           return;
+        case '/cloud_thumbs':
+          await _cloudThumbsHook(req);
+          return;
         case '/cloud_state':
           await _cloudStateHook(req);
           return;
@@ -1888,6 +1891,43 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   /// Import deterministic in-memory bytes into the real deniable cloud path.
   /// Small and debug-only: this lets the two-device stand prove index + blob
   /// replication without writing a cleartext fixture to either device.
+  /// Per-row preview report: which rows name a preview, and whether this
+  /// device actually holds its bytes. `?pull=1` asks for the missing ones
+  /// first, which is what a Storage row does when it scrolls into view — so
+  /// one call answers "can a preview reach this device" without a screenshot.
+  Future<void> _cloudThumbsHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(cloudServiceProvider);
+    if (service == null) {
+      return _json(req, {'ok': false, 'error': 'cloud unavailable'});
+    }
+    final pull = (req.uri.queryParameters['pull'] ?? '') == '1';
+    final storage = ref.read(storageProvider);
+    final rows = <Map<String, Object?>>[];
+    for (final item in await service.listItems()) {
+      final thumb = item.thumbContentId;
+      if (thumb == null) continue;
+      var here = await storage.hasFile(thumb);
+      var pulled = false;
+      if (!here && pull) {
+        pulled = await service.ensureThumbnail(item);
+        here = await storage.hasFile(thumb);
+      }
+      rows.add({
+        'name': item.name,
+        'thumb': thumb,
+        'here': here,
+        'local': item.contentId != null && await storage.hasFile(item.contentId!),
+        if (pull) 'pulled': pulled,
+      });
+    }
+    return _json(req, {
+      'ok': true,
+      'vouched': (await service.thumbnailContentIds()).length,
+      'rows': rows,
+    });
+  }
+
   Future<void> _cloudPutHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final service = ref.read(cloudServiceProvider);
