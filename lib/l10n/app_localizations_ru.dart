@@ -682,7 +682,7 @@ class AppL10nRu extends AppL10n {
       other: '$count проверенного сообщества',
       many: '$count проверенных сообществ',
       few: '$count проверенных сообщества',
-      one: '1 проверенное сообщество',
+      one: '$count проверенное сообщество',
     );
     return '$_temp0';
   }
@@ -707,7 +707,7 @@ class AppL10nRu extends AppL10n {
       other: '$count публикации',
       many: '$count публикаций',
       few: '$count публикации',
-      one: '1 публикация',
+      one: '$count публикация',
       zero: 'Нет публикаций',
     );
     return '$_temp0';
@@ -721,7 +721,7 @@ class AppL10nRu extends AppL10n {
       other: '$count проверенного источника',
       many: '$count проверенных источников',
       few: '$count проверенных источника',
-      one: '1 проверенный источник',
+      one: '$count проверенный источник',
     );
     return '$_temp0';
   }
@@ -858,7 +858,7 @@ class AppL10nRu extends AppL10n {
       locale: localeName,
       other: '$count участников',
       few: '$count участника',
-      one: '1 участник',
+      one: '$count участник',
     );
     return '$_temp0';
   }
@@ -1668,7 +1668,7 @@ class AppL10nRu extends AppL10n {
       locale: localeName,
       other: '$count участников',
       few: '$count участника',
-      one: '1 участник',
+      one: '$count участник',
     );
     return '$_temp0';
   }
@@ -1767,7 +1767,7 @@ class AppL10nRu extends AppL10n {
       locale: localeName,
       other: 'Добавлено $count стикеров',
       few: 'Добавлено $count стикера',
-      one: 'Добавлен 1 стикер',
+      one: 'Добавлен $count стикер',
     );
     return '$_temp0';
   }
@@ -1960,7 +1960,7 @@ class AppL10nRu extends AppL10n {
       locale: localeName,
       other: '$count объектов',
       few: '$count объекта',
-      one: '1 объект',
+      one: '$count объект',
       zero: 'нет объектов',
     );
     return '$_temp0';
@@ -1973,7 +1973,7 @@ class AppL10nRu extends AppL10n {
       locale: localeName,
       other: '$count объектов здесь не хранятся',
       few: '$count объекта здесь не хранятся',
-      one: '1 объект здесь не хранится',
+      one: '$count объект здесь не хранится',
       zero: 'всё здесь',
     );
     return '$_temp0';
@@ -1986,7 +1986,7 @@ class AppL10nRu extends AppL10n {
       locale: localeName,
       other: '$count проверенных копий',
       few: '$count проверенные копии',
-      one: '1 проверенная копия',
+      one: '$count проверенная копия',
       zero: 'нет проверенных копий',
     );
     return '$_temp0';
@@ -2205,7 +2205,7 @@ class AppL10nRu extends AppL10n {
       locale: localeName,
       other: '$count объектов',
       few: '$count объекта',
-      one: '1 объект',
+      one: '$count объект',
       zero: 'пусто',
     );
     return '$_temp0';
@@ -2265,7 +2265,7 @@ class AppL10nRu extends AppL10n {
       locale: localeName,
       other: '$count объектов',
       few: '$count объекта',
-      one: '1 объект',
+      one: '$count объект',
     );
     return 'Удалить из облака $_temp0?';
   }
@@ -2335,7 +2335,7 @@ class AppL10nRu extends AppL10n {
       locale: localeName,
       other: 'Сохранено $count офлайн-версий',
       few: 'Сохранены $count офлайн-версии',
-      one: 'Сохранена 1 версия',
+      one: 'Сохранена $count версия',
     );
     return '$_temp0';
   }
