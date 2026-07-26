@@ -98,7 +98,13 @@ class _MessagingMailboxDelivery {
         );
       } catch (error, stackTrace) {
         _failedAt[id] = DateTime.now();
-        if (error.toString().contains('PeerUnresolved')) {
+        // Both spellings of the same dead end: the native path says
+        // `PeerUnresolved`, the Dart path throws [MailboxPeerUnresolved]. Only
+        // the first was recognised, so a peer that had simply not advertised a
+        // mailbox — an asleep phone, most often — never earned a backoff and
+        // was retried at the caller's cadence indefinitely.
+        if (error is MailboxPeerUnresolved ||
+            error.toString().contains('PeerUnresolved')) {
           final previous = _peerUnresolvedBackoff[peer.hex];
           final count = (previous?.count ?? 0) + 1;
           final seconds = (30 * (1 << (count - 1))).clamp(

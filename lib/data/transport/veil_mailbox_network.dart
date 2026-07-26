@@ -307,7 +307,7 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         'replicas_resolved=${replicas.length} usable(KEM)=${usable.length}'
         '${filledFromCache > 0 ? ' (kem_filled=$filledFromCache)' : ''}');
     if (usable.isEmpty) {
-      throw StateError(
+      throw MailboxPeerUnresolved(
           'no rendezvous replica with a usable KEM key for ${receiver.hex} — '
           'recipient has not advertised a mailbox relay (or ad not resolved yet)');
     }
