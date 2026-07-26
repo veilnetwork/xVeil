@@ -3048,6 +3048,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
                 entry.key: {
                   'epoch': entry.value.epoch,
                   'servable': entry.value.servable,
+                  'requestsSeen': entry.value.seen,
+                  'requestsAnswered': entry.value.answered,
                 },
             },
           });
