@@ -253,6 +253,13 @@ class _MessagingDownloadResume {
     }
     var index = 0;
     for (final contentId in pending.keys.toList(growable: false)) {
+      // A parked download is waiting for evidence that a holder came back —
+      // an offer, or an inbound frame from one. Reconnecting is not that
+      // evidence: a holder we may no longer pull from is no more reachable
+      // for being online. Re-arming them here is what kept an impossible
+      // download cycling forever, since every reconnect also cleared the
+      // backoff that was supposed to end it.
+      if (_parked.contains(contentId)) continue;
       _schedule(contentId, after: initial + stagger * index++);
     }
   }
@@ -284,6 +291,14 @@ class _MessagingDownloadResume {
     _attempts.remove(contentId);
     if (_timers.containsKey(contentId)) return;
     _schedule(contentId, after: const Duration(seconds: 3));
+  }
+
+  /// Whether any recorded holder is still a source we may pull from.
+  Future<bool> _anyEligibleSource(List<NodeId> peers, String contentId) async {
+    for (final peer in peers) {
+      if (await _owner._eligiblePullSource(peer, contentId)) return true;
+    }
+    return false;
   }
 
   void noteInbound(NodeId peer) {
@@ -345,7 +360,14 @@ class _MessagingDownloadResume {
     });
   }
 
+  /// How many resume ticks have actually run. Test seam: the difference
+  /// between a download that parks once and one that is re-armed on every
+  /// reconnect is invisible from the outside — a re-armed tick that parks
+  /// again sends nothing and opens nothing. It is only visible here.
+  int resumeTicks = 0;
+
   Future<void> _resume(String contentId) async {
+    resumeTicks++;
     if (_owner._disposed || !_inFlight.add(contentId)) return;
     final short = contentId.length >= 12
         ? contentId.substring(0, 12)
@@ -377,6 +399,28 @@ class _MessagingDownloadResume {
         try {
           peers.add(NodeId.fromHex(hex));
         } catch (_) {}
+      }
+      // Nobody left we are allowed to ask. This is not a slow download, it is
+      // an impossible one: every recorded holder has since stopped being a
+      // source we may pull from (contact removed, membership gone). Retrying
+      // on a timer would never end — and did not: each attempt asked the same
+      // ineligible peer to re-offer, the offer that came back cleared the
+      // attempt counter, and the backoff sat at one forever, every ten
+      // seconds, for as long as the app ran.
+      //
+      // Park instead. The un-parking path already exists and is the right one:
+      // it waits for something to actually happen — an offer, or an inbound
+      // frame from a recorded holder — rather than for a clock.
+      if (peers.isNotEmpty && !await _anyEligibleSource(peers, contentId)) {
+        _parked.add(contentId);
+        _timers.remove(contentId)?.cancel();
+        devLog(
+          () =>
+              'xVeil[content]: auto-resume PARKED $short — no eligible source '
+              'among ${peers.length} recorded holder(s); waiting for one to '
+              'return rather than retrying on a timer',
+        );
+        return;
       }
       if (_owner._offered[contentId] == null && peers.isNotEmpty) {
         final manifest = await loadPersistedManifest(contentId);
