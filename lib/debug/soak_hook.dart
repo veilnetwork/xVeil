@@ -2930,8 +2930,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   /// request/response stays anonymous and carries only the slot as proof; no
   /// sovereign identity or secret seed is returned or written to disk.
   /// Public file directory under a nickname.
-  /// ?action=publish&id=<folderId>&title=<t> | withdraw | status
-  ///        | resolve&nick=<nickname> | resolve&node=<hex>
+  /// `?action=publish&id=<folderId>&title=<t>` | withdraw | status
+  ///        | `resolve&nick=<nickname>` | `resolve&node=<hex>`
   Future<void> _cloudPublicDirHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final dir = ref.read(publicDirectoryServiceProvider);
@@ -3010,10 +3010,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   }
 
   /// Shared ACL folder (fileCollection document) verify surface.
-  /// ?doc=<documentId>&action=list|add|remove|fetch|host_state|reconcile
-  ///   add:    &id=<personal cloud item id> — shares that item (manifest inline)
-  ///   remove: &entry=<row id>
-  ///   fetch:  &entry=<row id> — member downloads bytes via the member path
+  /// `?doc=<documentId>&action=list|add|remove|fetch|host_state|reconcile`
+  ///   add:    `&id=<personal cloud item id>` — shares it (manifest inline)
+  ///   remove: `&entry=<row id>`
+  ///   fetch:  `&entry=<row id>` — member downloads bytes via the member path
   Future<void> _cloudSharedFolderHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final service = ref.read(cloudDocumentReplicationServiceProvider);
