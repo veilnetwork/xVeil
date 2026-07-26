@@ -1508,4 +1508,88 @@ void main() {
       await storage.close();
     },
   );
+
+  test(
+    'a change made elsewhere stands out; our own and brand-new ones do not',
+    () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final sync = _FakeSync(_id(1));
+      final received = StreamController<String>.broadcast();
+      var clock = 1000;
+      final service = CloudService(
+        storage,
+        sync,
+        contentReceived: received.stream,
+        now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+        newId: () => 'note-1',
+        integrityChecks: false,
+      );
+
+      final mine = await service.saveTextNote(title: 'n', body: 'first');
+      expect(
+        service.changedElsewhere(mine),
+        isFalse,
+        reason: 'writing it here is not a change to be told about',
+      );
+
+      final edited = await service.saveTextNote(
+        itemId: mine.id,
+        expectedRevision: mine.revision,
+        expectedContentId: mine.contentId,
+        title: 'n',
+        body: 'second',
+      );
+      expect(
+        service.changedElsewhere(edited),
+        isFalse,
+        reason: 'our own later edit is still our own',
+      );
+
+      // The same item comes back a revision ahead without us touching it.
+      final fromElsewhere = CloudItem.fromEvent(edited.toEvent())!;
+      final remote = CloudItem(
+        id: fromElsewhere.id,
+        kind: fromElsewhere.kind,
+        name: 'renamed over there',
+        contentId: fromElsewhere.contentId,
+        size: fromElsewhere.size,
+        createdAtMs: fromElsewhere.createdAtMs,
+        modifiedAtMs: fromElsewhere.modifiedAtMs + 1,
+        revision: fromElsewhere.revision + 1,
+        deleted: false,
+      );
+      expect(
+        service.changedElsewhere(remote),
+        isTrue,
+        reason: 'it moved on after we last acknowledged it',
+      );
+
+      await service.markSeen(remote);
+      expect(
+        service.changedElsewhere(remote),
+        isFalse,
+        reason: 'looking at it is acknowledging it',
+      );
+
+      // Something we have never acknowledged is new, not changed.
+      final stranger = CloudItem(
+        id: 'never-seen',
+        kind: CloudItemKind.file,
+        name: 'x',
+        contentId: 'd' * 64,
+        size: 1,
+        createdAtMs: 1,
+        modifiedAtMs: 1,
+        revision: 7,
+        deleted: false,
+      );
+      expect(service.changedElsewhere(stranger), isFalse);
+
+      await service.close();
+      await received.close();
+      await storage.close();
+    },
+  );
 }

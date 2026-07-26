@@ -2908,7 +2908,11 @@ class _CloudItemTileState extends State<_CloudItemTile> {
         '${_local == true ? l.cloudLocal : l.cloudRemote} · '
         '${l.cloudReplicas(replicas)}'
         '${singleCopy ? ' · ${l.cloudSingleCopy}' : ''}'
-        '${noteHeads > 1 ? ' · ${l.cloudNoteBranches(noteHeads)}' : ''}';
+        '${noteHeads > 1 ? ' · ${l.cloudNoteBranches(noteHeads)}' : ''}'
+        // Only ever says this about a change that arrived from elsewhere after
+        // this device had acknowledged the row — our own edits and rows never
+        // seen before are not news.
+        '${widget.service.changedElsewhere(widget.item) ? ' · ${l.cloudChangedElsewhere}' : ''}';
     return ListTile(
       leading: widget.selectionMode
           ? Checkbox(
@@ -2939,7 +2943,10 @@ class _CloudItemTileState extends State<_CloudItemTile> {
       onTap: widget.selectionMode
           ? widget.onToggleSelection
           : widget.item.kind == CloudItemKind.note && _local == true
-          ? _openNote
+          ? () {
+              unawaited(widget.service.markSeen(widget.item));
+              unawaited(_openNote());
+            }
           : _local == true
           ? null
           : _fetch,
