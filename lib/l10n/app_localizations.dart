@@ -640,7 +640,7 @@ abstract class AppL10n {
   /// No description provided for @spaceChannelAccessSecret.
   ///
   /// In en, this message translates to:
-  /// **'Secret · admins only initially'**
+  /// **'Secret · admins only initially; NOT hidden yet — same protection as Restricted'**
   String get spaceChannelAccessSecret;
 
   /// No description provided for @spaceChannelHistory.

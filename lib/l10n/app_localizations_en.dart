@@ -299,7 +299,8 @@ class AppL10nEn extends AppL10n {
       'Restricted · admins only initially';
 
   @override
-  String get spaceChannelAccessSecret => 'Secret · admins only initially';
+  String get spaceChannelAccessSecret =>
+      'Secret · admins only initially; NOT hidden yet — same protection as Restricted';
 
   @override
   String get spaceChannelHistory => 'History for new members';

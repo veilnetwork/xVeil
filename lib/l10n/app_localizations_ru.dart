@@ -300,7 +300,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get spaceChannelAccessSecret =>
-      'Секретный · сначала только администраторы';
+      'Секретный · сначала только администраторы; ПОКА НЕ СКРЫТ — защита как у закрытого';
 
   @override
   String get spaceChannelHistory => 'История для новых участников';
