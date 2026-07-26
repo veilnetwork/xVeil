@@ -147,6 +147,99 @@ void main() {
     },
   );
 
+  test('a dropped listing request is asked for again, not abandoned', () async {
+    final fixture = await buildFolder(fileCount: 1);
+    final hostToClient = StreamController<Uint8List>.broadcast();
+    final host = CloudFolderShareHost(
+      capability: fixture.capability,
+      storage: fixture.storage,
+      listing: fixture.listing,
+      send:
+          ({
+            required servicePublicKey,
+            required targetAppId,
+            required targetEndpointId,
+            required data,
+          }) async => hostToClient.add(data),
+    );
+    // The listing is asked for FIRST, so losing it loses the whole download
+    // before a byte moves.
+    var droppedOne = false;
+    final client = CloudFolderShareClient(
+      capability: fixture.capability,
+      returnServicePublicKey: Uint8List.fromList(List.filled(32, 3)),
+      returnAppId: Uint8List.fromList(List.filled(32, 4)),
+      returnEndpointId: 48,
+      incoming: hostToClient.stream,
+      timeout: const Duration(milliseconds: 200),
+      send: (data) async {
+        final isListing = String.fromCharCodes(data.sublist(0, 4)) == 'XLR1';
+        if (isListing && !droppedOne) {
+          droppedOne = true;
+          return; // silently lost in transit
+        }
+        unawaited(host.serve(data));
+      },
+      randomBytes: _counterBytes(),
+    );
+
+    final listing = await client.fetchListing();
+    expect(droppedOne, isTrue, reason: 'the drop must actually have happened');
+    expect(listing.entries, isNotEmpty);
+
+    await hostToClient.close();
+  });
+
+  test('a dropped chunk request is asked for again, not abandoned', () async {
+    final fixture = await buildFolder(fileCount: 1);
+    final hostToClient = StreamController<Uint8List>.broadcast();
+    final host = CloudFolderShareHost(
+      capability: fixture.capability,
+      storage: fixture.storage,
+      listing: fixture.listing,
+      send:
+          ({
+            required servicePublicKey,
+            required targetAppId,
+            required targetEndpointId,
+            required data,
+          }) async => hostToClient.add(data),
+    );
+    // The anonymous path sometimes swallows a request with no error to see.
+    // Drop the first file-chunk request and answer everything after it.
+    var droppedOne = false;
+    final client = CloudFolderShareClient(
+      capability: fixture.capability,
+      returnServicePublicKey: Uint8List.fromList(List.filled(32, 3)),
+      returnAppId: Uint8List.fromList(List.filled(32, 4)),
+      returnEndpointId: 48,
+      incoming: hostToClient.stream,
+      timeout: const Duration(milliseconds: 200),
+      send: (data) async {
+        final isChunk = String.fromCharCodes(data.sublist(0, 4)) == 'XFR1';
+        if (isChunk && !droppedOne) {
+          droppedOne = true;
+          return; // silently lost in transit
+        }
+        unawaited(host.serve(data));
+      },
+      randomBytes: _counterBytes(),
+    );
+
+    final listing = await client.fetchListing();
+    final file = listing.entries.firstWhere((e) => !e.isFolder);
+    final bytes = await client.fetchFile(file);
+
+    expect(droppedOne, isTrue, reason: 'the drop must actually have happened');
+    expect(
+      bytes,
+      fixture.plaintext[file.manifest!.contentId],
+      reason: 'one lost request must not discard the whole file',
+    );
+
+    await hostToClient.close();
+  });
+
   test(
     'a removed file stops being served after the listing is replaced',
     () async {

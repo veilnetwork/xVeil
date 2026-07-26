@@ -512,12 +512,31 @@ class CloudFolderShareClient {
   final Stream<Uint8List> incoming;
   final Future<void> Function(Uint8List data) _send;
   final Duration _timeout;
+
+  /// Extra attempts per chunk. Two is what the member-content path measured as
+  /// enough for the observed drop rate; a third only lengthened the failure.
+  static const int _chunkRetries = 2;
   final Uint8List Function(int count) _randomBytes;
 
   // Default zero-filled nonce source; real callers pass a CSPRNG generator.
   static Uint8List _defaultRandom(int count) => Uint8List(count);
 
+  /// The listing is exposed to the same silent drop as a chunk, and it is
+  /// asked for first — so losing it loses the whole download before a single
+  /// byte moves. Same budget per attempt, same reason to ask again.
   Future<CloudFolderListing> fetchListing() async {
+    Object? lastError;
+    for (var attempt = 0; attempt <= _chunkRetries; attempt++) {
+      try {
+        return await _attemptListing();
+      } on TimeoutException catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError!;
+  }
+
+  Future<CloudFolderListing> _attemptListing() async {
     final nonce = _randomBytes(16);
     final request = _ListingRequest.create(
       capability: capability,
@@ -535,10 +554,22 @@ class CloudFolderShareClient {
               _equal(response.nonce, nonce),
         )
         .cast<_ListingResponse>()
-        .first
-        .timeout(_timeout);
-    await _send(request.encode());
-    final response = await pending;
+        .first;
+    // The matcher has to be listening before the request goes out, but the
+    // budget must not start until it has: building the anonymous circuit is
+    // part of the send, and charging the wait for a reply with the cost of
+    // arranging one burned most of the window before anyone could answer.
+    Object? sendError;
+    try {
+      await _send(request.encode());
+    } catch (error) {
+      sendError = error;
+    }
+    if (sendError != null) {
+      unawaited(pending.timeout(_timeout).then((_) {}, onError: (_) {}));
+      throw sendError;
+    }
+    final response = await pending.timeout(_timeout);
     return CloudCapabilityCodec.openListing(
       capability: capability,
       revision: response.revision,
@@ -560,50 +591,8 @@ class CloudFolderShareClient {
       final clearPiece = BytesBuilder(copy: false);
       final chunks = CloudCapabilityCodec.chunkCount(fileCapability, piece);
       for (var chunk = 0; chunk < chunks; chunk++) {
-        final nonce = _randomBytes(16);
-        final mac = CloudCapabilityCodec.requestMac(
-          capability: fileCapability,
-          returnServicePublicKey: returnServicePublicKey,
-          returnAppId: returnAppId,
-          returnEndpointId: returnEndpointId,
-          pieceIndex: piece,
-          chunkIndex: chunk,
-          requestNonce: nonce,
-        );
-        final request = _FolderFileRequest(
-          shareId: capability.shareId,
-          contentId: contentIdBytes,
-          returnServicePublicKey: returnServicePublicKey,
-          returnAppId: returnAppId,
-          returnEndpointId: returnEndpointId,
-          pieceIndex: piece,
-          chunkIndex: chunk,
-          nonce: nonce,
-          mac: mac,
-        );
-        final pending = incoming
-            .map(_FolderChunkResponse.parse)
-            .where(
-              (response) =>
-                  response != null &&
-                  _equal(response.shareId, capability.shareId) &&
-                  _equal(response.contentId, contentIdBytes) &&
-                  response.pieceIndex == piece &&
-                  response.chunkIndex == chunk &&
-                  _equal(response.nonce, nonce),
-            )
-            .cast<_FolderChunkResponse>()
-            .first
-            .timeout(_timeout);
-        await _send(request.encode());
-        final response = await pending;
         clearPiece.add(
-          await CloudCapabilityCodec.openChunk(
-            capability: fileCapability,
-            pieceIndex: piece,
-            chunkIndex: chunk,
-            sealed: response.sealed,
-          ),
+          await _fetchChunk(fileCapability, contentIdBytes, piece, chunk),
         );
       }
       final bytes = clearPiece.toBytes();
@@ -613,5 +602,96 @@ class CloudFolderShareClient {
       assembled.add(bytes);
     }
     return assembled.toBytes();
+  }
+
+  /// One chunk, retried when the anonymous path drops the request.
+  ///
+  /// A send along that path occasionally never arrives, with no error to see.
+  /// Without a retry a single drop discarded the whole file — every chunk
+  /// already fetched included — which is a poor trade against asking twice.
+  /// Each attempt is a fresh nonce, so a late reply to an abandoned attempt
+  /// cannot be mistaken for the answer to this one.
+  Future<Uint8List> _fetchChunk(
+    CloudCapability fileCapability,
+    Uint8List contentIdBytes,
+    int piece,
+    int chunk,
+  ) async {
+    Object? lastError;
+    for (var attempt = 0; attempt <= _chunkRetries; attempt++) {
+      try {
+        return await _attemptChunk(
+          fileCapability,
+          contentIdBytes,
+          piece,
+          chunk,
+        );
+      } on TimeoutException catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError!;
+  }
+
+  Future<Uint8List> _attemptChunk(
+    CloudCapability fileCapability,
+    Uint8List contentIdBytes,
+    int piece,
+    int chunk,
+  ) async {
+    final nonce = _randomBytes(16);
+    final mac = CloudCapabilityCodec.requestMac(
+      capability: fileCapability,
+      returnServicePublicKey: returnServicePublicKey,
+      returnAppId: returnAppId,
+      returnEndpointId: returnEndpointId,
+      pieceIndex: piece,
+      chunkIndex: chunk,
+      requestNonce: nonce,
+    );
+    final request = _FolderFileRequest(
+      shareId: capability.shareId,
+      contentId: contentIdBytes,
+      returnServicePublicKey: returnServicePublicKey,
+      returnAppId: returnAppId,
+      returnEndpointId: returnEndpointId,
+      pieceIndex: piece,
+      chunkIndex: chunk,
+      nonce: nonce,
+      mac: mac,
+    );
+    final pending = incoming
+        .map(_FolderChunkResponse.parse)
+        .where(
+          (response) =>
+              response != null &&
+              _equal(response.shareId, capability.shareId) &&
+              _equal(response.contentId, contentIdBytes) &&
+              response.pieceIndex == piece &&
+              response.chunkIndex == chunk &&
+              _equal(response.nonce, nonce),
+        )
+        .cast<_FolderChunkResponse>()
+        .first;
+    // Same reason as the listing above: the clock starts at the send.
+    Object? sendError;
+    try {
+      await _send(request.encode());
+    } catch (error) {
+      sendError = error;
+    }
+    if (sendError != null) {
+      // Nothing was asked for, so nothing will answer. Drain the matcher
+      // so it cannot outlive this attempt as an unhandled error.
+      unawaited(pending.timeout(_timeout).then((_) {}, onError: (_) {}));
+      throw sendError;
+    }
+    final response = await pending.timeout(_timeout);
+    return CloudCapabilityCodec.openChunk(
+      capability: fileCapability,
+      pieceIndex: piece,
+      chunkIndex: chunk,
+      sealed: response.sealed,
+    );
   }
 }
