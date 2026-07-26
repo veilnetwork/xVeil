@@ -327,6 +327,55 @@ Map<String, CloudFolder> foldCloudFolders(Iterable<DeviceSyncEvent> events) {
 /// A device-authored proof-of-possession claim for one immutable cid. It is a
 /// statement of local verified state, not a remote read oracle: claims travel
 /// only inside the sovereign device group.
+/// What one device of the identity is holding.
+class CloudDeviceUsage {
+  const CloudDeviceUsage({
+    required this.deviceId,
+    required this.isSelf,
+    required this.items,
+    required this.bytes,
+  });
+
+  final NodeId deviceId;
+  final bool isSelf;
+  final int items;
+  final int bytes;
+}
+
+/// What the cloud costs — here, and across the identity's devices.
+///
+/// Every number is folded from state that already replicates: a replica claim
+/// carries the size of what it claims, so "which of my devices is holding what"
+/// is answerable without asking any of them. Nothing here goes on the wire.
+///
+/// There is deliberately no quota. Nobody issues one in this network and nobody
+/// could enforce it; what a caller can honestly show is what is being used.
+class CloudUsage {
+  const CloudUsage({
+    required this.logicalItems,
+    required this.logicalBytes,
+    required this.localItems,
+    required this.localBytes,
+    required this.indexOnlyItems,
+    required this.devices,
+  });
+
+  /// Everything the index knows about, wherever it physically lives.
+  final int logicalItems;
+  final int logicalBytes;
+
+  /// The part of it whose bytes are on THIS device — what it costs the disk.
+  final int localItems;
+  final int localBytes;
+
+  /// Known here, held elsewhere. The gap between the two pairs above, and the
+  /// thing that makes the `all` replication mode's cost predictable.
+  final int indexOnlyItems;
+
+  /// Per device, self included, largest holder first.
+  final List<CloudDeviceUsage> devices;
+}
+
 class CloudReplicaClaim {
   const CloudReplicaClaim({
     required this.itemId,

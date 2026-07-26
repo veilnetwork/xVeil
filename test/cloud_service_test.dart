@@ -1440,4 +1440,72 @@ void main() {
       await storage.close();
     },
   );
+
+  test(
+    'usage folds this disk, the whole index and every device that holds',
+    () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final self = _id(1);
+      final sibling = _id(2);
+      // The sibling advertises the item before we create it locally, which is the
+      // ordinary case after a sync: its claim carries the size, so answering
+      // "what is that device holding" costs no round trip to it.
+      final sync = _FakeSync(
+        self,
+        seed: [
+          (
+            event: CloudReplicaClaim(
+              itemId: 'note-1',
+              deviceId: sibling,
+              contentId: 'c' * 64,
+              present: true,
+              verifiedAtMs: 900,
+              size: 4096,
+            ).toEvent(),
+            author: sibling,
+          ),
+        ],
+      );
+      final received = StreamController<String>.broadcast();
+      var clock = 1000;
+      final service = CloudService(
+        storage,
+        sync,
+        contentReceived: received.stream,
+        now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+        newId: () => 'note-1',
+        integrityChecks: false,
+      );
+
+      final note = await service.saveTextNote(title: 'n', body: 'a body');
+      final usage = await service.usage();
+
+      expect(usage.logicalItems, 1);
+      expect(usage.logicalBytes, note.size);
+      expect(
+        usage.localBytes,
+        note.size,
+        reason: 'the bytes are on this disk, so they count against it',
+      );
+      expect(usage.localItems, 1);
+      expect(usage.indexOnlyItems, 0);
+
+      final devices = {for (final d in usage.devices) d.deviceId.hex: d};
+      expect(
+        devices.keys,
+        containsAll([self.hex, sibling.hex]),
+        reason: 'a sibling that claims a copy is part of the picture',
+      );
+      expect(devices[sibling.hex]!.bytes, 4096);
+      expect(devices[sibling.hex]!.items, 1);
+      expect(devices[sibling.hex]!.isSelf, isFalse);
+      expect(devices[self.hex]!.isSelf, isTrue);
+
+      await service.close();
+      await received.close();
+      await storage.close();
+    },
+  );
 }
