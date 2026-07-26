@@ -1626,6 +1626,15 @@ void main() {
 
       expect(item.thumbContentId, isNotNull);
       expect(await service.loadThumbnail(item), thumb);
+      // Bytes alone are not enough to be a good neighbour: the serving side
+      // refuses content it has no manifest for, so a preview stored without one
+      // is held here and handed to nobody. Live cross-device verification is
+      // what surfaced that; the fake fetch here always succeeds and cannot.
+      expect(
+        await storage.hasFile('mf:${item.thumbContentId}'),
+        isTrue,
+        reason: 'a preview without a manifest can never be served',
+      );
       expect(
         CloudItem.fromEvent(item.toEvent())!.thumbContentId,
         item.thumbContentId,

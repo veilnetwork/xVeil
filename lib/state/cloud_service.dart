@@ -612,6 +612,17 @@ class CloudService {
                 name: 'cloud-thumb',
               );
             }
+            // The manifest is not bookkeeping: the serving side refuses to hand
+            // out bytes it has no manifest for, so without this the preview is
+            // held here and silently never given to anyone — which is every
+            // device except the one that made it.
+            await _storage.storeFile(
+              '$_manifestPrefix${thumbManifest.contentId}',
+              Uint8List.fromList(
+                utf8.encode(jsonEncode(thumbManifest.toJson())),
+              ),
+              name: 'cloud-manifest',
+            );
             thumbId = thumbManifest.contentId;
           }
         }
@@ -1580,6 +1591,15 @@ class CloudService {
   /// precisely so that such a device can show what it is not storing. Refusing
   /// to fetch it there would leave previews visible only where they were made,
   /// which is the one place they are least needed.
+  ///
+  /// ⚠️ DOES NOT YET REACH ANOTHER DEVICE, verified live between two of them.
+  /// The pull ends in `GroupService.fetchGroupContent`, whose
+  /// `_contentFetchScope` only authorises a cid that some Space post's media or
+  /// some message attachment already references. A preview id is neither, so
+  /// the request is refused before it reaches the network and this returns
+  /// false. Teaching that scope about `CloudItem.thumbContentId` is what is
+  /// missing — and it widens what one device may pull from another, so it wants
+  /// its own pass rather than being tacked onto this one.
   Future<bool> ensureThumbnail(CloudItem item) async {
     await start();
     final thumbId = item.thumbContentId;
