@@ -304,6 +304,19 @@ class _MessagingDownloadResume {
   void noteInbound(NodeId peer) {
     if (_owner._disposed || _parked.isEmpty) return;
     final peerHex = peer.hex;
+    // Not ourselves. A node hears its own traffic — a self-addressed frame, a
+    // loopback of its own send — and that is no evidence a holder came back.
+    // Where our own id sits in a download's recorded holders, this un-parked
+    // it every twenty seconds: the resume then found no eligible source
+    // (ourselves being the one thing we never pull from) and parked again,
+    // round and round, for as long as the app ran.
+    unawaited(() async {
+      if (peerHex == await _owner._selfHex()) return;
+      _noteInboundFrom(peerHex, peer);
+    }());
+  }
+
+  void _noteInboundFrom(String peerHex, NodeId peer) {
     unawaited(() async {
       final pending = await _pendingDownloads();
       for (final contentId in _parked.toList(growable: false)) {
