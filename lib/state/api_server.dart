@@ -136,6 +136,49 @@ class ApiServerController extends Notifier<ApiConfig> {
     };
   }
 
+  /// Who is unlocked, which identity is active, and what a master space
+  /// manages. Read straight from the controller so it cannot drift from what
+  /// the UI shows.
+  Future<Map<String, dynamic>> _account() async {
+    final app = ref.read(appControllerProvider);
+    final id = app.identity?.nodeId;
+    return {
+      'ok': id != null,
+      'phase': app.phase.name,
+      if (id != null) 'nodeId': id.hex,
+      if (id != null) 'short': id.short,
+      'isMaster': app.isMaster,
+      if (app.activeIdentity != null) 'activeIdentity': app.activeIdentity,
+      'identities': app.identities,
+      'api': 'v1',
+    };
+  }
+
+  /// Locking tears down this very server, so commit to it and let the response
+  /// flush first. The caller gets a plain 200 and then finds the API gone,
+  /// which is the honest shape of "the account is now locked".
+  Future<void> _lock() async {
+    unawaited(
+      Future<void>.delayed(
+        Duration.zero,
+        () => ref.read(appControllerProvider.notifier).lock(),
+      ),
+    );
+  }
+
+  Future<String?> _switchIdentity(String label) async {
+    final app = ref.read(appControllerProvider);
+    if (!app.isMaster) return 'not a master space';
+    if (!app.identities.contains(label)) return 'unknown identity';
+    if (app.activeIdentity == label) return null;
+    await ref.read(appControllerProvider.notifier).switchIdentity(label);
+    // switchIdentity reports through state, not a return value: a refusal
+    // leaves the active label untouched.
+    return ref.read(appControllerProvider).activeIdentity == label
+        ? null
+        : 'identity switch refused';
+  }
+
   Future<List<Map<String, dynamic>>> _contacts() async {
     final convos =
         ref.read(conversationsProvider).value ?? const <Conversation>[];
@@ -578,6 +621,9 @@ class ApiServerController extends Notifier<ApiConfig> {
     final handler = ApiHandler(
       tokens: state.tokens,
       status: _status,
+      account: _account,
+      lockAccount: _lock,
+      switchIdentity: _switchIdentity,
       contacts: _contacts,
       requestContact: _requestContact,
       contactAction: _contactAction,
