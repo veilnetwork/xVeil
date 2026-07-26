@@ -595,6 +595,7 @@
   "cloudModeIndexHint": "Показывать индекс, содержимое загружать по запросу",
   "cloudLocal": "на устройстве",
   "cloudRemote": "в облаке",
+  "cloudChangedElsewhere": "изменено на другом устройстве",
   "cloudUsage": "Занятое место",
   "cloudUsageOnThisDevice": "На этом устройстве",
   "cloudUsageInCloud": "Всё в индексе",
