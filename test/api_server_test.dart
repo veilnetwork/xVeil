@@ -81,6 +81,7 @@ void main() {
     bool groupMediaAvailable = true,
     bool accountAvailable = true,
     bool cloudAvailable = true,
+    bool inviteAvailable = true,
   }) {
     accountLocked = false;
     activeIdentity = 'personal';
@@ -177,6 +178,9 @@ void main() {
               cloudDeletes.add(id);
               return null;
             },
+      accountInvite: !accountAvailable
+          ? null
+          : () async => inviteAvailable ? 'veil:bootstrap?pk=AAA&a=ed25519' : null,
       account: !accountAvailable
           ? null
           : () async => {
@@ -1210,6 +1214,51 @@ void main() {
         reason: route,
       );
     }
+  });
+
+  test('a running daemon can show who it is, so it can be added', () async {
+    final h = make();
+    final r = await h.handle(
+      'GET',
+      Uri.parse('/v1/account/invite'),
+      'Bearer secret-token',
+    );
+    expect(r.status, 200);
+    expect(
+      (r.body! as Map)['invite'],
+      startsWith('veil:bootstrap?'),
+      reason: 'without this a bot can only ASK, never be added',
+    );
+
+    final readOnly = await make(readOnly: true).handle(
+      'GET',
+      Uri.parse('/v1/account/invite'),
+      'Bearer secret-token',
+    );
+    expect(
+      readOnly.status,
+      200,
+      reason: 'the invite is the public half; reading it changes nothing',
+    );
+
+    final booting = await make(inviteAvailable: false).handle(
+      'GET',
+      Uri.parse('/v1/account/invite'),
+      'Bearer secret-token',
+    );
+    expect(
+      booting.status,
+      503,
+      reason: 'a node still coming up has no invite yet — not the same as a '
+          'host that never serves one',
+    );
+
+    final absent = await make(accountAvailable: false).handle(
+      'GET',
+      Uri.parse('/v1/account/invite'),
+      'Bearer secret-token',
+    );
+    expect(absent.status, 501);
   });
 
   test('the account surface reports, switches identity and locks', () async {

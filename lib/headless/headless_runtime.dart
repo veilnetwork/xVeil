@@ -283,6 +283,9 @@ class HeadlessRuntime {
           'api': 'v1',
           'host': 'headless',
         },
+        // The daemon's own invite: without it a running bot can only ever
+        // ASK for a contact, never be added by the person running it.
+        accountInvite: () async => stack!.myInvite.toUri(),
         contacts: () => _contacts(storage),
         requestContact: (target, greeting) =>
             _requestContact(stack!, messaging!, target, greeting),
@@ -518,16 +521,27 @@ class HeadlessRuntime {
     jsonEncode(tokens.map((t) => t.toJson()).toList()),
   );
 
+  /// Every contact, INCLUDING the ones still waiting on an answer.
+  ///
+  /// Listing only accepted contacts left a daemon unable to see that somebody
+  /// had asked to reach it: the request arrives, but nothing in the API says
+  /// so, and accepting needs a node id the operator had no way to learn. A bot
+  /// that cannot notice it is being added is a bot nobody can add.
+  ///
+  /// `status` is carried explicitly so a caller that only wants the ones it
+  /// can message still can — it is the same word the app's own projection
+  /// uses.
   static Future<List<Map<String, dynamic>>> _contacts(
     HiddenVolumeStorage storage,
   ) async => [
     for (final c in await storage.loadConversations())
-      if (c.peer.status == ContactStatus.accepted)
-        {
-          'nodeId': c.peer.nodeId.hex,
-          'short': c.peer.nodeId.short,
-          if (c.peer.name != null) 'name': c.peer.name,
-        },
+      {
+        'nodeId': c.peer.nodeId.hex,
+        'short': c.peer.nodeId.short,
+        if (c.peer.name != null) 'name': c.peer.name,
+        'status': c.peer.status.name,
+        'canMessage': c.peer.status == ContactStatus.accepted,
+      },
   ];
 
   static Future<String?> _send(
