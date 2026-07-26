@@ -144,6 +144,22 @@ void main() {
       final temp = await Directory(
         '/tmp',
       ).createTemp('xveil-public-discovery-live-');
+      // Every directory here inherits the umask, and a distro that ships 002
+      // (Ubuntu does) leaves them group-writable. The node then refuses to
+      // bind its admin socket — a group-writable parent lets someone else
+      // pre-create the socket path — and the test fails as "did not
+      // converge", which is the one thing it does not mean. Pre-create the
+      // runtime dirs at 700 rather than depend on whose machine this runs on.
+      Future<void> tighten(String path) async {
+        await Directory(path).create(recursive: true);
+        if (!Platform.isWindows) await Process.run('chmod', ['700', path]);
+      }
+
+      await tighten(temp.path);
+      for (final label in const ['genesis', 'publisher', 'reader']) {
+        await tighten('${temp.path}/$label');
+        await tighten('${temp.path}/$label/runtime');
+      }
       HeadlessRuntime? genesis;
       HeadlessRuntime? publisher;
       HeadlessRuntime? reader;
