@@ -7,8 +7,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_server.dart';
+import '../api/cloud_api_adapter.dart';
 import '../api/group_api_adapter.dart';
 import '../core/ids.dart';
+import 'cloud_service.dart';
 import '../data/serve_source.dart';
 import '../data/transport/bootstrap_invite.dart';
 import '../domain/call_signal.dart' show CallMedia;
@@ -618,7 +620,17 @@ class ApiServerController extends Notifier<ApiConfig> {
     final groupCalls = groupService == null
         ? null
         : ref.read(groupCallServiceProvider);
+    final cloud = ref.read(cloudServiceProvider);
+    final cloudApi = cloud == null
+        ? null
+        : CloudApiAdapter(cloud, loadFile: ref.read(storageProvider).loadFile);
     final handler = ApiHandler(
+      cloudItems: cloudApi?.items,
+      cloudFolders: cloudApi?.folders,
+      cloudUsage: cloudApi?.usage,
+      cloudFile: cloudApi?.file,
+      saveCloudNote: cloudApi?.saveNote,
+      deleteCloudItem: cloudApi?.deleteItem,
       tokens: state.tokens,
       status: _status,
       account: _account,
