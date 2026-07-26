@@ -7780,10 +7780,29 @@ class GroupService {
   /// single setting: an inline image attachment can push the JSON well past the
   /// ~4 KB single-setting cap (HvException.PayloadTooLarge). Falls back to the
   /// legacy settings key for groups written before the store moved.
+  /// Bundle writes in flight, by store key. A read that lands inside one
+  /// would see the store's documented "unknown OR INCOMPLETE" null and report
+  /// the group as missing — see [_loadBundleRaw].
+  final Map<String, Future<void>> _bundleWrites = {};
+
   Future<String?> _loadBundleRaw(NodeId groupId) async {
-    final blob = await _storage.loadFile(_key(groupId));
+    final key = _key(groupId);
+    // Wait out any replacement of this bundle first. storeFile is not atomic
+    // to readers, and loadFile answers null for a half-written file exactly as
+    // it does for one that never existed. Callers cannot tell those apart, so
+    // a read racing a save made the group vanish: deviceSyncRecords then
+    // answered "no records" and cloud reconcile applied nothing at all —
+    // measured on the stand as convergence at one row per ten minutes
+    // (2026-07-27). The loop re-checks because a second save can start while
+    // we await the first.
+    while (true) {
+      final pending = _bundleWrites[key];
+      if (pending == null) break;
+      await pending;
+    }
+    final blob = await _storage.loadFile(key);
     if (blob != null) return utf8.decode(blob);
-    return _storage.getSetting(_key(groupId));
+    return _storage.getSetting(key);
   }
 
   /// Every way this returns null says the group does not exist, and callers
@@ -7966,16 +7985,34 @@ class GroupService {
       if (b.retentionCuts.isNotEmpty)
         'rcut': [for (final cut in b.retentionCuts.values) cut.toJson()],
     });
+    // Published while the two writes below are in flight so a concurrent read
+    // waits for the new bytes instead of reading the half-replaced blob as a
+    // missing group.
+    final key = _key(b.manifest.groupId);
+    final write = _writeBundleBytes(key, b, json);
+    _bundleWrites[key] = write;
+    try {
+      await write;
+    } finally {
+      if (identical(_bundleWrites[key], write)) _bundleWrites.remove(key);
+    }
+    if (notify) changes.value++;
+  }
+
+  Future<void> _writeBundleBytes(
+    String key,
+    GroupBundle b,
+    String json,
+  ) async {
     // Hint first: a crash between the two writes may only claim MORE than
     // the stored blob (e.g. a retention row the old blob lacks), which makes
     // maintenance load the bundle — never skip one it must enforce.
     await _writeGroupKindHint(b.manifest.groupId.hex, _computeGroupKindHint(b));
     await _storage.storeFile(
-      _key(b.manifest.groupId),
+      key,
       Uint8List.fromList(utf8.encode(json)),
       name: 'group',
     );
-    if (notify) changes.value++;
   }
 
   Map<String, int>? _decodeContentGcMarks(Uint8List raw) {
