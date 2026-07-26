@@ -481,14 +481,20 @@ class CloudMemberContentClient {
       );
     }
 
-    /// One chunk, retried. The anonymous path drops requests silently — twice
-    /// on the live stand a fetch died with the host's counters showing that
-    /// barely any of the requests had reached it at all, and an immediate
-    /// retry of the whole file then succeeded. Without this a single lost
-    /// datagram throws away every chunk already pulled, which on a file of any
-    /// size is minutes of work. Each attempt carries a fresh nonce, so a
-    /// retry is a new request rather than a duplicate the host might match
-    /// against the abandoned one.
+    /// One chunk, retried — the retry the anonymous send path is built to
+    /// expect. `send_anonymous_onion` is fire-and-forget on purpose: when the
+    /// first hop has no live session, or its TX queue is full, the cell is
+    /// dropped and the send still reports success, because a synchronous error
+    /// would tell a sender-side observer whether that hop is reachable. Its own
+    /// comment says such a send "may be lost until an app-layer retry" — this
+    /// is that retry, and nothing below this layer will ever supply it.
+    ///
+    /// Seen twice while measuring, both with the host idle and its counters
+    /// proving the requests never arrived; the full-queue case is why loss
+    /// climbs with [_chunkWindow]. Without this a single dropped cell throws
+    /// away every chunk already pulled — minutes of work on any real file.
+    /// Each attempt carries a fresh nonce, so a retry is a new request rather
+    /// than a duplicate the host might match against the abandoned one.
     Future<Uint8List> fetchChunk(int piece, int chunk) async {
       for (var attempt = 0; ; attempt++) {
         try {
