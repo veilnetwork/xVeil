@@ -323,6 +323,12 @@ class CloudMemberContentHost {
 /// arrive, and a wide window would trade waiting for loss.
 const int _chunkWindow = 4;
 
+/// Extra attempts per chunk before the whole fetch gives up. Two: the observed
+/// silent drops cleared on the very next try, and a deeper budget would let a
+/// genuinely unreachable host hold the caller for minutes per chunk instead of
+/// failing while the answer is still useful.
+const int _chunkRetries = 2;
+
 class CloudMemberContentClient {
   CloudMemberContentClient({
     required this.documentId,
@@ -399,70 +405,88 @@ class CloudMemberContentClient {
     final contentIdBytes = _contentIdBytes(manifest.contentId);
     var total = 0;
 
-    /// One chunk: arm the matcher, send, decrypt. Safe to run concurrently —
-    /// a reply is matched on (piece, chunk, nonce), unique per call, so
-    /// replies may arrive in any order.
+    /// One attempt at one chunk: arm the matcher, send, decrypt. Safe to run
+    /// concurrently — a reply is matched on (piece, chunk, nonce), unique per
+    /// call, so replies may arrive in any order.
+    Future<Uint8List> attemptChunk(int piece, int chunk) async {
+      final nonce = _randomBytes(16);
+      final mac = CloudCapabilityCodec.requestMac(
+        capability: capability,
+        returnServicePublicKey: returnServicePublicKey,
+        returnAppId: returnAppId,
+        returnEndpointId: returnEndpointId,
+        pieceIndex: piece,
+        chunkIndex: chunk,
+        requestNonce: nonce,
+      );
+      final request = _MemberFileRequest(
+        documentId: documentId,
+        contentId: contentIdBytes,
+        returnServicePublicKey: returnServicePublicKey,
+        returnAppId: returnAppId,
+        returnEndpointId: returnEndpointId,
+        pieceIndex: piece,
+        chunkIndex: chunk,
+        nonce: nonce,
+        mac: mac,
+      );
+      final pending = incoming
+          .map(_MemberChunkResponse.parse)
+          .where(
+            (response) =>
+                response != null &&
+                _equal(response.documentId, documentId) &&
+                _equal(response.contentId, contentIdBytes) &&
+                response.pieceIndex == piece &&
+                response.chunkIndex == chunk &&
+                _equal(response.nonce, nonce),
+          )
+          .cast<_MemberChunkResponse>()
+          .first;
+      // Armed before the send so a fast reply cannot arrive unlistened, but
+      // the deadline is started only once the request is actually on the
+      // wire. Sends leave one at a time, so a clock started at arming time
+      // charges every chunk for the queueing of the ones ahead of it — with
+      // several in flight the last of them can burn its whole budget before
+      // it is even sent.
+      Object? sendError;
+      try {
+        await _send(request.encode());
+      } catch (error) {
+        sendError = error;
+      }
+      if (sendError != null) {
+        // The matcher is already listening; give it the same deadline so it
+        // completes and releases its subscription instead of lingering as an
+        // unhandled async error once a reply (or nothing) turns up.
+        unawaited(pending.timeout(_timeout).then((_) {}, onError: (_) {}));
+        throw sendError;
+      }
+      final response = await pending.timeout(_timeout);
+      return CloudCapabilityCodec.openChunk(
+        capability: capability,
+        pieceIndex: piece,
+        chunkIndex: chunk,
+        sealed: response.sealed,
+      );
+    }
+
+    /// One chunk, retried. The anonymous path drops requests silently — twice
+    /// on the live stand a fetch died with the host's counters showing that
+    /// barely any of the requests had reached it at all, and an immediate
+    /// retry of the whole file then succeeded. Without this a single lost
+    /// datagram throws away every chunk already pulled, which on a file of any
+    /// size is minutes of work. Each attempt carries a fresh nonce, so a
+    /// retry is a new request rather than a duplicate the host might match
+    /// against the abandoned one.
     Future<Uint8List> fetchChunk(int piece, int chunk) async {
-        final nonce = _randomBytes(16);
-        final mac = CloudCapabilityCodec.requestMac(
-          capability: capability,
-          returnServicePublicKey: returnServicePublicKey,
-          returnAppId: returnAppId,
-          returnEndpointId: returnEndpointId,
-          pieceIndex: piece,
-          chunkIndex: chunk,
-          requestNonce: nonce,
-        );
-        final request = _MemberFileRequest(
-          documentId: documentId,
-          contentId: contentIdBytes,
-          returnServicePublicKey: returnServicePublicKey,
-          returnAppId: returnAppId,
-          returnEndpointId: returnEndpointId,
-          pieceIndex: piece,
-          chunkIndex: chunk,
-          nonce: nonce,
-          mac: mac,
-        );
-        final pending = incoming
-            .map(_MemberChunkResponse.parse)
-            .where(
-              (response) =>
-                  response != null &&
-                  _equal(response.documentId, documentId) &&
-                  _equal(response.contentId, contentIdBytes) &&
-                  response.pieceIndex == piece &&
-                  response.chunkIndex == chunk &&
-                  _equal(response.nonce, nonce),
-            )
-            .cast<_MemberChunkResponse>()
-            .first;
-        // Armed before the send so a fast reply cannot arrive unlistened, but
-        // the deadline is started only once the request is actually on the
-        // wire. Sends leave one at a time, so a clock started at arming time
-        // charges every chunk for the queueing of the ones ahead of it — with
-        // several in flight the last of them can burn its whole budget before
-        // it is even sent.
-        Object? sendError;
+      for (var attempt = 0; ; attempt++) {
         try {
-          await _send(request.encode());
-        } catch (error) {
-          sendError = error;
+          return await attemptChunk(piece, chunk);
+        } on TimeoutException {
+          if (attempt >= _chunkRetries) rethrow;
         }
-        if (sendError != null) {
-          // The matcher is already listening; give it the same deadline so it
-          // completes and releases its subscription instead of lingering as an
-          // unhandled async error once a reply (or nothing) turns up.
-          unawaited(pending.timeout(_timeout).then((_) {}, onError: (_) {}));
-          throw sendError;
-        }
-        final response = await pending.timeout(_timeout);
-        return CloudCapabilityCodec.openChunk(
-          capability: capability,
-          pieceIndex: piece,
-          chunkIndex: chunk,
-          sealed: response.sealed,
-        );
+      }
     }
 
     for (var piece = 0; piece < manifest.pieceCount; piece++) {
@@ -471,8 +495,9 @@ class CloudMemberContentClient {
       // Batched rather than one-at-a-time: each chunk costs a full anonymous
       // round trip, so a serial loop idled through nearly all of it.
       for (var start = 0; start < chunks; start += _chunkWindow) {
-        final end =
-            (start + _chunkWindow) < chunks ? start + _chunkWindow : chunks;
+        final end = (start + _chunkWindow) < chunks
+            ? start + _chunkWindow
+            : chunks;
         final batch = await Future.wait([
           for (var c = start; c < end; c++) fetchChunk(piece, c),
         ]);
