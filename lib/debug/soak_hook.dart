@@ -698,6 +698,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/space_channel_create':
           await _spaceChannelCreate(req);
           return;
+        case '/space_channel_keys':
+          await _spaceChannelKeys(req);
+          return;
         case '/space_retention_set':
           await _spaceRetentionSet(req);
           return;
@@ -6196,6 +6199,53 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     } catch (error) {
       await _json(req, {'ok': false, 'error': '$error'}, status: 500);
     }
+  }
+
+  /// Stand observer: which key epoch each protected channel is on, and who it
+  /// is encrypted to (`?space=`).
+  ///
+  /// A protected channel's key changes silently by design — no message, no
+  /// visible state — so on a device there was nothing to look at, and neither
+  /// rotation nor the staleness sweep could be checked anywhere but a test.
+  /// Epoch plus recipients is the whole observable: rotation moves the first
+  /// and leaves the second alone, a membership edit moves both.
+  Future<void> _spaceChannelKeys(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final service = ref.read(groupServiceProvider);
+    final spaceHex = req.uri.queryParameters['space'];
+    if (service == null || spaceHex == null) {
+      return _json(req, {
+        'ok': false,
+        'error': 'space required',
+      }, status: service == null ? 409 : 400);
+    }
+    final NodeId spaceId;
+    try {
+      spaceId = NodeId.fromHex(spaceHex);
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'bad id'}, status: 400);
+    }
+    final state = await service.stateOf(spaceId);
+    if (state == null) {
+      return _json(req, {'ok': false, 'error': 'no such space'}, status: 404);
+    }
+    final channels = <Map<String, dynamic>>[];
+    for (final opaque in state.protectedChannels.values) {
+      final members = await service.channelMembersOf(spaceId, opaque.channelId);
+      channels.add({
+        'channelId': opaque.channelId.hex,
+        'epoch': opaque.channelEpoch,
+        // Null when this device cannot open the channel; an empty list would
+        // read as "nobody", which is a different and false claim.
+        'members': members?.map((member) => member.hex).toList(),
+      });
+    }
+    channels.sort(
+      (left, right) => (left['channelId'] as String).compareTo(
+        right['channelId'] as String,
+      ),
+    );
+    await _json(req, {'ok': true, 'channels': channels});
   }
 
   /// Stand driver: set a bounded Space retention policy
