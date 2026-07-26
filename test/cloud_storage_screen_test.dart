@@ -66,6 +66,9 @@ class _Sync implements CloudSyncPort {
   }
 
   @override
+  void vouchForContent(Future<Set<String>> Function() ids) {}
+
+  @override
   Future<bool> fetch(String contentId, NodeId holder) async => false;
 
   @override

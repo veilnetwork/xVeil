@@ -24,9 +24,15 @@ class _FakeSync implements CloudSyncPort {
   final List<DeviceSyncRecord> rows;
   final StreamController<void> controller = StreamController.broadcast();
   final List<(String, NodeId)> fetches = [];
+  final Set<String> attachments = {};
+  Future<Set<String>> Function()? vouched;
   List<NodeId> memberList = [];
   bool connected = true;
   bool throwPosts = false;
+
+  /// Off by default so tests about WHOM we ask stay about that. Turn it on to
+  /// assert the holder would actually answer.
+  bool enforceContentScope = false;
   Completer<bool>? postGate;
 
   @override
@@ -41,6 +47,11 @@ class _FakeSync implements CloudSyncPort {
     if (!connected) return false;
     final gate = postGate;
     if (gate != null) return gate.future;
+    // Mirrors GroupCloudSyncPort.postItem: the row carries the item's content
+    // as its attachment, and that reference is what authorizes the pull.
+    if (!item.deleted && item.contentId != null) {
+      attachments.add(item.contentId!);
+    }
     rows.add((event: item.toEvent(), author: selfId));
     controller.add(null);
     return true;
@@ -72,9 +83,22 @@ class _FakeSync implements CloudSyncPort {
   Future<List<NodeId>> members() async => [...memberList];
 
   @override
+  void vouchForContent(Future<Set<String>> Function() ids) => vouched = ids;
+
+  /// The set of ids the holding device would agree to serve. Modelling this
+  /// is the whole point: the old fake said yes to everything, so a preview
+  /// that no row referenced looked fetchable here and was refused on a real
+  /// pair of devices.
+  Future<Set<String>> authorizedContent() async => {
+    ...attachments,
+    ...?await vouched?.call(),
+  };
+
+  @override
   Future<bool> fetch(String contentId, NodeId holder) async {
     fetches.add((contentId, holder));
-    return true;
+    if (!enforceContentScope) return true;
+    return (await authorizedContent()).contains(contentId);
   }
 
   @override
@@ -1723,4 +1747,70 @@ void main() {
       await storage.close();
     },
   );
+
+  test('the holding device is told which previews it may serve', () async {
+    final container = FakeHvContainer();
+    final storage = container.storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final self = _id(1);
+    final sibling = _id(2);
+    final sync = _FakeSync(self)
+      ..memberList = [self, sibling]
+      ..enforceContentScope = true;
+    final received = StreamController<String>.broadcast();
+    var clock = 1000;
+    final service = CloudService(
+      storage,
+      sync,
+      contentReceived: received.stream,
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () => 'pic-3',
+      integrityChecks: false,
+    );
+
+    final thumbId = 'c' * 64;
+    final remote = CloudItem(
+      id: 'pic-3',
+      kind: CloudItemKind.file,
+      name: 'photo.jpg',
+      contentId: 'd' * 64,
+      size: 4096,
+      mime: 'image/jpeg',
+      createdAtMs: 900,
+      modifiedAtMs: 900,
+      revision: 1,
+      deleted: false,
+      thumbContentId: thumbId,
+    );
+    sync.rows.add((event: remote.toEvent(), author: sibling));
+
+    // Nothing in the device log names a preview: it is stored under its own
+    // hash and no row carries it as an attachment. Unless this layer says so,
+    // the holder refuses and the picture never crosses.
+    expect(
+      await service.ensureThumbnail(remote),
+      isTrue,
+      reason: 'the preview of a row in the index is servable',
+    );
+    expect(await sync.authorizedContent(), contains(thumbId));
+
+    // The vouching is exactly as wide as the index and no wider.
+    expect(
+      await sync.authorizedContent(),
+      isNot(contains('e' * 64)),
+      reason: 'an id no row points at buys nothing',
+    );
+
+    // A tombstone withdraws it: a deleted row stops vouching for its preview.
+    await service.deleteItem('pic-3');
+    expect(
+      await sync.authorizedContent(),
+      isNot(contains(thumbId)),
+      reason: 'the preview of a deleted row is no longer served',
+    );
+
+    await service.close();
+    await received.close();
+    await storage.close();
+  });
 }
