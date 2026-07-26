@@ -1592,4 +1592,67 @@ void main() {
       await storage.close();
     },
   );
+
+  test(
+    'an import-time preview is stored, replicated and survives a move',
+    () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final sync = _FakeSync(_id(1));
+      final received = StreamController<String>.broadcast();
+      var clock = 1000;
+      final service = CloudService(
+        storage,
+        sync,
+        contentReceived: received.stream,
+        now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+        newId: () => 'pic-1',
+        integrityChecks: false,
+      );
+
+      final bytes = Uint8List.fromList(List.generate(4096, (i) => i & 0xff));
+      final thumb = Uint8List.fromList(
+        List.generate(128, (i) => (i * 3) & 0xff),
+      );
+      final item = await service.importContent(
+        name: 'photo.jpg',
+        size: bytes.length,
+        mime: 'image/jpeg',
+        readRange: (offset, length) async =>
+            Uint8List.sublistView(bytes, offset, offset + length),
+        thumbnail: thumb,
+      );
+
+      expect(item.thumbContentId, isNotNull);
+      expect(await service.loadThumbnail(item), thumb);
+      expect(
+        CloudItem.fromEvent(item.toEvent())!.thumbContentId,
+        item.thumbContentId,
+        reason:
+            'the preview travels with the row, so other devices learn of it',
+      );
+
+      // Moving must not cost the preview.
+      final folder = await service.createFolder('Album');
+      final moved = await service.moveItemToFolder(item.id, folder.id);
+      expect(moved.thumbContentId, item.thumbContentId);
+
+      // An oversized "preview" is refused rather than stored.
+      final huge = Uint8List(CloudService.maxThumbnailBytes + 1);
+      final second = await service.importContent(
+        name: 'other.jpg',
+        size: bytes.length,
+        mime: 'image/jpeg',
+        readRange: (offset, length) async =>
+            Uint8List.sublistView(bytes, offset, offset + length),
+        thumbnail: huge,
+      );
+      expect(second.thumbContentId, isNull);
+
+      await service.close();
+      await received.close();
+      await storage.close();
+    },
+  );
 }
