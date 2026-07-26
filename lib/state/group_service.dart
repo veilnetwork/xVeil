@@ -7786,13 +7786,31 @@ class GroupService {
     return _storage.getSetting(_key(groupId));
   }
 
+  /// Every way this returns null says the group does not exist, and callers
+  /// act on that: a failed load makes [deviceSyncRecords] answer "no records",
+  /// which makes cloud reconcile apply nothing at all. So each refusal names
+  /// itself — a silent null here reads downstream as a missing group and cost
+  /// an evening of looking in the wrong place (2026-07-27).
+  void _loadRefused(NodeId groupId, String why) => devLog(
+    () => 'xVeil[group]: load ${groupId.short} refused — $why',
+  );
+
   Future<GroupBundle?> load(NodeId groupId) async {
     final raw = await _loadBundleRaw(groupId);
-    if (raw == null) return null;
+    if (raw == null) {
+      _loadRefused(groupId, 'no bundle in the file store nor the legacy key');
+      return null;
+    }
     try {
       final d = jsonDecode(raw) as Map<String, dynamic>;
       final manifest = GroupManifest.fromJson(d['m']);
-      if (manifest == null || !_validManifest(manifest)) return null;
+      if (manifest == null || !_validManifest(manifest)) {
+        _loadRefused(
+          groupId,
+          manifest == null ? 'manifest did not parse' : 'manifest is invalid',
+        );
+        return null;
+      }
       final control = (d['c'] as List? ?? const [])
           .map(ControlEntry.fromJson)
           .whereType<ControlEntry>()
@@ -7863,7 +7881,10 @@ class GroupService {
       final sovereignBundle = d['s'] is String
           ? Uint8List.fromList(base64Decode(d['s'] as String))
           : null;
-      if (!_validSovereignBundle(manifest, sovereignBundle)) return null;
+      if (!_validSovereignBundle(manifest, sovereignBundle)) {
+        _loadRefused(groupId, 'sovereign bundle did not verify');
+        return null;
+      }
       final retentionCuts = <String, SpaceRetentionCut>{};
       for (final raw in d['rcut'] as List? ?? const []) {
         final cut = SpaceRetentionCut.fromJson(raw);
@@ -7903,7 +7924,11 @@ class GroupService {
         sovereignBundle: sovereignBundle,
         retentionCuts: retentionCuts,
       );
-    } catch (_) {
+    } catch (error) {
+      // A throw here is indistinguishable from "no such group" to every
+      // caller, so it must not be silent: a transient store read is the one
+      // failure that looks like a deleted group and heals by itself.
+      _loadRefused(groupId, 'threw while decoding: $error');
       return null;
     }
   }
