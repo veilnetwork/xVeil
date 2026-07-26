@@ -220,4 +220,71 @@ void main() {
     );
     await hostToClient.close();
   });
+
+  test(
+    'a slow send does not spend the reply budget of the chunks behind it',
+    () async {
+      // Several chunk requests are put in flight before any reply is awaited,
+      // and sends leave one at a time. A deadline armed when the matcher is
+      // attached — rather than when the request actually goes out — charges
+      // every chunk for the sends queued ahead of it, so the tail of a window
+      // expired before it had even been asked for. Here each send costs more
+      // than half the per-chunk budget, which only a deadline started after the
+      // send can survive.
+      final storage = _Storage();
+      final bytes = Uint8List.fromList(
+        List.generate(2048, (i) => (i * 7) & 0xff),
+      );
+      final manifest = ContentManifest.fromBytes(
+        'slow.bin',
+        bytes,
+        pieceSize: 2048,
+      );
+      storage.files[manifest.contentId] = bytes;
+      final hostToClient = StreamController<Uint8List>.broadcast();
+      final host = CloudMemberContentHost(
+        documentId: documentId,
+        servicePublicKey: servicePublicKey,
+        appId: appId,
+        endpointId: endpointId,
+        expiresAtMs: expiresAtMs,
+        storage: storage,
+        epochKey: epoch1,
+        servable: [manifest],
+        send:
+            ({
+              required servicePublicKey,
+              required targetAppId,
+              required targetEndpointId,
+              required data,
+            }) async => hostToClient.add(data),
+      );
+      var sends = Future<void>.value();
+      Future<void> slowSerialSend(Uint8List data) {
+        sends = sends.then((_) async {
+          await Future<void>.delayed(const Duration(milliseconds: 60));
+          unawaited(host.serve(data));
+        });
+        return sends;
+      }
+
+      final member = CloudMemberContentClient(
+        documentId: documentId,
+        epochKey: epoch1,
+        servicePublicKey: servicePublicKey,
+        appId: appId,
+        endpointId: endpointId,
+        expiresAtMs: expiresAtMs,
+        returnServicePublicKey: Uint8List.fromList(List.filled(32, 3)),
+        returnAppId: Uint8List.fromList(List.filled(32, 4)),
+        returnEndpointId: 48,
+        incoming: hostToClient.stream,
+        send: slowSerialSend,
+        timeout: const Duration(milliseconds: 150),
+        randomBytes: _counterBytes(),
+      );
+      expect(await member.fetchFile(manifest), bytes);
+      await hostToClient.close();
+    },
+  );
 }
