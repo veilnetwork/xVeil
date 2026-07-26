@@ -315,6 +315,14 @@ class CloudMemberContentHost {
 
 /// Fetches one file's bytes from a member content host, proving membership
 /// with the current epoch key and verifying every chunk + the manifest piece.
+/// Chunk requests kept in flight at once while pulling one piece.
+///
+/// Every chunk is a full anonymous round trip (~11 s measured), so a serial
+/// loop spent almost all of its time waiting. Small on purpose: the 256-byte
+/// chunk size exists because a chunk fragments into onion cells that must ALL
+/// arrive, and a wide window would trade waiting for loss.
+const int _chunkWindow = 4;
+
 class CloudMemberContentClient {
   CloudMemberContentClient({
     required this.documentId,
@@ -390,10 +398,11 @@ class CloudMemberContentClient {
     );
     final contentIdBytes = _contentIdBytes(manifest.contentId);
     var total = 0;
-    for (var piece = 0; piece < manifest.pieceCount; piece++) {
-      final clearPiece = BytesBuilder(copy: false);
-      final chunks = CloudCapabilityCodec.chunkCount(capability, piece);
-      for (var chunk = 0; chunk < chunks; chunk++) {
+
+    /// One chunk: arm the matcher, send, decrypt. Safe to run concurrently —
+    /// a reply is matched on (piece, chunk, nonce), unique per call, so
+    /// replies may arrive in any order.
+    Future<Uint8List> fetchChunk(int piece, int chunk) async {
         final nonce = _randomBytes(16);
         final mac = CloudCapabilityCodec.requestMac(
           capability: capability,
@@ -427,18 +436,49 @@ class CloudMemberContentClient {
                   _equal(response.nonce, nonce),
             )
             .cast<_MemberChunkResponse>()
-            .first
-            .timeout(_timeout);
-        await _send(request.encode());
-        final response = await pending;
-        clearPiece.add(
-          await CloudCapabilityCodec.openChunk(
-            capability: capability,
-            pieceIndex: piece,
-            chunkIndex: chunk,
-            sealed: response.sealed,
-          ),
+            .first;
+        // Armed before the send so a fast reply cannot arrive unlistened, but
+        // the deadline is started only once the request is actually on the
+        // wire. Sends leave one at a time, so a clock started at arming time
+        // charges every chunk for the queueing of the ones ahead of it — with
+        // several in flight the last of them can burn its whole budget before
+        // it is even sent.
+        Object? sendError;
+        try {
+          await _send(request.encode());
+        } catch (error) {
+          sendError = error;
+        }
+        if (sendError != null) {
+          // The matcher is already listening; give it the same deadline so it
+          // completes and releases its subscription instead of lingering as an
+          // unhandled async error once a reply (or nothing) turns up.
+          unawaited(pending.timeout(_timeout).then((_) {}, onError: (_) {}));
+          throw sendError;
+        }
+        final response = await pending.timeout(_timeout);
+        return CloudCapabilityCodec.openChunk(
+          capability: capability,
+          pieceIndex: piece,
+          chunkIndex: chunk,
+          sealed: response.sealed,
         );
+    }
+
+    for (var piece = 0; piece < manifest.pieceCount; piece++) {
+      final clearPiece = BytesBuilder(copy: false);
+      final chunks = CloudCapabilityCodec.chunkCount(capability, piece);
+      // Batched rather than one-at-a-time: each chunk costs a full anonymous
+      // round trip, so a serial loop idled through nearly all of it.
+      for (var start = 0; start < chunks; start += _chunkWindow) {
+        final end =
+            (start + _chunkWindow) < chunks ? start + _chunkWindow : chunks;
+        final batch = await Future.wait([
+          for (var c = start; c < end; c++) fetchChunk(piece, c),
+        ]);
+        for (final clear in batch) {
+          clearPiece.add(clear);
+        }
       }
       final bytes = clearPiece.toBytes();
       if (!manifest.verifyPiece(piece, bytes)) {
