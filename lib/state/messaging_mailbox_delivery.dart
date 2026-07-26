@@ -113,7 +113,9 @@ class _MessagingMailboxDelivery {
         devLog(
           () =>
               'xVeil[send]: stash FAILED dst=${peer.short} id=$id '
-              '(backoff ${_retryBackoff.inSeconds}s): $error\n$stackTrace',
+              '(backoff ${_peerUnresolvedBackoff[peer.hex]?.nextAt.difference(DateTime.now()).inSeconds ?? _retryBackoff.inSeconds}s, '
+              'attempt ${_peerUnresolvedBackoff[peer.hex]?.count ?? 0}): '
+              '$error\n$stackTrace',
         );
       }
     } finally {
