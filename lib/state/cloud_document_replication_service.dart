@@ -1158,11 +1158,17 @@ class CloudDocumentReplicationService {
 
   /// Documents currently hosting member content, with their served cids —
   /// diagnostics for hooks/tests only.
-  Map<String, ({int epoch, List<String> servable})> memberHostDiagnostics() => {
+  Map<String, ({int epoch, List<String> servable, int seen, int answered})>
+  memberHostDiagnostics() => {
     for (final entry in _memberHosts.entries)
       entry.key: (
         epoch: entry.value.epoch,
         servable: entry.value.host.servableContentIds,
+        // Denials in the host are silent by design, so a host that received a
+        // request for content it lacks looks exactly like one the network
+        // never reached. These two separate the cases.
+        seen: entry.value.host.requestsSeen,
+        answered: entry.value.host.requestsAnswered,
       ),
   };
 
