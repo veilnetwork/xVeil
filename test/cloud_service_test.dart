@@ -1655,4 +1655,63 @@ void main() {
       await storage.close();
     },
   );
+
+  test(
+    'a preview is pulled even on a device that keeps only the index',
+    () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final self = _id(1);
+      final sibling = _id(2);
+      final sync = _FakeSync(self)..memberList = [self, sibling];
+      final received = StreamController<String>.broadcast();
+      var clock = 1000;
+      final service = CloudService(
+        storage,
+        sync,
+        contentReceived: received.stream,
+        now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+        newId: () => 'pic-2',
+        integrityChecks: false,
+      );
+      // "Index only" is a statement about CONTENT. A preview is a few kilobytes
+      // and exists so this device can show what it is not storing.
+      await service.setProfile(
+        const CloudReplicationProfile(mode: CloudReplicationMode.indexOnly),
+      );
+
+      final thumbId = 'a' * 64;
+      final remote = CloudItem(
+        id: 'pic-2',
+        kind: CloudItemKind.file,
+        name: 'photo.jpg',
+        contentId: 'b' * 64,
+        size: 4096,
+        mime: 'image/jpeg',
+        createdAtMs: 900,
+        modifiedAtMs: 900,
+        revision: 1,
+        deleted: false,
+        thumbContentId: thumbId,
+      );
+      sync.rows.add((event: remote.toEvent(), author: sibling));
+
+      expect(await service.ensureThumbnail(remote), isTrue);
+      expect(
+        sync.fetches.map((f) => f.$1),
+        contains(thumbId),
+        reason: 'the preview was asked for, not the file',
+      );
+      expect(
+        sync.fetches.map((f) => f.$1),
+        isNot(contains(remote.contentId)),
+        reason: 'and the content this device declined to keep was left alone',
+      );
+
+      await service.close();
+      await received.close();
+      await storage.close();
+    },
+  );
 }
