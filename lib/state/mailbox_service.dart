@@ -110,11 +110,17 @@ class MailboxService implements MailboxSink {
   // ---- Conversation burst window ("hot" mode) ----------------------------
   // Dialogs are bursty: after one message, the next usually follows within
   // seconds. While hot, the drain polls at [hotDrainInterval] and empty drains
-  // do NOT escalate the idle back-off; the window is (re)armed by real
-  // conversation activity only — mail actually drained, a live inbound frame
-  // (nudgeDrain), or the user sending something (noteActivity) — and expires on
-  // its own, so a genuinely idle client never pays the fast cadence. This is
-  // the battery guard: cost is strictly proportional to user-visible activity.
+  // do NOT escalate the idle back-off; the window is (re)armed by mail that
+  // actually arrived or by the user sending something (noteActivity), and
+  // expires on its own, so a genuinely idle client never pays the fast
+  // cadence. This is the battery guard: cost is strictly proportional to
+  // user-visible activity.
+  //
+  // A live inbound frame deliberately does NOT arm it — see [nudgeDrain].
+  // It used to, on the reasoning that a frame means a conversation; measured
+  // on a phone paired with a desktop, the identity's own sync beacons arrive
+  // every ~20 s and held the window open indefinitely, so an idle pair polled
+  // at the burst cadence forever.
   DateTime? _hotUntil;
 
   /// Fast poll cadence while a conversation is active. Mutable for tests.
@@ -480,18 +486,27 @@ class MailboxService implements MailboxSink {
         _drainTimer == null) {
       return;
     }
-    // A live frame = an active conversation: open the burst window so the
-    // NEXT few polls run at the fast cadence too, not just this one.
-    _heat();
+    // Deliberately does NOT open the burst window. A live frame proves the
+    // peer is reachable; it does not prove a person is talking. The frames
+    // that arrive on their own — acks, and the sync beacons another device of
+    // this same identity emits every few seconds — would otherwise re-arm the
+    // window forever, and a phone paired with a desktop would pay the fast
+    // cadence for as long as both are online, with nobody using either. If
+    // there really was mail behind this frame, the drain below finds it and
+    // the gotMail branch opens the window on evidence instead of on a guess.
     _armDrainLoop();
     final now = DateTime.now();
     final last = _lastNudge;
     if (last != null && now.difference(last) < _nudgeDebounce) return;
     _lastNudge = now;
-    // Clear the idle back-off so the tick below actually runs its body (a
+    // Clear the pending skip so the tick below actually runs its body (a
     // drain in progress is respected — _drainTick early-returns on _draining).
+    // The streak itself is left alone: it is what we have learned about this
+    // mailbox being empty, and a frame from a peer is not evidence against
+    // it. Resetting it here restarted the escalation on every beacon, so the
+    // timer cadence never grew past the first step while any paired device
+    // was online — measured on a phone as emptyStreak pinned at 1.
     _drainSkips = 0;
-    _emptyDrainStreak = 0;
     unawaited(_drainTick());
   }
 
