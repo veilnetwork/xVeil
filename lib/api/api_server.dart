@@ -127,6 +127,13 @@ Map<String, dynamic> openApiSpec() {
             'nodeId': {'type': 'string'},
             'short': {'type': 'string'},
             'name': {'type': 'string'},
+            'status': {
+              'type': 'string',
+              'description':
+                  'Pending requests are listed too — a client has no other way '
+                  'to learn somebody asked to reach it.',
+            },
+            'canMessage': {'type': 'boolean'},
           },
         },
         'Message': {
@@ -561,6 +568,19 @@ Map<String, dynamic> openApiSpec() {
                 'type': 'array',
                 'items': {'type': 'string'},
               },
+            },
+          }),
+        },
+      },
+      '/account/invite': {
+        'get': {
+          'summary':
+              'This node\'s shareable bootstrap invite, so a person can add '
+              'a running daemon as a contact',
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'invite': {'type': 'string'},
             },
           }),
         },
@@ -3368,6 +3388,7 @@ class ApiHandler {
     this.webhook,
     this.setWebhook,
     this.account,
+    this.accountInvite,
     this.lockAccount,
     this.switchIdentity,
     this.cloudItems,
@@ -3795,6 +3816,15 @@ class ApiHandler {
   /// returns as soon as the lock is committed to, not completed.
   final Future<void> Function()? lockAccount;
 
+  /// This node's shareable bootstrap invite.
+  ///
+  /// A daemon had no way to say who it is in the form a person can act on. It
+  /// could ASK for a contact but never be added by someone who has it running
+  /// — an asymmetry that shows up the moment a bot is left running and its
+  /// owner wants to add it. The invite is the public half by construction: it
+  /// is what a QR code carries, and the app already shows it on a screen.
+  final Future<String?> Function()? accountInvite;
+
   // There is deliberately no unlock here. The bearer tokens this router
   // authenticates against are themselves stored inside the encrypted volume,
   // so before it opens there is nobody to authenticate and no way to tell a
@@ -3952,6 +3982,15 @@ class ApiHandler {
     }
     if (method == 'GET' && path == '/v1/account') {
       return ApiResponse(200, await account!());
+    }
+    if (method == 'GET' && path == '/v1/account/invite') {
+      if (accountInvite == null) {
+        return const ApiResponse(501, {'error': 'invite unavailable'});
+      }
+      final invite = await accountInvite!();
+      return invite == null
+          ? const ApiResponse(503, {'error': 'node not ready'})
+          : ApiResponse(200, {'invite': invite});
     }
     if (method == 'POST' && path == '/v1/account/lock') {
       if (lockAccount == null) {

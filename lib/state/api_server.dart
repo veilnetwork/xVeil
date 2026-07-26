@@ -184,14 +184,18 @@ class ApiServerController extends Notifier<ApiConfig> {
   Future<List<Map<String, dynamic>>> _contacts() async {
     final convos =
         ref.read(conversationsProvider).value ?? const <Conversation>[];
+    // Pending requests are listed too, with the status that says so: a client
+    // driving this API has no other way to learn that somebody asked to reach
+    // it, and accepting needs the node id. See the headless twin.
     return [
       for (final c in convos)
-        if (c.peer.status == ContactStatus.accepted)
-          {
-            'nodeId': c.peer.nodeId.hex,
-            'short': c.peer.nodeId.short,
-            if (c.peer.name != null) 'name': c.peer.name,
-          },
+        {
+          'nodeId': c.peer.nodeId.hex,
+          'short': c.peer.nodeId.short,
+          if (c.peer.name != null) 'name': c.peer.name,
+          'status': c.peer.status.name,
+          'canMessage': c.peer.status == ContactStatus.accepted,
+        },
     ];
   }
 
@@ -634,6 +638,8 @@ class ApiServerController extends Notifier<ApiConfig> {
       tokens: state.tokens,
       status: _status,
       account: _account,
+      accountInvite: () async =>
+          ref.read(realStackProvider)?.myInvite.toUri(),
       lockAccount: _lock,
       switchIdentity: _switchIdentity,
       contacts: _contacts,
