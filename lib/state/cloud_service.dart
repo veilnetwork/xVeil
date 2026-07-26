@@ -1537,22 +1537,7 @@ class CloudService {
     }
     if (!_fetching.add(item.contentId!)) return true;
     try {
-      final members = await _sync.members();
-      final claimed = _claims.values
-          .where(
-            (claim) =>
-                claim.itemId == item.id &&
-                claim.contentId == item.contentId &&
-                claim.present &&
-                claim.deviceId != _sync.selfId,
-          )
-          .map((claim) => claim.deviceId)
-          .toList();
-      final candidates = <NodeId>[
-        ...claimed,
-        for (final member in members)
-          if (member != _sync.selfId && !claimed.contains(member)) member,
-      ];
+      final candidates = await _holdersFor(item);
       for (final holder in candidates) {
         if (await _sync.fetch(item.contentId!, holder)) return true;
       }
@@ -1563,6 +1548,51 @@ class CloudService {
         const Duration(seconds: 30),
         () => _fetching.remove(item.contentId),
       );
+    }
+  }
+
+  /// Devices worth asking for [item]'s bytes: the ones that claim to hold them
+  /// first, then the rest of the group. A claim is a hint, not a guarantee, so
+  /// the others stay in the list behind it.
+  Future<List<NodeId>> _holdersFor(CloudItem item) async {
+    final members = await _sync.members();
+    final claimed = _claims.values
+        .where(
+          (claim) =>
+              claim.itemId == item.id &&
+              claim.contentId == item.contentId &&
+              claim.present &&
+              claim.deviceId != _sync.selfId,
+        )
+        .map((claim) => claim.deviceId)
+        .toList();
+    return <NodeId>[
+      ...claimed,
+      for (final member in members)
+        if (member != _sync.selfId && !claimed.contains(member)) member,
+    ];
+  }
+
+  /// Pull an item's preview if this device does not have it.
+  ///
+  /// Deliberately ignores the replication profile. A device on "index only"
+  /// asked to be spared the CONTENT; a preview is a few kilobytes and exists
+  /// precisely so that such a device can show what it is not storing. Refusing
+  /// to fetch it there would leave previews visible only where they were made,
+  /// which is the one place they are least needed.
+  Future<bool> ensureThumbnail(CloudItem item) async {
+    await start();
+    final thumbId = item.thumbContentId;
+    if (item.deleted || thumbId == null) return false;
+    if (await _storage.hasFile(thumbId)) return true;
+    if (!_fetching.add(thumbId)) return true;
+    try {
+      for (final holder in await _holdersFor(item)) {
+        if (await _sync.fetch(thumbId, holder)) return true;
+      }
+      return false;
+    } finally {
+      Timer(const Duration(seconds: 30), () => _fetching.remove(thumbId));
     }
   }
 
