@@ -1980,6 +1980,15 @@ class AppL10nEn extends AppL10n {
   String get cloudDownload => 'Download to this device';
 
   @override
+  String get cloudExport => 'Save to a file…';
+
+  @override
+  String get cloudExportDone => 'File saved';
+
+  @override
+  String get cloudExportFailed => 'Could not save the file';
+
+  @override
   String get cloudShare => 'Share with contact';
 
   @override
