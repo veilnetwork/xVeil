@@ -761,6 +761,16 @@ class AppL10nRu extends AppL10n {
   String get spaceMembersTooltip => 'Участники и настройки';
 
   @override
+  String get spaceChannelRotateKey => 'Сменить ключ';
+
+  @override
+  String get spaceChannelRotateKeyHint =>
+      'Те же участники, дальше — новый ключ';
+
+  @override
+  String get spaceChannelRotateKeyDone => 'У канала новый ключ';
+
+  @override
   String get spaceRetentionTitle => 'Хранение истории';
 
   @override

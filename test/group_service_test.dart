@@ -7069,6 +7069,217 @@ void main() {
     },
   );
 
+  test('a protected channel key can be replaced without touching its ACL', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(
+      storage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    );
+    final spaceId = await service.createSpace('Rotation');
+    expect(
+      await service.addControlOp(
+        spaceId,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    final channelId = await service.createChannel(
+      spaceId,
+      name: 'private',
+      kind: SpaceChannelKind.text,
+      access: SpaceChannelAccess.restricted,
+    );
+    expect(channelId, isNotNull);
+    expect(await service.setChannelMembers(spaceId, channelId!, [bob]), isTrue);
+
+    final before = (await service.stateOf(spaceId))!;
+    final beforeEpoch = before.protectedChannels[channelId.hex]!.channelEpoch;
+    final beforeMembers = await service.channelMembersOf(spaceId, channelId);
+
+    expect(await service.rotateChannelKey(spaceId, channelId), isTrue);
+
+    final after = (await service.stateOf(spaceId))!;
+    expect(
+      after.protectedChannels[channelId.hex]!.channelEpoch,
+      beforeEpoch + 1,
+      reason: 'a replaced key is a new epoch',
+    );
+    expect(
+      await service.channelMembersOf(spaceId, channelId),
+      beforeMembers,
+      reason: 'and nobody gained or lost access by it',
+    );
+
+    await storage.close();
+  });
+
+  test('only someone who may edit the ACL may replace the key', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final ownerSvc = GroupService(
+      storage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    );
+    final spaceId = await ownerSvc.createSpace('Rotation rights');
+    expect(
+      await ownerSvc.addControlOp(
+        spaceId,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    final channelId = await ownerSvc.createChannel(
+      spaceId,
+      name: 'private',
+      kind: SpaceChannelKind.text,
+      access: SpaceChannelAccess.restricted,
+    );
+    expect(channelId, isNotNull);
+    expect(
+      await ownerSvc.setChannelMembers(spaceId, channelId!, [bob]),
+      isTrue,
+    );
+
+    final bobStorage = FakeHvContainer().storage();
+    await bobStorage.open(password: 'pw', createIfMissing: true);
+    final bobSvc = GroupService(
+      bobStorage,
+      _FakeSigner(bob),
+      epochService: GroupEpochService(LoopbackMailboxCrypto(senderForOpen: bob)),
+    );
+    expect(
+      await bobSvc.ingestSnapshot(
+        ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!, recipient: bob),
+      ),
+      isTrue,
+    );
+    final epochForBob =
+        (await bobSvc.stateOf(spaceId))!
+            .protectedChannels[channelId.hex]!
+            .channelEpoch;
+
+    expect(
+      await bobSvc.rotateChannelKey(spaceId, channelId),
+      isFalse,
+      reason: 'a reader of the channel is not thereby its key holder',
+    );
+    expect(
+      (await bobSvc.stateOf(spaceId))!
+          .protectedChannels[channelId.hex]!
+          .channelEpoch,
+      epochForBob,
+    );
+
+    await bobStorage.close();
+    await storage.close();
+  });
+
+  test('a key that has served too long is replaced by maintenance', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    var clock = DateTime.utc(2026, 1, 1).millisecondsSinceEpoch;
+    final service = GroupService(
+      storage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    )..debugWallClockMs = () => clock;
+    final spaceId = await service.createSpace('Aging key');
+    final channelId = await service.createChannel(
+      spaceId,
+      name: 'private',
+      kind: SpaceChannelKind.text,
+      access: SpaceChannelAccess.restricted,
+    );
+    expect(channelId, isNotNull);
+    final epochAtRest =
+        (await service.stateOf(spaceId))!
+            .protectedChannels[channelId!.hex]!
+            .channelEpoch;
+
+    expect(
+      await service.sweepStaleChannelKeys(),
+      0,
+      reason: 'a key in service is left alone',
+    );
+
+    // Past the threshold with room to spare: the frozen clock makes each
+    // timestamp one millisecond later than the last, so the revision is
+    // stamped a few ticks after the clock value the test set.
+    clock += GroupService.protectedChannelKeyMaxAgeMs + 60000;
+    expect(await service.sweepStaleChannelKeys(), 1);
+    final rotated =
+        (await service.stateOf(spaceId))!
+            .protectedChannels[channelId.hex]!
+            .channelEpoch;
+    expect(rotated, epochAtRest + 1);
+
+    expect(
+      await service.sweepStaleChannelKeys(),
+      0,
+      reason: 'the fresh key restarts the clock — this must not loop',
+    );
+
+    await storage.close();
+  });
+
+  test('a key that has carried too much is replaced by maintenance', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(
+      storage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    );
+    final spaceId = await service.createSpace('Busy key');
+    final channelId = await service.createChannel(
+      spaceId,
+      name: 'private',
+      kind: SpaceChannelKind.text,
+      access: SpaceChannelAccess.restricted,
+    );
+    expect(channelId, isNotNull);
+    final epochAtRest =
+        (await service.stateOf(spaceId))!
+            .protectedChannels[channelId!.hex]!
+            .channelEpoch;
+
+    for (var i = 0; i < GroupService.protectedChannelKeyMaxMessages; i++) {
+      expect(
+        await service.postMessage(spaceId, 'm$i', channelId: channelId),
+        isTrue,
+      );
+    }
+    expect(await service.sweepStaleChannelKeys(), 1);
+    expect(
+      (await service.stateOf(spaceId))!
+          .protectedChannels[channelId.hex]!
+          .channelEpoch,
+      epochAtRest + 1,
+    );
+    expect(
+      await service.sweepStaleChannelKeys(),
+      0,
+      reason: 'the messages belong to the old epoch, so the new one is idle',
+    );
+
+    await storage.close();
+  });
+
   test(
     'failed membership transaction preserves member and protected channel epoch',
     () async {

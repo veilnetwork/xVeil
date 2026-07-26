@@ -748,6 +748,15 @@ class AppL10nEn extends AppL10n {
   String get spaceMembersTooltip => 'Members and settings';
 
   @override
+  String get spaceChannelRotateKey => 'Replace the key';
+
+  @override
+  String get spaceChannelRotateKeyHint => 'Same members, new key from now on';
+
+  @override
+  String get spaceChannelRotateKeyDone => 'The channel has a new key';
+
+  @override
   String get spaceRetentionTitle => 'History retention';
 
   @override

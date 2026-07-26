@@ -489,6 +489,15 @@ class SpaceScreen extends ConsumerWidget {
                 onTap: () =>
                     Navigator.of(sheet).pop(_SpaceChannelAction.members),
               ),
+            if (channel.access == SpaceChannelAccess.restricted)
+              ListTile(
+                key: const ValueKey('space-channel-rotate-key-action'),
+                leading: const Icon(Icons.key_outlined),
+                title: Text(l.spaceChannelRotateKey),
+                subtitle: Text(l.spaceChannelRotateKeyHint),
+                onTap: () =>
+                    Navigator.of(sheet).pop(_SpaceChannelAction.rotateKey),
+              ),
             if (channel.kind == SpaceChannelKind.text && canManageRetention)
               ListTile(
                 key: const ValueKey('space-channel-retention-action'),
@@ -539,6 +548,13 @@ class SpaceScreen extends ConsumerWidget {
         );
         if (saved == null) return;
         applied = saved;
+      case _SpaceChannelAction.rotateKey:
+        applied = await service.rotateChannelKey(spaceId, channel.channelId);
+        if (applied && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l.spaceChannelRotateKeyDone)),
+          );
+        }
       case _SpaceChannelAction.members:
         final saved = await _manageProtectedChannelMembers(
           context,
@@ -1168,6 +1184,7 @@ class SpaceScreen extends ConsumerWidget {
 
 enum _SpaceChannelAction {
   members,
+  rotateKey,
   retention,
   edit,
   makeDefault,
