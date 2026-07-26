@@ -33,6 +33,8 @@ import '../domain/space_retention.dart';
 import '../domain/group_policy.dart';
 import '../domain/p2p_policy.dart';
 import '../state/group_crypto.dart';
+import '../data/transport/bootstrap_invite.dart';
+import '../domain/device_link.dart';
 import '../state/group_service_providers.dart';
 import '../state/group_call_service.dart';
 import '../routing/router.dart';
@@ -361,6 +363,18 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/group_mute':
           await _groupMuteHook(req);
+          return;
+        case '/device_invite':
+          await _deviceInviteHook(req);
+          return;
+        case '/device_link_prepare':
+          await _deviceLinkPrepareHook(req);
+          return;
+        case '/device_adopt_prepare':
+          await _deviceAdoptPrepareHook(req);
+          return;
+        case '/device_snapshot_send':
+          await _deviceSnapshotSendHook(req);
           return;
         case '/device_link':
           await _deviceLinkHook(req);
@@ -1597,6 +1611,109 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   }
 
   /// Link ?peer= as one of MY devices (creates the device group on first use).
+  /// The guided QR ceremony without a camera.
+  ///
+  /// These four hooks are the SAME sequence `DevicesScreen` runs — the QR is
+  /// only how the two strings normally travel between two screens, and a
+  /// stand has no camera. Nothing here weakens the ceremony: the target still
+  /// admits exactly one adoption, and only for a token that a source holding
+  /// the encrypted sovereign bundle produced. Debug-only, like every hook in
+  /// this file, so release builds have no such surface at all.
+  ///
+  /// Order: target `/device_invite` → source `/device_link_prepare?invite=`
+  /// with the phrase in the body → target `/device_adopt_prepare` with the
+  /// token in the body → source `/device_snapshot_send`.
+  Future<void> _deviceInviteHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final stack = ref.read(realStackProvider);
+    if (stack == null) return _json(req, {'ok': false, 'error': 'no stack'});
+    return _json(req, {
+      'ok': true,
+      'invite': stack.myInvite.toUri(),
+      'nodeId': stack.myInvite.nodeId.hex,
+    });
+  }
+
+  Future<void> _deviceLinkPrepareHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final invite = req.uri.queryParameters['invite'];
+    if (invite == null || invite.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'no invite'});
+    }
+    final phrase = await utf8.decoder.bind(req).join();
+    if (phrase.trim().isEmpty) {
+      return _json(req, {'ok': false, 'error': 'phrase required'});
+    }
+    final stack = ref.read(realStackProvider);
+    if (stack == null) return _json(req, {'ok': false, 'error': 'no stack'});
+    NativeSovereignGroupSigner? sovereign;
+    try {
+      final target = BootstrapInvite.parse(invite);
+      if (target.nodeId == svc.selfId) {
+        return _json(req, {'ok': false, 'error': 'self device'});
+      }
+      await stack.addContact(target);
+      sovereign = await svc.openLocalSovereign(phrase.trim());
+      // No snapshot yet: the target must record its admission first, or it
+      // will refuse the snapshot exactly as it refuses a stranger's.
+      if (!await svc.linkDevice(
+        target.nodeId,
+        sovereign: sovereign,
+        broadcastSnapshot: false,
+      )) {
+        return _json(req, {'ok': false, 'error': 'membership rejected'});
+      }
+      final token = await svc.createDeviceLinkToken(stack.myInvite);
+      if (token == null) {
+        return _json(req, {'ok': false, 'error': 'token unavailable'});
+      }
+      return _json(req, {
+        'ok': true,
+        'token': token.toUri(),
+        'deviceGroup': await svc.deviceGroupIdHex(),
+      });
+    } catch (caught) {
+      return _json(req, {'ok': false, 'error': '$caught'});
+    } finally {
+      sovereign?.close();
+    }
+  }
+
+  Future<void> _deviceAdoptPrepareHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final raw = await utf8.decoder.bind(req).join();
+    if (raw.trim().isEmpty) {
+      return _json(req, {'ok': false, 'error': 'token required'});
+    }
+    try {
+      final token = DeviceLinkToken.parse(raw.trim());
+      if (token.isExpired(DateTime.now().millisecondsSinceEpoch)) {
+        return _json(req, {'ok': false, 'error': 'expired'});
+      }
+      final stack = ref.read(realStackProvider);
+      if (stack == null) return _json(req, {'ok': false, 'error': 'no stack'});
+      await stack.addContact(token.sourceInvite);
+      if (!await svc.prepareDeviceAdoption(token)) {
+        return _json(req, {'ok': false, 'error': 'admission rejected'});
+      }
+      return _json(req, {'ok': true, 'group': token.groupId.hex});
+    } catch (caught) {
+      return _json(req, {'ok': false, 'error': '$caught'});
+    }
+  }
+
+  Future<void> _deviceSnapshotSendHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final count = await svc.broadcastDeviceGroup();
+    return _json(req, {'ok': count > 0, 'sent': count});
+  }
+
   Future<void> _deviceLinkHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final svc = _groupSvc();
