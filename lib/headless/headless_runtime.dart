@@ -209,6 +209,20 @@ class HeadlessRuntime {
       _wireGroupIngress(messaging, groups);
 
       final relays = mailboxRelayCandidates(config.bootstrapPeers);
+      if (relays.isEmpty) {
+        // The node joins the network from seeds compiled into the native, so a
+        // config with no bootstrap_peers still connects and looks healthy —
+        // while silently having NO mailbox. Without one it never advertises a
+        // KEM key, so nobody can deposit for it: it can start conversations but
+        // cannot be reached first, and a contact request sent to it is dropped
+        // with nothing to see on either side. Say so where the operator will
+        // read it.
+        stderr.writeln(
+          'xveil: no mailbox relays — set bootstrap_peers in the config. '
+          'This node can reach others but CANNOT BE REACHED FIRST: contact '
+          'requests sent to it will not arrive.',
+        );
+      }
       if (stack.transport case final VeilFlutterTransport transport
           when relays.isNotEmpty) {
         mailbox = await transport.buildMailboxService(
@@ -274,6 +288,9 @@ class HeadlessRuntime {
         // daemon down — which is the supervisor's job, not an API call's.
         account: () async => {
           'ok': stack!.controller.current.phase == NodePhase.connected,
+          // Whether this node can be reached first. False means no mailbox:
+          // see the startup warning.
+          'reachableOffline': relays.isNotEmpty,
           'phase': stack.controller.current.phase.name,
           'nodeId': nodeId.hex,
           'short': nodeId.short,
