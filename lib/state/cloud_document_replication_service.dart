@@ -330,6 +330,7 @@ class CloudDocumentReplicationService {
   // metadata path works as before and no bytes are served.
   final CloudCapabilityNetworkPort? _memberNetwork;
   final CloudMemberFolderStoragePort? _memberStorage;
+
   /// Resolves this device's provider slot for member content hosting.
   ///
   /// Settable because the device list lives in GroupService, which keeps THIS
@@ -1119,8 +1120,7 @@ class CloudDocumentReplicationService {
               epochKey: plan.epochKey,
             ),
             endpointId: CloudCapabilityCodec.memberHostEndpointId,
-            providerSlot: await (memberProviderSlot?.call() ??
-                Future.value(0)),
+            providerSlot: await (memberProviderSlot?.call() ?? Future.value(0)),
           );
           // close() may have run during the awaits above; inserting now would
           // orphan a live onion registration forever (close() already swept
@@ -1138,8 +1138,7 @@ class CloudDocumentReplicationService {
             servicePublicKey: endpoint.servicePublicKey,
             appId: endpoint.appId,
             endpointId: CloudCapabilityCodec.memberHostEndpointId,
-            expiresAtMs:
-                _now().millisecondsSinceEpoch + _memberHostLifetimeMs,
+            expiresAtMs: _now().millisecondsSinceEpoch + _memberHostLifetimeMs,
             storage: storage,
             epochKey: plan.epochKey,
             servable: plan.servable,
@@ -1193,10 +1192,15 @@ class CloudDocumentReplicationService {
   /// address itself is derived from that key, so a revoked member can
   /// neither find nor decrypt. Returns the entry on success (or when the
   /// bytes were already local), null on any failure.
+  /// [onProgress] receives `(received, total)` in bytes as the fetch advances.
+  /// Worth wiring: a member pull costs a full anonymous round trip per 256-byte
+  /// chunk, so even a small file takes minutes and a caller with no progress to
+  /// show cannot tell work from a hang.
   Future<CloudFileEntry?> downloadSharedFolderFile(
     String documentId,
-    String entryId,
-  ) async {
+    String entryId, {
+    void Function(int received, int total)? onProgress,
+  }) async {
     final network = _memberNetwork;
     final storage = _memberStorage;
     if (network == null || storage == null || _memberHostsClosed) return null;
@@ -1311,7 +1315,7 @@ class CloudDocumentReplicationService {
             bytes,
             name: entry!.name,
           );
-        });
+        }, onProgress: onProgress);
         await storage.storeFile(
           'mf:${manifest.contentId}',
           Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
