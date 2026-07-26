@@ -22,6 +22,17 @@ import 'dart:developer' as developer;
 const _releaseDiagnosticLog = bool.fromEnvironment('XVEIL_RELEASE_LOG');
 const _productMode = bool.fromEnvironment('dart.vm.product');
 
+/// True in a debug build — the same value as Flutter's `kDebugMode`, computed
+/// from the same two compile-time constants, WITHOUT importing Flutter.
+///
+/// It exists because the headless daemon is a Flutter-free AOT binary: one
+/// `package:flutter/foundation.dart` import anywhere it reaches stops it
+/// building at all, and `kDebugMode` is a tempting thing to reach for in code
+/// the daemon shares with the app. Reach for this instead.
+const kXVeilDebugBuild =
+    !bool.fromEnvironment('dart.vm.product') &&
+    !bool.fromEnvironment('dart.vm.profile');
+
 /// Bounded in-RAM tail of recent [devLog] lines, readable through the debug
 /// hook (`/dev_log`) so a stand driver can see the diagnostic trace without a
 /// VM-service attach (developer.log is invisible to nohup/logcat capture).

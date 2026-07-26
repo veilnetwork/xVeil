@@ -2,7 +2,6 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:flutter/foundation.dart' show kDebugMode;
 
 import 'native_libs.dart' show processLibFor;
 import 'node/embedded_node.dart';
@@ -294,7 +293,7 @@ class RealVeilStack {
     // the per-node twin of a relay's [metrics] endpoint. Follows the debug
     // hook's gating (compiled out of release; explicit opt-out via the same
     // define family). Never binds a non-loopback interface.
-    if (kDebugMode &&
+    if (kXVeilDebugBuild &&
         const bool.fromEnvironment('XVEIL_DEBUG_HOOK', defaultValue: true)) {
       fullConfig = EmbeddedNode.withDebugMetrics(
         fullConfig,
