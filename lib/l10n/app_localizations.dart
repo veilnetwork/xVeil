@@ -3510,6 +3510,24 @@ abstract class AppL10n {
   /// **'Download to this device'**
   String get cloudDownload;
 
+  /// No description provided for @cloudExport.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to a file…'**
+  String get cloudExport;
+
+  /// No description provided for @cloudExportDone.
+  ///
+  /// In en, this message translates to:
+  /// **'File saved'**
+  String get cloudExportDone;
+
+  /// No description provided for @cloudExportFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the file'**
+  String get cloudExportFailed;
+
   /// No description provided for @cloudShare.
   ///
   /// In en, this message translates to:
