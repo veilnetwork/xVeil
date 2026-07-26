@@ -399,10 +399,19 @@ class CloudMemberContentClient {
   /// keeps, so a few-GB shared file is bounded by disk rather than by RAM. A
   /// piece is only ever passed on AFTER [ContentManifest.verifyPiece] accepts
   /// it, so a sink may persist it immediately — unverified bytes never escape.
+  ///
+  /// [onProgress] reports `(received, manifest.size)` as chunks land, which is
+  /// the only granularity that says anything: a piece is 256 KiB, so a file
+  /// below that size is a single piece and piece-level reporting would jump
+  /// from nothing to done with the entire wait in between. Chunks are 256 bytes
+  /// and each costs a full anonymous round trip, so this ticks often enough for
+  /// a caller to show real movement. Received counts DECRYPTED bytes, so a
+  /// short final chunk is accounted correctly.
   Future<int> fetchFileStreaming(
     ContentManifest manifest,
-    Future<void> Function(int pieceIndex, Uint8List bytes) onPiece,
-  ) async {
+    Future<void> Function(int pieceIndex, Uint8List bytes) onPiece, {
+    void Function(int received, int total)? onProgress,
+  }) async {
     final capability = CloudCapabilityCodec.memberFileCapability(
       documentId: documentId,
       epochKey: epochKey,
@@ -414,6 +423,7 @@ class CloudMemberContentClient {
     );
     final contentIdBytes = _contentIdBytes(manifest.contentId);
     var total = 0;
+    var received = 0;
 
     /// One attempt at one chunk: arm the matcher, send, decrypt. Safe to run
     /// concurrently — a reply is matched on (piece, chunk, nonce), unique per
@@ -517,9 +527,15 @@ class CloudMemberContentClient {
         final batch = await Future.wait([
           for (var c = start; c < end; c++) fetchChunk(piece, c),
         ]);
+        var landed = 0;
         for (final clear in batch) {
           clearPiece.add(clear);
+          landed += clear.length;
         }
+        received += landed;
+        // Reported per batch rather than per chunk: the chunks of one batch
+        // land together, so a finer tick would only repeat the same number.
+        onProgress?.call(received, manifest.size);
       }
       final bytes = clearPiece.toBytes();
       if (!manifest.verifyPiece(piece, bytes)) {

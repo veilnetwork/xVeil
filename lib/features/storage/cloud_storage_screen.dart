@@ -50,9 +50,11 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     // "unpublish" for the right folder (start is idempotent + republishes).
     final directory = ref.read(publicDirectoryServiceProvider);
     if (directory != null) {
-      unawaited(directory.start().then((_) {
-        if (mounted) setState(() {});
-      }));
+      unawaited(
+        directory.start().then((_) {
+          if (mounted) setState(() {});
+        }),
+      );
     }
   }
 
@@ -1630,6 +1632,9 @@ class _SharedFolderScreenState extends State<_SharedFolderScreen> {
   bool _loaded = false;
   final Set<String> _busy = {};
 
+  /// Fraction done per entry id while its member pull runs.
+  final Map<String, double> _progress = {};
+
   @override
   void initState() {
     super.initState();
@@ -1673,6 +1678,10 @@ class _SharedFolderScreenState extends State<_SharedFolderScreen> {
       final fetched = await widget.service.downloadSharedFolderFile(
         widget.documentId,
         entry.id,
+        onProgress: (received, total) {
+          if (!mounted || total <= 0) return;
+          setState(() => _progress[entry.id] = received / total);
+        },
       );
       if (!mounted) return;
       if (fetched == null) {
@@ -1681,7 +1690,12 @@ class _SharedFolderScreenState extends State<_SharedFolderScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _busy.remove(entry.id));
+      if (mounted) {
+        setState(() {
+          _busy.remove(entry.id);
+          _progress.remove(entry.id);
+        });
+      }
       unawaited(_reload());
     }
   }
@@ -1801,10 +1815,17 @@ class _SharedFolderScreenState extends State<_SharedFolderScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         if (_busy.contains(entry.id))
-                          const SizedBox(
+                          // Determinate once a chunk has landed: a member pull
+                          // costs an anonymous round trip per 256 bytes, so a
+                          // bare spinner would sit unchanged for minutes and
+                          // read as a hang.
+                          SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              value: _progress[entry.id],
+                            ),
                           )
                         else if (_local[entry.contentId] != true &&
                             entry.manifest != null)
