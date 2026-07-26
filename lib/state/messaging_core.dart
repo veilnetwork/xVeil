@@ -9,6 +9,7 @@ import '../crypto/blake3.dart';
 import '../data/node/embedded_node.dart' show BootstrapPeerCfg, EmbeddedNode;
 import '../data/storage/file_store.dart' show kMaxStoredFileBytes;
 import '../data/storage/storage.dart';
+import '../data/transport/veil_mailbox.dart' show MailboxPeerUnresolved;
 import '../data/transport/veil_transport.dart';
 import '../data/transport/wire_envelope.dart';
 import '../domain/call_signal.dart';
