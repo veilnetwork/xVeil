@@ -1183,6 +1183,7 @@ class CloudDocumentReplicationService {
     Uint8List? epochKey;
     CloudFileEntry? entry;
     ContentManifest? manifest;
+    int? currentEpoch;
     try {
       if (stored.root.kind != CloudDocumentKind.fileCollection ||
           stored.root.codec != cloudFileCollectionCodecV1) {
@@ -1192,6 +1193,7 @@ class CloudDocumentReplicationService {
       final fold = _fold(frame);
       if (!_completeAndValid(frame, fold)) return null;
       final epoch = fold.epochs.keys.reduce((a, b) => a > b ? a : b);
+      currentEpoch = epoch;
       if (!fold.epochs[epoch]!.members.containsKey(localNodeId.hex)) {
         return null;
       }
@@ -1226,13 +1228,24 @@ class CloudDocumentReplicationService {
       } finally {
         vkSeed.fillRange(0, vkSeed.length, 0);
       }
-      final hostAppId = await network.capabilityAppId(
-        alias: CloudCapabilityCodec.memberHostAlias(
-          documentId: docBytes,
-          epochKey: epochKey,
-        ),
-        endpointId: CloudCapabilityCodec.memberHostEndpointId,
-      );
+      // Reuse our OWN host's appId when we are already serving this document
+      // at this epoch. Deriving it instead goes through capabilityAppId, which
+      // despite its name binds the capability to read the id back — on the
+      // very endpoint our host already holds, so it fails with "endpoint N is
+      // already bound". Adopting bytes deliberately turns a member into a
+      // servable replica, which meant a member could never fetch a SECOND file
+      // once it had fetched a first. Every member derives the same alias from
+      // documentId + epochKey, so our own host's id IS the one being addressed.
+      final ownHost = _memberHosts[documentId];
+      final hostAppId = ownHost != null && ownHost.epoch == currentEpoch
+          ? ownHost.endpoint.appId
+          : await network.capabilityAppId(
+              alias: CloudCapabilityCodec.memberHostAlias(
+                documentId: docBytes,
+                epochKey: epochKey,
+              ),
+              endpointId: CloudCapabilityCodec.memberHostEndpointId,
+            );
       final endpoint = await network.host(
         identitySeed: _randomBytes(32),
         alias: base64Url.encode(_randomBytes(32)),
