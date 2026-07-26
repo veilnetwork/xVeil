@@ -1578,4 +1578,64 @@ void main() {
       reason: 'the single-copy warning applies to files, not notes',
     );
   });
+
+  testWidgets('a file with a preview shows it instead of the cloud icon', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = CloudService(
+      storage,
+      _Sync(),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(1000),
+      newId: () => 'pic_1',
+      integrityChecks: false,
+    );
+    addTearDown(() {
+      unawaited(service.close());
+      unawaited(storage.close());
+    });
+
+    // A real 1x1 PNG: the row must actually decode it, not merely hold bytes.
+    final png = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmM'
+      'IQAAAABJRU5ErkJggg==',
+    );
+    final body = Uint8List.fromList(List.generate(512, (i) => i & 0xff));
+    await service.importContent(
+      name: 'photo.png',
+      size: body.length,
+      mime: 'image/png',
+      readRange: (offset, length) async =>
+          Uint8List.sublistView(body, offset, offset + length),
+      thumbnail: png,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [cloudServiceProvider.overrideWithValue(service)],
+        child: const MaterialApp(
+          locale: Locale('ru'),
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: CloudStorageScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('photo.png'), findsOneWidget);
+    expect(
+      find.byType(Image),
+      findsOneWidget,
+      reason: 'the preview replaces the placeholder icon',
+    );
+    expect(
+      find.byIcon(Icons.cloud_done),
+      findsNothing,
+      reason: 'and it is the preview standing there, not the icon beside it',
+    );
+  });
 }

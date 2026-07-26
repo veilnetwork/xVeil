@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -106,6 +107,7 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
         size: size,
         readRange: reader.read,
         folderId: _openFolderId,
+        thumbnail: await _previewOf(file, name),
       );
       if (mounted) _notice(AppL10n.of(context).cloudImported);
     } catch (_) {
@@ -113,6 +115,41 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     } finally {
       await reader?.close();
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// A small preview of an imported picture, or null when there is nothing to
+  /// preview. Decoding lives here rather than in the service: the state layer
+  /// stays free of image codecs and testable without a Flutter binding.
+  ///
+  /// Failure is never fatal — a file that claims to be a picture and is not,
+  /// or a format this platform cannot decode, simply gets no preview.
+  Future<Uint8List?> _previewOf(File file, String name) async {
+    const previewWidth = 96;
+    const decodableCeiling = 32 * 1024 * 1024;
+    final lower = name.toLowerCase();
+    const extensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'];
+    if (!extensions.any(lower.endsWith)) return null;
+    try {
+      // Decoding wants the whole picture in memory at once, so the very large
+      // ones are left alone: a preview is not worth an out-of-memory on a
+      // phone. Width only, so the shape survives.
+      if (await file.length() > decodableCeiling) return null;
+      final codec = await ui.instantiateImageCodec(
+        await file.readAsBytes(),
+        targetWidth: previewWidth,
+      );
+      final frame = await codec.getNextFrame();
+      final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+      frame.image.dispose();
+      codec.dispose();
+      final bytes = data?.buffer.asUint8List();
+      if (bytes == null || bytes.length > CloudService.maxThumbnailBytes) {
+        return null;
+      }
+      return bytes;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -2598,6 +2635,7 @@ class _CloudItemTileState extends State<_CloudItemTile> {
   bool _working = false;
   bool? _local;
   CloudItem? _localNoteHead;
+  Uint8List? _preview;
 
   @override
   void initState() {
@@ -2621,10 +2659,14 @@ class _CloudItemTileState extends State<_CloudItemTile> {
     final local = widget.item.kind == CloudItemKind.note
         ? localHead != null
         : await widget.service.isLocal(widget.item);
+    // Null is the ordinary answer — no preview was made, or its bytes have not
+    // reached this device — and the icon stands in for it.
+    final preview = await widget.service.loadThumbnail(widget.item);
     if (mounted) {
       setState(() {
         _local = local;
         _localNoteHead = localHead;
+        _preview = preview;
       });
     }
   }
@@ -2923,6 +2965,19 @@ class _CloudItemTileState extends State<_CloudItemTile> {
           ? const SizedBox.square(
               dimension: 24,
               child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : _preview != null
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: Image.memory(
+                _preview!,
+                width: 40,
+                height: 40,
+                fit: BoxFit.cover,
+                // A preview is decoration; if its bytes turn out to be junk the
+                // row still has to render.
+                errorBuilder: (_, _, _) => const Icon(Icons.cloud_done),
+              ),
             )
           : Icon(
               widget.item.kind == CloudItemKind.note
