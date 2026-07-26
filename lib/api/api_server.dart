@@ -544,6 +544,66 @@ Map<String, dynamic> openApiSpec() {
           }),
         },
       },
+      '/account': {
+        'get': {
+          'summary': 'Account, active identity and node status',
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'ok': {'type': 'boolean'},
+              'phase': {'type': 'string'},
+              'nodeId': {'type': 'string'},
+              'short': {'type': 'string'},
+              'isMaster': {'type': 'boolean'},
+              'activeIdentity': {'type': 'string'},
+              'identities': {
+                'type': 'array',
+                'items': {'type': 'string'},
+              },
+            },
+          }),
+        },
+      },
+      '/account/lock': {
+        'post': {
+          'summary':
+              'Lock the account. The API stops with it, so expect this '
+              'response and then no further answers.',
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'ok': {'type': 'boolean'},
+              'locked': {'type': 'boolean'},
+            },
+          }),
+        },
+      },
+      '/account/identity': {
+        'post': {
+          'summary': 'Switch the active identity of a master space',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['label'],
+                  'properties': {
+                    'label': {'type': 'string'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': ok({
+            'type': obj,
+            'properties': {
+              'ok': {'type': 'boolean'},
+              'activeIdentity': {'type': 'string'},
+            },
+          }),
+        },
+      },
       '/contacts': {
         'get': {
           'summary': 'Accepted contacts',
@@ -3201,6 +3261,9 @@ class ApiHandler {
     this.groupCallsAvailable = true,
     this.webhook,
     this.setWebhook,
+    this.account,
+    this.lockAccount,
+    this.switchIdentity,
   });
 
   /// The issued tokens; the presented bearer must match one (whose scope then
@@ -3606,6 +3669,26 @@ class ApiHandler {
   /// Persist + apply a new webhook URL (null clears). URL is pre-validated.
   final Future<void> Function(String? url)? setWebhook;
 
+  /// Account and node status: who is unlocked, which identity is active, which
+  /// identities a master space manages, and how the node sees the network.
+  /// Null on a host that does not expose the account surface — those 404.
+  final Future<Map<String, dynamic>> Function()? account;
+
+  /// Lock the account. The host decides WHEN: locking usually stops this very
+  /// server, so it schedules the lock after the response is flushed and this
+  /// returns as soon as the lock is committed to, not completed.
+  final Future<void> Function()? lockAccount;
+
+  // There is deliberately no unlock here. The bearer tokens this router
+  // authenticates against are themselves stored inside the encrypted volume,
+  // so before it opens there is nobody to authenticate and no way to tell a
+  // caller from anyone else. Serving unlock would mean moving the token store
+  // outside the vault, which trades the property the vault exists for against
+  // a convenience. Unlocking stays with whoever can reach the device.
+
+  /// Switch the active identity of an unlocked master space.
+  final Future<String?> Function(String label)? switchIdentity;
+
   /// Constant-time compare of a raw token (localhost, but no reason to leak
   /// length/prefix). Used directly by the WebSocket path (token in the query,
   /// since a browser/ws client can't set an Authorization header on upgrade).
@@ -3657,6 +3740,36 @@ class ApiHandler {
     }
     if (method == 'GET' && path == '/v1/health') {
       return ApiResponse(200, status());
+    }
+    if (path.startsWith('/v1/account') && account == null) {
+      return const ApiResponse(501, {
+        'error': 'account surface unavailable on this host',
+      });
+    }
+    if (method == 'GET' && path == '/v1/account') {
+      return ApiResponse(200, await account!());
+    }
+    if (method == 'POST' && path == '/v1/account/lock') {
+      if (lockAccount == null) {
+        return const ApiResponse(501, {'error': 'lock unavailable'});
+      }
+      await lockAccount!();
+      // Deliberately not re-reading the account here: the host stops this
+      // server as part of locking, so anything read now would describe a state
+      // that is already gone.
+      return const ApiResponse(200, {'ok': true, 'locked': true});
+    }
+    if (method == 'POST' && path == '/v1/account/identity') {
+      if (switchIdentity == null) {
+        return const ApiResponse(501, {'error': 'identity switch unavailable'});
+      }
+      final label = body?['label'];
+      if (label is! String || label.isEmpty) {
+        return const ApiResponse(400, {'error': 'label required'});
+      }
+      final err = await switchIdentity!(label);
+      if (err != null) return ApiResponse(400, {'error': err});
+      return ApiResponse(200, await account!());
     }
     if (method == 'GET' && path == '/v1/contacts') {
       return ApiResponse(200, {'contacts': await contacts()});

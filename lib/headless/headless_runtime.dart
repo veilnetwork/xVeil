@@ -269,6 +269,20 @@ class HeadlessRuntime {
           'nodePhase': stack.controller.current.phase.name,
           'peerCount': stack.controller.current.peerCount,
         },
+        // No lock or identity switch: a headless host has one identity, opened
+        // by whoever started it, and "locking" it would mean shutting the
+        // daemon down — which is the supervisor's job, not an API call's.
+        account: () async => {
+          'ok': stack!.controller.current.phase == NodePhase.connected,
+          'phase': stack.controller.current.phase.name,
+          'nodeId': nodeId.hex,
+          'short': nodeId.short,
+          'isMaster': false,
+          'identities': const <String>[],
+          'peerCount': stack.controller.current.peerCount,
+          'api': 'v1',
+          'host': 'headless',
+        },
         contacts: () => _contacts(storage),
         requestContact: (target, greeting) =>
             _requestContact(stack!, messaging!, target, greeting),
