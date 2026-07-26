@@ -1826,7 +1826,10 @@ class MessagingService {
     // instead of spending one full native stream-open timeout per offline or
     // non-holding member. The probe asks for one payload byte, validates the
     // content-addressed manifest, and closes; the first real holder wins.
-    final discovered = await _raceManifestHeaders(sources, contentId);
+    final discovered = await _raceManifestHeaders(
+      await _eligiblePullSources(sources, contentId),
+      contentId,
+    );
     if (discovered != null) {
       seen.add(discovered.$1.hex);
       attempted++;

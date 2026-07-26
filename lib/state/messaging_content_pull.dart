@@ -50,9 +50,32 @@ extension _MessagingContentPull on MessagingService {
   }
 
   Future<bool> _eligiblePullSource(NodeId peer, String contentId) async {
+    // Never ourselves. A node has no stream to itself worth opening: if we
+    // held the bytes we would not be fetching them, so the probe can only
+    // fail. It used to, once per retry, forever — a native stream opened and
+    // aborted every ~18s against our own id, with the failure buried among
+    // real ones in the log.
+    if (peer.hex == await _selfHex()) return false;
     final contact = await _storage.getContact(peer);
     return (contact != null && contact.status == ContactStatus.accepted) ||
         _groupPullSourceAllowed(peer, contentId);
+  }
+
+  /// The subset of [peers] worth asking for [contentId].
+  ///
+  /// The manifest race is an optimisation over the serial loop that follows
+  /// it, so it must not consider a source that loop would reject — otherwise
+  /// the "cheap" parallel probe is the only place an ineligible peer, us
+  /// included, still gets contacted.
+  Future<List<NodeId>> _eligiblePullSources(
+    Iterable<NodeId> peers,
+    String contentId,
+  ) async {
+    final out = <NodeId>[];
+    for (final peer in _uniquePeers(peers)) {
+      if (await _eligiblePullSource(peer, contentId)) out.add(peer);
+    }
+    return out;
   }
 
   NodeId _offerPeer(

@@ -438,6 +438,38 @@ void main() {
     return cid;
   }
 
+  test('a swarm pull never opens a stream to ourselves', () async {
+    // A node listed among the sources for content it does not hold used to be
+    // probed like any other: the parallel manifest race skipped the
+    // eligibility check that the serial loop after it applies. The probe can
+    // only fail — if we held the bytes we would not be fetching them — so it
+    // cost a native stream open and abort on every retry, forever, and its
+    // failure sat in the log beside the real ones.
+    //
+    // The download itself is expected to hang: nobody has the content and the
+    // pull waits on real timeouts. What matters is WHO was contacted, so this
+    // watches the attempts rather than the outcome.
+    final cid = List.filled(32, 0xAB)
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join();
+    tA.openStreamAttemptsByPeer.clear();
+
+    unawaited(mA.downloadContentFromAny([a, b], cid));
+    await Future<void>.delayed(const Duration(seconds: 2));
+
+    expect(
+      tA.openStreamAttemptsByPeer[b.hex] ?? 0,
+      greaterThan(0),
+      reason: 'the real candidate was asked — so the pull path did run',
+    );
+    expect(
+      tA.openStreamAttemptsByPeer[a.hex] ?? 0,
+      0,
+      reason: 'and we were never asked to serve ourselves',
+    );
+  });
+
+
   test(
     'STREAM download: receiver pulls a multi-piece file over a reliable '
     'stream, verifies every piece, stores it (no datagram chunk/re-request)',
