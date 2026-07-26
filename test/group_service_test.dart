@@ -400,6 +400,43 @@ class _ControlledGroupWriteStorage extends HiddenVolumeStorage {
   }
 }
 
+/// Models the store contract that made a read racing a save look like a
+/// deleted group: `loadFile` answers null for a file that is "unknown OR
+/// INCOMPLETE" (storage.dart), and `storeFile` is not atomic to readers.
+/// While [gate] is armed, a group bundle write parks and reads of that same
+/// key see the half-written state.
+class _HalfWrittenBundleStorage extends HiddenVolumeStorage {
+  _HalfWrittenBundleStorage()
+    : super(
+        ({required Uint8List password, required bool create}) =>
+            FakeKvLogStore(),
+      );
+
+  final _incomplete = <String>{};
+  Completer<void>? gate;
+
+  @override
+  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
+    final held = gate;
+    if (held == null || !fileId.startsWith('group:')) {
+      return super.storeFile(fileId, bytes, name: name);
+    }
+    _incomplete.add(fileId);
+    try {
+      await held.future;
+      await super.storeFile(fileId, bytes, name: name);
+    } finally {
+      _incomplete.remove(fileId);
+    }
+  }
+
+  @override
+  Future<Uint8List?> loadFile(String fileId) async {
+    if (_incomplete.contains(fileId)) return null;
+    return super.loadFile(fileId);
+  }
+}
+
 class _CountingGroupReadStorage extends HiddenVolumeStorage {
   _CountingGroupReadStorage()
     : super(
@@ -586,6 +623,40 @@ void main() {
       expect(encoded, isNot(contains('secret publication body')));
     },
   );
+
+  test('a read that races a bundle save does not see a missing group', () async {
+    // The store cannot tell a half-written blob from an absent one, and every
+    // caller reads a failed load as "no such group". Downstream that made
+    // deviceSyncRecords answer "no records" and cloud reconcile apply nothing.
+    final storage = _HalfWrittenBundleStorage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _FakeSigner(owner));
+    addTearDown(service.dispose);
+    final gid = await service.createGroup('Racing bundle');
+
+    storage.gate = Completer<void>();
+    final saving = service.postMessage(gid, 'while the blob is replaced',
+        broadcast: false);
+    // Let the save reach the parked write before reading.
+    await Future<void>.delayed(Duration.zero);
+    final loading = service.load(gid);
+    await Future<void>.delayed(Duration.zero);
+    storage.gate!.complete();
+    storage.gate = null;
+
+    expect(await saving, isTrue);
+    final bundle = await loading;
+    expect(
+      bundle,
+      isNotNull,
+      reason: 'a group being written is still a group that exists',
+    );
+    expect(
+      bundle!.messages.map((message) => message.body),
+      contains('while the blob is replaced'),
+      reason: 'and the read must land after the write, not before it',
+    );
+  });
 
   test(
     'Space replication snapshot reads each durable bundle once per call',
