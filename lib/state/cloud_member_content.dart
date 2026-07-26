@@ -318,9 +318,19 @@ class CloudMemberContentHost {
 /// Chunk requests kept in flight at once while pulling one piece.
 ///
 /// Every chunk is a full anonymous round trip (~11 s measured), so a serial
-/// loop spent almost all of its time waiting. Small on purpose: the 256-byte
-/// chunk size exists because a chunk fragments into onion cells that must ALL
-/// arrive, and a wide window would trade waiting for loss.
+/// loop spent almost all of its time waiting. Four is where that stops paying:
+/// on the two-device stand, pulling the same 8 KiB file with the host idle,
+/// four kept every request intact while eight both lost some and finished
+/// slower — the window stops buying overlap and starts buying retries.
+///
+///   serial  11.0 s/chunk
+///   2        8.2 s/chunk
+///   4        6.7 s/chunk   32 requests for 32 chunks — nothing lost
+///   8        7.2 s/chunk   40 requests for 32 chunks — eight re-sent
+///
+/// A chunk fragments into onion cells that must ALL arrive, which is why the
+/// loss climbs with the window and why the 256-byte chunk size is not the knob
+/// to turn here.
 const int _chunkWindow = 4;
 
 /// Extra attempts per chunk before the whole fetch gives up. Two: the observed
