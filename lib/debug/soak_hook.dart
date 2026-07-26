@@ -16,6 +16,7 @@ import 'package:veil_flutter/veil_flutter.dart' as veil;
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/serve_source.dart';
+import '../data/storage/storage.dart' show OutboxFrame;
 import 'package:veil_media/veil_media.dart';
 
 import '../state/thumbnail.dart' show makeRgbaThumbB64, makeInlineImageB64;
@@ -697,6 +698,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/space_channel_create':
           await _spaceChannelCreate(req);
+          return;
+        case '/outbox_depth':
+          await _outboxDepth(req);
           return;
         case '/space_channel_keys':
           await _spaceChannelKeys(req);
@@ -6199,6 +6203,58 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     } catch (error) {
       await _json(req, {'ok': false, 'error': '$error'}, status: 500);
     }
+  }
+
+  /// Stand observer: how many durable frames are still waiting per peer, and
+  /// what kinds they are.
+  ///
+  /// A device that was away comes back to a queue, and everything written
+  /// while it was away lands behind that queue — so "my change has not arrived
+  /// yet" and "my change is lost" look identical from the outside. The depth
+  /// is what tells them apart, and nothing published it.
+  Future<void> _outboxDepth(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final storage = ref.read(storageProvider);
+    final List<OutboxFrame> pending;
+    try {
+      pending = await storage.pendingOutboxFrames();
+    } catch (error) {
+      return _json(req, {'ok': false, 'error': '$error'}, status: 500);
+    }
+    final byPeer = <String, List<OutboxFrame>>{};
+    for (final frame in pending) {
+      (byPeer[frame.peerHex] ??= []).add(frame);
+    }
+    final peers = <Map<String, dynamic>>[];
+    byPeer.forEach((peerHex, frames) {
+      // Frame ids are `<kind>:<...>`, and which kind is piling up is the whole
+      // diagnosis — a queue of one kind is a stuck subsystem, a mix is a peer
+      // that was simply away.
+      final kinds = <String, int>{};
+      var bytes = 0;
+      for (final OutboxFrame frame in frames) {
+        final kind = frame.frameId.split(':').first;
+        kinds[kind] = (kinds[kind] ?? 0) + 1;
+        bytes += frame.wire.length;
+      }
+      peers.add({
+        'peer': peerHex,
+        'short': peerHex.length >= 8 ? peerHex.substring(0, 8) : peerHex,
+        'pending': frames.length,
+        'kinds': kinds,
+        'bytes': bytes,
+      });
+    });
+    peers.sort(
+      (left, right) => (right['pending'] as int).compareTo(
+        left['pending'] as int,
+      ),
+    );
+    await _json(req, {
+      'ok': true,
+      'total': pending.length,
+      'peers': peers,
+    });
   }
 
   /// Stand observer: which key epoch each protected channel is on, and who it
