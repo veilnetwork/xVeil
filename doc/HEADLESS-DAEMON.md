@@ -49,6 +49,60 @@ Environment overrides for public configuration are `XVEIL_CONFIG`,
 may be supplied as `XVEIL_PASSWORD_FILE`, `XVEIL_IDENTITY_PHRASE_FILE`, and
 `XVEIL_API_TOKEN_FILE`; secret values themselves have no environment option.
 
+## Running a bot
+
+A bot is not a mode: it is a daemon on its own store. It mints its own identity
+on first run, so it has its own key and its own node id, joins a group as a
+member in its own right, and everything it posts is signed by it — the group
+sees the bot, not whoever runs it.
+
+Two things about the config decide whether that works, and neither announces
+itself:
+
+**`bootstrap_peers` must be set.** The node itself joins the network from seeds
+compiled into the native, so a daemon with an empty list connects, reports
+`connected`, and looks entirely healthy. But the mailbox relays are derived
+from this list, and without them the daemon builds no mailbox at all: it never
+advertises a key for others to seal to, so nobody can leave anything for it.
+It can start conversations and never be reached first — a contact request sent
+to it fails at the sender with `PeerUnresolved` and shows nothing on either
+side. The daemon warns about this on startup, and `GET /v1/account` reports
+`reachableOffline: false`.
+
+**Give it a few minutes before adding it.** Its rendezvous advertisement has to
+reach the network before anyone can seal to it. About a minute after startup a
+contact request still fails; a few minutes later the same request lands.
+
+The rest is the ordinary contact and group flow:
+
+```sh
+# 1. who is it?  (also: reachableOffline)
+curl -sH "Authorization: Bearer $TOKEN" localhost:8787/v1/account
+
+# 2. what do I add?
+curl -sH "Authorization: Bearer $TOKEN" localhost:8787/v1/account/invite
+
+# 3. either add that invite from your app, or hand the bot YOUR invite and let
+#    it ask (this is the bot asking — the target is the OTHER side's invite):
+curl -sX POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"target":"veil:bootstrap?..."}' localhost:8787/v1/contacts
+
+# 4. pending requests are listed with their status, so a bot can see and accept
+curl -sH "Authorization: Bearer $TOKEN" localhost:8787/v1/contacts
+curl -sX POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"peer":"<node id>"}' localhost:8787/v1/contacts/accept
+```
+
+Then invite it to a group from the app as you would a person. A group invite
+only takes hold once you are contacts — a stranger's invite is refused rather
+than silently materialising a group — so do the contact step first.
+
+Uploads can say what they are, so a bot posts a photo as a photo rather than as
+a generic file: `POST /v1/groups/files` accepts `kind` with `width`/`height`
+for an image or video and `durationMs` for a voice message or video note.
+Metadata that contradicts the kind is refused rather than published, because
+the row is signed and cannot be corrected afterwards.
+
 ## systemd service
 
 Provision the identity once with `--create`, then remove the phrase credential
