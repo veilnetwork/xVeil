@@ -1936,6 +1936,9 @@ class AppL10nRu extends AppL10n {
   String get cloudRemote => 'в облаке';
 
   @override
+  String get cloudChangedElsewhere => 'изменено на другом устройстве';
+
+  @override
   String get cloudUsage => 'Занятое место';
 
   @override

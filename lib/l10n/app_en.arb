@@ -595,6 +595,7 @@
   "cloudModeIndexHint": "Show the index and download only on demand",
   "cloudLocal": "on this device",
   "cloudRemote": "in cloud",
+  "cloudChangedElsewhere": "changed on another device",
   "cloudUsage": "Storage used",
   "cloudUsageOnThisDevice": "On this device",
   "cloudUsageInCloud": "Everything in the index",

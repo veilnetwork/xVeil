@@ -3432,6 +3432,12 @@ abstract class AppL10n {
   /// **'in cloud'**
   String get cloudRemote;
 
+  /// No description provided for @cloudChangedElsewhere.
+  ///
+  /// In en, this message translates to:
+  /// **'changed on another device'**
+  String get cloudChangedElsewhere;
+
   /// No description provided for @cloudUsage.
   ///
   /// In en, this message translates to:

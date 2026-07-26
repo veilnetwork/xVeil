@@ -116,6 +116,7 @@ class CloudService {
   static const _claimsSetting = 'cloud.claims.v1';
   static const _profileSetting = 'cloud.profile.v1';
   static const _lastVerifySetting = 'cloud.last_verify.v1';
+  static const _seenSetting = 'cloud.seen.v1';
   static const _manifestPrefix = 'mf:';
   static const _wireChunkBytes = 4096;
   static const maxTextNoteBytes = 1024 * 1024;
@@ -133,6 +134,11 @@ class CloudService {
   final Map<String, List<CloudItem>> _noteHeads = {};
   final Map<String, CloudFolder> _folders = {};
   final Map<String, CloudReplicaClaim> _claims = {};
+
+  /// Item id -> the revision this device last acknowledged, either by writing
+  /// it or by the user opening it. Purely local: what someone has looked at is
+  /// their business and nobody else's, so it never leaves this device.
+  final Map<String, int> _seen = {};
   final StreamController<void> _changes = StreamController.broadcast();
   final Set<String> _fetching = {};
   CloudReplicationProfile _profile = const CloudReplicationProfile();
@@ -286,6 +292,43 @@ class CloudService {
         }
       } catch (_) {}
     }
+    final seenRaw = await _loadMaterialized(_seenSetting);
+    if (seenRaw != null) {
+      try {
+        final rows = jsonDecode(seenRaw);
+        if (rows is Map) {
+          for (final entry in rows.entries) {
+            final revision = entry.value;
+            if (entry.key is String && revision is int) {
+              _seen[entry.key as String] = revision;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _saveSeen() =>
+      _saveMaterialized(_seenSetting, jsonEncode(_seen));
+
+  /// Record that this device has caught up with [item] as it stands now, so a
+  /// later change made somewhere else is what stands out.
+  Future<void> markSeen(CloudItem item) async {
+    if (_seen[item.id] == item.revision) return;
+    _seen[item.id] = item.revision;
+    await _saveSeen();
+    _emit();
+  }
+
+  /// Whether [item] moved on after this device last acknowledged it.
+  ///
+  /// An item never acknowledged is NOT reported: it is new, not changed, and
+  /// flagging everything on first sight would say nothing. Our own writes go
+  /// through [_postItemBestEffort], which acknowledges as it posts, so what is
+  /// left is exactly the changes that arrived from somewhere else.
+  bool changedElsewhere(CloudItem item) {
+    final seen = _seen[item.id];
+    return seen != null && item.revision > seen;
   }
 
   Future<String?> _loadMaterialized(String key) async {
@@ -455,7 +498,7 @@ class CloudService {
     final remoteBodies = {for (final row in remote) row.event.toBody()};
     for (final item in _indexRows()) {
       if (!remoteBodies.contains(item.toEvent().toBody())) {
-        _postItemBestEffort(item);
+        _postItemBestEffort(item, local: false);
       }
     }
     for (final folder in _folders.values) {
@@ -1161,7 +1204,9 @@ class CloudService {
       final text = utf8.decode(raw);
       final json = jsonDecode(text);
       if (json is! Map) return null;
-      final manifest = ContentManifest.fromJson(Map<String, dynamic>.from(json));
+      final manifest = ContentManifest.fromJson(
+        Map<String, dynamic>.from(json),
+      );
       if (manifest == null || manifest.contentId != contentId) return null;
       return text;
     } catch (_) {
@@ -1509,7 +1554,18 @@ class CloudService {
     _postClaimBestEffort(claim);
   }
 
-  void _postItemBestEffort(CloudItem item) {
+  /// [local] marks a post this device initiated. The reconcile backfill also
+  /// posts, but it re-publishes rows of the MERGED index — which includes what
+  /// other devices wrote — so acknowledging there would quietly mark their
+  /// changes as ours and the whole distinction would collapse.
+  void _postItemBestEffort(CloudItem item, {bool local = true}) {
+    if (local && _seen[item.id] != item.revision) {
+      _seen[item.id] = item.revision;
+      // Best-effort like the post itself: a shutdown between the write and this
+      // flush costs at most one item's acknowledgement, and the store may
+      // already be locked by then.
+      unawaited(_saveSeen().catchError((_) {}));
+    }
     try {
       final attempt = _sync.postItem(item);
       unawaited(attempt.catchError((_) => false));

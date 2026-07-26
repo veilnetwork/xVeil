@@ -1913,6 +1913,9 @@ class AppL10nEn extends AppL10n {
   String get cloudRemote => 'in cloud';
 
   @override
+  String get cloudChangedElsewhere => 'changed on another device';
+
+  @override
   String get cloudUsage => 'Storage used';
 
   @override
