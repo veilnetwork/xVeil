@@ -2006,6 +2006,15 @@ class AppL10nRu extends AppL10n {
   String get cloudDownload => 'Загрузить на устройство';
 
   @override
+  String get cloudExport => 'Сохранить в файл…';
+
+  @override
+  String get cloudExportDone => 'Файл сохранён';
+
+  @override
+  String get cloudExportFailed => 'Не удалось сохранить файл';
+
+  @override
   String get cloudShare => 'Поделиться с контактом';
 
   @override

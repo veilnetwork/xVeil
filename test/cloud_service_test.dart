@@ -716,6 +716,53 @@ void main() {
     await storage.close();
   });
 
+  test('content reads back in ranges, and only while the item lives', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    var ids = 0;
+    final service = CloudService(
+      storage,
+      _FakeSync(_id(1)),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(100),
+      newId: () => 'ranged${ids++}',
+    );
+    final bytes = _bytes(4096);
+    final item = await service.importContent(
+      name: 'ranged.bin',
+      size: bytes.length,
+      readRange: _reader(bytes),
+    );
+    // A second reference to the same bytes, so deleting the first leaves them
+    // in the store. Otherwise "a tombstone serves nothing" would pass for the
+    // wrong reason — with the bytes gone, anything refuses.
+
+    // Saving a file walks it in windows, so a window from the middle has to
+    // be the same bytes the file has there — not the head, and not padded.
+    expect(
+      await service.readContentRange(item, 1000, 512),
+      Uint8List.sublistView(bytes, 1000, 1512),
+    );
+    final whole = <int>[];
+    for (var offset = 0; offset < bytes.length; offset += 1024) {
+      whole.addAll((await service.readContentRange(item, offset, 1024))!);
+    }
+    expect(whole, bytes, reason: 'the windows must join back into the file');
+
+    await service.deleteItem(item.id);
+    final tombstone = (await service.listItems(
+      includeDeleted: true,
+    )).firstWhere((candidate) => candidate.id == item.id);
+    expect(
+      await service.readContentRange(tombstone, 0, 16),
+      isNull,
+      reason: 'a tombstone points at nothing, so it can serve nothing',
+    );
+
+    await service.close();
+    await storage.close();
+  });
+
   test(
     'contact sharing is accepted-only and delegates the existing cid',
     () async {

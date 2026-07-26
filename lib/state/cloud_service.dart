@@ -1581,6 +1581,28 @@ class CloudService {
     }
   }
 
+  /// One range of an item's content, for callers writing it back out of the
+  /// volume — saving a file to disk, say.
+  ///
+  /// Ranged rather than whole-file on purpose: a multi-GB item must never sit
+  /// in memory just to be copied somewhere. Returns null when the bytes are
+  /// not on this device; [ensureLocal] is the caller's job first, because
+  /// fetching them can take minutes and only the caller knows whether to wait.
+  ///
+  /// A deleted item is refused by having no content id at all, so there is no
+  /// separate check for it here — one that looked like protection but never
+  /// ran would be worse than none.
+  Future<Uint8List?> readContentRange(
+    CloudItem item,
+    int offset,
+    int length,
+  ) async {
+    await start();
+    final contentId = item.contentId;
+    if (contentId == null) return null;
+    return _storage.readFileRange(contentId, offset, length);
+  }
+
   /// Every preview the index currently points at.
   ///
   /// Read fresh on each ask rather than cached: an item imported a second ago

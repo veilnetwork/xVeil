@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/ids.dart';
 import '../../domain/cloud.dart';
@@ -2691,6 +2692,86 @@ class _CloudItemTileState extends State<_CloudItemTile> {
     }
   }
 
+  /// Copy one item's content out of the volume and into an ordinary file.
+  ///
+  /// [_fetch] brings bytes onto this device but leaves them encrypted and
+  /// reachable only through the app; this is the other half — the one that
+  /// makes the storage usable from the rest of the machine.
+  Future<void> _export() async {
+    if (_working) return;
+    final item = widget.item;
+    if (item.contentId == null || item.deleted) return;
+    final l = AppL10n.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _working = true);
+    try {
+      // The bytes may live only on another device. Waiting for them is the
+      // whole point of the action, so unlike a preview this one blocks.
+      if (!await widget.service.ensureLocal(item)) {
+        if (mounted) {
+          messenger.showSnackBar(SnackBar(content: Text(l.cloudExportFailed)));
+        }
+        return;
+      }
+      final String? destination;
+      if (Platform.isAndroid || Platform.isIOS) {
+        // saveFile wants every byte up front on mobile, which an item of any
+        // size cannot promise, so there the destination is app documents.
+        destination =
+            '${(await getApplicationDocumentsDirectory()).path}/'
+            '${_safeExportName(item.name)}';
+      } else {
+        destination = await FilePicker.saveFile(
+          fileName: _safeExportName(item.name),
+        );
+      }
+      if (destination == null) return; // cancelled, which is not a failure
+      // Written beside the target and renamed only once whole: picking an
+      // existing file must not destroy it because the copy failed halfway,
+      // and a truncated file that looks complete is worse than none.
+      final partial = File('$destination.part');
+      var written = 0;
+      final sink = partial.openWrite();
+      try {
+        const chunk = 4 * 1024 * 1024;
+        while (written < item.size) {
+          final want = (item.size - written) < chunk
+              ? item.size - written
+              : chunk;
+          final part = await widget.service.readContentRange(
+            item,
+            written,
+            want,
+          );
+          if (part == null || part.isEmpty) break;
+          sink.add(part);
+          written += part.length;
+        }
+      } finally {
+        await sink.close();
+      }
+      final complete = written >= item.size;
+      if (complete) {
+        await partial.rename(destination);
+      } else {
+        await partial.delete();
+      }
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(complete ? l.cloudExportDone : l.cloudExportFailed),
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(l.cloudExportFailed)));
+      }
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
   Future<void> _openNote() async {
     if (_working || widget.item.kind != CloudItemKind.note) return;
     await Navigator.push<CloudItem>(
@@ -3034,6 +3115,8 @@ class _CloudItemTileState extends State<_CloudItemTile> {
                     unawaited(
                       widget.service.verifyItem(widget.item, repair: true),
                     );
+                  case 'export':
+                    unawaited(_export());
                   case 'share':
                     unawaited(_share());
                   case 'public':
@@ -3051,6 +3134,9 @@ class _CloudItemTileState extends State<_CloudItemTile> {
                 ),
                 if (widget.item.kind == CloudItemKind.file)
                   PopupMenuItem(value: 'rename', child: Text(l.cloudRename)),
+                if (widget.item.kind == CloudItemKind.file &&
+                    widget.item.contentId != null)
+                  PopupMenuItem(value: 'export', child: Text(l.cloudExport)),
                 PopupMenuItem(value: 'move', child: Text(l.cloudMoveToFolder)),
                 if (_local == true)
                   PopupMenuItem(value: 'verify', child: Text(l.cloudVerify)),
@@ -3066,6 +3152,13 @@ class _CloudItemTileState extends State<_CloudItemTile> {
             ),
     );
   }
+}
+
+/// A cloud item's name is whatever the user typed, so it may carry separators
+/// that would place the export somewhere else entirely.
+String _safeExportName(String value) {
+  final sanitized = value.trim().replaceAll(RegExp(r'[/\\\x00]'), '_');
+  return sanitized.isEmpty ? 'file' : sanitized;
 }
 
 String _formatBytes(int bytes) {
