@@ -70,6 +70,7 @@ void main() {
     {'id': 'f1', 'name': 'a.bin', 'kind': 'file', 'size': 4, 'deleted': false},
   ];
   final cloudDeletes = <String>[];
+  final authoredUploads = <Map<String, Object?>>[];
   final cloudNotes = <Map<String, Object?>>[];
 
   ApiHandler make({
@@ -85,6 +86,7 @@ void main() {
     activeIdentity = 'personal';
     cloudDeletes.clear();
     cloudNotes.clear();
+    authoredUploads.clear();
     sent.clear();
     groupPosts.clear();
     groupActions.clear();
@@ -279,12 +281,33 @@ void main() {
         groupPosts.add((group, body, replyTo));
         return null;
       },
-      sendGroupFile: (group, path, name, caption, replyTo) async =>
-          group == 'missing'
-          ? (error: 'group not found', contentId: null)
-          : group == 'large'
-          ? (error: 'group file too large', contentId: null)
-          : (error: null, contentId: 'group-content'),
+      sendGroupFile:
+          (
+            group,
+            path,
+            name,
+            caption,
+            replyTo, {
+            kind,
+            width,
+            height,
+            durationMs,
+          }) async {
+            authoredUploads.add({
+              'group': group,
+              'kind': kind,
+              'width': width,
+              'height': height,
+              'durationMs': durationMs,
+            });
+            if (group == 'missing') {
+              return (error: 'group not found', contentId: null);
+            }
+            if (group == 'large') {
+              return (error: 'group file too large', contentId: null);
+            }
+            return (error: null, contentId: 'group-content');
+          },
       fetchGroupFile: (group, message) async =>
           group == 'missing' ? 'group message attachment not found' : null,
       loadGroupFile: (group, message) async => group == 'missing'
@@ -986,6 +1009,70 @@ void main() {
 
   Uri u(String p) => Uri.parse(p);
 
+  test('an upload can say what it is, and bad metadata is refused', () async {
+    final h = make();
+
+    final image = await h.handle(
+      'POST',
+      Uri.parse('/v1/groups/files'),
+      'Bearer secret-token',
+      body: {
+        'group': 'g1',
+        'path': '/tmp/a.png',
+        'kind': 'image',
+        'width': 800,
+        'height': 600,
+      },
+    );
+    expect(image.status, 200);
+    expect(authoredUploads.single['kind'], 'image');
+    expect(authoredUploads.single['width'], 800);
+
+    final voice = await h.handle(
+      'POST',
+      Uri.parse('/v1/groups/files'),
+      'Bearer secret-token',
+      body: {
+        'group': 'g1',
+        'path': '/tmp/v.vop1',
+        'kind': 'voice',
+        'durationMs': 4200,
+      },
+    );
+    expect(voice.status, 200);
+    expect(authoredUploads.last['durationMs'], 4200);
+
+    final plain = await h.handle(
+      'POST',
+      Uri.parse('/v1/groups/files'),
+      'Bearer secret-token',
+      body: {'group': 'g1', 'path': '/tmp/a.bin'},
+    );
+    expect(plain.status, 200);
+    expect(
+      authoredUploads.last['kind'],
+      isNull,
+      reason: 'saying nothing must keep the old behaviour, not invent a kind',
+    );
+
+    final badTypes = await h.handle(
+      'POST',
+      Uri.parse('/v1/groups/files'),
+      'Bearer secret-token',
+      body: {
+        'group': 'g1',
+        'path': '/tmp/a.png',
+        'kind': 'image',
+        'width': '800',
+      },
+    );
+    expect(
+      badTypes.status,
+      400,
+      reason: 'a width that is not a number is a bad request, not a guess',
+    );
+  });
+
   test('the cloud surface lists, downloads, writes notes and deletes', () async {
     final h = make();
 
@@ -1260,7 +1347,9 @@ void main() {
         createGroup: (_) async => 'gid',
         groupMessages: (_, _) async => const [],
         sendGroupMessage: (_, _, _) async => null,
-        sendGroupFile: (_, _, _, _, _) async => (error: null, contentId: 'cid'),
+        sendGroupFile:
+            (_, _, _, _, _, {kind, width, height, durationMs}) async =>
+                (error: null, contentId: 'cid'),
         fetchGroupFile: (_, _) async => null,
         loadGroupFile: (_, _) async => (error: null, bytes: <int>[]),
         groupMembers: (_, _) async => const {},
@@ -4104,7 +4193,9 @@ void main() {
         createGroup: (_) async => 'gid',
         groupMessages: (_, _) async => const [],
         sendGroupMessage: (_, _, _) async => null,
-        sendGroupFile: (_, _, _, _, _) async => (error: null, contentId: 'cid'),
+        sendGroupFile:
+            (_, _, _, _, _, {kind, width, height, durationMs}) async =>
+                (error: null, contentId: 'cid'),
         fetchGroupFile: (_, _) async => null,
         loadGroupFile: (_, _) async => (error: null, bytes: <int>[]),
         groupMembers: (_, _) async => const {},

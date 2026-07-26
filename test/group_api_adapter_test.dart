@@ -973,6 +973,108 @@ void main() {
     },
   );
 
+  test('an authored upload renders as itself, or is refused', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(31);
+    final service = GroupService(storage, _Signer(owner));
+    final api = GroupApiAdapter(
+      service,
+      registerContentSource:
+          (name, size, read, {required close, sourcePath}) async {
+            await close();
+            return 'a' * 64;
+          },
+      loadContent: storage.loadFile,
+    );
+    final directory = await Directory.systemTemp.createTemp('xveil-authored-');
+    try {
+      final group = (await api.create('Authored'))!;
+      final source = File('${directory.path}/clip.bin');
+      await source.writeAsBytes(List<int>.filled(64, 7));
+
+      // An image says its size; a reader lays it out from that and needs no
+      // thumbnail, which is exactly what a headless author cannot make.
+      expect(
+        (await api.sendFile(
+          group,
+          source.path,
+          'photo.png',
+          '',
+          null,
+          kind: 'image',
+          width: 800,
+          height: 600,
+        )).error,
+        isNull,
+      );
+      var posted = (await service.messagesOf(
+        NodeId.fromHex(group),
+      )).firstWhere((m) => m.attachment?.name == 'photo.png');
+      expect(posted.attachment?.kind, 'image');
+      expect(posted.attachment?.w, 800);
+      expect(posted.attachment?.h, 600);
+
+      // Voice carries its length where every reader already looks for it.
+      expect(
+        (await api.sendFile(
+          group,
+          source.path,
+          'note.vop1',
+          '',
+          null,
+          kind: 'voice',
+          durationMs: 4200,
+        )).error,
+        isNull,
+      );
+      posted = (await service.messagesOf(
+        NodeId.fromHex(group),
+      )).firstWhere((m) => m.attachment?.name == 'note.vop1');
+      expect(posted.attachment?.kind, 'voice');
+      expect(
+        posted.attachment?.w,
+        4200,
+        reason: 'the app writes the duration into w and 1 into h; match it',
+      );
+      expect(posted.attachment?.h, 1);
+
+      final before = (await service.messagesOf(NodeId.fromHex(group))).length;
+
+      // An image with no size, a voice with no length, and a kind nobody
+      // renders: each would publish a signed row that reads as broken
+      // everywhere and can never be corrected.
+      for (final bad in [
+        () => api.sendFile(group, source.path, 'x.png', '', null,
+            kind: 'image'),
+        () => api.sendFile(group, source.path, 'x.vop1', '', null,
+            kind: 'voice'),
+        () => api.sendFile(group, source.path, 'x.bin', '', null,
+            kind: 'hologram'),
+      ]) {
+        expect((await bad()).error, isNotNull);
+      }
+      expect(
+        (await service.messagesOf(NodeId.fromHex(group))).length,
+        before,
+        reason: 'a refusal posts nothing at all',
+      );
+
+      // Saying nothing keeps the behaviour this call always had.
+      expect(
+        (await api.sendFile(group, source.path, 'plain.bin', '', null)).error,
+        isNull,
+      );
+      posted = (await service.messagesOf(
+        NodeId.fromHex(group),
+      )).firstWhere((m) => m.attachment?.name == 'plain.bin');
+      expect(posted.attachment?.kind, 'file');
+    } finally {
+      await service.dispose();
+      await directory.delete(recursive: true);
+    }
+  });
+
   test('group file API passes an over-legacy-cap source through without an '
       'all-file read', () async {
     final storage = FakeHvContainer().storage();
