@@ -276,3 +276,125 @@ class SpaceModerationAppealCandidate {
   final String spaceName;
   final SpaceModerationRecord record;
 }
+
+/// Ships a group snapshot [bundleJson] durably to [peer] (direct fanout, v1).
+typedef GroupSnapshotSender =
+    Future<void> Function(NodeId peer, NodeId groupId, String bundleJson);
+
+typedef SpaceInviteSender =
+    Future<void> Function(NodeId peer, String inviteId, String inviteJson);
+typedef SpaceInviteDecisionSender =
+    Future<void> Function(NodeId peer, String inviteId, String decisionJson);
+typedef SpaceJoinRequestSender =
+    Future<void> Function(NodeId peer, String requestId, String requestJson);
+typedef SpaceJoinDecisionSender =
+    Future<void> Function(NodeId peer, String requestId, String decisionJson);
+typedef SpaceModerationAppealSender =
+    Future<void> Function(NodeId peer, String appealId, String appealJson);
+typedef SpaceModerationAppealDecisionSender =
+    Future<void> Function(NodeId peer, String appealId, String decisionJson);
+typedef SpaceAbuseReportSender =
+    Future<void> Function(NodeId peer, String reportId, String reportJson);
+typedef SpaceAbuseReportDecisionSender =
+    Future<void> Function(NodeId peer, String reportId, String decisionJson);
+typedef SpaceRecommendationSender =
+    Future<String?> Function(NodeId peer, SpaceRecommendationCard card);
+typedef SpaceRecommendationRevoker =
+    Future<bool> Function(NodeId peer, String messageId);
+typedef SpacePublicFeedRequestSender =
+    Future<void> Function(NodeId holder, String requestJson);
+typedef SpacePublicFeedChunkSender =
+    Future<void> Function(NodeId requester, String chunkJson);
+typedef SpacePublicMediaGrantRequestSender =
+    Future<void> Function(NodeId holder, String requestJson);
+
+/// Point-in-time transport view used only when an observability snapshot is
+/// explicitly requested. Implementations must return active sessions only.
+typedef ActivePeerSnapshotReader = Future<Set<NodeId>> Function();
+
+typedef GroupCallFrameSender =
+    Future<void> Function(
+      NodeId peer,
+      GroupCallSignal signal,
+      String frameJson,
+    );
+
+class SpaceDiscoveryPublishSweep {
+  const SpaceDiscoveryPublishSweep({
+    required this.spacesScanned,
+    required this.spacesPublished,
+    required this.recordsPublished,
+    required this.failures,
+    required this.available,
+  });
+
+  final int spacesScanned;
+  final int spacesPublished;
+  final int recordsPublished;
+  final int failures;
+  final bool available;
+
+  bool get complete => available && failures == 0;
+}
+
+/// Exact material prepared by an owner before it may advertise itself as a
+/// public holder. The DHT payload is small; the content-addressed feed pages
+/// remain on the holder and are served by the dedicated public-feed path.
+class SpacePublicDiscoveryPublication {
+  const SpacePublicDiscoveryPublication({
+    required this.discovery,
+    required this.feed,
+  });
+
+  final SpacePublicDiscoveryPayload discovery;
+  final SpacePublicFeedProjection feed;
+}
+
+/// A merged public-discovery result that retains the independently verified
+/// holders needed to fetch the committed feed and its media. Returning only a
+/// descriptor is sufficient for rendering a card but would strand the next
+/// operation without an authenticated source.
+class SpacePublicDiscoveryResult {
+  SpacePublicDiscoveryResult({
+    required this.descriptor,
+    required Iterable<SpacePublicHolderAnnouncement> holders,
+  }) : holders = List<SpacePublicHolderAnnouncement>.unmodifiable(holders);
+
+  final SpacePublicDescriptor descriptor;
+  final List<SpacePublicHolderAnnouncement> holders;
+}
+
+enum SpacePublicDiscoverySearchStatus { available, partialQuorum, unavailable }
+
+class SpacePublicDiscoverySearchOutcome {
+  SpacePublicDiscoverySearchOutcome({
+    required this.status,
+    required Iterable<SpacePublicDiscoveryResult> results,
+  }) : results = List<SpacePublicDiscoveryResult>.unmodifiable(results);
+
+  final SpacePublicDiscoverySearchStatus status;
+  final List<SpacePublicDiscoveryResult> results;
+}
+
+/// One active device-local subscription to an owner-signed public projection.
+///
+/// This is deliberately not a [GroupBundle]: it contains no membership,
+/// control log, channel, epoch or write authority. [stale] only describes
+/// whether the short network availability proof has expired; the stored
+/// signatures remain independently verifiable at [verifiedAtMs] for offline
+/// reading.
+class SpacePublicSubscriptionView {
+  const SpacePublicSubscriptionView({
+    required this.subscription,
+    required this.descriptor,
+    required this.feed,
+    required this.verifiedAtMs,
+    required this.stale,
+  });
+
+  final SpaceSubscription subscription;
+  final SpacePublicDescriptor descriptor;
+  final SpacePublicFeedProjection feed;
+  final int verifiedAtMs;
+  final bool stale;
+}
