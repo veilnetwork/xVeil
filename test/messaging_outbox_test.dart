@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
@@ -73,6 +74,30 @@ class _BlockingMailboxSink implements MailboxSink {
 
   void release() {
     if (!_release.isCompleted) _release.complete();
+  }
+
+  @override
+  void nudgeDrain() {}
+
+  @override
+  void noteActivity() {}
+}
+
+/// Refuses every deposit the way a peer with no advertised mailbox does.
+class _UnresolvedMailboxSink implements MailboxSink {
+  int calls = 0;
+
+  @override
+  bool backgroundDrainPaused = false;
+
+  @override
+  Future<void> stash({
+    required NodeId recipient,
+    required Uint8List payload,
+    required Uint8List contentId,
+  }) async {
+    calls++;
+    throw const MailboxPeerUnresolved('no usable KEM key in this test');
   }
 
   @override
@@ -395,6 +420,32 @@ void main() {
       expect((await aMsg('composed offline')).status, MessageStatus.delivered);
     },
   );
+
+  test('a peer with no mailbox is left alone until the backoff expires',
+      () async {
+    // Two things had to be true for this to work, and neither was. The
+    // condition has two spellings — the native path answers `PeerUnresolved`,
+    // the Dart path throws MailboxPeerUnresolved — and only the first earned a
+    // backoff. And the backoff was consulted in the outbox flush loop alone,
+    // while a user send finishes with its OWN background deposit that walked
+    // straight past it. So an asleep phone was re-asked on every send.
+    final mailbox = _UnresolvedMailboxSink();
+    mA.attachMailbox(mailbox);
+    tA.online = false;
+
+    await mA.sendText(b, 'first');
+    await _pump();
+    expect(mailbox.calls, 1, reason: 'the first deposit is attempted');
+
+    await mA.sendText(b, 'second');
+    await _pump();
+    expect(
+      mailbox.calls,
+      1,
+      reason: 'and the second is not: this peer has no mailbox to reach, and '
+          'the frame stays durable for the flush loop to deposit later',
+    );
+  });
 
   test('flush keeps live retries moving and dedupes a slow stash', () async {
     final mailbox = _BlockingMailboxSink();
