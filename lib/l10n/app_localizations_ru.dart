@@ -1936,6 +1936,47 @@ class AppL10nRu extends AppL10n {
   String get cloudRemote => 'в облаке';
 
   @override
+  String get cloudUsage => 'Занятое место';
+
+  @override
+  String get cloudUsageOnThisDevice => 'На этом устройстве';
+
+  @override
+  String get cloudUsageInCloud => 'Всё в индексе';
+
+  @override
+  String get cloudUsageByDevice => 'По устройствам';
+
+  @override
+  String get cloudUsageThisDevice => 'это устройство';
+
+  @override
+  String cloudUsageItems(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count объектов',
+      few: '$count объекта',
+      one: '1 объект',
+      zero: 'нет объектов',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String cloudUsageNotHeldHere(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count объектов здесь не хранятся',
+      few: '$count объекта здесь не хранятся',
+      one: '1 объект здесь не хранится',
+      zero: 'всё здесь',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String cloudReplicas(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

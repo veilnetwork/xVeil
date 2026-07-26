@@ -174,6 +174,68 @@ class CloudService {
     return values;
   }
 
+  /// What the cloud is using, here and across the identity's devices.
+  ///
+  /// Folded entirely from state already present: the index gives the logical
+  /// size, the replica claims give per-device holdings (a claim carries the
+  /// size of what it claims), and the local store answers what is actually on
+  /// this disk. No device is asked anything.
+  ///
+  /// The local total is measured against the STORE rather than trusted from our
+  /// own claim — a claim can outlive the bytes it describes, and a number that
+  /// tells someone how much disk they are using should come from the disk.
+  Future<CloudUsage> usage() async {
+    await start();
+    final items = _visibleItems();
+    var logicalBytes = 0;
+    var localItems = 0;
+    var localBytes = 0;
+    for (final item in items) {
+      logicalBytes += item.size;
+      if (await isLocal(item)) {
+        localItems++;
+        localBytes += item.size;
+      }
+    }
+    // One row per device, counting each item once: a device may claim several
+    // heads of the same note, and holding two branches is not holding two notes.
+    final perDevice = <String, ({NodeId id, Set<String> items, int bytes})>{};
+    final counted = <String>{};
+    for (final claim in _claims.values) {
+      if (!claim.present) continue;
+      final row = perDevice.putIfAbsent(
+        claim.deviceId.hex,
+        () => (id: claim.deviceId, items: <String>{}, bytes: 0),
+      );
+      final seen = '${claim.deviceId.hex}|${claim.itemId}';
+      if (!counted.add(seen)) continue;
+      row.items.add(claim.itemId);
+      perDevice[claim.deviceId.hex] = (
+        id: row.id,
+        items: row.items,
+        bytes: row.bytes + claim.size,
+      );
+    }
+    final selfHex = _sync.selfId.hex;
+    final devices = [
+      for (final entry in perDevice.entries)
+        CloudDeviceUsage(
+          deviceId: entry.value.id,
+          isSelf: entry.key == selfHex,
+          items: entry.value.items.length,
+          bytes: entry.value.bytes,
+        ),
+    ]..sort((a, b) => b.bytes.compareTo(a.bytes));
+    return CloudUsage(
+      logicalItems: items.length,
+      logicalBytes: logicalBytes,
+      localItems: localItems,
+      localBytes: localBytes,
+      indexOnlyItems: items.length - localItems,
+      devices: devices,
+    );
+  }
+
   List<CloudItem> _visibleItems() {
     final values = [
       for (final item in _items.values)

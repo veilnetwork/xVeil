@@ -3432,6 +3432,48 @@ abstract class AppL10n {
   /// **'in cloud'**
   String get cloudRemote;
 
+  /// No description provided for @cloudUsage.
+  ///
+  /// In en, this message translates to:
+  /// **'Storage used'**
+  String get cloudUsage;
+
+  /// No description provided for @cloudUsageOnThisDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'On this device'**
+  String get cloudUsageOnThisDevice;
+
+  /// No description provided for @cloudUsageInCloud.
+  ///
+  /// In en, this message translates to:
+  /// **'Everything in the index'**
+  String get cloudUsageInCloud;
+
+  /// No description provided for @cloudUsageByDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'By device'**
+  String get cloudUsageByDevice;
+
+  /// No description provided for @cloudUsageThisDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'this device'**
+  String get cloudUsageThisDevice;
+
+  /// No description provided for @cloudUsageItems.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{no items} =1{1 item} other{{count} items}}'**
+  String cloudUsageItems(int count);
+
+  /// No description provided for @cloudUsageNotHeldHere.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{everything is here} =1{1 item is not held here} other{{count} items are not held here}}'**
+  String cloudUsageNotHeldHere(int count);
+
   /// No description provided for @cloudReplicas.
   ///
   /// In en, this message translates to:

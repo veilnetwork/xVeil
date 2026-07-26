@@ -812,6 +812,75 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
 
   void _startSearch() => setState(() => _searching = true);
 
+  /// What the cloud costs. Everything shown is folded from state that already
+  /// replicates, including the per-device rows — a replica claim carries its
+  /// size — so opening this asks nothing of the network.
+  Future<void> _showUsage() async {
+    final service = ref.read(cloudServiceProvider);
+    if (service == null) return;
+    final usage = await service.usage();
+    if (!mounted) return;
+    final l = AppL10n.of(context);
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const ValueKey('cloud-usage-dialog'),
+        title: Text(l.cloudUsage),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(l.cloudUsageOnThisDevice),
+                subtitle: Text(l.cloudUsageItems(usage.localItems)),
+                trailing: Text(_formatBytes(usage.localBytes)),
+              ),
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(l.cloudUsageInCloud),
+                subtitle: Text(l.cloudUsageItems(usage.logicalItems)),
+                trailing: Text(_formatBytes(usage.logicalBytes)),
+              ),
+              Text(
+                l.cloudUsageNotHeldHere(usage.indexOnlyItems),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              if (usage.devices.isNotEmpty) ...[
+                const Divider(),
+                Text(
+                  l.cloudUsageByDevice,
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                for (final device in usage.devices)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      device.isSelf
+                          ? '${device.deviceId.short} · ${l.cloudUsageThisDevice}'
+                          : device.deviceId.short,
+                    ),
+                    subtitle: Text(l.cloudUsageItems(device.items)),
+                    trailing: Text(_formatBytes(device.bytes)),
+                  ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(l.actionDone),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _stopSearch() {
     _searchController.clear();
     setState(() {
@@ -1131,6 +1200,12 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                 tooltip: l.cloudSearch,
                 onPressed: service == null ? null : _startSearch,
                 icon: const Icon(Icons.search),
+              ),
+              IconButton(
+                key: const ValueKey('cloud-usage'),
+                tooltip: l.cloudUsage,
+                onPressed: service == null ? null : _showUsage,
+                icon: const Icon(Icons.data_usage_outlined),
               ),
               PopupMenuButton<_CloudSortMode>(
                 key: const ValueKey('cloud-sort'),

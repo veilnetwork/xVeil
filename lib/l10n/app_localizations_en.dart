@@ -1913,6 +1913,45 @@ class AppL10nEn extends AppL10n {
   String get cloudRemote => 'in cloud';
 
   @override
+  String get cloudUsage => 'Storage used';
+
+  @override
+  String get cloudUsageOnThisDevice => 'On this device';
+
+  @override
+  String get cloudUsageInCloud => 'Everything in the index';
+
+  @override
+  String get cloudUsageByDevice => 'By device';
+
+  @override
+  String get cloudUsageThisDevice => 'this device';
+
+  @override
+  String cloudUsageItems(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items',
+      one: '1 item',
+      zero: 'no items',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String cloudUsageNotHeldHere(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items are not held here',
+      one: '1 item is not held here',
+      zero: 'everything is here',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String cloudReplicas(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
