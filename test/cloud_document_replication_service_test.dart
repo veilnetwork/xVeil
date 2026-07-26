@@ -1936,11 +1936,83 @@ void main() {
         isTrue,
       );
 
-      // The editor now holds bytes → it becomes a provider too (slot 1).
+      // The editor now holds the whole folder → it becomes a provider (slot 1).
       await editorService.reconcileMemberHosting();
       expect(
         editorService.memberHostDiagnostics()[documentId]!.servable,
         [manifest.contentId],
+      );
+
+      // A SECOND file the editor does not have makes its copy incomplete, and
+      // an incomplete copy must stop serving. Every denial in the host is
+      // silent, so a partial provider would answer both its own fetches and
+      // other members' with nothing — the folder gets worse, not more
+      // redundant. The owner, holding everything, keeps serving.
+      final secondBytes = Uint8List.fromList([
+        for (var i = 0; i < 900; i++) (i * 11) & 0xff,
+      ]);
+      final secondManifest = await ContentManifest.fromReader(
+        name: 'second.bin',
+        size: secondBytes.length,
+        readRange: (offset, length) async =>
+            Uint8List.sublistView(secondBytes, offset, offset + length),
+        pieceSize: 1024,
+      );
+      ownerFiles.files[secondManifest.contentId] = secondBytes;
+      sent.clear();
+      expect(
+        await ownerService.addSharedFolderFile(
+          documentId,
+          name: 'second.bin',
+          contentId: secondManifest.contentId,
+          size: secondBytes.length,
+          mime: 'application/octet-stream',
+          manifest: jsonEncode(secondManifest.toJson()),
+        ),
+        isNotNull,
+      );
+      expect(
+        await editorService.ingest(
+          owner,
+          CloudDocumentFrame.decode(sent.removeLast().json)!.encode(),
+        ),
+        isTrue,
+      );
+      await editorService.reconcileMemberHosting();
+      expect(
+        editorService.memberHostDiagnostics(),
+        isEmpty,
+        reason: 'a member missing a file must not register as a provider',
+      );
+      await ownerService.reconcileMemberHosting();
+      expect(
+        ownerService.memberHostDiagnostics()[documentId]!.servable,
+        containsAll([manifest.contentId, secondManifest.contentId]),
+      );
+
+      // Drop it again so the rest of the lifecycle runs on a single file.
+      sent.clear();
+      expect(
+        await ownerService.removeSharedFolderFile(
+          documentId,
+          (await ownerService.loadSharedFolder(documentId))!
+              .firstWhere((f) => f.contentId == secondManifest.contentId)
+              .id,
+        ),
+        isNotNull,
+      );
+      expect(
+        await editorService.ingest(
+          owner,
+          CloudDocumentFrame.decode(sent.removeLast().json)!.encode(),
+        ),
+        isTrue,
+      );
+      await editorService.reconcileMemberHosting();
+      expect(
+        editorService.memberHostDiagnostics()[documentId]!.servable,
+        [manifest.contentId],
+        reason: 'complete again → serving again',
       );
 
       // Removing the row empties the servable set and tears the host down.

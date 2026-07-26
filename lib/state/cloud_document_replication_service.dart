@@ -1035,13 +1035,27 @@ class CloudDocumentReplicationService {
           final snapshot = await _materializeCollection(stored, fold);
           if (snapshot == null) continue;
           final servable = <ContentManifest>[];
+          var missing = 0;
           for (final row in snapshot.rows) {
             final manifest = _sharedFolderManifest(CloudFileEntry.fromRow(row));
             if (manifest == null) continue;
-            if (!await storage.hasFile(manifest.contentId)) continue;
+            if (!await storage.hasFile(manifest.contentId)) {
+              missing++;
+              continue;
+            }
             servable.add(manifest);
           }
-          if (servable.isEmpty) continue;
+          // Host only a COMPLETE copy. Registering while still missing files
+          // hurts twice, because every denial in the host is silent:
+          //   * our own fetches land on our own registration (all members
+          //     derive the same host alias), find nothing, and time out — so
+          //     adopting one file used to make every later one unreachable;
+          //   * another member routed to us gets that same silence for
+          //     anything we lack, so a partial replica degrades the folder for
+          //     the whole circle rather than adding redundancy.
+          // A member therefore stays a pure client until it holds everything,
+          // and becomes a provider exactly when it has nothing left to fetch.
+          if (servable.isEmpty || missing > 0) continue;
           plans[id] = _MemberFolderHostPlan(
             epoch: epoch,
             epochKey: Uint8List.fromList(key),
