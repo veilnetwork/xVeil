@@ -87,12 +87,17 @@ class _StreamLink implements VeilTransport, StreamTransport {
   Future<NodeId> nodeId() async => _me;
   @override
   Stream<InboundMessage> messages() => _in.stream;
+  /// Frames sent per destination — lets a test count how often a resume tick
+  /// actually reached out, which is the thing parking is supposed to stop.
+  final sendsTo = <String, int>{};
+
   @override
   Future<void> send(
     NodeId dst,
     Uint8List payload, {
     bool anonymous = false,
   }) async {
+    sendsTo[dst.hex] = (sendsTo[dst.hex] ?? 0) + 1;
     peer?._in.add(InboundMessage(src: _me, payload: payload));
   }
 
@@ -111,8 +116,12 @@ class _StreamLink implements VeilTransport, StreamTransport {
   @override
   Future<void> warmStreamPeer(NodeId dst) async {}
 
+  /// Stream opens per destination — lets a test say WHO was contacted.
+  final openStreamAttempts = <String, int>{};
+
   @override
   Future<ReliableStream?> openStream(NodeId dst) async {
+    openStreamAttempts[dst.hex] = (openStreamAttempts[dst.hex] ?? 0) + 1;
     final p = peer;
     if (p == null) return null;
     final aToB = _Chan(), bToA = _Chan();
@@ -278,6 +287,56 @@ void main() {
       final ev = await got.timeout(const Duration(seconds: 20));
       expect(ev.contentId, cid);
       expect(await sB.loadFile(cid), data);
+    },
+    timeout: const Timeout(Duration(minutes: 1)),
+  );
+
+  test(
+    'a download whose only holder is no longer a source parks, and a '
+    'reconnect does not wake it',
+    () async {
+      final data = _rnd(4096, 71);
+      final cid = await offerToB(data, 'gone.bin');
+      _shrinkResumeDelays(mB);
+
+      // Start it while the link is down so a pending record survives.
+      cutLink();
+      await mB.downloadContentFromAny([a], cid);
+      expect(await mB.pendingAutoResumeContentIds(), contains(cid));
+
+      // The holder stops being someone B may pull from — a contact removed,
+      // a membership gone. The pending download is now impossible, not slow.
+      await sB.upsertContact(Contact(nodeId: a, status: ContactStatus.blocked));
+      // The link stays down on purpose: an offer arriving from a holder is a
+      // legitimate reason to un-park, and this test is about the OTHER path —
+      // a reconnect re-arming a download nothing has changed about.
+      tB.sendsTo.clear();
+
+      await mB.reconcileOnConnect();
+      await Future<void>.delayed(const Duration(seconds: 3));
+      final ticksAfterFirst = mB.autoResumeTicks;
+
+      // A reconnect is not evidence that a holder came back, so it must not
+      // re-arm the download. Before this, every reconnect also cleared the
+      // backoff, and the pair kept an impossible download cycling for as long
+      // as the app ran.
+      await mB.reconcileOnConnect();
+      await Future<void>.delayed(const Duration(seconds: 3));
+
+      // A re-armed tick is invisible from outside — it sends nothing and
+      // opens nothing, it just burns a timer and a log line, forever. The
+      // tick count is the only place the difference shows.
+      expect(
+        mB.autoResumeTicks,
+        ticksAfterFirst,
+        reason: 'the second reconnect did not re-drive a parked download: '
+            'parking waits for a holder to show up, not for a clock',
+      );
+      expect(
+        await mB.pendingAutoResumeContentIds(),
+        contains(cid),
+        reason: 'parked, not forgotten — it resumes when a holder shows up',
+      );
     },
     timeout: const Timeout(Duration(minutes: 1)),
   );
