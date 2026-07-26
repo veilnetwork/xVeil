@@ -2125,6 +2125,9 @@ class MessagingService {
   Future<int> clearPendingDownloads() => _downloadResume.clearPending();
 
   /// Pending-download records that should auto-resume (test/UI introspection).
+  /// Test seam, see [_MessagingDownloadResume.resumeTicks].
+  int get autoResumeTicks => _downloadResume.resumeTicks;
+
   Future<List<String>> pendingAutoResumeContentIds() =>
       _downloadResume.pendingContentIds();
 
