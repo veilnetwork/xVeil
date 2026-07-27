@@ -19,6 +19,7 @@ import 'desktop/desktop_tray.dart';
 import 'domain/content_manifest.dart';
 import 'data/node/embedded_node.dart';
 import 'data/node/node_controller.dart';
+import 'data/storage/app_profile.dart';
 import 'data/storage/async_kv_log_store.dart';
 import 'data/storage/hidden_volume_storage.dart';
 import 'data/storage/hv_kv_log_store.dart';
@@ -32,7 +33,18 @@ import 'package:xveil/core/log.dart';
 
 Duration? _disableAutomaticProviderRetry(int retryCount, Object error) => null;
 
-Future<void> main() async {
+/// The profile this launch resolved to, for anything that has to report or
+/// branch on it (the switcher UI, the node's listener port). Set once during
+/// bootstrap, before any provider reads it.
+String activeProfile = AppProfiles.defaultName;
+
+/// Command-line arguments as delivered by the embedder. Linux and Windows
+/// forward argv to the Dart entrypoint; the stock macOS Runner does not, which
+/// is why [AppProfiles.envVar] exists and is the documented way from a shell.
+List<String> launchArguments = const [];
+
+Future<void> main([List<String> args = const []]) async {
+  launchArguments = args;
   // Root-zone safety net. The app does heavy lifecycle churn (unlock,
   // identity-switch, storage-compaction all tear the session down and reopen),
   // and the FFI boundary (hidden_volume / veil_flutter) throws. Without a
@@ -122,10 +134,25 @@ Future<List<Override>> _bootstrapOverrides() async {
       // containers (dev/demo); otherwise the per-app support dir.
       final override = Platform.environment['XVEIL_STORE_PATH'];
       final dir = await getApplicationSupportDirectory();
+      final prefs = await SharedPreferences.getInstance();
+      // Which profile this launch runs on. The default profile resolves to the
+      // historical path, so an existing install is untouched and a user who
+      // never opens the switcher cannot tell this exists.
+      activeProfile = AppProfiles.resolve(
+        args: launchArguments,
+        remembered: prefs.getString(AppProfiles.activePref),
+      );
       final path = (override != null && override.isNotEmpty)
           ? override
-          : '${dir.path}/xveil.store';
-      final prefs = await SharedPreferences.getInstance();
+          : AppProfiles.storePath(dir.path, activeProfile);
+      if (activeProfile != AppProfiles.defaultName) {
+        // Created here rather than lazily by the container opener: a missing
+        // parent directory surfaces as an opaque native open failure.
+        await Directory(
+          AppProfiles.directory(dir.path, activeProfile),
+        ).create(recursive: true);
+        devLog(() => 'xVeil[profile]: running on "$activeProfile" ($path)');
+      }
       final leanPadding =
           prefs.getBool(kStorageLeanPaddingPref) ?? kStorageLeanPaddingDefault;
       final paddingPreset = leanPadding
@@ -244,7 +271,10 @@ Future<List<Override>> _bootstrapOverrides() async {
     unawaited(_sweepStaleRuntimeDirs(runtimeBase));
     final port =
         int.tryParse(Platform.environment['XVEIL_LISTEN_PORT'] ?? '') ??
-        (Platform.isIOS ? 9002 : 9000);
+        AppProfiles.listenPort(
+          activeProfile,
+          base: Platform.isIOS ? 9002 : 9000,
+        );
     // XVEIL_BOOTSTRAP_PEERS points at a local JSON file (gitignored — a testnet
     // set is environment-specific, never committed) listing the network's
     // bootstrap peers. Absent ⇒ the node relies on its compiled-in BUILTIN_SEEDS.
