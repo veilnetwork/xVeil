@@ -43,6 +43,8 @@ class WhisperModelState {
 /// for a feature most people never touch), so the app has to be able to say
 /// "not yet" without that reading as "broken".
 class WhisperModelController extends Notifier<WhisperModelState> {
+  /// Set by [cancel], read by the store between chunks.
+  bool _cancelRequested = false;
   @override
   WhisperModelState build() {
     // After build, not during: refresh() consults `state`, and reading it
@@ -58,6 +60,11 @@ class WhisperModelController extends Notifier<WhisperModelState> {
     if (state.isBusy) return;
     final installed = await _store.isInstalled();
     final pending = installed ? 0 : await _store.pendingBytes();
+    // The screen can be gone by now — the initial probe is scheduled from
+    // build() and a person can leave before a disk check returns. Assigning
+    // state to a disposed provider throws, and that exception would reach the
+    // error report as a fault nobody caused.
+    if (!ref.mounted) return;
     state = WhisperModelState(
       phase: installed ? WhisperModelPhase.ready : WhisperModelPhase.absent,
       resumeFraction: pending > 0
@@ -69,10 +76,12 @@ class WhisperModelController extends Notifier<WhisperModelState> {
   Future<bool> download() async {
     // Pressing twice must not start two 57 MiB transfers.
     if (state.isBusy) return false;
+    _cancelRequested = false;
     state = const WhisperModelState(phase: WhisperModelPhase.downloading);
     final result = await _store.download(
+      isCancelled: () => _cancelRequested,
       onProgress: (progress) {
-        if (state.isBusy) {
+        if (ref.mounted && state.isBusy) {
           state = WhisperModelState(
             phase: WhisperModelPhase.downloading,
             progress: progress,
@@ -84,8 +93,15 @@ class WhisperModelController extends Notifier<WhisperModelState> {
       // The transcriber caches the resolved path and would keep answering
       // "no model" with one sitting right there.
       WhisperTranscriber.forgetResolved();
+      if (!ref.mounted) return true;
       state = const WhisperModelState(phase: WhisperModelPhase.ready);
       return true;
+    }
+    if (!ref.mounted) return false;
+    if (result.wasCancelled) {
+      // Not an error: back to the offer, which will now say "continue".
+      state = WhisperModelState(resumeFraction: await _pendingFraction());
+      return false;
     }
     // Keep the resume marker: a failed transport attempt usually left bytes.
     state = WhisperModelState(
@@ -94,6 +110,12 @@ class WhisperModelController extends Notifier<WhisperModelState> {
       resumeFraction: await _pendingFraction(),
     );
     return false;
+  }
+
+  /// Ask the running transfer to stop. It finishes the chunk in flight and
+  /// keeps what it has, so the next tap resumes rather than restarts.
+  void cancel() {
+    if (state.isBusy) _cancelRequested = true;
   }
 
   Future<double?> _pendingFraction() async {
@@ -105,6 +127,7 @@ class WhisperModelController extends Notifier<WhisperModelState> {
     if (state.isBusy) return;
     await _store.remove();
     WhisperTranscriber.forgetResolved();
+    if (!ref.mounted) return;
     state = const WhisperModelState();
   }
 }

@@ -40,6 +40,7 @@ class _ScriptedStore implements WhisperModelStore {
   @override
   Future<WhisperModelDownload> download({
     void Function(double progress)? onProgress,
+    bool Function()? isCancelled,
     Uri? from,
   }) {
     downloads++;
@@ -178,5 +179,23 @@ void main() {
 
     expect(find.text(l(tester).voiceModelDownload), findsOneWidget);
     expect(find.text(l(tester).voiceModelResume), findsNothing);
+  });
+
+  testWidgets('while downloading there is a way to stop', (tester) async {
+    // 57 MB on mobile data. Without this the only exit is leaving the app.
+    await pump(tester);
+    await tester.tap(find.byType(ListTile));
+    await tester.pump();
+    expect(find.text(l(tester).voiceModelCancel), findsOneWidget);
+
+    await tester.tap(find.text(l(tester).voiceModelCancel));
+    store.pendingOnDisk = (WhisperModelStore.expectedBytes * 0.4).round();
+    store.pending!.complete(const WhisperModelDownload.cancelled());
+    await tester.pump();
+    await tester.pump();
+
+    // Back to an offer that admits the bytes are still there — not an error.
+    expect(find.text(l(tester).voiceModelResume), findsOneWidget);
+    expect(find.text(l(tester).voiceModelFailed), findsNothing);
   });
 }

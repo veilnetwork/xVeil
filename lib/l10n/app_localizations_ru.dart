@@ -5517,4 +5517,7 @@ class AppL10nRu extends AppL10n {
   String voiceModelResumeAt(int percent) {
     return '$percent% уже скачано';
   }
+
+  @override
+  String get voiceModelCancel => 'Остановить';
 }

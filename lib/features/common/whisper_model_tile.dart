@@ -33,6 +33,12 @@ class WhisperModelTile extends ConsumerWidget {
         subtitle: model.progress == null
             ? null
             : Text('${(model.progress! * 100).round()}%'),
+        // 57 MB on mobile data is a thing to be able to stop. What is already
+        // fetched is kept, so this is a pause and the offer will say so.
+        trailing: TextButton(
+          onPressed: notifier.cancel,
+          child: Text(l.voiceModelCancel),
+        ),
       );
     }
     if (model.isReady) {
