@@ -317,6 +317,33 @@ void main() {
       expect(plan.refusedReason, contains('9 of 10'));
     });
 
+    test('an ordinary tidy-up on the CLOUD side passes too', () {
+      // Symmetry must not mean paranoia: deleting a couple of files in the
+      // cloud is an ordinary thing to do and has to still reach the folder.
+      final plan = planFolderSync(
+        base: [for (var i = 0; i < 10; i++) _base('f$i.txt')],
+        local: [for (var i = 0; i < 10; i++) _local('f$i.txt')],
+        remote: [for (var i = 0; i < 8; i++) _remote('f$i.txt')],
+      );
+      expect(plan.isRefused, isFalse);
+      expect(plan.actions, hasLength(2));
+      expect(
+        plan.actions.every((a) => a.kind == SyncActionKind.deleteLocal),
+        isTrue,
+      );
+    });
+
+    test('a vanished CLOUD listing is refused, and says which side', () {
+      final plan = planFolderSync(
+        base: [for (var i = 0; i < 10; i++) _base('f$i.txt')],
+        local: [for (var i = 0; i < 10; i++) _local('f$i.txt')],
+        remote: const [],
+      );
+      expect(plan.isRefused, isTrue);
+      expect(plan.refusedReason, contains('the cloud'));
+      expect(plan.actions, isEmpty);
+    });
+
     test('an ordinary tidy-up passes', () {
       final plan = planFolderSync(
         base: [for (var i = 0; i < 10; i++) _base('f$i.txt')],
