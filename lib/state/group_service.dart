@@ -8470,6 +8470,10 @@ class GroupService {
       if (rotated > 0) {
         devLog(() => 'xVeil[channel-keys]: rotated=$rotated');
       }
+      final collapsed = await sweepStateLogCompaction();
+      if (collapsed > 0) {
+        devLog(() => 'xVeil[compaction]: rows collapsed=$collapsed');
+      }
     } finally {
       _spaceDeletionMaintenanceRunning = false;
     }
@@ -8523,6 +8527,50 @@ class GroupService {
       }
     }
     return rotated;
+  }
+
+  /// Where the last compaction pass stopped, so consecutive hours cover
+  /// different groups instead of re-folding the same first few.
+  int _compactionCursor = 0;
+
+  /// Compact superseded state rows across the groups this device holds.
+  ///
+  /// Compaction has always existed but ran only at boot (via
+  /// [nudgeGroupSyncAll]). Replication ships a group's bundle WHOLE, so what
+  /// the log accumulates between restarts is paid again on every sync:
+  /// measured on the stand, a device-sync log at **2748 rows and 173 inline
+  /// images** for a cloud of nine items, which one compaction pass collapsed
+  /// to 233 and 11. A long-running app therefore got slower to sync the
+  /// longer it ran, and a restart "fixed" it — which is how this was found.
+  ///
+  /// [limit] bounds one pass for the same reason the other sweeps are
+  /// bounded: this runs hourly on a phone. The cursor makes the budget
+  /// rotate, so a device in many groups still compacts all of them, just
+  /// across several hours.
+  Future<int> sweepStateLogCompaction({int limit = 8}) async {
+    if (limit <= 0 || limit > 256) {
+      throw ArgumentError.value(limit, 'limit', 'must be 1..256');
+    }
+    final ids = await _index();
+    if (ids.isEmpty) return 0;
+    var collapsed = 0;
+    final take = limit < ids.length ? limit : ids.length;
+    for (var i = 0; i < take; i++) {
+      final hex = ids[(_compactionCursor + i) % ids.length];
+      try {
+        final result = await compactStateLogs(NodeId.fromHex(hex));
+        if (result == null || !result.changed) continue;
+        collapsed +=
+            (result.messagesBefore - result.messagesAfter) +
+            (result.postsBefore - result.postsAfter) +
+            (result.controlBefore - result.controlAfter) +
+            (result.reactionsBefore - result.reactionsAfter);
+      } catch (_) {
+        // One unreadable group must not stop the rest of the pass.
+      }
+    }
+    _compactionCursor = (_compactionCursor + take) % ids.length;
+    return collapsed;
   }
 
   Future<SpaceRetentionSweep> sweepSpaceRetention({
