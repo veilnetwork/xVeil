@@ -70,9 +70,9 @@ Future<AsyncKvLogStore?> _noOpener({
 /// Domain [Storage] mapped onto a single hidden-volume space:
 /// - SETTINGS (KV): identity blob, app settings, the message-log counter
 /// - CONTACTS (KV): one entry per peer, keyed by node id bytes
-/// - MESSAGE_LOG (append-log family): legacy namespace 3 plus deterministic
-///   capacity shards; every payload carries its conversation id and all shards
-///   merge back into one globally ordered event stream
+/// - MESSAGE_LOG (append-log family): deterministic capacity shards; every
+///   payload carries its conversation id and all shards merge back into one
+///   globally ordered event stream
 ///
 /// Backed by an [AsyncKvLogStore] obtained from an [AsyncSpaceOpener], so the
 /// same mapping runs over the in-memory fake (dev/tests, sync-wrapped) and the
@@ -1183,7 +1183,7 @@ class HiddenVolumeStorage implements Storage {
     }
   }
 
-  /// Read legacy + sharded message logs as one globally ordered stream.
+  /// Read every sharded message log as one globally ordered stream.
   Future<List<_MessageLogEntry>> _messageLogEntries({int? start}) async {
     await _ensureMessageLogNamespacesLoaded();
 
@@ -1191,9 +1191,8 @@ class HiddenVolumeStorage implements Storage {
     final entries = <_MessageLogEntry>[];
     for (final namespace in namespaces) {
       // A deterministic shard wholly below an incremental scan's lower bound
-      // cannot contribute. The legacy namespace is intentionally unbounded:
-      // profiles upgraded in place may contain any pre-upgrade global log id.
-      if (start != null && namespace != Ns.messageLog) {
+      // cannot contribute.
+      if (start != null) {
         final segment =
             (namespace - Ns.messageLogShardFirst) * Ns.messageLogShardSize;
         final shardLastId = segment + Ns.messageLogShardSize;
@@ -1803,6 +1802,9 @@ class HiddenVolumeStorage implements Storage {
     // Erase EVERY namespace this app uses, then scrub orphaned chunks — the
     // identity's data (its keypair, contacts, message log, file blobs) is gone
     // forensically, not merely unlinked. Irreversible.
+    // Namespace 3 is retired and this build never writes it, but a
+    // destroy-everything path must still cover it: forensic deletion is about
+    // what the container holds, not about what this build would have put there.
     await _as.eraseNamespace(Ns.messageLog);
     // Erase the full reserved range, not merely namespaces discoverable from
     // settings: forensic identity deletion must remain complete even if a
@@ -1916,12 +1918,6 @@ class HiddenVolumeStorage implements Storage {
   /// Key families in the settings namespace that describe content which can
   /// disappear out from under them; everything else (identity, config,
   /// cursors, app settings) is never swept.
-  static bool _isLegacyGarbage(String key) =>
-      // Global message-id index, replaced by the conversation-scoped log scan
-      // (see _liveEntryFor) — nothing writes or reads it anymore, but aged
-      // stores carry hundreds of entries.
-      key.startsWith('msgidx:');
-
   static Set<String> _messageBlobIds(Message message) => {
     ?message.fileId,
     ?message.fileContentId,
@@ -2094,7 +2090,7 @@ class HiddenVolumeStorage implements Storage {
       final cloud = await _cloudIndexContentIds();
       // Unknown cloud roots must retain every per-content row. Deleting stale
       // bookkeeping is optional; deleting the only restart/reoffer manifest is
-      // not. Legacy msgidx rows can still be removed below.
+      // not.
       if (!cloud.complete) {
         liveContent = null;
       } else {
@@ -2116,10 +2112,6 @@ class HiddenVolumeStorage implements Storage {
     // must not keep serving its bytes from a deniable store.
     const perContent = ['set:saved:', 'set:served:', 'set:gone:', 'file:mf:'];
     for (final key in keys) {
-      if (_isLegacyGarbage(key)) {
-        doomed.add(key);
-        continue;
-      }
       final prefix = perContent.firstWhere(key.startsWith, orElse: () => '');
       if (prefix.isNotEmpty) {
         final cid = key.substring(prefix.length);
@@ -2181,19 +2173,16 @@ class HiddenVolumeStorage implements Storage {
   @override
   Future<Map<String, int>> namespaceCounts() async {
     await _ensureMessageLogNamespacesLoaded();
-    final legacyMessageCount = await _as.count(Ns.messageLog);
     var shardedMessageCount = 0;
     for (final namespace in _messageLogNamespaces) {
-      if (namespace == Ns.messageLog) continue;
       shardedMessageCount += await _as.count(namespace);
     }
     return {
       'settings': await _as.count(Ns.settings),
       'contacts': await _as.count(Ns.contacts),
-      'messageLog': legacyMessageCount + shardedMessageCount,
-      'messageLogLegacy': legacyMessageCount,
+      'messageLog': shardedMessageCount,
       'messageLogSharded': shardedMessageCount,
-      'messageLogShardNamespaces': _messageLogNamespaces.length - 1,
+      'messageLogShardNamespaces': _messageLogNamespaces.length,
       'media': await _as.count(Ns.media),
       'fileChunks': await _as.count(Ns.fileChunks),
       'outbox': await _as.count(Ns.outbox),
@@ -2639,7 +2628,7 @@ class HiddenVolumeStorage implements Storage {
   // Namespace discovery is lazy and per-open-space. Namespace 3 is always
   // included for pre-sharding history; marker keys make recovery robust when a
   // concurrent commit persisted a slightly stale global next-id.
-  final Set<int> _messageLogNamespaces = {Ns.messageLog};
+  final Set<int> _messageLogNamespaces = <int>{};
   final Set<int> _messageLogNamespaceMarkers = {};
   Future<void>? _messageLogNamespacesInit;
   final Map<int, Future<void>> _messageLogMarkerWrites = {};
@@ -2781,9 +2770,7 @@ class HiddenVolumeStorage implements Storage {
     _clearedWatermark.clear();
     _scanFoldedUpTo = 0;
     _scanResult = null;
-    _messageLogNamespaces
-      ..clear()
-      ..add(Ns.messageLog);
+    _messageLogNamespaces.clear();
     _messageLogNamespaceMarkers.clear();
     _messageLogNamespacesInit = null;
     _messageLogMarkerWrites.clear();

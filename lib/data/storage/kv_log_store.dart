@@ -6,8 +6,9 @@ class Ns {
   static const int settings = 1;
   static const int contacts = 2;
 
-  /// Legacy, pre-sharding message-log namespace. Existing profiles keep their
-  /// rows here forever; new writes use [messageLogShardFirst] and above.
+  /// Retired pre-sharding message-log namespace. Nothing reads or writes it;
+  /// it stays declared so the id is never reused, and so the erase paths can
+  /// still name it when destroying a container outright.
   static const int messageLog = 3;
   static const int media = 4;
 

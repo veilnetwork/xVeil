@@ -339,11 +339,10 @@ abstract interface class Storage {
 
   /// Garbage-collect dead bookkeeping keys from the settings namespace. The
   /// namespace's B+ index has a hard entry budget (HvException.IndexFull), and
-  /// several per-content key families (`set:saved:<cid>`, legacy `msgidx:*`)
+  /// several per-content key families (`set:saved:<cid>`, `set:served:<cid>`)
   /// outlive the data they describe, so an aged store wedges every new file
-  /// piece write. Always drops `msgidx:*` (a legacy message index nothing
-  /// reads anymore) and `set:saved:<cid>` records whose content id no message
-  /// references. With [wholesale] (after purgeFileStore+purgeMessageLog) also
+  /// piece write. Always drops `set:saved:<cid>` records whose content id no
+  /// message references. With [wholesale] (after purgeFileStore+purgeMessageLog) also
   /// drops the file-store bookkeeping families (`file:*`, `filepiece:*`,
   /// `set:served:*`, `set:gone:*`) that describe the just-erased namespaces.
   /// Cursors (`conv_seq:*`, `set:sync_floor:*`, `msg_next_id`,
