@@ -12,7 +12,34 @@
 /// Without [base] you cannot tell "the other side added it" from "this side
 /// deleted it", and a two-way comparison has to guess. Guessing is how sync
 /// tools delete people's files.
+///
+/// Behaviour settled by the product owner:
+///   * a local delete DOES remove the cloud copy, guarded by the mass-deletion
+///     brake below;
+///   * a genuine conflict is ASKED, never resolved automatically — so an
+///     unanswered one has to survive between passes without blocking the rest
+///     of the folder, which is what [pendingConflicts] is for;
+///   * the unit of configuration is a PAIR: one local folder mapped to one
+///     folder in the cloud, and a device may have several.
 library;
+
+/// One configured mapping: a local folder mirrored to a cloud folder.
+class FolderSyncPair {
+  const FolderSyncPair({
+    required this.id,
+    required this.localPath,
+    required this.cloudFolderId,
+    this.deletePropagates = true,
+  });
+
+  final String id;
+  final String localPath;
+
+  /// Null means the root of the cloud storage.
+  final String? cloudFolderId;
+
+  final bool deletePropagates;
+}
 
 /// One file as the local folder currently presents it.
 class LocalFile {
@@ -152,6 +179,7 @@ FolderSyncPlan planFolderSync({
   required Iterable<RemoteFile> remote,
   bool deletePropagates = true,
   double massDeletionBrake = kMassDeletionBrake,
+  Set<String> pendingConflicts = const {},
 }) {
   final baseByPath = {for (final f in base) f.path: f};
   final localByPath = {for (final f in local) f.path: f};
@@ -211,6 +239,11 @@ FolderSyncPlan planFolderSync({
 
   for (final path in paths.toList()..sort()) {
     if (movedFrom.contains(path)) continue; // handled at the destination
+    // A conflict the user has not answered yet. Left strictly alone: asking
+    // again every pass is nagging, and picking a side while they think is the
+    // silent overwrite that asking was meant to avoid. Its neighbours keep
+    // syncing — one undecided file must not freeze the folder.
+    if (pendingConflicts.contains(path)) continue;
     final was = baseByPath[path];
     final here = localByPath[path];
     final there = remoteByPath[path];

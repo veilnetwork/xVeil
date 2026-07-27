@@ -209,6 +209,54 @@ void main() {
     });
   });
 
+  group('a conflict the user has not answered yet', () {
+    test('is left strictly alone — not re-asked, not silently resolved', () {
+      // Asking again every pass is nagging; picking a side while they think is
+      // the silent overwrite that asking was meant to avoid.
+      final actions = planFolderSync(
+        base: [_base('a.txt')],
+        local: [_local('a.txt', mtime: 200)],
+        remote: [_remote('a.txt', cid: 'cid-b')],
+        pendingConflicts: const {'a.txt'},
+      ).actions;
+      expect(actions, isEmpty);
+    });
+
+    test('does not freeze its neighbours', () {
+      final actions = planFolderSync(
+        base: [_base('a.txt'), _base('b.txt')],
+        local: [_local('a.txt', mtime: 200), _local('b.txt', mtime: 200)],
+        remote: [_remote('a.txt', cid: 'cid-b'), _remote('b.txt')],
+        pendingConflicts: const {'a.txt'},
+      ).actions;
+      expect(actions, [const SyncAction(SyncActionKind.upload, 'b.txt')]);
+    });
+
+    test('once answered, the path is planned again', () {
+      final actions = planFolderSync(
+        base: [_base('a.txt')],
+        local: [_local('a.txt', mtime: 200)],
+        remote: [_remote('a.txt', cid: 'cid-b')],
+        pendingConflicts: const {},
+      ).actions;
+      expect(actions, [const SyncAction(SyncActionKind.conflict, 'a.txt')]);
+    });
+
+    test('a still-vanished file under a pending conflict is not deleted', () {
+      // The dangerous interaction: "skip" must not read as "gone".
+      final plan = planFolderSync(
+        base: [
+          for (var i = 0; i < 6; i++) _base('f$i.txt'),
+        ],
+        local: [for (var i = 0; i < 6; i++) _local('f$i.txt')],
+        remote: [for (var i = 0; i < 6; i++) _remote('f$i.txt')],
+        pendingConflicts: {for (var i = 0; i < 6; i++) 'f$i.txt'},
+      );
+      expect(plan.isRefused, isFalse);
+      expect(plan.actions, isEmpty);
+    });
+  });
+
   group('the mass-deletion brake', () {
     test('refuses wholesale when most of the tracked set vanished', () {
       // An unmounted drive, a permission change, a folder pointed at the wrong
