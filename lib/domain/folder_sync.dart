@@ -242,20 +242,36 @@ FolderSyncPlan planFolderSync({
 
   // The brake looks only at paths we were tracking: files the user never
   // synced cannot vanish, and a first-ever pass (empty base) can never trip it.
+  //
+  // It is deliberately SYMMETRIC. The first version guarded only the cloud
+  // against a bad local scan, which left the user's own folder unguarded
+  // against a bad cloud listing — and an empty listing reads as "the other
+  // side deleted everything", so every tracked file was removed from disk. A
+  // listing can come back empty because the pair's cloud folder was deleted,
+  // or because a call failed and returned nothing. Neither is proof.
   if (deletePropagates && baseByPath.length >= kMassDeletionFloor) {
-    final vanished = baseByPath.keys
+    String? refusal(int vanished, String side) =>
+        vanished / baseByPath.length > massDeletionBrake
+        ? 'refusing to mirror the disappearance of $vanished of '
+              '${baseByPath.length} tracked files from $side — it looks '
+              'unavailable rather than emptied'
+        : null;
+    final goneLocally = baseByPath.keys
         .where(
           (path) => !localByPath.containsKey(path) && !movedFrom.contains(path),
         )
         .length;
-    if (vanished / baseByPath.length > massDeletionBrake) {
+    final goneRemotely = baseByPath.keys
+        .where((path) => !remoteByPath.containsKey(path))
+        .length;
+    final reason =
+        refusal(goneLocally, 'the folder') ??
+        refusal(goneRemotely, 'the cloud');
+    if (reason != null) {
       return FolderSyncPlan(
         actions: const [],
         ambiguous: ambiguous,
-        refusedReason:
-            'refusing to mirror the disappearance of $vanished of '
-            '${baseByPath.length} tracked files — the folder looks '
-            'unavailable rather than emptied',
+        refusedReason: reason,
       );
     }
   }
