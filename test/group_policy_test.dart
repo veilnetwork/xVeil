@@ -899,14 +899,14 @@ void main() {
   });
 
   test('manifest + control entry json round-trip', () {
-    final m = GroupManifest(
+    final m = SpaceManifest(
       groupId: _owner,
       owner: _owner,
       genesisPubKey: Uint8List.fromList(List.filled(32, 7)),
       name: 'Family',
       createdAtMs: 42,
     );
-    final back = GroupManifest.fromJson(m.toJson())!;
+    final back = SpaceManifest.fromJson(m.toJson())!;
     expect(back.name, 'Family');
     expect(back.groupId, _owner);
     expect(back.owner, _owner);
@@ -931,7 +931,7 @@ void main() {
     expect(eBack.target, _bob);
     expect(eBack.authorPubKey.length, 32, reason: 'pubKey survives json');
     expect(eBack.signature.length, 64);
-    expect(GroupManifest.fromJson('nope'), isNull);
+    expect(SpaceManifest.fromJson('nope'), isNull);
     expect(ControlEntry.fromJson({'seq': 'x'}), isNull);
   });
 

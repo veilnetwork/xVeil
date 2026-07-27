@@ -322,11 +322,6 @@ class SpaceManifest {
   }
 }
 
-/// Source compatibility for the established group-chat APIs. Group and Space
-/// share a wire container/store, but remain distinct user-facing entities.
-@Deprecated('Use SpaceManifest')
-typedef GroupManifest = SpaceManifest;
-
 /// The kinds of control-log op. Kept versioned/extensible from day one.
 enum ControlOp {
   addMember,
