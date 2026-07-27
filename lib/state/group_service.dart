@@ -75,6 +75,7 @@ part 'group_service_protected_channels.dart';
 part 'group_service_reactions.dart';
 part 'group_service_public_feed_transport.dart';
 part 'group_service_public_subscriptions.dart';
+part 'group_service_space_feed.dart';
 
 bool _listEquals<T>(List<T>? left, List<T>? right) {
   if (identical(left, right)) return true;
@@ -14194,30 +14195,21 @@ class GroupService {
     return next;
   });
 
-  Future<void> setSpaceFeedEnabled(NodeId spaceId, bool enabled) async {
-    await updateSpaceSubscription(spaceId, feedEnabled: enabled);
-  }
+  late final _SpaceFeed _spaceFeed = _SpaceFeed(this);
 
-  Future<void> setSpaceNotificationsEnabled(
-    NodeId spaceId,
-    bool enabled,
-  ) async {
-    await updateSpaceSubscription(spaceId, notificationsEnabled: enabled);
-  }
+  Future<void> setSpaceFeedEnabled(NodeId spaceId, bool enabled) =>
+      _spaceFeed.setSpaceFeedEnabled(spaceId, enabled);
+
+  Future<void> setSpaceNotificationsEnabled(NodeId spaceId, bool enabled) =>
+      _spaceFeed.setSpaceNotificationsEnabled(spaceId, enabled);
 
   Future<void> setSpaceCommentNotifications(
     NodeId spaceId,
     SpaceCommentNotificationMode mode,
-  ) async {
-    await updateSpaceSubscription(spaceId, commentNotifications: mode);
-  }
+  ) => _spaceFeed.setSpaceCommentNotifications(spaceId, mode);
 
-  Future<void> setSpaceHiddenFromRecommendations(
-    NodeId spaceId,
-    bool hidden,
-  ) async {
-    await updateSpaceSubscription(spaceId, hiddenFromRecommendations: hidden);
-  }
+  Future<void> setSpaceHiddenFromRecommendations(NodeId spaceId, bool hidden) =>
+      _spaceFeed.setSpaceHiddenFromRecommendations(spaceId, hidden);
 
   /// Merge subscribed Space logs in descending chronological order. The
   /// signed `(publishedAt, spaceId, author, seq)` tuple is a stable cursor and
@@ -14228,246 +14220,22 @@ class GroupService {
     Set<SpacePostType>? types,
     SpaceFeedFilter? filter,
     bool? pinned,
-  }) async {
-    final boundedLimit = limit.clamp(1, 200);
-    var selectedFilter = filter ?? await spaceFeedFilter();
-    if (types != null) selectedFilter = selectedFilter.copyWith(types: types);
-    final readAt = DateTime.now().millisecondsSinceEpoch;
-    final items = <SpaceFeedItem>[];
-    final seen = <String>{};
-    final memberSpaceIds = <String>{};
-    final hidden = await _hiddenSpaceFeedPosts();
-    final blockedAuthors = <String, Future<bool>>{};
-    Future<bool> isBlockedAuthor(NodeId author) {
-      if (author == _signer.selfId) return Future<bool>.value(false);
-      return blockedAuthors.putIfAbsent(
-        author.hex,
-        () async =>
-            (await _storage.getContact(author))?.status ==
-            ContactStatus.blocked,
-      );
-    }
+  }) => _spaceFeed.spaceFeed(
+    before: before,
+    limit: limit,
+    types: types,
+    filter: filter,
+    pinned: pinned,
+  );
 
-    for (final id in await _index()) {
-      final NodeId spaceId;
-      try {
-        spaceId = NodeId.fromHex(id);
-      } catch (_) {
-        continue;
-      }
-      if (selectedFilter.spaceIds.isNotEmpty &&
-          !selectedFilter.spaceIds.contains(spaceId)) {
-        continue;
-      }
-      final bundle = await load(spaceId);
-      if (bundle == null || !bundle.manifest.isSpace) continue;
-      final folded = foldControlLog(
-        owner: bundle.manifest.owner,
-        entries: bundle.control,
-        verify: (entry) => _validControlFor(bundle.manifest, entry),
-        initialName: bundle.manifest.name,
-      );
-      final state = folded.state;
-      final acl = SpaceAcl(state);
-      if (!acl.allows(_signer.selfId, SpacePermission.view)) {
-        continue;
-      }
-      memberSpaceIds.add(spaceId.hex);
-      if (!await isSpaceFeedEnabled(spaceId)) continue;
-      final canManagePosts = acl.allows(
-        _signer.selfId,
-        SpacePermission.managePosts,
-      );
-      final visiblePosts = await _postsOfBundle(
-        bundle,
-        applyLocalRetention: true,
-      );
-      final feedPosts = <SpacePostView>[];
-      for (final post in visiblePosts) {
-        if (hidden.containsKey(_hiddenSpaceFeedPostKey(spaceId, post.postId)) ||
-            await isBlockedAuthor(post.author)) {
-          continue;
-        }
-        feedPosts.add(post);
-      }
-      final reactions = await _reactions.spacePostReactionsOfBundle(
-        bundle,
-        visiblePostIds: {for (final post in feedPosts) post.postId},
-      );
-      final commentsByPost = selectedFilter.mentionsOnly
-          ? (await spacePostsAndCommentsOf(spaceId)).commentsByPost
-          : const <String, List<SpacePostCommentView>>{};
-      for (final post in feedPosts) {
-        var relatedMention = false;
-        if (selectedFilter.mentionsOnly) {
-          for (final comment
-              in commentsByPost[post.postId] ??
-                  const <SpacePostCommentView>[]) {
-            if (comment.author != _signer.selfId &&
-                messageMentionsNode(comment.body, _signer.selfId) &&
-                !await isBlockedAuthor(comment.author)) {
-              relatedMention = true;
-              break;
-            }
-          }
-        }
-        if (!selectedFilter.allowsPost(
-          post,
-          viewer: _signer.selfId,
-          nowMs: readAt,
-          relatedMention: relatedMention,
-        )) {
-          continue;
-        }
-        if (pinned != null && post.pinned != pinned) continue;
-        final cursor = SpaceFeedCursor.fromView(post);
-        if (before != null && cursor.compareTo(before) >= 0) continue;
-        if (!seen.add('${spaceId.hex}:${post.postId}')) continue;
-        items.add(
-          SpaceFeedItem(
-            spaceId: spaceId,
-            spaceName: state.name,
-            post: post,
-            reactions: reactions[post.postId] ?? const {},
-            canDeletePost:
-                post.author == _signer.selfId &&
-                state.isActive &&
-                post.effective.lifecycleGeneration ==
-                    state.lifecycleTransitionHash,
-            canModeratePost:
-                post.author != _signer.selfId &&
-                acl.allowsControl(
-                  _signer.selfId,
-                  ControlOp.moderate,
-                  target: post.author,
-                  moderationTargetsRemovedContent: true,
-                ),
-            canManagePosts: canManagePosts,
-          ),
-        );
-      }
-    }
-    for (final public in await publicSpaceSubscriptions()) {
-      final spaceId = public.descriptor.spaceId;
-      if (memberSpaceIds.contains(spaceId.hex) ||
-          !public.subscription.feedEnabled ||
-          (selectedFilter.spaceIds.isNotEmpty &&
-              !selectedFilter.spaceIds.contains(spaceId))) {
-        continue;
-      }
-      for (final post in public.feed.posts) {
-        var relatedMention = false;
-        if (selectedFilter.mentionsOnly) {
-          for (final comment in public.feed.commentsFor(
-            post.postId,
-            _signer.verifyDetached,
-          )) {
-            if (comment.author != _signer.selfId &&
-                messageMentionsNode(comment.body, _signer.selfId) &&
-                !await isBlockedAuthor(comment.author)) {
-              relatedMention = true;
-              break;
-            }
-          }
-        }
-        if (hidden.containsKey(_hiddenSpaceFeedPostKey(spaceId, post.postId)) ||
-            await isBlockedAuthor(post.author) ||
-            !selectedFilter.allowsPost(
-              post,
-              viewer: _signer.selfId,
-              nowMs: readAt,
-              relatedMention: relatedMention,
-            ) ||
-            (pinned != null && post.pinned != pinned)) {
-          continue;
-        }
-        final cursor = SpaceFeedCursor.fromView(post);
-        if (before != null && cursor.compareTo(before) >= 0) continue;
-        if (!seen.add('${spaceId.hex}:${post.postId}')) continue;
-        items.add(
-          SpaceFeedItem(
-            spaceId: spaceId,
-            spaceName: public.descriptor.name,
-            post: post,
-            reactions: public.feed.reactionsFor(
-              post.postId,
-              _signer.verifyDetached,
-            ),
-            canDeletePost: false,
-            canModeratePost: false,
-            canManagePosts: false,
-            publicOnly: true,
-          ),
-        );
-      }
-    }
-    items.sort((left, right) {
-      final order = SpaceFeedCursor.fromView(
-        right.post,
-      ).compareTo(SpaceFeedCursor.fromView(left.post));
-      return order;
-    });
-    final result = items.length <= boundedLimit
-        ? items
-        : items.sublist(0, boundedLimit);
-    _observeSpace(
-      SpaceObservationType.feedRead,
-      result.isEmpty
-          ? SpaceObservationOutcome.noOp
-          : SpaceObservationOutcome.succeeded,
-      amount: result.length,
-    );
-    return result;
-  }
+  Future<int> unreadSpacePosts(NodeId spaceId) =>
+      _spaceFeed.unreadSpacePosts(spaceId);
 
-  Future<int> unreadSpacePosts(NodeId spaceId) async {
-    return (await unreadSpacePostViews(spaceId)).length;
-  }
+  Future<List<SpacePostView>> unreadSpacePostViews(NodeId spaceId) =>
+      _spaceFeed.unreadSpacePostViews(spaceId);
 
-  Future<List<SpacePostView>> _spaceFeedPostsForReadState(
-    NodeId spaceId,
-  ) async {
-    if (await _hasActiveSpaceMembership(spaceId)) {
-      return postsOf(spaceId);
-    }
-    final public = await publicSpaceSubscription(spaceId);
-    return public?.feed.posts ?? const [];
-  }
-
-  Future<List<SpacePostView>> unreadSpacePostViews(NodeId spaceId) async {
-    final hidden = await _hiddenSpaceFeedPosts();
-    final seen = SpaceFeedCursor.decode(
-      await _storage.getSetting(_spaceFeedSeenKey(spaceId)),
-    );
-    final posts = await _spaceFeedPostsForReadState(spaceId);
-    final visible = <SpacePostView>[];
-    for (final post in posts) {
-      if (hidden.containsKey(_hiddenSpaceFeedPostKey(spaceId, post.postId)) ||
-          post.author == _signer.selfId ||
-          (await _storage.getContact(post.author))?.status ==
-              ContactStatus.blocked ||
-          (seen != null &&
-              SpaceFeedCursor.fromView(post).compareTo(seen) <= 0)) {
-        continue;
-      }
-      visible.add(post);
-    }
-    return List<SpacePostView>.unmodifiable(visible);
-  }
-
-  Future<void> markSpaceFeedSeen(NodeId spaceId) async {
-    final posts = await _spaceFeedPostsForReadState(spaceId);
-    if (posts.isEmpty) return;
-    final latest = posts
-        .map(SpaceFeedCursor.fromView)
-        .reduce((left, right) => left.compareTo(right) >= 0 ? left : right);
-    final prior = SpaceFeedCursor.decode(
-      await _storage.getSetting(_spaceFeedSeenKey(spaceId)),
-    );
-    if (prior != null && prior.compareTo(latest) >= 0) return;
-    await _storage.putSetting(_spaceFeedSeenKey(spaceId), latest.encode());
-    changes.value++;
-  }
+  Future<void> markSpaceFeedSeen(NodeId spaceId) =>
+      _spaceFeed.markSpaceFeedSeen(spaceId);
 
   // ── Group log gap-fill (reliability brick G1) ─────────────────────────────
   // A delta that dies while EVERY entry node is down is lost for good — the
