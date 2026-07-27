@@ -5,7 +5,9 @@ import '../core/ids.dart';
 import 'call_signal.dart';
 import 'group_payload.dart';
 
-const int kLegacyGroupCallProtocolVersion = 1;
+/// Version 1 is not historical: it is what every plain group call still
+/// signals. Versions 2 and 3 are the Space voice-channel shapes.
+const int kGroupCallProtocolVersion = 1;
 const int kSpaceVoiceSessionProtocolVersion = 2;
 const int kProtectedSpaceVoiceSessionProtocolVersion = 3;
 const int maxGroupCallIdBytes = 128;
@@ -53,12 +55,12 @@ class GroupCallSignal {
     required this.authorPubKey,
     this.media,
     this.reason,
-    this.protocolVersion = kLegacyGroupCallProtocolVersion,
+    this.protocolVersion = kGroupCallProtocolVersion,
   });
 
   final NodeId groupId;
 
-  /// Present for v2/v3 Space voice sessions. Legacy v1 rooms omit it.
+  /// Present for v2/v3 Space voice sessions. Plain group rooms omit it.
   final NodeId? channelId;
 
   /// Present only for v3 restricted Space voice sessions.
@@ -86,7 +88,7 @@ class GroupCallSignal {
         type == GroupCallSignalType.heartbeat ||
         type == GroupCallSignalType.renegotiate;
     final scopeValid = switch (protocolVersion) {
-      kLegacyGroupCallProtocolVersion =>
+      kGroupCallProtocolVersion =>
         channelId == null && channelEpoch == null,
       kSpaceVoiceSessionProtocolVersion =>
         channelId != null && channelEpoch == null,
@@ -342,10 +344,10 @@ class GroupCall {
 
   final NodeId groupId;
 
-  /// Voice-channel scope for a Space session; null only for legacy rooms.
+  /// Voice-channel scope for a Space session; null for a plain group room.
   final NodeId? channelId;
 
-  /// Current restricted-channel key epoch, null for open/legacy rooms.
+  /// Current restricted-channel key epoch, null for open/plain rooms.
   final int? channelEpoch;
   final String callId;
   final NodeId initiator;
