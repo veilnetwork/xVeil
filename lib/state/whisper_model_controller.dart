@@ -8,6 +8,19 @@ final whisperModelStoreProvider = Provider<WhisperModelStore>(
   (ref) => WhisperModelStore(),
 );
 
+/// Whether this platform has a whisper build at all.
+///
+/// A provider rather than a direct call into the FFI statics, so the decision
+/// "is transcription possible here" can be answered in a test that has no
+/// native library — and so the controller does not reach into a static class
+/// to make it.
+final whisperNativeProbeProvider = Provider<Future<bool> Function()>(
+  (ref) => () async {
+    await WhisperTranscriber.ensureResolved();
+    return WhisperTranscriber.nativeReady();
+  },
+);
+
 enum WhisperModelPhase { absent, downloading, ready, failed }
 
 class WhisperModelState {
@@ -45,6 +58,10 @@ class WhisperModelState {
 class WhisperModelController extends Notifier<WhisperModelState> {
   /// Set by [cancel], read by the store between chunks.
   bool _cancelRequested = false;
+
+  /// One automatic attempt per session. A person who declines by leaving is
+  /// not asked again on the next screen; a deliberate retry is a tap away.
+  bool _autoAttempted = false;
   @override
   WhisperModelState build() {
     // After build, not during: refresh() consults `state`, and reading it
@@ -65,6 +82,13 @@ class WhisperModelController extends Notifier<WhisperModelState> {
     // state to a disposed provider throws, and that exception would reach the
     // error report as a fault nobody caused.
     if (!ref.mounted) return;
+    // And a download may have STARTED during those two awaits: the check at
+    // the top of this method was true when it ran and is not any more. That
+    // is not hypothetical — build() schedules this probe and the session
+    // start kicks off the background fetch immediately after, so the probe's
+    // stale answer would land on top of a running transfer and the UI would
+    // show an offer for a download already in progress.
+    if (state.isBusy) return;
     state = WhisperModelState(
       phase: installed ? WhisperModelPhase.ready : WhisperModelPhase.absent,
       resumeFraction: pending > 0
@@ -110,6 +134,35 @@ class WhisperModelController extends Notifier<WhisperModelState> {
       resumeFraction: await _pendingFraction(),
     );
     return false;
+  }
+
+  /// Fetch the model in the background if it is missing.
+  ///
+  /// Nobody should have to know a speech model exists, let alone go looking
+  /// for it in Settings: transcription either works or it does not. So this
+  /// runs once when the session opens and quietly puts the model in place.
+  ///
+  /// Quietly is the operative word. The person did not ask for this, so a
+  /// failure produces no dialog and no toast — the state simply stays
+  /// "absent", and the offer in Settings and under a voice message is there
+  /// for anyone who wants to retry deliberately.
+  ///
+  /// Three things stop it before it starts: a download already running (the
+  /// person got there first), a model already installed, and a platform with
+  /// no whisper build at all — on iOS there is none, and 57 MB that cannot
+  /// help is worse than no transcription.
+  Future<void> ensureDownloadedInBackground() async {
+    if (_autoAttempted || state.isBusy) return;
+    _autoAttempted = true;
+    if (!await ref.read(whisperNativeProbeProvider)()) return;
+    if (await _store.isInstalled()) {
+      if (ref.mounted) {
+        state = const WhisperModelState(phase: WhisperModelPhase.ready);
+      }
+      return;
+    }
+    if (!ref.mounted) return;
+    await download();
   }
 
   /// Ask the running transfer to stop. It finishes the chunk in flight and

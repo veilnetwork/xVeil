@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../state/whisper_model_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/folder_panel_controller.dart';
 import '../../state/group_service_providers.dart';
@@ -29,6 +32,26 @@ class HomeShell extends ConsumerStatefulWidget {
 class _HomeShellState extends ConsumerState<HomeShell> {
   int _tab = 0;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  @override
+  void initState() {
+    super.initState();
+    // The speech model is fetched here, once, when the session opens: nobody
+    // should have to know it exists or go looking for it in Settings. It is a
+    // background errand — no dialog, no spinner in the way, and a failure
+    // leaves the deliberate offer in place rather than interrupting anyone.
+    //
+    // After the first frame, so a 57 MB errand cannot compete with drawing
+    // the screen someone is waiting for.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(
+        ref
+            .read(whisperModelControllerProvider.notifier)
+            .ensureDownloadedInBackground(),
+      );
+    });
+  }
 
   void _openNavigation(bool atEnd) {
     final scaffold = _scaffoldKey.currentState;
