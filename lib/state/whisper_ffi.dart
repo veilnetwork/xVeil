@@ -167,6 +167,16 @@ class WhisperTranscriber {
     _resolvedOnce = true;
   }
 
+  /// Drop the cached lookup so the next [ensureResolved] looks again.
+  ///
+  /// The model can now arrive (or leave) while the app is running, and the
+  /// cache is the whole reason resolution is cheap — without this the app
+  /// keeps answering "no model" with one sitting right there, until a restart.
+  static void forgetResolved() {
+    _resolvedOnce = false;
+    _resolvedModel = null;
+  }
+
   /// The resolved model path, or null if absent. On Android call [ensureResolved]
   /// first (the UI does via [transcriptionAvailableProvider]).
   static String? modelPath() {
@@ -222,15 +232,23 @@ class WhisperTranscriber {
     }
   }
 
-  /// True when the native libs + a model are present (drives whether the UI
-  /// shows a Transcribe affordance).
-  static bool available() {
-    if (modelPath() == null) return false;
+  /// True when the native libs are here, whatever the model situation.
+  ///
+  /// Separate from [available] because the two absences call for different
+  /// answers now that the model is fetched on demand: no model is something
+  /// the person can fix by tapping Download, no native library is not (there
+  /// is no whisper build for this platform, e.g. Linux on arm64), and offering
+  /// a 57 MiB download that cannot help would be a lie.
+  static bool nativeReady() {
     if (Platform.isAndroid) {
       return _canOpen('veil_media') && _canOpen('veil_whisper');
     }
     return _libRef('veil_media') != null && _libRef('veil_whisper') != null;
   }
+
+  /// True when the native libs + a model are present (drives whether the UI
+  /// shows a Transcribe affordance).
+  static bool available() => modelPath() != null && nativeReady();
 
   /// Transcribe [opus] (a stored VOICE_OPUS clip). [lang] is a whisper code or
   /// "auto". Null if the native layer/model is missing or the run failed.

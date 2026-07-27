@@ -5431,4 +5431,29 @@ class AppL10nEn extends AppL10n {
   @override
   String get errorLoadFailedHint =>
       'The details are in Settings → Copy error report.';
+
+  @override
+  String get voiceModelDownload => 'Download the speech model';
+
+  @override
+  String get voiceModelSize => '57 MB, once for the whole app';
+
+  @override
+  String get voiceModelDownloading => 'Downloading the speech model…';
+
+  @override
+  String get voiceModelFailed => 'Download failed — tap to retry';
+
+  @override
+  String get voiceModelInstalled => 'Speech model installed';
+
+  @override
+  String get voiceModelRemove => 'Remove the speech model';
+
+  @override
+  String get voiceModelRemoveHint =>
+      'Frees 57 MB. Transcription stops working until you fetch it again.';
+
+  @override
+  String get voiceModelTitle => 'Speech model';
 }
