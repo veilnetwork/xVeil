@@ -55,8 +55,21 @@ class _LogCompaction {
         >{};
     final heads = <String, GroupMessage>{};
     final unknown = <String>{};
-    for (final m in input) {
-      if (!_owner._validMessageFor(groupId, m)) continue;
+    // A note's branches are all rows under one key (the item id), so the
+    // LWW-per-key rule below would keep one and drop the concurrent edit —
+    // resolving by wall clock the very conflict the note DAG preserves. Ask
+    // the domain which revisions are still unresolved heads and keep those too.
+    final branches = <String>{};
+    final valid = [
+      for (final m in input)
+        if (_owner._validMessageFor(groupId, m)) m,
+    ];
+    final noteBranches = unresolvedCloudNoteRevisions([
+      for (final m in valid)
+        if (DeviceSyncEvent.fromBody(m.body) case final e?)
+          if (e.kind == DeviceSyncKind.cloudEntry) e,
+    ]);
+    for (final m in valid) {
       final head = heads[m.author.hex];
       if (head == null || m.seq > head.seq) heads[m.author.hex] = m;
       final event = DeviceSyncEvent.fromBody(m.body);
@@ -64,6 +77,12 @@ class _LogCompaction {
         // Forward-compatible: an older build must not erase a newer event kind.
         unknown.add(m.ref);
         continue;
+      }
+      if (event.kind == DeviceSyncKind.cloudEntry &&
+          noteBranches.contains(
+            '${event.key}|${CloudItem.fromEvent(event)?.contentId}',
+          )) {
+        branches.add(m.ref);
       }
       final key = (event.kind, event.key);
       final current = latest[key];
@@ -76,12 +95,13 @@ class _LogCompaction {
     }
     final keep = <String>{
       ...unknown,
+      ...branches,
       for (final v in latest.values) v.message.ref,
       for (final m in heads.values) m.ref,
     };
     return [
-      for (final m in input)
-        if (_owner._validMessageFor(groupId, m) && keep.contains(m.ref)) m,
+      for (final m in valid)
+        if (keep.contains(m.ref)) m,
     ];
   }
 
