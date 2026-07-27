@@ -162,8 +162,9 @@ class DeniableBootConfig {
   /// Loaded by main() from a local, gitignored file (never committed).
   final List<BootstrapPeerCfg> bootstrapPeers;
 
-  /// Legacy static fallback endpoints. Normal app boots leave this empty:
-  /// authenticated live peers advertise reflector availability themselves.
+  /// Static fallback endpoints, and what the simulator injects in its
+  /// scenarios. Normal app boots leave this empty: authenticated live peers
+  /// advertise reflector availability themselves.
   final List<String> udpReflectors;
 
   /// Base64 deployment-wide obfs4 pre-shared key. Required to dial peers on a
@@ -178,7 +179,7 @@ class DeniableBootConfig {
 final deniableBootProvider = Provider<DeniableBootConfig?>((ref) => null);
 
 /// The real veil stack, when running. Null until built: main() overrides the
-/// initial value for the legacy env-config path, or [AppController] sets it
+/// initial value for the env-config dev path, or [AppController] sets it
 /// post-unlock for the deniable path. The node/transport/invite providers below
 /// rebuild when it changes.
 final realStackProvider = StateProvider<RealVeilStack?>((ref) => null);
