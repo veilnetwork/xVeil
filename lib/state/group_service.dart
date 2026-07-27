@@ -8197,14 +8197,14 @@ class GroupService {
         }
         if (groupId == null) continue;
         if (!_sharedContentIdPattern.hasMatch(groupId)) {
-          devLog(() => 'xVeil[content-gc]: incomplete #1 — group index unreadable');
+          devLog(() => 'xVeil[content-gc]: group index holds a malformed id');
           return (groupIds: groupIds, complete: false);
         }
         groupIds.add(groupId);
       }
       return (groupIds: groupIds, complete: true);
     } catch (_) {
-      devLog(() => 'xVeil[content-gc]: incomplete #2 — group index unreadable');
+      devLog(() => 'xVeil[content-gc]: group index could not be read');
       return (groupIds: groupIds, complete: false);
     }
   }
@@ -8214,7 +8214,7 @@ class GroupService {
     final contentIds = <String>{};
     final index = await _groupIdsForGc();
     if (!index.complete) {
-      devLog(() => 'xVeil[content-gc]: incomplete #3 — a reference source was incomplete');
+      devLog(() => 'xVeil[content-gc]: group index incomplete (see the line above)');
       return (contentIds: contentIds, complete: false);
     }
     for (final hex in index.groupIds) {
@@ -8222,7 +8222,7 @@ class GroupService {
       try {
         groupId = NodeId.fromHex(hex);
       } catch (_) {
-        devLog(() => 'xVeil[content-gc]: incomplete #4 — a reference source was incomplete');
+        devLog(() => 'xVeil[content-gc]: indexed id is not a node id');
         return (contentIds: contentIds, complete: false);
       }
       final result = await _serialized(groupId, () async {
@@ -8269,13 +8269,13 @@ class GroupService {
       });
       contentIds.addAll(result.contentIds);
       if (!result.complete) {
-        devLog(() => 'xVeil[content-gc]: incomplete #5 — a reference source was incomplete');
+        devLog(() => 'xVeil[content-gc]: a group projection is not fully readable');
         return (contentIds: contentIds, complete: false);
       }
     }
     final publicIndex = await _loadPublicSubscriptionIndex();
     if (!publicIndex.complete) {
-      devLog(() => 'xVeil[content-gc]: incomplete #6 — a reference source was incomplete');
+      devLog(() => 'xVeil[content-gc]: public-subscription index could not be read');
       return (contentIds: contentIds, complete: false);
     }
     for (final hex in publicIndex.ids) {
@@ -8283,14 +8283,14 @@ class GroupService {
       try {
         spaceId = NodeId.fromHex(hex);
       } catch (_) {
-        devLog(() => 'xVeil[content-gc]: incomplete #7 — a reference source was incomplete');
+        devLog(() => 'xVeil[content-gc]: public-subscription index holds a malformed id');
         return (contentIds: contentIds, complete: false);
       }
       final snapshot = await _loadPublicSubscriptionSnapshot(spaceId);
       if (snapshot == null) {
         // A referenced root that cannot be authenticated is uncertainty. Do
         // not use a malformed index/snapshot pair as deletion authority.
-        devLog(() => 'xVeil[content-gc]: incomplete #8 — a reference source was incomplete');
+        devLog(() => 'xVeil[content-gc]: a public-subscription snapshot did not authenticate');
         return (contentIds: contentIds, complete: false);
       }
       contentIds.addAll(
