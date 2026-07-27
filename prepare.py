@@ -169,7 +169,13 @@ def _flutter_missing_note() -> None:
         "  Windows:     winget install -e --id Google.Flutter\n"
         "Then run prepare.py again. It is not installed automatically because "
         "the SDK is several gigabytes and its location is a decision, not a "
-        "detail."
+        "detail.\n"
+        "\n"
+        "If you believe it IS installed: a non-login shell — which is what\n"
+        "`ssh host \'command\'` gives you — does not read your profile, so PATH\n"
+        "is not what you see when you log in. Try `ssh host \'bash -lc "
+        "\\\'...\\\'\'`\n"
+        "or pass the SDK's bin directory explicitly."
     )
 
 
