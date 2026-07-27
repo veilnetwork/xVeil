@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -76,68 +75,108 @@ class WhisperModelStore {
     if (part.existsSync()) part.deleteSync();
   }
 
-  /// Fetch the model, reporting progress in 0..1 (or null while the server has
-  /// not said how long it is).
+  /// How many bytes of an interrupted attempt are waiting to be resumed.
+  Future<int> pendingBytes() async {
+    final part = File('${(await _target()).path}.part');
+    return part.existsSync() ? part.lengthSync() : 0;
+  }
+
+  /// Fetch the model, resuming an interrupted attempt where it stopped.
   ///
-  /// Downloads to `<name>.part` and renames only after both checks pass, so an
-  /// interrupted or corrupted attempt can never be mistaken for a model: the
-  /// real name is only ever given to bytes that earned it.
+  /// Resuming is the point, not a nicety: this is 57 MiB, and a phone that
+  /// loses the connection at 90% should not start again from zero. Partial
+  /// bytes stay in `<name>.part` after a TRANSPORT failure and the next
+  /// attempt asks for the rest with a Range request. A server that ignores
+  /// Range (answers 200 instead of 206) is handled by starting over rather
+  /// than by appending to bytes it did not continue.
+  ///
+  /// Bytes that fail VERIFICATION are deleted instead of kept: resuming a
+  /// download whose content was already wrong would only ever fail again.
+  ///
+  /// The rename happens only after both checks pass, so an interrupted or
+  /// substituted transfer can never be mistaken for a model.
+  /// [onProgress] runs with a real fraction every time, never null: the
+  /// expected size is pinned, so there is no case where the app must guess.
+  /// That also keeps a resumed transfer honest — the server's content-length
+  /// describes only the remaining tail, and reporting against it would show a
+  /// download that starts at 0% when it is already most of the way there.
   Future<WhisperModelDownload> download({
-    void Function(double? progress)? onProgress,
+    void Function(double progress)? onProgress,
     Uri? from,
   }) async {
     final file = await _target();
     final part = File('${file.path}.part');
     final client = _httpClient();
     try {
+      var have = part.existsSync() ? part.lengthSync() : 0;
+      if (have >= expectedBytes) {
+        // A complete-looking leftover: verify it rather than fetch it again.
+        have = 0;
+        part.deleteSync();
+      }
       final request = await client.getUrl(from ?? Uri.parse(downloadUrl));
+      if (have > 0) {
+        request.headers.set(HttpHeaders.rangeHeader, 'bytes=$have-');
+      }
       final response = await request.close();
-      if (response.statusCode != 200) {
+
+      final resuming = response.statusCode == HttpStatus.partialContent;
+      if (response.statusCode != HttpStatus.ok && !resuming) {
         return WhisperModelDownload.failed(
           'server said ${response.statusCode}',
         );
       }
-      final total = response.contentLength;
-      var received = 0;
-      final sink = part.openWrite();
-      Digest? digest;
-      final hasher = sha256.startChunkedConversion(
-        ChunkedConversionSink<Digest>.withCallback(
-          (digests) => digest = digests.single,
-        ),
+      if (!resuming && have > 0) {
+        // Range ignored: the body starts from zero. The file is opened in
+        // truncating mode below, so nothing is spliced either way — what this
+        // fixes is the COUNT. Leaving it at the leftover size would report a
+        // download starting at 40% and then overshooting 100%, on a transfer
+        // that is in fact starting over.
+        devLog(() => 'xVeil[whisper]: server ignored Range, restarting');
+        have = 0;
+      }
+
+      final sink = part.openWrite(
+        mode: resuming ? FileMode.writeOnlyAppend : FileMode.writeOnly,
       );
+      var received = have;
       try {
         await for (final chunk in response) {
           sink.add(chunk);
-          hasher.add(chunk);
           received += chunk.length;
           if (onProgress != null) {
-            onProgress(total > 0 ? received / total : null);
+            onProgress(
+              received >= expectedBytes ? 1 : received / expectedBytes,
+            );
           }
         }
       } finally {
         await sink.close();
-        hasher.close();
       }
 
-      // Size first: it is the cheap half of the same question, and a truncated
-      // download is the common failure while a wrong hash is the rare one.
-      if (received != expectedBytes) {
+      // Size first: it is the cheap half of the same question, and a short
+      // body is the common failure while wrong content is the rare one.
+      final onDisk = part.existsSync() ? part.lengthSync() : 0;
+      if (onDisk != expectedBytes) {
         part.deleteSync();
         return WhisperModelDownload.failed(
-          'expected $expectedBytes bytes, got $received',
+          'expected $expectedBytes bytes, got $onDisk',
         );
       }
-      final actual = digest.toString();
+      // Hash the finished file rather than the stream: a resumed download is
+      // half bytes this process never saw, so streaming the digest would only
+      // cover the tail.
+      final actual = sha256.convert(part.readAsBytesSync()).toString();
       if (actual != expectedSha256) {
         part.deleteSync();
         return WhisperModelDownload.failed('checksum mismatch');
       }
       part.renameSync(file.path);
-      devLog(() => 'xVeil[whisper]: model installed ($received bytes)');
+      devLog(() => 'xVeil[whisper]: model installed ($onDisk bytes)');
       return WhisperModelDownload.ok(file.path);
     } on Object catch (error) {
-      if (part.existsSync()) part.deleteSync();
+      // Keep the partial bytes: this is what makes the next attempt a resume.
+      // Only verification deletes them, above.
       return WhisperModelDownload.failed('$error');
     } finally {
       client.close(force: true);
