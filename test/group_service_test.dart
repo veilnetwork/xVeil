@@ -1920,6 +1920,14 @@ void main() {
     // Making the whole function return true does NOT — some other layer also
     // refuses the row then, and I did not identify which. So this pins the
     // clause, not the whole guard, and says so rather than implying more.
+    //
+    // The sibling clauses on reactions and posts (r.groupId / post.spaceId)
+    // are ALSO unnoticed when removed, but they cannot be exercised the same
+    // way: a reaction names its target inside the encrypted payload, and that
+    // target is a message — which THIS guard already keeps out of the wrong
+    // group. They are defended in depth rather than untested, and a test
+    // spliced the obvious way passes with them removed, proving nothing. One
+    // was written that way and deleted rather than left looking like cover.
     final storage = FakeHvContainer().storage();
     await storage.open(password: 'pw', createIfMissing: true);
     final ownerSvc = GroupService(storage, _FakeSigner(owner));
