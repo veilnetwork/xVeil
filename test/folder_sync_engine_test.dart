@@ -335,6 +335,32 @@ void main() {
     expect(cloud.calls.where((c) => c.startsWith('delete')), isEmpty);
   });
 
+  test('an EMPTY cloud listing must not wipe the local folder', () async {
+    // The brake guards the cloud against a bad local scan. Nothing guarded the
+    // local folder against a bad cloud listing — an empty list reads as "the
+    // other side deleted everything", and every tracked file would be removed
+    // from disk. A listing can come back empty because the pair's cloud folder
+    // was deleted, or because a call failed and returned nothing.
+    for (var i = 0; i < 6; i++) {
+      disk.files['f$i.txt'] = 'body$i';
+    }
+    await engine.runOnce(pair);
+    expect(cloud.files, hasLength(6));
+
+    cloud.files.clear(); // the whole listing vanishes
+    disk.calls.clear();
+
+    final report = await engine.runOnce(pair);
+
+    expect(
+      disk.files,
+      hasLength(6),
+      reason: 'the local folder is the user\'s; an empty listing is not proof',
+    );
+    expect(disk.calls.where((c) => c.startsWith('remove')), isEmpty);
+    expect(report.isRefused, isTrue);
+  });
+
   test('the mass-deletion brake stops the pass and says why', () async {
     for (var i = 0; i < 6; i++) {
       disk.files['f$i.txt'] = 'body$i';
