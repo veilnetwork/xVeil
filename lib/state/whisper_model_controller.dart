@@ -19,8 +19,9 @@ class WhisperModelState {
 
   final WhisperModelPhase phase;
 
-  /// 0..1, or null while the server has not said how long the body is — an
-  /// indeterminate bar is honest, a made-up percentage is not.
+  /// 0..1 once the transfer reports, null before the first tick. The store
+  /// always knows the fraction (the size is pinned), so null here means "not
+  /// started yet", never "cannot tell".
   final double? progress;
   final String? error;
 
