@@ -19,6 +19,22 @@ class _MessagingPeerSync {
   static const _actInterval = Duration(seconds: 5);
   static const _reshipCap = 100;
 
+  /// How many beacons may name the SAME unmoved hole before we stop waiting
+  /// for it.
+  ///
+  /// A high-water is a claim of CONTIGUITY, so one sequence nobody can supply
+  /// pins it forever — and the peer, reading that pinned mark, re-ships the
+  /// entire tail above it on every round. Measured on a live pair: 316 frames
+  /// and 1.4 MB per round, between two idle devices, indefinitely.
+  ///
+  /// The give-up is taken HERE, by the side that is waiting, and never by the
+  /// sender. The sender cannot tell "I lost it" from "I deleted it for myself
+  /// only", and a sender-side rule would turn the second into a delete for
+  /// everyone. Waiting is our own business; we are the only ones who can count
+  /// how long we have waited.
+  static const _holeGiveUpRounds = 6;
+  final Map<String, (String, int)> _holeStreak = {};
+
   /// Let a reconnect beacon immediately and bound session-scoped throttle maps.
   void resetSession() {
     _lastSentAt.clear();
@@ -48,7 +64,12 @@ class _MessagingPeerSync {
     if (ownFloor > 0) {
       await _owner._storage.applyAuthorSyncFloor(peer.hex, selfHex, ownFloor);
     }
-    final sync = await _owner._storage.conversationSync(peer.hex);
+    var sync = await _owner._storage.conversationSync(peer.hex);
+    if (await _giveUpOnStuckHoles(peer, selfHex, sync)) {
+      // The floor changed our own high-water; re-read so the beacon states
+      // what we now actually hold rather than what we held a moment ago.
+      sync = await _owner._storage.conversationSync(peer.hex);
+    }
     final holes = <String, List<List<int>>>{
       for (final e in sync.holes.entries)
         e.key: [
@@ -67,6 +88,58 @@ class _MessagingPeerSync {
           'holes=${holes.length}',
     );
     await _owner._send(peer, WireEnvelope.sync(body).encode());
+  }
+
+  /// Stop waiting for a hole that has not moved for [_holeGiveUpRounds]
+  /// beacons, by flooring past it. Returns whether anything changed.
+  ///
+  /// One hole per pass, the LOWEST: a floor is a prefix, so flooring at the
+  /// first hole's end covers exactly that gap and leaves every later one still
+  /// requested.
+  ///
+  /// Never applied to our OWN stream. A gap there is not a delivery problem —
+  /// we authored those sequences — so it means our own store lost something,
+  /// and flooring would have us claim a contiguity we cannot back. That guard
+  /// is NOT covered by a test: producing a hole in one's own stream needs a
+  /// partial store loss, which no public API can bring about (verified by
+  /// breaking it — removing the guard fails nothing).
+  Future<bool> _giveUpOnStuckHoles(
+    NodeId peer,
+    String selfHex,
+    ({Map<String, int> highWater, Map<String, List<(int, int)>> holes}) sync,
+  ) async {
+    var changed = false;
+    for (final entry in sync.holes.entries) {
+      final author = entry.key;
+      if (author == selfHex || entry.value.isEmpty) continue;
+      final first = entry.value.reduce((a, b) => a.$1 <= b.$1 ? a : b);
+      final key = '${peer.hex}|$author';
+      final signature = '${first.$1}-${first.$2}';
+      final previous = _holeStreak[key];
+      final rounds = (previous != null && previous.$1 == signature)
+          ? previous.$2 + 1
+          : 1;
+      if (rounds < _holeGiveUpRounds) {
+        _holeStreak[key] = (signature, rounds);
+        continue;
+      }
+      _holeStreak.remove(key);
+      devLog(
+        () =>
+            'xVeil[sync]: giving up on hole ${first.$1}-${first.$2} of '
+            '${author.substring(0, 8)} after $rounds beacons — flooring past it',
+      );
+      await _owner._storage.applyAuthorSyncFloor(peer.hex, author, first.$2);
+      changed = true;
+    }
+    // Forget counters for authors whose holes are gone, so a NEW hole later
+    // starts its own count instead of inheriting an old one.
+    _holeStreak.removeWhere(
+      (key, _) =>
+          key.startsWith('${peer.hex}|') &&
+          !sync.holes.containsKey(key.split('|')[1]),
+    );
+    return changed;
   }
 
   void sendBestEffort(NodeId peer, {bool force = false}) {
