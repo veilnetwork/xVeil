@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Sandbox disabled for the DEBUG/dev build so the app can reach local
+	     node sockets/configs/dylibs under /tmp + the repo (real-mode demo).
+	     The release build keeps the sandbox; production must bundle the
+	     dylibs and keep storage inside the container. -->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-dyld-environment-variables</key>
+	<true/>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
+	<true/>
+	<!-- Required by the file_picker macOS plugin (NSOpenPanel/NSSavePanel): it
+	     errors with PlatformException(ENTITLEMENT_NOT_FOUND) unless a
+	     files.user-selected entitlement is present — EVEN with the sandbox off.
+	     Without it, tapping the paperclip threw and nothing happened. Release
+	     already has this key. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<!-- Calls (Phase 3): microphone capture for the veil audio engine. On the
+	     non-sandboxed debug build mic access is TCC-gated (see the Info.plist
+	     NSMicrophoneUsageDescription); this key matters for the sandboxed
+	     release build. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<key>com.apple.security.device.microphone</key>
+	<true/>
+	<key>com.apple.security.device.camera</key>
+	<true/>
+</dict>
+</plist>
