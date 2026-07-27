@@ -7701,6 +7701,33 @@ void main() {
       );
     });
 
+    test('NOT leaked: the name and the substance stay inside the ciphertext',
+        () async {
+      // The decisive fact for the product decision recorded in
+      // doc/SECRET-CHANNEL-DESIGN.md: what a restricted channel already hides
+      // is exactly what the owner asked to hide. A control entry carries
+      // EITHER a cleartext channel descriptor OR the encrypted envelope,
+      // never both, so the name never reaches the shared chain in the clear.
+      final (svc, spaceId) = await spaceWithTwoHiddenChannels();
+      final bundle = (await svc.load(spaceId))!;
+
+      final wire = jsonEncode([
+        for (final entry in bundle.control) entry.toJson(),
+      ]);
+
+      expect(
+        wire.contains('"One"'),
+        isFalse,
+        reason: 'the channel name would be the whole point of hiding it',
+      );
+      expect(wire.contains('"Two"'), isFalse);
+      expect(
+        bundle.control.where((e) => e.channel != null && e.channelControl != null),
+        isEmpty,
+        reason: 'cleartext descriptor and sealed envelope are exclusive',
+      );
+    });
+
     test('and `secret` is still refused, so none of this is promised away',
         () async {
       final storage = FakeHvContainer().storage();
