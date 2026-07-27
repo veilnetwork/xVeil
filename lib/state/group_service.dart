@@ -73,6 +73,7 @@ part 'group_service_channel_keys.dart';
 part 'group_service_compaction.dart';
 part 'group_service_protected_channels.dart';
 part 'group_service_reactions.dart';
+part 'group_service_public_feed_transport.dart';
 
 bool _listEquals<T>(List<T>? left, List<T>? right) {
   if (identical(left, right)) return true;
@@ -2796,308 +2797,27 @@ class GroupService {
     );
   }
 
-  void _purgePublicFeedTransportState() {
-    final cutoff = _now() - kSpacePublicFeedRequestWindow.inMilliseconds;
-    final expired = [
-      for (final entry in _pendingPublicFeedObjects.entries)
-        if (entry.value.createdAtMs < cutoff) entry.key,
-    ];
-    for (final nonce in expired) {
-      final pending = _pendingPublicFeedObjects.remove(nonce);
-      if (pending != null && !pending.completer.isCompleted) {
-        pending.completer.complete(null);
-      }
-    }
-    _publicFeedServeQuotas.removeWhere(
-      (_, quota) => quota.windowStartedAtMs < cutoff,
-    );
-    _publicMediaServeQuotas.removeWhere(
-      (_, quota) => quota.windowStartedAtMs < cutoff,
-    );
-    _seenPublicMediaRequests.removeWhere((_, seenAtMs) => seenAtMs < cutoff);
-  }
-
-  String _freshPublicFeedNonce() {
-    final random = Random.secure();
-    String nonce;
-    do {
-      nonce = List<int>.generate(
-        32,
-        (_) => random.nextInt(256),
-      ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
-    } while (_pendingPublicFeedObjects.containsKey(nonce));
-    return nonce;
-  }
-
-  Future<Uint8List?> _requestPublicFeedObject({
-    required NodeId holder,
-    required SpacePublicDescriptor descriptor,
-    required String objectHash,
-    required Duration timeout,
-  }) async {
-    final send = sendPublicFeedRequest;
-    if (send == null || holder == selfId) return null;
-    _purgePublicFeedTransportState();
-    if (_pendingPublicFeedObjects.length >= _kMaxPendingPublicFeedObjects) {
-      return null;
-    }
-    final nonce = _freshPublicFeedNonce();
-    final createdAtMs = _now();
-    final unsigned = SpacePublicFeedObjectRequest(
-      spaceId: descriptor.spaceId,
-      descriptorHash: descriptor.descriptorHash,
-      manifestHash: descriptor.publicFeedManifestHash,
-      objectHash: objectHash,
-      requester: selfId,
-      requesterPublicKey: _signer.selfPubKey,
-      nonce: nonce,
-      createdAtMs: createdAtMs,
-    );
-    final signed = _signer.signDetached(unsigned.canonicalBytes());
-    if (!_listEquals(signed.publicKey, _signer.selfPubKey)) return null;
-    final request = unsigned.withSignature(signed.signature);
-    if (!request.verifyAt(createdAtMs, selfId, _signer.verifyDetached)) {
-      return null;
-    }
-    final pending = _PendingPublicFeedObject(
-      spaceId: descriptor.spaceId,
-      holder: holder,
-      manifestHash: descriptor.publicFeedManifestHash,
-      objectHash: objectHash,
-      createdAtMs: createdAtMs,
-    );
-    _pendingPublicFeedObjects[nonce] = pending;
-    try {
-      await send(holder, jsonEncode(request.toJson()));
-    } catch (_) {
-      _pendingPublicFeedObjects.remove(nonce);
-      return null;
-    }
-    final timedOut = Completer<Uint8List?>();
-    final timeoutTimer = Timer(timeout, () => timedOut.complete(null));
-    final result = await Future.any<Uint8List?>([
-      pending.completer.future,
-      timedOut.future,
-    ]);
-    timeoutTimer.cancel();
-    _pendingPublicFeedObjects.remove(nonce);
-    if (!pending.completer.isCompleted) pending.completer.complete(null);
-    return result;
-  }
+  late final _PublicFeedTransport _publicFeedTransport = _PublicFeedTransport(
+    this,
+  );
 
   /// Holder-side live-only object service. Invalid, uncommitted or over-quota
   /// requests are silent so the path exposes neither membership nor cache
   /// state beyond the descriptor the requester already resolved from DHT.
-  Future<void> handlePublicFeedObjectRequest(
-    NodeId peer,
-    String requestJson,
-  ) async {
-    final send = sendPublicFeedChunk;
-    if (send == null) return;
-    final SpacePublicFeedObjectRequest? request;
-    try {
-      request = SpacePublicFeedObjectRequest.fromJson(jsonDecode(requestJson));
-    } catch (_) {
-      return;
-    }
-    final nowMs = _now();
-    if (request == null ||
-        request.requester != peer ||
-        !request.isStructurallyValidAt(nowMs)) {
-      return;
-    }
-    _purgePublicFeedTransportState();
-    final quota = _publicFeedServeQuotas[peer.hex];
-    final currentQuota =
-        quota == null ||
-            nowMs - quota.windowStartedAtMs >
-                kSpacePublicFeedRequestWindow.inMilliseconds
-        ? (windowStartedAtMs: nowMs, requests: 0)
-        : quota;
-    if (currentQuota.requests >= _kPublicFeedServeRequestsPerWindow) {
-      return;
-    }
-    if (_publicFeedServeQuotas.length >= _kMaxPublicFeedServeQuotaIdentities &&
-        !_publicFeedServeQuotas.containsKey(peer.hex)) {
-      _publicFeedServeQuotas.remove(_publicFeedServeQuotas.keys.first);
-    }
-    _publicFeedServeQuotas[peer.hex] = (
-      windowStartedAtMs: currentQuota.windowStartedAtMs,
-      requests: currentQuota.requests + 1,
-    );
-    if (!request.verifyAt(nowMs, peer, _signer.verifyDetached)) return;
-
-    final cached = await _loadOrRebuildVerifiedPublicFeed(
-      spaceId: request.spaceId,
-      descriptorHash: request.descriptorHash,
-      manifestHash: request.manifestHash,
-    );
-    if (cached == null) return;
-    final Uint8List? bytes;
-    if (request.objectHash == request.manifestHash) {
-      bytes = Uint8List.fromList(
-        utf8.encode(jsonEncode(cached.feed.manifest.toJson())),
-      );
-    } else {
-      SpacePublicFeedPage? page;
-      for (final candidate in cached.feed.pages) {
-        if (candidate.contentHash == request.objectHash) {
-          page = candidate;
-          break;
-        }
-      }
-      SpacePublicDiscussionPage? discussionPage;
-      if (page == null) {
-        for (final candidate in cached.feed.discussionPages) {
-          if (candidate.contentHash == request.objectHash) {
-            discussionPage = candidate;
-            break;
-          }
-        }
-      }
-      bytes = page?.canonicalBytes() ?? discussionPage?.canonicalBytes();
-    }
-    if (bytes == null ||
-        bytes.isEmpty ||
-        bytes.length > kSpacePublicFeedObjectMaxBytes) {
-      return;
-    }
-    for (final chunk in chunkSpacePublicFeedObject(
-      spaceId: request.spaceId,
-      manifestHash: request.manifestHash,
-      objectHash: request.objectHash,
-      nonce: request.nonce,
-      bytes: bytes,
-    )) {
-      try {
-        await send(peer, jsonEncode(chunk.toJson()));
-      } catch (_) {
-        return;
-      }
-    }
-  }
+  Future<void> handlePublicFeedObjectRequest(NodeId peer, String requestJson) =>
+      _publicFeedTransport.handlePublicFeedObjectRequest(peer, requestJson);
 
   /// Holder-side public media gate. This never treats the requester as a
   /// member: the only authority is an exact, still-live verified public
   /// descriptor/feed package that names [SpacePublicMediaGrantRequest.contentId].
   /// Invalid, replayed, unreferenced and unavailable requests are all silent.
-  Future<void> handlePublicMediaGrantRequest(
-    NodeId peer,
-    String requestJson,
-  ) async {
-    final grant = grantPublicContentServe;
-    if (grant == null) return;
-    final SpacePublicMediaGrantRequest? request;
-    try {
-      request = SpacePublicMediaGrantRequest.fromJson(jsonDecode(requestJson));
-    } catch (_) {
-      return;
-    }
-    final nowMs = _now();
-    if (request == null ||
-        request.requester != peer ||
-        !request.isStructurallyValidAt(nowMs)) {
-      return;
-    }
-
-    _purgePublicFeedTransportState();
-    final quota = _publicMediaServeQuotas[peer.hex];
-    final currentQuota =
-        quota == null ||
-            nowMs - quota.windowStartedAtMs >
-                kSpacePublicMediaGrantRequestWindow.inMilliseconds
-        ? (windowStartedAtMs: nowMs, requests: 0)
-        : quota;
-    if (currentQuota.requests >= _kPublicMediaServeRequestsPerWindow) return;
-    if (_publicMediaServeQuotas.length >=
-            _kMaxPublicMediaServeQuotaIdentities &&
-        !_publicMediaServeQuotas.containsKey(peer.hex)) {
-      _publicMediaServeQuotas.remove(_publicMediaServeQuotas.keys.first);
-    }
-    _publicMediaServeQuotas[peer.hex] = (
-      windowStartedAtMs: currentQuota.windowStartedAtMs,
-      requests: currentQuota.requests + 1,
-    );
-    if (!request.verifyAt(nowMs, peer, _signer.verifyDetached)) return;
-
-    final replayKey = '${peer.hex}:${request.nonce}';
-    if (_seenPublicMediaRequests.containsKey(replayKey)) return;
-    while (_seenPublicMediaRequests.length >= _kMaxSeenPublicMediaRequests) {
-      _seenPublicMediaRequests.remove(_seenPublicMediaRequests.keys.first);
-    }
-    _seenPublicMediaRequests[replayKey] = nowMs;
-
-    final cached = await _loadOrRebuildVerifiedPublicFeed(
-      spaceId: request.spaceId,
-      descriptorHash: request.descriptorHash,
-      manifestHash: request.manifestHash,
-    );
-    if (cached == null) return;
-    final descriptor = cached.descriptor;
-    final referenced =
-        cached.feed
-            .verifiedReferencedContentIds(_signer.verifyDetached)
-            .contains(request.contentId) ||
-        descriptor.avatarContentId == request.contentId ||
-        descriptor.coverContentId == request.contentId;
-    if (!referenced) return;
-
-    // The ordinary stream server remains the single byte-serving
-    // implementation. Its exact `(peer, CID, TTL)` gate keeps this public
-    // capability from becoming a generic stranger or membership permission.
-    grant(peer, request.contentId);
-  }
+  Future<void> handlePublicMediaGrantRequest(NodeId peer, String requestJson) =>
+      _publicFeedTransport.handlePublicMediaGrantRequest(peer, requestJson);
 
   /// Requester-side bounded reassembly. Unsolicited chunks and chunks from a
   /// different authenticated holder never allocate a slot.
-  void handlePublicFeedObjectChunk(NodeId peer, String chunkJson) {
-    final SpacePublicFeedObjectChunk? chunk;
-    try {
-      chunk = SpacePublicFeedObjectChunk.fromJson(jsonDecode(chunkJson));
-    } catch (_) {
-      return;
-    }
-    if (chunk == null) return;
-    _purgePublicFeedTransportState();
-    final pending = _pendingPublicFeedObjects[chunk.nonce];
-    if (pending == null ||
-        pending.holder != peer ||
-        pending.spaceId != chunk.spaceId ||
-        pending.manifestHash != chunk.manifestHash ||
-        pending.objectHash != chunk.objectHash ||
-        (pending.count != null && pending.count != chunk.count) ||
-        (pending.totalBytes != null &&
-            pending.totalBytes != chunk.totalBytes)) {
-      return;
-    }
-    pending.count ??= chunk.count;
-    pending.totalBytes ??= chunk.totalBytes;
-    if (pending.parts.containsKey(chunk.index)) return;
-    pending.parts[chunk.index] = Uint8List.fromList(chunk.data);
-    if (pending.parts.length != chunk.count) return;
-    final joined = BytesBuilder(copy: false);
-    for (var index = 0; index < chunk.count; index++) {
-      final part = pending.parts[index];
-      if (part == null) return;
-      joined.add(part);
-    }
-    final bytes = joined.toBytes();
-    if (bytes.length != chunk.totalBytes) {
-      if (!pending.completer.isCompleted) pending.completer.complete(null);
-      return;
-    }
-    final hashMatches = chunk.objectHash == chunk.manifestHash
-        ? SpacePublicFeedManifest.fromJson(
-                _decodePublicFeedObjectJson(bytes),
-              )?.manifestHash ==
-              chunk.objectHash
-        : crypto.sha256.convert(bytes).toString() == chunk.objectHash;
-    if (!hashMatches) {
-      if (!pending.completer.isCompleted) pending.completer.complete(null);
-      return;
-    }
-    if (!pending.completer.isCompleted) pending.completer.complete(bytes);
-  }
+  void handlePublicFeedObjectChunk(NodeId peer, String chunkJson) =>
+      _publicFeedTransport.handlePublicFeedObjectChunk(peer, chunkJson);
 
   /// Request one verified public media object without materializing a fake
   /// membership. The caller must already have fetched and verified this exact
@@ -3107,90 +2827,11 @@ class GroupService {
     SpacePublicDescriptor descriptor,
     Iterable<SpacePublicHolderAnnouncement> holders,
     String contentId,
-  ) async {
-    final send = sendPublicMediaGrantRequest;
-    if (send == null ||
-        (startPublicContentPullFromAny == null && startContentPull == null) ||
-        !_sharedContentIdPattern.hasMatch(contentId)) {
-      return false;
-    }
-    final nowMs = _now();
-    if (!descriptor.verifyAt(nowMs, _signer.verifyDetached)) return false;
-    final cached = await _loadOrRebuildVerifiedPublicFeed(
-      spaceId: descriptor.spaceId,
-      descriptorHash: descriptor.descriptorHash,
-      manifestHash: descriptor.publicFeedManifestHash,
-    );
-    if (cached == null ||
-        cached.descriptor.descriptorHash != descriptor.descriptorHash ||
-        !(cached.feed
-                .verifiedReferencedContentIds(_signer.verifyDetached)
-                .contains(contentId) ||
-            descriptor.avatarContentId == contentId ||
-            descriptor.coverContentId == contentId)) {
-      return false;
-    }
-
-    final candidates = <String, NodeId>{};
-    for (final holder in holders) {
-      if (holder.holder == selfId ||
-          holder.spaceId != descriptor.spaceId ||
-          holder.descriptorHash != descriptor.descriptorHash ||
-          holder.publicFeedManifestHash != descriptor.publicFeedManifestHash ||
-          !holder.verifyAt(nowMs, _signer.verifyDetached)) {
-        continue;
-      }
-      candidates[holder.holder.hex] = holder.holder;
-      if (candidates.length >= _kPublicMediaHolderFanout) break;
-    }
-    if (candidates.isEmpty) return false;
-
-    final requested = <NodeId>[];
-    for (final holder in candidates.values) {
-      final createdAtMs = _now();
-      final unsigned = SpacePublicMediaGrantRequest(
-        spaceId: descriptor.spaceId,
-        descriptorHash: descriptor.descriptorHash,
-        manifestHash: descriptor.publicFeedManifestHash,
-        contentId: contentId,
-        requester: selfId,
-        requesterPublicKey: _signer.selfPubKey,
-        nonce: _freshPublicFeedNonce(),
-        createdAtMs: createdAtMs,
-      );
-      final signed = _signer.signDetached(unsigned.canonicalBytes());
-      if (!_listEquals(signed.publicKey, _signer.selfPubKey)) continue;
-      final request = unsigned.withSignature(signed.signature);
-      if (!request.verifyAt(createdAtMs, selfId, _signer.verifyDetached)) {
-        continue;
-      }
-      try {
-        await send(holder, jsonEncode(request.toJson()));
-        requested.add(holder);
-      } catch (_) {
-        // Try the remaining independently verified holders.
-      }
-    }
-    if (requested.isEmpty) return false;
-    if (contentGrantDelay > Duration.zero) {
-      await Future<void>.delayed(contentGrantDelay);
-    }
-    final pullAny = startPublicContentPullFromAny;
-    if (pullAny != null) {
-      await pullAny(List<NodeId>.unmodifiable(requested), contentId);
-    } else {
-      await startContentPull!(requested.first, contentId);
-    }
-    return true;
-  }
-
-  Object? _decodePublicFeedObjectJson(Uint8List bytes) {
-    try {
-      return jsonDecode(utf8.decode(bytes, allowMalformed: false));
-    } catch (_) {
-      return null;
-    }
-  }
+  ) => _publicFeedTransport.requestPublicSpaceMedia(
+    descriptor,
+    holders,
+    contentId,
+  );
 
   /// Fetch and independently verify one exact descriptor's complete bounded
   /// public snapshot from any holder that signed that descriptor/feed pair.
@@ -3213,7 +2854,7 @@ class GroupService {
       candidates[holder.holder.hex] = holder;
     }
     for (final holder in candidates.values) {
-      final manifestBytes = await _requestPublicFeedObject(
+      final manifestBytes = await _publicFeedTransport._requestPublicFeedObject(
         holder: holder.holder,
         descriptor: descriptor,
         objectHash: descriptor.publicFeedManifestHash,
@@ -3222,7 +2863,7 @@ class GroupService {
       final manifest = manifestBytes == null
           ? null
           : SpacePublicFeedManifest.fromJson(
-              _decodePublicFeedObjectJson(manifestBytes),
+              _publicFeedTransport._decodePublicFeedObjectJson(manifestBytes),
             );
       if (manifest == null ||
           manifest.manifestHash != descriptor.publicFeedManifestHash ||
@@ -3248,7 +2889,7 @@ class GroupService {
         final end = min(offset + 4, manifest.pageHashes.length);
         final batch = await Future.wait([
           for (final hash in manifest.pageHashes.sublist(offset, end))
-            _requestPublicFeedObject(
+            _publicFeedTransport._requestPublicFeedObject(
               holder: holder.holder,
               descriptor: descriptor,
               objectHash: hash,
@@ -3289,7 +2930,7 @@ class GroupService {
         final end = min(offset + 4, manifest.discussionPageHashes.length);
         final batch = await Future.wait([
           for (final hash in manifest.discussionPageHashes.sublist(offset, end))
-            _requestPublicFeedObject(
+            _publicFeedTransport._requestPublicFeedObject(
               holder: holder.holder,
               descriptor: descriptor,
               objectHash: hash,

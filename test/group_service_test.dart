@@ -5668,6 +5668,167 @@ void main() {
     },
   );
 
+  // The two tests below were written after a break-check on the public feed
+  // transport: deleting the holder's signature check, and deleting the binding
+  // that ties a reassembly slot to the holder it was opened for, both left the
+  // whole suite green. Neither clause was reachable-but-dead — a test reaches
+  // both in a few lines — so what was missing was the test, not the code.
+  //
+  // Each one first performs the honest fetch and asserts it succeeds. Without
+  // that half, a broken harness that fetches nothing at all would satisfy the
+  // "must not serve" assertion and the test would prove nothing.
+  test('a holder serves nothing for a request it cannot verify', () async {
+    final ownerStorage = FakeHvContainer().storage();
+    final readerStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'owner', createIfMissing: true);
+    await readerStorage.open(password: 'reader', createIfMissing: true);
+    var forgeSignature = false;
+    var chunksServed = 0;
+    late final GroupService readerService;
+    final ownerService = GroupService(
+      ownerStorage,
+      _FakeSigner(owner),
+      sendPublicFeedChunk: (requester, chunkJson) async {
+        chunksServed++;
+        readerService.handlePublicFeedObjectChunk(owner, chunkJson);
+      },
+    );
+    readerService = GroupService(
+      readerStorage,
+      _FakeSigner(bob),
+      sendPublicFeedRequest: (holder, requestJson) async {
+        var delivered = requestJson;
+        if (forgeSignature) {
+          final request = jsonDecode(requestJson) as Map<String, dynamic>;
+          // 64 bytes, so the request stays structurally valid and it is the
+          // signature check — not the shape check — that has to refuse it.
+          request['signature'] = base64Encode(Uint8List(64));
+          delivered = jsonEncode(request);
+        }
+        await ownerService.handlePublicFeedObjectRequest(bob, delivered);
+      },
+    );
+    addTearDown(ownerService.dispose);
+    addTearDown(readerService.dispose);
+
+    final spaceId = await ownerService.createSpace(
+      'Signature-gated public feed',
+      visibility: SpaceVisibility.public,
+      discoverable: true,
+    );
+    expect(
+      await ownerService.publishSpacePost(
+        spaceId,
+        body: 'Served only to a verifiable requester',
+        broadcast: false,
+      ),
+      isNotNull,
+    );
+    final publication = await ownerService
+        .buildSpacePublicDiscoveryPublication(spaceId);
+    expect(publication, isNotNull);
+
+    expect(
+      await readerService.fetchVerifiedPublicSpaceFeed(
+        publication!.discovery.descriptor,
+        [publication.discovery.holder],
+        objectTimeout: const Duration(milliseconds: 300),
+      ),
+      isNotNull,
+      reason: 'the honest path must work, or the refusal below proves nothing',
+    );
+    expect(chunksServed, greaterThan(0));
+
+    forgeSignature = true;
+    chunksServed = 0;
+    expect(
+      await readerService.fetchVerifiedPublicSpaceFeed(
+        publication.discovery.descriptor,
+        [publication.discovery.holder],
+        objectTimeout: const Duration(milliseconds: 300),
+      ),
+      isNull,
+    );
+    expect(
+      chunksServed,
+      isZero,
+      reason:
+          'a forged signature must be refused before anything is sent, not '
+          'after — the requester public key is bound to the identity by '
+          'nothing else',
+    );
+  });
+
+  test('a chunk from a node other than the asked holder is ignored', () async {
+    final ownerStorage = FakeHvContainer().storage();
+    final readerStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'owner', createIfMissing: true);
+    await readerStorage.open(password: 'reader', createIfMissing: true);
+    var impersonateHolder = false;
+    late final GroupService readerService;
+    final ownerService = GroupService(
+      ownerStorage,
+      _FakeSigner(owner),
+      sendPublicFeedChunk: (requester, chunkJson) async {
+        // Byte-identical chunks, correct nonce, correct hashes — the only
+        // thing wrong is who hands them over.
+        readerService.handlePublicFeedObjectChunk(
+          impersonateHolder ? carol : owner,
+          chunkJson,
+        );
+      },
+    );
+    readerService = GroupService(
+      readerStorage,
+      _FakeSigner(bob),
+      sendPublicFeedRequest: (holder, requestJson) async {
+        await ownerService.handlePublicFeedObjectRequest(bob, requestJson);
+      },
+    );
+    addTearDown(ownerService.dispose);
+    addTearDown(readerService.dispose);
+
+    final spaceId = await ownerService.createSpace(
+      'Holder-bound reassembly',
+      visibility: SpaceVisibility.public,
+      discoverable: true,
+    );
+    expect(
+      await ownerService.publishSpacePost(
+        spaceId,
+        body: 'Only the holder we asked may answer',
+        broadcast: false,
+      ),
+      isNotNull,
+    );
+    final publication = await ownerService
+        .buildSpacePublicDiscoveryPublication(spaceId);
+    expect(publication, isNotNull);
+
+    expect(
+      await readerService.fetchVerifiedPublicSpaceFeed(
+        publication!.discovery.descriptor,
+        [publication.discovery.holder],
+        objectTimeout: const Duration(milliseconds: 300),
+      ),
+      isNotNull,
+      reason: 'the honest path must work, or the refusal below proves nothing',
+    );
+
+    impersonateHolder = true;
+    expect(
+      await readerService.fetchVerifiedPublicSpaceFeed(
+        publication.discovery.descriptor,
+        [publication.discovery.holder],
+        objectTimeout: const Duration(milliseconds: 300),
+      ),
+      isNull,
+      reason:
+          'a pending slot belongs to the one holder it was opened for; any '
+          'other node that learns the nonce must not be able to fill it',
+    );
+  });
+
   test(
     'public-only subscription persists verified feed without membership authority',
     () async {
