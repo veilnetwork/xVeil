@@ -89,6 +89,7 @@ class _FakeDisk implements FolderSyncDisk {
   final Map<String, String> files = {};
   final List<String> calls = [];
   bool truncated = false;
+  bool rootMissing = false;
   List<String> unreadable = const [];
 
   @override
@@ -103,6 +104,7 @@ class _FakeDisk implements FolderSyncDisk {
     ],
     unreadable: unreadable,
     truncated: truncated,
+    rootMissing: rootMissing,
   );
 
   @override
@@ -333,6 +335,42 @@ void main() {
     await engine.runOnce(pair);
 
     expect(cloud.calls.where((c) => c.startsWith('delete')), isEmpty);
+  });
+
+  test('a MISSING local root never deletes, even below the brake floor',
+      () async {
+    // An unmounted drive or a moved folder is not "the user emptied it", and
+    // with only three tracked files the proportional brake does not fire.
+    // A root that does not exist is a different fact from a root that is
+    // empty, and only the scanner can tell them apart.
+    for (var i = 0; i < 3; i++) {
+      disk.files['f$i.txt'] = 'body$i';
+    }
+    await engine.runOnce(pair);
+    expect(cloud.files, hasLength(3));
+
+    disk.files.clear();
+    disk.rootMissing = true;
+    cloud.calls.clear();
+
+    final report = await engine.runOnce(pair);
+
+    expect(cloud.calls, isEmpty, reason: 'the cloud copies are all that is left');
+    expect(cloud.files, hasLength(3));
+    expect(report.isRefused, isTrue);
+  });
+
+  test('a pair pointed at a folder that does not exist YET still pulls down',
+      () async {
+    // Nothing is tracked, so nothing can have been lost; refusing here would
+    // make "add a pair, then let it create the folder" impossible.
+    disk.rootMissing = true;
+    cloud.seed('theirs.txt', 'remote');
+
+    final report = await engine.runOnce(pair);
+
+    expect(report.isRefused, isFalse);
+    expect(report.applied.map((a) => a.kind), [SyncActionKind.download]);
   });
 
   test('an EMPTY cloud listing must not wipe the local folder', () async {

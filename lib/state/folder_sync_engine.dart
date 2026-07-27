@@ -100,6 +100,28 @@ class FolderSyncEngine {
     // that the unseen files were deleted. Both of these look identical to a
     // real deletion from the differ's side, so the decision is taken here,
     // where the difference is still known.
+    // A root that is not there at all is refused outright rather than merely
+    // held back from deleting: below the brake's floor a three-file folder on
+    // an unmounted drive would otherwise be mirrored away entirely.
+    if (scan.rootMissing && state.base.isNotEmpty) {
+      const reason = 'the folder is not there — refusing to treat it as empty';
+      await _store.saveState(
+        pair.id,
+        FolderSyncState(
+          base: state.base,
+          pendingConflicts: state.pendingConflicts,
+          resolutions: state.resolutions,
+          lastPassAtMs: _now(),
+          lastRefusal: reason,
+        ),
+      );
+      return FolderSyncReport(
+        applied: const [],
+        failed: const [],
+        conflicts: state.pendingConflicts,
+        refusedReason: reason,
+      );
+    }
     final trustworthy = !scan.truncated && scan.unreadable.isEmpty;
     final remote = await _cloud.list(pair.cloudFolderId);
 
