@@ -9665,6 +9665,96 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Create'**
   String get commonCreate;
+
+  /// No description provided for @folderSyncTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Folder sync'**
+  String get folderSyncTitle;
+
+  /// No description provided for @folderSyncHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Mirror a folder on this computer with a folder in Storage'**
+  String get folderSyncHint;
+
+  /// No description provided for @folderSyncEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No folders are being mirrored yet.'**
+  String get folderSyncEmpty;
+
+  /// No description provided for @folderSyncAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a folder'**
+  String get folderSyncAdd;
+
+  /// No description provided for @folderSyncRunNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync now'**
+  String get folderSyncRunNow;
+
+  /// No description provided for @folderSyncRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop mirroring'**
+  String get folderSyncRemove;
+
+  /// No description provided for @folderSyncNever.
+  ///
+  /// In en, this message translates to:
+  /// **'Not synced yet'**
+  String get folderSyncNever;
+
+  /// No description provided for @folderSyncRefused.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopped: {reason}'**
+  String folderSyncRefused(String reason);
+
+  /// No description provided for @folderSyncConflictsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Needs your decision'**
+  String get folderSyncConflictsTitle;
+
+  /// No description provided for @folderSyncConflictExplain.
+  ///
+  /// In en, this message translates to:
+  /// **'This file changed here and in Storage at the same time. Nothing was overwritten. Choose which copy to keep, then sync again.'**
+  String get folderSyncConflictExplain;
+
+  /// No description provided for @folderSyncKeepLocal.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep the one on this computer'**
+  String get folderSyncKeepLocal;
+
+  /// No description provided for @folderSyncKeepCloud.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep the one in Storage'**
+  String get folderSyncKeepCloud;
+
+  /// No description provided for @folderSyncCloudRoot.
+  ///
+  /// In en, this message translates to:
+  /// **'Storage root'**
+  String get folderSyncCloudRoot;
+
+  /// No description provided for @folderSyncBusy.
+  ///
+  /// In en, this message translates to:
+  /// **'Syncing…'**
+  String get folderSyncBusy;
+
+  /// No description provided for @folderSyncDeleteWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Deleting a file here deletes it in Storage too.'**
+  String get folderSyncDeleteWarning;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

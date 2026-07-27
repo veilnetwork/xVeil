@@ -5355,4 +5355,54 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get commonCreate => 'Create';
+
+  @override
+  String get folderSyncTitle => 'Folder sync';
+
+  @override
+  String get folderSyncHint =>
+      'Mirror a folder on this computer with a folder in Storage';
+
+  @override
+  String get folderSyncEmpty => 'No folders are being mirrored yet.';
+
+  @override
+  String get folderSyncAdd => 'Add a folder';
+
+  @override
+  String get folderSyncRunNow => 'Sync now';
+
+  @override
+  String get folderSyncRemove => 'Stop mirroring';
+
+  @override
+  String get folderSyncNever => 'Not synced yet';
+
+  @override
+  String folderSyncRefused(String reason) {
+    return 'Stopped: $reason';
+  }
+
+  @override
+  String get folderSyncConflictsTitle => 'Needs your decision';
+
+  @override
+  String get folderSyncConflictExplain =>
+      'This file changed here and in Storage at the same time. Nothing was overwritten. Choose which copy to keep, then sync again.';
+
+  @override
+  String get folderSyncKeepLocal => 'Keep the one on this computer';
+
+  @override
+  String get folderSyncKeepCloud => 'Keep the one in Storage';
+
+  @override
+  String get folderSyncCloudRoot => 'Storage root';
+
+  @override
+  String get folderSyncBusy => 'Syncing…';
+
+  @override
+  String get folderSyncDeleteWarning =>
+      'Deleting a file here deletes it in Storage too.';
 }

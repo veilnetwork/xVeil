@@ -41,6 +41,7 @@ import '../features/spaces/space_screen.dart';
 import '../features/spaces/space_rules_screen.dart';
 import '../features/spaces/space_settings_screen.dart';
 import '../features/storage/cloud_storage_screen.dart';
+import '../features/storage/folder_sync_screen.dart';
 import '../state/app_controller.dart';
 
 /// The routing SECURITY GATE, as a pure function of (phase, current location):
@@ -276,6 +277,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings/profiles',
         builder: (_, _) => const ProfileScreen(),
+      ),
+      GoRoute(
+        path: '/storage/folder-sync',
+        builder: (_, _) => const FolderSyncScreen(),
       ),
       GoRoute(
         path: '/add-identity',

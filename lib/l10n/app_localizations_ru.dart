@@ -5406,4 +5406,54 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get commonCreate => 'Создать';
+
+  @override
+  String get folderSyncTitle => 'Синхронизация папки';
+
+  @override
+  String get folderSyncHint =>
+      'Зеркалировать папку на этом компьютере с папкой в Хранилище';
+
+  @override
+  String get folderSyncEmpty => 'Пока ни одна папка не зеркалируется.';
+
+  @override
+  String get folderSyncAdd => 'Добавить папку';
+
+  @override
+  String get folderSyncRunNow => 'Синхронизировать';
+
+  @override
+  String get folderSyncRemove => 'Прекратить зеркалирование';
+
+  @override
+  String get folderSyncNever => 'Ещё не синхронизировалась';
+
+  @override
+  String folderSyncRefused(String reason) {
+    return 'Остановлено: $reason';
+  }
+
+  @override
+  String get folderSyncConflictsTitle => 'Нужно ваше решение';
+
+  @override
+  String get folderSyncConflictExplain =>
+      'Этот файл изменился и здесь, и в Хранилище. Ничего не перезаписано. Выберите, какую копию оставить, и синхронизируйте снова.';
+
+  @override
+  String get folderSyncKeepLocal => 'Оставить копию на компьютере';
+
+  @override
+  String get folderSyncKeepCloud => 'Оставить копию в Хранилище';
+
+  @override
+  String get folderSyncCloudRoot => 'Корень Хранилища';
+
+  @override
+  String get folderSyncBusy => 'Синхронизация…';
+
+  @override
+  String get folderSyncDeleteWarning =>
+      'Удаление файла здесь удалит его и в Хранилище.';
 }

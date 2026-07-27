@@ -98,8 +98,20 @@ class FolderSyncEngine {
     final trustworthy = !scan.truncated && scan.unreadable.isEmpty;
     final remote = await _cloud.list(pair.cloudFolderId);
 
+    // Apply any answer the user gave since the last pass. An answer is applied
+    // by rewriting the BASE so that the losing side reads as unchanged: then
+    // the ordinary rules carry it out, and "keep mine" becomes an upload while
+    // "keep theirs" becomes a download. Merely un-marking the conflict would
+    // lose the answer — the two copies still differ, so the very next pass
+    // would ask again.
+    final resolvedBase = _applyAnswers(
+      state,
+      {for (final file in scan.files) file.path: file},
+      {for (final file in remote) file.path: file},
+    );
+
     final plan = planFolderSync(
-      base: state.base,
+      base: resolvedBase,
       local: scan.files,
       remote: remote,
       deletePropagates: pair.deletePropagates && trustworthy,
@@ -124,7 +136,7 @@ class FolderSyncEngine {
       );
     }
 
-    final base = {for (final file in state.base) file.path: file};
+    final base = {for (final file in resolvedBase) file.path: file};
     final localByPath = {for (final file in scan.files) file.path: file};
     final remoteByPath = {for (final file in remote) file.path: file};
     final applied = <SyncAction>[];
@@ -207,6 +219,8 @@ class FolderSyncEngine {
       FolderSyncState(
         base: base.values.toList(),
         pendingConflicts: conflicts,
+        // Answers are consumed by the pass that acted on them; keeping one
+        // would re-apply it against a base that has since moved on.
         lastPassAtMs: _now(),
       ),
     );
@@ -217,9 +231,50 @@ class FolderSyncEngine {
     );
   }
 
-  /// The user picked a side. Clearing the path lets the next pass plan it
-  /// again, from whatever the two sides look like by then.
-  Future<void> resolveConflict(String pairId, String path) async {
+  /// Rewrite the base rows for answers the user has given, so the ordinary
+  /// rules act on them. Called at the start of a pass, where both sides are
+  /// known as they are now.
+  List<SyncedFile> _applyAnswers(
+    FolderSyncState state,
+    Map<String, LocalFile> local,
+    Map<String, RemoteFile> remote,
+  ) {
+    if (state.resolutions.isEmpty) return state.base;
+    final base = {for (final file in state.base) file.path: file};
+    for (final answer in state.resolutions.entries) {
+      final path = answer.key;
+      final was = base[path];
+      final here = local[path];
+      final there = remote[path];
+      if (was == null || here == null || there == null) continue;
+      base[path] = answer.value
+          // Keep mine: pretend the cloud never moved, so only my edit remains
+          // and the pass uploads it.
+          ? SyncedFile(
+              path: path,
+              contentId: there.contentId,
+              size: was.size,
+              localModifiedAtMs: was.localModifiedAtMs,
+            )
+          // Keep theirs: pretend my copy never moved, so only the cloud's edit
+          // remains and the pass downloads it.
+          : SyncedFile(
+              path: path,
+              contentId: was.contentId,
+              size: here.size,
+              localModifiedAtMs: here.modifiedAtMs,
+            );
+    }
+    return base.values.toList();
+  }
+
+  /// Record which side the user chose. Acting on it waits for the next pass,
+  /// which is the only place both sides are known as they are now.
+  Future<void> resolveConflict(
+    String pairId,
+    String path, {
+    required bool keepLocal,
+  }) async {
     final state = await _store.state(pairId);
     if (!state.pendingConflicts.contains(path)) return;
     await _store.saveState(
@@ -227,6 +282,7 @@ class FolderSyncEngine {
       FolderSyncState(
         base: state.base,
         pendingConflicts: {...state.pendingConflicts}..remove(path),
+        resolutions: {...state.resolutions, path: keepLocal},
         lastPassAtMs: state.lastPassAtMs,
         lastRefusal: state.lastRefusal,
       ),

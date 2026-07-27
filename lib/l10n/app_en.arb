@@ -1703,5 +1703,21 @@
   "profileNameHint": "for example: testing",
   "profileNameRule": "Lower-case letters, digits, dot, dash, underscore. Up to 32 characters.",
   "profileRevealed": "Profiles unlocked",
-  "commonCreate": "Create"
+  "commonCreate": "Create",
+  "folderSyncTitle": "Folder sync",
+  "folderSyncHint": "Mirror a folder on this computer with a folder in Storage",
+  "folderSyncEmpty": "No folders are being mirrored yet.",
+  "folderSyncAdd": "Add a folder",
+  "folderSyncRunNow": "Sync now",
+  "folderSyncRemove": "Stop mirroring",
+  "folderSyncNever": "Not synced yet",
+  "folderSyncRefused": "Stopped: {reason}",
+  "folderSyncConflictsTitle": "Needs your decision",
+  "folderSyncConflictExplain": "This file changed here and in Storage at the same time. Nothing was overwritten. Choose which copy to keep, then sync again.",
+  "folderSyncKeepLocal": "Keep the one on this computer",
+  "folderSyncKeepCloud": "Keep the one in Storage",
+  "folderSyncCloudRoot": "Storage root",
+  "folderSyncBusy": "Syncing…",
+  "folderSyncDeleteWarning": "Deleting a file here deletes it in Storage too.",
+  "@folderSyncRefused": { "placeholders": { "reason": { "type": "String" } } }
 }
