@@ -8560,9 +8560,13 @@ class GroupService {
     // come round. Measured live: with a plain rotating budget it sat outside
     // the first window and one pass collapsed nothing while a manual run of
     // the same code collapsed 21 rows.
+    // NOT gated on the index: the device group is not listed there (nothing
+    // enumerating `_index()` has ever reached it, which is why its log had
+    // grown to 2748 rows), so a membership check here would skip the one
+    // group this pass exists for.
     final deviceHex = await deviceGroupIdHex();
     final order = <String>[
-      if (deviceHex != null && ids.contains(deviceHex)) deviceHex,
+      ?deviceHex,
       for (var i = 0; i < take; i++)
         if (ids[(_compactionCursor + i) % ids.length] != deviceHex)
           ids[(_compactionCursor + i) % ids.length],
