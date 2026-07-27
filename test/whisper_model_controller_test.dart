@@ -55,7 +55,13 @@ void main() {
   setUp(() {
     store = _ScriptedStore();
     container = ProviderContainer(
-      overrides: [whisperModelStoreProvider.overrideWithValue(store)],
+      overrides: [
+        whisperModelStoreProvider.overrideWithValue(store),
+        // A unit test has no native library; without this the background
+        // fetch correctly refuses and every assertion below would be about
+        // that refusal instead of about the fetch.
+        whisperNativeProbeProvider.overrideWithValue(() async => true),
+      ],
     );
     addTearDown(container.dispose);
   });
@@ -176,5 +182,63 @@ void main() {
   test('cancel does nothing when nothing is running', () async {
     ctrl().cancel();
     expect(read().phase, WhisperModelPhase.absent);
+  });
+
+  group('fetching it without being asked', () {
+    // Nobody should have to know a speech model exists. It is fetched once
+    // when the session opens; the offers in Settings and under a voice
+    // message exist for a deliberate retry, not as the normal route.
+
+    /// The background path awaits a probe, then a disk check, then starts the
+    /// download — several hops, so one microtask is not enough to see it.
+    Future<void> settle() async {
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    test('an absent model is fetched', () async {
+      unawaited(ctrl().ensureDownloadedInBackground());
+      await settle();
+      expect(store.downloads, 1);
+      expect(read().isBusy, isTrue);
+    });
+
+    test('an installed model is not fetched again', () async {
+      store.installedNow = true;
+      await ctrl().ensureDownloadedInBackground();
+      expect(store.downloads, 0);
+      expect(read().phase, WhisperModelPhase.ready);
+    });
+
+    test('only once, however often the session re-enters', () async {
+      // A person who leaves during the transfer is not chased on the next
+      // screen. A deliberate retry is still a tap away.
+      unawaited(ctrl().ensureDownloadedInBackground());
+      await Future<void>.delayed(Duration.zero);
+      store.pending!.complete(const WhisperModelDownload.failed('no network'));
+      await Future<void>.delayed(Duration.zero);
+
+      await ctrl().ensureDownloadedInBackground();
+      expect(store.downloads, 1, reason: 'the second call is a no-op');
+    });
+
+    test('it never fights a download the person started', () async {
+      unawaited(ctrl().download());
+      await Future<void>.delayed(Duration.zero);
+      await ctrl().ensureDownloadedInBackground();
+      expect(store.downloads, 1);
+    });
+
+    test('a failure is silent — no error state to interrupt anyone', () async {
+      // The person did not ask for this, so it must not surface as something
+      // they have to dismiss. It may leave "failed" for the tile to show, but
+      // nothing here throws.
+      unawaited(ctrl().ensureDownloadedInBackground());
+      await settle();
+      store.pending!.complete(const WhisperModelDownload.failed('offline'));
+      await Future<void>.delayed(Duration.zero);
+      expect(read().isBusy, isFalse);
+    });
   });
 }
