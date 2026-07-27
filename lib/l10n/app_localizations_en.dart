@@ -5424,4 +5424,11 @@ class AppL10nEn extends AppL10n {
     );
     return 'Error report copied ($_temp0)';
   }
+
+  @override
+  String get errorLoadFailed => 'Couldn\'t load this';
+
+  @override
+  String get errorLoadFailedHint =>
+      'The details are in Settings → Copy error report.';
 }

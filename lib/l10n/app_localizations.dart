@@ -9773,6 +9773,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Error report copied ({count, plural, =0{no failures recorded} =1{1 failure} other{{count} failures}})'**
   String settingsCopyErrorsDone(int count);
+
+  /// No description provided for @errorLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t load this'**
+  String get errorLoadFailed;
+
+  /// No description provided for @errorLoadFailedHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The details are in Settings → Copy error report.'**
+  String get errorLoadFailedHint;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

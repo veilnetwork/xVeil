@@ -12,6 +12,7 @@ import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:veil_media/veil_media.dart' show VeilVnotePlayer;
 
+import '../common/async_error_view.dart';
 import '../../core/format.dart';
 import '../../core/ids.dart';
 import '../../data/serve_source.dart';
@@ -2223,7 +2224,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           Expanded(
             child: messages.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('$e')),
+              error: (e, st) =>
+                  AsyncErrorView(error: e, stack: st, where: 'chat'),
               data: (list) {
                 // Land at the last message on open. Fire HERE (the data
                 // builder, so the ListView is actually mounted) and only ONCE

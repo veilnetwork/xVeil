@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../common/async_error_view.dart';
 import '../../data/node/managed_node.dart';
 import '../../data/node/node_probe.dart';
 import '../../data/node/proxy_routing.dart';
@@ -42,7 +43,7 @@ class ManagedNodesScreen extends ConsumerWidget {
       ),
       body: nodesAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('$e')),
+        error: (e, st) => AsyncErrorView(error: e, stack: st, where: 'nodes'),
         data: (nodes) {
           if (nodes.isEmpty) {
             return _Empty(message: l.nodesEmpty, hint: l.nodesEmptyHint);

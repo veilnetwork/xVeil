@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../common/async_error_view.dart';
 import '../../domain/chat.dart';
 import '../../domain/p2p_policy.dart';
 import '../../l10n/app_localizations.dart';
@@ -26,12 +27,16 @@ class P2PSelectedScreen extends ConsumerWidget {
       ),
       body: convos.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('$e')),
+        error: (e, st) => AsyncErrorView(error: e, stack: st, where: 'p2p'),
         data: (list) {
-          final accepted = [
-            for (final c in list)
-              if (c.peer.status == ContactStatus.accepted) c.peer,
-          ]..sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+          final accepted =
+              [
+                for (final c in list)
+                  if (c.peer.status == ContactStatus.accepted) c.peer,
+              ]..sort(
+                (a, b) =>
+                    a.label.toLowerCase().compareTo(b.label.toLowerCase()),
+              );
           if (accepted.isEmpty) {
             return Center(child: Text(l.p2pSelectedEmpty));
           }
