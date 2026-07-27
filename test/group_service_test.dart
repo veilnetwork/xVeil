@@ -4030,6 +4030,39 @@ void main() {
     );
   });
 
+  test('the hourly sweep compacts superseded rows, not just boot', () async {
+    // Compaction used to run only at boot, and replication ships a bundle
+    // WHOLE — so what the log accumulated between restarts was paid on every
+    // sync. Measured on the stand: 2748 rows / 173 inline images for nine
+    // cloud items, collapsed to 233 / 11 by one pass.
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    addTearDown(svc.dispose);
+    await svc.linkDevice(bob, sovereign: sovereign);
+    final deviceGid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+    for (var i = 0; i < 4; i++) {
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: 'theme',
+          tsMs: i + 1,
+          payload: {'v': 'theme-$i'},
+        ),
+      );
+    }
+    expect((await svc.load(deviceGid))!.messages, hasLength(4));
+
+    final collapsed = await svc.sweepStateLogCompaction();
+
+    expect(collapsed, greaterThan(0), reason: 'the pass must report its work');
+    expect(
+      (await svc.load(deviceGid))!.messages,
+      hasLength(1),
+      reason: 'only the last theme row is not superseded',
+    );
+  });
+
   test('device-group compaction keeps LWW winners, unknown future events and '
       'author heads; ordinary chat messages are untouched', () async {
     final storage = FakeHvContainer().storage();
