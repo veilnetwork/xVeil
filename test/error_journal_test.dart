@@ -62,7 +62,16 @@ void main() {
       final frames = journal.entries.single.frames;
       expect(frames, contains('package:xveil/state/a.dart:12:3'));
       expect(frames.any((f) => f.contains('/Users/')), isFalse);
-      expect(frames.any((f) => f.startsWith('dart:')), isTrue);
+      expect(frames, contains('dart:async/zone.dart:100:9'));
+      // The absolute path must be DROPPED, not shortened. Its tail reads
+      // `dart:44:5`, which looks like an SDK frame and points at nothing —
+      // asserting only "no /Users/" is satisfied by exactly that lie.
+      expect(
+        frames,
+        isNot(contains('dart:44:5')),
+        reason: 'a file path must not survive as a fake SDK frame',
+      );
+      expect(frames, hasLength(2), reason: 'two real frames, the path dropped');
     });
   });
 
