@@ -5509,4 +5509,12 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get voiceModelTitle => 'Модель распознавания';
+
+  @override
+  String get voiceModelResume => 'Продолжить скачивание';
+
+  @override
+  String voiceModelResumeAt(int percent) {
+    return '$percent% уже скачано';
+  }
 }

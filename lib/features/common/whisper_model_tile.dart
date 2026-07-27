@@ -47,10 +47,22 @@ class WhisperModelTile extends ConsumerWidget {
       );
     }
     final failed = model.phase == WhisperModelPhase.failed;
+    // An interrupted attempt is resumed, not restarted — say so, because
+    // "download 57 MB" and "continue, 80% is already here" are different
+    // decisions on mobile data.
+    final resume = model.resumeFraction;
     return ListTile(
       leading: const Icon(Icons.graphic_eq_outlined),
-      title: Text(failed ? l.voiceModelFailed : l.voiceModelDownload),
-      subtitle: Text(l.voiceModelSize),
+      title: Text(
+        failed
+            ? l.voiceModelFailed
+            : (resume != null ? l.voiceModelResume : l.voiceModelDownload),
+      ),
+      subtitle: Text(
+        resume != null
+            ? l.voiceModelResumeAt((resume * 100).round())
+            : l.voiceModelSize,
+      ),
       trailing: const Icon(Icons.download_outlined),
       onTap: () async {
         final ok = await notifier.download();

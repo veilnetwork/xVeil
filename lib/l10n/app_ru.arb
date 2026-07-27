@@ -1732,5 +1732,8 @@
   "voiceModelInstalled": "Модель распознавания установлена",
   "voiceModelRemove": "Удалить модель распознавания",
   "voiceModelRemoveHint": "Освободит 57 МБ. Расшифровка перестанет работать, пока не скачаете снова.",
-  "voiceModelTitle": "Модель распознавания"
+  "voiceModelTitle": "Модель распознавания",
+  "voiceModelResume": "Продолжить скачивание",
+  "voiceModelResumeAt": "{percent}% уже скачано",
+  "@voiceModelResumeAt": { "placeholders": { "percent": { "type": "int" } } }
 }

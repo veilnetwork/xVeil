@@ -9833,6 +9833,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Speech model'**
   String get voiceModelTitle;
+
+  /// No description provided for @voiceModelResume.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue downloading'**
+  String get voiceModelResume;
+
+  /// No description provided for @voiceModelResumeAt.
+  ///
+  /// In en, this message translates to:
+  /// **'{percent}% already downloaded'**
+  String voiceModelResumeAt(int percent);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -1733,5 +1733,8 @@
   "voiceModelInstalled": "Speech model installed",
   "voiceModelRemove": "Remove the speech model",
   "voiceModelRemoveHint": "Frees 57 MB. Transcription stops working until you fetch it again.",
-  "voiceModelTitle": "Speech model"
+  "voiceModelTitle": "Speech model",
+  "voiceModelResume": "Continue downloading",
+  "voiceModelResumeAt": "{percent}% already downloaded",
+  "@voiceModelResumeAt": { "placeholders": { "percent": { "type": "int" } } }
 }

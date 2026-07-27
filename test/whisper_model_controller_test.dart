@@ -10,6 +10,7 @@ import 'package:xveil/state/whisper_model_controller.dart';
 /// the test observes — not a network.
 class _ScriptedStore implements WhisperModelStore {
   bool installedNow = false;
+  int pendingOnDisk = 0;
   int downloads = 0;
   int removals = 0;
   Completer<WhisperModelDownload>? pending;
@@ -20,6 +21,9 @@ class _ScriptedStore implements WhisperModelStore {
 
   @override
   Future<File?> installed() async => null;
+
+  @override
+  Future<int> pendingBytes() async => pendingOnDisk;
 
   @override
   Future<void> remove() async {
