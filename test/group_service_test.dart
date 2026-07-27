@@ -15,6 +15,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/cloud.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/domain/device_link.dart';
 import 'package:xveil/domain/group.dart';
@@ -4223,6 +4224,63 @@ void main() {
       chatResult.messagesAfter,
       2,
       reason: 'ordinary group history is not state and must not compact',
+    );
+  });
+
+  test('device-group compaction must not collapse an unresolved note DAG: '
+      'every branch of a note is a row under the SAME key (the item id), so a '
+      'plain LWW-per-key fold keeps one and drops the concurrent edit', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    await svc.linkDevice(bob, sovereign: sovereign);
+    final deviceGid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+
+    final root = List.filled(64, 'a').join();
+    final left = List.filled(64, 'b').join();
+    final right = List.filled(64, 'c').join();
+    Future<void> revision(String cid, int rev, int ts, List<String> parents) =>
+        svc.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.cloudEntry,
+            key: 'note_1',
+            tsMs: ts,
+            payload: {
+              'type': 'note',
+              'name': 'n',
+              'cid': cid,
+              'size': 1,
+              'created': 1,
+              'rev': rev,
+              if (parents.isNotEmpty) 'parents': parents,
+            },
+          ),
+        );
+    // Two devices edited the same parent revision while offline.
+    await revision(root, 1, 10, const []);
+    await revision(left, 2, 20, [root]);
+    await revision(right, 2, 30, [root]);
+
+    Future<List<String>> heads() async {
+      final rows = (await svc.load(deviceGid))!.messages;
+      final folded = foldCloudNoteHeads([
+        for (final m in rows) ?DeviceSyncEvent.fromBody(m.body),
+      ]);
+      return [for (final h in folded['note_1'] ?? const []) h.contentId!];
+    }
+
+    expect(
+      await heads(),
+      unorderedEquals([left, right]),
+      reason: 'the DAG fold reports both branches before compaction',
+    );
+
+    await svc.compactStateLogs(deviceGid);
+
+    expect(
+      await heads(),
+      unorderedEquals([left, right]),
+      reason: 'compaction must not silently resolve a conflict by timestamp',
     );
   });
 

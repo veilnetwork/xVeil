@@ -615,6 +615,23 @@ Map<String, List<CloudItem>> foldCloudNoteHeads(
   return result;
 }
 
+/// Identities of the note revisions a log compactor must keep, beyond its own
+/// last-writer-wins winner, as `itemId|contentId`.
+///
+/// WHY THIS EXISTS: every revision of a note is a row under the SAME event key
+/// — the item id. A compactor that keeps one winner per key therefore drops
+/// the concurrent edit and silently resolves, by wall clock, exactly the
+/// conflict [foldCloudNoteHeads] was written to preserve. The key space cannot
+/// express the DAG, so the retention rule has to live here, next to the fold
+/// that defines what a head is.
+///
+/// Only genuine branches cost anything: an item with one head yields its
+/// winner, which the compactor was keeping anyway.
+Set<String> unresolvedCloudNoteRevisions(Iterable<DeviceSyncEvent> events) => {
+  for (final entry in foldCloudNoteHeads(events).entries)
+    for (final head in entry.value) '${entry.key}|${head.contentId}',
+};
+
 Map<String, CloudReplicaClaim> foldCloudReplicaClaims(
   Iterable<({DeviceSyncEvent event, NodeId author})> records,
 ) {
