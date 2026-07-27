@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
+import '../common/shown_cause.dart';
 import '../../core/error_journal.dart';
 import '../../data/node/node_controller.dart';
 import '../../l10n/app_localizations.dart';
@@ -87,8 +88,11 @@ class NetworkScreen extends ConsumerWidget {
           status.when(
             loading: () =>
                 const _StatusCard(phase: NodePhase.starting, peers: 0),
-            error: (e, _) =>
-                _StatusCard(phase: NodePhase.error, peers: 0, message: '$e'),
+            error: (e, _) => _StatusCard(
+              phase: NodePhase.error,
+              peers: 0,
+              message: shownCause(e, kind: 'node'),
+            ),
             data: (s) =>
                 _StatusCard(phase: s.phase, peers: peers, message: s.message),
           ),
