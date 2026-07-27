@@ -147,6 +147,60 @@ void main() {
     },
   );
 
+  test('a request whose MAC does not verify is never answered', () async {
+    // Found by break-checking: removing the MAC comparison from the host let
+    // any request through and NOTHING in the suite noticed. The MAC is the
+    // whole authorisation on this path — the share names no recipient — so a
+    // request that cannot produce it must get silence, not a chunk.
+    final fixture = await buildFolder(fileCount: 1);
+    var answers = 0;
+    final host = CloudFolderShareHost(
+      capability: fixture.capability,
+      storage: fixture.storage,
+      listing: fixture.listing,
+      send:
+          ({
+            required servicePublicKey,
+            required targetAppId,
+            required targetEndpointId,
+            required data,
+          }) async => answers++,
+    );
+    Uint8List? captured;
+    // An OPEN stream that never delivers: Stream.empty() closes at once and
+    // the client bails before it has asked anything.
+    final silence = StreamController<Uint8List>.broadcast();
+    addTearDown(silence.close);
+    final client = CloudFolderShareClient(
+      capability: fixture.capability,
+      returnServicePublicKey: Uint8List.fromList(List.filled(32, 3)),
+      returnAppId: Uint8List.fromList(List.filled(32, 4)),
+      returnEndpointId: 48,
+      incoming: silence.stream,
+      send: (data) async => captured ??= Uint8List.fromList(data),
+      randomBytes: _counterBytes(),
+    );
+    // Let it emit exactly one request; nothing answers, so the fetch itself
+    // never completes and is deliberately abandoned.
+    unawaited(client.fetchListing().then((_) {}, onError: (_) {}));
+    for (var i = 0; i < 6; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(captured, isNotNull, reason: 'the client must have asked');
+
+    // The MAC occupies the tail of the request, so the last byte is part of
+    // it and nothing else.
+    final forged = Uint8List.fromList(captured!);
+    forged[forged.length - 1] ^= 0xff;
+    await host.serve(forged);
+    expect(answers, 0, reason: 'a forged MAC gets silence');
+
+    // The sanity half: the untouched request IS answered, so "silence" above
+    // cannot mean the host was inert all along.
+    await host.serve(captured!);
+    expect(answers, 1);
+  });
+
   test('a dropped listing request is asked for again, not abandoned', () async {
     final fixture = await buildFolder(fileCount: 1);
     final hostToClient = StreamController<Uint8List>.broadcast();
