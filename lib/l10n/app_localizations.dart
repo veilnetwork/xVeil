@@ -9593,6 +9593,78 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Content removed'**
   String get spaceAbuseReportRemoved;
+
+  /// No description provided for @profileTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Profiles'**
+  String get profileTitle;
+
+  /// No description provided for @profileSettingsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Run a separate installation from its own container'**
+  String get profileSettingsHint;
+
+  /// No description provided for @profileExplainer.
+  ///
+  /// In en, this message translates to:
+  /// **'A profile is a separate installation: its own container, its own password, its own identities. Nothing is shared between profiles. Use one to keep a test build away from your real data.'**
+  String get profileExplainer;
+
+  /// No description provided for @profileDefaultName.
+  ///
+  /// In en, this message translates to:
+  /// **'Default (production)'**
+  String get profileDefaultName;
+
+  /// No description provided for @profileRunningNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Running now'**
+  String get profileRunningNow;
+
+  /// No description provided for @profileRestartRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Restart xVeil to switch profile'**
+  String get profileRestartRequired;
+
+  /// No description provided for @profileSwitchNote.
+  ///
+  /// In en, this message translates to:
+  /// **'The chosen profile is remembered and applies on the next launch. On Linux and Windows you can also pass --profile <name>; everywhere else set XVEIL_PROFILE.'**
+  String get profileSwitchNote;
+
+  /// No description provided for @profileCreateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New profile'**
+  String get profileCreateTitle;
+
+  /// No description provided for @profileNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'for example: testing'**
+  String get profileNameHint;
+
+  /// No description provided for @profileNameRule.
+  ///
+  /// In en, this message translates to:
+  /// **'Lower-case letters, digits, dot, dash, underscore. Up to 32 characters.'**
+  String get profileNameRule;
+
+  /// No description provided for @profileRevealed.
+  ///
+  /// In en, this message translates to:
+  /// **'Profiles unlocked'**
+  String get profileRevealed;
+
+  /// No description provided for @commonCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Create'**
+  String get commonCreate;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

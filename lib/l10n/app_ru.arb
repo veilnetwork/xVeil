@@ -1690,5 +1690,17 @@
   "spaceAbuseReportPending": "Ожидает рассмотрения",
   "spaceAbuseReportDismissed": "Нарушение не подтверждено",
   "spaceAbuseReportResolved": "Решено",
-  "spaceAbuseReportRemoved": "Материал удалён"
+  "spaceAbuseReportRemoved": "Материал удалён",
+  "profileTitle": "Профили",
+  "profileSettingsHint": "Отдельная установка со своим контейнером",
+  "profileExplainer": "Профиль — это отдельная установка: свой контейнер, свой пароль, свои личности. Между профилями не делится ничего. Пригодится, чтобы держать тестовую сборку в стороне от настоящих данных.",
+  "profileDefaultName": "Основной (рабочий)",
+  "profileRunningNow": "Сейчас запущен",
+  "profileRestartRequired": "Перезапустите xVeil, чтобы сменить профиль",
+  "profileSwitchNote": "Выбранный профиль запоминается и применяется при следующем запуске. На Linux и Windows можно также передать --profile <имя>; в остальных случаях задайте XVEIL_PROFILE.",
+  "profileCreateTitle": "Новый профиль",
+  "profileNameHint": "например: testing",
+  "profileNameRule": "Строчные буквы, цифры, точка, дефис, подчёркивание. До 32 символов.",
+  "profileRevealed": "Профили открыты",
+  "commonCreate": "Создать"
 }
