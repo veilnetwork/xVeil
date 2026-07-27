@@ -7661,6 +7661,13 @@ class GroupService {
   /// the move. Consumers keep their own strictness: [_index] is lenient,
   /// [_groupIdsForGc] stays fail-closed on malformed content.
   Future<String?> _readIndexJson() async {
+    // Same race as a bundle, worse consequence: a miss here falls back to the
+    // legacy settings copy, and the next _setIndex persists that stale list —
+    // an id of a purged group comes back and, having no bundle and no
+    // tombstone, silently disables shared-content GC. The old comment on the
+    // legacy clear ("inert because reads prefer the file") holds only while
+    // the file read cannot miss.
+    await _awaitStoreWrite('groups.index');
     final blob = await _storage.loadFile('groups.index');
     if (blob != null) return utf8.decode(blob, allowMalformed: true);
     return _storage.getSetting('groups.index');
@@ -7705,11 +7712,19 @@ class GroupService {
   }
 
   Future<void> _setIndex(List<String> ids) async {
-    await _storage.storeFile(
+    final write = _storage.storeFile(
       'groups.index',
       Uint8List.fromList(utf8.encode(jsonEncode(ids))),
       name: 'groups-index',
     );
+    _bundleWrites['groups.index'] = write;
+    try {
+      await write;
+    } finally {
+      if (identical(_bundleWrites['groups.index'], write)) {
+        _bundleWrites.remove('groups.index');
+      }
+    }
     try {
       await _storage.putSetting('groups.index', '');
     } catch (_) {
@@ -7816,6 +7831,32 @@ class GroupService {
   /// Mutable for tests.
   Duration bundleWriteWait = const Duration(seconds: 5);
 
+  /// Wait out an in-flight write of [key] before reading it.
+  ///
+  /// storeFile is not atomic to readers and loadFile answers null for a file
+  /// that is unknown OR INCOMPLETE, so a read landing inside a write cannot
+  /// tell "being replaced" from "not there". What that costs depends on the
+  /// key: for a bundle it made the group vanish; for the group index it is
+  /// worse, because the miss falls back to the legacy settings copy and the
+  /// next write persists THAT — resurrecting ids of groups long gone.
+  ///
+  /// Only the writer answers for its own failure: a reader that waited still
+  /// goes and reads, since inheriting the exception would turn a method whose
+  /// contract is "answer null" into one that throws. Bounded, because this is
+  /// a read — on timeout we read anyway and land back on the old behaviour for
+  /// that one call.
+  Future<void> _awaitStoreWrite(String key) async {
+    while (true) {
+      final pending = _bundleWrites[key];
+      if (pending == null) return;
+      var timedOut = false;
+      await pending
+          .timeout(bundleWriteWait, onTimeout: () => timedOut = true)
+          .then<void>((_) {}, onError: (_) {});
+      if (timedOut) return;
+    }
+  }
+
   Future<String?> _loadBundleRaw(NodeId groupId) async {
     final key = _key(groupId);
     // Wait out any replacement of this bundle first. storeFile is not atomic
@@ -7826,24 +7867,7 @@ class GroupService {
     // measured on the stand as convergence at one row per ten minutes
     // (2026-07-27). The loop re-checks because a second save can start while
     // we await the first.
-    while (true) {
-      final pending = _bundleWrites[key];
-      if (pending == null) break;
-      // Only the writer answers for its own failure. A reader that waited must
-      // still go and read: inheriting the write's exception would turn every
-      // concurrent load into a throw from a method whose whole contract is to
-      // return null instead.
-      //
-      // Bounded, because this is a read: a bundle with inline media can take a
-      // while to write, and a reader that parked behind it indefinitely would
-      // trade a wrong answer for a hung screen. On timeout we read anyway and
-      // land back on the old behaviour for that one call.
-      var timedOut = false;
-      await pending
-          .timeout(bundleWriteWait, onTimeout: () => timedOut = true)
-          .then<void>((_) {}, onError: (_) {});
-      if (timedOut) break;
-    }
+    await _awaitStoreWrite(key);
     final blob = await _storage.loadFile(key);
     if (blob != null) return utf8.decode(blob);
     return _storage.getSetting(key);
