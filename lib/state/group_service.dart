@@ -8555,8 +8555,19 @@ class GroupService {
     if (ids.isEmpty) return 0;
     var collapsed = 0;
     final take = limit < ids.length ? limit : ids.length;
-    for (var i = 0; i < take; i++) {
-      final hex = ids[(_compactionCursor + i) % ids.length];
+    // The device-sync group grows fastest — every cloud edit appends to it —
+    // so it is compacted on EVERY pass rather than waiting for the cursor to
+    // come round. Measured live: with a plain rotating budget it sat outside
+    // the first window and one pass collapsed nothing while a manual run of
+    // the same code collapsed 21 rows.
+    final deviceHex = await deviceGroupIdHex();
+    final order = <String>[
+      if (deviceHex != null && ids.contains(deviceHex)) deviceHex,
+      for (var i = 0; i < take; i++)
+        if (ids[(_compactionCursor + i) % ids.length] != deviceHex)
+          ids[(_compactionCursor + i) % ids.length],
+    ];
+    for (final hex in order) {
       try {
         final result = await compactStateLogs(NodeId.fromHex(hex));
         if (result == null || !result.changed) continue;

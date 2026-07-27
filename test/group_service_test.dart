@@ -4030,6 +4030,45 @@ void main() {
     );
   });
 
+  test('the sweep always reaches the device group, whatever the budget',
+      () async {
+    // It grows fastest — every cloud edit appends to it — so a rotating
+    // budget that happens to start elsewhere must not leave it uncompacted.
+    // Measured live before this: one pass collapsed nothing while a manual
+    // run of the same code collapsed 21 rows.
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    addTearDown(svc.dispose);
+    for (var i = 0; i < 5; i++) {
+      await svc.createGroup('Filler $i');
+    }
+    await svc.linkDevice(bob, sovereign: sovereign);
+    final deviceGid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+    for (var i = 0; i < 3; i++) {
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: 'theme',
+          tsMs: i + 1,
+          payload: {'v': 'theme-$i'},
+        ),
+      );
+    }
+    expect((await svc.load(deviceGid))!.messages, hasLength(3));
+
+    // A budget of one: without the device-group priority this spends the
+    // whole pass on a filler group.
+    final collapsed = await svc.sweepStateLogCompaction(limit: 1);
+
+    expect(collapsed, greaterThan(0));
+    expect(
+      (await svc.load(deviceGid))!.messages,
+      hasLength(1),
+      reason: 'the device group must be compacted by every pass',
+    );
+  });
+
   test('the hourly sweep compacts superseded rows, not just boot', () async {
     // Compaction used to run only at boot, and replication ships a bundle
     // WHOLE — so what the log accumulated between restarts was paid on every
