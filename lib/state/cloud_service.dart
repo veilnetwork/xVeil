@@ -503,6 +503,20 @@ class CloudService {
         _nextTimestamp(),
       );
     }
+    // Retire claims about content no surviving revision references. The cid is
+    // part of the claim key, so a new revision mints a new key and the old
+    // claim wins its own key forever — the device log grew to thousands of
+    // rows for a handful of objects. The backfill below re-posts anything
+    // still held here, so pruning the signed log alone would achieve nothing.
+    // The claim is also simply untrue by then: _dropContentIfUnreferenced
+    // deletes those bytes a few lines down.
+    // Fail-closed on an item this device has never seen a revision for — a
+    // claim can arrive before the row that explains it.
+    _claims.removeWhere(
+      (_, claim) =>
+          _items.containsKey(claim.itemId) &&
+          !_cloudReferencesContent(claim.contentId),
+    );
     await _saveIndex();
     await _saveClaims();
 

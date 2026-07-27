@@ -4284,6 +4284,79 @@ void main() {
     );
   });
 
+  test('device-group compaction collects replica claims whose content no '
+      'revision can ask for — the cid in the claim key made every claim a '
+      'device ever made immortal', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    await svc.linkDevice(bob, sovereign: sovereign);
+    final deviceGid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+
+    final oldCid = List.filled(64, 'a').join();
+    final liveCid = List.filled(64, 'b').join();
+    final orphanCid = List.filled(64, 'd').join();
+    Future<void> claim(String item, String cid, int ts) => svc.postDeviceEvent(
+      DeviceSyncEvent(
+        kind: DeviceSyncKind.cloudReplica,
+        key: '$item|${bob.hex}|$cid',
+        tsMs: ts,
+        payload: {'device': bob.hex, 'cid': cid, 'present': true, 'size': 1},
+      ),
+    );
+    Future<void> file(String cid, int rev, int ts) => svc.postDeviceEvent(
+      DeviceSyncEvent(
+        kind: DeviceSyncKind.cloudEntry,
+        key: 'file_1',
+        tsMs: ts,
+        payload: {
+          'type': 'file',
+          'name': 'f',
+          'cid': cid,
+          'size': 1,
+          'created': 1,
+          'rev': rev,
+        },
+      ),
+    );
+    await file(oldCid, 1, 10);
+    await file(liveCid, 2, 20);
+    await claim('file_1', oldCid, 11);
+    await claim('file_1', liveCid, 21);
+    // No revision row was ever written for this item: a claim can arrive
+    // before the row that explains it, so it must NOT be judged garbage.
+    await claim('file_9', orphanCid, 30);
+
+    Future<Set<String>> claimKeys() async {
+      final rows = (await svc.load(deviceGid))!.messages;
+      return {
+        for (final m in rows)
+          if (DeviceSyncEvent.fromBody(m.body) case final e?)
+            if (e.kind == DeviceSyncKind.cloudReplica) e.key,
+      };
+    }
+
+    expect(await claimKeys(), hasLength(3));
+    await svc.compactStateLogs(deviceGid);
+    expect(
+      await claimKeys(),
+      {'file_1|${bob.hex}|$liveCid', 'file_9|${bob.hex}|$orphanCid'},
+      reason: 'the superseded cid is unreachable; the unknown item is not',
+    );
+
+    // Deleting the item retires its last claim too: those bytes are gone.
+    await svc.postDeviceEvent(
+      DeviceSyncEvent(
+        kind: DeviceSyncKind.cloudEntry,
+        key: 'file_1',
+        tsMs: 40,
+        payload: {'del': true, 'rev': 3},
+      ),
+    );
+    await svc.compactStateLogs(deviceGid);
+    expect(await claimKeys(), {'file_9|${bob.hex}|$orphanCid'});
+  });
+
   test('nudgeDeviceSync (brick 4e): ships the FULL device-group snapshot to '
       'every other device — the boot catch-up for deltas lost during a total '
       'outage; no-op on a solo install', () async {
