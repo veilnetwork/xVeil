@@ -26,6 +26,9 @@ class _LossyTransport implements VeilTransport {
   // loss). Count fileChunk frames actually delivered (resumable-resend assert).
   Set<int> dropChunks = {};
   int chunkSends = 0;
+  /// Envelopes whose body contains any of these are eaten FOREVER — a message
+  /// the sender keeps re-shipping and the receiver can never get.
+  Set<String> dropIfBodyContains = {};
 
   @override
   Future<NodeId> nodeId() async => _me;
@@ -42,6 +45,7 @@ class _LossyTransport implements VeilTransport {
       {bool anonymous = false}) async {
     if (drop) return; // live datagram lost
     final env = WireEnvelope.decode(payload);
+    if (dropIfBodyContains.any(env.body.contains)) return;
     if (env.kind == WireKind.fileChunk) {
       final frame = parseFileChunk(env.body);
       if (dropChunks.contains(frame.index)) return; // selective chunk loss
@@ -199,6 +203,65 @@ void main() {
     final bodies = (await sB.loadMessages(a.hex)).map((m) => m.body);
     expect(bodies, contains('keep'));
     expect(bodies, isNot(contains('gone')));
+  });
+
+  test('a hole nobody can fill is given up on, so the tail stops re-shipping',
+      () async {
+    // A high-water is a claim of CONTIGUITY, so one sequence that never
+    // arrives pins it forever — and the sender, reading that pinned mark,
+    // re-ships the whole tail above it on every round. Measured on a live
+    // pair: 316 frames and 1.4 MB per round, between two idle devices,
+    // indefinitely.
+    //
+    // The give-up is taken by the WAITING side. The sender cannot tell "I lost
+    // it" from "I deleted it for myself only", so a sender-side rule would
+    // turn the second into a delete for everyone.
+    await mA.sendText(b, 'keep'); // seq 1
+    await _settle();
+
+    tA.dropIfBodyContains = {'stuck'}; // eaten on every attempt, forever
+    await mA.sendText(b, 'stuck'); // seq 2 — B never gets it
+    await _settle();
+    await mA.sendText(b, 'after'); // seq 3 — B gets it, so 2 is a HOLE
+    await _settle();
+
+    var sync = await sB.conversationSync(a.hex);
+    expect(sync.highWater[a.hex], 1, reason: 'pinned below the hole');
+    expect(sync.holes[a.hex], isNotEmpty);
+
+    // Five rounds of asking: still waiting, because a hole that MIGHT still
+    // arrive must not be abandoned on the first disappointment.
+    for (var round = 0; round < 4; round++) {
+      await mB.reconcileOnConnect();
+      await _settle();
+    }
+    sync = await sB.conversationSync(a.hex);
+    expect(
+      sync.highWater[a.hex],
+      1,
+      reason: 'four rounds is not yet evidence that nobody can supply it',
+    );
+
+    // Keep asking until the give-up threshold.
+    for (var round = 0; round < 4; round++) {
+      await mB.reconcileOnConnect();
+      await _settle();
+    }
+
+    sync = await sB.conversationSync(a.hex);
+    expect(
+      sync.highWater[a.hex],
+      3,
+      reason: 'stopped waiting and moved past what nobody can supply',
+    );
+    expect(sync.holes[a.hex], isNull);
+    final bodies = (await sB.loadMessages(a.hex)).map((m) => m.body);
+    expect(bodies, containsAll(['keep', 'after']));
+    expect(
+      bodies,
+      isNot(contains('stuck')),
+      reason: 'giving up must not invent the message it gave up on',
+    );
   });
 
   test('a file lost on the live path self-heals via gap-fill (filePost)',
