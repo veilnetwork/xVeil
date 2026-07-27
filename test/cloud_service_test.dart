@@ -716,6 +716,42 @@ void main() {
     await storage.close();
   });
 
+  test('a folder in the cloud index does not disable content GC', () async {
+    // The GC's index reader is fail-closed: a row it does not understand may
+    // hide a content id, so it refuses to collect. Folders describe structure
+    // and carry no content, but they were not recognised — measured on the
+    // stand as `stored=124 referenced=53 purged=0` with `k=cloudFolder`
+    // stopping the reader on every pass, i.e. GC permanently off.
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = CloudService(
+      storage,
+      _FakeSync(_id(1)),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(100),
+      newId: () => 'gc-folder',
+    );
+    final bytes = _bytes(64);
+    final item = await service.importContent(
+      name: 'kept.bin',
+      size: bytes.length,
+      readRange: _reader(bytes),
+    );
+    await service.createFolder('Structure');
+
+    final snapshot = await storage.sharedContentReferenceSnapshot();
+
+    expect(
+      snapshot.complete,
+      isTrue,
+      reason: 'a folder row is structure, not an unreadable content row',
+    );
+    expect(snapshot.referencedContentIds, contains(item.contentId));
+
+    await service.close();
+    await storage.close();
+  });
+
   test('content reads back in ranges, and only while the item lives', () async {
     final storage = FakeHvContainer().storage();
     await storage.open(password: 'pw', createIfMissing: true);
