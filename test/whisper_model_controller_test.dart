@@ -13,7 +13,7 @@ class _ScriptedStore implements WhisperModelStore {
   int downloads = 0;
   int removals = 0;
   Completer<WhisperModelDownload>? pending;
-  void Function(double? progress)? lastProgress;
+  void Function(double progress)? lastProgress;
 
   @override
   Future<bool> isInstalled() async => installedNow;
@@ -29,7 +29,7 @@ class _ScriptedStore implements WhisperModelStore {
 
   @override
   Future<WhisperModelDownload> download({
-    void Function(double? progress)? onProgress,
+    void Function(double progress)? onProgress,
     Uri? from,
   }) {
     downloads++;

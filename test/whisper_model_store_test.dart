@@ -42,6 +42,35 @@ Future<HttpServer> _serve(
   return server;
 }
 
+/// A server that honours `Range: bytes=N-`, recording what it was asked for.
+/// Resuming is the point of the .part file, and a fake that ignores Range
+/// would let a store that never sends the header pass.
+Future<HttpServer> _serveRangeAware(
+  List<int> body,
+  List<String?> rangeHeaders, {
+  bool honourRange = true,
+}) async {
+  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  server.listen((request) async {
+    final range = request.headers.value(HttpHeaders.rangeHeader);
+    rangeHeaders.add(range);
+    var from = 0;
+    if (honourRange && range != null) {
+      from = int.parse(RegExp(r'bytes=(\d+)-').firstMatch(range)!.group(1)!);
+      request.response.statusCode = HttpStatus.partialContent;
+      request.response.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes $from-${body.length - 1}/${body.length}',
+      );
+    }
+    final slice = body.sublist(from);
+    request.response.contentLength = slice.length;
+    request.response.add(slice);
+    await request.response.close();
+  });
+  return server;
+}
+
 void main() {
   late Directory dir;
   late WhisperModelStore store;
@@ -91,16 +120,17 @@ void main() {
         from: Uri.parse('http://127.0.0.1:${server.port}/m'),
       );
       expect(result.succeeded, isFalse);
-      // The client raises before the length check ever runs — that path is
-      // covered below. What matters here is that a dropped connection leaves
-      // no trace either way.
       expect(result.error, isNotEmpty);
       expect(
         modelFile().existsSync(),
         isFalse,
         reason: 'a partial file must never be given the real name',
       );
-      expect(partFile().existsSync(), isFalse, reason: 'and not left as .part');
+      // ...but it IS kept as .part. That is the resume: 57 MiB should not
+      // restart from zero because a phone changed cell.
+      expect(partFile().existsSync(), isTrue);
+      expect(partFile().lengthSync(), greaterThan(0));
+      expect(await store.pendingBytes(), partFile().lengthSync());
     });
 
     test('rejects a complete response that is simply too short', () async {
@@ -157,7 +187,7 @@ void main() {
         final server = await _serve(body);
         addTearDown(() => server.close(force: true));
 
-        final seen = <double?>[];
+        final seen = <double>[];
         await store.download(
           from: Uri.parse('http://127.0.0.1:${server.port}/m'),
           onProgress: seen.add,
@@ -165,7 +195,7 @@ void main() {
         expect(seen, isNotEmpty);
         expect(seen.last, closeTo(1.0, 0.0001));
         expect(
-          seen.every((p) => p == null || (p >= 0 && p <= 1)),
+          seen.every((p) => p >= 0 && p <= 1),
           isTrue,
           reason: 'a progress bar outside 0..1 is a bug people can see',
         );
@@ -173,20 +203,27 @@ void main() {
       timeout: const Timeout(Duration(minutes: 2)),
     );
 
-    test('progress is null when the server declares no length', () async {
-      // Better an indeterminate bar than a fabricated percentage.
-      final body = utf8.encode('x' * 500);
-      final server = await _serve(body, declareLength: false);
-      addTearDown(() => server.close(force: true));
+    test(
+      'progress is measured against the KNOWN size, not the server\'s',
+      () async {
+        // The size is pinned, so there is never a case where the app must guess
+        // — and on a resume the server's content-length describes only the
+        // remaining tail, so trusting it would show 0% when the transfer is
+        // nearly done.
+        final body = utf8.encode('x' * 500);
+        final server = await _serve(body, declareLength: false);
+        addTearDown(() => server.close(force: true));
 
-      final seen = <double?>[];
-      await store.download(
-        from: Uri.parse('http://127.0.0.1:${server.port}/m'),
-        onProgress: seen.add,
-      );
-      expect(seen, isNotEmpty);
-      expect(seen.every((p) => p == null), isTrue);
-    });
+        final seen = <double>[];
+        await store.download(
+          from: Uri.parse('http://127.0.0.1:${server.port}/m'),
+          onProgress: seen.add,
+        );
+        expect(seen, isNotEmpty);
+        expect(seen.every((p) => p >= 0 && p <= 1), isTrue);
+        expect(seen.last, lessThan(0.001), reason: '500 of 57 MiB is ~0%');
+      },
+    );
   });
 
   group('removing', () {
@@ -221,5 +258,135 @@ void main() {
     // app must be the same shape as the constant.
     expect(sha256.convert(const []).toString().length, 64);
     expect(WhisperModelStore.expectedSha256.length, 64);
+  });
+
+  group('resuming an interrupted download', () {
+    // The reason the .part file survives a transport failure at all. This is
+    // 57 MiB: a phone that loses its connection at 90% must not start again
+    // from zero.
+
+    test('the second attempt asks for the REST, and appends it', () async {
+      final body = List<int>.generate(400, (i) => i % 251);
+      final first = await _serve(body, cutOffEarly: true);
+      addTearDown(() => first.close(force: true));
+      await store.download(from: Uri.parse('http://127.0.0.1:${first.port}/m'));
+
+      final stopped = await store.pendingBytes();
+      expect(stopped, greaterThan(0));
+      expect(stopped, lessThan(body.length));
+
+      final ranges = <String?>[];
+      final second = await _serveRangeAware(body, ranges);
+      addTearDown(() => second.close(force: true));
+      final result = await store.download(
+        from: Uri.parse('http://127.0.0.1:${second.port}/m'),
+      );
+
+      expect(ranges.single, 'bytes=$stopped-', reason: 'it asked for the rest');
+      // The body is not the real model, so verification refuses it — but the
+      // refusal names the length, which is exactly what proves the remainder
+      // was APPENDED rather than the whole thing fetched again.
+      expect(result.error, contains('got ${body.length}'));
+    });
+
+    test(
+      'a server that IGNORES Range makes it start over, not splice',
+      () async {
+        // Answering 200 to a Range request means the body begins at zero. The
+        // leftover is not a prefix of it, and appending would glue two copies
+        // together into something that could never verify.
+        final body = List<int>.generate(400, (i) => i % 251);
+        final first = await _serve(body, cutOffEarly: true);
+        addTearDown(() => first.close(force: true));
+        await store.download(
+          from: Uri.parse('http://127.0.0.1:${first.port}/m'),
+        );
+        expect(await store.pendingBytes(), greaterThan(0));
+
+        final ranges = <String?>[];
+        final second = await _serveRangeAware(body, ranges, honourRange: false);
+        addTearDown(() => second.close(force: true));
+        final result = await store.download(
+          from: Uri.parse('http://127.0.0.1:${second.port}/m'),
+        );
+
+        expect(ranges.single, isNotNull, reason: 'it still asked');
+        expect(
+          result.error,
+          contains('got ${body.length}'),
+          reason: 'exactly one copy on disk, not leftover + body',
+        );
+      },
+    );
+
+    test(
+      'a restart reports progress from zero, not from the leftover',
+      () async {
+        // The count is the only thing the restart branch actually fixes — the
+        // file is truncated either way. Left uncorrected it would show a
+        // transfer beginning at 40% and then passing 100%, which is a bug a
+        // person watches happen.
+        final body = List<int>.generate(400, (i) => i % 251);
+        final first = await _serve(body, cutOffEarly: true);
+        addTearDown(() => first.close(force: true));
+        await store.download(
+          from: Uri.parse('http://127.0.0.1:${first.port}/m'),
+        );
+        final stopped = await store.pendingBytes();
+        expect(stopped, greaterThan(0));
+
+        final ranges = <String?>[];
+        final second = await _serveRangeAware(body, ranges, honourRange: false);
+        addTearDown(() => second.close(force: true));
+        final seen = <double>[];
+        await store.download(
+          from: Uri.parse('http://127.0.0.1:${second.port}/m'),
+          onProgress: seen.add,
+        );
+
+        expect(seen, isNotEmpty);
+        expect(
+          seen.last * WhisperModelStore.expectedBytes,
+          closeTo(body.length.toDouble(), 1),
+          reason: 'the count must reflect only what was actually written',
+        );
+      },
+    );
+
+    test('a leftover as long as the model is discarded, not trusted', () async {
+      // A .part that already claims the full length cannot be resumed — there
+      // is nothing to ask for — and trusting it would skip the hash entirely.
+      partFile().writeAsBytesSync(
+        List<int>.filled(WhisperModelStore.expectedBytes, 7),
+      );
+      final ranges = <String?>[];
+      final server = await _serveRangeAware(utf8.encode('short'), ranges);
+      addTearDown(() => server.close(force: true));
+
+      await store.download(
+        from: Uri.parse('http://127.0.0.1:${server.port}/m'),
+      );
+      expect(ranges.single, isNull, reason: 'nothing to resume from');
+      expect(await store.isInstalled(), isFalse);
+    });
+
+    test(
+      'verification failure DELETES the part — it can never verify later',
+      () async {
+        final body = List<int>.filled(WhisperModelStore.expectedBytes, 0);
+        final server = await _serve(body);
+        addTearDown(() => server.close(force: true));
+        final result = await store.download(
+          from: Uri.parse('http://127.0.0.1:${server.port}/m'),
+        );
+        expect(result.error, contains('checksum'));
+        expect(
+          await store.pendingBytes(),
+          0,
+          reason: 'resuming bytes that are already wrong only fails again',
+        );
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
   });
 }

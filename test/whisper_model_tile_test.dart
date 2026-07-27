@@ -35,7 +35,7 @@ class _ScriptedStore implements WhisperModelStore {
 
   @override
   Future<WhisperModelDownload> download({
-    void Function(double? progress)? onProgress,
+    void Function(double progress)? onProgress,
     Uri? from,
   }) {
     downloads++;
