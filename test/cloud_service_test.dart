@@ -716,6 +716,67 @@ void main() {
     await storage.close();
   });
 
+  test('a superseded replica claim is retired instead of being re-published '
+      'by the reconcile backfill', () async {
+    // The cid is part of the claim key, so every revision mints a NEW key and
+    // the old claim wins its own key forever: measured on the stand as 2748
+    // device-log rows for nine cloud objects. Compaction can drop the row from
+    // the signed log, but the backfill below re-posts anything still held in
+    // the materialized claim set — so pruning one without the other achieves
+    // nothing, which is what this test pins.
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sync = _FakeSync(_id(1));
+    var clock = 5000;
+    final service = CloudService(
+      storage,
+      sync,
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () => 'claim-gc',
+      integrityChecks: false,
+    );
+    await service.start();
+    final v1 = await service.saveTextNote(title: 'Note', body: 'v1');
+    final v2 = await service.saveTextNote(
+      itemId: v1.id,
+      expectedRevision: v1.revision,
+      expectedContentId: v1.contentId,
+      title: 'Note',
+      body: 'v2',
+    );
+    Set<String> claimedCids() => {
+      for (final row in sync.rows)
+        if (row.event.kind == DeviceSyncKind.cloudReplica)
+          row.event.key.split('|').last,
+    };
+    expect(claimedCids(), containsAll([v1.contentId, v2.contentId]));
+
+    // What compaction does to the signed log; the reconcile that follows is
+    // where the claim would come back.
+    sync.rows.removeWhere(
+      (row) =>
+          row.event.kind == DeviceSyncKind.cloudReplica &&
+          row.event.key.endsWith('|${v1.contentId}'),
+    );
+    sync.controller.add(null);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+
+    expect(
+      claimedCids(),
+      isNot(contains(v1.contentId)),
+      reason: 'no revision references it and the bytes are already dropped',
+    );
+    expect(
+      claimedCids(),
+      contains(v2.contentId),
+      reason: 'the live head must still resolve to its holder',
+    );
+
+    await service.close();
+    await storage.close();
+  });
+
   test('a folder in the cloud index does not disable content GC', () async {
     // The GC's index reader is fail-closed: a row it does not understand may
     // hide a content id, so it refuses to collect. Folders describe structure
