@@ -8,6 +8,7 @@ class FolderScan {
     required this.files,
     required this.unreadable,
     required this.truncated,
+    this.rootMissing = false,
   });
 
   final List<LocalFile> files;
@@ -21,6 +22,12 @@ class FolderScan {
   /// True when [maxFiles] stopped the walk. The caller must surface this —
   /// a truncated scan also looks like deletions.
   final bool truncated;
+
+  /// The folder itself is not there. A DIFFERENT fact from an empty folder,
+  /// and only the scanner can tell them apart: an unmounted drive or a moved
+  /// directory presents as "every file is gone", which below the brake's floor
+  /// would be mirrored as an ordinary deletion.
+  final bool rootMissing;
 }
 
 /// Names that belong to the operating system rather than to the user. Syncing
@@ -52,7 +59,12 @@ Future<FolderScan> scanFolder(
   final unreadable = <String>[];
   var truncated = false;
   if (!root.existsSync()) {
-    return FolderScan(files: files, unreadable: unreadable, truncated: false);
+    return FolderScan(
+      files: files,
+      unreadable: unreadable,
+      truncated: false,
+      rootMissing: true,
+    );
   }
   final rootPath = root.absolute.path;
 
