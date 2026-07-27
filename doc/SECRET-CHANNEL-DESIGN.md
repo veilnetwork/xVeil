@@ -34,7 +34,7 @@ cleartext carries:
 |---|---|
 | `cid` | this channel exists, and which entries belong to it |
 | `epoch` | how many times its key has been replaced, and when |
-| `key.count` ([group_epoch.dart:83](../lib/domain/group_epoch.dart#L83)) | how many people can read it |
+| `key.count` ([group_epoch.dart:83](../lib/domain/group_epoch.dart#L83)) | how many people can read it — the members PLUS the administrator, who is a recipient of their own channel |
 | `enc` length | roughly how much control data it carries |
 | entry author + `createdAtMs` | who administers it and when they act |
 
@@ -121,6 +121,23 @@ What is needed:
 4. **Migration.** Existing `restricted` channels cannot become secret without
    rewriting history that other members already hold. Secret is therefore a
    property fixed at creation, and that must be said in the UI.
+
+## The leak table is now executable
+
+`test/group_service_test.dart`, group *"secret-channel groundwork: what the
+control chain gives away"*, asserts the table above against a real Space with
+two restricted channels: a non-recipient can count the channels, read each
+one's headcount, link two entries of one channel, watch a rotation as an epoch
+bump, and name the administrator. A sixth test asserts that `secret` is still
+refused, so none of this is promised away.
+
+They are written as the CURRENT truth on purpose. An implementation of secret
+channels must make each of them fail; a green suite with those tests unchanged
+would mean nothing was hidden. If one starts failing without such an
+implementation, this document is wrong and must be corrected first.
+
+Writing them already corrected one thing here: the headcount is members plus
+the administrator, not members alone.
 
 ## Verification this must pass before being called done
 
