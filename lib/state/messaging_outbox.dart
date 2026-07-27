@@ -75,8 +75,16 @@ class _MessagingOutbox {
         frameId,
         repeat: _seenFrames.contains(frameId),
       );
-    } catch (_) {
-      // Best-effort — a re-drive will prompt another ACK.
+    } catch (error) {
+      // Best-effort — a re-drive will prompt another ACK. But say so: a
+      // failing ack is indistinguishable from one that was never owed, and
+      // the sender answers by re-driving the same frame forever. Silence here
+      // is what a stuck outbox looks like from the other side.
+      devLog(
+        () =>
+            'xVeil[timeline]: ack FAILED id=$frameId '
+            'to=${message.src.short}: $error',
+      );
     }
   }
 
