@@ -50,6 +50,19 @@ class AppProfiles {
   static String directory(String supportDir, String profile) =>
       profile == defaultName ? supportDir : '$supportDir/profiles/$profile';
 
+  /// Scope a preference key to [profile].
+  ///
+  /// Shared preferences are per-APP, so a flag that describes ONE installation
+  /// has to carry the profile or a second profile inherits the first's answer.
+  /// That is not hypothetical: the onboarding flag was global, so a brand-new
+  /// profile started at the lock screen with no container to unlock and could
+  /// never be opened at all.
+  ///
+  /// The default profile keeps the bare key, so an existing install is never
+  /// sent back through first-launch setup.
+  static String scopedPrefKey(String key, String profile) =>
+      profile == defaultName ? key : '$key.$profile';
+
   /// Resolve the profile for this launch, most explicit source first:
   /// an argument, then the environment, then what the user last chose, then
   /// production.
