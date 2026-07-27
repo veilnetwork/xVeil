@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
+import '../../core/error_journal.dart';
+import '../settings/error_report.dart';
 
 class LockScreen extends ConsumerStatefulWidget {
   const LockScreen({super.key});
@@ -142,29 +144,68 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                       child: Text(l.lockStartOver),
                     ),
                     const Spacer(flex: 2),
-                    // Low-emphasis, corner-tucked destructive action (typed-phrase
-                    // gated) so it can't be hit by an accidental double-tap.
-                    Align(
-                      alignment: Alignment.bottomRight,
-                      child: TextButton.icon(
-                        onPressed: _busy ? null : _wipe,
-                        icon: Icon(
-                          Icons.delete_forever_outlined,
-                          size: 16,
-                          color: scheme.error.withValues(alpha: 0.7),
-                        ),
-                        label: Text(
-                          l.lockWipe,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: scheme.error.withValues(alpha: 0.7),
+                    // The report belongs HERE and not only in Settings: an app
+                    // that will not unlock is exactly the failure worth
+                    // reporting, and Settings is on the other side of the lock.
+                    // Shown only once something has actually gone wrong, so a
+                    // working lock screen stays a lock screen.
+                    Row(
+                      children: [
+                        if (hasError || errorJournal.entries.isNotEmpty)
+                          Flexible(
+                            child: TextButton.icon(
+                              onPressed: _busy
+                                  ? null
+                                  : () => copyErrorReport(
+                                      context,
+                                      phase: 'locked',
+                                    ),
+                              icon: const Icon(
+                                Icons.bug_report_outlined,
+                                size: 16,
+                              ),
+                              label: Text(
+                                l.settingsCopyErrors,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
+                              ),
+                            ),
+                          ),
+                        const Spacer(),
+                        // Low-emphasis, corner-tucked destructive action
+                        // (typed-phrase gated) so it can't be hit by an
+                        // accidental double-tap.
+                        Flexible(
+                          child: TextButton.icon(
+                            onPressed: _busy ? null : _wipe,
+                            icon: Icon(
+                              Icons.delete_forever_outlined,
+                              size: 16,
+                              color: scheme.error.withValues(alpha: 0.7),
+                            ),
+                            label: Text(
+                              l.lockWipe,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: scheme.error.withValues(alpha: 0.7),
+                              ),
+                            ),
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                            ),
                           ),
                         ),
-                        style: TextButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                        ),
-                      ),
+                      ],
                     ),
                   ],
                 ),

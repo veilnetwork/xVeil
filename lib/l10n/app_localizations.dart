@@ -9755,6 +9755,24 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Deleting a file here deletes it in Storage too.'**
   String get folderSyncDeleteWarning;
+
+  /// No description provided for @settingsCopyErrors.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy error report'**
+  String get settingsCopyErrors;
+
+  /// No description provided for @settingsCopyErrorsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'A JSON summary of recent failures. Contains no messages, contacts or identity.'**
+  String get settingsCopyErrorsHint;
+
+  /// No description provided for @settingsCopyErrorsDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Error report copied ({count, plural, =0{no failures recorded} =1{1 failure} other{{count} failures}})'**
+  String settingsCopyErrorsDone(int count);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

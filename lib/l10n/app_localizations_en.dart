@@ -5405,4 +5405,23 @@ class AppL10nEn extends AppL10n {
   @override
   String get folderSyncDeleteWarning =>
       'Deleting a file here deletes it in Storage too.';
+
+  @override
+  String get settingsCopyErrors => 'Copy error report';
+
+  @override
+  String get settingsCopyErrorsHint =>
+      'A JSON summary of recent failures. Contains no messages, contacts or identity.';
+
+  @override
+  String settingsCopyErrorsDone(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count failures',
+      one: '1 failure',
+      zero: 'no failures recorded',
+    );
+    return 'Error report copied ($_temp0)';
+  }
 }
