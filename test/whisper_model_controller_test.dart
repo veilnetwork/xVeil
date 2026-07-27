@@ -14,6 +14,7 @@ class _ScriptedStore implements WhisperModelStore {
   int downloads = 0;
   int removals = 0;
   Completer<WhisperModelDownload>? pending;
+  bool Function()? cancelProbe;
   void Function(double progress)? lastProgress;
 
   @override
@@ -34,10 +35,12 @@ class _ScriptedStore implements WhisperModelStore {
   @override
   Future<WhisperModelDownload> download({
     void Function(double progress)? onProgress,
+    bool Function()? isCancelled,
     Uri? from,
   }) {
     downloads++;
     lastProgress = onProgress;
+    cancelProbe = isCancelled;
     return (pending = Completer<WhisperModelDownload>()).future;
   }
 
@@ -142,5 +145,36 @@ void main() {
     await ctrl().remove();
     expect(store.removals, 0);
     expect(read().isBusy, isTrue);
+  });
+
+  test('cancel reaches the running transfer', () async {
+    unawaited(ctrl().download());
+    await Future<void>.delayed(Duration.zero);
+    expect(store.cancelProbe!(), isFalse, reason: 'not asked for yet');
+
+    ctrl().cancel();
+    expect(
+      store.cancelProbe!(),
+      isTrue,
+      reason: 'the store consults this between chunks',
+    );
+  });
+
+  test('a cancelled download returns to the offer, not to an error', () async {
+    unawaited(ctrl().download());
+    await Future<void>.delayed(Duration.zero);
+    ctrl().cancel();
+    store.pendingOnDisk = (WhisperModelStore.expectedBytes * 0.4).round();
+    store.pending!.complete(const WhisperModelDownload.cancelled());
+    await Future<void>.delayed(Duration.zero);
+
+    expect(read().phase, WhisperModelPhase.absent);
+    expect(read().error, isNull, reason: 'nobody made a mistake');
+    expect(read().resumeFraction, closeTo(0.4, 0.01));
+  });
+
+  test('cancel does nothing when nothing is running', () async {
+    ctrl().cancel();
+    expect(read().phase, WhisperModelPhase.absent);
   });
 }

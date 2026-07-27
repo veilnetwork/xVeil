@@ -459,4 +459,50 @@ void main() {
       timeout: const Timeout(Duration(seconds: 20)),
     );
   });
+
+  group('stopping on purpose', () {
+    test(
+      'is not an error, and keeps what arrived',
+      () async {
+        // A person who tapped by accident on mobile data should not be shown a
+        // failure they did not cause — and should not lose the megabytes either.
+        final body = List<int>.filled(WhisperModelStore.expectedBytes, 3);
+        final server = await _serve(body);
+        addTearDown(() => server.close(force: true));
+
+        var chunks = 0;
+        final result = await store.download(
+          from: Uri.parse('http://127.0.0.1:${server.port}/m'),
+          onProgress: (_) => chunks++,
+          // Stop once something has actually been written, so the assertion
+          // below is about keeping bytes rather than about never starting.
+          isCancelled: () => chunks > 2,
+        );
+
+        expect(result.wasCancelled, isTrue);
+        expect(result.succeeded, isFalse);
+        expect(
+          result.error,
+          isNull,
+          reason: 'stopping is a decision, not a fault',
+        );
+        expect(await store.pendingBytes(), greaterThan(0));
+        expect(modelFile().existsSync(), isFalse);
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
+
+    test('a cancel that never fires leaves the download alone', () async {
+      // The flag is consulted per chunk; a false one must not cost anything.
+      final body = utf8.encode('x' * 400);
+      final server = await _serve(body);
+      addTearDown(() => server.close(force: true));
+      final result = await store.download(
+        from: Uri.parse('http://127.0.0.1:${server.port}/m'),
+        isCancelled: () => false,
+      );
+      expect(result.wasCancelled, isFalse);
+      expect(result.error, contains('bytes'), reason: 'it ran to the end');
+    });
+  });
 }
