@@ -84,6 +84,24 @@ flutter build macos --release
 scripts/bundle-macos-dylibs.sh release
 ```
 
+**Without an Apple Developer account both commands above fail** — debug
+included, not just release. The app and the PacketTunnel extension request
+`com.apple.developer.networking.networkextension`, a restricted entitlement
+that needs a provisioning profile, and no profile can be minted without an
+account. Everything compiles and then signing fails. Use instead:
+
+```sh
+scripts/build-native.sh          # --release for a release build
+scripts/build-macos-adhoc.sh debug     # or: release
+```
+
+That signs ad-hoc against `{Debug,Release}NoVpn.entitlements` and drops the
+tunnel extension, so the result has no VPN — which costs nothing today, since
+the macOS VPN has never worked for exactly this reason. It cannot be
+notarised either: on another Mac the recipient must run
+`xattr -dr com.apple.quarantine /Applications/xveil.app`. For real
+distribution, get a Developer ID and use the normal build.
+
 Outputs:
 
 - debug: `build/macos/Build/Products/Debug/xveil.app`;
@@ -378,6 +396,24 @@ scripts/build-native.sh --release
 flutter build macos --release
 scripts/bundle-macos-dylibs.sh release
 ```
+
+**Без аккаунта Apple Developer обе команды выше падают** — и debug тоже, не
+только release. Приложение и расширение PacketTunnel просят
+`com.apple.developer.networking.networkextension`, а это ограниченное право:
+ему нужен provisioning-профиль, который без аккаунта не выпустить. Всё
+компилируется и падает на подписи. Вместо этого:
+
+```sh
+scripts/build-native.sh          # --release для релизной сборки
+scripts/build-macos-adhoc.sh debug     # или: release
+```
+
+Скрипт подписывает ad-hoc по `{Debug,Release}NoVpn.entitlements` и выбрасывает
+расширение туннеля, поэтому VPN в результате нет — сегодня это ничего не
+стоит, потому что macOS-VPN ровно по этой причине никогда и не работал.
+Нотаризовать такую сборку тоже нельзя: на чужом маке получателю придётся
+выполнить `xattr -dr com.apple.quarantine /Applications/xveil.app`. Для
+настоящей раздачи нужен Developer ID и обычная сборка.
 
 Результаты:
 
