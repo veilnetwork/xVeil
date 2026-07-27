@@ -5707,7 +5707,7 @@ class GroupService {
       protocolVersion: protectedEnvelope != null
           ? kProtectedSpaceVoiceSessionProtocolVersion
           : channelId == null
-          ? kLegacyGroupCallProtocolVersion
+          ? kGroupCallProtocolVersion
           : kSpaceVoiceSessionProtocolVersion,
     );
     if (!_validGroupCallShape(unsigned)) return null;
@@ -5899,7 +5899,7 @@ class GroupService {
               return false;
             }
           } else if (signal.channelId == null) {
-            if (signal.protocolVersion != kLegacyGroupCallProtocolVersion) {
+            if (signal.protocolVersion != kGroupCallProtocolVersion) {
               return false;
             }
           } else {
@@ -5913,7 +5913,7 @@ class GroupService {
           }
         } else if (frame.isChannelEncrypted ||
             signal.channelId != null ||
-            signal.protocolVersion != kLegacyGroupCallProtocolVersion) {
+            signal.protocolVersion != kGroupCallProtocolVersion) {
           return false;
         }
         final nowMs = _now();
