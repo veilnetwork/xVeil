@@ -392,6 +392,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/device_revoke':
           await _deviceRevokeHook(req);
           return;
+        case '/group_trace':
+          await _groupTraceHook(req);
+          return;
         case '/group_index':
           await _groupIndexHook(req);
           return;
@@ -1816,6 +1819,35 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   }
 
   /// My device group's state: id + members + epoch (null id = not linked).
+  /// Stand observer: every trace one group id has left in the store
+  /// (`?group=<hex>`).
+  ///
+  /// For a "ghost" — indexed, no bundle, no tombstone — the question is
+  /// whether the bundle blob was never written or was written and lost. The
+  /// settings namespace answers it: a `file:`/`ondisk:` key for the bundle
+  /// means chunks existed, a kind hint means the group was known well enough
+  /// to classify. Read-only, and it reports key NAMES, never values.
+  Future<void> _groupTraceHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final hex = req.uri.queryParameters['group']?.trim();
+    if (hex == null || hex.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'group required'}, status: 400);
+    }
+    final storage = ref.read(storageProvider);
+    final keys = await storage.settingsKeys();
+    final hits = [for (final key in keys) if (key.contains(hex)) key];
+    final svc = _groupSvc();
+    return _json(req, {
+      'ok': true,
+      'group': hex,
+      'settingsKeysMentioning': hits,
+      'hasBundleBlob': await storage.hasFile('group:$hex'),
+      'indexed': svc == null
+          ? null
+          : (await svc.indexedGroups()).any((row) => row.hex == hex),
+    });
+  }
+
   /// Stand observer: the group index with the one fact it cannot otherwise
   /// show — whether a bundle actually backs each id.
   ///
