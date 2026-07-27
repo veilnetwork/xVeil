@@ -231,8 +231,62 @@ void main() {
       reason: 'one undecided file must not freeze the folder',
     );
 
-    await engine.resolveConflict('p1', 'a.txt');
+    await engine.resolveConflict('p1', 'a.txt', keepLocal: true);
     expect((await store.state('p1')).pendingConflicts, isEmpty);
+  });
+
+  test('answering "keep mine" uploads my copy on the next pass', () async {
+    disk.files['a.txt'] = 'same';
+    await engine.runOnce(pair);
+    disk.files['a.txt'] = 'local-edit';
+    cloud.seed('a.txt', 'remote-edit');
+    await engine.runOnce(pair);
+    expect((await store.state('p1')).pendingConflicts, {'a.txt'});
+
+    await engine.resolveConflict('p1', 'a.txt', keepLocal: true);
+    cloud.calls.clear();
+    disk.calls.clear();
+    final report = await engine.runOnce(pair);
+
+    expect(report.applied.map((a) => a.kind), [SyncActionKind.upload]);
+    expect(disk.files['a.txt'], 'local-edit');
+    expect(cloud.content['item-a.txt'], isNotNull);
+    expect(
+      (await store.state('p1')).pendingConflicts,
+      isEmpty,
+      reason: 'un-marking alone would let the next pass ask again forever',
+    );
+  });
+
+  test('answering "keep theirs" downloads their copy on the next pass',
+      () async {
+    disk.files['a.txt'] = 'same';
+    await engine.runOnce(pair);
+    disk.files['a.txt'] = 'local-edit';
+    cloud.seed('a.txt', 'remote-edit');
+    await engine.runOnce(pair);
+
+    await engine.resolveConflict('p1', 'a.txt', keepLocal: false);
+    cloud.calls.clear();
+    final report = await engine.runOnce(pair);
+
+    expect(report.applied.map((a) => a.kind), [SyncActionKind.download]);
+    expect(disk.files['a.txt'], 'remote-edit');
+  });
+
+  test('an answered conflict does not come back on the pass after', () async {
+    disk.files['a.txt'] = 'same';
+    await engine.runOnce(pair);
+    disk.files['a.txt'] = 'local-edit';
+    cloud.seed('a.txt', 'remote-edit');
+    await engine.runOnce(pair);
+    await engine.resolveConflict('p1', 'a.txt', keepLocal: true);
+    await engine.runOnce(pair);
+
+    final third = await engine.runOnce(pair);
+
+    expect(third.conflicts, isEmpty);
+    expect(third.applied, isEmpty);
   });
 
   test('a local delete removes the cloud copy', () async {

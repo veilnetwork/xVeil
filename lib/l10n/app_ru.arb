@@ -1702,5 +1702,21 @@
   "profileNameHint": "например: testing",
   "profileNameRule": "Строчные буквы, цифры, точка, дефис, подчёркивание. До 32 символов.",
   "profileRevealed": "Профили открыты",
-  "commonCreate": "Создать"
+  "commonCreate": "Создать",
+  "folderSyncTitle": "Синхронизация папки",
+  "folderSyncHint": "Зеркалировать папку на этом компьютере с папкой в Хранилище",
+  "folderSyncEmpty": "Пока ни одна папка не зеркалируется.",
+  "folderSyncAdd": "Добавить папку",
+  "folderSyncRunNow": "Синхронизировать",
+  "folderSyncRemove": "Прекратить зеркалирование",
+  "folderSyncNever": "Ещё не синхронизировалась",
+  "folderSyncRefused": "Остановлено: {reason}",
+  "folderSyncConflictsTitle": "Нужно ваше решение",
+  "folderSyncConflictExplain": "Этот файл изменился и здесь, и в Хранилище. Ничего не перезаписано. Выберите, какую копию оставить, и синхронизируйте снова.",
+  "folderSyncKeepLocal": "Оставить копию на компьютере",
+  "folderSyncKeepCloud": "Оставить копию в Хранилище",
+  "folderSyncCloudRoot": "Корень Хранилища",
+  "folderSyncBusy": "Синхронизация…",
+  "folderSyncDeleteWarning": "Удаление файла здесь удалит его и в Хранилище.",
+  "@folderSyncRefused": { "placeholders": { "reason": { "type": "String" } } }
 }
