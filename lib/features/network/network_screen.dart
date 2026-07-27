@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
+import '../../core/error_journal.dart';
 import '../../data/node/node_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
@@ -12,6 +13,21 @@ import '../../state/background_node_controller.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/providers.dart';
 import '../../state/proxy_routing_controller.dart';
+
+/// The part of a node failure that is safe to put on screen.
+///
+/// The node's message is a raw native error and can quote a store path, a
+/// bind address or a peer id. Why the network is down is the useful half and
+/// worth keeping — a snackbar that says only "offline" helps nobody diagnose a
+/// firewall. The identifying half is not: a snackbar is on screen for anyone
+/// standing nearby, and it is the kind of thing people photograph and send.
+///
+/// So: redact, cap short enough for a snackbar, and let the full text reach
+/// the error report instead.
+String nodeFailureDetail(String? message) {
+  if (message == null || message.trim().isEmpty) return '';
+  return '\n${ErrorJournal.redact(message, maxLength: 160)}';
+}
 
 class NetworkScreen extends ConsumerWidget {
   const NetworkScreen({super.key});
@@ -33,9 +49,20 @@ class NetworkScreen extends ConsumerWidget {
         final headline = s.phase == NodePhase.error
             ? l.networkStatusError
             : l.networkStatusOffline;
-        final detail = (s.message != null && s.message!.isNotEmpty)
-            ? '\n${s.message}'
-            : '';
+        // The node's message is a raw native error: it can quote a store
+        // path, a bind address or a peer id. Telling the user WHY the network
+        // is down is the useful part and worth keeping — the identifying part
+        // is not, and a snackbar is on screen for anyone standing nearby. So
+        // redact for display and keep the original for the error report.
+        final raw = s.message;
+        if (raw != null && raw.isNotEmpty) {
+          errorJournal.record(
+            kind: 'node',
+            error: raw,
+            atMs: DateTime.now().millisecondsSinceEpoch,
+          );
+        }
+        final detail = nodeFailureDetail(raw);
         ScaffoldMessenger.of(context)
           ..clearSnackBars()
           ..showSnackBar(
