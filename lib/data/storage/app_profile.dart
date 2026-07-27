@@ -19,10 +19,10 @@ class AppProfiles {
   static const activePref = 'profile.active.v1';
   static const revealedPref = 'profile.switcherRevealed.v1';
 
-  /// Environment override, honoured on every platform. The `--profile` flag is
-  /// only delivered by embedders that forward argv to the Dart entrypoint
-  /// (Linux and Windows do; the stock macOS Runner does not), so the variable
-  /// is the one that always works from a shell.
+  /// Environment override, honoured on every platform — including the ones
+  /// where a flag cannot reach the Dart entrypoint at all (a launcher icon, an
+  /// Android or iOS install). Desktop forwards argv: Linux and Windows for
+  /// free, macOS because MainFlutterWindow hands it to the Dart project.
   static const envVar = 'XVEIL_PROFILE';
 
   /// Conservative on purpose: the name becomes a path segment, so anything

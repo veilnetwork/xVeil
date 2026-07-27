@@ -5338,7 +5338,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get profileSwitchNote =>
-      'The chosen profile is remembered and applies on the next launch. On Linux and Windows you can also pass --profile <name>; everywhere else set XVEIL_PROFILE.';
+      'The chosen profile is remembered and applies on the next launch. On desktop you can also pass --profile <name>; on a phone, set XVEIL_PROFILE before launch.';
 
   @override
   String get profileCreateTitle => 'New profile';

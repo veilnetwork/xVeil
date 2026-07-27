@@ -1698,7 +1698,7 @@
   "profileDefaultName": "Default (production)",
   "profileRunningNow": "Running now",
   "profileRestartRequired": "Restart xVeil to switch profile",
-  "profileSwitchNote": "The chosen profile is remembered and applies on the next launch. On Linux and Windows you can also pass --profile <name>; everywhere else set XVEIL_PROFILE.",
+  "profileSwitchNote": "The chosen profile is remembered and applies on the next launch. On desktop you can also pass --profile <name>; on a phone, set XVEIL_PROFILE before launch.",
   "profileCreateTitle": "New profile",
   "profileNameHint": "for example: testing",
   "profileNameRule": "Lower-case letters, digits, dot, dash, underscore. Up to 32 characters.",

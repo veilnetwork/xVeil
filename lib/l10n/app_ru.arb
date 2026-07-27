@@ -1697,7 +1697,7 @@
   "profileDefaultName": "Основной (рабочий)",
   "profileRunningNow": "Сейчас запущен",
   "profileRestartRequired": "Перезапустите xVeil, чтобы сменить профиль",
-  "profileSwitchNote": "Выбранный профиль запоминается и применяется при следующем запуске. На Linux и Windows можно также передать --profile <имя>; в остальных случаях задайте XVEIL_PROFILE.",
+  "profileSwitchNote": "Выбранный профиль запоминается и применяется при следующем запуске. На десктопе можно также передать --profile <имя>; на телефоне — задать XVEIL_PROFILE перед запуском.",
   "profileCreateTitle": "Новый профиль",
   "profileNameHint": "например: testing",
   "profileNameRule": "Строчные буквы, цифры, точка, дефис, подчёркивание. До 32 символов.",
