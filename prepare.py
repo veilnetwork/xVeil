@@ -76,6 +76,20 @@ LINUX_PACKAGES = {
     ],
 }
 
+# sdkmanager and gradle are both JVM programs: without a JDK the Android steps
+# fail with a Java error rather than anything about Android, which is a poor
+# first experience on a clean machine. 17 is what the Android Gradle Plugin
+# expects.
+JDK_PACKAGE = {
+    "apt-get": "openjdk-17-jdk",
+    "dnf": "java-17-openjdk-devel",
+    "pacman": "jdk17-openjdk",
+    "zypper": "java-17-openjdk-devel",
+    "brew": "openjdk@17",
+    "winget": "Microsoft.OpenJDK.17",
+    "choco": "openjdk17",
+}
+
 ANDROID_SDK_ROOT = os.environ.get(
     "ANDROID_SDK_ROOT",
     os.environ.get(
@@ -229,6 +243,26 @@ def plan(target: str, *, release: bool) -> list[Step]:
         steps.append(Step(f"rust target {triple}", argv=["rustup", "target", "add", triple]))
 
     if target == "android":
+        if not have("java"):
+            if manager and manager[0] in JDK_PACKAGE:
+                steps.append(
+                    Step(
+                        f"JDK 17 via {manager[0]}",
+                        argv=manager[1] + [JDK_PACKAGE[manager[0]]],
+                    )
+                )
+            else:
+                steps.append(
+                    Step(
+                        "JDK 17",
+                        call=lambda: print(
+                            "    sdkmanager and gradle need a JDK — install one "
+                            "(17) and re-run"
+                        ),
+                    )
+                )
+        else:
+            steps.append(Step("JDK", skip_if="java already on PATH"))
         steps.append(
             Step(
                 "cargo-ndk",
