@@ -7798,7 +7798,11 @@ class GroupService {
     while (true) {
       final pending = _bundleWrites[key];
       if (pending == null) break;
-      await pending;
+      // Only the writer answers for its own failure. A reader that waited must
+      // still go and read: inheriting the write's exception would turn every
+      // concurrent load into a throw from a method whose whole contract is to
+      // return null instead.
+      await pending.then<void>((_) {}, onError: (_) {});
     }
     final blob = await _storage.loadFile(key);
     if (blob != null) return utf8.decode(blob);
