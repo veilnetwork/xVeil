@@ -28,7 +28,7 @@ class FolderSyncPair {
   const FolderSyncPair({
     required this.id,
     required this.localPath,
-    required this.cloudFolderId,
+    this.cloudFolderId,
     this.deletePropagates = true,
   });
 
