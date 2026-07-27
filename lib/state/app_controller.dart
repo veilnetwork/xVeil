@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import '../data/storage/app_profile.dart';
+import '../main.dart' show activeProfile;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -98,7 +100,11 @@ class AppState {
   );
 }
 
-const _kOnboardedKey = 'onboarded';
+/// Whether this install has been through first-launch setup, scoped to the
+/// ACTIVE PROFILE — see [AppProfiles.scopedPrefKey] for why a global flag made
+/// a new profile unopenable.
+String _onboardedKey() =>
+    AppProfiles.scopedPrefKey('onboarded', activeProfile);
 const _kStorageModeKey = 'storage_mode';
 
 class AppController extends Notifier<AppState> {
@@ -151,7 +157,7 @@ class AppController extends Notifier<AppState> {
 
   Future<void> _bootstrap() async {
     final prefs = await ref.read(prefsProvider.future);
-    final onboarded = prefs.getBool(_kOnboardedKey) ?? false;
+    final onboarded = prefs.getBool(_onboardedKey()) ?? false;
     state = AppState(onboarded ? AppPhase.locked : AppPhase.onboarding);
   }
 
@@ -189,7 +195,7 @@ class AppController extends Notifier<AppState> {
     await storage.saveIdentity(identity);
 
     final prefs = await ref.read(prefsProvider.future);
-    await prefs.setBool(_kOnboardedKey, true);
+    await prefs.setBool(_onboardedKey(), true);
     await prefs.setString(_kStorageModeKey, mode.name);
 
     await _enterSession(identity);
@@ -1520,7 +1526,7 @@ class AppController extends Notifier<AppState> {
     await ref.read(storageProvider).close();
     _clearMasterSession();
     final prefs = await ref.read(prefsProvider.future);
-    await prefs.remove(_kOnboardedKey);
+    await prefs.remove(_onboardedKey());
     await prefs.remove(_kStorageModeKey);
     state = const AppState(AppPhase.onboarding);
   }
@@ -1554,7 +1560,7 @@ class AppController extends Notifier<AppState> {
     }
 
     final prefs = await ref.read(prefsProvider.future);
-    await prefs.remove(_kOnboardedKey);
+    await prefs.remove(_onboardedKey());
     await prefs.remove(_kStorageModeKey);
     state = const AppState(AppPhase.onboarding);
   }
