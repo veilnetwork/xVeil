@@ -551,9 +551,9 @@ class SpaceScreen extends ConsumerWidget {
       case _SpaceChannelAction.rotateKey:
         applied = await service.rotateChannelKey(spaceId, channel.channelId);
         if (applied && context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(l.spaceChannelRotateKeyDone)),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(l.spaceChannelRotateKeyDone)));
         }
       case _SpaceChannelAction.members:
         final saved = await _manageProtectedChannelMembers(

@@ -25,8 +25,9 @@ Future<void> showReactorsSheet(
   BuildContext context, {
   required Map<String, List<String>> namesByEmoji,
 }) {
-  final sections = namesByEmoji.entries.where((e) => e.value.isNotEmpty).toList()
-    ..sort((a, b) => b.value.length.compareTo(a.value.length));
+  final sections =
+      namesByEmoji.entries.where((e) => e.value.isNotEmpty).toList()
+        ..sort((a, b) => b.value.length.compareTo(a.value.length));
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -60,14 +61,13 @@ Future<void> showReactorsSheet(
                     dense: true,
                     leading: CircleAvatar(
                       child: Text(
-                        name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+                        name.isEmpty
+                            ? '?'
+                            : name.characters.first.toUpperCase(),
                       ),
                     ),
                     title: Text(name),
-                    trailing: Text(
-                      s.key,
-                      style: const TextStyle(fontSize: 18),
-                    ),
+                    trailing: Text(s.key, style: const TextStyle(fontSize: 18)),
                   ),
               ],
               const SizedBox(height: 8),

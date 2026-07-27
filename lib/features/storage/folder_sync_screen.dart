@@ -32,8 +32,7 @@ class FolderSyncScreen extends ConsumerWidget {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          final path =
-              await (pickDirectory ?? FilePicker.getDirectoryPath)();
+          final path = await (pickDirectory ?? FilePicker.getDirectoryPath)();
           if (path == null || path.isEmpty) return;
           await controller.addPair(
             localPath: path,

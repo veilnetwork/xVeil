@@ -56,9 +56,7 @@ class _RecoveryPhraseInputState extends State<RecoveryPhraseInput> {
           autocorrect: false,
           enableSuggestions: false,
           onChanged: (_) => setState(() {}),
-          decoration: InputDecoration(
-            hintText: l.recoveryPhraseHint,
-          ),
+          decoration: InputDecoration(hintText: l.recoveryPhraseHint),
         ),
         const SizedBox(height: 8),
         Row(
@@ -69,8 +67,10 @@ class _RecoveryPhraseInputState extends State<RecoveryPhraseInput> {
               color: _valid ? Colors.green : scheme.outline,
             ),
             const SizedBox(width: 6),
-            Text('$_words / ${widget.wordCount} words',
-                style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              '$_words / ${widget.wordCount} words',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ],
         ),
         const SizedBox(height: 16),

@@ -85,17 +85,15 @@ class _WaveformPainter extends CustomPainter {
     final radius = Radius.circular(barWidth / 2);
     for (var i = 0; i < maxBars; i++) {
       final srcIdx = (i * step).floor().clamp(0, bars.length - 1);
-      final h = (bars[srcIdx].clamp(0.0, 1.0) * (1 - minBarFraction) +
+      final h =
+          (bars[srcIdx].clamp(0.0, 1.0) * (1 - minBarFraction) +
               minBarFraction) *
           size.height;
       final x = i * slot;
       final top = (size.height - h) / 2;
       paint.color = i < playedCount ? played : unplayed;
       canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(x, top, barWidth, h),
-          radius,
-        ),
+        RRect.fromRectAndRadius(Rect.fromLTWH(x, top, barWidth, h), radius),
         paint,
       );
     }
