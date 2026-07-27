@@ -415,6 +415,10 @@ class _HalfWrittenBundleStorage extends HiddenVolumeStorage {
   final _incomplete = <String>{};
   Completer<void>? gate;
 
+  /// Make the parked write fail when the gate opens — so the failure happens
+  /// while a reader is already waiting on it.
+  bool failOnRelease = false;
+
   @override
   Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
     final held = gate;
@@ -424,6 +428,10 @@ class _HalfWrittenBundleStorage extends HiddenVolumeStorage {
     _incomplete.add(fileId);
     try {
       await held.future;
+      if (failOnRelease) {
+        failOnRelease = false;
+        throw StateError('injected failure while a reader waits');
+      }
       await super.storeFile(fileId, bytes, name: name);
     } finally {
       _incomplete.remove(fileId);
@@ -655,6 +663,33 @@ void main() {
       bundle!.messages.map((message) => message.body),
       contains('while the blob is replaced'),
       reason: 'and the read must land after the write, not before it',
+    );
+  });
+
+  test('a failed bundle write does not make concurrent reads throw', () async {
+    // The reader waits for the writer; it must not inherit the writer's
+    // failure. load() answers null for "cannot read it", never by throwing.
+    final storage = _HalfWrittenBundleStorage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _FakeSigner(owner));
+    addTearDown(service.dispose);
+    final gid = await service.createGroup('Failing write');
+
+    storage.gate = Completer<void>();
+    storage.failOnRelease = true;
+    final saving = service.postMessage(gid, 'doomed', broadcast: false);
+    await Future<void>.delayed(Duration.zero);
+    final loading = service.load(gid);
+    await Future<void>.delayed(Duration.zero);
+    storage.gate!.complete();
+    storage.gate = null;
+    await saving.then<void>((_) {}, onError: (_) {});
+
+    final bundle = await loading;
+    expect(
+      bundle,
+      isNotNull,
+      reason: 'the write failed, so the previous bundle is still there',
     );
   });
 
