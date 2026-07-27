@@ -5456,4 +5456,24 @@ class AppL10nRu extends AppL10n {
   @override
   String get folderSyncDeleteWarning =>
       'Удаление файла здесь удалит его и в Хранилище.';
+
+  @override
+  String get settingsCopyErrors => 'Скопировать отчёт об ошибках';
+
+  @override
+  String get settingsCopyErrorsHint =>
+      'Сводка последних сбоев в JSON. Не содержит переписки, контактов и личности.';
+
+  @override
+  String settingsCopyErrorsDone(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count сбоев',
+      few: '$count сбоя',
+      one: '$count сбой',
+      zero: 'сбоев не записано',
+    );
+    return 'Отчёт скопирован ($_temp0)';
+  }
 }

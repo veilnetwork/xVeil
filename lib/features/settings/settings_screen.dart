@@ -9,6 +9,7 @@ import '../../data/storage/app_profile.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
+import 'error_report.dart';
 
 /// Settings root: the identity card + one tile per category (each a pushed
 /// subpage), then About and the lock action. The categories own the actual
@@ -28,6 +29,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   static const _tapsToReveal = 3;
+
   /// Taps must be deliberate: a stray tap now and another next week should not
   /// add up to a reveal.
   static const _tapWindow = Duration(seconds: 2);
@@ -167,6 +169,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
           ),
+          const CopyErrorReportTile(phase: 'settings'),
           // "Lock now" moved to the navigation drawer's bottom menu (user
           // request): locking is a session action, not a setting.
         ],

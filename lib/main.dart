@@ -29,6 +29,7 @@ import 'data/veil_stack.dart';
 import 'debug/soak_hook.dart';
 import 'state/providers.dart';
 import 'state/storage_preferences.dart';
+import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/core/log.dart';
 
 Duration? _disableAutomaticProviderRetry(int retryCount, Object error) => null;
@@ -78,6 +79,12 @@ Future<void> main([List<String> args = const []]) async {
       final priorFlutterOnError = FlutterError.onError;
       FlutterError.onError = (details) {
         devLog(() => 'xVeil[uncaught:flutter]: ${details.exceptionAsString()}');
+        errorJournal.record(
+          kind: 'flutter',
+          error: details.exception,
+          stack: details.stack,
+          atMs: DateTime.now().millisecondsSinceEpoch,
+        );
         // Keep the framework default (red ErrorWidget in debug, console in
         // release) so a genuine widget bug is still diagnosable in dev.
         priorFlutterOnError?.call(details);
@@ -87,6 +94,12 @@ Future<void> main([List<String> args = const []]) async {
       // audit flagged). Returning true marks them handled so they don't escalate.
       PlatformDispatcher.instance.onError = (error, stack) {
         devLog(() => 'xVeil[uncaught:platform]: $error\n$stack');
+        errorJournal.record(
+          kind: 'platform',
+          error: error,
+          stack: stack,
+          atMs: DateTime.now().millisecondsSinceEpoch,
+        );
         return true;
       };
 
@@ -114,6 +127,12 @@ Future<void> main([List<String> args = const []]) async {
     },
     (error, stack) {
       devLog(() => 'xVeil[uncaught:zone]: $error\n$stack');
+      errorJournal.record(
+        kind: 'zone',
+        error: error,
+        stack: stack,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
     },
   );
 }
