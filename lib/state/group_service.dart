@@ -7785,6 +7785,10 @@ class GroupService {
   /// the group as missing — see [_loadBundleRaw].
   final Map<String, Future<void>> _bundleWrites = {};
 
+  /// How long a read waits out a bundle write before reading regardless.
+  /// Mutable for tests.
+  Duration bundleWriteWait = const Duration(seconds: 5);
+
   Future<String?> _loadBundleRaw(NodeId groupId) async {
     final key = _key(groupId);
     // Wait out any replacement of this bundle first. storeFile is not atomic
@@ -7802,7 +7806,16 @@ class GroupService {
       // still go and read: inheriting the write's exception would turn every
       // concurrent load into a throw from a method whose whole contract is to
       // return null instead.
-      await pending.then<void>((_) {}, onError: (_) {});
+      //
+      // Bounded, because this is a read: a bundle with inline media can take a
+      // while to write, and a reader that parked behind it indefinitely would
+      // trade a wrong answer for a hung screen. On timeout we read anyway and
+      // land back on the old behaviour for that one call.
+      var timedOut = false;
+      await pending
+          .timeout(bundleWriteWait, onTimeout: () => timedOut = true)
+          .then<void>((_) {}, onError: (_) {});
+      if (timedOut) break;
     }
     final blob = await _storage.loadFile(key);
     if (blob != null) return utf8.decode(blob);
