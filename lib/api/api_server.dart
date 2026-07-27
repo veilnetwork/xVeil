@@ -367,13 +367,6 @@ Map<String, dynamic> openApiSpec() {
           },
         },
         'MediaObject': mediaObjectSchema,
-        'MediaObjectRef': {
-          'deprecated': true,
-          'description': 'Compatibility schema name; use MediaObject.',
-          'allOf': [
-            {r'$ref': '#/components/schemas/MediaObject'},
-          ],
-        },
         'SpacePost': {
           'type': obj,
           'properties': {
@@ -1992,11 +1985,6 @@ Map<String, dynamic> openApiSpec() {
                       'enum': ['all', 'replies', 'none'],
                     },
                     'hiddenFromRecommendations': {'type': 'boolean'},
-                    'enabled': {
-                      'type': 'boolean',
-                      'deprecated': true,
-                      'description': 'Legacy alias for feedEnabled',
-                    },
                   },
                 },
               },
@@ -3352,7 +3340,6 @@ class ApiHandler {
     this.unsubscribePublicSpace,
     this.spaceSubscription,
     this.updateSpaceSubscription,
-    this.setSpaceFeedEnabled,
     this.setSpaceFeedPostHidden,
     this.spaceInvites,
     this.decideSpaceInvite,
@@ -3642,8 +3629,6 @@ class ApiHandler {
     bool? hiddenFromRecommendations,
   })?
   updateSpaceSubscription;
-  final Future<String?> Function(String spaceHex, bool enabled)?
-  setSpaceFeedEnabled;
   final Future<String?> Function(String spaceHex, String postId, bool hidden)?
   setSpaceFeedPostHidden;
   final Future<List<Map<String, dynamic>>> Function()? spaceInvites;
@@ -5205,14 +5190,12 @@ class ApiHandler {
     }
     if (method == 'POST' && path == '/v1/spaces/subscription') {
       final updateHandler = updateSpaceSubscription;
-      final legacyHandler = setSpaceFeedEnabled;
       final space = body?['space'];
-      if (updateHandler == null && legacyHandler == null) {
+      if (updateHandler == null) {
         return const ApiResponse(501, {'error': 'subscriptions unavailable'});
       }
       const allowed = {
         'space',
-        'enabled',
         'feedEnabled',
         'notificationsEnabled',
         'commentNotifications',
@@ -5221,14 +5204,12 @@ class ApiHandler {
       if (body == null || body.keys.any((key) => !allowed.contains(key))) {
         return const ApiResponse(400, {'error': 'unknown subscription field'});
       }
-      final legacyFeed = body['enabled'];
       final explicitFeed = body['feedEnabled'];
       final notifications = body['notificationsEnabled'];
       final commentNotifications = body['commentNotifications'];
       final hidden = body['hiddenFromRecommendations'];
       if (space is! String ||
           space.isEmpty ||
-          (body.containsKey('enabled') && legacyFeed is! bool) ||
           (body.containsKey('feedEnabled') && explicitFeed is! bool) ||
           (body.containsKey('notificationsEnabled') &&
               notifications is! bool) ||
@@ -5239,19 +5220,12 @@ class ApiHandler {
                     'replies',
                     'none',
                   }.contains(commentNotifications))) ||
-          (body.containsKey('hiddenFromRecommendations') && hidden is! bool) ||
-          (legacyFeed is bool &&
-              explicitFeed is bool &&
-              legacyFeed != explicitFeed)) {
+          (body.containsKey('hiddenFromRecommendations') && hidden is! bool)) {
         return const ApiResponse(400, {
           'error': 'valid subscription fields required',
         });
       }
-      final feed = explicitFeed is bool
-          ? explicitFeed
-          : legacyFeed is bool
-          ? legacyFeed
-          : null;
+      final feed = explicitFeed is bool ? explicitFeed : null;
       if (feed == null &&
           notifications == null &&
           commentNotifications == null &&
@@ -5260,19 +5234,13 @@ class ApiHandler {
           'error': 'at least one subscription preference required',
         });
       }
-      final error = updateHandler != null
-          ? await updateHandler(
-              space,
-              feedEnabled: feed,
-              notificationsEnabled: notifications as bool?,
-              commentNotifications: commentNotifications as String?,
-              hiddenFromRecommendations: hidden as bool?,
-            )
-          : notifications != null ||
-                commentNotifications != null ||
-                hidden != null
-          ? 'subscription preference unavailable'
-          : await legacyHandler!(space, feed!);
+      final error = await updateHandler(
+        space,
+        feedEnabled: feed,
+        notificationsEnabled: notifications as bool?,
+        commentNotifications: commentNotifications as String?,
+        hiddenFromRecommendations: hidden as bool?,
+      );
       return error == null
           ? const ApiResponse(200, {'ok': true})
           : ApiResponse(400, {'error': error});

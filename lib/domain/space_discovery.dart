@@ -247,7 +247,6 @@ class SpacePublicDescriptor {
        ),
        signature = signature ?? Uint8List(0);
 
-  static const int legacyVersion = 2;
   static const int version = 3;
   static const String kind = 'xveil.space.public';
 
@@ -281,7 +280,7 @@ class SpacePublicDescriptor {
       .toString();
 
   bool isStructurallyValidAt(int nowMs) {
-    if ((wireVersion != legacyVersion && wireVersion != version) ||
+    if (wireVersion != version ||
         !genesisManifest.isSpace ||
         genesisManifest.groupId != spaceId ||
         genesisManifest.visibility != SpaceVisibility.public ||
@@ -291,13 +290,6 @@ class SpacePublicDescriptor {
         publisherPublicKey.length != 32 ||
         authorityChain.length > kSpacePublicAuthorityMaxLinks ||
         authorityChain.any((link) => !link.isStructurallyValid) ||
-        (wireVersion == legacyVersion &&
-            (publisher != genesisManifest.owner ||
-                !_sameBytes(
-                  publisherPublicKey,
-                  genesisManifest.genesisPubKey,
-                ) ||
-                authorityChain.isNotEmpty)) ||
         !_validContentId(genesisManifest.avatarContentId) ||
         !_validContentId(genesisManifest.coverContentId) ||
         signature.length != 64 ||
@@ -378,12 +370,10 @@ class SpacePublicDescriptor {
         'kind': kind,
         'space': spaceId.hex,
         'publisher': publisher.hex,
-        if (wireVersion >= version)
-          'publisherKey': base64Encode(publisherPublicKey),
-        if (wireVersion >= version)
-          'authority': base64Encode(
-            _encodeSpacePublicAuthorityChain(authorityChain),
-          ),
+        'publisherKey': base64Encode(publisherPublicKey),
+        'authority': base64Encode(
+          _encodeSpacePublicAuthorityChain(authorityChain),
+        ),
         'genesis': genesisManifest.toJson(),
         'controlHeadHash': controlHeadHash,
         'revision': revision,
@@ -468,7 +458,7 @@ class SpacePublicDescriptor {
           'joinCode',
           'signature',
         }) ||
-        (value['v'] != legacyVersion && value['v'] != version) ||
+        value['v'] != version ||
         value['kind'] != kind ||
         value['space'] is! String ||
         value['publisher'] is! String ||
@@ -492,9 +482,7 @@ class SpacePublicDescriptor {
       return null;
     }
     final wireVersion = value['v'] as int;
-    if (wireVersion == legacyVersion
-        ? value.containsKey('publisherKey') || value.containsKey('authority')
-        : value['publisherKey'] is! String || value['authority'] is! String) {
+    if (value['publisherKey'] is! String || value['authority'] is! String) {
       return null;
     }
     try {
@@ -519,12 +507,10 @@ class SpacePublicDescriptor {
       }
       final genesis = SpaceManifest.fromJson(genesisJson);
       if (genesis == null) return null;
-      final authority = wireVersion == legacyVersion
-          ? const <SpacePublicAuthorityLink>[]
-          : _decodeSpacePublicAuthorityChain(
-              Uint8List.fromList(base64Decode(value['authority'] as String)),
-              genesis.owner,
-            );
+      final authority = _decodeSpacePublicAuthorityChain(
+        Uint8List.fromList(base64Decode(value['authority'] as String)),
+        genesis.owner,
+      );
       if (authority == null) return null;
       final signature = Uint8List.fromList(
         base64Decode(value['signature'] as String),
@@ -533,9 +519,9 @@ class SpacePublicDescriptor {
         wireVersion: wireVersion,
         spaceId: NodeId.fromHex(value['space'] as String),
         publisher: NodeId.fromHex(value['publisher'] as String),
-        publisherPublicKey: wireVersion == legacyVersion
-            ? genesis.genesisPubKey
-            : Uint8List.fromList(base64Decode(value['publisherKey'] as String)),
+        publisherPublicKey: Uint8List.fromList(
+          base64Decode(value['publisherKey'] as String),
+        ),
         authorityChain: authority,
         genesisManifest: genesis,
         controlHeadHash: value['controlHeadHash'] as String,

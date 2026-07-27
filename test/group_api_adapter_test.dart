@@ -287,7 +287,7 @@ void main() {
     );
     try {
       final space = (await api.createSpace('News', '', 'public'))!;
-      final originalMedia = MediaObjectRef(
+      final originalMedia = MediaObject(
         contentId: 'a' * 64,
         kind: 'image',
         name: 'before.png',
@@ -311,7 +311,7 @@ void main() {
         'second body',
         'post',
         [
-          MediaObjectRef(
+          MediaObject(
             contentId: 'b' * 64,
             kind: 'video',
             name: 'after.mp4',
@@ -642,7 +642,7 @@ void main() {
           'Public API',
           visibility: SpaceVisibility.public,
         );
-        final media = MediaObjectRef(
+        final media = MediaObject(
           contentId: 'c' * 64,
           kind: 'audio',
           name: 'episode.opus',

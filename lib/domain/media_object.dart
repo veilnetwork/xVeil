@@ -82,7 +82,7 @@ class MediaObject {
 
   /// Compatibility JSON dispatcher. New signing code always calls the
   /// explicit codec; this method keeps old `GroupAttachment.toJson()` callers
-  /// on the legacy shape and old `MediaObjectRef.toJson()` callers on the
+  /// on the legacy shape and old `MediaObject.toJson()` callers on the
   /// reference shape.
   Map<String, dynamic> toJson() => inlinePreviewB64 == null
       ? toReferenceJson()
@@ -154,4 +154,4 @@ class MediaObject {
 /// Source-compatible names while downstream code migrates to [MediaObject].
 /// They are aliases, not additional runtime/domain entities.
 typedef GroupAttachment = MediaObject;
-typedef MediaObjectRef = MediaObject;
+

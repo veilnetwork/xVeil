@@ -669,11 +669,6 @@ void main() {
             ));
             return null;
           },
-      setSpaceFeedEnabled: (space, enabled) async {
-        if (space == 'missing') return 'space not found';
-        subscriptions.add((space, enabled));
-        return null;
-      },
       setSpaceFeedPostHidden: (space, postId, hidden) async {
         if (space == 'missing') return 'space not found';
         feedPostPreferences.add((space, postId, hidden));
@@ -4161,7 +4156,6 @@ void main() {
           'nullable': true,
         });
       }
-      expect((schemas['MediaObjectRef'] as Map)['deprecated'], isTrue);
       // The security scheme is declared so generated clients wire the token.
       expect(
         ((spec['components'] as Map)['securitySchemes'] as Map)['bearerAuth'],
