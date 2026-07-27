@@ -272,6 +272,72 @@ void main() {
     });
   });
 
+  test('an EXPIRED bearer link is refused before any network work', () async {
+    // Found by break-checking: removing the expiry check failed NOTHING in the
+    // suite. A bearer link is the whole authorisation — it names no recipient
+    // — so the moment it outlives its window it must stop working, and the
+    // refusal has to come before the download does anything observable.
+    final backend = _SyncBackend();
+    final owner = FakeHvContainer();
+    final storage = owner.storage();
+    await storage.open(password: 'a', createIfMissing: true);
+    final bytes = Uint8List.fromList(List.generate(64, (i) => i));
+    final manifest = ContentManifest.fromBytes('expiring.bin', bytes);
+    await storage.storeFile(manifest.contentId, bytes);
+    await storage.storeFile(
+      'mf:${manifest.contentId}',
+      Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+    );
+    final service = CloudCapabilityService(
+      storage,
+      _Network(),
+      sync: _SyncPort(backend, 1),
+      now: () => DateTime(2030),
+      random: _Random(),
+    );
+    final share = await service.createShare(
+      CloudItem(
+        id: 'expiring-item',
+        kind: CloudItemKind.file,
+        name: manifest.name,
+        contentId: manifest.contentId,
+        size: bytes.length,
+        createdAtMs: 1,
+        modifiedAtMs: 1,
+        revision: 1,
+        deleted: false,
+      ),
+    );
+
+    // A recipient whose clock is past the window. Its store is empty, so a
+    // refusal cannot be confused with "already had the bytes".
+    final recipientContainer = FakeHvContainer();
+    final recipientStorage = recipientContainer.storage();
+    await recipientStorage.open(password: 'b', createIfMissing: true);
+    final recipientNetwork = _Network();
+    final recipient = CloudCapabilityService(
+      recipientStorage,
+      recipientNetwork,
+      sync: _SyncPort(_SyncBackend(), 2),
+      now: () => DateTime(2040),
+    );
+
+    await expectLater(
+      recipient.download(share.link),
+      throwsA(isA<StateError>()),
+    );
+    expect(
+      await recipientStorage.hasFile(manifest.contentId),
+      isFalse,
+      reason: 'nothing may be committed for a link that no longer authorises',
+    );
+    expect(
+      recipientNetwork.endpoints,
+      isEmpty,
+      reason: 'and it must be refused before any endpoint is published',
+    );
+  });
+
   test(
     'owner devices converge active alias and revoke through device log',
     () async {
