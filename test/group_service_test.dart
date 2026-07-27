@@ -7331,6 +7331,77 @@ void main() {
     },
   );
 
+  /// An invite names its invitee, and a node must refuse one addressed to
+  /// somebody else even when it arrives from an accepted contact over an
+  /// authenticated transport. Nothing covered that: deleting the check let a
+  /// third party's invite land in this node's pending queue, where accepting
+  /// it would start a membership proposal it was never offered.
+  test('an invite addressed to someone else is refused', () async {
+    final ownerStorage = FakeHvContainer().storage();
+    final bobStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'owner', createIfMissing: true);
+    await bobStorage.open(password: 'bob', createIfMissing: true);
+    await ownerStorage.upsertContact(
+      Contact(nodeId: carol, status: ContactStatus.accepted),
+    );
+    await bobStorage.upsertContact(
+      Contact(nodeId: owner, status: ContactStatus.accepted),
+    );
+    String? forCarol;
+    final ownerSvc = GroupService(
+      ownerStorage,
+      _FakeSigner(owner),
+      sendSpaceInvite: (peer, inviteId, json) async {
+        expect(peer, carol);
+        forCarol = json;
+      },
+    );
+    final bobSvc = GroupService(bobStorage, _FakeSigner(bob));
+    addTearDown(ownerSvc.dispose);
+    addTearDown(bobSvc.dispose);
+
+    final spaceId = await ownerSvc.createSpace('Invite-only');
+    expect(await ownerSvc.inviteToSpace(spaceId, carol), isTrue);
+    expect(forCarol, isNotNull);
+
+    // Bob is an accepted contact of the inviter and the transport source is
+    // genuinely the inviter — everything matches except who it is FOR.
+    expect(
+      await bobSvc.receiveSpaceInvite(owner, forCarol!),
+      isFalse,
+      reason: 'the invitee named in the invite is the only valid recipient',
+    );
+    expect(await bobSvc.pendingSpaceInvites(), isEmpty);
+
+    // And the mirror case: an invite that IS for bob, but relayed by someone
+    // other than its inviter. The transport source has to be the inviter, or
+    // any accepted contact could hand over invites minted by third parties.
+    String? forBob;
+    final ownerSvc2 = GroupService(
+      ownerStorage,
+      _FakeSigner(owner),
+      sendSpaceInvite: (peer, inviteId, json) async {
+        forBob = json;
+      },
+    );
+    addTearDown(ownerSvc2.dispose);
+    await ownerStorage.upsertContact(
+      Contact(nodeId: bob, status: ContactStatus.accepted),
+    );
+    await bobStorage.upsertContact(
+      Contact(nodeId: carol, status: ContactStatus.accepted),
+    );
+    final second = await ownerSvc2.createSpace('Relayed');
+    expect(await ownerSvc2.inviteToSpace(second, bob), isTrue);
+    expect(forBob, isNotNull);
+    expect(
+      await bobSvc.receiveSpaceInvite(carol, forBob!),
+      isFalse,
+      reason: 'the authenticated source must be the inviter itself',
+    );
+    expect(await bobSvc.pendingSpaceInvites(), isEmpty);
+  });
+
   /// Carrying a recommendation card is gated on distributeContent, not on
   /// merely being able to see the Space — otherwise any member could spray
   /// cards at their contacts, which is the spam vector the permission exists
