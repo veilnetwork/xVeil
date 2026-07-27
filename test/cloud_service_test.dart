@@ -892,6 +892,60 @@ void main() {
     });
   });
 
+  test('an UNRECOGNISED cloud index row stops collection — fail-closed',
+      () async {
+    // Found by break-checking: turning the unknown-kind refusal into a skip
+    // failed nothing in the suite. The refusal is the reason this reader is
+    // safe at all — a row it cannot parse may carry a content id, and
+    // collecting without it deletes live content. The complementary case
+    // (folders, which carry none) has its own test below, and the two must
+    // not be confused: one is skipped ON PURPOSE, the other stops the pass.
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = CloudService(
+      storage,
+      _FakeSync(_id(1)),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(100),
+      newId: () => 'gc-unknown',
+      integrityChecks: false,
+    );
+    final bytes = _bytes(64);
+    await service.importContent(
+      name: 'kept.bin',
+      size: bytes.length,
+      readRange: _reader(bytes),
+    );
+    expect(
+      (await storage.sharedContentReferenceSnapshot()).complete,
+      isTrue,
+      reason: 'the fixture must be collectable BEFORE the unknown row',
+    );
+
+    // A row from a future build: valid envelope, kind this reader never saw.
+    // The index is double-buffered: the setting names the live slot ('a'/'b'),
+    // the rows live in cloud.index.v1.<slot>.
+    final slot = await storage.getSetting('cloud.index.v1.active');
+    expect(slot, anyOf('a', 'b'), reason: 'the materialised index must exist');
+    final active = 'cloud.index.v1.$slot';
+    final raw = await storage.loadFile(active);
+    final rows = (jsonDecode(utf8.decode(raw!)) as List).toList()
+      ..add(jsonEncode({'v': 1, 'k': 'cloudSomethingNew', 'key': 'x', 'p': {}}));
+    await storage.storeFile(
+      active,
+      Uint8List.fromList(utf8.encode(jsonEncode(rows))),
+    );
+
+    expect(
+      (await storage.sharedContentReferenceSnapshot()).complete,
+      isFalse,
+      reason: 'a row we cannot read may reference content we would delete',
+    );
+
+    await service.close();
+    await storage.close();
+  });
+
   test('a folder in the cloud index does not disable content GC', () async {
     // The GC's index reader is fail-closed: a row it does not understand may
     // hide a content id, so it refuses to collect. Folders describe structure
