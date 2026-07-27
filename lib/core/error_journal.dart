@@ -80,8 +80,16 @@ class ErrorJournal {
     return frames;
   }
 
+  /// The scheme must START a URI, not merely appear inside one.
+  ///
+  /// Without the lookbehind this matches the TAIL of any absolute path ending
+  /// in `.dart:LINE:COL` — `/Users/someone/lib/main.dart:44:5` yields the
+  /// frame `dart:44:5`, which reads like SDK code and is not. The path is gone
+  /// either way, so a test asserting "no home directory" is satisfied by the
+  /// wrong thing; the point here is that an unusable frame must be DROPPED,
+  /// not shortened into a plausible-looking lie.
   static final _frameLocation = RegExp(
-    r'(?:package:|dart:)[\w./]+(?::\d+)?(?::\d+)?',
+    r'(?<![\w./])(?:package:|dart:)[\w./]+(?::\d+)?(?::\d+)?',
   );
 
   /// Strip anything that could name a person or their data.
