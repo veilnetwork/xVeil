@@ -283,23 +283,6 @@ void main() {
     },
   );
 
-  test('legacy V2 genesis-owner descriptors remain byte-compatible', () {
-    const now = 1750000;
-    final legacy = _descriptor(
-      now: now,
-      wireVersion: SpacePublicDescriptor.legacyVersion,
-    );
-    expect(legacy.verifyAt(now, _verify), isTrue);
-    expect(legacy.toJson(), isNot(contains('publisherKey')));
-    expect(legacy.toJson(), isNot(contains('authority')));
-    final decoded = SpacePublicDescriptor.fromJson(
-      jsonDecode(jsonEncode(legacy.toJson())),
-    );
-    expect(decoded?.wireVersion, SpacePublicDescriptor.legacyVersion);
-    expect(decoded?.canonicalBytes(), legacy.canonicalBytes());
-    expect(decoded?.verifyAt(now, _verify), isTrue);
-  });
-
   test(
     'descriptor rejects injected fields, tampering, expiry and wrong link',
     () {

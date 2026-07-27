@@ -8,7 +8,7 @@ import 'group_payload.dart';
 import 'media_object.dart';
 import 'message_mention.dart';
 
-export 'media_object.dart' show MediaObject, MediaObjectRef;
+export 'media_object.dart' show MediaObject;
 
 const int kSpacePostTitleMax = 300;
 const int kSpacePostBodyMax = 256 * 1024;

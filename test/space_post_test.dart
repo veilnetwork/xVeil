@@ -30,7 +30,7 @@ void main() {
         updatedAtMs: 42,
         scheduledAtMs: 4200,
         media: [
-          MediaObjectRef(
+          MediaObject(
             contentId: 'a' * 64,
             kind: 'audio',
             name: 'memo.opus',
@@ -83,7 +83,7 @@ void main() {
       body: 'Still unsigned and private.',
       type: SpacePostType.article,
       media: [
-        MediaObjectRef(
+        MediaObject(
           contentId: 'b' * 64,
           kind: 'image',
           name: 'cover.webp',
@@ -126,7 +126,7 @@ void main() {
       title: 'Release notes',
       body: 'The body is separate from channel messages.',
       media: [
-        MediaObjectRef(
+        MediaObject(
           contentId: 'a' * 64,
           kind: 'image',
           name: 'cover.webp',
