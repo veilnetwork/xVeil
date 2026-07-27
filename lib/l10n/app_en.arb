@@ -1719,5 +1719,9 @@
   "folderSyncCloudRoot": "Storage root",
   "folderSyncBusy": "Syncing…",
   "folderSyncDeleteWarning": "Deleting a file here deletes it in Storage too.",
-  "@folderSyncRefused": { "placeholders": { "reason": { "type": "String" } } }
+  "@folderSyncRefused": { "placeholders": { "reason": { "type": "String" } } },
+  "settingsCopyErrors": "Copy error report",
+  "settingsCopyErrorsHint": "A JSON summary of recent failures. Contains no messages, contacts or identity.",
+  "settingsCopyErrorsDone": "Error report copied ({count, plural, =0{no failures recorded} =1{1 failure} other{{count} failures}})",
+  "@settingsCopyErrorsDone": { "placeholders": { "count": { "type": "int" } } }
 }
