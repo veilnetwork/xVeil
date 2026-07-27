@@ -5476,4 +5476,11 @@ class AppL10nRu extends AppL10n {
     );
     return 'Отчёт скопирован ($_temp0)';
   }
+
+  @override
+  String get errorLoadFailed => 'Не удалось загрузить';
+
+  @override
+  String get errorLoadFailedHint =>
+      'Подробности — в Настройках, «Скопировать отчёт об ошибках».';
 }

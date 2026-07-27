@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 
+import '../common/async_error_view.dart';
 import '../../core/ids.dart';
 import '../../data/transport/wire_envelope.dart' show isChatDeletedMarker;
 import '../../domain/chat.dart';
@@ -264,7 +265,8 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
             )
           : convos.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('$e')),
+              error: (e, st) =>
+                  AsyncErrorView(error: e, stack: st, where: 'chats'),
               data: (list) {
                 // Group chats share the Chats timeline with 1:1 chats. Custom
                 // folders are peer-based for now, so they only affect 1:1 rows.

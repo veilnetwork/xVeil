@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
+import '../common/async_error_view.dart';
 import '../../domain/chat.dart';
 import '../../domain/group.dart';
 import '../../domain/space_invite.dart';
@@ -270,7 +271,8 @@ class _SpaceListScreenState extends ConsumerState<SpaceListScreen> {
             ),
       body: spaces.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(child: Text('$error')),
+        error: (error, st) =>
+            AsyncErrorView(error: error, stack: st, where: 'spaces'),
         data: (allItems) {
           final searching = _query.trim().isNotEmpty;
           final allPublicItems =
