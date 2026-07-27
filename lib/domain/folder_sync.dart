@@ -176,6 +176,33 @@ const double kMassDeletionBrake = 0.5;
 /// the SIZE of the loss is itself the signal.
 const int kMassDeletionFloor = 4;
 
+/// Whether two mirrored folders would cover any of the same files.
+///
+/// Nesting is refused rather than supported: a file inside both pairs is
+/// uploaded twice, under two different cloud paths, with two independent
+/// bases — no data is lost, but the same file quietly becomes two objects and
+/// deleting it locally deletes both, which is impossible to explain.
+///
+/// The comparison is on path SEGMENTS, not on the string. `/home/docs` and
+/// `/home/docs2` share a textual prefix and share nothing at all; treating
+/// them as nested is the classic version of this bug.
+bool folderPairsOverlap(String a, String b) {
+  List<String> segments(String path) => path
+      .replaceAll(r'\', '/')
+      .split('/')
+      .where((segment) => segment.isNotEmpty)
+      .toList();
+  final left = segments(a);
+  final right = segments(b);
+  if (left.isEmpty || right.isEmpty) return true; // the filesystem root
+  final shorter = left.length <= right.length ? left : right;
+  final longer = identical(shorter, left) ? right : left;
+  for (var i = 0; i < shorter.length; i++) {
+    if (shorter[i] != longer[i]) return false;
+  }
+  return true;
+}
+
 /// Reconcile the three pictures into a plan.
 ///
 /// [deletePropagates] is the user's call: with it off, a file removed on one
