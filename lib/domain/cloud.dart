@@ -632,6 +632,36 @@ Set<String> unresolvedCloudNoteRevisions(Iterable<DeviceSyncEvent> events) => {
     for (final head in entry.value) '${entry.key}|${head.contentId}',
 };
 
+/// Per item, the content ids a replica claim can still be answered for: the
+/// surviving revision plus every unresolved head.
+///
+/// A claim's convergence key carries the cid ([CloudReplicaClaim.key]) so one
+/// device can truthfully advertise several heads at once. The cost is that a
+/// new revision means a NEW key, and a last-writer-wins compactor keeps one
+/// winner per key — so every claim a device ever made stays in the log
+/// forever. Measured on the stand: 2748 rows for a cloud of nine objects.
+///
+/// An item with no revision row here is ABSENT from the result rather than
+/// mapped to an empty set. A claim can legitimately arrive before the row that
+/// explains it, so a caller must read "not in the map" as "cannot tell — keep
+/// it", never as "garbage". A deleted item maps to an empty set: its content
+/// is gone and nothing can ask for those bytes again.
+Map<String, Set<String>> answerableCloudContentIds(
+  Iterable<DeviceSyncEvent> events,
+) {
+  final source = events.toList();
+  final heads = foldCloudNoteHeads(source);
+  return {
+    for (final entry in foldCloudItems(source).entries)
+      entry.key: {
+        if (!entry.value.deleted && entry.value.contentId != null)
+          entry.value.contentId!,
+        for (final head in heads[entry.key] ?? const <CloudItem>[])
+          if (head.contentId != null) head.contentId!,
+      },
+  };
+}
+
 Map<String, CloudReplicaClaim> foldCloudReplicaClaims(
   Iterable<({DeviceSyncEvent event, NodeId author})> records,
 ) {

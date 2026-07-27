@@ -64,11 +64,17 @@ class _LogCompaction {
       for (final m in input)
         if (_owner._validMessageFor(groupId, m)) m,
     ];
-    final noteBranches = unresolvedCloudNoteRevisions([
+    final entries = [
       for (final m in valid)
         if (DeviceSyncEvent.fromBody(m.body) case final e?)
           if (e.kind == DeviceSyncKind.cloudEntry) e,
-    ]);
+    ];
+    final noteBranches = unresolvedCloudNoteRevisions(entries);
+    // Claims key on the cid, so a new revision of an object mints a NEW key
+    // and the old claim wins its own key forever — this is what actually grew
+    // the device log to thousands of rows. A claim whose cid no longer belongs
+    // to any answerable revision is unreachable: nothing can ask for it.
+    final answerable = answerableCloudContentIds(entries);
     for (final m in valid) {
       final head = heads[m.author.hex];
       if (head == null || m.seq > head.seq) heads[m.author.hex] = m;
@@ -83,6 +89,14 @@ class _LogCompaction {
             '${event.key}|${CloudItem.fromEvent(event)?.contentId}',
           )) {
         branches.add(m.ref);
+      }
+      if (event.kind == DeviceSyncKind.cloudReplica &&
+          _unreachableClaim(event, answerable)) {
+        // Deliberately not entered into `latest`: it must not survive as the
+        // winner of its own key. The author high-water above still holds it if
+        // it happens to be that author's newest row, so seq allocation and
+        // gap-fill are unaffected.
+        continue;
       }
       final key = (event.kind, event.key);
       final current = latest[key];
@@ -103,6 +117,21 @@ class _LogCompaction {
       for (final m in valid)
         if (keep.contains(m.ref)) m,
     ];
+  }
+
+  /// Whether a replica-claim row names content no revision can ask for.
+  ///
+  /// Fail-closed at every step: a legacy two-part key carries no cid to judge,
+  /// and an item with no revision row in this log is unjudgeable — a claim can
+  /// arrive before the row that explains it. Both are kept.
+  bool _unreachableClaim(
+    DeviceSyncEvent event,
+    Map<String, Set<String>> answerable,
+  ) {
+    final parts = event.key.split('|');
+    if (parts.length != 3) return false;
+    final live = answerable[parts[0]];
+    return live != null && !live.contains(parts[2]);
   }
 
   int messageIdentityCompare(GroupMessage a, GroupMessage b) {
