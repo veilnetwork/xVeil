@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../common/shown_cause.dart';
 import '../common/async_error_view.dart';
 import '../../data/node/managed_node.dart';
 import '../../data/node/node_probe.dart';
@@ -299,7 +300,9 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(AppL10n.of(context).sshKeyGenerationFailed('$e')),
+          content: Text(
+            AppL10n.of(context).sshKeyGenerationFailed(shownCause(e)),
+          ),
         ),
       );
     } finally {
@@ -382,9 +385,9 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l.sshCredentialsSaveFailed('$e'))));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.sshCredentialsSaveFailed(shownCause(e)))),
+      );
     }
   }
 
@@ -453,7 +456,9 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(AppL10n.of(context).sshCredentialsSaveFailed('$e')),
+          content: Text(
+            AppL10n.of(context).sshCredentialsSaveFailed(shownCause(e)),
+          ),
         ),
       );
     }
