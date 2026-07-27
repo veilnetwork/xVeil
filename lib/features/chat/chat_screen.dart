@@ -12,6 +12,7 @@ import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:veil_media/veil_media.dart' show VeilVnotePlayer;
 
+import '../../state/whisper_model_controller.dart';
 import '../common/async_error_view.dart';
 import '../../core/format.dart';
 import '../../core/ids.dart';

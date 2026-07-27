@@ -88,15 +88,26 @@ else
   echo "note: $VW absent — building without voice transcription"
 fi
 
-# The ggml model whisper needs (~57MB). Dart looks in Contents/Resources; the
-# dev source is the out-of-repo whisper.cpp checkout (override with
-# XVEIL_WHISPER_MODEL_SRC). Without it the Transcribe affordance stays hidden.
+# The ggml model whisper needs (~57MB) is NO LONGER BUNDLED BY DEFAULT: it does
+# not compress, so it dominated the download for a feature most people never
+# use. The app fetches it on demand and keeps it once for the whole app, in the
+# support directory Dart already probes.
+#
+# Set XVEIL_BUNDLE_WHISPER_MODEL=1 for a build that installs without a network;
+# Dart still looks in Contents/Resources first, so a bundled copy wins.
 WM="${XVEIL_WHISPER_MODEL_SRC:-$HOME/Projects/veilnetwork/whisper.cpp/models/ggml-base-q5_1.bin}"
-if [ -f "$WM" ]; then
-  cp -f "$WM" "$APP/Contents/Resources/"
-  echo "bundled $(basename "$WM") (whisper model)"
+if [ "${XVEIL_BUNDLE_WHISPER_MODEL:-0}" = "1" ]; then
+  if [ -f "$WM" ]; then
+    cp -f "$WM" "$APP/Contents/Resources/"
+    echo "bundled $(basename "$WM") (whisper model)"
+  else
+    echo "ERROR: XVEIL_BUNDLE_WHISPER_MODEL=1 but $WM is absent" >&2
+    exit 1
+  fi
 else
-  echo "note: $WM absent — transcription needs XVEIL_WHISPER_MODEL env at runtime"
+  # A stale copy from an earlier bundled build would silently keep winning.
+  rm -f "$APP/Contents/Resources/ggml-base-q5_1.bin"
+  echo "whisper model not bundled — the app fetches it on demand"
 fi
 
 echo "bundled into $APP/Contents/Frameworks:"

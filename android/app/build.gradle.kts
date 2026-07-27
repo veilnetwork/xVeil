@@ -27,11 +27,14 @@ if (hasReleaseSigning) {
 }
 
 // whisper.cpp's quantized model is a generated distribution artifact (~57 MiB),
-// not source. Package it from an explicit CI path, the repo-local generated
-// location, or the conventional sibling whisper.cpp checkout. Release builds
-// fail closed when it is absent or has unexpected bytes: shipping a build with
-// a visible-but-non-functional transcription feature is worse than a loud
-// packaging failure.
+// not source. It is NO LONGER BUNDLED BY DEFAULT: it did not compress, so it
+// was 63% of the download (89.7 MiB against 32.7 MiB without) for a feature
+// most people never use. The app fetches it on demand instead, verifying the
+// same size and SHA-256 pinned below, and stores it once for the whole app.
+//
+// Bundling stays available for a build meant to install without a network:
+// set XVEIL_BUNDLE_WHISPER_MODEL=1. That path still fails closed on a missing
+// or unexpected file, because a bundled-but-wrong model is worse than none.
 val whisperModelName = "ggml-base-q5_1.bin"
 val whisperModelSha256 =
     "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898"
@@ -58,27 +61,37 @@ val prepareWhisperModel by tasks.registering {
         val destinationDir = outputDir.get().asFile
         delete(destinationDir)
         val source = whisperModelSource
-        val releaseRequested = gradle.startParameter.taskNames.any {
-            it.contains("release", ignoreCase = true)
-        }
+        val bundleRequested =
+            providers.environmentVariable("XVEIL_BUNDLE_WHISPER_MODEL")
+                .orNull == "1"
         val explicitlyRequired =
             providers.environmentVariable("XVEIL_REQUIRE_WHISPER_MODEL")
-                .orNull == "1"
+                .orNull == "1" || bundleRequested
         if (!whisperNativeLibrary.isFile) {
             val message =
                 "xVeil: ${whisperNativeLibrary.absolutePath} is missing; run " +
                     "native/whisper/build_veil_whisper_android.sh"
+            val releaseRequested = gradle.startParameter.taskNames.any {
+                it.contains("release", ignoreCase = true)
+            }
             if (releaseRequested || explicitlyRequired) throw GradleException(message)
             logger.warn("$message (debug build will omit transcription)")
+        }
+        if (!bundleRequested) {
+            // The default: the app downloads the model on first use.
+            logger.lifecycle(
+                "xVeil: $whisperModelName not bundled (set " +
+                    "XVEIL_BUNDLE_WHISPER_MODEL=1 for an offline-installable " +
+                    "build); the app fetches it on demand",
+            )
+            return@doLast
         }
         if (source == null) {
             val message =
                 "xVeil: $whisperModelName is missing; set " +
                     "XVEIL_WHISPER_MODEL_SRC or run " +
                     "native/whisper/build_veil_whisper_android.sh"
-            if (releaseRequested || explicitlyRequired) throw GradleException(message)
-            logger.warn("$message (debug build will omit transcription)")
-            return@doLast
+            throw GradleException(message)
         }
         if (source.length() != whisperModelSize) {
             throw GradleException(

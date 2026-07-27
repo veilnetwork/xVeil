@@ -627,12 +627,89 @@ class _VoiceBubble extends ConsumerWidget {
     );
   }
 
+  /// Offered in place of the Transcribe button when the model is not here yet.
+  Widget _modelOffer(BuildContext context, WidgetRef ref) {
+    final l = AppL10n.of(context);
+    final model = ref.watch(whisperModelControllerProvider);
+    final scheme = Theme.of(context).colorScheme;
+    final muted = scheme.onSurfaceVariant;
+    final label = Theme.of(
+      context,
+    ).textTheme.labelSmall?.copyWith(color: muted);
+
+    if (model.isBusy) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 12,
+              height: 12,
+              // Null progress while the server has not said how long the body
+              // is — an indeterminate bar beats a made-up percentage.
+              child: CircularProgressIndicator(
+                strokeWidth: 1.6,
+                color: muted,
+                value: model.progress,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(l.voiceModelDownloading, style: label),
+          ],
+        ),
+      );
+    }
+    final failed = model.phase == WhisperModelPhase.failed;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: InkWell(
+        onTap: () async {
+          final ok = await ref
+              .read(whisperModelControllerProvider.notifier)
+              .download();
+          // The availability probe caches its answer, so it has to be asked
+          // again or the Transcribe button never appears.
+          if (ok) {
+            ref.invalidate(transcriptionAvailableProvider);
+            ref.invalidate(transcriptionNativeReadyProvider);
+          }
+        },
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.download_outlined, size: 15, color: muted),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                failed
+                    ? l.voiceModelFailed
+                    : '${l.voiceModelDownload} · ${l.voiceModelSize}',
+                style: label,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// The on-device transcription affordance under a downloaded voice clip: a
   /// "Transcribe" button, a spinner while running, then the cached text. Hidden
   /// entirely when the native STT layer / model isn't present.
   Widget _transcript(BuildContext context, WidgetRef ref, Color onBubble) {
     final available = ref.watch(transcriptionAvailableProvider).value ?? false;
-    if (!available) return const SizedBox.shrink();
+    if (!available) {
+      // The model is fetched on demand now, so "not available" splits in two.
+      // With the native layer present it is a download away and saying so is
+      // the whole point; without it there is no whisper build for this
+      // platform and offering 57 MiB that cannot help would be a lie.
+      final nativeReady =
+          ref.watch(transcriptionNativeReadyProvider).value ?? false;
+      if (!nativeReady) return const SizedBox.shrink();
+      return _modelOffer(context, ref);
+    }
     final entry = ref.watch(
       transcriptionControllerProvider.select((m) => m[messageId]),
     );
