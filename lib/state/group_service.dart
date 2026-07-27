@@ -72,6 +72,7 @@ part 'group_service_signers.dart';
 part 'group_service_channel_keys.dart';
 part 'group_service_compaction.dart';
 part 'group_service_protected_channels.dart';
+part 'group_service_reactions.dart';
 
 bool _listEquals<T>(List<T>? left, List<T>? right) {
   if (identical(left, right)) return true;
@@ -7547,7 +7548,6 @@ class GroupService {
   Future<int> sweepStateLogCompaction({int limit = 8}) =>
       _compaction.sweep(limit: limit);
 
-
   /// The group index lists EVERY group/Space id, so in one settings record
   /// it outgrows the hidden-volume record capacity at roughly 30+ groups
   /// (~2.2 KiB) — from then on creating or even ingesting any new group
@@ -7644,7 +7644,8 @@ class GroupService {
           if (!ghosts.contains(hex)) hex,
       ]);
       devLog(
-        () => 'xVeil[group]: index repaired — removed ${ghosts.length} '
+        () =>
+            'xVeil[group]: index repaired — removed ${ghosts.length} '
             'entries nothing backed',
       );
     }
@@ -7818,9 +7819,8 @@ class GroupService {
   /// which makes cloud reconcile apply nothing at all. So each refusal names
   /// itself — a silent null here reads downstream as a missing group and cost
   /// an evening of looking in the wrong place (2026-07-27).
-  void _loadRefused(NodeId groupId, String why) => devLog(
-    () => 'xVeil[group]: load ${groupId.short} refused — $why',
-  );
+  void _loadRefused(NodeId groupId, String why) =>
+      devLog(() => 'xVeil[group]: load ${groupId.short} refused — $why');
 
   Future<GroupBundle?> load(NodeId groupId) async {
     final raw = await _loadBundleRaw(groupId);
@@ -8007,11 +8007,7 @@ class GroupService {
     if (notify) changes.value++;
   }
 
-  Future<void> _writeBundleBytes(
-    String key,
-    GroupBundle b,
-    String json,
-  ) async {
+  Future<void> _writeBundleBytes(String key, GroupBundle b, String json) async {
     // Hint first: a crash between the two writes may only claim MORE than
     // the stored blob (e.g. a retention row the old blob lacks), which makes
     // maintenance load the bundle — never skip one it must enforce.
@@ -8205,7 +8201,9 @@ class GroupService {
     final contentIds = <String>{};
     final index = await _groupIdsForGc();
     if (!index.complete) {
-      devLog(() => 'xVeil[content-gc]: group index incomplete (see the line above)');
+      devLog(
+        () => 'xVeil[content-gc]: group index incomplete (see the line above)',
+      );
       return (contentIds: contentIds, complete: false);
     }
     for (final hex in index.groupIds) {
@@ -8260,13 +8258,17 @@ class GroupService {
       });
       contentIds.addAll(result.contentIds);
       if (!result.complete) {
-        devLog(() => 'xVeil[content-gc]: a group projection is not fully readable');
+        devLog(
+          () => 'xVeil[content-gc]: a group projection is not fully readable',
+        );
         return (contentIds: contentIds, complete: false);
       }
     }
     final publicIndex = await _loadPublicSubscriptionIndex();
     if (!publicIndex.complete) {
-      devLog(() => 'xVeil[content-gc]: public-subscription index could not be read');
+      devLog(
+        () => 'xVeil[content-gc]: public-subscription index could not be read',
+      );
       return (contentIds: contentIds, complete: false);
     }
     for (final hex in publicIndex.ids) {
@@ -8274,14 +8276,20 @@ class GroupService {
       try {
         spaceId = NodeId.fromHex(hex);
       } catch (_) {
-        devLog(() => 'xVeil[content-gc]: public-subscription index holds a malformed id');
+        devLog(
+          () =>
+              'xVeil[content-gc]: public-subscription index holds a malformed id',
+        );
         return (contentIds: contentIds, complete: false);
       }
       final snapshot = await _loadPublicSubscriptionSnapshot(spaceId);
       if (snapshot == null) {
         // A referenced root that cannot be authenticated is uncertainty. Do
         // not use a malformed index/snapshot pair as deletion authority.
-        devLog(() => 'xVeil[content-gc]: a public-subscription snapshot did not authenticate');
+        devLog(
+          () =>
+              'xVeil[content-gc]: a public-subscription snapshot did not authenticate',
+        );
         return (contentIds: contentIds, complete: false);
       }
       contentIds.addAll(
@@ -8541,7 +8549,6 @@ class GroupService {
     }
     return rotated;
   }
-
 
   Future<SpaceRetentionSweep> sweepSpaceRetention({
     int? nowMs,
@@ -9722,6 +9729,7 @@ class GroupService {
   late final _ChannelKeyRotation _channelKeys = _ChannelKeyRotation(this);
 
   late final _LogCompaction _compaction = _LogCompaction(this);
+  late final _Reactions _reactions = _Reactions(this);
 
   late final _ProtectedChannels _channels = _ProtectedChannels(this);
 
@@ -9749,7 +9757,6 @@ class GroupService {
   /// rotating late is a weaker guarantee, not a broken one.
   Future<int> rotateStaleChannelKeys(NodeId spaceId) =>
       _serialized(spaceId, () => _channelKeys.rotateStaleLocked(spaceId));
-
 
   /// Replace the explicit member portion of a protected channel ACL. Current
   /// Space owners/admins are always included so a future revocation never
@@ -14908,7 +14915,7 @@ class GroupService {
         }
         feedPosts.add(post);
       }
-      final reactions = await _spacePostReactionsOfBundle(
+      final reactions = await _reactions.spacePostReactionsOfBundle(
         bundle,
         visiblePostIds: {for (final post in feedPosts) post.postId},
       );
@@ -16646,7 +16653,7 @@ class GroupService {
     bool broadcast = true,
   }) => _serialized(
     groupId,
-    () => _react(
+    () => _reactions.react(
       groupId,
       msgRef,
       emoji,
@@ -16665,7 +16672,7 @@ class GroupService {
     bool broadcast = true,
   }) => _serialized(
     spaceId,
-    () => _react(
+    () => _reactions.react(
       spaceId,
       postId,
       emoji,
@@ -16675,350 +16682,13 @@ class GroupService {
     ),
   );
 
-  Future<bool> _react(
-    NodeId groupId,
-    String target,
-    String emoji, {
-    required ReactionTargetKind targetKind,
-    bool publiclyVisible = false,
-    bool broadcast = true,
-  }) async {
-    final b = await load(groupId);
-    if (b == null) return false;
-    final state = foldControlLog(
-      owner: b.manifest.owner,
-      entries: b.control,
-      verify: (e) => _validControlFor(b.manifest, e),
-    ).state;
-    if (b.manifest.isSpace && state.isDeleted) return false;
-    if (utf8.encode(emoji).length > 64) return false;
-    GroupMessage? targetMessage;
-    if (targetKind == ReactionTargetKind.message) {
-      for (final message in await messagesOf(groupId)) {
-        if (message.ref == target) {
-          targetMessage = message;
-          break;
-        }
-      }
-      if (targetMessage == null) return false;
-    }
-    SpacePostView? targetPost;
-    if (targetKind == ReactionTargetKind.spacePost) {
-      if (!b.manifest.isSpace) return false;
-      targetPost = (await postsOf(
-        groupId,
-      )).where((post) => post.postId == target).firstOrNull;
-      if (targetPost == null) return false;
-      if (publiclyVisible &&
-          (b.manifest.visibility != SpaceVisibility.public ||
-              targetPost.visibility != SpacePostVisibility.public)) {
-        return false;
-      }
-    }
-    if (!SpaceAcl(state).allows(
-      _signer.selfId,
-      SpacePermission.publishMessages,
-      channelId: targetMessage?.channelId,
-    )) {
-      return false;
-    }
-    // My current reaction on this message (if any) → tapping it again clears it.
-    final visibleReactions = <GroupReaction>[];
-    for (final reaction in _acceptedReactionsWithinLifecycle(b, state)) {
-      if (!SpaceAcl(state).allows(
-        reaction.author,
-        SpacePermission.publishMessages,
-        atMs: reaction.createdAtMs,
-      )) {
-        continue;
-      }
-      final materialized = await _materializeEncryptedReaction(b, reaction);
-      if (materialized != null) visibleReactions.add(materialized);
-    }
-    final onTarget =
-        foldReactionsByKind(
-          visibleReactions,
-          _signer.verifyReaction,
-          targetKind,
-        )[target] ??
-        const <String, List<NodeId>>{};
-    String? mine;
-    for (final e in onTarget.entries) {
-      if (e.value.any((n) => n == _signer.selfId)) {
-        mine = e.key;
-        break;
-      }
-    }
-    final next = (mine == emoji) ? '' : emoji;
-    final mySeq = _nextSeq(
-      b.reactions
-          .where(
-            (r) =>
-                r.author == _signer.selfId &&
-                _validReactionFor(b.manifest.groupId, r),
-          )
-          .map((r) => r.seq),
-    );
-    final descriptor = state.epochDescriptor;
-    final encryptionEstablished = _encryptionEstablished(b.manifest, b.control);
-    final key = descriptor == null ? null : b.localEpochKeys[state.epoch];
-    if (encryptionEstablished &&
-        (descriptor == null ||
-            key == null ||
-            !_validLocalEpochKey(b.manifest, b.control, state.epoch, key))) {
-      return false;
-    }
-    final createdAt = _now();
-    final lifecycleGeneration = b.manifest.isSpace
-        ? state.lifecycleTransitionHash
-        : null;
-    late final GroupReaction unsigned;
-    if (targetMessage?.isChannelEncrypted == true) {
-      final channelId = targetMessage!.channelId!;
-      final protected = state.protectedChannels[channelId.hex];
-      if (!b.manifest.isSpace || protected == null) {
-        return false;
-      }
-      final channel = await _materializeProtectedChannel(b, state, protected);
-      if (channel == null || !channel.recipients.contains(_signer.selfId)) {
-        return false;
-      }
-      final channelEpoch = protected.channelEpoch;
-      final channelKey =
-          b.localChannelEpochKeys[_channelKeyId(channelId, channelEpoch)];
-      if (channelKey == null ||
-          !_validLocalChannelEpochKey(
-            b.manifest,
-            b.control,
-            channelId,
-            channelEpoch,
-            channelKey,
-          )) {
-        return false;
-      }
-      final clear = GroupReactionCleartext(
-        target: target,
-        emoji: next,
-        targetKind: ReactionTargetKind.message,
-        schemaVersion: 2,
-      ).encode();
-      try {
-        final encrypted = await encryptSpaceChannelReactionPayload(
-          spaceId: groupId,
-          channelId: channelId,
-          channelEpoch: channelEpoch,
-          author: _signer.selfId,
-          seq: mySeq,
-          reactionVersion: lifecycleGeneration == null ? 7 : 8,
-          lifecycleGeneration: lifecycleGeneration ?? '',
-          createdAtMs: createdAt,
-          clearText: clear,
-          channelKey: channelKey,
-        );
-        unsigned = GroupReaction(
-          groupId: groupId,
-          author: _signer.selfId,
-          seq: mySeq,
-          target: '',
-          emoji: '',
-          version: lifecycleGeneration == null ? 7 : 8,
-          channelId: channelId,
-          channelEpoch: channelEpoch,
-          encryptedPayload: encrypted,
-          lifecycleGeneration: lifecycleGeneration,
-          createdAtMs: createdAt,
-          signature: Uint8List(0),
-        );
-      } finally {
-        clear.fillRange(0, clear.length, 0);
-      }
-    } else if (descriptor != null && key != null) {
-      final clear = GroupReactionCleartext(
-        target: target,
-        emoji: next,
-        targetKind: targetKind,
-        schemaVersion: 2,
-      ).encode();
-      try {
-        final encrypted = await encryptGroupReactionPayload(
-          groupId: groupId,
-          membershipEpoch: state.epoch,
-          author: _signer.selfId,
-          seq: mySeq,
-          createdAtMs: createdAt,
-          clearText: clear,
-          epochKey: key,
-          reactionVersion: lifecycleGeneration == null ? 4 : 6,
-          lifecycleGeneration: lifecycleGeneration ?? '',
-        );
-        unsigned = GroupReaction(
-          groupId: groupId,
-          author: _signer.selfId,
-          seq: mySeq,
-          target: '',
-          emoji: '',
-          version: lifecycleGeneration == null ? 4 : 6,
-          membershipEpoch: state.epoch,
-          encryptedPayload: encrypted,
-          lifecycleGeneration: lifecycleGeneration,
-          createdAtMs: createdAt,
-          signature: Uint8List(0),
-        );
-      } finally {
-        clear.fillRange(0, clear.length, 0);
-      }
-    } else {
-      unsigned = GroupReaction(
-        groupId: groupId,
-        author: _signer.selfId,
-        seq: mySeq,
-        target: target,
-        emoji: next,
-        version: lifecycleGeneration == null ? 3 : 5,
-        targetKind: targetKind,
-        lifecycleGeneration: lifecycleGeneration,
-        createdAtMs: createdAt,
-        signature: Uint8List(0),
-      );
-    }
-    final signed = _signer.signReaction(unsigned);
-    SpacePublicReaction? publicReaction;
-    if (publiclyVisible) {
-      final lifecycle = lifecycleGeneration ?? _legacyPostGeneration(groupId);
-      if (targetKind != ReactionTargetKind.spacePost || targetPost == null) {
-        return false;
-      }
-      final chain = _publicReactionChain(b, target, _signer.selfId);
-      if (chain == null) return false;
-      final unsignedPublic = SpacePublicReaction(
-        spaceId: groupId,
-        postId: target,
-        author: _signer.selfId,
-        seq: signed.seq,
-        prevHash: chain.isEmpty ? '' : chain.last.recordHash,
-        emoji: next,
-        lifecycleGeneration: lifecycle,
-        createdAtMs: createdAt,
-        signature: Uint8List(0),
-        authorPubKey: Uint8List(0),
-      );
-      final detached = _signer.signDetached(unsignedPublic.canonicalBytes());
-      publicReaction = unsignedPublic.withSignature(
-        detached.signature,
-        detached.publicKey,
-      );
-      if (!publicReaction.verify(_signer.verifyDetached)) return false;
-    }
-    await _save(
-      b.copyWith(
-        reactions: [...b.reactions, signed],
-        publicReactions: [...b.publicReactions, ?publicReaction],
-      ),
-    );
-    if (broadcast) {
-      unawaited(
-        broadcastDelta(
-          groupId,
-          reactions: [signed],
-          publicReactions: [?publicReaction],
-        ),
-      );
-    }
-    return true;
-  }
-
   /// The folded reactions of [groupId]: `messageRef -> emoji -> reactors`.
-  Future<Map<String, MessageReactions>> reactionsOf(NodeId groupId) async {
-    final b = await load(groupId);
-    if (b == null) return const {};
-    final state = foldControlLog(
-      owner: b.manifest.owner,
-      entries: b.control,
-      verify: (e) => _validControlFor(b.manifest, e),
-    ).state;
-    if (b.manifest.isSpace && state.isDeleted) return const {};
-    final protectedChannels = b.manifest.isSpace
-        ? await _protectedChannelsOf(b, state)
-        : const <String, SpaceChannelControlCleartext>{};
-    final visibleMessages = {
-      for (final message in await messagesOf(groupId)) message.ref: message,
-    };
-    final materialized = <GroupReaction>[];
-    for (final reaction in b.reactions) {
-      if (!_validReactionFor(groupId, reaction) ||
-          (reaction.isChannelEncrypted &&
-              !(protectedChannels[reaction.channelId!.hex]?.recipients.contains(
-                    reaction.author,
-                  ) ??
-                  false)) ||
-          !SpaceAcl(state).allows(
-            reaction.author,
-            SpacePermission.publishMessages,
-            atMs: reaction.createdAtMs,
-          )) {
-        continue;
-      }
-      final visible = await _materializeEncryptedReaction(b, reaction);
-      if (visible == null) continue;
-      final target = visibleMessages[visible.target];
-      if (target == null ||
-          (reaction.isChannelEncrypted
-              ? !target.isChannelEncrypted ||
-                    target.channelId != reaction.channelId
-              : target.isChannelEncrypted)) {
-        continue;
-      }
-      materialized.add(visible);
-    }
-    return foldGroupReactions(materialized, _signer.verifyReaction);
-  }
+  Future<Map<String, MessageReactions>> reactionsOf(NodeId groupId) =>
+      _reactions.reactionsOf(groupId);
 
   /// The folded reactions of visible, non-deleted Space publication roots.
-  Future<Map<String, MessageReactions>> spacePostReactionsOf(
-    NodeId spaceId,
-  ) async {
-    final bundle = await load(spaceId);
-    if (bundle == null || !bundle.manifest.isSpace) return const {};
-    return _spacePostReactionsOfBundle(bundle);
-  }
-
-  Future<Map<String, MessageReactions>> _spacePostReactionsOfBundle(
-    GroupBundle bundle, {
-    Set<String>? visiblePostIds,
-  }) async {
-    final state = foldControlLog(
-      owner: bundle.manifest.owner,
-      entries: bundle.control,
-      verify: (entry) => _validControlFor(bundle.manifest, entry),
-    ).state;
-    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
-      return const {};
-    }
-    final allowedPostIds =
-        visiblePostIds ??
-        {for (final post in await _postsOfBundle(bundle)) post.postId};
-    final materialized = <GroupReaction>[];
-    for (final reaction in _acceptedReactionsWithinLifecycle(bundle, state)) {
-      if (!SpaceAcl(state).allows(
-        reaction.author,
-        SpacePermission.publishMessages,
-        atMs: reaction.createdAtMs,
-      )) {
-        continue;
-      }
-      final visible = await _materializeEncryptedReaction(bundle, reaction);
-      if (visible != null &&
-          visible.targetKind == ReactionTargetKind.spacePost &&
-          allowedPostIds.contains(visible.target)) {
-        materialized.add(visible);
-      }
-    }
-    return foldReactionsByKind(
-      materialized,
-      _signer.verifyReaction,
-      ReactionTargetKind.spacePost,
-    );
-  }
+  Future<Map<String, MessageReactions>> spacePostReactionsOf(NodeId spaceId) =>
+      _reactions.spacePostReactionsOf(spaceId);
 
   // ── Content path (doc/GROUPS-CONTENT-PATH.md) ─────────────────────────────
 
