@@ -78,6 +78,7 @@ part 'group_service_public_subscriptions.dart';
 part 'group_service_space_feed.dart';
 part 'group_service_abuse_reports.dart';
 part 'group_service_recommendations.dart';
+part 'group_service_moderation_appeals.dart';
 
 bool _listEquals<T>(List<T>? left, List<T>? right) {
   if (identical(left, right)) return true;
@@ -3812,86 +3813,6 @@ class GroupService {
     });
   }
 
-  static const String _spaceModerationAppealsSetting =
-      'spaces.moderation_appeals.v1';
-  static const int _maxSpaceModerationAppealRecords = 256;
-  Future<void> _spaceModerationAppealMutationTail = Future<void>.value();
-
-  Future<T> _serializeSpaceModerationAppeals<T>(
-    Future<T> Function() action,
-  ) async {
-    final previous = _spaceModerationAppealMutationTail;
-    final gate = Completer<void>();
-    _spaceModerationAppealMutationTail = gate.future;
-    try {
-      try {
-        await previous;
-      } catch (_) {}
-      return await action();
-    } finally {
-      gate.complete();
-    }
-  }
-
-  Future<
-    ({
-      List<SpaceModerationAppealInboxEntry> incoming,
-      List<SpaceModerationAppealOutboxEntry> outgoing,
-    })
-  >
-  _loadSpaceModerationAppeals() async {
-    final blob = await _storage.loadFile(_spaceModerationAppealsSetting);
-    if (blob == null || blob.isEmpty) {
-      return (
-        incoming: <SpaceModerationAppealInboxEntry>[],
-        outgoing: <SpaceModerationAppealOutboxEntry>[],
-      );
-    }
-    try {
-      final value = jsonDecode(utf8.decode(blob, allowMalformed: false));
-      if (value is! Map || value['v'] != 1) throw const FormatException();
-      return (
-        incoming: (value['incoming'] as List? ?? const [])
-            .map(SpaceModerationAppealInboxEntry.fromJson)
-            .whereType<SpaceModerationAppealInboxEntry>()
-            .take(_maxSpaceModerationAppealRecords)
-            .toList(),
-        outgoing: (value['outgoing'] as List? ?? const [])
-            .map(SpaceModerationAppealOutboxEntry.fromJson)
-            .whereType<SpaceModerationAppealOutboxEntry>()
-            .take(_maxSpaceModerationAppealRecords)
-            .toList(),
-      );
-    } catch (_) {
-      return (
-        incoming: <SpaceModerationAppealInboxEntry>[],
-        outgoing: <SpaceModerationAppealOutboxEntry>[],
-      );
-    }
-  }
-
-  Future<void> _saveSpaceModerationAppeals({
-    required List<SpaceModerationAppealInboxEntry> incoming,
-    required List<SpaceModerationAppealOutboxEntry> outgoing,
-  }) {
-    final raw = jsonEncode({
-      'v': 1,
-      'incoming': [
-        for (final entry in incoming.take(_maxSpaceModerationAppealRecords))
-          entry.toJson(),
-      ],
-      'outgoing': [
-        for (final entry in outgoing.take(_maxSpaceModerationAppealRecords))
-          entry.toJson(),
-      ],
-    });
-    return _storage.storeFile(
-      _spaceModerationAppealsSetting,
-      Uint8List.fromList(utf8.encode(raw)),
-      name: 'moderation-appeals',
-    );
-  }
-
   Future<List<SpaceModerationRecord>> _moderationRecordsOfBundle(
     GroupBundle bundle,
     GroupState state,
@@ -3929,441 +3850,55 @@ class GroupService {
     return null;
   }
 
+  late final _ModerationAppeals _moderationAppeals = _ModerationAppeals(this);
+
+  Future<Map<String, String>> moderationAppealSpaceNames() =>
+      _moderationAppeals.moderationAppealSpaceNames();
+
   /// Returns self-targeted actions even when the Space itself is hidden after
   /// a ban. Already appealed actions live in [outgoingSpaceModerationAppeals].
   Future<List<SpaceModerationAppealCandidate>>
-  appealableSpaceModerationActions() async {
-    final outgoing = (await _loadSpaceModerationAppeals()).outgoing;
-    final result = <SpaceModerationAppealCandidate>[];
-    for (final hex in await _index()) {
-      try {
-        final bundle = await load(NodeId.fromHex(hex));
-        if (bundle == null || !bundle.manifest.isSpace) continue;
-        final state = foldControlLog(
-          owner: bundle.manifest.owner,
-          entries: bundle.control,
-          verify: (entry) => _validControlFor(bundle.manifest, entry),
-          initialName: bundle.manifest.name,
-          initialDescription: bundle.manifest.description ?? '',
-        ).state;
-        final reviewer = _effectiveSpaceOwner(state);
-        for (final record in await _moderationRecordsOfBundle(bundle, state)) {
-          final appealed = outgoing.any(
-            (entry) =>
-                entry.appeal.spaceId == bundle.manifest.groupId &&
-                entry.appeal.actionId == record.actionId &&
-                (entry.decision != null || entry.appeal.reviewer == reviewer),
-          );
-          if (record.action.target == selfId &&
-              record.revokedAtMs == null &&
-              !appealed) {
-            result.add(
-              SpaceModerationAppealCandidate(
-                spaceId: bundle.manifest.groupId,
-                spaceName: state.name,
-                record: record,
-              ),
-            );
-          }
-        }
-      } catch (_) {}
-    }
-    result.sort(
-      (left, right) => right.record.action.createdAtMs.compareTo(
-        left.record.action.createdAtMs,
-      ),
-    );
-    return result;
-  }
+  appealableSpaceModerationActions() =>
+      _moderationAppeals.appealableSpaceModerationActions();
 
   Future<List<SpaceModerationAppealOutboxEntry>>
-  outgoingSpaceModerationAppeals() async {
-    final result = (await _loadSpaceModerationAppeals()).outgoing.toList()
-      ..sort(
-        (left, right) =>
-            right.appeal.createdAtMs.compareTo(left.appeal.createdAtMs),
-      );
-    return result;
-  }
-
-  Future<Map<String, String>> moderationAppealSpaceNames() async {
-    final store = await _loadSpaceModerationAppeals();
-    final ids = <String>{
-      for (final entry in store.incoming) entry.appeal.spaceId.hex,
-      for (final entry in store.outgoing) entry.appeal.spaceId.hex,
-    };
-    final result = <String, String>{};
-    for (final hex in ids) {
-      try {
-        final bundle = await load(NodeId.fromHex(hex));
-        if (bundle == null || !bundle.manifest.isSpace) continue;
-        final state = foldControlLog(
-          owner: bundle.manifest.owner,
-          entries: bundle.control,
-          verify: (entry) => _validControlFor(bundle.manifest, entry),
-          initialName: bundle.manifest.name,
-          initialDescription: bundle.manifest.description ?? '',
-        ).state;
-        result[hex] = state.name;
-      } catch (_) {}
-    }
-    return result;
-  }
+  outgoingSpaceModerationAppeals() =>
+      _moderationAppeals.outgoingSpaceModerationAppeals();
 
   Future<List<SpaceModerationAppealInboxEntry>> incomingSpaceModerationAppeals({
     NodeId? spaceId,
     bool pendingOnly = false,
-  }) async {
-    final result =
-        (await _loadSpaceModerationAppeals()).incoming
-            .where(
-              (entry) =>
-                  (spaceId == null || entry.appeal.spaceId == spaceId) &&
-                  (!pendingOnly || entry.pending),
-            )
-            .toList()
-          ..sort(
-            (left, right) => right.receivedAtMs.compareTo(left.receivedAtMs),
-          );
-    return result;
-  }
+  }) => _moderationAppeals.incomingSpaceModerationAppeals(
+    spaceId: spaceId,
+    pendingOnly: pendingOnly,
+  );
 
-  /// Persist before enqueueing the external proposal. A second call for the
-  /// same immutable action and current reviewer retransmits the exact signed
-  /// row. An ownership transfer may create one replacement routed to the new
-  /// effective owner; neither path introduces a time window.
   Future<bool> appealSpaceModeration(
     NodeId spaceId,
     String actionId, {
     required String text,
-  }) async {
-    final sender = sendSpaceModerationAppeal;
-    if (sender == null) return false;
-    final normalized = text.trim();
-    final bundle = await load(spaceId);
-    if (bundle == null || !bundle.manifest.isSpace) return false;
-    final state = foldControlLog(
-      owner: bundle.manifest.owner,
-      entries: bundle.control,
-      verify: (entry) => _validControlFor(bundle.manifest, entry),
-      initialName: bundle.manifest.name,
-      initialDescription: bundle.manifest.description ?? '',
-    ).state;
-    final record = await _moderationRecord(bundle, state, actionId);
-    final reviewer = _effectiveSpaceOwner(state);
-    if (record == null ||
-        record.revokedAtMs != null ||
-        record.action.target != selfId ||
-        reviewer == null ||
-        reviewer == selfId) {
-      return false;
-    }
-    final appeal = await _serializeSpaceModerationAppeals(() async {
-      final store = await _loadSpaceModerationAppeals();
-      for (final entry in store.outgoing) {
-        if (entry.appeal.spaceId == spaceId &&
-            entry.appeal.actionId == actionId &&
-            (entry.decision != null || entry.appeal.reviewer == reviewer)) {
-          return entry.decision == null ? entry.appeal : null;
-        }
-      }
-      final now = _now();
-      final unsigned = SpaceModerationAppeal(
-        appealId: _newSpaceInviteId(),
-        spaceId: spaceId,
-        actionAuthor: record.actor,
-        actionSeq: record.actionSeq,
-        appellant: selfId,
-        reviewer: reviewer,
-        text: normalized,
-        createdAtMs: now < record.action.createdAtMs
-            ? record.action.createdAtMs
-            : now,
-        signature: Uint8List(0),
-        authorPubKey: Uint8List(0),
-      );
-      if (!unsigned.isStructurallyValid) return null;
-      final signed = _signer.signModerationAppeal(unsigned);
-      if (!_signer.verifyModerationAppeal(signed)) return null;
-      await _saveSpaceModerationAppeals(
-        incoming: store.incoming,
-        outgoing: [
-          SpaceModerationAppealOutboxEntry(appeal: signed),
-          ...store.outgoing,
-        ],
-      );
-      changes.value++;
-      return signed;
-    });
-    if (appeal == null) return false;
-    try {
-      await sender(
-        appeal.reviewer,
-        appeal.appealId,
-        jsonEncode(appeal.toJson()),
-      );
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
+  }) => _moderationAppeals.appealSpaceModeration(spaceId, actionId, text: text);
 
-  /// Authenticated-source, signature, owner route and exact action checks all
-  /// pass before durable persistence allows the transport ACK.
-  Future<bool> receiveSpaceModerationAppeal(
-    NodeId peer,
-    String appealJson,
-  ) async {
-    final SpaceModerationAppeal? appeal;
-    try {
-      appeal = SpaceModerationAppeal.fromJson(jsonDecode(appealJson));
-    } catch (_) {
-      return false;
-    }
-    final now = _now();
-    if (appeal == null ||
-        appeal.appellant != peer ||
-        appeal.reviewer != selfId ||
-        appeal.createdAtMs > now + const Duration(minutes: 5).inMilliseconds ||
-        !_signer.verifyModerationAppeal(appeal) ||
-        (await _storage.getContact(peer))?.status == ContactStatus.blocked) {
-      return false;
-    }
-    final acceptedAppeal = appeal;
-    final bundle = await load(acceptedAppeal.spaceId);
-    if (bundle == null || !bundle.manifest.isSpace) {
-      return false;
-    }
-    final state = foldControlLog(
-      owner: bundle.manifest.owner,
-      entries: bundle.control,
-      verify: (entry) => _validControlFor(bundle.manifest, entry),
-      initialName: bundle.manifest.name,
-      initialDescription: bundle.manifest.description ?? '',
-    ).state;
-    if (_effectiveSpaceOwner(state) != selfId) return false;
-    final record = await _moderationRecord(
-      bundle,
-      state,
-      acceptedAppeal.actionId,
-    );
-    if (record == null ||
-        record.action.target != peer ||
-        acceptedAppeal.createdAtMs < record.action.createdAtMs) {
-      return false;
-    }
-    return _serializeSpaceModerationAppeals(() async {
-      final store = await _loadSpaceModerationAppeals();
-      for (final old in store.incoming) {
-        if (old.appeal.appealId == acceptedAppeal.appealId) {
-          return jsonEncode(old.appeal.toJson()) ==
-              jsonEncode(acceptedAppeal.toJson());
-        }
-        if (old.appeal.spaceId == acceptedAppeal.spaceId &&
-            old.appeal.actionId == acceptedAppeal.actionId &&
-            old.appeal.appellant == peer) {
-          return false;
-        }
-      }
-      final entry = SpaceModerationAppealInboxEntry(
-        appeal: acceptedAppeal,
-        receivedAtMs: now < acceptedAppeal.createdAtMs
-            ? acceptedAppeal.createdAtMs
-            : now,
-      );
-      await _saveSpaceModerationAppeals(
-        incoming: [entry, ...store.incoming],
-        outgoing: store.outgoing,
-      );
-      changes.value++;
-      return true;
-    });
-  }
+  Future<bool> receiveSpaceModerationAppeal(NodeId peer, String appealJson) =>
+      _moderationAppeals.receiveSpaceModerationAppeal(peer, appealJson);
 
   Future<bool> decideSpaceModerationAppeal(
     String appealId, {
     required SpaceModerationAppealOutcome outcome,
     required String reason,
-  }) async {
-    final sender = sendSpaceModerationAppealDecision;
-    if (sender == null) return false;
-    final normalized = reason.trim();
-    final prepared =
-        await _serializeSpaceModerationAppeals<
-          ({
-            SpaceModerationAppeal appeal,
-            SpaceModerationAppealDecision decision,
-          })?
-        >(() async {
-          final store = await _loadSpaceModerationAppeals();
-          SpaceModerationAppealInboxEntry? pending;
-          for (final entry in store.incoming) {
-            if (entry.appeal.appealId == appealId && entry.pending) {
-              pending = entry;
-              break;
-            }
-          }
-          if (pending == null) return null;
-          final bundle = await load(pending.appeal.spaceId);
-          if (bundle == null || !bundle.manifest.isSpace) return null;
-          final state = foldControlLog(
-            owner: bundle.manifest.owner,
-            entries: bundle.control,
-            verify: (entry) => _validControlFor(bundle.manifest, entry),
-            initialName: bundle.manifest.name,
-            initialDescription: bundle.manifest.description ?? '',
-          ).state;
-          if (_effectiveSpaceOwner(state) != selfId) return null;
-          var record = await _moderationRecord(
-            bundle,
-            state,
-            pending.appeal.actionId,
-          );
-          if (record == null ||
-              record.action.target != pending.appeal.appellant) {
-            return null;
-          }
-          final irreversible = {
-            SpaceModerationKind.deleteMessage,
-            SpaceModerationKind.deletePost,
-          }.contains(record.action.kind);
-          if (outcome ==
-                  SpaceModerationAppealOutcome.acknowledgedIrreversible &&
-              !irreversible) {
-            return null;
-          }
-          if (outcome == SpaceModerationAppealOutcome.actionRevoked) {
-            if (irreversible) return null;
-            if (record.revokedAtMs == null &&
-                !await revokeSpaceModeration(
-                  pending.appeal.spaceId,
-                  pending.appeal.actionId,
-                  reason: normalized,
-                )) {
-              return null;
-            }
-            final current = await load(pending.appeal.spaceId);
-            if (current == null) return null;
-            final currentState = foldControlLog(
-              owner: current.manifest.owner,
-              entries: current.control,
-              verify: (entry) => _validControlFor(current.manifest, entry),
-              initialName: current.manifest.name,
-              initialDescription: current.manifest.description ?? '',
-            ).state;
-            record = await _moderationRecord(
-              current,
-              currentState,
-              pending.appeal.actionId,
-            );
-            if (record?.revokedAtMs == null) return null;
-          }
-          final now = _now();
-          final unsigned = SpaceModerationAppealDecision(
-            appealId: appealId,
-            spaceId: pending.appeal.spaceId,
-            appellant: pending.appeal.appellant,
-            reviewer: selfId,
-            outcome: outcome,
-            reason: normalized,
-            decidedAtMs: now < pending.receivedAtMs
-                ? pending.receivedAtMs
-                : now,
-            signature: Uint8List(0),
-            authorPubKey: Uint8List(0),
-          );
-          if (!unsigned.isStructurallyValid) return null;
-          final decision = _signer.signModerationAppealDecision(unsigned);
-          if (!_signer.verifyModerationAppealDecision(decision)) return null;
-          await _saveSpaceModerationAppeals(
-            incoming: [
-              for (final entry in store.incoming)
-                if (entry.appeal.appealId == appealId)
-                  SpaceModerationAppealInboxEntry(
-                    appeal: entry.appeal,
-                    receivedAtMs: entry.receivedAtMs,
-                    decision: decision,
-                  )
-                else
-                  entry,
-            ],
-            outgoing: store.outgoing,
-          );
-          changes.value++;
-          return (appeal: pending.appeal, decision: decision);
-        });
-    if (prepared == null) return false;
-    try {
-      await sender(
-        prepared.appeal.appellant,
-        prepared.appeal.appealId,
-        jsonEncode(prepared.decision.toJson()),
-      );
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
+  }) => _moderationAppeals.decideSpaceModerationAppeal(
+    appealId,
+    outcome: outcome,
+    reason: reason,
+  );
 
   Future<bool> receiveSpaceModerationAppealDecision(
     NodeId peer,
     String decisionJson,
-  ) async {
-    final SpaceModerationAppealDecision? decision;
-    try {
-      decision = SpaceModerationAppealDecision.fromJson(
-        jsonDecode(decisionJson),
-      );
-    } catch (_) {
-      return false;
-    }
-    final now = _now();
-    if (decision == null ||
-        decision.reviewer != peer ||
-        decision.appellant != selfId ||
-        decision.decidedAtMs >
-            now + const Duration(minutes: 5).inMilliseconds ||
-        !_signer.verifyModerationAppealDecision(decision) ||
-        (await _storage.getContact(peer))?.status == ContactStatus.blocked) {
-      return false;
-    }
-    final acceptedDecision = decision;
-    return _serializeSpaceModerationAppeals(() async {
-      final store = await _loadSpaceModerationAppeals();
-      SpaceModerationAppealOutboxEntry? matched;
-      for (final entry in store.outgoing) {
-        if (entry.appeal.appealId == acceptedDecision.appealId &&
-            entry.appeal.spaceId == acceptedDecision.spaceId &&
-            entry.appeal.reviewer == peer) {
-          matched = entry;
-          break;
-        }
-      }
-      if (matched == null ||
-          acceptedDecision.decidedAtMs < matched.appeal.createdAtMs) {
-        return false;
-      }
-      if (matched.decision != null) {
-        return jsonEncode(matched.decision!.toJson()) ==
-            jsonEncode(acceptedDecision.toJson());
-      }
-      await _saveSpaceModerationAppeals(
-        incoming: store.incoming,
-        outgoing: [
-          for (final entry in store.outgoing)
-            if (entry.appeal.appealId == acceptedDecision.appealId)
-              SpaceModerationAppealOutboxEntry(
-                appeal: entry.appeal,
-                decision: acceptedDecision,
-              )
-            else
-              entry,
-        ],
-      );
-      changes.value++;
-      return true;
-    });
-  }
+  ) => _moderationAppeals.receiveSpaceModerationAppealDecision(
+    peer,
+    decisionJson,
+  );
 
   late final _AbuseReports _abuseReports = _AbuseReports(this);
 
