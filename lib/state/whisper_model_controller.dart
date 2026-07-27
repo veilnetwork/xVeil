@@ -15,6 +15,7 @@ class WhisperModelState {
     this.phase = WhisperModelPhase.absent,
     this.progress,
     this.error,
+    this.resumeFraction,
   });
 
   final WhisperModelPhase phase;
@@ -24,6 +25,12 @@ class WhisperModelState {
   /// started yet", never "cannot tell".
   final double? progress;
   final String? error;
+
+  /// How much of an interrupted attempt is already on disk, 0..1, or null if
+  /// there is nothing to resume. Shown so the offer can say "continue" rather
+  /// than "download 57 MB" — a person on mobile data decides differently when
+  /// they know most of it is already there.
+  final double? resumeFraction;
 
   bool get isBusy => phase == WhisperModelPhase.downloading;
   bool get isReady => phase == WhisperModelPhase.ready;
@@ -50,8 +57,12 @@ class WhisperModelController extends Notifier<WhisperModelState> {
     // A download in flight must not be overwritten by a stale probe.
     if (state.isBusy) return;
     final installed = await _store.isInstalled();
+    final pending = installed ? 0 : await _store.pendingBytes();
     state = WhisperModelState(
       phase: installed ? WhisperModelPhase.ready : WhisperModelPhase.absent,
+      resumeFraction: pending > 0
+          ? pending / WhisperModelStore.expectedBytes
+          : null,
     );
   }
 
@@ -76,11 +87,18 @@ class WhisperModelController extends Notifier<WhisperModelState> {
       state = const WhisperModelState(phase: WhisperModelPhase.ready);
       return true;
     }
+    // Keep the resume marker: a failed transport attempt usually left bytes.
     state = WhisperModelState(
       phase: WhisperModelPhase.failed,
       error: result.error,
+      resumeFraction: await _pendingFraction(),
     );
     return false;
+  }
+
+  Future<double?> _pendingFraction() async {
+    final pending = await _store.pendingBytes();
+    return pending > 0 ? pending / WhisperModelStore.expectedBytes : null;
   }
 
   Future<void> remove() async {

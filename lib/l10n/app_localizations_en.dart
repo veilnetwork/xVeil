@@ -5456,4 +5456,12 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get voiceModelTitle => 'Speech model';
+
+  @override
+  String get voiceModelResume => 'Continue downloading';
+
+  @override
+  String voiceModelResumeAt(int percent) {
+    return '$percent% already downloaded';
+  }
 }

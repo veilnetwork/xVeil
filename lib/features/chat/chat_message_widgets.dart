@@ -684,6 +684,9 @@ class _VoiceBubble extends ConsumerWidget {
               child: Text(
                 failed
                     ? l.voiceModelFailed
+                    : model.resumeFraction != null
+                    ? '${l.voiceModelResume} · '
+                          '${l.voiceModelResumeAt((model.resumeFraction! * 100).round())}'
                     : '${l.voiceModelDownload} · ${l.voiceModelSize}',
                 style: label,
                 overflow: TextOverflow.ellipsis,
