@@ -419,10 +419,17 @@ class _HalfWrittenBundleStorage extends HiddenVolumeStorage {
   /// while a reader is already waiting on it.
   bool failOnRelease = false;
 
+  /// Park ONLY the group index, letting bundle writes through — the shape a
+  /// create has when the race is on the index rather than the bundle.
+  bool gateIndexOnly = false;
+
   @override
   Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
     final held = gate;
-    if (held == null || !fileId.startsWith('group:')) {
+    final gatable = gateIndexOnly
+        ? fileId == 'groups.index'
+        : fileId.startsWith('group:') || fileId == 'groups.index';
+    if (held == null || !gatable) {
       return super.storeFile(fileId, bytes, name: name);
     }
     _incomplete.add(fileId);
@@ -631,6 +638,43 @@ void main() {
       expect(encoded, isNot(contains('secret publication body')));
     },
   );
+
+  test('a read racing an index write does not fall back to the legacy copy',
+      () async {
+    // The legacy settings copy is only inert while the file read cannot miss.
+    // It can: a read landing inside the write sees "incomplete" as "absent",
+    // falls back to the stale list, and the next write persists it — which is
+    // how an id of a purged group comes back and, having no bundle and no
+    // tombstone, silently disables shared-content GC.
+    final storage = _HalfWrittenBundleStorage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    const ghost =
+        '9e6f04b1884f5311805a8b15ade5670237c6886ccf1e86a9088f656a666bd10a';
+    final service = GroupService(storage, _FakeSigner(owner));
+    addTearDown(service.dispose);
+    // The index FILE must already exist: falling back on a store that never
+    // had one is the legitimate migration path, not this race.
+    await service.createGroup('First');
+    // A legacy value that outlived its clear — the code calls it inert.
+    await storage.putSetting('groups.index', '["$ghost"]');
+
+    storage.gate = Completer<void>();
+    storage.gateIndexOnly = true;
+    final creating = service.createGroup('Racing the index');
+    await Future<void>.delayed(Duration.zero);
+    final reading = service.indexedGroups();
+    await Future<void>.delayed(Duration.zero);
+    storage.gate!.complete();
+    storage.gate = null;
+    await creating;
+
+    final rows = await reading;
+    expect(
+      rows.map((row) => row.hex),
+      isNot(contains(ghost)),
+      reason: 'the stale legacy list must never answer for the live index',
+    );
+  });
 
   test('a read that races a bundle save does not see a missing group', () async {
     // The store cannot tell a half-written blob from an absent one, and every
