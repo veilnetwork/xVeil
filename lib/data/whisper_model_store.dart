@@ -28,11 +28,22 @@ class WhisperModelStore {
   WhisperModelStore({
     Future<Directory> Function()? supportDirectory,
     HttpClient Function()? httpClient,
+    this.stallTimeout = const Duration(seconds: 30),
   }) : _supportDirectory = supportDirectory ?? getApplicationSupportDirectory,
        _httpClient = httpClient ?? HttpClient.new;
 
   final Future<Directory> Function() _supportDirectory;
   final HttpClient Function() _httpClient;
+
+  /// How long the transfer may produce nothing before it is abandoned.
+  ///
+  /// A mobile connection does not usually fail, it stops: the socket stays
+  /// open and no bytes arrive. Without this the app sits on a spinner
+  /// indefinitely with no cancel and no retry — a state a person cannot leave.
+  /// Abandoning it turns a hang into a failure, and a failure is retryable —
+  /// and because the partial bytes are kept, the retry resumes rather than
+  /// starting the 57 MiB again.
+  final Duration stallTimeout;
 
   static const fileName = 'ggml-base-q5_1.bin';
 
@@ -107,6 +118,7 @@ class WhisperModelStore {
     final file = await _target();
     final part = File('${file.path}.part');
     final client = _httpClient();
+    client.connectionTimeout = stallTimeout;
     try {
       var have = part.existsSync() ? part.lengthSync() : 0;
       if (have >= expectedBytes) {
@@ -141,7 +153,7 @@ class WhisperModelStore {
       );
       var received = have;
       try {
-        await for (final chunk in response) {
+        await for (final chunk in response.timeout(stallTimeout)) {
           sink.add(chunk);
           received += chunk.length;
           if (onProgress != null) {
