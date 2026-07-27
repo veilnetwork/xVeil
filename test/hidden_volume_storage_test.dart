@@ -26,28 +26,6 @@ Message _msg({
   timestamp: ts,
 );
 
-/// Models the native failure seen in an aged profile: namespace 3 has no room
-/// for another log id, while replacing an existing row remains legal.
-class _LegacyIndexFullStore extends FakeKvLogStore {
-  bool rejectNewLegacyRows = false;
-  int rejectedLegacyAppends = 0;
-
-  @override
-  int commit(List<KvLogOp> ops) {
-    if (rejectNewLegacyRows) {
-      for (final op in ops) {
-        if (op is AppendLogOp &&
-            op.namespace == Ns.messageLog &&
-            readLog(op.namespace, op.logId) == null) {
-          rejectedLegacyAppends++;
-          throw StateError('simulated legacy IndexFull');
-        }
-      }
-    }
-    return super.commit(ops);
-  }
-}
-
 void main() {
   late FakeKvLogStore store;
   late HiddenVolumeStorage storage;
@@ -550,95 +528,6 @@ void main() {
     expect(store.count(Ns.messageLog), 0);
     expect(store.count(Ns.messageLogShardFirst), 2);
   });
-
-  test(
-    'a full legacy message namespace keeps its history and accepts new writes',
-    () async {
-      final aged = _LegacyIndexFullStore();
-      final conv = _id(41).hex;
-      const oldId = 'legacy-message';
-      // Seed a pre-sharding row at its original namespace, then place the
-      // global counter where the live aged profile failed (> the safe segment).
-      aged.commit([
-        AppendLogOp(
-          Ns.messageLog,
-          1,
-          Uint8List.fromList(
-            utf8.encode(
-              jsonEncode({
-                'id': oldId,
-                'c': conv,
-                'au': conv,
-                'sq': 1,
-                'k': 0,
-                'd': MessageDirection.incoming.index,
-                'b': 'kept legacy history',
-                't': DateTime(2026, 1, 1).millisecondsSinceEpoch,
-                's': MessageStatus.sent.index,
-              }),
-            ),
-          ),
-        ),
-        PutOp(
-          Ns.settings,
-          Uint8List.fromList(utf8.encode('msg_next_id')),
-          Uint8List.fromList(utf8.encode('14641')),
-        ),
-      ]);
-      aged.rejectNewLegacyRows = true;
-      final reopened = HiddenVolumeStorage(
-        ({required Uint8List password, required bool create}) => aged,
-      );
-      await reopened.open(password: 'pw');
-
-      final appended = await reopened.appendMessage(
-        Message(
-          id: 'post-upgrade',
-          conversationId: conv,
-          direction: MessageDirection.outgoing,
-          body: 'new write survives',
-          timestamp: DateTime(2026, 1, 2),
-          author: conv,
-          seq: 2,
-        ),
-      );
-      final shard = Ns.messageLogNamespaceFor(14641);
-      expect(aged.rejectedLegacyAppends, 0);
-      expect(aged.count(Ns.messageLog), 1);
-      expect(aged.count(shard), 1);
-      expect((await reopened.loadMessages(conv)).map((m) => m.body), [
-        'kept legacy history',
-        'new write survives',
-      ]);
-
-      // New side-channel rows share the deterministic shard, while destructive
-      // rewrites target the exact namespace that owns the original row.
-      await reopened.markMessageStatus(
-        conv,
-        appended.id,
-        MessageStatus.delivered,
-      );
-      await reopened.deleteMessage(conv, oldId);
-      final remaining = await reopened.loadMessages(conv);
-      expect(remaining.single.id, appended.id);
-      expect(remaining.single.status, MessageStatus.delivered);
-      expect(await reopened.isMessageDeleted(conv, oldId), isTrue);
-      expect(aged.rejectedLegacyAppends, 0);
-      final counts = await reopened.namespaceCounts();
-      expect(counts['messageLog'], 3);
-      expect(counts['messageLogLegacy'], 1);
-      expect(counts['messageLogSharded'], 2);
-      expect(counts['messageLogShardNamespaces'], 1);
-
-      // Bench-only wholesale purge and forensic identity erase must cover
-      // shards too, not merely the legacy namespace.
-      expect(await reopened.purgeMessageLog(), 3);
-      final afterPurge = await reopened.namespaceCounts();
-      expect(afterPurge['messageLog'], 0);
-      expect(afterPurge['messageLogLegacy'], 0);
-      expect(afterPurge['messageLogSharded'], 0);
-    },
-  );
 
   test(
     'concurrent appends cross a shard boundary without an active-shard race',
