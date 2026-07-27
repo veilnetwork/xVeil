@@ -257,6 +257,51 @@ void main() {
     });
   });
 
+  group('a path two cloud items claim', () {
+    test('is left alone rather than resolved by listing order', () {
+      // The cloud lets two items share a name in one folder; a folder cannot.
+      // Keeping whichever came last is how a mirror downloads an unrelated
+      // file over the user's work — observed doing exactly that live.
+      final plan = planFolderSync(
+        base: [_base('a.txt')],
+        local: [_local('a.txt', mtime: 200)],
+        remote: [
+          _remote('a.txt', cid: 'cid-one'),
+          RemoteFile(
+            path: 'a.txt',
+            itemId: 'other-item',
+            contentId: 'cid-two',
+            size: 999,
+            modifiedAtMs: 300,
+          ),
+        ],
+      );
+
+      expect(plan.ambiguous, {'a.txt'});
+      expect(plan.actions, isEmpty);
+    });
+
+    test('its neighbours keep syncing', () {
+      final plan = planFolderSync(
+        base: const [],
+        local: [_local('b.txt')],
+        remote: [
+          _remote('a.txt', cid: 'one'),
+          RemoteFile(
+            path: 'a.txt',
+            itemId: 'other',
+            contentId: 'two',
+            size: 1,
+            modifiedAtMs: 1,
+          ),
+        ],
+      );
+
+      expect(plan.ambiguous, {'a.txt'});
+      expect(plan.actions, [const SyncAction(SyncActionKind.upload, 'b.txt')]);
+    });
+  });
+
   group('the mass-deletion brake', () {
     test('refuses wholesale when most of the tracked set vanished', () {
       // An unmounted drive, a permission change, a folder pointed at the wrong

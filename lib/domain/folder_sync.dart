@@ -138,13 +138,21 @@ class SyncAction {
 
 /// The outcome of one reconciliation.
 class FolderSyncPlan {
-  const FolderSyncPlan({required this.actions, required this.refusedReason});
+  const FolderSyncPlan({
+    required this.actions,
+    required this.refusedReason,
+    this.ambiguous = const {},
+  });
 
   final List<SyncAction> actions;
 
   /// Non-null when the plan was REFUSED wholesale. The actions list is empty
   /// in that case: a refusal is not a partial apply.
   final String? refusedReason;
+
+  /// Paths more than one cloud item claims. Left untouched — see
+  /// [planFolderSync].
+  final Set<String> ambiguous;
 
   bool get isRefused => refusedReason != null;
 }
@@ -183,7 +191,21 @@ FolderSyncPlan planFolderSync({
 }) {
   final baseByPath = {for (final f in base) f.path: f};
   final localByPath = {for (final f in local) f.path: f};
-  final remoteByPath = {for (final f in remote) f.path: f};
+
+  // The cloud allows two items to share a name in one folder; a folder cannot.
+  // Mapping both onto one path and keeping whichever came last is how the
+  // mirror ends up downloading an unrelated file over the user's work —
+  // observed doing exactly that on a live install. An ambiguous path is left
+  // strictly alone until a human renames one of them.
+  final remoteByPath = <String, RemoteFile>{};
+  final ambiguous = <String>{};
+  for (final file in remote) {
+    if (remoteByPath.containsKey(file.path)) {
+      ambiguous.add(file.path);
+      continue;
+    }
+    remoteByPath[file.path] = file;
+  }
 
   final actions = <SyncAction>[];
   final paths = <String>{
@@ -229,6 +251,7 @@ FolderSyncPlan planFolderSync({
     if (vanished / baseByPath.length > massDeletionBrake) {
       return FolderSyncPlan(
         actions: const [],
+        ambiguous: ambiguous,
         refusedReason:
             'refusing to mirror the disappearance of $vanished of '
             '${baseByPath.length} tracked files — the folder looks '
@@ -244,6 +267,7 @@ FolderSyncPlan planFolderSync({
     // silent overwrite that asking was meant to avoid. Its neighbours keep
     // syncing — one undecided file must not freeze the folder.
     if (pendingConflicts.contains(path)) continue;
+    if (ambiguous.contains(path)) continue;
     final was = baseByPath[path];
     final here = localByPath[path];
     final there = remoteByPath[path];
@@ -330,5 +354,9 @@ FolderSyncPlan planFolderSync({
       );
     }
   }
-  return FolderSyncPlan(actions: actions, refusedReason: null);
+  return FolderSyncPlan(
+    actions: actions,
+    refusedReason: null,
+    ambiguous: ambiguous,
+  );
 }
