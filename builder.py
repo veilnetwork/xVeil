@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""Build xVeil for a target, native libraries included.
+
+    ./builder.py [target] [--debug|--release] [--dry-run]
+
+`target` defaults to this machine's own system and may be android, linux,
+windows, macos or ios. Release unless you say `--debug`. Runs on Windows,
+Linux and macOS.
+
+Run `prepare.py` first on a machine that has not built this before.
+
+Where a shell script already exists it is called rather than reimplemented:
+those carry deployment targets, staging paths, entitlements and signing
+workarounds that were expensive to learn. Windows has no such scripts, so its
+commands are spelled out here, mirroring BUILDING.md.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts"))
+
+from xveil_build_support import (  # noqa: E402
+    ROOT,
+    Step,
+    guard,
+    have,
+    host,
+    main,
+    sh,
+)
+
+VEIL = os.path.join("third_party", "veil")
+HV = os.path.join("third_party", "hidden-volume")
+
+
+def _apple_signing_available() -> bool:
+    """Whether a normal signed Apple build can even be attempted.
+
+    A provisioning profile is what the restricted VPN entitlement needs, and
+    without an Apple account none can be minted — so the plain
+    `flutter build macos` fails at signing after compiling everything. Better
+    to notice here and take the ad-hoc path than to spend the compile first.
+    """
+    profiles = os.path.expanduser("~/Library/MobileDevice/Provisioning Profiles")
+    return os.path.isdir(profiles) and bool(os.listdir(profiles))
+
+
+def _whisper_script(target: str) -> str | None:
+    name = {
+        "android": "build_veil_whisper_android.sh",
+        "linux": "build_veil_whisper_linux.sh",
+        "macos": "build_veil_whisper_macos.sh",
+    }.get(target)
+    if not name:
+        return None
+    path = os.path.join(ROOT, "native", "whisper", name)
+    return path if os.path.isfile(path) else None
+
+
+def _copy(source: str, destination_dir: str) -> None:
+    os.makedirs(os.path.join(ROOT, destination_dir), exist_ok=True)
+    shutil.copy2(os.path.join(ROOT, source), os.path.join(ROOT, destination_dir))
+    print(f"    staged {os.path.basename(source)} -> {destination_dir}")
+
+
+def _android(release: bool) -> list[Step]:
+    steps = [
+        Step("native libraries for Android", argv=sh("scripts/build-mobile.sh", "android")),
+    ]
+    whisper = _whisper_script("android")
+    steps.append(
+        Step(
+            "whisper wrapper (transcription)",
+            argv=["bash", whisper] if whisper else [],
+            optional=True,
+            skip_if="" if whisper else "no build script for this platform",
+        )
+    )
+    if release:
+        # The release script also refuses to hand back a debug-signed APK and
+        # splits per ABI — both worth keeping rather than calling flutter here.
+        steps.append(
+            Step("release APKs (signing checked)", argv=sh("scripts/build-android-release.sh"))
+        )
+    else:
+        steps.append(Step("debug APK", argv=["flutter", "build", "apk", "--debug"]))
+    return steps
+
+
+def _linux(release: bool) -> list[Step]:
+    steps = [
+        Step(
+            "native libraries",
+            argv=sh("scripts/build-native.sh") + (["--release"] if release else []),
+        )
+    ]
+    whisper = _whisper_script("linux")
+    steps.append(
+        Step(
+            "whisper wrapper (transcription)",
+            argv=["bash", whisper] if whisper else [],
+            optional=True,
+            skip_if="" if whisper else "no build script for this platform",
+        )
+    )
+    steps.append(
+        Step(
+            "flutter bundle",
+            argv=["flutter", "build", "linux", "--release" if release else "--debug"],
+        )
+    )
+    return steps
+
+
+def _macos(release: bool) -> list[Step]:
+    config = "release" if release else "debug"
+    whisper = _whisper_script("macos")
+    steps = [
+        Step(
+            "native libraries",
+            argv=sh("scripts/build-native.sh") + (["--release"] if release else []),
+        ),
+        Step(
+            "whisper wrapper (transcription)",
+            argv=["bash", whisper] if whisper else [],
+            optional=True,
+            skip_if="" if whisper else "no build script for this platform",
+        ),
+    ]
+    if _apple_signing_available():
+        steps.append(
+            Step(
+                "flutter bundle (signed)",
+                argv=["flutter", "build", "macos", f"--{config}"],
+            )
+        )
+        steps.append(
+            Step("bundle native dylibs", argv=sh("scripts/bundle-macos-dylibs.sh", config))
+        )
+    else:
+        # No provisioning profile on this machine, so the restricted VPN
+        # entitlement cannot be signed. The ad-hoc script drops the tunnel
+        # extension, bundles, re-signs, and checks the result is not stale.
+        steps.append(
+            Step(
+                "app bundle, ad-hoc (no Apple account here — VPN dropped)",
+                argv=sh("scripts/build-macos-adhoc.sh", config),
+            )
+        )
+    return steps
+
+
+def _ios(release: bool) -> list[Step]:
+    steps = [
+        Step("native libraries for iOS", argv=sh("scripts/build-mobile.sh", "ios")),
+    ]
+    if _apple_signing_available():
+        steps.append(
+            Step(
+                "flutter build ios",
+                argv=["flutter", "build", "ios", "--release" if release else "--debug"],
+            )
+        )
+    else:
+        steps.append(
+            Step(
+                "flutter build ios (unsigned — no provisioning profile here)",
+                argv=[
+                    "flutter", "build", "ios",
+                    "--release" if release else "--debug", "--no-codesign",
+                ],
+            )
+        )
+    return steps
+
+
+def _windows(release: bool) -> list[Step]:
+    profile = "--release" if release else ""
+    out = "release" if release else "debug"
+    hv_dll = os.path.join(HV, "target", out, "hidden_volume_ffi.dll")
+    veil_dll = os.path.join(VEIL, "target", out, "veilclient_ffi.dll")
+    hv_stage = os.path.join(
+        HV, "experimental", "flutter_plugin", "hidden_volume", "windows", "lib"
+    )
+    runner = os.path.join("build", "windows", "x64", "runner", "Release" if release else "Debug")
+    cargo_hv = ["cargo", "build", "--manifest-path", os.path.join(HV, "Cargo.toml"),
+                "-p", "hidden-volume-ffi"]
+    cargo_veil = ["cargo", "build", "--manifest-path", os.path.join(VEIL, "Cargo.toml"),
+                  "-p", "veilclient-ffi", "--features", "node-embedded,production-seeds"]
+    if profile:
+        cargo_hv.append(profile)
+        cargo_veil.append(profile)
+    return [
+        Step("hidden-volume FFI", argv=cargo_hv),
+        # The plugin's CMake picks the DLL up from windows/lib; without this
+        # the app builds and then cannot open its own container at runtime.
+        Step(
+            f"stage hidden_volume_ffi.dll -> {hv_stage}",
+            call=lambda: _copy(hv_dll, hv_stage),
+        ),
+        Step("veil client FFI", argv=cargo_veil),
+        Step(
+            "flutter bundle",
+            argv=["flutter", "build", "windows", "--release" if release else "--debug"],
+        ),
+        # Staged after the Flutter build, which creates the runner directory.
+        Step(
+            f"stage veilclient_ffi.dll -> {runner}",
+            call=lambda: _copy(veil_dll, runner),
+        ),
+        Step(
+            "reminder: what must travel with xveil.exe",
+            call=lambda: print(
+                "    keep veilclient_ffi.dll, veil_vpn_helper.dll, wintun.dll, the\n"
+                "    hidden-volume DLL and WINTUN-LICENSE.txt beside xveil.exe"
+            ),
+        ),
+    ]
+
+
+def plan(target: str, *, release: bool) -> list[Step]:
+    if not have("flutter"):
+        from xveil_build_support import Abort
+
+        raise Abort("flutter is not on PATH — run prepare.py first")
+    builders = {
+        "android": _android,
+        "linux": _linux,
+        "macos": _macos,
+        "ios": _ios,
+        "windows": _windows,
+    }
+    print(f"profile: {'release' if release else 'debug'}")
+    return builders[target](release)
+
+
+if __name__ == "__main__":
+    guard(lambda: main(plan, "Build xVeil for a target."))
