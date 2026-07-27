@@ -9633,7 +9633,7 @@ abstract class AppL10n {
   /// No description provided for @profileSwitchNote.
   ///
   /// In en, this message translates to:
-  /// **'The chosen profile is remembered and applies on the next launch. On Linux and Windows you can also pass --profile <name>; everywhere else set XVEIL_PROFILE.'**
+  /// **'The chosen profile is remembered and applies on the next launch. On desktop you can also pass --profile <name>; on a phone, set XVEIL_PROFILE before launch.'**
   String get profileSwitchNote;
 
   /// No description provided for @profileCreateTitle.

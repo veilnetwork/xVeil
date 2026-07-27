@@ -4,7 +4,19 @@ import AVFoundation
 
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
-    let flutterViewController = FlutterViewController()
+    // Forward the command line to the Dart entrypoint. The Linux and Windows
+    // runners do this for free; macOS drops argv unless it is handed to the
+    // Dart project explicitly, so without this `xveil --profile debug` starts
+    // on the default profile and looks like the flag was ignored.
+    //
+    // Launchd strips its own arguments before argv reaches us, except for the
+    // process-serial-number flag it passes when an app is opened from Finder;
+    // it is not ours and Dart must not see it.
+    let project = FlutterDartProject()
+    project.dartEntrypointArguments = CommandLine.arguments
+      .dropFirst()
+      .filter { !$0.hasPrefix("-psn_") }
+    let flutterViewController = FlutterViewController(project: project)
     let windowFrame = self.frame
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)

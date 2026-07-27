@@ -5389,7 +5389,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get profileSwitchNote =>
-      'Выбранный профиль запоминается и применяется при следующем запуске. На Linux и Windows можно также передать --profile <имя>; в остальных случаях задайте XVEIL_PROFILE.';
+      'Выбранный профиль запоминается и применяется при следующем запуске. На десктопе можно также передать --profile <имя>; на телефоне — задать XVEIL_PROFILE перед запуском.';
 
   @override
   String get profileCreateTitle => 'Новый профиль';
