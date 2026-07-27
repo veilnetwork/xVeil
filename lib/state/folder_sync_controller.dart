@@ -126,9 +126,11 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
     required String id,
   }) async {
     final pairs = [...await _store.pairs()];
-    // Two pairs on one local folder would fight over the same files with
-    // separate bases, and each would read the other's uploads as remote edits.
-    if (pairs.any((p) => p.localPath == localPath)) return;
+    // Refused rather than supported: a file inside two pairs is uploaded
+    // twice, under two cloud paths, with two independent bases — nothing is
+    // lost, but one file quietly becomes two objects and deleting it locally
+    // deletes both, which is impossible to explain to whoever it happens to.
+    if (pairs.any((p) => folderPairsOverlap(p.localPath, localPath))) return;
     pairs.add(
       FolderSyncPair(id: id, localPath: localPath, cloudFolderId: cloudFolderId),
     );

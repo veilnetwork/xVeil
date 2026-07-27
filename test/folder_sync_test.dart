@@ -380,4 +380,33 @@ void main() {
       );
     });
   });
+
+  group('overlapping pairs', () {
+    test('identical, and either nesting, overlap', () {
+      expect(folderPairsOverlap('/home/docs', '/home/docs'), isTrue);
+      expect(folderPairsOverlap('/home/docs', '/home/docs/work'), isTrue);
+      expect(folderPairsOverlap('/home/docs/work', '/home/docs'), isTrue);
+    });
+
+    test('a shared TEXTUAL prefix is not nesting', () {
+      // The classic version of this bug: /home/docs2 is not inside /home/docs.
+      expect(folderPairsOverlap('/home/docs', '/home/docs2'), isFalse);
+      expect(folderPairsOverlap('/home/docs', '/home/documents'), isFalse);
+    });
+
+    test('siblings do not overlap', () {
+      expect(folderPairsOverlap('/home/a', '/home/b'), isFalse);
+      expect(folderPairsOverlap('/home/a/x', '/home/b/x'), isFalse);
+    });
+
+    test('trailing separators and backslashes do not change the answer', () {
+      expect(folderPairsOverlap('/home/docs/', '/home/docs'), isTrue);
+      expect(folderPairsOverlap(r'C:\\Users\\a', r'C:\\Users\\a\\b'), isTrue);
+      expect(folderPairsOverlap(r'C:\\Users\\a', r'C:\\Users\\ab'), isFalse);
+    });
+
+    test('the filesystem root overlaps everything', () {
+      expect(folderPairsOverlap('/', '/home/docs'), isTrue);
+    });
+  });
 }
