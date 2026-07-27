@@ -5483,4 +5483,30 @@ class AppL10nRu extends AppL10n {
   @override
   String get errorLoadFailedHint =>
       'Подробности — в Настройках, «Скопировать отчёт об ошибках».';
+
+  @override
+  String get voiceModelDownload => 'Скачать модель распознавания';
+
+  @override
+  String get voiceModelSize => '57 МБ, один раз на всё приложение';
+
+  @override
+  String get voiceModelDownloading => 'Скачиваем модель распознавания…';
+
+  @override
+  String get voiceModelFailed =>
+      'Скачать не удалось — нажмите, чтобы повторить';
+
+  @override
+  String get voiceModelInstalled => 'Модель распознавания установлена';
+
+  @override
+  String get voiceModelRemove => 'Удалить модель распознавания';
+
+  @override
+  String get voiceModelRemoveHint =>
+      'Освободит 57 МБ. Расшифровка перестанет работать, пока не скачаете снова.';
+
+  @override
+  String get voiceModelTitle => 'Модель распознавания';
 }

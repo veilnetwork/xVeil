@@ -14,7 +14,8 @@ import 'providers.dart';
 import 'whisper_ffi.dart';
 
 /// Injectable so widget tests fake the native transcriber.
-typedef VoiceTranscribe = Future<String?> Function(Uint8List opus, {String lang});
+typedef VoiceTranscribe =
+    Future<String?> Function(Uint8List opus, {String lang});
 
 final voiceTranscriberProvider = Provider<VoiceTranscribe>(
   (ref) => WhisperTranscriber().transcribe,
@@ -26,6 +27,16 @@ final voiceTranscriberProvider = Provider<VoiceTranscribe>(
 final transcriptionAvailableProvider = FutureProvider<bool>((ref) async {
   await WhisperTranscriber.ensureResolved();
   return WhisperTranscriber.available();
+});
+
+/// Whether the native STT layer is here at all, model aside.
+///
+/// The model is fetched on demand, so "no model" and "no whisper build for
+/// this platform" are different sentences: the first is a download away, the
+/// second is not, and only the first should be offered.
+final transcriptionNativeReadyProvider = FutureProvider<bool>((ref) async {
+  await WhisperTranscriber.ensureResolved();
+  return WhisperTranscriber.nativeReady();
 });
 
 enum TranscriptPhase { none, running, done, failed }
@@ -64,12 +75,18 @@ class TranscriptionController extends Notifier<Map<String, TranscriptEntry>> {
   Future<void> loadCached(String messageId, String fileKey) async {
     if (state.containsKey(messageId)) return;
     try {
-      final cached =
-          await ref.read(storageProvider).getSetting(_cacheKey(fileKey));
+      final cached = await ref
+          .read(storageProvider)
+          .getSetting(_cacheKey(fileKey));
       if (cached != null) {
-        _set(messageId, TranscriptEntry(phase: TranscriptPhase.done, text: cached));
+        _set(
+          messageId,
+          TranscriptEntry(phase: TranscriptPhase.done, text: cached),
+        );
       }
-    } catch (_) {/* store not open / transient — leave as none */}
+    } catch (_) {
+      /* store not open / transient — leave as none */
+    }
   }
 
   /// Transcribe the clip [fileKey] and cache the result. [senderLang] (from the
@@ -121,5 +138,5 @@ class TranscriptionController extends Notifier<Map<String, TranscriptEntry>> {
 
 final transcriptionControllerProvider =
     NotifierProvider<TranscriptionController, Map<String, TranscriptEntry>>(
-  TranscriptionController.new,
-);
+      TranscriptionController.new,
+    );

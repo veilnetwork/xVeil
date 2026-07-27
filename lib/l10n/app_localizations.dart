@@ -9785,6 +9785,54 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'The details are in Settings → Copy error report.'**
   String get errorLoadFailedHint;
+
+  /// No description provided for @voiceModelDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'Download the speech model'**
+  String get voiceModelDownload;
+
+  /// No description provided for @voiceModelSize.
+  ///
+  /// In en, this message translates to:
+  /// **'57 MB, once for the whole app'**
+  String get voiceModelSize;
+
+  /// No description provided for @voiceModelDownloading.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading the speech model…'**
+  String get voiceModelDownloading;
+
+  /// No description provided for @voiceModelFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Download failed — tap to retry'**
+  String get voiceModelFailed;
+
+  /// No description provided for @voiceModelInstalled.
+  ///
+  /// In en, this message translates to:
+  /// **'Speech model installed'**
+  String get voiceModelInstalled;
+
+  /// No description provided for @voiceModelRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove the speech model'**
+  String get voiceModelRemove;
+
+  /// No description provided for @voiceModelRemoveHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Frees 57 MB. Transcription stops working until you fetch it again.'**
+  String get voiceModelRemoveHint;
+
+  /// No description provided for @voiceModelTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Speech model'**
+  String get voiceModelTitle;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

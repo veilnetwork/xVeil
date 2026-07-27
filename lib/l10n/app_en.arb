@@ -1725,5 +1725,13 @@
   "settingsCopyErrorsDone": "Error report copied ({count, plural, =0{no failures recorded} =1{1 failure} other{{count} failures}})",
   "@settingsCopyErrorsDone": { "placeholders": { "count": { "type": "int" } } },
   "errorLoadFailed": "Couldn't load this",
-  "errorLoadFailedHint": "The details are in Settings → Copy error report."
+  "errorLoadFailedHint": "The details are in Settings → Copy error report.",
+  "voiceModelDownload": "Download the speech model",
+  "voiceModelSize": "57 MB, once for the whole app",
+  "voiceModelDownloading": "Downloading the speech model…",
+  "voiceModelFailed": "Download failed — tap to retry",
+  "voiceModelInstalled": "Speech model installed",
+  "voiceModelRemove": "Remove the speech model",
+  "voiceModelRemoveHint": "Frees 57 MB. Transcription stops working until you fetch it again.",
+  "voiceModelTitle": "Speech model"
 }

@@ -1724,5 +1724,13 @@
   "settingsCopyErrorsDone": "Отчёт скопирован ({count, plural, =0{сбоев не записано} one{{count} сбой} few{{count} сбоя} other{{count} сбоев}})",
   "@settingsCopyErrorsDone": { "placeholders": { "count": { "type": "int" } } },
   "errorLoadFailed": "Не удалось загрузить",
-  "errorLoadFailedHint": "Подробности — в Настройках, «Скопировать отчёт об ошибках»."
+  "errorLoadFailedHint": "Подробности — в Настройках, «Скопировать отчёт об ошибках».",
+  "voiceModelDownload": "Скачать модель распознавания",
+  "voiceModelSize": "57 МБ, один раз на всё приложение",
+  "voiceModelDownloading": "Скачиваем модель распознавания…",
+  "voiceModelFailed": "Скачать не удалось — нажмите, чтобы повторить",
+  "voiceModelInstalled": "Модель распознавания установлена",
+  "voiceModelRemove": "Удалить модель распознавания",
+  "voiceModelRemoveHint": "Освободит 57 МБ. Расшифровка перестанет работать, пока не скачаете снова.",
+  "voiceModelTitle": "Модель распознавания"
 }
