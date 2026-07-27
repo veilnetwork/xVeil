@@ -3307,8 +3307,8 @@ void main() {
 
       final wire = jsonDecode(sent.first) as Map<String, dynamic>;
       final manifest = wire['m'] as Map<String, dynamic>;
-      expect(manifest['v'], GroupManifest.sovereignDeviceVersion);
-      expect(manifest['kind'], GroupManifest.sovereignDeviceKind);
+      expect(manifest['v'], SpaceManifest.sovereignDeviceVersion);
+      expect(manifest['kind'], SpaceManifest.sovereignDeviceKind);
       expect(manifest['alg'], 'ed25519');
       expect(manifest['msig'], isNotEmpty);
       manifest['name'] = ' xveil.devices.tampered';
@@ -3685,7 +3685,7 @@ void main() {
       final storage = FakeHvContainer().storage();
       await storage.open(password: 'pw', createIfMissing: true);
       final legacyGid = _id(43);
-      final legacyManifest = GroupManifest(
+      final legacyManifest = SpaceManifest(
         groupId: legacyGid,
         owner: owner,
         genesisPubKey: owner.bytes,
