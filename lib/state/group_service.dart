@@ -8197,12 +8197,14 @@ class GroupService {
         }
         if (groupId == null) continue;
         if (!_sharedContentIdPattern.hasMatch(groupId)) {
+          devLog(() => 'xVeil[content-gc]: incomplete #1 — group index unreadable');
           return (groupIds: groupIds, complete: false);
         }
         groupIds.add(groupId);
       }
       return (groupIds: groupIds, complete: true);
     } catch (_) {
+      devLog(() => 'xVeil[content-gc]: incomplete #2 — group index unreadable');
       return (groupIds: groupIds, complete: false);
     }
   }
@@ -8212,6 +8214,7 @@ class GroupService {
     final contentIds = <String>{};
     final index = await _groupIdsForGc();
     if (!index.complete) {
+      devLog(() => 'xVeil[content-gc]: incomplete #3 — a reference source was incomplete');
       return (contentIds: contentIds, complete: false);
     }
     for (final hex in index.groupIds) {
@@ -8219,12 +8222,27 @@ class GroupService {
       try {
         groupId = NodeId.fromHex(hex);
       } catch (_) {
+        devLog(() => 'xVeil[content-gc]: incomplete #4 — a reference source was incomplete');
         return (contentIds: contentIds, complete: false);
       }
       final result = await _serialized(groupId, () async {
         final bundle = await load(groupId);
         if (bundle == null) {
           final wasPurged = await deletedSpaceTombstone(groupId) != null;
+          if (!wasPurged) {
+            // Fail-closed is right — collecting while blind to one group's
+            // references would delete live content. But it is permanent if
+            // the index keeps an id whose bundle is gone: measured on the
+            // stand as `stored=104 referenced=42 purged=0` for hours, with
+            // two such ids logging a load refusal every few seconds. Say
+            // which group holds the sweep, or the symptom is only "storage
+            // never shrinks".
+            devLog(
+              () =>
+                  'xVeil[content-gc]: blocked by ${groupId.short} — '
+                  'indexed, no bundle, no deletion tombstone',
+            );
+          }
           return (contentIds: <String>{}, complete: wasPurged);
         }
         final state = foldControlLog(
@@ -8251,11 +8269,13 @@ class GroupService {
       });
       contentIds.addAll(result.contentIds);
       if (!result.complete) {
+        devLog(() => 'xVeil[content-gc]: incomplete #5 — a reference source was incomplete');
         return (contentIds: contentIds, complete: false);
       }
     }
     final publicIndex = await _loadPublicSubscriptionIndex();
     if (!publicIndex.complete) {
+      devLog(() => 'xVeil[content-gc]: incomplete #6 — a reference source was incomplete');
       return (contentIds: contentIds, complete: false);
     }
     for (final hex in publicIndex.ids) {
@@ -8263,12 +8283,14 @@ class GroupService {
       try {
         spaceId = NodeId.fromHex(hex);
       } catch (_) {
+        devLog(() => 'xVeil[content-gc]: incomplete #7 — a reference source was incomplete');
         return (contentIds: contentIds, complete: false);
       }
       final snapshot = await _loadPublicSubscriptionSnapshot(spaceId);
       if (snapshot == null) {
         // A referenced root that cannot be authenticated is uncertainty. Do
         // not use a malformed index/snapshot pair as deletion authority.
+        devLog(() => 'xVeil[content-gc]: incomplete #8 — a reference source was incomplete');
         return (contentIds: contentIds, complete: false);
       }
       contentIds.addAll(
