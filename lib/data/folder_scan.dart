@@ -29,6 +29,11 @@ class FolderScan {
 /// nothing.
 const _junk = {'.DS_Store', 'Thumbs.db', 'desktop.ini', '.localized'};
 
+/// The suffix a half-finished download carries. It is OURS, never the user's,
+/// and a write that died before its rename leaves one behind: without this the
+/// next scan reads the debris as a new file and uploads it.
+const kPartialSuffix = '.xveil-part';
+
 /// Walk [root] and describe every file it contains, relative to [root].
 ///
 /// Paths are returned with forward slashes and no leading separator, so the
@@ -68,7 +73,11 @@ Future<FolderScan> scanFolder(
           .last;
       // Hidden entries are configuration, caches and version-control
       // internals. A mirror that carries .git across devices corrupts it.
-      if (name.startsWith('.') || _junk.contains(name)) continue;
+      if (name.startsWith('.') ||
+          _junk.contains(name) ||
+          name.endsWith(kPartialSuffix)) {
+        continue;
+      }
       final relative = _relative(rootPath, entry.path);
       if (exclude?.call(relative) ?? false) continue;
       if (entry is Link) continue;
