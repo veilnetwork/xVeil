@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/roster.dart';
@@ -23,7 +24,10 @@ Future<void> _settle(ProviderContainer c) async {
 }
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    errorJournal.clear();
+  });
 
   test(
     'lean storage padding is enabled by default and can be disabled',
@@ -999,4 +1003,64 @@ void main() {
       expect(s.identity!.displayName, 'Solo');
     },
   );
+
+  group('what an unlock failure puts in the error report', () {
+    // The report exists for the person who cannot get in. Its usefulness rests
+    // on a distinction: a container that REFUSES to open is a defect worth
+    // sending, a mistyped password is not. Recording both would bury the first
+    // under the second and would put a count of someone's typos in a file they
+    // hand to another person.
+    test('a wrong password records NOTHING', () async {
+      SharedPreferences.setMockInitialValues({'onboarded': true});
+      final container = FakeHvContainer();
+      final seeded = container.storage();
+      await seeded.open(password: 'right', createIfMissing: true);
+      await seeded.close();
+
+      final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => container.storage())],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
+
+      await ctrl.unlock('wrong');
+      expect(c.read(appControllerProvider).unlockError, isTrue);
+      expect(
+        errorJournal.entries,
+        isEmpty,
+        reason: 'a typo is not a defect and does not belong in a report',
+      );
+    });
+
+    test('a container that cannot be opened at all IS recorded', () async {
+      // The real shape of this: the native container holds an exclusive lock,
+      // so a second handle throws while the password is perfectly correct.
+      // "The correct password does not open it" is precisely the field report
+      // that used to be undiagnosable.
+      SharedPreferences.setMockInitialValues({'onboarded': true});
+      final container = FakeHvContainer();
+      final holder = container.storage();
+      await holder.open(password: 'right', createIfMissing: true);
+      addTearDown(holder.close);
+
+      final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => container.storage())],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
+
+      await ctrl.unlock('right');
+      expect(c.read(appControllerProvider).unlockError, isTrue);
+      expect(errorJournal.entries, hasLength(1));
+      final entry = errorJournal.entries.single;
+      expect(entry.kind, 'unlock');
+      expect(
+        entry.message,
+        contains('busy'),
+        reason: 'the report must name the cause, not just say it failed',
+      );
+    });
+  });
 }
