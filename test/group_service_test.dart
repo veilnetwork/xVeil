@@ -7331,6 +7331,51 @@ void main() {
     },
   );
 
+  /// A join request names its requester, and the approver must refuse one
+  /// relayed by anybody else. Nothing covered that: deleting the check let a
+  /// third party hand over somebody's signed request, putting a stranger in the
+  /// owner's pending queue under a name they never authenticated as.
+  test('a join request relayed by a third party is refused', () async {
+    final ownerStorage = FakeHvContainer().storage();
+    final carolStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'owner', createIfMissing: true);
+    await carolStorage.open(password: 'carol', createIfMissing: true);
+    String? requestJson;
+    final ownerSvc = GroupService(ownerStorage, _FakeSigner(owner));
+    final carolSvc = GroupService(
+      carolStorage,
+      _FakeSigner(carol),
+      sendSpaceJoinRequest: (peer, requestId, json) async {
+        requestJson = json;
+      },
+    );
+    addTearDown(ownerSvc.dispose);
+    addTearDown(carolSvc.dispose);
+
+    final spaceId = await ownerSvc.createSpace(
+      'Open',
+      visibility: SpaceVisibility.public,
+    );
+    final code = await ownerSvc.createSpaceJoinCode(spaceId);
+    expect(code, isNotNull);
+    expect(await carolSvc.requestToJoinSpace(code!), isTrue);
+    expect(requestJson, isNotNull);
+
+    // Carol signed it; bob hands it over. The ticket is live and the request
+    // is well-formed — the only thing wrong is who delivered it.
+    expect(
+      await ownerSvc.receiveSpaceJoinRequest(bob, requestJson!),
+      isFalse,
+      reason: 'the authenticated source must be the requester itself',
+    );
+    expect(await ownerSvc.pendingSpaceJoinRequests(spaceId), isEmpty);
+
+    // Control: delivered by carol herself it is accepted, so the refusal above
+    // is about the relay and not about the request being unusable.
+    expect(await ownerSvc.receiveSpaceJoinRequest(carol, requestJson!), isTrue);
+    expect(await ownerSvc.pendingSpaceJoinRequests(spaceId), hasLength(1));
+  });
+
   /// An invite names its invitee, and a node must refuse one addressed to
   /// somebody else even when it arrives from an accepted contact over an
   /// authenticated transport. Nothing covered that: deleting the check let a
