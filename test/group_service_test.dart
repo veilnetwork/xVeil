@@ -7578,6 +7578,163 @@ void main() {
     await storage.close();
   });
 
+  // WHAT A NON-RECIPIENT MEMBER LEARNS ABOUT A RESTRICTED CHANNEL.
+  //
+  // These are not a wish list. They assert the CURRENT truth so that the leak
+  // table in doc/SECRET-CHANNEL-DESIGN.md is an executable fact rather than
+  // prose I wrote — the whole argument for refusing `access: secret` today
+  // rests on that table being right.
+  //
+  // Every expectation below is a LEAK. A secret-channel implementation must
+  // make each of them fail; until then it would have hidden nothing, only
+  // renamed it. If one starts failing without such an implementation, the
+  // design document is wrong and must be corrected before anything is built.
+  group('secret-channel groundwork: what the control chain gives away', () {
+    Future<(GroupService, NodeId)> spaceWithTwoHiddenChannels() async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      // A protected channel's control entry carries a key descriptor, so the
+      // epoch service is not optional here: without it createChannel returns
+      // null and the chain is empty — which is how the first version of these
+      // tests "passed" by asserting nothing.
+      final svc = GroupService(
+        storage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(svc.dispose);
+      final spaceId = await svc.createSpace('Leak');
+      for (final member in [bob, carol]) {
+        await svc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: member,
+          role: GroupRole.member,
+        );
+      }
+      await svc.createChannel(
+        spaceId,
+        name: 'One',
+        kind: SpaceChannelKind.text,
+        access: SpaceChannelAccess.restricted,
+        members: [bob],
+      );
+      await svc.createChannel(
+        spaceId,
+        name: 'Two',
+        kind: SpaceChannelKind.text,
+        access: SpaceChannelAccess.restricted,
+        members: [bob, carol],
+      );
+      return (svc, spaceId);
+    }
+
+    /// Exactly what a non-recipient member holds: the signed chain, no keys.
+    Future<List<SpaceChannelControlEnvelope>> chain(
+      GroupService svc,
+      NodeId spaceId,
+    ) async {
+      final bundle = (await svc.load(spaceId))!;
+      return [
+        for (final entry in bundle.control)
+          if (entry.channelControl case final envelope?) envelope,
+      ];
+    }
+
+    test('LEAK: a non-recipient can COUNT the hidden channels', () async {
+      final (svc, spaceId) = await spaceWithTwoHiddenChannels();
+      final ids = (await chain(svc, spaceId)).map((e) => e.channelId).toSet();
+      expect(
+        ids,
+        hasLength(2),
+        reason: 'the channel id is in the CLEARTEXT of every control entry',
+      );
+    });
+
+    test('LEAK: the recipient count is a headcount', () async {
+      final (svc, spaceId) = await spaceWithTwoHiddenChannels();
+      final counts = [
+        for (final e in await chain(svc, spaceId)) e.keyDescriptor.recipientCount,
+      ]..sort();
+      // members + the administrator, who is a recipient of their own channel.
+      expect(
+        counts,
+        [2, 3],
+        reason: 'how many people read each hidden channel, in the clear',
+      );
+    });
+
+    test('LEAK: entries of one channel are linkable, and a rotation shows as '
+        'an epoch bump', () async {
+      final (svc, spaceId) = await spaceWithTwoHiddenChannels();
+      final target = (await chain(svc, spaceId)).first.channelId;
+
+      expect(await svc.rotateChannelKey(spaceId, target), isTrue);
+
+      final same = (await chain(svc, spaceId))
+          .where((e) => e.channelId == target)
+          .toList();
+      expect(
+        same.length,
+        greaterThan(1),
+        reason: 'entries are linked by a stable cleartext id',
+      );
+      expect(
+        same.map((e) => e.channelEpoch).toSet(),
+        hasLength(greaterThan(1)),
+        reason: 'the key was replaced, and the chain says so',
+      );
+    });
+
+    test('LEAK: the chain names who administers a hidden channel', () async {
+      final (svc, spaceId) = await spaceWithTwoHiddenChannels();
+      final bundle = (await svc.load(spaceId))!;
+      final authors = {
+        for (final entry in bundle.control)
+          if (entry.channelControl != null) entry.author,
+      };
+      expect(
+        authors,
+        {owner},
+        reason: 'signed by the account, not by the channel',
+      );
+    });
+
+    test('and `secret` is still refused, so none of this is promised away',
+        () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final svc = GroupService(
+        storage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(svc.dispose);
+      final spaceId = await svc.createSpace('Refusal');
+      await svc.addControlOp(
+        spaceId,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      );
+      expect(
+        await svc.createChannel(
+          spaceId,
+          name: 'Nope',
+          kind: SpaceChannelKind.text,
+          access: SpaceChannelAccess.secret,
+          members: [bob],
+        ),
+        isNull,
+        reason: 'shipping `secret` over this envelope would hide nothing',
+      );
+    });
+  });
+
   test('a protected channel key can be replaced without touching its ACL', () async {
     final storage = FakeHvContainer().storage();
     await storage.open(password: 'pw', createIfMissing: true);
