@@ -693,6 +693,26 @@ void main() {
     );
   });
 
+  test('waiting out a bundle write is bounded, not indefinite', () async {
+    // A read must never hang behind a slow write: on timeout it reads anyway
+    // and lands back on the old answer for that one call.
+    final storage = _HalfWrittenBundleStorage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _FakeSigner(owner))
+      ..bundleWriteWait = const Duration(milliseconds: 30);
+    addTearDown(service.dispose);
+    final gid = await service.createGroup('Slow write');
+
+    storage.gate = Completer<void>();
+    final saving = service.postMessage(gid, 'slow', broadcast: false);
+    await Future<void>.delayed(Duration.zero);
+    // The write never finishes within the bound; the read must still return.
+    await expectLater(service.load(gid), completes);
+    storage.gate!.complete();
+    storage.gate = null;
+    await saving;
+  }, timeout: const Timeout(Duration(seconds: 10)));
+
   test(
     'Space replication snapshot reads each durable bundle once per call',
     () async {
