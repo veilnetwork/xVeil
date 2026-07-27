@@ -1908,6 +1908,12 @@ class HiddenVolumeStorage implements Storage {
     }
   }
 
+  static void _logUnreadableCloudIndexRow(Object? event) => devLog(
+    () =>
+        'xVeil[content-gc]: cloud index row not understood — '
+        'k=${event is Map ? event['k'] : event.runtimeType}',
+  );
+
   /// Key families in the settings namespace that describe content which can
   /// disappear out from under them; everything else (identity, config,
   /// cursors, app settings) is never swept.
@@ -1996,9 +2002,21 @@ class HiddenVolumeStorage implements Storage {
           for (final body in rows) {
             if (body is! String || body.length > 4096) return false;
             final event = jsonDecode(body);
-            if (event is! Map ||
-                event['v'] != 1 ||
-                event['k'] != 'cloudEntry') {
+            if (event is! Map || event['v'] != 1) {
+              _logUnreadableCloudIndexRow(event);
+              return false;
+            }
+            // Folders describe structure, never content: their payload is
+            // name/created/rev/parent (or a del tombstone). Skipping them is
+            // safe, and NOT skipping them disabled shared-content GC outright
+            // — measured on the stand as `stored=124 referenced=53 purged=0`
+            // with `k=cloudFolder` stopping this reader on every pass.
+            if (event['k'] == 'cloudFolder') continue;
+            if (event['k'] != 'cloudEntry') {
+              // Still fail-closed for a kind this reader has never seen: it
+              // may carry a content id we cannot find, and collecting then
+              // would delete live content.
+              _logUnreadableCloudIndexRow(event);
               return false;
             }
             final payload = event['p'];
