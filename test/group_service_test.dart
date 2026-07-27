@@ -1880,14 +1880,27 @@ void main() {
     // addControlOp fans a delta out unawaited; let it land before measuring.
     await Future<void>.delayed(const Duration(milliseconds: 20));
     sent.clear();
-    await svc.broadcast(gid);
-    await svc.broadcast(gid);
+    await svc.broadcast(gid, reseed: true);
+    await svc.broadcast(gid, reseed: true);
 
     expect(sent, hasLength(2));
     expect(
       sent[0],
       isNot(sent[1]),
       reason: 'identical bytes would reuse a settled durable frame id',
+    );
+
+    // And the ordinary push stays content-keyed. Minting a fresh identity on
+    // EVERY broadcast had two live devices shipping the whole bundle to each
+    // other without pause: each push arrived as new and provoked the next.
+    sent.clear();
+    await svc.broadcast(gid);
+    await svc.broadcast(gid);
+    expect(sent, hasLength(2));
+    expect(
+      sent[0],
+      sent[1],
+      reason: 'an unchanged bundle must collapse into no delivery at all',
     );
     // A delta must NOT pay this: re-driving the same delta is exactly the case
     // content keying exists to collapse.

@@ -3896,7 +3896,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (!_requireReady(req)) return;
     final svc = _groupSvc();
     if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
-    final shipped = await svc.nudgeDeviceSync();
+    final shipped = await svc.nudgeDeviceSync(reseed: true);
     return _json(req, {'ok': true, 'shipped': shipped});
   }
 

@@ -19296,7 +19296,7 @@ class GroupService {
   Future<int> broadcastDeviceGroup() async {
     final gidHex = await deviceGroupIdHex();
     if (gidHex == null) return 0;
-    return broadcast(NodeId.fromHex(gidHex));
+    return broadcast(NodeId.fromHex(gidHex), reseed: true);
   }
 
   bool _sovereignMatches(
@@ -19451,7 +19451,7 @@ class GroupService {
     await _storage.putSetting('devices.gid', gid.hex);
     _deviceGidCache = gid.hex;
     _publishDeviceMembersCache(manifest, folded.state);
-    if (broadcastSnapshot) await broadcast(gid);
+    if (broadcastSnapshot) await broadcast(gid, reseed: true);
     return gid;
   }
 
@@ -19786,10 +19786,16 @@ class GroupService {
   /// device nudges once per boot; [ingestSnapshot] merges by (author, seq),
   /// so a redundant nudge costs bandwidth, never correctness. Returns how
   /// many devices it was shipped to (0 = no device group / solo install).
-  Future<int> nudgeDeviceSync() async {
+  /// Ship the device group to the other devices.
+  ///
+  /// [reseed] marks the calls that exist for a device which may hold nothing —
+  /// adoption and the explicit snapshot send. The boot catch-up does NOT set
+  /// it: it runs on every bridge build, and a fresh identity there is what
+  /// turned two idle devices into a permanent exchange of whole bundles.
+  Future<int> nudgeDeviceSync({bool reseed = false}) async {
     final hex = await deviceGroupIdHex();
     if (hex == null) return 0;
-    return broadcast(NodeId.fromHex(hex));
+    return broadcast(NodeId.fromHex(hex), reseed: reseed);
   }
 
   /// Whether [peer] is a CURRENT member of my device group — i.e. another of
@@ -19939,7 +19945,7 @@ class GroupService {
   /// (direct delivery, v1). Used to sync a member joining (they need the whole
   /// history). No-op without an injected sender. Returns how many peers it was
   /// shipped to.
-  Future<int> broadcast(NodeId groupId) async {
+  Future<int> broadcast(NodeId groupId, {bool reseed = false}) async {
     final send = _send;
     final b = await load(groupId);
     if (b == null) return 0;
@@ -19961,10 +19967,20 @@ class GroupService {
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     var n = 0;
-    // One tag for the whole fan-out: every recipient of THIS push gets a
-    // transfer distinct from any earlier one, which is the point, while a
-    // single push still costs one identity rather than one per member.
-    final transferTag = _freshTransferTag();
+    // A fresh transfer identity ONLY when the peer may hold nothing.
+    //
+    // Keying the frame by content is what lets an unchanged bundle collapse
+    // into no delivery at all, and that is load-bearing far beyond bandwidth:
+    // measured live, minting a fresh identity on EVERY broadcast had two
+    // devices shipping the whole bundle to each other without pause — 256
+    // chunk frames in one short window — because each push arrived as new and
+    // provoked the next. The dedup was not only in the way of re-seeding, it
+    // was also what stopped that.
+    //
+    // So the freshness is reserved for the moments that MEAN "they may have
+    // nothing": adoption, linking, a member joining, an explicit snapshot
+    // send. Everything else stays content-keyed and silent when nothing moved.
+    final transferTag = reseed ? _freshTransferTag() : null;
     try {
       for (final m in state.members.values) {
         if (m.nodeId == _signer.selfId ||
