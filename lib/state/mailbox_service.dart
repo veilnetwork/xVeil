@@ -17,6 +17,40 @@ import '../data/transport/veil_transport.dart';
 import 'mailbox_orchestrator.dart';
 import 'package:xveil/core/log.dart';
 
+/// How often an IDLE client polls its relays.
+///
+/// Raised from 10s after measuring the mechanism it backs up: over 16 deposits
+/// on a live pair — awake and dozing — the relay's wake ping arrived every
+/// time, faster than the clock skew between the two devices, so the poll never
+/// delivered any of them. What it costs when nothing is happening was 4.2
+/// drains a minute; this makes that roughly one.
+///
+/// The poll is NOT redundant, which is why it is lengthened rather than
+/// removed: a deposit made while the recipient has no live session cannot be
+/// pinged at all, and a ping can be lost. That case was not reproducible on
+/// the stand, so its value is unmeasured — not disproved.
+const kIdleDrainInterval = Duration(seconds: 60);
+
+/// The longest an idle client may go between drains, back-off included.
+const kMaxIdleDrainGap = Duration(minutes: 5);
+
+/// How many drain ticks to skip after [streak] consecutive empty drains, at a
+/// poll cadence of [interval].
+///
+/// The escalation is exponential, and the ceiling is a TIME rather than a tick
+/// count. It used to be a tick count, which meant raising the poll interval
+/// silently multiplied the worst case with it — at a 60s cadence a 32-tick
+/// back-off is half an hour of undelivered mail, and this poll exists to catch
+/// the deposit whose wake ping was lost. A net with a half-hour hole is not a
+/// net.
+int idleDrainSkips(int streak, Duration interval) {
+  final exponential = 1 << streak.clamp(1, 5);
+  if (interval.inMilliseconds <= 0) return exponential;
+  final ceiling =
+      (kMaxIdleDrainGap.inMilliseconds ~/ interval.inMilliseconds) - 1;
+  return exponential.clamp(1, ceiling < 1 ? 1 : ceiling);
+}
+
 /// The deposit surface [MessagingService] uses for offline delivery — sealing a
 /// message for an offline [recipient] at their advertised relay. Extracted as an
 /// interface so the messaging layer can be tested without a live [VeilClient].
@@ -69,7 +103,7 @@ class MailboxService implements MailboxSink {
     required void Function(InboundMessage) deliver,
     RelayKeyCache? relayKeyCache,
     int ourCertVersion = 0,
-    Duration drainInterval = const Duration(seconds: 10),
+    Duration drainInterval = kIdleDrainInterval,
   }) : _client = client,
        _me = me,
        _orchestrator = orchestrator,
@@ -140,7 +174,7 @@ class MailboxService implements MailboxSink {
   // Back off draining a relay that keeps returning nothing (e.g. one that never
   // answers FETCH): its per-drain timeout periodically stalled the shared IPC
   // and froze the UI. After an empty/failed drain we skip the next 2^streak
-  // ticks (capped ~32 = a few minutes) so a relay that recovers is still retried.
+  // ticks, bounded so the total gap never exceeds [kMaxIdleDrainGap].
   int _emptyDrainStreak = 0;
   int _drainSkips = 0;
   // Fixed, low back-off after an UNREACHABLE drain (no relay answered). Unlike a
@@ -687,7 +721,7 @@ class MailboxService implements MailboxSink {
         // A relay authoritatively answered with an empty mailbox — genuinely
         // idle, so the exponential back-off is appropriate here.
         _emptyDrainStreak++;
-        _drainSkips = 1 << _emptyDrainStreak.clamp(1, 5); // 2,4,8,16,32 ticks
+        _drainSkips = idleDrainSkips(_emptyDrainStreak, _drainInterval);
       }
       devLog(
         () =>
