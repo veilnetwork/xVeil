@@ -84,8 +84,10 @@ String _configFromPhraseInIsolate(String phrase) {
 ///   deniable container; the node boots deferred and gets its config applied in
 ///   memory, so nothing identity-bearing is written to a `config.toml`. Invite
 ///   creation + join run over the node's own IPC.
-/// - [start] (legacy dev path): boots from a pre-existing `config.toml` and
-///   shells out to `veil-cli` for invite/join. Kept for the env-var dev flow.
+/// - [start] (config-file dev path): boots from a pre-existing `config.toml`
+///   and shells out to `veil-cli` for invite/join. Not deprecated — it is what
+///   `scripts/run-real-instance.sh`, `run-deniable-instance.sh` and
+///   `dev-real-pair.sh` still use, and `doc/REAL-MODE.md` documents.
 class RealVeilStack {
   RealVeilStack._({
     required this.controller,
@@ -119,7 +121,7 @@ class RealVeilStack {
   /// ordered stream path and reintroduces video head-of-line stalls.
   final String listenScheme;
 
-  // Legacy file path uses veil-cli + a config file for invite/join...
+  // The config-file dev path uses veil-cli + a config file for invite/join.
   final String? _cli;
   final String? _config;
   // ...the deniable path uses the node's own IPC instead.
@@ -132,8 +134,8 @@ class RealVeilStack {
   /// unit-testable: load the stored node config, or provision + store one on
   /// first run — derived from [identityPhrase] when given, mined at random
   /// otherwise. Records [kIdentityOriginSetting] ('phrase'/'mined') alongside
-  /// a FRESH provision only, so the honest "no phrase" state of legacy spaces
-  /// (config present, marker absent) is never overwritten.
+  /// a FRESH provision only, so the honest "no phrase" state of a space
+  /// provisioned before the marker existed is never overwritten.
   static Future<String> ensureNodeConfig(
     Storage storage, {
     String? identityPhrase,
@@ -426,8 +428,9 @@ class RealVeilStack {
     );
   }
 
-  /// Legacy dev boot from an existing `config.toml`. [embedded] runs the node
-  /// in-process; otherwise it spawns `veil-cli node run`.
+  /// Dev boot from an existing `config.toml`. [embedded] runs the node
+  /// in-process; otherwise it spawns `veil-cli node run`. Still used by the
+  /// dev scripts — see the class doc.
   static Future<RealVeilStack> start({
     required String veilCliPath,
     required String configPath,
@@ -475,7 +478,7 @@ class RealVeilStack {
   /// Redeem a peer's invite so this node dials it — forms the bidirectional
   /// session veil's directional dedup needs. (Pair with the peer redeeming
   /// ours.) Uses the node's own IPC on the deniable path, `veil-cli` on the
-  /// legacy file path.
+  /// config-file dev path.
   Future<void> addContact(BootstrapInvite peer) {
     // IDENTITY-ONLY invite (no transport): there is nothing to dial — the
     // contact is reached by node_id over rendezvous, and the chat is keyed by
