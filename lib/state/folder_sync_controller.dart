@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,6 +8,7 @@ import '../domain/folder_sync.dart';
 import 'cloud_service.dart';
 import 'folder_sync_adapters.dart';
 import 'folder_sync_engine.dart';
+import 'folder_sync_scheduler.dart';
 import 'providers.dart';
 
 /// One pair as the UI needs to see it: its configuration plus what the last
@@ -35,13 +37,68 @@ class FolderSyncPairView {
 class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
   final Set<String> _running = {};
 
+  /// Long enough that a save, an unpack or our own downloads settle into one
+  /// pass; short enough that a person who dropped a file in does not wonder
+  /// whether anything is happening.
+  static const quietPeriod = Duration(seconds: 3);
+
+  /// The backstop for the signals that never arrive: a watcher the OS killed,
+  /// a cloud change this device was not told about.
+  static const sweepInterval = Duration(minutes: 5);
+
+  FolderSyncScheduler? _scheduler;
+
   FolderSyncStore get _store => ref.read(folderSyncStoreProvider);
   FolderSyncEngine? get _engine => ref.read(folderSyncEngineProvider);
 
   @override
   List<FolderSyncPairView> build() {
+    // Automatic passes are DESKTOP only, for the same reason pairs are: a
+    // phone has no folder another app writes to, and Directory.watch is not
+    // dependable there. Tests get no scheduler either — a background timer
+    // outliving a test is how a suite becomes flaky.
+    final desktop =
+        Platform.isMacOS || Platform.isLinux || Platform.isWindows;
+    if (desktop && !Platform.environment.containsKey('FLUTTER_TEST')) {
+      final scheduler = FolderSyncScheduler(
+        (pair) => runOnce(pair).then((_) {}),
+        quietPeriod,
+        sweepInterval,
+      );
+      _scheduler = scheduler;
+      ref.onDispose(scheduler.dispose);
+      // Another device's edit arrives as a change to the cloud index; nothing
+      // local happens, so without this it would wait for the sweep.
+      final cloud = ref.read(cloudServiceProvider);
+      if (cloud != null) {
+        final sub = cloud.watchItems().listen(
+          (_) => scheduler.noteRemoteChange(),
+        );
+        ref.onDispose(sub.cancel);
+      }
+    }
     unawaited(reload());
     return const [];
+  }
+
+  /// Point the scheduler at the pairs that exist now.
+  void _rewatch(List<FolderSyncPair> pairs) {
+    final scheduler = _scheduler;
+    if (scheduler == null) return;
+    for (final pair in pairs) {
+      final directory = Directory(pair.localPath);
+      if (!directory.existsSync()) continue;
+      try {
+        scheduler.watch(
+          pair,
+          directory.watch(recursive: true).map((_) {}),
+        );
+      } catch (_) {
+        // Watching can fail outright (no inotify handles left, an unsupported
+        // file system). The sweep still covers the pair, so this costs
+        // latency rather than correctness.
+      }
+    }
   }
 
   Future<void> reload() async {
@@ -60,6 +117,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
       );
     }
     state = views;
+    _rewatch([for (final view in views) view.pair]);
   }
 
   Future<void> addPair({
@@ -84,6 +142,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
     // The remembered base goes with it. Keeping it would make a later re-add
     // of the same folder infer deletions from a picture of the distant past.
     await _store.forget(id);
+    _scheduler?.unwatch(id);
     await reload();
   }
 
