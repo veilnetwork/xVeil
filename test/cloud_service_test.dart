@@ -777,6 +777,121 @@ void main() {
     await storage.close();
   });
 
+  group('replaceContent', () {
+    test('keeps the row and advances it, instead of minting a new item', () async {
+      // A folder mirror re-uploads on every edit. A fresh item each time would
+      // break the replica claims that say who holds the file, the version
+      // history, and any share link already handed out.
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      // A DISTINCT id per call. With a constant one a minted item is
+      // indistinguishable from the kept row, and the test proves nothing —
+      // verified by breaking it.
+      var minted = 0;
+      final service = CloudService(
+        storage,
+        _FakeSync(_id(1)),
+        contentReceived: const Stream.empty(),
+        now: () => DateTime.fromMillisecondsSinceEpoch(100),
+        newId: () => 'item-${minted++}',
+        integrityChecks: false,
+      );
+      final first = _bytes(64);
+      final item = await service.importContent(
+        name: 'doc.bin',
+        size: first.length,
+        readRange: _reader(first),
+      );
+
+      final second = _bytes(128);
+      final updated = await service.replaceContent(
+        itemId: item.id,
+        size: second.length,
+        readRange: _reader(second),
+      );
+
+      expect(updated.id, item.id);
+      expect(updated.createdAtMs, item.createdAtMs, reason: 'the row survives');
+      expect(updated.revision, item.revision + 1);
+      expect(updated.size, second.length);
+      expect(updated.contentId, isNot(item.contentId));
+      expect((await service.listItems()).single.id, item.id);
+      expect(
+        await storage.hasFile(updated.contentId!),
+        isTrue,
+        reason: 'the new bytes must be readable, not just referenced',
+      );
+
+      await service.close();
+      await storage.close();
+    });
+
+    test('refuses a note — its branches belong to saveTextNote', () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = CloudService(
+        storage,
+        _FakeSync(_id(1)),
+        contentReceived: const Stream.empty(),
+        now: () => DateTime.fromMillisecondsSinceEpoch(100),
+        newId: () => 'note-guard',
+        integrityChecks: false,
+      );
+      final note = await service.saveTextNote(title: 'N', body: 'b');
+
+      await expectLater(
+        service.replaceContent(
+          itemId: note.id,
+          size: 1,
+          readRange: _reader(_bytes(1)),
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      await service.close();
+      await storage.close();
+    });
+
+    test('an unknown or deleted item is refused, not silently created', () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = CloudService(
+        storage,
+        _FakeSync(_id(1)),
+        contentReceived: const Stream.empty(),
+        now: () => DateTime.fromMillisecondsSinceEpoch(100),
+        newId: () => 'gone',
+        integrityChecks: false,
+      );
+      final item = await service.importContent(
+        name: 'x.bin',
+        size: 8,
+        readRange: _reader(_bytes(8)),
+      );
+      await service.deleteItem(item.id);
+
+      await expectLater(
+        service.replaceContent(
+          itemId: item.id,
+          size: 1,
+          readRange: _reader(_bytes(1)),
+        ),
+        throwsA(isA<StateError>()),
+      );
+      await expectLater(
+        service.replaceContent(
+          itemId: 'never-existed',
+          size: 1,
+          readRange: _reader(_bytes(1)),
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      await service.close();
+      await storage.close();
+    });
+  });
+
   test('a folder in the cloud index does not disable content GC', () async {
     // The GC's index reader is fail-closed: a row it does not understand may
     // hide a content id, so it refuses to collect. Folders describe structure
