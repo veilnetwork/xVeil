@@ -67,6 +67,7 @@ import 'space_observability.dart';
 
 part 'group_service_types.dart';
 part 'group_service_signers.dart';
+part 'group_service_channel_keys.dart';
 
 bool _listEquals<T>(List<T>? left, List<T>? right) {
   if (identical(left, right)) return true;
@@ -9878,6 +9879,10 @@ class GroupService {
   static const protectedChannelKeyMaxAgeMs = 30 * 24 * 60 * 60 * 1000;
   static const protectedChannelKeyMaxMessages = 1000;
 
+  /// Key rotation lives in its own file; the lock stays here because it is the
+  /// owner's, and the public methods stay here because they are the API.
+  late final _ChannelKeyRotation _channelKeys = _ChannelKeyRotation(this);
+
   /// Replace a protected channel's key while leaving its ACL exactly as it is.
   ///
   /// The case this exists for is a suspected compromise — a lost phone, a
@@ -9885,42 +9890,7 @@ class GroupService {
   /// membership. Same permission as any other ACL edit: whoever may say who
   /// reads the channel may say when its key stops being the old one.
   Future<bool> rotateChannelKey(NodeId spaceId, NodeId channelId) =>
-      _serialized(spaceId, () => _rotateChannelKeyLocked(spaceId, channelId));
-
-  Future<bool> _rotateChannelKeyLocked(NodeId spaceId, NodeId channelId) async {
-    final bundle = await load(spaceId);
-    if (bundle == null || !bundle.manifest.isSpace || _epochService == null) {
-      return false;
-    }
-    final state = foldControlLog(
-      owner: bundle.manifest.owner,
-      entries: bundle.control,
-      verify: (entry) => _validControlFor(bundle.manifest, entry),
-      initialName: bundle.manifest.name,
-    ).state;
-    if (!SpaceAcl(state).allows(
-      _signer.selfId,
-      SpacePermission.manageChannels,
-      channelId: channelId,
-    )) {
-      return false;
-    }
-    final current = (await _protectedChannelsOf(
-      bundle,
-      state,
-    ))[channelId.hex];
-    if (current == null) return false;
-    // The recipients we pass are the ones we just decrypted, so this is a new
-    // epoch and a new key over an unchanged ACL — the write path makes no
-    // distinction between that and a membership edit.
-    return _writeProtectedChannel(
-      bundle,
-      state,
-      current.channel,
-      requestedRecipients: current.recipients,
-      create: false,
-    );
-  }
+      _serialized(spaceId, () => _channelKeys.rotateLocked(spaceId, channelId));
 
   /// Rotate the keys of protected channels whose current key has served past
   /// [protectedChannelKeyMaxAgeMs] or carried more than
@@ -9936,82 +9906,8 @@ class GroupService {
   /// next time someone who can looks. Callers can treat it as maintenance:
   /// rotating late is a weaker guarantee, not a broken one.
   Future<int> rotateStaleChannelKeys(NodeId spaceId) =>
-      _serialized(spaceId, () async {
-        final bundle = await load(spaceId);
-        if (bundle == null ||
-            !bundle.manifest.isSpace ||
-            _epochService == null) {
-          return 0;
-        }
-        final state = foldControlLog(
-          owner: bundle.manifest.owner,
-          entries: bundle.control,
-          verify: (entry) => _validControlFor(bundle.manifest, entry),
-          initialName: bundle.manifest.name,
-        ).state;
-        final acl = SpaceAcl(state);
-        final stale = <NodeId>[];
-        for (final opaque in state.protectedChannels.values) {
-          if (!acl.allows(
-            _signer.selfId,
-            SpacePermission.manageChannels,
-            channelId: opaque.channelId,
-          )) {
-            continue;
-          }
-          if (await _protectedChannelKeyIsStale(bundle, opaque)) {
-            stale.add(opaque.channelId);
-          }
-        }
-        var rotated = 0;
-        for (final channelId in stale) {
-          // Each rotation appends control entries, so the next one must see
-          // them: re-read rather than reuse the fold above.
-          if (await _rotateChannelKeyLocked(spaceId, channelId)) rotated++;
-        }
-        return rotated;
-      });
+      _serialized(spaceId, () => _channelKeys.rotateStaleLocked(spaceId));
 
-  Future<bool> _protectedChannelKeyIsStale(
-    GroupBundle bundle,
-    SpaceChannelControlEnvelope opaque,
-  ) async {
-    final startedAtMs = _protectedChannelEpochStartedAtMs(bundle, opaque);
-    if (startedAtMs != null &&
-        _now() - startedAtMs >= protectedChannelKeyMaxAgeMs) {
-      return true;
-    }
-    var carried = 0;
-    for (final message in await _messagesOfBundle(
-      bundle,
-      channelId: opaque.channelId,
-      applyLocalRetention: false,
-    )) {
-      if (message.channelEpoch != opaque.channelEpoch) continue;
-      if (++carried >= protectedChannelKeyMaxMessages) return true;
-    }
-    return false;
-  }
-
-  /// When the channel's current epoch was introduced, per the signed control
-  /// entry that carried it. Null when that entry is no longer in the log —
-  /// after a checkpoint compaction, say — in which case age says nothing and
-  /// only the volume bound applies.
-  int? _protectedChannelEpochStartedAtMs(
-    GroupBundle bundle,
-    SpaceChannelControlEnvelope opaque,
-  ) {
-    for (final entry in bundle.control.reversed) {
-      final control = entry.channelControl;
-      if (control == null ||
-          control.channelId != opaque.channelId ||
-          control.channelEpoch != opaque.channelEpoch) {
-        continue;
-      }
-      return entry.createdAtMs;
-    }
-    return null;
-  }
 
   /// Replace the explicit member portion of a protected channel ACL. Current
   /// Space owners/admins are always included so a future revocation never
