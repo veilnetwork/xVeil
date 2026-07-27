@@ -21,6 +21,7 @@ import '../features/onboarding/onboarding_screen.dart';
 import '../features/preparing/preparing_screen.dart';
 import '../features/settings/account_settings_screen.dart';
 import '../features/settings/appearance_settings_screen.dart';
+import '../features/settings/profile_screen.dart';
 import '../features/settings/chats_settings_screen.dart';
 import '../features/settings/devices_screen.dart';
 import '../features/settings/file_settings_screen.dart';
@@ -271,6 +272,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings/appearance',
         builder: (_, _) => const AppearanceSettingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/profiles',
+        builder: (_, _) => const ProfileScreen(),
       ),
       GoRoute(
         path: '/add-identity',

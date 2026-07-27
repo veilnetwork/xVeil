@@ -1691,5 +1691,17 @@
   "spaceAbuseReportPending": "Awaiting review",
   "spaceAbuseReportDismissed": "No violation found",
   "spaceAbuseReportResolved": "Resolved",
-  "spaceAbuseReportRemoved": "Content removed"
+  "spaceAbuseReportRemoved": "Content removed",
+  "profileTitle": "Profiles",
+  "profileSettingsHint": "Run a separate installation from its own container",
+  "profileExplainer": "A profile is a separate installation: its own container, its own password, its own identities. Nothing is shared between profiles. Use one to keep a test build away from your real data.",
+  "profileDefaultName": "Default (production)",
+  "profileRunningNow": "Running now",
+  "profileRestartRequired": "Restart xVeil to switch profile",
+  "profileSwitchNote": "The chosen profile is remembered and applies on the next launch. On Linux and Windows you can also pass --profile <name>; everywhere else set XVEIL_PROFILE.",
+  "profileCreateTitle": "New profile",
+  "profileNameHint": "for example: testing",
+  "profileNameRule": "Lower-case letters, digits, dot, dash, underscore. Up to 32 characters.",
+  "profileRevealed": "Profiles unlocked",
+  "commonCreate": "Create"
 }

@@ -5366,4 +5366,44 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get spaceAbuseReportRemoved => 'Материал удалён';
+
+  @override
+  String get profileTitle => 'Профили';
+
+  @override
+  String get profileSettingsHint => 'Отдельная установка со своим контейнером';
+
+  @override
+  String get profileExplainer =>
+      'Профиль — это отдельная установка: свой контейнер, свой пароль, свои личности. Между профилями не делится ничего. Пригодится, чтобы держать тестовую сборку в стороне от настоящих данных.';
+
+  @override
+  String get profileDefaultName => 'Основной (рабочий)';
+
+  @override
+  String get profileRunningNow => 'Сейчас запущен';
+
+  @override
+  String get profileRestartRequired =>
+      'Перезапустите xVeil, чтобы сменить профиль';
+
+  @override
+  String get profileSwitchNote =>
+      'Выбранный профиль запоминается и применяется при следующем запуске. На Linux и Windows можно также передать --profile <имя>; в остальных случаях задайте XVEIL_PROFILE.';
+
+  @override
+  String get profileCreateTitle => 'Новый профиль';
+
+  @override
+  String get profileNameHint => 'например: testing';
+
+  @override
+  String get profileNameRule =>
+      'Строчные буквы, цифры, точка, дефис, подчёркивание. До 32 символов.';
+
+  @override
+  String get profileRevealed => 'Профили открыты';
+
+  @override
+  String get commonCreate => 'Создать';
 }
