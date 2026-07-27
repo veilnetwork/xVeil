@@ -15,11 +15,18 @@ class PreparingScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
-    final reason =
-        ref.watch(appControllerProvider.select((s) => s.preparingReason));
+    final reason = ref.watch(
+      appControllerProvider.select((s) => s.preparingReason),
+    );
     final (title, body) = switch (reason) {
-      PreparingReason.unlocking => (l10n.preparingUnlockTitle, l10n.preparingUnlockBody),
-      PreparingReason.firstRunMining => (l10n.preparingFirstRunTitle, l10n.preparingFirstRunBody),
+      PreparingReason.unlocking => (
+        l10n.preparingUnlockTitle,
+        l10n.preparingUnlockBody,
+      ),
+      PreparingReason.firstRunMining => (
+        l10n.preparingFirstRunTitle,
+        l10n.preparingFirstRunBody,
+      ),
       PreparingReason.node => (l10n.preparingTitle, l10n.preparingBody),
     };
     return Scaffold(
@@ -58,8 +65,8 @@ class PreparingScreen extends ConsumerWidget {
               Text(
                 body,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
+                  color: scheme.onSurfaceVariant,
+                ),
                 textAlign: TextAlign.center,
               ),
             ],

@@ -38,13 +38,16 @@ class _NicknameScreenState extends ConsumerState<NicknameScreen> {
     // Surface controller errors as snackbars exactly once per change.
     ref.listen(nicknameControllerProvider.select((s) => s.error), (prev, err) {
       if (err != null && err != prev && context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(err)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(err)));
       }
     });
     // Celebrate a successful publish.
-    ref.listen(nicknameControllerProvider.select((s) => s.ownedName),
-        (prev, owned) {
+    ref.listen(nicknameControllerProvider.select((s) => s.ownedName), (
+      prev,
+      owned,
+    ) {
       if (owned != null && owned != prev && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${l.nicknameClaimed}: @$owned')),
@@ -55,12 +58,14 @@ class _NicknameScreenState extends ConsumerState<NicknameScreen> {
     final verdict = switch (st.availability) {
       NicknameAvailability.unknown => null,
       NicknameAvailability.free => (l.nicknameFree, theme.colorScheme.primary),
-      NicknameAvailability.mine =>
-        (l.nicknameMineVerdict, theme.colorScheme.primary),
+      NicknameAvailability.mine => (
+        l.nicknameMineVerdict,
+        theme.colorScheme.primary,
+      ),
       NicknameAvailability.taken => (
-          l.nicknameTakenWeight('${st.takenWeight}'),
-          theme.colorScheme.error,
-        ),
+        l.nicknameTakenWeight('${st.takenWeight}'),
+        theme.colorScheme.error,
+      ),
     };
 
     return Scaffold(
@@ -138,8 +143,7 @@ class _NicknameScreenState extends ConsumerState<NicknameScreen> {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed:
-                      st.busy ? null : () => ctrl.check(_field.text),
+                  onPressed: st.busy ? null : () => ctrl.check(_field.text),
                   icon: const Icon(Icons.search),
                   label: Text(l.nicknameCheck),
                 ),
@@ -147,8 +151,9 @@ class _NicknameScreenState extends ConsumerState<NicknameScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: FilledButton.icon(
-                  onPressed:
-                      st.busy ? null : () => ctrl.startClaim(_field.text),
+                  onPressed: st.busy
+                      ? null
+                      : () => ctrl.startClaim(_field.text),
                   icon: const Icon(Icons.gavel_outlined),
                   label: Text(l.nicknameClaim),
                 ),

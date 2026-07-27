@@ -38,11 +38,13 @@ class NetworkScreen extends ConsumerWidget {
             : '';
         ScaffoldMessenger.of(context)
           ..clearSnackBars()
-          ..showSnackBar(SnackBar(
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 6),
-            content: Text('$headline$detail'),
-          ));
+          ..showSnackBar(
+            SnackBar(
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 6),
+              content: Text('$headline$detail'),
+            ),
+          );
       }
     });
     // Real peer count from the live transport (not the controller's snapshot,
@@ -56,103 +58,115 @@ class NetworkScreen extends ConsumerWidget {
       body: ListView(
         children: [
           status.when(
-            loading: () => const _StatusCard(
-              phase: NodePhase.starting,
-              peers: 0,
-            ),
+            loading: () =>
+                const _StatusCard(phase: NodePhase.starting, peers: 0),
             error: (e, _) =>
                 _StatusCard(phase: NodePhase.error, peers: 0, message: '$e'),
-            data: (s) => _StatusCard(
-                phase: s.phase, peers: peers, message: s.message),
+            data: (s) =>
+                _StatusCard(phase: s.phase, peers: peers, message: s.message),
           ),
           const Divider(),
           // Secondary controls: proxy routing (oproxy SOCKS5 client + exit) is
           // live below; node management (ogate, SSH provisioning) is still a
           // later milestone behind the Extensions stub.
-          Consumer(builder: (context, ref, _) {
-            final routing = ref.watch(proxyRoutingProvider);
-            return ListTile(
-              leading: Icon(Icons.vpn_lock_outlined,
+          Consumer(
+            builder: (context, ref, _) {
+              final routing = ref.watch(proxyRoutingProvider);
+              return ListTile(
+                leading: Icon(
+                  Icons.vpn_lock_outlined,
                   color: routing.isActive
                       ? Theme.of(context).colorScheme.primary
-                      : null),
-              title: Text(l.networkRouteTitle),
-              subtitle: Text(routing.isActive
-                  ? l.networkRouteSubActive
-                  : l.networkRouteSubIdle),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => context.push('/route'),
-            );
-          }),
+                      : null,
+                ),
+                title: Text(l.networkRouteTitle),
+                subtitle: Text(
+                  routing.isActive
+                      ? l.networkRouteSubActive
+                      : l.networkRouteSubIdle,
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/route'),
+              );
+            },
+          ),
           // Background operation — Android only (a foreground service keeps the
           // node, proxy and delivery alive when backgrounded). Opt-in: it shows
           // a persistent notification, so it's off by default for deniability.
           if (Platform.isAndroid)
-            Consumer(builder: (context, ref, _) {
-              final on = ref.watch(backgroundNodeProvider);
-              return Column(
-                children: [
-                  SwitchListTile(
-                    secondary:
-                        const Icon(Icons.battery_charging_full_outlined),
-                    title: Text(l.networkBackgroundTitle),
-                    subtitle: Text(l.networkBackgroundHint),
-                    isThreeLine: true,
-                    value: on,
-                    onChanged: (v) async {
-                      await ref.read(backgroundNodeProvider.notifier).set(v);
-                      // Turning it ON: a foreground service alone is NOT enough
-                      // on Doze + aggressive OEMs — prompt for the battery
-                      // exemption the first time it isn't already granted.
-                      if (v && context.mounted) {
-                        await _promptBackgroundPermission(context, l);
-                      }
-                    },
-                  ),
-                  // While ON, always surface the background-permission help: a
-                  // RED warning if the app is still battery-optimised (the OS
-                  // will suspend us), otherwise an info nudge — because the
-                  // per-OEM "Autostart" knob (MIUI/HyperOS/OneUI) is NOT visible
-                  // to any Android API, so we can't know if it's set. Tap → the
-                  // dialog (battery exemption + a deep-link to app settings).
-                  if (on)
-                    FutureBuilder<bool>(
-                      future: VeilBackground.isIgnoringBatteryOptimizations(),
-                      builder: (ctx, snap) {
-                        final exempt = snap.data ?? true;
-                        return ListTile(
-                          leading: Icon(
-                            exempt
-                                ? Icons.info_outline
-                                : Icons.warning_amber_rounded,
-                            color: exempt
-                                ? null
-                                : Theme.of(ctx).colorScheme.error,
-                          ),
-                          title: Text(l.networkBackgroundAllowTitle),
-                          subtitle: Text(l.networkBackgroundAllowBody),
-                          isThreeLine: true,
-                          onTap: () =>
-                              _promptBackgroundPermission(ctx, l, force: true),
-                        );
+            Consumer(
+              builder: (context, ref, _) {
+                final on = ref.watch(backgroundNodeProvider);
+                return Column(
+                  children: [
+                    SwitchListTile(
+                      secondary: const Icon(
+                        Icons.battery_charging_full_outlined,
+                      ),
+                      title: Text(l.networkBackgroundTitle),
+                      subtitle: Text(l.networkBackgroundHint),
+                      isThreeLine: true,
+                      value: on,
+                      onChanged: (v) async {
+                        await ref.read(backgroundNodeProvider.notifier).set(v);
+                        // Turning it ON: a foreground service alone is NOT enough
+                        // on Doze + aggressive OEMs — prompt for the battery
+                        // exemption the first time it isn't already granted.
+                        if (v && context.mounted) {
+                          await _promptBackgroundPermission(context, l);
+                        }
                       },
                     ),
-                ],
+                    // While ON, always surface the background-permission help: a
+                    // RED warning if the app is still battery-optimised (the OS
+                    // will suspend us), otherwise an info nudge — because the
+                    // per-OEM "Autostart" knob (MIUI/HyperOS/OneUI) is NOT visible
+                    // to any Android API, so we can't know if it's set. Tap → the
+                    // dialog (battery exemption + a deep-link to app settings).
+                    if (on)
+                      FutureBuilder<bool>(
+                        future: VeilBackground.isIgnoringBatteryOptimizations(),
+                        builder: (ctx, snap) {
+                          final exempt = snap.data ?? true;
+                          return ListTile(
+                            leading: Icon(
+                              exempt
+                                  ? Icons.info_outline
+                                  : Icons.warning_amber_rounded,
+                              color: exempt
+                                  ? null
+                                  : Theme.of(ctx).colorScheme.error,
+                            ),
+                            title: Text(l.networkBackgroundAllowTitle),
+                            subtitle: Text(l.networkBackgroundAllowBody),
+                            isThreeLine: true,
+                            onTap: () => _promptBackgroundPermission(
+                              ctx,
+                              l,
+                              force: true,
+                            ),
+                          );
+                        },
+                      ),
+                  ],
+                );
+              },
+            ),
+          Consumer(
+            builder: (context, ref, _) {
+              final count =
+                  ref.watch(managedNodesProvider).asData?.value.length ?? 0;
+              return ListTile(
+                leading: const Icon(Icons.dns_outlined),
+                title: Text(l.networkNodesTitle),
+                subtitle: Text(
+                  count > 0 ? l.networkNodesSubCount(count) : l.networkNodesSub,
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/nodes'),
               );
-            }),
-          Consumer(builder: (context, ref, _) {
-            final count =
-                ref.watch(managedNodesProvider).asData?.value.length ?? 0;
-            return ListTile(
-              leading: const Icon(Icons.dns_outlined),
-              title: Text(l.networkNodesTitle),
-              subtitle: Text(count > 0
-                  ? l.networkNodesSubCount(count)
-                  : l.networkNodesSub),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => context.push('/nodes'),
-            );
-          }),
+            },
+          ),
           ListTile(
             leading: const Icon(Icons.extension_outlined),
             title: Text(l.networkExtTitle),
@@ -183,11 +197,31 @@ class _StatusCard extends ConsumerWidget {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final (label, color, icon) = switch (phase) {
-      NodePhase.connected => (l.networkStatusConnected, Colors.green, Icons.check_circle),
-      NodePhase.starting => (l.networkStatusConnecting, scheme.tertiary, Icons.sync),
-      NodePhase.offline => (l.networkStatusOffline, scheme.outline, Icons.cloud_off),
-      NodePhase.error => (l.networkStatusError, scheme.error, Icons.error_outline),
-      NodePhase.stopped => (l.networkStatusOffline, scheme.outline, Icons.power_settings_new),
+      NodePhase.connected => (
+        l.networkStatusConnected,
+        Colors.green,
+        Icons.check_circle,
+      ),
+      NodePhase.starting => (
+        l.networkStatusConnecting,
+        scheme.tertiary,
+        Icons.sync,
+      ),
+      NodePhase.offline => (
+        l.networkStatusOffline,
+        scheme.outline,
+        Icons.cloud_off,
+      ),
+      NodePhase.error => (
+        l.networkStatusError,
+        scheme.error,
+        Icons.error_outline,
+      ),
+      NodePhase.stopped => (
+        l.networkStatusOffline,
+        scheme.outline,
+        Icons.power_settings_new,
+      ),
     };
     // Sub-line: real peer count when connected; the failure detail when the node
     // couldn't come up; a dash otherwise. Never a fabricated count.
@@ -214,13 +248,12 @@ class _StatusCard extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(label,
-                          style: Theme.of(context).textTheme.titleLarge),
-                      const SizedBox(height: 4),
                       Text(
-                        sub,
-                        style: Theme.of(context).textTheme.bodyMedium,
+                        label,
+                        style: Theme.of(context).textTheme.titleLarge,
                       ),
+                      const SizedBox(height: 4),
+                      Text(sub, style: Theme.of(context).textTheme.bodyMedium),
                     ],
                   ),
                 ),
@@ -239,8 +272,11 @@ class _StatusCard extends ConsumerWidget {
 /// background (Doze + aggressive OEMs suspend it otherwise). No-op if already
 /// granted. Also offers the app-settings deep-link, where MIUI/HyperOS/OneUI hide
 /// the per-app "Autostart" knob a foreground service still needs.
-Future<void> _promptBackgroundPermission(BuildContext context, AppL10n l,
-    {bool force = false}) async {
+Future<void> _promptBackgroundPermission(
+  BuildContext context,
+  AppL10n l, {
+  bool force = false,
+}) async {
   // From the toggle we only nag when the exemption is missing; from the help
   // tile ([force]) we always show it — the dialog also deep-links to the OEM
   // "Autostart" screen, which no API can confirm is set.

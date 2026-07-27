@@ -156,8 +156,7 @@ class ChatsSettingsScreen extends ConsumerWidget {
             subtitle: Text(l.settingsShowReactionsHint),
             isThreeLine: true,
             value: ref.watch(showReactionsProvider),
-            onChanged: (v) =>
-                ref.read(showReactionsProvider.notifier).set(v),
+            onChanged: (v) => ref.read(showReactionsProvider.notifier).set(v),
           ),
           // Chat pagination: how many recent messages a chat loads initially
           // (and the "load earlier" step). Bounds decrypt + list-build work.

@@ -134,7 +134,9 @@ class AccountSettingsScreen extends ConsumerWidget {
           // or a legacy space without the marker = created without a phrase —
           // say so instead of letting the user assume their old written-down
           // words restore anything. Informational, not tappable.
-          ref.watch(identityOriginProvider).maybeWhen(
+          ref
+              .watch(identityOriginProvider)
+              .maybeWhen(
                 data: (origin) {
                   final backed = origin == 'phrase';
                   final scheme = Theme.of(context).colorScheme;
@@ -158,8 +160,7 @@ class AccountSettingsScreen extends ConsumerWidget {
             builder: (_) {
               final ctrl = ref.read(appControllerProvider.notifier);
               final anonymous = master.$1
-                  ? (master.$2 == null ||
-                      ctrl.isIdentityAnonymous(master.$2!))
+                  ? (master.$2 == null || ctrl.isIdentityAnonymous(master.$2!))
                   : ctrl.singleIdentityAnonymous;
               if (anonymous) return const SizedBox.shrink();
               return ListTile(

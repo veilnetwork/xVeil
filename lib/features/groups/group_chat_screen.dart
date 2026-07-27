@@ -464,7 +464,8 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
 
   /// A one-line preview of [m] for the reply bar / quote block (shared helper
   /// — attachments show a human kind label, never an opaque container name).
-  String _msgPreview(GroupMessage m, AppL10n l) => groupMessagePreviewText(l, m);
+  String _msgPreview(GroupMessage m, AppL10n l) =>
+      groupMessagePreviewText(l, m);
 
   /// Tap the mic: register the clip in the encrypted content store and keep
   /// only its strict reference in the signed/encrypted message. This avoids an
