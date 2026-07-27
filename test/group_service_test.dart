@@ -1908,6 +1908,43 @@ void main() {
     expect(svc.snapshotJson(bundle), svc.snapshotJson(bundle));
   });
 
+  test('an ORDINARY group cannot be adopted as the device group, however '
+      'legitimately you belong to it', () async {
+    // Found by breaking the guard: dropping the isSovereignDevice check let
+    // any group become the device group and NOTHING in the suite noticed.
+    // Adoption is not cosmetic — it binds devices.gid, installs the sovereign
+    // credential, and replays the group's messages as DEVICE-SYNC events, so
+    // an ordinary chat's traffic would be read as settings, contacts and the
+    // cloud index. Membership is not enough; the group has to BE one.
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    addTearDown(svc.dispose);
+
+    final ordinary = await svc.createGroup('Just a chat');
+    expect(
+      await svc.addControlOp(
+        ordinary,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    expect(
+      (await svc.load(ordinary))!.manifest.isSovereignDevice,
+      isFalse,
+      reason: 'the fixture must really be an ordinary group',
+    );
+
+    expect(await svc.adoptDeviceGroup(ordinary), isFalse);
+    expect(
+      await svc.deviceGroupIdHex(),
+      isNull,
+      reason: 'a refused adoption must not leave the pointer behind',
+    );
+  });
+
   test('a message signed for ANOTHER group is refused when spliced into this '
       'one — the row names its own group and that name is checked', () async {
     // Found by breaking the guard: removing `m.groupId == groupId` from
