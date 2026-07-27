@@ -368,21 +368,6 @@ class CloudService {
         } catch (_) {}
       }
     }
-    // Brief development builds wrote one unslotted chunked copy. Keep this
-    // fallback so those stores migrate forward without data loss.
-    final legacyChunked = await _storage.loadFile(key);
-    if (legacyChunked != null) {
-      final decoded = utf8.decode(legacyChunked, allowMalformed: true);
-      try {
-        if (jsonDecode(decoded) is List) return decoded;
-      } catch (_) {}
-    }
-    final legacy = await _storage.getSetting(key);
-    if (legacy != null) {
-      try {
-        if (jsonDecode(legacy) is List) return legacy;
-      } catch (_) {}
-    }
     return null;
   }
 
@@ -412,12 +397,6 @@ class CloudService {
       name: 'cloud-materialized-index',
     );
     await _storage.putSetting('$key.active', next);
-    try {
-      await _storage.putSetting(key, '');
-    } catch (_) {
-      // The chunked copy is already durable. A legacy value may remain as an
-      // inert fallback, but future reads always prefer the file-store copy.
-    }
   }
 
   Future<void> _saveIndex() => _saveMaterialized(

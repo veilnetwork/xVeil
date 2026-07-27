@@ -198,7 +198,7 @@ class GroupBundle {
     this.sovereignBundle,
     this.retentionCuts = const {},
   });
-  final GroupManifest manifest;
+  final SpaceManifest manifest;
   final List<ControlEntry> control;
   final List<GroupMessage> messages;
   final List<SpacePost> posts;
@@ -228,7 +228,7 @@ class GroupBundle {
   final Map<String, SpaceRetentionCut> retentionCuts;
 
   GroupBundle copyWith({
-    GroupManifest? manifest,
+    SpaceManifest? manifest,
     List<ControlEntry>? control,
     List<GroupMessage>? messages,
     List<SpacePost>? posts,
@@ -707,7 +707,7 @@ class GroupService {
   Future<void> _acknowledgeSpaceReceipt(NodeId peer, Map wire) async {
     final token = wire['rcpt'];
     if (token is! String || !_spaceReceiptPattern.hasMatch(token)) return;
-    final manifest = GroupManifest.fromJson(wire['m']);
+    final manifest = SpaceManifest.fromJson(wire['m']);
     if (manifest == null || !manifest.isSpace) return;
     final bundle = await load(manifest.groupId);
     if (bundle == null) return;
@@ -5436,7 +5436,7 @@ class GroupService {
   /// wall clock instead of waiting it out. Never set in production code.
   int Function()? debugWallClockMs;
 
-  bool _validManifest(GroupManifest manifest) {
+  bool _validManifest(SpaceManifest manifest) {
     if (manifest.isLegacyGroup) return manifest.genesisPubKey.length == 32;
     if (manifest.version == SpaceManifest.spaceVersion) {
       return manifest.isSpace && _signer.verifySpaceManifest(manifest);
@@ -5460,7 +5460,7 @@ class GroupService {
   }
 
   bool _validSovereignBundle(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     Uint8List? encryptedBundle,
   ) {
     final expected = manifest.sovereignBundleHash;
@@ -5474,9 +5474,9 @@ class GroupService {
   /// Select the one authoritative manifest during snapshot merge. The only
   /// permitted change is an owner-signed v1 -> Space v3 upgrade over exactly
   /// the same immutable root. Signed Spaces never downgrade or fork.
-  GroupManifest? _mergeManifest(
-    GroupManifest existing,
-    GroupManifest incoming,
+  SpaceManifest? _mergeManifest(
+    SpaceManifest existing,
+    SpaceManifest incoming,
   ) {
     if (existing.isSovereignDevice || incoming.isSovereignDevice) {
       return existing.isSovereignDevice &&
@@ -5495,7 +5495,7 @@ class GroupService {
     return incoming.isLegacyGroup ? existing : null;
   }
 
-  bool _validControlFor(GroupManifest manifest, ControlEntry e) {
+  bool _validControlFor(SpaceManifest manifest, ControlEntry e) {
     if (!e.isStructurallyValid) return false;
     if ((e.version == 17 ||
             e.version == 18 ||
@@ -5950,7 +5950,7 @@ class GroupService {
       left.recipientCount == right.recipientCount;
 
   List<ControlEntry> _acceptedControl(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     List<ControlEntry> control,
   ) {
     final folded = foldControlLog(
@@ -5989,7 +5989,7 @@ class GroupService {
   }
 
   GroupFoldResult? _foldAtControlHeads(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     List<ControlEntry> control,
     List<SpaceControlHead> controlHeads,
   ) {
@@ -6028,7 +6028,7 @@ class GroupService {
   }
 
   GroupFoldResult? _foldAtPostFrontier(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     List<ControlEntry> control,
     SpaceControlFrontier frontier,
   ) {
@@ -6037,7 +6037,7 @@ class GroupService {
   }
 
   GroupFoldResult? _foldAtControlCheckpoint(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     List<ControlEntry> control,
     ControlEntry entry,
   ) {
@@ -6070,7 +6070,7 @@ class GroupService {
   }
 
   ({int seq, String prevHash, bool blocked}) _nextControlLink(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     List<ControlEntry> control,
     NodeId author,
   ) {
@@ -6099,7 +6099,7 @@ class GroupService {
   }
 
   ControlEntry? _descriptorEntry(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     List<ControlEntry> control,
     GroupEpochDescriptor descriptor,
   ) {
@@ -6113,7 +6113,7 @@ class GroupService {
   }
 
   bool _encryptionEstablished(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     List<ControlEntry> control,
   ) => _acceptedControl(
     manifest,
@@ -6121,7 +6121,7 @@ class GroupService {
   ).any((entry) => entry.epochDescriptor != null);
 
   bool _validLocalEpochKey(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     List<ControlEntry> control,
     int epoch,
     Uint8List key,
@@ -6614,7 +6614,7 @@ class GroupService {
   /// (sync/snapshot) and ingest boundaries so retired content is neither
   /// shown, redistributed nor resurrected by a stale holder.
   bool _retentionRetiresMessage({
-    required GroupManifest manifest,
+    required SpaceManifest manifest,
     required List<SpaceRetentionRevision> revisions,
     required Map<String, int> hiddenThroughMs,
     required GroupMessage message,
@@ -6643,7 +6643,7 @@ class GroupService {
   /// True when retention retires this post at [atMs]. Pinned posts are always
   /// preserved (the policy is structurally required to preserve pins).
   bool _retentionRetiresPost({
-    required GroupManifest manifest,
+    required SpaceManifest manifest,
     required GroupState state,
     required List<SpaceRetentionRevision> revisions,
     required SpacePost post,
@@ -6663,7 +6663,7 @@ class GroupService {
   }
 
   bool _retentionRetiresReaction({
-    required GroupManifest manifest,
+    required SpaceManifest manifest,
     required List<SpaceRetentionRevision> revisions,
     required Map<String, int> hiddenThroughMs,
     required GroupReaction reaction,
@@ -6758,7 +6758,7 @@ class GroupService {
   /// timeline. The claimed boundary must itself be expired under the fold and
   /// must not cover any locally retained, still-live row in the same chain.
   bool _acceptableRemoteRetentionCut({
-    required GroupManifest manifest,
+    required SpaceManifest manifest,
     required List<SpaceRetentionRevision> revisions,
     required Iterable<GroupMessage> localMessages,
     required SpaceRetentionCut cut,
@@ -6939,7 +6939,7 @@ class GroupService {
     ({List<GroupEpochRecipientEnvelope> envelopes, Map<int, Uint8List> keys})
   >
   _mergeEpochMaterial({
-    required GroupManifest manifest,
+    required SpaceManifest manifest,
     required List<ControlEntry> control,
     required List<GroupEpochRecipientEnvelope> existingEnvelopes,
     required Map<int, Uint8List> existingKeys,
@@ -7036,7 +7036,7 @@ class GroupService {
   }
 
   ControlEntry? _channelDescriptorEntry(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     List<ControlEntry> control,
     GroupEpochDescriptor descriptor,
   ) {
@@ -7050,7 +7050,7 @@ class GroupService {
   }
 
   bool _validLocalChannelEpochKey(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     List<ControlEntry> control,
     NodeId channelId,
     int epoch,
@@ -7074,7 +7074,7 @@ class GroupService {
     ({List<GroupEpochRecipientEnvelope> envelopes, Map<String, Uint8List> keys})
   >
   _mergeChannelEpochMaterial({
-    required GroupManifest manifest,
+    required SpaceManifest manifest,
     required List<ControlEntry> control,
     required List<GroupEpochRecipientEnvelope> existingEnvelopes,
     required Map<String, Uint8List> existingKeys,
@@ -7473,7 +7473,7 @@ class GroupService {
     }
     try {
       final d = jsonDecode(raw) as Map<String, dynamic>;
-      final manifest = GroupManifest.fromJson(d['m']);
+      final manifest = SpaceManifest.fromJson(d['m']);
       if (manifest == null || !_validManifest(manifest)) {
         _loadRefused(
           groupId,
@@ -12711,7 +12711,7 @@ class GroupService {
   /// receives only the post-join epoch must not need an undisclosed historical
   /// predecessor, and a revoked restricted-channel member must not learn the
   /// next epoch's head through a shared sync vector.
-  String _messageChainScope(GroupManifest manifest, GroupMessage message) {
+  String _messageChainScope(SpaceManifest manifest, GroupMessage message) {
     final channel = manifest.isSpace
         ? message.spacePostId == null
               ? (message.channelId ?? defaultSpaceChannelId(manifest.groupId))
@@ -12731,7 +12731,7 @@ class GroupService {
   /// conflicts are evidence and must survive compaction/snapshot propagation;
   /// forgetting one branch would make the winner depend on arrival order.
   List<GroupMessage> _retainedMessageRows(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     Iterable<GroupMessage> input,
   ) {
     final rows = <String, GroupMessage>{};
@@ -12743,7 +12743,7 @@ class GroupService {
   }
 
   Map<String, ({int seq, Set<String> hashes})> _messageForks(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     Iterable<GroupMessage> input,
   ) {
     final candidates = <String, Set<String>>{};
@@ -12776,7 +12776,7 @@ class GroupService {
   /// channel history for members who are not allowed to learn that the hidden
   /// channel exists.
   List<GroupMessage> _canonicalMessageRows(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     Iterable<GroupMessage> input,
   ) {
     final candidates = <String, Map<String, GroupMessage>>{};
@@ -12815,7 +12815,7 @@ class GroupService {
   /// downgrade to an empty link, or wrong hash hides the whole scoped suffix
   /// until anti-entropy supplies the exact missing row.
   List<GroupMessage> _acceptedMessageChain(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     Iterable<GroupMessage> input,
     NodeId author,
     String scope, {
@@ -12867,7 +12867,7 @@ class GroupService {
   }
 
   List<GroupMessage> _acceptedMessageRows(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     Iterable<GroupMessage> input, {
     Map<String, SpaceRetentionCut> retentionCuts = const {},
   }) {
@@ -12906,7 +12906,7 @@ class GroupService {
   }
 
   String _messageLifecycleScopeHash(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     GroupMessage message,
   ) => crypto.sha256
       .convert(
@@ -13004,7 +13004,7 @@ class GroupService {
   }
 
   bool _messageWithinLifecycleBoundary(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     GroupState state,
     GroupMessage message,
   ) {
@@ -13325,7 +13325,7 @@ class GroupService {
   }
 
   String? _postGrantAt(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     Iterable<ControlEntry> accepted,
     NodeId author,
   ) {
@@ -13372,7 +13372,7 @@ class GroupService {
   }
 
   ({bool revoked, SpacePostBoundary? boundary}) _postRevocationForGrant(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     Iterable<ControlEntry> accepted,
     NodeId author,
     String generation,
@@ -13442,7 +13442,7 @@ class GroupService {
   }
 
   GroupFoldResult? _historicalFoldForPost(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     List<ControlEntry> control,
     SpacePost post,
     Iterable<ControlEntry> acceptedControl,
@@ -13532,7 +13532,7 @@ class GroupService {
   }
 
   bool _causalPostHistoricallyAuthorized(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     List<ControlEntry> control,
     SpacePost post,
   ) {
@@ -14250,10 +14250,6 @@ class GroupService {
   static const int kGroupSyncNeighbors = 5;
   static const int kMinGroupSyncNeighbors = 1;
   static const int kMaxGroupSyncNeighbors = 20;
-
-  /// Compatibility name for debug/test callers from before the XOR overlay.
-  @Deprecated('Use kGroupSyncNeighbors')
-  static const int kGroupSyncFanout = kGroupSyncNeighbors;
 
   String _groupSyncNeighborsKey(NodeId groupId) =>
       'group.sync.neighbors:${groupId.hex}';
@@ -15076,7 +15072,7 @@ class GroupService {
     if (pending != null) return pending;
     PendingSpaceInvite? acceptedInvite;
     SpaceJoinOutboxEntry? acceptedJoinRequest;
-    final manifest = GroupManifest.fromJson(decoded?['m']);
+    final manifest = SpaceManifest.fromJson(decoded?['m']);
     if (manifest != null &&
         manifest.isSpace &&
         await load(manifest.groupId) == null) {
@@ -15219,7 +15215,7 @@ class GroupService {
       return false; // malformed — drop
     }
     SpaceJoinOutboxEntry? acceptedJoinRequest;
-    final manifest = GroupManifest.fromJson(decoded?['m']);
+    final manifest = SpaceManifest.fromJson(decoded?['m']);
     if (manifest != null &&
         manifest.isSpace &&
         await load(manifest.groupId) == null) {
@@ -15242,7 +15238,7 @@ class GroupService {
   Future<void> _relayOverlayDelta(NodeId source, Map wire) async {
     final overlayId = wire['ov'];
     if (overlayId is! String || overlayId.length != 64) return;
-    final manifest = GroupManifest.fromJson(wire['m']);
+    final manifest = SpaceManifest.fromJson(wire['m']);
     if (manifest == null ||
         wire['c'] is! List ||
         (wire['c'] as List).isNotEmpty) {
@@ -16315,10 +16311,10 @@ class GroupService {
   ) async {
     final pending = await pendingDeviceAdoption();
     if (pending == null || peer != pending.source) return null;
-    GroupManifest? manifest;
+    SpaceManifest? manifest;
     try {
       final d = jsonDecode(bundleJson);
-      manifest = GroupManifest.fromJson(d is Map ? d['m'] : null);
+      manifest = SpaceManifest.fromJson(d is Map ? d['m'] : null);
     } catch (_) {
       return false;
     }
@@ -16984,7 +16980,7 @@ class GroupService {
     } catch (_) {
       return false;
     }
-    final manifest = GroupManifest.fromJson(d['m']);
+    final manifest = SpaceManifest.fromJson(d['m']);
     if (manifest == null || !_validManifest(manifest)) return false;
     final Uint8List? incomingSovereignBundle;
     try {
@@ -18056,7 +18052,7 @@ class GroupService {
     }
   }
 
-  Uint8List _manifestHash(GroupManifest manifest) =>
+  Uint8List _manifestHash(SpaceManifest manifest) =>
       _sha256(utf8.encode(jsonEncode(manifest.toJson())));
 
   Future<DeviceLinkToken?> pendingDeviceAdoption() async {
@@ -18113,7 +18109,7 @@ class GroupService {
   }
 
   bool _sovereignMatches(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     SovereignGroupSigner sovereign,
   ) =>
       manifest.isSovereignDevice &&
@@ -18122,7 +18118,7 @@ class GroupService {
       _listEquals(manifest.genesisPubKey, sovereign.publicKey);
 
   bool _canUpgradeSovereign(
-    GroupManifest manifest,
+    SpaceManifest manifest,
     SovereignGroupSigner sovereign,
   ) =>
       manifest.isSovereignDevice &&
@@ -18143,14 +18139,14 @@ class GroupService {
       return null;
     }
     final gid = _randomGroupId();
-    final unsignedManifest = GroupManifest(
+    final unsignedManifest = SpaceManifest(
       groupId: gid,
       owner: sovereign.nodeId,
       genesisPubKey: Uint8List.fromList(sovereign.publicKey),
       name: kDeviceGroupName,
       createdAtMs: _now(),
-      version: GroupManifest.sovereignDeviceVersion,
-      kind: GroupManifest.sovereignDeviceKind,
+      version: SpaceManifest.sovereignDeviceVersion,
+      kind: SpaceManifest.sovereignDeviceKind,
       signatureAlgorithm: sovereign.algorithm,
       sovereignBundleHash: encryptedSovereign == null
           ? null
@@ -18278,14 +18274,14 @@ class GroupService {
   ) async {
     final encryptedSovereign = await localSovereignBundle();
     final gid = _randomGroupId();
-    final unsignedManifest = GroupManifest(
+    final unsignedManifest = SpaceManifest(
       groupId: gid,
       owner: sovereign.nodeId,
       genesisPubKey: Uint8List.fromList(sovereign.publicKey),
       name: kDeviceGroupName,
       createdAtMs: _now(),
-      version: GroupManifest.sovereignDeviceVersion,
-      kind: GroupManifest.sovereignDeviceKind,
+      version: SpaceManifest.sovereignDeviceVersion,
+      kind: SpaceManifest.sovereignDeviceKind,
       signatureAlgorithm: sovereign.algorithm,
       sovereignBundleHash: encryptedSovereign == null
           ? null
@@ -18657,7 +18653,7 @@ class GroupService {
     _deviceMembersCacheGeneration++;
   }
 
-  void _publishDeviceMembersCache(GroupManifest manifest, GroupState state) {
+  void _publishDeviceMembersCache(SpaceManifest manifest, GroupState state) {
     _deviceMembersCacheGeneration++;
     _deviceMembersCache = {
       for (final member in state.members.values)

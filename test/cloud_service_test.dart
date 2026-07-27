@@ -650,7 +650,6 @@ void main() {
       final encoded = await storage.loadFile('cloud.index.v1.$active');
       expect(encoded, isNotNull);
       expect(encoded!.length, greaterThan(4096));
-      expect(await storage.getSetting('cloud.index.v1'), isEmpty);
       await first.close();
       final missingSlot = active == 'a' ? 'b' : 'a';
       expect(await storage.hasFile('cloud.index.v1.$missingSlot'), isFalse);

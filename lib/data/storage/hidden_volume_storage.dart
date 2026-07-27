@@ -31,7 +31,6 @@ const _logScanLimit = 100000;
 /// in bounded transfers so the native FFI never materialises one enormous
 /// RustBuffer on the storage worker.
 const _outboxScanPageSize = 256;
-const _outboxIndexMarkerKey = 'outbox:index:v1';
 
 Uint8List _sk(String key) => Uint8List.fromList(utf8.encode(key));
 
@@ -2065,14 +2064,6 @@ class HiddenVolumeStorage implements Storage {
         }
         if (recovered) return (contentIds: live, complete: true);
       }
-      final unslotted = await fileStore.loadFile('cloud.index.v1');
-      if (unslotted != null) {
-        return (contentIds: live, complete: collect(unslotted));
-      }
-      final legacy = await _as.get(Ns.settings, _sk('set:cloud.index.v1'));
-      if (legacy != null) {
-        return (contentIds: live, complete: collect(legacy));
-      }
     } catch (_) {
       return (contentIds: live, complete: false);
     }
@@ -2310,10 +2301,6 @@ class HiddenVolumeStorage implements Storage {
   // fresh id each, so nothing here ever rewrites a hot key, and the namespace
   // stays tiny (≤ the caller's cap, rows of ~150 B).
 
-  /// The legacy single-value journal key, drained into [Ns.callLog] once.
-  static const _legacyCallLogKey = 'call_log';
-  bool _callLogMigrated = false;
-
   @override
   Future<bool> appendCallLogEntry(
     CallLogEntry entry, {
@@ -2365,10 +2352,8 @@ class HiddenVolumeStorage implements Storage {
     return [for (final r in cur) r.entry];
   }
 
-  Future<List<({int logId, CallLogEntry entry})>> _callLogRecords() async {
-    await _migrateLegacyCallLog();
-    return _readCallLogNamespace();
-  }
+  Future<List<({int logId, CallLogEntry entry})>> _callLogRecords() =>
+      _readCallLogNamespace();
 
   Future<List<({int logId, CallLogEntry entry})>>
   _readCallLogNamespace() async {
@@ -2393,48 +2378,6 @@ class HiddenVolumeStorage implements Storage {
       // Unreadable namespace → empty journal (same stance as the outbox).
     }
     return out;
-  }
-
-  /// One-time drain of the legacy single-value journal into [Ns.callLog],
-  /// then the hot key is deleted so nothing ever rewrites it again. Runs
-  /// lazily before the first journal read/append of each open; a failed drain
-  /// leaves the legacy key intact for the next attempt.
-  Future<void> _migrateLegacyCallLog() async {
-    if (_callLogMigrated) return;
-    _callLogMigrated = true;
-    try {
-      final raw = await _as.get(Ns.settings, _sk('set:$_legacyCallLogKey'));
-      if (raw == null) return;
-      final have = {for (final r in await _readCallLogNamespace()) r.entry.id};
-      final ops = <KvLogOp>[];
-      try {
-        final d = jsonDecode(utf8.decode(raw));
-        if (d is List) {
-          for (final j in d) {
-            if (j is! Map) continue;
-            final e = CallLogEntry.fromJson(Map<String, dynamic>.from(j));
-            if (e == null || !have.add(e.id)) continue;
-            ops.add(
-              AppendLogOp(
-                Ns.callLog,
-                await _allocLogId(),
-                _sk(jsonEncode(e.toJson())),
-              ),
-            );
-          }
-        }
-      } catch (_) {
-        // Unreadable legacy blob — nothing to carry over; still delete it.
-      }
-      await _commitBatched([
-        ...ops,
-        DeleteOp(Ns.settings, _sk('set:$_legacyCallLogKey')),
-        if (ops.isNotEmpty)
-          PutOp(Ns.settings, _sk('msg_next_id'), _sk('${_nextIdCache!}')),
-      ]);
-    } catch (_) {
-      _callLogMigrated = false;
-    }
   }
 
   // ── Durable frame outbox (payload log + pending index) ─────────────────────
@@ -2516,7 +2459,7 @@ class HiddenVolumeStorage implements Storage {
     } catch (e) {
       // The index is already authoritative and usable. Historical payload rows
       // only waste space; a failed cleanup can safely retry on the next open.
-      devLog(() => 'xVeil[outbox]: legacy payload cleanup deferred: $e');
+      devLog(() => 'xVeil[outbox]: orphan payload cleanup deferred: $e');
     }
   }
 
@@ -2553,120 +2496,19 @@ class HiddenVolumeStorage implements Storage {
     await _deleteOutboxLogIdsCritical(obsolete);
     devLog(
       () =>
-          'xVeil[outbox]: removed ${obsolete.length} obsolete legacy payload rows',
+          'xVeil[outbox]: removed ${obsolete.length} unindexed payload rows',
     );
-  }
-
-  Future<({Map<String, ({OutboxFrame frame, int logId})> pending, int rows})?>
-  _foldLegacyOutboxCritical() async {
-    final pending = <String, ({OutboxFrame frame, int logId})>{};
-    int? start;
-    var rows = 0;
-    try {
-      while (true) {
-        final page = await _as.iterLogRange(
-          namespace: Ns.outbox,
-          start: start,
-          limit: _outboxScanPageSize,
-        );
-        if (page.isEmpty) break;
-        for (final entry in page) {
-          rows++;
-          try {
-            final decoded = jsonDecode(utf8.decode(entry.payload));
-            if (decoded is! Map) continue;
-            final id = decoded['id'];
-            if (id is! String) continue;
-            if (decoded['op'] == 'ack') {
-              pending.remove(id);
-              continue;
-            }
-            final frame = _decodePendingOutboxPayload(entry.payload);
-            if (frame != null) {
-              pending[id] = (frame: frame, logId: entry.logId);
-            }
-          } catch (_) {
-            // One malformed legacy row must not hide later pending frames.
-          }
-        }
-        if (page.length < _outboxScanPageSize) break;
-        final last = page.last.logId;
-        start = last + 1; // iterLogRange start is inclusive.
-      }
-      return (pending: pending, rows: rows);
-    } catch (e) {
-      devLog(() => 'xVeil[outbox]: legacy scan failed: $e');
-      return null;
-    }
-  }
-
-  Future<void> _migrateLegacyOutboxCritical(
-    Map<String, ({OutboxFrame frame, int logId})> pending,
-  ) async {
-    // A previous interrupted migration may have left a partial index. The
-    // legacy journal remains authoritative until the marker is durably written.
-    await _as.eraseNamespace(Ns.outboxIndex);
-    await _commitBatched([
-      for (final item in pending.values)
-        PutOp(
-          Ns.outboxIndex,
-          _outboxIndexKey(item.frame.frameId),
-          _sk('${item.logId}'),
-        ),
-      // Deliberately last: _commitBatched preserves order, so observing this
-      // marker proves every preceding index row is durable.
-      PutOp(Ns.settings, _sk(_outboxIndexMarkerKey), _sk('1')),
-    ]);
-    if (pending.isEmpty) {
-      // With no live frame, the entire legacy journal is obsolete and safe to
-      // drop wholesale. The marker prevents another historical scan if cleanup
-      // itself is interrupted.
-      try {
-        await _as.eraseNamespace(Ns.outbox);
-      } catch (_) {}
-    } else {
-      // Now that the durable index is authoritative, old enqueue/ack rows can
-      // be removed without rewriting the still-pending payloads. This releases
-      // the B+ index slots and lets the normal/manual container compactor reclaim
-      // the corresponding append-only padding later.
-      await _cleanupIndexedOutboxCritical();
-    }
   }
 
   Future<bool> _ensureOutboxLoadedCritical() async {
     if (_outboxLoaded) return true;
     try {
-      final marker = await _as.get(Ns.settings, _sk(_outboxIndexMarkerKey));
-      if (marker != null && utf8.decode(marker, allowMalformed: true) == '1') {
-        await _loadIndexedOutboxCritical();
-        return true;
-      }
+      await _loadIndexedOutboxCritical();
+      return true;
     } catch (e) {
       devLog(() => 'xVeil[outbox]: index load failed: $e');
       return false;
     }
-
-    final legacy = await _foldLegacyOutboxCritical();
-    if (legacy == null) return false;
-    _outboxById
-      ..clear()
-      ..addAll(legacy.pending);
-    _outboxLoaded = true;
-    try {
-      await _migrateLegacyOutboxCritical(legacy.pending);
-      if (legacy.rows >= _outboxScanPageSize) {
-        devLog(
-          () =>
-              'xVeil[outbox]: migrated ${legacy.rows} legacy rows to '
-              '${legacy.pending.length} indexed pending frames',
-        );
-      }
-    } catch (e) {
-      // Keep the correctly folded in-memory state. Without the marker the next
-      // launch safely retries from the still-authoritative legacy journal.
-      devLog(() => 'xVeil[outbox]: index migration deferred: $e');
-    }
-    return true;
   }
 
   @override
@@ -2949,8 +2791,6 @@ class HiddenVolumeStorage implements Storage {
     // scrub/vacuum that may renumber the log, invalidates it — re-read lazily.
     _nextIdCache = null;
     _idInit = null;
-    // A different space may still carry a legacy single-value call journal.
-    _callLogMigrated = false;
   }
 
   Future<void> _invalidateScanCache() =>

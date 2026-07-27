@@ -3,7 +3,6 @@
 // the PayloadTooLarge regression stance — the journal never rewrites a hot
 // settings key again.
 
-import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
@@ -89,39 +88,6 @@ void main() {
     final rows = await storage.callLogEntries();
     expect(rows.length, 3);
     expect(rows.any((e) => e.id == 'old'), isFalse);
-  });
-
-  test('legacy single-value journal migrates once: rows carried over, hot key '
-      'deleted, dedupe against already-migrated records', () async {
-    final (storage, _) = await _open();
-    final legacy = jsonEncode([
-      _entry('a', 100).toJson(),
-      _entry('b', 200).toJson(),
-      {'garbage': true},
-      _entry('b', 200).toJson(), // duplicate id inside the blob
-    ]);
-    await storage.putSetting('call_log', legacy);
-
-    // First journal READ drains the legacy blob.
-    final rows = await storage.callLogEntries();
-    expect([for (final e in rows) e.id], ['b', 'a']);
-    expect(await storage.getSetting('call_log'), isNull,
-        reason: 'the hot key must be gone after the drain');
-    expect((await storage.namespaceCounts())['callLog'], 2);
-
-    // Migration does not resurrect on later appends.
-    await storage.appendCallLogEntry(_entry('c', 300), cap: 10);
-    expect([for (final e in await storage.callLogEntries()) e.id],
-        ['c', 'b', 'a']);
-  });
-
-  test('migration runs before an append too, and an unreadable legacy blob is '
-      'dropped without killing the journal', () async {
-    final (storage, _) = await _open();
-    await storage.putSetting('call_log', '{not json');
-    await storage.appendCallLogEntry(_entry('c1', 1000), cap: 10);
-    expect(await storage.getSetting('call_log'), isNull);
-    expect([for (final e in await storage.callLogEntries()) e.id], ['c1']);
   });
 
   test('eraseSpace clears the journal namespace', () async {
