@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts"))
@@ -68,25 +67,88 @@ def _copy(source: str, destination_dir: str) -> None:
     print(f"    staged {os.path.basename(source)} -> {destination_dir}")
 
 
+def _pubspec_version() -> str:
+    """The version the error report will name.
+
+    Read here rather than passed by hand: a report saying "dev" cannot be tied
+    to anything a tester actually has, and a literal in the source goes stale
+    the first time someone forgets to bump it.
+    """
+    with open(os.path.join(ROOT, "pubspec.yaml"), encoding="utf-8") as handle:
+        for line in handle:
+            if line.startswith("version:"):
+                return line.split(":", 1)[1].strip()
+    from xveil_build_support import Abort
+
+    raise Abort("cannot read 'version:' from pubspec.yaml")
+
+
+def _check_android_signing() -> None:
+    """Refuse to call a debug-signed APK a release.
+
+    Without android/key.properties gradle falls back to the debug key. It does
+    warn, but a warning in the middle of a two-minute build is not one anyone
+    reads — this is checked at the END, where it cannot scroll past.
+
+    Two consequences, both permanent: an update can never be shipped over it
+    (Android treats a different signing key as a different app, so testers
+    would have to uninstall and lose their identity and history), and anyone
+    can build an APK that installs over yours.
+    """
+    if os.path.isfile(os.path.join(ROOT, "android", "key.properties")):
+        print("    signed with the key from android/key.properties")
+        return
+    raise RuntimeError(
+        "DEBUG-SIGNED — do not hand this out.\n"
+        "    android/key.properties is missing, so gradle used the debug key.\n"
+        "    Create the keystore once and keep it safe; it is the app's\n"
+        "    identity for as long as the app exists:\n"
+        "      keytool -genkey -v -keystore ~/xveil-release.jks \\\n"
+        "        -keyalg RSA -keysize 4096 -validity 10000 -alias xveil\n"
+        "    then write android/key.properties with storeFile, storePassword,\n"
+        "    keyPassword and keyAlias. Both files are gitignored."
+    )
+
+
 def _android(release: bool) -> list[Step]:
+    # The per-ABI .so is produced by each plugin's gradle cargo-ndk task during
+    # `flutter build apk`; this script only preflights the toolchain, so a host
+    # without bash loses a check rather than the build.
     steps = [
-        Step("native libraries for Android", argv=sh("scripts/build-mobile.sh", "android")),
+        Step(
+            "native toolchain preflight",
+            argv=sh("scripts/build-mobile.sh", "android") if have("bash") else [],
+            optional=True,
+            skip_if="" if have("bash") else "needs bash; gradle builds the .so anyway",
+        )
     ]
     whisper = _whisper_script("android")
     steps.append(
         Step(
             "whisper wrapper (transcription)",
-            argv=["bash", whisper] if whisper else [],
+            argv=["bash", whisper] if whisper and have("bash") else [],
             optional=True,
-            skip_if="" if whisper else "no build script for this platform",
+            skip_if=(
+                ""
+                if whisper and have("bash")
+                else "no build script for this host"
+            ),
         )
     )
     if release:
-        # The release script also refuses to hand back a debug-signed APK and
-        # splits per ABI — both worth keeping rather than calling flutter here.
+        # Done here rather than in a shell script so a Windows host can also
+        # produce release APKs — and so the signing check cannot drift from
+        # the build it guards. scripts/build-android-release.sh calls this.
         steps.append(
-            Step("release APKs (signing checked)", argv=sh("scripts/build-android-release.sh"))
+            Step(
+                "release APKs, one per ABI",
+                argv=[
+                    "flutter", "build", "apk", "--release", "--split-per-abi",
+                    f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                ],
+            )
         )
+        steps.append(Step("signing check", call=_check_android_signing))
     else:
         steps.append(Step("debug APK", argv=["flutter", "build", "apk", "--debug"]))
     return steps
