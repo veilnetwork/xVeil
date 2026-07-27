@@ -58,6 +58,7 @@ class FolderSyncReport {
     required this.applied,
     required this.failed,
     required this.conflicts,
+    this.ambiguous = const {},
     this.refusedReason,
   });
 
@@ -70,6 +71,10 @@ class FolderSyncReport {
 
   /// Paths now waiting for the user to choose a side.
   final Set<String> conflicts;
+
+  /// Paths more than one cloud item claims. Skipped, and named here so the
+  /// folder does not simply appear to ignore them.
+  final Set<String> ambiguous;
 
   final String? refusedReason;
 
@@ -132,6 +137,7 @@ class FolderSyncEngine {
         applied: const [],
         failed: const [],
         conflicts: state.pendingConflicts,
+        ambiguous: plan.ambiguous,
         refusedReason: plan.refusedReason,
       );
     }
@@ -228,6 +234,7 @@ class FolderSyncEngine {
       applied: applied,
       failed: failed,
       conflicts: conflicts,
+      ambiguous: plan.ambiguous,
     );
   }
 
