@@ -92,15 +92,11 @@ void main() {
               as Map<String, Object?>;
 
       expect(decoded['schema'], 'xveil-error-report/1');
-      expect(decoded.keys, {
-        'schema',
-        'app',
-        'platform',
-        'os',
-        'profile',
-        'phase',
-        'errors',
-      }, reason: 'an allow-list: a new field must be a deliberate decision');
+      expect(
+        decoded.keys,
+        {'schema', 'app', 'platform', 'os', 'profile', 'phase', 'errors'},
+        reason: 'an allow-list: a new field must be a deliberate decision',
+      );
       final errors = decoded['errors']! as List;
       expect(errors, hasLength(1));
       expect((errors.single as Map)['kind'], 'flutter');
@@ -114,10 +110,11 @@ void main() {
         journal.record(kind: 'zone', error: 'error $i', atMs: i);
       }
       expect(journal.entries, hasLength(3));
-      expect(
-        journal.entries.map((e) => e.message),
-        ['error 7', 'error 8', 'error 9'],
-      );
+      expect(journal.entries.map((e) => e.message), [
+        'error 7',
+        'error 8',
+        'error 9',
+      ]);
     });
 
     test('an empty journal still produces a usable report', () {
@@ -138,6 +135,111 @@ void main() {
         'locked',
         reason: '"nothing crashed but it is stuck" is itself a report',
       );
+    });
+  });
+
+  group('a failure that repeats', () {
+    // Repeats are the normal case, not the exception: a screen that fails to
+    // load fails again every time it is opened. Before this, sixty repeats of
+    // one transient error filled the ring and evicted an unlock failure — the
+    // report described nothing but the noise.
+
+    test('collapses into one entry that counts', () {
+      final journal = ErrorJournal();
+      for (var i = 0; i < 5; i++) {
+        journal.record(kind: 'screen:chats', error: 'list failed', atMs: i);
+      }
+      expect(journal.entries, hasLength(1));
+      expect(journal.entries.single.count, 5);
+    });
+
+    test('does NOT evict a different failure', () {
+      // The point of the whole change.
+      final journal = ErrorJournal(capacity: 3);
+      journal.record(kind: 'unlock', error: 'the one that matters', atMs: 0);
+      for (var i = 0; i < 60; i++) {
+        journal.record(kind: 'screen:chats', error: 'transient', atMs: i);
+      }
+      expect(
+        journal.entries.map((e) => e.message),
+        contains('the one that matters'),
+      );
+    });
+
+    test('brackets the burst — first seen and last seen', () {
+      // A hundred failures in a second and a hundred over a day are different
+      // bugs wearing the same message.
+      final journal = ErrorJournal();
+      journal.record(kind: 'zone', error: 'flap', atMs: 1000);
+      journal.record(kind: 'zone', error: 'flap', atMs: 4000);
+      final entry = journal.entries.single;
+      expect(entry.firstAtMs, 1000);
+      expect(entry.atMs, 4000);
+    });
+
+    test(
+      'a repeat moves to the end, so a recurring failure is not aged out',
+      () {
+        final journal = ErrorJournal(capacity: 2);
+        journal.record(kind: 'zone', error: 'recurring', atMs: 0);
+        journal.record(kind: 'zone', error: 'other', atMs: 1);
+        journal.record(kind: 'zone', error: 'recurring', atMs: 2);
+        journal.record(kind: 'zone', error: 'newest', atMs: 3);
+        expect(
+          journal.entries.map((e) => e.message),
+          ['recurring', 'newest'],
+          reason: 'the one still happening outranks the one that stopped',
+        );
+      },
+    );
+
+    test('a different KIND with the same text stays separate', () {
+      // "no route" from the node and from a screen are different problems.
+      final journal = ErrorJournal();
+      journal.record(kind: 'node', error: 'no route', atMs: 0);
+      journal.record(kind: 'screen:chats', error: 'no route', atMs: 1);
+      expect(journal.entries, hasLength(2));
+    });
+
+    test('the count only appears when there IS one', () {
+      final journal = ErrorJournal()
+        ..record(kind: 'zone', error: 'once', atMs: 1);
+      final once =
+          jsonDecode(
+                journal.toJson(
+                  platform: 'linux',
+                  osVersion: '1',
+                  appVersion: '1',
+                  profile: 'default',
+                  phase: 'ready',
+                ),
+              )
+              as Map<String, Object?>;
+      expect(
+        ((once['errors']! as List).single as Map).keys,
+        {'kind', 'at', 'message'},
+        reason: 'an allow-list for entries too — a single failure stays lean',
+      );
+
+      journal.record(kind: 'zone', error: 'once', atMs: 2);
+      final twice =
+          jsonDecode(
+                journal.toJson(
+                  platform: 'linux',
+                  osVersion: '1',
+                  appVersion: '1',
+                  profile: 'default',
+                  phase: 'ready',
+                ),
+              )
+              as Map<String, Object?>;
+      expect(((twice['errors']! as List).single as Map).keys, {
+        'kind',
+        'at',
+        'count',
+        'firstAt',
+        'message',
+      });
     });
   });
 }

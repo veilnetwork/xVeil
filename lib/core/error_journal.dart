@@ -19,16 +19,37 @@ class ErrorJournal {
 
   List<RecordedError> get entries => List.unmodifiable(_entries);
 
+  /// Record a failure, collapsing a repeat of one already held.
+  ///
+  /// Repeats are the normal case, not the exception: a screen that fails to
+  /// load fails again every time it is opened, and a flapping one can fail
+  /// dozens of times a minute. Appending each would fill the ring with copies
+  /// of the loudest failure and push out the one the person is actually
+  /// reporting — measured, and it does: sixty repeats of a transient list
+  /// error evicted an unlock failure entirely.
+  ///
+  /// So a repeat bumps a count and moves the entry to the end, which makes the
+  /// ring hold the newest DISTINCT failures. "This happened 60 times between
+  /// these two moments" is also a better sentence than sixty identical rows —
+  /// it says whether something is a burst or a slow drip.
   void record({
     required String kind,
     required Object error,
     StackTrace? stack,
     required int atMs,
   }) {
+    final message = redact(error.toString());
+    final existing = _entries.indexWhere(
+      (entry) => entry.kind == kind && entry.message == message,
+    );
+    if (existing >= 0) {
+      _entries.add(_entries.removeAt(existing).seenAgain(atMs));
+      return;
+    }
     _entries.add(
       RecordedError(
         kind: kind,
-        message: redact(error.toString()),
+        message: message,
         frames: _topFrames(stack),
         atMs: atMs,
       ),
@@ -122,17 +143,41 @@ class RecordedError {
     required this.message,
     required this.frames,
     required this.atMs,
-  });
+    this.count = 1,
+    int? firstAtMs,
+  }) : firstAtMs = firstAtMs ?? atMs;
 
   /// Which net caught it: `flutter`, `platform`, `zone`, or a caller's label.
   final String kind;
   final String message;
   final List<String> frames;
+
+  /// When it last happened.
   final int atMs;
+
+  /// When it first happened. With [atMs] this says whether the failure was a
+  /// burst or a slow drip — two very different bugs behind one message.
+  final int firstAtMs;
+
+  /// How many times this exact failure was recorded.
+  final int count;
+
+  /// The same failure again: keep the first frames (the site is the same) and
+  /// the first timestamp, advance the last one.
+  RecordedError seenAgain(int atMs) => RecordedError(
+    kind: kind,
+    message: message,
+    frames: frames,
+    atMs: atMs,
+    firstAtMs: firstAtMs,
+    count: count + 1,
+  );
 
   Map<String, Object?> toJson() => {
     'kind': kind,
     'at': atMs,
+    if (count > 1) 'count': count,
+    if (count > 1) 'firstAt': firstAtMs,
     'message': message,
     if (frames.isNotEmpty) 'frames': frames,
   };
