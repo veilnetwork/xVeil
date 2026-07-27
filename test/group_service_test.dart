@@ -1852,6 +1852,49 @@ void main() {
     },
   );
 
+  test('a full-history push is a NEW transfer every time, so a peer that lost '
+      'its store can be re-seeded from an unchanged bundle', () async {
+    // The durable frame id of a snapshot derives from the snapshot's own
+    // bytes. For a re-drive that is right. For re-seeding a device that was
+    // wiped it is fatal: the bundle has not changed, so the frames carry
+    // exactly the ids that device acknowledged in its previous life, the
+    // delivery layer treats them as settled, and the snapshot never lands.
+    // Measured live: 204 chunks arrived, reassembly never completed, and
+    // appending one row to the source bundle fixed it on the first attempt.
+    final sent = <String>[];
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(
+      storage,
+      _FakeSigner(owner),
+      send: (peer, gid, json) async => sent.add(json),
+    );
+    final gid = await svc.createGroup('G');
+    await svc.addControlOp(
+      gid,
+      ControlOp.addMember,
+      target: bob,
+      role: GroupRole.member,
+    );
+
+    // addControlOp fans a delta out unawaited; let it land before measuring.
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    sent.clear();
+    await svc.broadcast(gid);
+    await svc.broadcast(gid);
+
+    expect(sent, hasLength(2));
+    expect(
+      sent[0],
+      isNot(sent[1]),
+      reason: 'identical bytes would reuse a settled durable frame id',
+    );
+    // A delta must NOT pay this: re-driving the same delta is exactly the case
+    // content keying exists to collapse.
+    final bundle = (await svc.load(gid))!;
+    expect(svc.snapshotJson(bundle), svc.snapshotJson(bundle));
+  });
+
   test('broadcast ships the snapshot to every other member', () async {
     final sent = <(NodeId, NodeId)>[];
     final storage = FakeHvContainer().storage();
