@@ -71,6 +71,26 @@ Future<HttpServer> _serveRangeAware(
   return server;
 }
 
+/// A server that sends headers and then goes quiet, holding the socket open.
+/// This is how a mobile connection actually fails: not with an error, but by
+/// stopping.
+Future<HttpServer> _serveThenStall(
+  int declaredLength, {
+  int firstChunk = 64 * 1024,
+}) async {
+  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  server.listen((request) async {
+    request.response.contentLength = declaredLength;
+    // A real chunk, not a token three bytes: anything smaller can sit in a
+    // buffer and never reach the client, which makes "what arrived is kept"
+    // look false when nothing arrived in the first place.
+    request.response.add(List<int>.filled(firstChunk, 7));
+    await request.response.flush();
+    // Never closed: the socket stays open and no more bytes arrive.
+  });
+  return server;
+}
+
 void main() {
   late Directory dir;
   late WhisperModelStore store;
@@ -387,6 +407,56 @@ void main() {
         );
       },
       timeout: const Timeout(Duration(minutes: 2)),
+    );
+  });
+
+  group('a connection that stops rather than fails', () {
+    test(
+      'is abandoned, so the person is not left on a spinner',
+      () async {
+        // Without a stall timeout this test would hang forever — which is
+        // exactly what the app did: no cancel, no retry, no way out.
+        final stalling = WhisperModelStore(
+          supportDirectory: () async => dir,
+          stallTimeout: const Duration(milliseconds: 300),
+        );
+        final server = await _serveThenStall(WhisperModelStore.expectedBytes);
+        addTearDown(() => server.close(force: true));
+
+        final started = DateTime.now();
+        final result = await stalling.download(
+          from: Uri.parse('http://127.0.0.1:${server.port}/m'),
+        );
+        final elapsed = DateTime.now().difference(started);
+
+        expect(result.succeeded, isFalse);
+        expect(
+          elapsed,
+          lessThan(const Duration(seconds: 5)),
+          reason: 'it must give up on its own, not wait for the socket',
+        );
+      },
+      timeout: const Timeout(Duration(seconds: 20)),
+    );
+
+    test(
+      'and what arrived is kept, so the retry resumes',
+      () async {
+        // The pairing that makes the timeout worth having: giving up is only an
+        // improvement if it does not throw away the megabytes already fetched.
+        final stalling = WhisperModelStore(
+          supportDirectory: () async => dir,
+          stallTimeout: const Duration(milliseconds: 300),
+        );
+        final server = await _serveThenStall(WhisperModelStore.expectedBytes);
+        addTearDown(() => server.close(force: true));
+
+        await stalling.download(
+          from: Uri.parse('http://127.0.0.1:${server.port}/m'),
+        );
+        expect(await stalling.pendingBytes(), greaterThan(0));
+      },
+      timeout: const Timeout(Duration(seconds: 20)),
     );
   });
 }
