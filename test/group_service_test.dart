@@ -13367,6 +13367,29 @@ void main() {
       final reports = [
         for (var index = 0; index < posts.length; index++) signedReport(index),
       ];
+
+      // Before anything fills the queue, so the ONLY reason to refuse is the
+      // signature. `SpaceAbuseReport.fromJson` merely parses; the inbound
+      // verify is the only thing binding a report to its reporter, and it was
+      // uncovered — deleting it left the whole suite green. Overwrite the
+      // signature rather than adding a field: an unknown key is refused by the
+      // fail-closed rule below and would prove nothing.
+      final forged = Map<String, dynamic>.from(reports.first.toJson())
+        ..['signature'] = base64Encode(Uint8List(64));
+      expect(
+        await ownerSvc.receiveSpaceAbuseReport(bob, jsonEncode(forged)),
+        isFalse,
+        reason: 'a report whose signature does not verify must be refused',
+      );
+      expect(
+        await ownerSvc.incomingSpaceAbuseReports(
+          spaceId: spaceId,
+          pendingOnly: true,
+        ),
+        isEmpty,
+        reason: 'and it must not reach the moderator queue',
+      );
+
       for (final report in reports.take(16)) {
         expect(
           await ownerSvc.receiveSpaceAbuseReport(
