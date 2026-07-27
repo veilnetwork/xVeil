@@ -9,6 +9,7 @@ class FolderSyncState {
   const FolderSyncState({
     required this.base,
     required this.pendingConflicts,
+    this.resolutions = const {},
     this.lastPassAtMs,
     this.lastRefusal,
   });
@@ -20,6 +21,14 @@ class FolderSyncState {
 
   /// Paths whose conflict the user has not answered yet.
   final Set<String> pendingConflicts;
+
+  /// Answers not yet acted on: path -> keep the local copy.
+  ///
+  /// Held rather than applied on the spot because acting needs both sides as
+  /// they are NOW, which only a pass has. Simply un-marking the conflict would
+  /// lose the answer: the two copies still differ, so the next pass would ask
+  /// again, forever.
+  final Map<String, bool> resolutions;
 
   final int? lastPassAtMs;
 
@@ -96,6 +105,12 @@ class FolderSyncStore {
           for (final path in (decoded['conflicts'] as List? ?? const []))
             if (path is String) path,
         },
+        resolutions: {
+          for (final entry
+              in (decoded['resolved'] as Map? ?? const {}).entries)
+            if (entry.key is String && entry.value is bool)
+              entry.key as String: entry.value as bool,
+        },
         lastPassAtMs: decoded['at'] is int ? decoded['at'] as int : null,
         lastRefusal: decoded['refused'] is String
             ? decoded['refused'] as String
@@ -119,6 +134,7 @@ class FolderSyncStore {
           },
       ],
       'conflicts': state.pendingConflicts.toList()..sort(),
+      if (state.resolutions.isNotEmpty) 'resolved': state.resolutions,
       if (state.lastPassAtMs != null) 'at': state.lastPassAtMs,
       if (state.lastRefusal != null) 'refused': state.lastRefusal,
     }),
