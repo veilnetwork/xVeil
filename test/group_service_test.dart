@@ -1082,7 +1082,7 @@ void main() {
         await ownerSvc.publishSpacePost(
           spaceId,
           body: 'blob ${i + 1}',
-          media: [MediaObjectRef(contentId: cids[i], kind: 'image', size: 1)],
+          media: [MediaObject(contentId: cids[i], kind: 'image', size: 1)],
           broadcast: false,
         ),
         isNotNull,
@@ -2590,7 +2590,7 @@ void main() {
           spaceId,
           body: 'replicated media',
           media: [
-            MediaObjectRef(contentId: cid, kind: 'file', size: bytes.length),
+            MediaObject(contentId: cid, kind: 'file', size: bytes.length),
           ],
           broadcast: false,
         ),
@@ -8961,7 +8961,7 @@ void main() {
         visibility: SpaceVisibility.public,
       );
       final largeBody = List.filled(6000, 'draft').join();
-      final draftMedia = MediaObjectRef(
+      final draftMedia = MediaObject(
         contentId: 'd' * 64,
         kind: 'video',
         name: 'draft.mp4',
@@ -9057,7 +9057,7 @@ void main() {
         title: 'Release later',
         body: 'This must not enter P2P before the due time.',
         type: SpacePostType.article,
-        media: [MediaObjectRef(contentId: 'e' * 64, kind: 'image')],
+        media: [MediaObject(contentId: 'e' * 64, kind: 'image')],
         scheduledAtMs: dueAt,
       );
       expect(scheduled, isNotNull);
@@ -9203,7 +9203,7 @@ void main() {
         title: 'One',
         body: 'first publication',
         type: SpacePostType.article,
-        media: [MediaObjectRef(contentId: 'a' * 64, kind: 'image')],
+        media: [MediaObject(contentId: 'a' * 64, kind: 'image')],
         broadcast: false,
       );
       final second = await svc.publishSpacePost(
@@ -10308,7 +10308,7 @@ void main() {
         title: 'Original',
         body: 'first body',
         type: SpacePostType.article,
-        media: [MediaObjectRef(contentId: 'a' * 64, kind: 'image')],
+        media: [MediaObject(contentId: 'a' * 64, kind: 'image')],
         broadcast: false,
       ))!;
       await svc.publishSpacePost(
@@ -10324,7 +10324,7 @@ void main() {
         title: 'Corrected',
         body: 'revised body',
         type: SpacePostType.post,
-        media: [MediaObjectRef(contentId: 'b' * 64, kind: 'image')],
+        media: [MediaObject(contentId: 'b' * 64, kind: 'image')],
         broadcast: false,
       );
       expect(edited, isNotNull);
@@ -14770,7 +14770,7 @@ void main() {
         spaceId,
         body: 'replicated media',
         media: [
-          MediaObjectRef(contentId: cid, kind: 'file', size: bytes.length),
+          MediaObject(contentId: cid, kind: 'file', size: bytes.length),
         ],
         broadcast: false,
       ),

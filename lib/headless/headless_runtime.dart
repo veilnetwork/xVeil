@@ -382,7 +382,6 @@ class HeadlessRuntime {
               commentNotifications: commentNotifications,
               hiddenFromRecommendations: hiddenFromRecommendations,
             ),
-        setSpaceFeedEnabled: groupApi.setFeedEnabled,
         setSpaceFeedPostHidden: groupApi.setFeedPostHidden,
         spaceInvites: groupApi.invites,
         decideSpaceInvite: groupApi.decideInvite,

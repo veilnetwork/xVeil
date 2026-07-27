@@ -11,7 +11,7 @@ void main() {
       cid: 'a' * 64,
       name: 'cover.webp',
     );
-    final MediaObjectRef reference = MediaObjectRef(
+    final MediaObject reference = MediaObject(
       kind: 'image',
       contentId: 'a' * 64,
       width: 16,
@@ -69,7 +69,7 @@ void main() {
       'cHJldmlldw==',
     );
     expect(
-      MediaObjectRef.fromJson(media.toReferenceJson())?.contentId,
+      MediaObject.fromJson(media.toReferenceJson())?.contentId,
       'b' * 64,
     );
   });

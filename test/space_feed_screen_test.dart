@@ -1553,7 +1553,7 @@ void main() {
         'Media writers',
         visibility: SpaceVisibility.public,
       );
-      final media = MediaObjectRef(
+      final media = MediaObject(
         contentId: 'a' * 64,
         kind: 'image',
         name: 'release.png',
