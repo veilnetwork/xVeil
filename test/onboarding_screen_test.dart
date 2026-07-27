@@ -260,4 +260,61 @@ void main() {
       expect(container.read(appControllerProvider).phase, AppPhase.ready);
     });
   });
+
+  testWidgets('the word count gates on its own, not via the validator', (
+    tester,
+  ) async {
+    // The existing restore test hands in a validator that itself returns
+    // `words == 24`, so it is satisfied whether or not the widget checks the
+    // count -- deleting the widget's own check left the whole suite green.
+    // Here the validator accepts ANYTHING, so the count is the only thing that
+    // can still refuse. It has to: the real validator is BIP-39, which happily
+    // accepts a valid 12-word phrase, while every phrase this app mints is 24.
+    // Without the count check that 12-word phrase would restore silently into
+    // a different identity than the person meant.
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: OnboardingScreen(validatePhrase: (_) => true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    AppL10n l() => AppL10n.of(tester.element(find.byType(OnboardingScreen)));
+    bool submitEnabled() =>
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, l().onboardRestoreSubmit),
+            )
+            .onPressed !=
+        null;
+
+    await tester.tap(find.text(l().actionContinue));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l().onboardRestoreIdentity));
+    await tester.pumpAndSettle();
+
+    final field = find.byType(TextField);
+    for (final count in [1, 12, 23, 25]) {
+      await tester.enterText(
+        field,
+        List.generate(count, (i) => 'w$i').join(' '),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        submitEnabled(),
+        isFalse,
+        reason: '$count words must not be submittable on a 24-word screen',
+      );
+    }
+
+    // ...and 24 still works, so the gate is a gate and not a wall.
+    await tester.enterText(field, List.generate(24, (i) => 'w$i').join(' '));
+    await tester.pumpAndSettle();
+    expect(submitEnabled(), isTrue);
+  });
 }
