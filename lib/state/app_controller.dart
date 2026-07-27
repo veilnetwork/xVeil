@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import '../data/storage/app_profile.dart';
+import '../core/error_journal.dart';
 import '../main.dart' show activeProfile;
 
 import 'package:flutter/foundation.dart';
@@ -103,8 +104,7 @@ class AppState {
 /// Whether this install has been through first-launch setup, scoped to the
 /// ACTIVE PROFILE — see [AppProfiles.scopedPrefKey] for why a global flag made
 /// a new profile unopenable.
-String _onboardedKey() =>
-    AppProfiles.scopedPrefKey('onboarded', activeProfile);
+String _onboardedKey() => AppProfiles.scopedPrefKey('onboarded', activeProfile);
 const _kStorageModeKey = 'storage_mode';
 
 class AppController extends Notifier<AppState> {
@@ -254,6 +254,14 @@ class AppController extends Notifier<AppState> {
       // undiagnosable in the field. (A genuine wrong password is ok=false, not
       // a throw.)
       devLog(() => 'xVeil[unlock]: container open THREW (+${ms()}ms): $e');
+      // Recorded, unlike a plain wrong password (that is ok=false, not a
+      // throw): "the correct password does not open it" is the report worth
+      // sending, a count of someone's typos is not.
+      errorJournal.record(
+        kind: 'unlock',
+        error: e,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
       ok = false;
     }
     if (!ok) {
@@ -323,6 +331,12 @@ class AppController extends Notifier<AppState> {
         () =>
             'xVeil[unlock]: post-open classification failed -> lock '
             '(+${ms()}ms): $e\n$st',
+      );
+      errorJournal.record(
+        kind: 'unlock',
+        error: e,
+        stack: st,
+        atMs: DateTime.now().millisecondsSinceEpoch,
       );
       try {
         await ref.read(storageProvider).close();
@@ -577,6 +591,11 @@ class AppController extends Notifier<AppState> {
     final storage = ref.read(storageProvider);
     if (!await storage.openWithKeys(entry.spaceKeys)) {
       // The child keys no longer open a space — bounce back to locked.
+      errorJournal.record(
+        kind: 'identity',
+        error: 'stored keys no longer open this space',
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
       state = const AppState(AppPhase.locked, unlockError: true);
       return;
     }
@@ -628,6 +647,11 @@ class AppController extends Notifier<AppState> {
     try {
       final storage = ref.read(storageProvider);
       if (!await storage.openWithKeys(entry.spaceKeys)) {
+        errorJournal.record(
+          kind: 'identity',
+          error: 'stored keys no longer open this space',
+          atMs: DateTime.now().millisecondsSinceEpoch,
+        );
         state = const AppState(AppPhase.locked, unlockError: true);
         return;
       }
@@ -647,6 +671,11 @@ class AppController extends Notifier<AppState> {
       // screen. Bounce to the lock screen so the user re-unlocks into a clean
       // session instead of a half-torn-down dead end.
       devLog(() => 'xVeil[identity]: switchIdentity failed -> lock: $e');
+      errorJournal.record(
+        kind: 'identity',
+        error: e,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
       try {
         await ref.read(storageProvider).close();
       } catch (_) {}
