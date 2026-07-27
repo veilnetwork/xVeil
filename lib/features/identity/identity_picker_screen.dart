@@ -53,8 +53,8 @@ class _IdentityPickerScreenState extends ConsumerState<IdentityPickerScreen> {
               child: Text(
                 l.identityPickerSubtitle,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
             ),
             Expanded(

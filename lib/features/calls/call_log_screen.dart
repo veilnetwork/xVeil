@@ -42,8 +42,10 @@ class CallLogScreen extends ConsumerWidget {
                   children: [
                     const Icon(Icons.call_outlined, size: 48),
                     const SizedBox(height: 12),
-                    Text(l.callLogEmpty,
-                        style: Theme.of(context).textTheme.titleMedium),
+                    Text(
+                      l.callLogEmpty,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                     const SizedBox(height: 4),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -72,7 +74,9 @@ class CallLogScreen extends ConsumerWidget {
     final storage = ref.read(storageProvider);
     final rows = <_Row>[];
     for (final e in entries) {
-      String label = e.peerHex.length >= 8 ? e.peerHex.substring(0, 8) : e.peerHex;
+      String label = e.peerHex.length >= 8
+          ? e.peerHex.substring(0, 8)
+          : e.peerHex;
       try {
         final c = await storage.getContact(NodeId.fromHex(e.peerHex));
         if (c != null) label = c.label;

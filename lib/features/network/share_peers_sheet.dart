@@ -32,18 +32,23 @@ class _SharePeersSheetState extends ConsumerState<SharePeersSheet> {
     final l = AppL10n.of(context);
     final seedsAsync = ref.watch(seedEntriesProvider);
     // node_ids of currently-active peers, for the "active" badge.
-    final activeIds = ref
-        .watch(peersProvider)
-        .asData
-        ?.value
-        .where((p) => p.isActive)
-        .map((p) => p.nodeId.hex)
-        .toSet() ??
+    final activeIds =
+        ref
+            .watch(peersProvider)
+            .asData
+            ?.value
+            .where((p) => p.isActive)
+            .map((p) => p.nodeId.hex)
+            .toSet() ??
         const <String>{};
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
-          24, 0, 24, 24 + MediaQuery.of(context).viewInsets.bottom),
+        24,
+        0,
+        24,
+        24 + MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: seedsAsync.when(
         loading: () => const Padding(
           padding: EdgeInsets.all(32),
@@ -60,11 +65,15 @@ class _SharePeersSheetState extends ConsumerState<SharePeersSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(l.peersShareTitle,
-                  style: Theme.of(context).textTheme.titleLarge),
+              Text(
+                l.peersShareTitle,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
               const SizedBox(height: 8),
-              Text(l.peersShareSubtitle,
-                  style: Theme.of(context).textTheme.bodyMedium),
+              Text(
+                l.peersShareSubtitle,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
               const SizedBox(height: 12),
               Flexible(
                 child: ListView(
@@ -84,7 +93,8 @@ class _SharePeersSheetState extends ConsumerState<SharePeersSheet> {
                             .where((s) => selected.contains(s.nodeId.hex))
                             .toList();
                         setState(
-                            () => _generatedUri = SharedPeers(chosen).toUri());
+                          () => _generatedUri = SharedPeers(chosen).toUri(),
+                        );
                       },
                 icon: const Icon(Icons.qr_code_2),
                 label: Text(l.peersShareGenerate),
@@ -96,8 +106,12 @@ class _SharePeersSheetState extends ConsumerState<SharePeersSheet> {
     );
   }
 
-  Widget _seedTile(BuildContext context, BootstrapInvite s,
-      Set<String> selected, Set<String> activeIds) {
+  Widget _seedTile(
+    BuildContext context,
+    BootstrapInvite s,
+    Set<String> selected,
+    Set<String> activeIds,
+  ) {
     final l = AppL10n.of(context);
     final hex = s.nodeId.hex;
     final isActive = activeIds.contains(hex);
@@ -114,8 +128,10 @@ class _SharePeersSheetState extends ConsumerState<SharePeersSheet> {
       title: Row(
         children: [
           Flexible(
-            child: Text('${s.nodeId.short}…',
-                style: const TextStyle(fontFamily: 'monospace')),
+            child: Text(
+              '${s.nodeId.short}…',
+              style: const TextStyle(fontFamily: 'monospace'),
+            ),
           ),
           if (isActive) ...[
             const SizedBox(width: 8),
@@ -125,14 +141,18 @@ class _SharePeersSheetState extends ConsumerState<SharePeersSheet> {
                 color: Colors.green.withValues(alpha: 0.18),
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: Text(l.peerActiveBadge,
-                  style: const TextStyle(fontSize: 11, color: Colors.green)),
+              child: Text(
+                l.peerActiveBadge,
+                style: const TextStyle(fontSize: 11, color: Colors.green),
+              ),
             ),
           ],
         ],
       ),
-      subtitle: Text(s.transport ?? '',
-          style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+      subtitle: Text(
+        s.transport ?? '',
+        style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+      ),
     );
   }
 
@@ -143,13 +163,17 @@ class _SharePeersSheetState extends ConsumerState<SharePeersSheet> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(l.peersShareTitle,
-            style: Theme.of(context).textTheme.titleLarge,
-            textAlign: TextAlign.center),
+        Text(
+          l.peersShareTitle,
+          style: Theme.of(context).textTheme.titleLarge,
+          textAlign: TextAlign.center,
+        ),
         const SizedBox(height: 8),
-        Text(l.peersShareScanHint,
-            style: Theme.of(context).textTheme.labelMedium,
-            textAlign: TextAlign.center),
+        Text(
+          l.peersShareScanHint,
+          style: Theme.of(context).textTheme.labelMedium,
+          textAlign: TextAlign.center,
+        ),
         const SizedBox(height: 12),
         Center(
           child: Container(
@@ -176,8 +200,10 @@ class _SharePeersSheetState extends ConsumerState<SharePeersSheet> {
             color: scheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: SelectableText(uri,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+          child: SelectableText(
+            uri,
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+          ),
         ),
         const SizedBox(height: 4),
         Center(
@@ -199,15 +225,18 @@ class _SharePeersSheetState extends ConsumerState<SharePeersSheet> {
   }
 
   Widget _empty(BuildContext context, String message) => Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.hub_outlined,
-                size: 40, color: Theme.of(context).colorScheme.outline),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center),
-          ],
+    padding: const EdgeInsets.all(24),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.hub_outlined,
+          size: 40,
+          color: Theme.of(context).colorScheme.outline,
         ),
-      );
+        const SizedBox(height: 12),
+        Text(message, textAlign: TextAlign.center),
+      ],
+    ),
+  );
 }

@@ -1384,9 +1384,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                         state,
                                         avatar: false,
                                       ),
-                                      icon: const Icon(
-                                        Icons.panorama_outlined,
-                                      ),
+                                      icon: const Icon(Icons.panorama_outlined),
                                     ),
                                     if (state.avatarContentId != null ||
                                         state.coverContentId != null)
@@ -1395,14 +1393,11 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                           'space-profile-media-clear',
                                         ),
                                         tooltip: l.spaceProfileMediaClear,
-                                        onPressed: () =>
-                                            _clearProfileMedia(
-                                              service,
-                                              spaceId,
-                                            ),
-                                        icon: const Icon(
-                                          Icons.delete_outline,
+                                        onPressed: () => _clearProfileMedia(
+                                          service,
+                                          spaceId,
                                         ),
+                                        icon: const Icon(Icons.delete_outline),
                                       ),
                                   ],
                                 ),

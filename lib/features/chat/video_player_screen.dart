@@ -271,9 +271,7 @@ class _NativeVideoBodyState extends State<_NativeVideoBody> {
       builder: (context, _) {
         final duration = Duration(milliseconds: p.durationMs);
         final position = _dragFraction != null
-            ? Duration(
-                milliseconds: (p.durationMs * _dragFraction!).round(),
-              )
+            ? Duration(milliseconds: (p.durationMs * _dragFraction!).round())
             : Duration(milliseconds: p.positionMs);
         final fraction = _dragFraction != null
             ? _dragFraction!

@@ -53,12 +53,16 @@ class PeersScreen extends ConsumerWidget {
             children: [
               if (active.isNotEmpty) ...[
                 _SectionHeader(
-                    label: l.peersSectionActive, count: active.length),
+                  label: l.peersSectionActive,
+                  count: active.length,
+                ),
                 ...active.map((p) => _PeerTile(peer: p)),
               ],
               if (inactive.isNotEmpty) ...[
                 _SectionHeader(
-                    label: l.peersSectionInactive, count: inactive.length),
+                  label: l.peersSectionInactive,
+                  count: inactive.length,
+                ),
                 ...inactive.map((p) => _PeerTile(peer: p)),
               ],
             ],
@@ -81,10 +85,9 @@ class _SectionHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
       child: Text(
         '$label · $count',
-        style: Theme.of(context)
-            .textTheme
-            .labelLarge
-            ?.copyWith(color: scheme.primary),
+        style: Theme.of(
+          context,
+        ).textTheme.labelLarge?.copyWith(color: scheme.primary),
       ),
     );
   }
@@ -102,8 +105,8 @@ class _PeerTile extends StatelessWidget {
     final subtitle = peer.isActive
         ? l.peerActiveNow
         : (peer.lastSeen == null
-            ? l.peerNeverSeen
-            : '${l.peerLastSeenLabel} · ${relativeTime(context, peer.lastSeen!)}');
+              ? l.peerNeverSeen
+              : '${l.peerLastSeenLabel} · ${relativeTime(context, peer.lastSeen!)}');
     return ListTile(
       leading: Icon(Icons.circle, size: 12, color: dotColor),
       title: Text(
@@ -132,51 +135,68 @@ class _PeerDetailSheet extends StatelessWidget {
     final lastSeen = peer.isActive
         ? l.peerActiveNow
         : (peer.lastSeen == null
-            ? l.peerNeverSeen
-            : relativeTime(context, peer.lastSeen!));
+              ? l.peerNeverSeen
+              : relativeTime(context, peer.lastSeen!));
     return Padding(
       padding: EdgeInsets.fromLTRB(
-          24, 0, 24, 24 + MediaQuery.of(context).viewInsets.bottom),
+        24,
+        0,
+        24,
+        24 + MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(l.peerDetailsTitle,
-              style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            l.peerDetailsTitle,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const SizedBox(height: 16),
           _field(context, l.peerFieldNodeId, peer.nodeId.hex, copyable: true),
           _field(context, l.peerFieldState, _stateLabel(context, peer.state)),
-          _field(context, l.peerFieldDirection,
-              _dirLabel(context, peer.direction)),
+          _field(
+            context,
+            l.peerFieldDirection,
+            _dirLabel(context, peer.direction),
+          ),
           if (peer.transport.isNotEmpty)
-            _field(context, l.peerFieldTransport, peer.transport,
-                copyable: true),
+            _field(
+              context,
+              l.peerFieldTransport,
+              peer.transport,
+              copyable: true,
+            ),
           _field(context, l.peerFieldLastSeen, lastSeen),
         ],
       ),
     );
   }
 
-  Widget _field(BuildContext context, String label, String value,
-      {bool copyable = false}) {
+  Widget _field(
+    BuildContext context,
+    String label,
+    String value, {
+    bool copyable = false,
+  }) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label,
-              style: Theme.of(context)
-                  .textTheme
-                  .labelSmall
-                  ?.copyWith(color: scheme.outline)),
+          Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: scheme.outline),
+          ),
           Row(
             children: [
               Expanded(
                 child: SelectableText(
                   value,
-                  style:
-                      const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
                 ),
               ),
               if (copyable)
@@ -188,7 +208,8 @@ class _PeerDetailSheet extends StatelessWidget {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                            content: Text(AppL10n.of(context).inviteCopied)),
+                          content: Text(AppL10n.of(context).inviteCopied),
+                        ),
                       );
                     }
                   },
@@ -217,17 +238,20 @@ class _Empty extends StatelessWidget {
           children: [
             Icon(Icons.hub_outlined, size: 48, color: scheme.outline),
             const SizedBox(height: 16),
-            Text(message,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             if (hint != null) ...[
               const SizedBox(height: 8),
-              Text(hint!,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyMedium
-                      ?.copyWith(color: scheme.outline)),
+              Text(
+                hint!,
+                textAlign: TextAlign.center,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: scheme.outline),
+              ),
             ],
           ],
         ),
@@ -236,13 +260,12 @@ class _Empty extends StatelessWidget {
   }
 }
 
-(Color, IconData) _stateVisual(PeerState s, ColorScheme scheme) =>
-    switch (s) {
-      PeerState.active => (Colors.green, Icons.check_circle),
-      PeerState.connecting => (scheme.tertiary, Icons.sync),
-      PeerState.closed => (scheme.outline, Icons.cloud_off),
-      PeerState.unknown => (scheme.outline, Icons.help_outline),
-    };
+(Color, IconData) _stateVisual(PeerState s, ColorScheme scheme) => switch (s) {
+  PeerState.active => (Colors.green, Icons.check_circle),
+  PeerState.connecting => (scheme.tertiary, Icons.sync),
+  PeerState.closed => (scheme.outline, Icons.cloud_off),
+  PeerState.unknown => (scheme.outline, Icons.help_outline),
+};
 
 String _stateLabel(BuildContext context, PeerState s) {
   final l = AppL10n.of(context);

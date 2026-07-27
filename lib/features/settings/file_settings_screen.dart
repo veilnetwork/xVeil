@@ -19,8 +19,9 @@ class FileSettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
-  late FileDownloadPolicy _policy =
-      ref.read(messagingServiceProvider).fileDownloadPolicy;
+  late FileDownloadPolicy _policy = ref
+      .read(messagingServiceProvider)
+      .fileDownloadPolicy;
   final _addCtl = TextEditingController();
 
   /// Auto-download size presets. 0 ⇒ "always ask" (offer everything).
@@ -65,8 +66,9 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
           for (final p in _presets)
             ListTile(
               title: Text(_limitLabel(l, p)),
-              trailing:
-                  _policy.autoMaxBytes == p ? const Icon(Icons.check) : null,
+              trailing: _policy.autoMaxBytes == p
+                  ? const Icon(Icons.check)
+                  : null,
               onTap: () => Navigator.of(d).pop(p),
             ),
           ListTile(
@@ -91,21 +93,24 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
   Future<void> _pickCustomLimit(AppL10n l) async {
     final cur = _policy.autoMaxBytes / (1 << 20);
     final ctl = TextEditingController(
-        text: cur == cur.roundToDouble()
-            ? cur.toStringAsFixed(0)
-            : cur.toStringAsFixed(1));
+      text: cur == cur.roundToDouble()
+          ? cur.toStringAsFixed(0)
+          : cur.toStringAsFixed(1),
+    );
     try {
       final mb = await showDialog<double>(
         context: context,
         builder: (d) {
-          double? parse() => double.tryParse(ctl.text.trim().replaceAll(',', '.'));
+          double? parse() =>
+              double.tryParse(ctl.text.trim().replaceAll(',', '.'));
           return AlertDialog(
             title: Text(l.fileCustomSize),
             content: TextField(
               controller: ctl,
               autofocus: true,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: InputDecoration(
                 labelText: l.fileSizeMb,
                 suffixText: 'MB',
@@ -114,11 +119,13 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
             ),
             actions: [
               TextButton(
-                  onPressed: () => Navigator.of(d).pop(),
-                  child: Text(l.actionCancel)),
+                onPressed: () => Navigator.of(d).pop(),
+                child: Text(l.actionCancel),
+              ),
               FilledButton(
-                  onPressed: () => Navigator.of(d).pop(parse()),
-                  child: Text(l.actionSave)),
+                onPressed: () => Navigator.of(d).pop(parse()),
+                child: Text(l.actionSave),
+              ),
             ],
           );
         },
@@ -140,14 +147,17 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
     await _save(_policy.copyWith(blockedExts: {..._policy.blockedExts, ext}));
   }
 
-  Future<void> _removeType(String ext) async => _save(_policy.copyWith(
-      blockedExts: _policy.blockedExts.where((e) => e != ext).toSet()));
+  Future<void> _removeType(String ext) async => _save(
+    _policy.copyWith(
+      blockedExts: _policy.blockedExts.where((e) => e != ext).toSet(),
+    ),
+  );
 
   String _modeLabel(AppL10n l, LargeFileMode m) => switch (m) {
-        LargeFileMode.ask => l.fileLargeModeAsk,
-        LargeFileMode.encrypted => l.fileSaveEncrypted,
-        LargeFileMode.open => l.fileSavePlain,
-      };
+    LargeFileMode.ask => l.fileLargeModeAsk,
+    LargeFileMode.encrypted => l.fileSaveEncrypted,
+    LargeFileMode.open => l.fileSavePlain,
+  };
 
   Future<void> _pickLargeFileMode(AppL10n l) async {
     final choice = await showDialog<LargeFileMode>(
@@ -158,8 +168,9 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
           for (final m in LargeFileMode.values)
             ListTile(
               title: Text(_modeLabel(l, m)),
-              trailing:
-                  _policy.largeFileMode == m ? const Icon(Icons.check) : null,
+              trailing: _policy.largeFileMode == m
+                  ? const Icon(Icons.check)
+                  : null,
               onTap: () => Navigator.of(d).pop(m),
             ),
         ],
@@ -209,11 +220,15 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(l.fileBlockedTitle,
-                    style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  l.fileBlockedTitle,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
                 const SizedBox(height: 4),
-                Text(l.fileBlockedHint,
-                    style: Theme.of(context).textTheme.bodySmall),
+                Text(
+                  l.fileBlockedHint,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
                 const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
