@@ -1908,6 +1908,86 @@ void main() {
     expect(svc.snapshotJson(bundle), svc.snapshotJson(bundle));
   });
 
+  test('a message signed for ANOTHER group is refused when spliced into this '
+      'one — the row names its own group and that name is checked', () async {
+    // Found by breaking the guard: removing `m.groupId == groupId` from
+    // _validMessageFor was noticed by NOTHING in the suite. A signed row
+    // carries the group it was written for, and without that check a member of
+    // two groups could move another member's message from one into the other —
+    // it stays validly signed, so nothing downstream would question it.
+    //
+    // WHAT THIS DOES AND DOES NOT CATCH: removing that clause fails this test.
+    // Making the whole function return true does NOT — some other layer also
+    // refuses the row then, and I did not identify which. So this pins the
+    // clause, not the whole guard, and says so rather than implying more.
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final ownerSvc = GroupService(storage, _FakeSigner(owner));
+    addTearDown(ownerSvc.dispose);
+    final bobStorage = FakeHvContainer().storage();
+    await bobStorage.open(password: 'pw', createIfMissing: true);
+    final bobSvc = GroupService(bobStorage, _FakeSigner(bob));
+    addTearDown(bobSvc.dispose);
+
+    final secret = await ownerSvc.createGroup('Secret');
+    final ordinary = await ownerSvc.createGroup('Ordinary');
+    for (final gid in [secret, ordinary]) {
+      await ownerSvc.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      );
+    }
+    expect(
+      await ownerSvc.postMessage(secret, 'not for the other group'),
+      isTrue,
+    );
+    // A legitimate row in the SAME doctored snapshot. Without it the test
+    // would pass whenever nothing landed at all — and "nothing landed" has
+    // many causes besides the guard under test. Verified by breaking it.
+    expect(await ownerSvc.postMessage(ordinary, 'belongs here'), isTrue);
+
+    final secretWire =
+        jsonDecode(ownerSvc.snapshotJson((await ownerSvc.load(secret))!))
+            as Map<String, dynamic>;
+    final ordinaryWire =
+        jsonDecode(ownerSvc.snapshotJson((await ownerSvc.load(ordinary))!))
+            as Map<String, dynamic>;
+    // The manifest stays Ordinary's; only the message rows are foreign.
+    ordinaryWire['g'] = [
+      ...(ordinaryWire['g'] as List),
+      ...(secretWire['g'] as List),
+    ];
+    expect(
+      (secretWire['g'] as List),
+      isNotEmpty,
+      reason: 'the fixture must actually carry a message to smuggle',
+    );
+
+    await bobSvc.ingestSnapshot(jsonEncode(ordinaryWire));
+
+    // Observed on what was STORED, not on what is displayed: a display filter
+    // would make this pass while the foreign row sat in the bundle.
+    final stored = (await bobSvc.load(ordinary))!.messages;
+    final landed = stored.map((m) => m.body);
+    expect(
+      stored.every((m) => m.groupId == ordinary),
+      isTrue,
+      reason: 'no stored row may name a group other than the one holding it',
+    );
+    expect(
+      landed,
+      contains('belongs here'),
+      reason: 'the snapshot itself was accepted — this is not a blanket refusal',
+    );
+    expect(
+      landed,
+      isNot(contains('not for the other group')),
+      reason: 'a row that names another group must not fold into this one',
+    );
+  });
+
   test('broadcast ships the snapshot to every other member', () async {
     final sent = <(NodeId, NodeId)>[];
     final storage = FakeHvContainer().storage();
