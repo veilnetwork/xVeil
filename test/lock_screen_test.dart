@@ -146,6 +146,71 @@ void main() {
     expect(find.text(l.lockWipe), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('Clear all data stays disabled for the WRONG phrase', (
+    tester,
+  ) async {
+    // The test above goes straight from empty to the exact phrase, so it is
+    // satisfied by any gate that merely requires typing SOMETHING -- replacing
+    // the comparison with `isNotEmpty` left the suite green. That is the whole
+    // difference between "type these words to confirm" and "touch the keyboard
+    // to confirm", on the one action in the app that cannot be undone.
+    late ProviderContainer container;
+    await tester.pumpWidget(
+      ProviderScope(
+        child: Consumer(
+          builder: (ctx, ref, _) {
+            container = ProviderScope.containerOf(ctx);
+            return const MaterialApp(
+              localizationsDelegates: AppL10n.localizationsDelegates,
+              supportedLocales: AppL10n.supportedLocales,
+              home: LockScreen(),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(LockScreen)));
+
+    await tester.tap(find.widgetWithText(TextButton, l.lockWipe));
+    await tester.pumpAndSettle();
+    final dialogField = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(TextField),
+    );
+    bool confirmEnabled() =>
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, l.lockWipeConfirm),
+            )
+            .onPressed !=
+        null;
+
+    for (final typed in [
+      'x',
+      'yes',
+      'delete',
+      '${l.lockWipePhrase} ',
+      '${l.lockWipePhrase}x',
+      l.lockWipePhrase.substring(0, l.lockWipePhrase.length - 1),
+    ]) {
+      await tester.enterText(dialogField, typed);
+      await tester.pumpAndSettle();
+      final shouldPass = typed.trim() == l.lockWipePhrase;
+      expect(
+        confirmEnabled(),
+        shouldPass,
+        reason: 'typed "$typed" — expected enabled=$shouldPass',
+      );
+    }
+
+    // Nothing above was allowed to wipe anything on the way through.
+    expect(
+      container.read(appControllerProvider).phase,
+      isNot(AppPhase.onboarding),
+    );
+  });
 }
 
 class _LockedErrorController extends AppController {
