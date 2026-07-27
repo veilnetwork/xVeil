@@ -58,6 +58,13 @@ echo "hiddenvolume: $HV_LIB"
 
 export VEIL_FFI_DYLIB="$VEIL_LIB"
 export HIDDEN_VOLUME_FFI_DYLIB="$HV_LIB"
+# The env vars above are honoured by the Dart bindings, but a test that spawns
+# a headless runtime dlopens by soname instead — on Linux that needs the loader
+# path. Without this the three-node case dies with "cannot open shared object
+# file" while the rest of the suite passes, which reads like a code failure.
+if [ "$(uname -s)" != "Darwin" ]; then
+  export LD_LIBRARY_PATH="$(dirname "$VEIL_LIB"):$(dirname "$HV_LIB")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 
 # group_service_test carries the XVSB/XVRC cases behind the same gate, so it is
 # not a native-only file but it IS part of what the gate hides.
