@@ -46,9 +46,16 @@ class WhisperModelTile extends ConsumerWidget {
         leading: const Icon(Icons.graphic_eq),
         title: Text(l.voiceModelInstalled),
         subtitle: Text(l.voiceModelRemoveHint),
-        trailing: TextButton(
+        // An icon, not a text button. ListTile gives the trailing widget the
+        // width it asks for and the title takes what is left, so a Russian
+        // action label crushed "Модель распознавания установлена" into a
+        // one-word-per-line column on a real phone. Shortening the label was
+        // not enough — measured 120px of title on a 360px-wide screen — so
+        // the action is an icon and the words live in its tooltip.
+        trailing: IconButton(
+          icon: const Icon(Icons.delete_outline),
+          tooltip: l.voiceModelRemove,
           onPressed: notifier.remove,
-          child: Text(l.voiceModelRemove),
         ),
       );
     }

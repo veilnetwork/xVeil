@@ -54,15 +54,18 @@ class _ScriptedStore implements WhisperModelStore {
 void main() {
   late _ScriptedStore store;
 
-  Future<void> pump(WidgetTester tester) async {
+  Future<void> pump(WidgetTester tester, {Locale? locale}) async {
     store = _ScriptedStore();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [whisperModelStoreProvider.overrideWithValue(store)],
-        child: const MaterialApp(
+        child: MaterialApp(
           localizationsDelegates: AppL10n.localizationsDelegates,
           supportedLocales: AppL10n.supportedLocales,
-          home: Scaffold(body: WhisperModelTile()),
+          // Explicit, because a widget test defaults to English and a layout
+          // claim about Russian then measures the wrong string entirely.
+          locale: locale,
+          home: const Scaffold(body: WhisperModelTile()),
         ),
       ),
     );
@@ -112,7 +115,7 @@ void main() {
     await tester.pump();
 
     expect(find.text(l(tester).voiceModelInstalled), findsOneWidget);
-    expect(find.text(l(tester).voiceModelRemove), findsOneWidget);
+    expect(find.byTooltip(l(tester).voiceModelRemove), findsOneWidget);
     expect(find.text(l(tester).voiceModelDownload), findsNothing);
   });
 
@@ -126,7 +129,7 @@ void main() {
     await tester.pump();
     expect(find.text(l(tester).voiceModelInstalled), findsOneWidget);
 
-    await tester.tap(find.text(l(tester).voiceModelRemove));
+    await tester.tap(find.byTooltip(l(tester).voiceModelRemove));
     await tester.pump();
     await tester.pump();
     expect(store.removals, 1);
@@ -197,5 +200,32 @@ void main() {
     // Back to an offer that admits the bytes are still there — not an error.
     expect(find.text(l(tester).voiceModelResume), findsOneWidget);
     expect(find.text(l(tester).voiceModelFailed), findsNothing);
+  });
+
+  testWidgets('the installed row fits a narrow phone', (tester) async {
+    // Seen on a real device: a long trailing action squeezed the title into a
+    // one-word-per-line column ("Модель / распозн / авания / установ / лена").
+    // Russian is the wider language here, so it is the one that must fit.
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    await pump(tester, locale: const Locale('ru'));
+    store.installedNow = true;
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(WhisperModelTile)),
+    );
+    await container.read(whisperModelControllerProvider.notifier).refresh();
+    await tester.pump();
+
+    final title = tester.renderObject<RenderBox>(
+      find.text(l(tester).voiceModelInstalled),
+    );
+    expect(
+      title.size.height,
+      lessThan(80),
+      reason: 'a title taller than two lines means it is being crushed',
+    );
+    expect(tester.takeException(), isNull);
   });
 }
