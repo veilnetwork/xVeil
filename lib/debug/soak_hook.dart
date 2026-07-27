@@ -70,6 +70,7 @@ import '../state/veil_call_media.dart'
         setActiveMediaBatchingForDiagnostics,
         setActiveVideoTargetForDiagnostics;
 import '../state/veil_group_call_media.dart';
+import '../state/folder_sync_controller.dart';
 import '../state/providers.dart';
 import '../state/sticker_message.dart';
 import '../state/sticker_store.dart';
@@ -418,6 +419,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/cloud_state':
           await _cloudStateHook(req);
+          return;
+        case '/folder_sync_state':
+          await _folderSyncStateHook(req);
+          return;
+        case '/folder_sync_add':
+          await _folderSyncAddHook(req);
+          return;
+        case '/folder_sync_remove':
+          await _folderSyncRemoveHook(req);
+          return;
+        case '/folder_sync_run':
+          await _folderSyncRunHook(req);
+          return;
+        case '/folder_sync_resolve':
+          await _folderSyncResolveHook(req);
           return;
         case '/cloud_note_save':
           await _cloudNoteSaveHook(req);
@@ -2064,6 +2080,104 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   }
 
   /// Materialized cloud index and verified local replica state.
+  /// Folder sync, headless. The screen needs a native directory picker and a
+  /// human; these drive the same controller so a pass can be verified on the
+  /// stand rather than only in tests.
+  Future<void> _folderSyncStateHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final views = ref.read(folderSyncControllerProvider);
+    return _json(req, {
+      'ok': true,
+      'pairs': [
+        for (final view in views)
+          {
+            'id': view.pair.id,
+            'local': view.pair.localPath,
+            'folder': view.pair.cloudFolderId,
+            'conflicts': view.conflicts.toList()..sort(),
+            'lastPassAtMs': view.lastPassAtMs,
+            'refused': view.lastRefusal,
+            'busy': view.busy,
+          },
+      ],
+    });
+  }
+
+  Future<void> _folderSyncAddHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final path = req.uri.queryParameters['path'];
+    if (path == null || path.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'no path'}, status: 400);
+    }
+    final id =
+        req.uri.queryParameters['id'] ??
+        'pair-${DateTime.now().microsecondsSinceEpoch}';
+    await ref
+        .read(folderSyncControllerProvider.notifier)
+        .addPair(
+          localPath: path,
+          cloudFolderId: req.uri.queryParameters['folder'],
+          id: id,
+        );
+    return _json(req, {'ok': true, 'id': id});
+  }
+
+  Future<void> _folderSyncRemoveHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final id = req.uri.queryParameters['pair'];
+    if (id == null || id.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'no pair'}, status: 400);
+    }
+    await ref.read(folderSyncControllerProvider.notifier).removePair(id);
+    return _json(req, {'ok': true});
+  }
+
+  Future<void> _folderSyncRunHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final id = req.uri.queryParameters['pair'];
+    // The controller loads its pairs asynchronously on first read, so a hook
+    // called right after launch would otherwise be told the pair is unknown.
+    await ref.read(folderSyncControllerProvider.notifier).reload();
+    final views = ref.read(folderSyncControllerProvider);
+    final match = views.where((view) => view.pair.id == id);
+    if (match.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'unknown pair'});
+    }
+    final report = await ref
+        .read(folderSyncControllerProvider.notifier)
+        .runOnce(match.first.pair);
+    if (report == null) {
+      return _json(req, {'ok': false, 'error': 'cloud unavailable or busy'});
+    }
+    return _json(req, {
+      'ok': true,
+      'refused': report.refusedReason,
+      'applied': [
+        for (final action in report.applied) '${action.kind.name}:${action.path}',
+      ],
+      'failed': [
+        for (final entry in report.failed)
+          '${entry.$1.kind.name}:${entry.$1.path}: ${entry.$2}',
+      ],
+      'conflicts': report.conflicts.toList()..sort(),
+      'ambiguous': report.ambiguous.toList()..sort(),
+    });
+  }
+
+  Future<void> _folderSyncResolveHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final q = req.uri.queryParameters;
+    final id = q['pair'];
+    final path = q['path'];
+    if (id == null || path == null) {
+      return _json(req, {'ok': false, 'error': 'need pair+path'}, status: 400);
+    }
+    await ref
+        .read(folderSyncControllerProvider.notifier)
+        .resolveConflict(id, path, keepLocal: q['keep'] != 'cloud');
+    return _json(req, {'ok': true});
+  }
+
   Future<void> _cloudStateHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final service = ref.read(cloudServiceProvider);
