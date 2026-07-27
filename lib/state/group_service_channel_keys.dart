@@ -37,7 +37,7 @@ class _ChannelKeyRotation {
     // The recipients we pass are the ones we just decrypted, so this is a new
     // epoch and a new key over an unchanged ACL — the write path makes no
     // distinction between that and a membership edit.
-    return _owner._writeProtectedChannel(
+    return _owner._channels.write(
       bundle,
       state,
       current.channel,
