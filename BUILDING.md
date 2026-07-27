@@ -16,6 +16,33 @@ A plain Flutter build may be useful for UI development, but a production-capable
 build must contain both native libraries. Run all commands below from the xVeil
 repository root unless a command explicitly changes directory.
 
+### The short way
+
+Two entry points cover every target from a Windows, Linux or macOS host:
+
+```sh
+./prepare.py [target]     # bring a clean machine to the point of building
+./builder.py [target]     # native libraries + the app itself
+```
+
+`target` defaults to this machine's own system and may be `android`, `linux`,
+`windows`, `macos` or `ios`. Add `--debug` for a debug build, `--dry-run` to
+print the plan and execute nothing — which also works for a target this host
+cannot build, so a Windows plan can be reviewed from a Mac.
+
+`prepare.py` installs Rust and the cross-compilation targets, cargo-ndk, the
+Android command-line tools and NDK, the Linux system packages, CocoaPods, the
+git submodules the native libraries live in, and the Dart packages. It stops
+and tells you the exact command for anything that wants a license agreement or
+tens of gigabytes — Flutter itself, Xcode, Visual Studio — because starting
+those unattended because someone typed a word is worse than asking. Running it
+twice is safe: the second run reports what is already satisfied.
+
+`builder.py` calls the scripts documented below rather than replacing them, so
+the per-platform sections stay the reference for what actually happens, and
+anything unusual (staging a single DLL, a signing workaround) can still be run
+by hand.
+
 ### Requirements
 
 Common requirements:
@@ -328,6 +355,33 @@ xVeil — Flutter-приложение с двумя нативными зави
 Обычная Flutter-сборка подходит для работы над интерфейсом, но полноценная
 сборка должна содержать обе нативные библиотеки. Если явно не указано обратное,
 все команды ниже выполняются из корня репозитория xVeil.
+
+### Коротко
+
+Две точки входа покрывают все цели с хоста Windows, Linux или macOS:
+
+```sh
+./prepare.py [target]     # довести чистую машину до состояния «можно собирать»
+./builder.py [target]     # нативные библиотеки и само приложение
+```
+
+`target` по умолчанию — система самой машины; допустимы `android`, `linux`,
+`windows`, `macos`, `ios`. `--debug` даёт отладочную сборку, `--dry-run`
+печатает план и ничего не выполняет — в том числе для цели, которую этот хост
+собрать не может, так что план для Windows можно посмотреть с мака.
+
+`prepare.py` ставит Rust и кросс-цели, cargo-ndk, командные инструменты
+Android и NDK, системные пакеты Linux, CocoaPods, git-подмодули с нативными
+библиотеками и пакеты Dart. Для того, что требует принятия лицензии или
+десятков гигабайт — сам Flutter, Xcode, Visual Studio — он останавливается и
+называет точную команду: запускать такое без спроса, потому что человек ввёл
+одно слово, хуже, чем спросить. Повторный запуск безопасен: скрипт сообщает,
+что уже сделано.
+
+`builder.py` вызывает скрипты, описанные ниже, а не заменяет их — поэтому
+разделы по платформам остаются источником правды о происходящем, а всё
+нестандартное (выкладка одной DLL, обход подписи) по-прежнему можно выполнить
+руками.
 
 ### Требования
 
