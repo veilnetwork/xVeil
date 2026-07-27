@@ -640,74 +640,78 @@ void main() {
     },
   );
 
-  test('index repair drops only entries nothing backs, and only on apply',
-      () async {
-    final storage = FakeHvContainer().storage();
-    await storage.open(password: 'pw', createIfMissing: true);
-    final service = GroupService(storage, _FakeSigner(owner));
-    addTearDown(service.dispose);
-    final live = await service.createGroup('Real group');
-    const ghost =
-        '9e6f04b1884f5311805a8b15ade5670237c6886ccf1e86a9088f656a666bd10a';
-    // Put a ghost in the index the way the race did: a list that names an id
-    // nothing backs.
-    await storage.storeFile(
-      'groups.index',
-      Uint8List.fromList(utf8.encode(jsonEncode([live.hex, ghost]))),
-      name: 'groups-index',
-    );
+  test(
+    'index repair drops only entries nothing backs, and only on apply',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner));
+      addTearDown(service.dispose);
+      final live = await service.createGroup('Real group');
+      const ghost =
+          '9e6f04b1884f5311805a8b15ade5670237c6886ccf1e86a9088f656a666bd10a';
+      // Put a ghost in the index the way the race did: a list that names an id
+      // nothing backs.
+      await storage.storeFile(
+        'groups.index',
+        Uint8List.fromList(utf8.encode(jsonEncode([live.hex, ghost]))),
+        name: 'groups-index',
+      );
 
-    final dry = await service.repairIndexGhosts();
-    expect(dry, [ghost]);
-    expect(
-      (await service.indexedGroups()).map((row) => row.hex),
-      containsAll([live.hex, ghost]),
-      reason: 'a dry run must change nothing',
-    );
+      final dry = await service.repairIndexGhosts();
+      expect(dry, [ghost]);
+      expect(
+        (await service.indexedGroups()).map((row) => row.hex),
+        containsAll([live.hex, ghost]),
+        reason: 'a dry run must change nothing',
+      );
 
-    final applied = await service.repairIndexGhosts(apply: true);
-    expect(applied, [ghost]);
-    final after = (await service.indexedGroups()).map((row) => row.hex);
-    expect(after, contains(live.hex), reason: 'the real group must survive');
-    expect(after, isNot(contains(ghost)));
-  });
+      final applied = await service.repairIndexGhosts(apply: true);
+      expect(applied, [ghost]);
+      final after = (await service.indexedGroups()).map((row) => row.hex);
+      expect(after, contains(live.hex), reason: 'the real group must survive');
+      expect(after, isNot(contains(ghost)));
+    },
+  );
 
-  test('a read racing an index write does not fall back to the legacy copy',
-      () async {
-    // The legacy settings copy is only inert while the file read cannot miss.
-    // It can: a read landing inside the write sees "incomplete" as "absent",
-    // falls back to the stale list, and the next write persists it — which is
-    // how an id of a purged group comes back and, having no bundle and no
-    // tombstone, silently disables shared-content GC.
-    final storage = _HalfWrittenBundleStorage();
-    await storage.open(password: 'pw', createIfMissing: true);
-    const ghost =
-        '9e6f04b1884f5311805a8b15ade5670237c6886ccf1e86a9088f656a666bd10a';
-    final service = GroupService(storage, _FakeSigner(owner));
-    addTearDown(service.dispose);
-    // The index FILE must already exist: falling back on a store that never
-    // had one is the legitimate migration path, not this race.
-    await service.createGroup('First');
-    // A legacy value that outlived its clear — the code calls it inert.
-    await storage.putSetting('groups.index', '["$ghost"]');
+  test(
+    'a read racing an index write does not fall back to the legacy copy',
+    () async {
+      // The legacy settings copy is only inert while the file read cannot miss.
+      // It can: a read landing inside the write sees "incomplete" as "absent",
+      // falls back to the stale list, and the next write persists it — which is
+      // how an id of a purged group comes back and, having no bundle and no
+      // tombstone, silently disables shared-content GC.
+      final storage = _HalfWrittenBundleStorage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      const ghost =
+          '9e6f04b1884f5311805a8b15ade5670237c6886ccf1e86a9088f656a666bd10a';
+      final service = GroupService(storage, _FakeSigner(owner));
+      addTearDown(service.dispose);
+      // The index FILE must already exist: falling back on a store that never
+      // had one is the legitimate migration path, not this race.
+      await service.createGroup('First');
+      // A legacy value that outlived its clear — the code calls it inert.
+      await storage.putSetting('groups.index', '["$ghost"]');
 
-    storage.gate = Completer<void>();
-    storage.gateIndexOnly = true;
-    final creating = service.createGroup('Racing the index');
-    await Future<void>.delayed(Duration.zero);
-    final reading = service.indexedGroups();
-    await Future<void>.delayed(Duration.zero);
-    storage.gate!.complete();
-    storage.gate = null;
-    await creating;
+      storage.gate = Completer<void>();
+      storage.gateIndexOnly = true;
+      final creating = service.createGroup('Racing the index');
+      await Future<void>.delayed(Duration.zero);
+      final reading = service.indexedGroups();
+      await Future<void>.delayed(Duration.zero);
+      storage.gate!.complete();
+      storage.gate = null;
+      await creating;
 
-    final rows = await reading;
-    expect(
-      rows.map((row) => row.hex),
-      isNot(contains(ghost)),
-      reason: 'the stale legacy list must never answer for the live index',
-    );
-  });
+      final rows = await reading;
+      expect(
+        rows.map((row) => row.hex),
+        isNot(contains(ghost)),
+        reason: 'the stale legacy list must never answer for the live index',
+      );
+    },
+  );
 
   test('a read that races a bundle save does not see a missing group', () async {
     // The store cannot tell a half-written blob from an absent one, and every
@@ -720,8 +724,11 @@ void main() {
     final gid = await service.createGroup('Racing bundle');
 
     storage.gate = Completer<void>();
-    final saving = service.postMessage(gid, 'while the blob is replaced',
-        broadcast: false);
+    final saving = service.postMessage(
+      gid,
+      'while the blob is replaced',
+      broadcast: false,
+    );
     // Let the save reach the parked write before reading.
     await Future<void>.delayed(Duration.zero);
     final loading = service.load(gid);
@@ -770,25 +777,29 @@ void main() {
     );
   });
 
-  test('waiting out a bundle write is bounded, not indefinite', () async {
-    // A read must never hang behind a slow write: on timeout it reads anyway
-    // and lands back on the old answer for that one call.
-    final storage = _HalfWrittenBundleStorage();
-    await storage.open(password: 'pw', createIfMissing: true);
-    final service = GroupService(storage, _FakeSigner(owner))
-      ..bundleWriteWait = const Duration(milliseconds: 30);
-    addTearDown(service.dispose);
-    final gid = await service.createGroup('Slow write');
+  test(
+    'waiting out a bundle write is bounded, not indefinite',
+    () async {
+      // A read must never hang behind a slow write: on timeout it reads anyway
+      // and lands back on the old answer for that one call.
+      final storage = _HalfWrittenBundleStorage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner))
+        ..bundleWriteWait = const Duration(milliseconds: 30);
+      addTearDown(service.dispose);
+      final gid = await service.createGroup('Slow write');
 
-    storage.gate = Completer<void>();
-    final saving = service.postMessage(gid, 'slow', broadcast: false);
-    await Future<void>.delayed(Duration.zero);
-    // The write never finishes within the bound; the read must still return.
-    await expectLater(service.load(gid), completes);
-    storage.gate!.complete();
-    storage.gate = null;
-    await saving;
-  }, timeout: const Timeout(Duration(seconds: 10)));
+      storage.gate = Completer<void>();
+      final saving = service.postMessage(gid, 'slow', broadcast: false);
+      await Future<void>.delayed(Duration.zero);
+      // The write never finishes within the bound; the read must still return.
+      await expectLater(service.load(gid), completes);
+      storage.gate!.complete();
+      storage.gate = null;
+      await saving;
+    },
+    timeout: const Timeout(Duration(seconds: 10)),
+  );
 
   test(
     'Space replication snapshot reads each durable bundle once per call',
@@ -1908,55 +1919,57 @@ void main() {
     expect(svc.snapshotJson(bundle), svc.snapshotJson(bundle));
   });
 
-  test('a member outside a restricted channel cannot enter its voice room',
-      () async {
-    // Found by break-checking: making canEnterVoiceChannel always true failed
-    // nothing. Admission to a restricted channel's room is the same question
-    // as reading it — the recipients of its current epoch, no one else — and
-    // belonging to the Space is not that question.
-    final storage = FakeHvContainer().storage();
-    await storage.open(password: 'pw', createIfMissing: true);
-    final svc = GroupService(
-      storage,
-      _FakeSigner(owner),
-      epochService: GroupEpochService(
-        LoopbackMailboxCrypto(senderForOpen: owner),
-      ),
-    );
-    addTearDown(svc.dispose);
-
-    final spaceId = await svc.createSpace('Voice');
-    for (final member in [bob, carol]) {
-      expect(
-        await svc.addControlOp(
-          spaceId,
-          ControlOp.addMember,
-          target: member,
-          role: GroupRole.member,
+  test(
+    'a member outside a restricted channel cannot enter its voice room',
+    () async {
+      // Found by break-checking: making canEnterVoiceChannel always true failed
+      // nothing. Admission to a restricted channel's room is the same question
+      // as reading it — the recipients of its current epoch, no one else — and
+      // belonging to the Space is not that question.
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final svc = GroupService(
+        storage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
         ),
-        isTrue,
       );
-    }
-    final channelId = await svc.createChannel(
-      spaceId,
-      name: 'Leads only',
-      kind: SpaceChannelKind.voice,
-      access: SpaceChannelAccess.restricted,
-      members: [bob],
-    );
-    expect(channelId, isNotNull);
+      addTearDown(svc.dispose);
 
-    expect(
-      await svc.canEnterVoiceChannel(spaceId, channelId, bob),
-      isTrue,
-      reason: 'a recipient of the current epoch belongs in the room',
-    );
-    expect(
-      await svc.canEnterVoiceChannel(spaceId, channelId, carol),
-      isFalse,
-      reason: 'a Space member who is not in the channel is not in its room',
-    );
-  });
+      final spaceId = await svc.createSpace('Voice');
+      for (final member in [bob, carol]) {
+        expect(
+          await svc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: member,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+      }
+      final channelId = await svc.createChannel(
+        spaceId,
+        name: 'Leads only',
+        kind: SpaceChannelKind.voice,
+        access: SpaceChannelAccess.restricted,
+        members: [bob],
+      );
+      expect(channelId, isNotNull);
+
+      expect(
+        await svc.canEnterVoiceChannel(spaceId, channelId, bob),
+        isTrue,
+        reason: 'a recipient of the current epoch belongs in the room',
+      );
+      expect(
+        await svc.canEnterVoiceChannel(spaceId, channelId, carol),
+        isFalse,
+        reason: 'a Space member who is not in the channel is not in its room',
+      );
+    },
+  );
 
   test('an ORDINARY group cannot be adopted as the device group, however '
       'legitimately you belong to it', () async {
@@ -2074,7 +2087,8 @@ void main() {
     expect(
       landed,
       contains('belongs here'),
-      reason: 'the snapshot itself was accepted — this is not a blanket refusal',
+      reason:
+          'the snapshot itself was accepted — this is not a blanket refusal',
     );
     expect(
       landed,
@@ -4338,44 +4352,46 @@ void main() {
     );
   });
 
-  test('the sweep always reaches the device group, whatever the budget',
-      () async {
-    // It grows fastest — every cloud edit appends to it — so a rotating
-    // budget that happens to start elsewhere must not leave it uncompacted.
-    // Measured live before this: one pass collapsed nothing while a manual
-    // run of the same code collapsed 21 rows.
-    final storage = FakeHvContainer().storage();
-    await storage.open(password: 'pw', createIfMissing: true);
-    final svc = GroupService(storage, _FakeSigner(owner));
-    addTearDown(svc.dispose);
-    for (var i = 0; i < 5; i++) {
-      await svc.createGroup('Filler $i');
-    }
-    await svc.linkDevice(bob, sovereign: sovereign);
-    final deviceGid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
-    for (var i = 0; i < 3; i++) {
-      await svc.postDeviceEvent(
-        DeviceSyncEvent(
-          kind: DeviceSyncKind.settingSet,
-          key: 'theme',
-          tsMs: i + 1,
-          payload: {'v': 'theme-$i'},
-        ),
+  test(
+    'the sweep always reaches the device group, whatever the budget',
+    () async {
+      // It grows fastest — every cloud edit appends to it — so a rotating
+      // budget that happens to start elsewhere must not leave it uncompacted.
+      // Measured live before this: one pass collapsed nothing while a manual
+      // run of the same code collapsed 21 rows.
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final svc = GroupService(storage, _FakeSigner(owner));
+      addTearDown(svc.dispose);
+      for (var i = 0; i < 5; i++) {
+        await svc.createGroup('Filler $i');
+      }
+      await svc.linkDevice(bob, sovereign: sovereign);
+      final deviceGid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+      for (var i = 0; i < 3; i++) {
+        await svc.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: 'theme',
+            tsMs: i + 1,
+            payload: {'v': 'theme-$i'},
+          ),
+        );
+      }
+      expect((await svc.load(deviceGid))!.messages, hasLength(3));
+
+      // A budget of one: without the device-group priority this spends the
+      // whole pass on a filler group.
+      final collapsed = await svc.sweepStateLogCompaction(limit: 1);
+
+      expect(collapsed, greaterThan(0));
+      expect(
+        (await svc.load(deviceGid))!.messages,
+        hasLength(1),
+        reason: 'the device group must be compacted by every pass',
       );
-    }
-    expect((await svc.load(deviceGid))!.messages, hasLength(3));
-
-    // A budget of one: without the device-group priority this spends the
-    // whole pass on a filler group.
-    final collapsed = await svc.sweepStateLogCompaction(limit: 1);
-
-    expect(collapsed, greaterThan(0));
-    expect(
-      (await svc.load(deviceGid))!.messages,
-      hasLength(1),
-      reason: 'the device group must be compacted by every pass',
-    );
-  });
+    },
+  );
 
   test('the hourly sweep compacts superseded rows, not just boot', () async {
     // Compaction used to run only at boot, and replication ships a bundle
@@ -4458,62 +4474,69 @@ void main() {
     );
   });
 
-  test('device-group compaction must not collapse an unresolved note DAG: '
-      'every branch of a note is a row under the SAME key (the item id), so a '
-      'plain LWW-per-key fold keeps one and drops the concurrent edit', () async {
-    final storage = FakeHvContainer().storage();
-    await storage.open(password: 'pw', createIfMissing: true);
-    final svc = GroupService(storage, _FakeSigner(owner));
-    await svc.linkDevice(bob, sovereign: sovereign);
-    final deviceGid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+  test(
+    'device-group compaction must not collapse an unresolved note DAG: '
+    'every branch of a note is a row under the SAME key (the item id), so a '
+    'plain LWW-per-key fold keeps one and drops the concurrent edit',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final svc = GroupService(storage, _FakeSigner(owner));
+      await svc.linkDevice(bob, sovereign: sovereign);
+      final deviceGid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
 
-    final root = List.filled(64, 'a').join();
-    final left = List.filled(64, 'b').join();
-    final right = List.filled(64, 'c').join();
-    Future<void> revision(String cid, int rev, int ts, List<String> parents) =>
-        svc.postDeviceEvent(
-          DeviceSyncEvent(
-            kind: DeviceSyncKind.cloudEntry,
-            key: 'note_1',
-            tsMs: ts,
-            payload: {
-              'type': 'note',
-              'name': 'n',
-              'cid': cid,
-              'size': 1,
-              'created': 1,
-              'rev': rev,
-              if (parents.isNotEmpty) 'parents': parents,
-            },
-          ),
-        );
-    // Two devices edited the same parent revision while offline.
-    await revision(root, 1, 10, const []);
-    await revision(left, 2, 20, [root]);
-    await revision(right, 2, 30, [root]);
+      final root = List.filled(64, 'a').join();
+      final left = List.filled(64, 'b').join();
+      final right = List.filled(64, 'c').join();
+      Future<void> revision(
+        String cid,
+        int rev,
+        int ts,
+        List<String> parents,
+      ) => svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.cloudEntry,
+          key: 'note_1',
+          tsMs: ts,
+          payload: {
+            'type': 'note',
+            'name': 'n',
+            'cid': cid,
+            'size': 1,
+            'created': 1,
+            'rev': rev,
+            if (parents.isNotEmpty) 'parents': parents,
+          },
+        ),
+      );
+      // Two devices edited the same parent revision while offline.
+      await revision(root, 1, 10, const []);
+      await revision(left, 2, 20, [root]);
+      await revision(right, 2, 30, [root]);
 
-    Future<List<String>> heads() async {
-      final rows = (await svc.load(deviceGid))!.messages;
-      final folded = foldCloudNoteHeads([
-        for (final m in rows) ?DeviceSyncEvent.fromBody(m.body),
-      ]);
-      return [for (final h in folded['note_1'] ?? const []) h.contentId!];
-    }
+      Future<List<String>> heads() async {
+        final rows = (await svc.load(deviceGid))!.messages;
+        final folded = foldCloudNoteHeads([
+          for (final m in rows) ?DeviceSyncEvent.fromBody(m.body),
+        ]);
+        return [for (final h in folded['note_1'] ?? const []) h.contentId!];
+      }
 
-    expect(
-      await heads(),
-      unorderedEquals([left, right]),
-      reason: 'the DAG fold reports both branches before compaction',
-    );
+      expect(
+        await heads(),
+        unorderedEquals([left, right]),
+        reason: 'the DAG fold reports both branches before compaction',
+      );
 
-    await svc.compactStateLogs(deviceGid);
+      await svc.compactStateLogs(deviceGid);
 
-    expect(
-      await heads(),
-      unorderedEquals([left, right]),
-      reason: 'compaction must not silently resolve a conflict by timestamp',
-    );
-  });
+      expect(
+        await heads(),
+        unorderedEquals([left, right]),
+        reason: 'compaction must not silently resolve a conflict by timestamp',
+      );
+    },
+  );
 
   test('device-group compaction collects replica claims whose content no '
       'revision can ask for — the cid in the claim key made every claim a '
@@ -5724,8 +5747,9 @@ void main() {
       ),
       isNotNull,
     );
-    final publication = await ownerService
-        .buildSpacePublicDiscoveryPublication(spaceId);
+    final publication = await ownerService.buildSpacePublicDiscoveryPublication(
+      spaceId,
+    );
     expect(publication, isNotNull);
 
     expect(
@@ -5801,8 +5825,9 @@ void main() {
       ),
       isNotNull,
     );
-    final publication = await ownerService
-        .buildSpacePublicDiscoveryPublication(spaceId);
+    final publication = await ownerService.buildSpacePublicDiscoveryPublication(
+      spaceId,
+    );
     expect(publication, isNotNull);
 
     expect(
@@ -7306,6 +7331,103 @@ void main() {
     },
   );
 
+  /// Carrying a recommendation card is gated on distributeContent, not on
+  /// merely being able to see the Space — otherwise any member could spray
+  /// cards at their contacts, which is the spam vector the permission exists
+  /// for. It was uncovered: relaxing the check to SpacePermission.view left
+  /// the whole suite green.
+  ///
+  /// The check has to run against a plain MEMBER. An owner is exempt from
+  /// denials by construction (SpaceAcl.authorize skips them for
+  /// GroupRole.owner), so an owner-only test cannot tell the two permissions
+  /// apart and would pass either way.
+  test('sharing a recommendation needs distribute, not just view', () async {
+    final ownerStorage = FakeHvContainer().storage();
+    final memberStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'owner', createIfMissing: true);
+    await memberStorage.open(password: 'member', createIfMissing: true);
+    final sent = <NodeId>[];
+    final ownerSvc = GroupService(ownerStorage, _FakeSigner(owner));
+    final memberSvc = GroupService(
+      memberStorage,
+      _FakeSigner(bob),
+      sendSpaceRecommendation: (peer, card) async {
+        sent.add(peer);
+        return 'message-${sent.length}';
+      },
+    );
+    addTearDown(ownerSvc.dispose);
+    addTearDown(memberSvc.dispose);
+
+    final spaceId = await ownerSvc.createSpace(
+      'Open community',
+      description: 'Public',
+      visibility: SpaceVisibility.public,
+    );
+    expect(
+      await ownerSvc.addControlOp(
+        spaceId,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    final campaign = await ownerSvc.createSpaceRecommendationCampaign(
+      spaceId,
+      'Tell your friends',
+    );
+    expect(campaign, isNotNull);
+
+    final denyRoleId = sha256
+        .convert(utf8.encode('no-recommendation-distribution'))
+        .toString();
+    expect(
+      await ownerSvc.replaceSpaceAccessPolicy(
+        spaceId,
+        expectedRevision: 0,
+        roles: [
+          SpaceRoleDefinition(
+            roleId: denyRoleId,
+            name: 'No distribution',
+            grants: const <SpacePermissionGrant>[],
+            denials: const [
+              SpacePermissionDenial(
+                permission: SpacePermission.distributeContent,
+                scope: SpacePermissionScope.space(),
+              ),
+            ],
+          ),
+        ],
+        groups: const <SpaceMemberGroup>[],
+        directAssignments: [
+          SpaceMemberRoleAssignment(member: bob, roleIds: [denyRoleId]),
+        ],
+      ),
+      isNotNull,
+    );
+    expect(
+      await memberSvc.ingestSnapshot(
+        ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!, recipient: bob),
+      ),
+      isTrue,
+    );
+    await memberStorage.upsertContact(
+      Contact(nodeId: carol, status: ContactStatus.accepted),
+    );
+
+    expect(
+      await memberSvc.shareSpaceRecommendation(
+        spaceId,
+        campaign!.campaignId,
+        carol,
+      ),
+      SpaceRecommendationShareResult.notAllowed,
+      reason: 'view alone must not be enough to carry a recommendation card',
+    );
+    expect(sent, isEmpty, reason: 'and nothing may go out on the wire');
+  });
+
   test(
     'public Space recommendation campaign is signed and revocable',
     () async {
@@ -7382,6 +7504,7 @@ void main() {
         ),
         SpaceRecommendationShareResult.duplicate,
       );
+
       final shareAudit = await service.spaceRecommendationShareAudit();
       expect(shareAudit, hasLength(1));
       expect(shareAudit.single.recipient, bob);
@@ -8016,7 +8139,8 @@ void main() {
         access: SpaceChannelAccess.secret,
       ),
       isNull,
-      reason: 'refused, rather than quietly made into a restricted channel '
+      reason:
+          'refused, rather than quietly made into a restricted channel '
           'wearing a better name',
     );
 
@@ -8095,9 +8219,7 @@ void main() {
       NodeId spaceId,
     ) async {
       final bundle = (await svc.load(spaceId))!;
-      return [
-        for (final entry in bundle.control) ?entry.channelControl,
-      ];
+      return [for (final entry in bundle.control) ?entry.channelControl];
     }
 
     test('LEAK: a non-recipient can COUNT the hidden channels', () async {
@@ -8113,14 +8235,14 @@ void main() {
     test('LEAK: the recipient count is a headcount', () async {
       final (svc, spaceId) = await spaceWithTwoHiddenChannels();
       final counts = [
-        for (final e in await chain(svc, spaceId)) e.keyDescriptor.recipientCount,
+        for (final e in await chain(svc, spaceId))
+          e.keyDescriptor.recipientCount,
       ]..sort();
       // members + the administrator, who is a recipient of their own channel.
-      expect(
-        counts,
-        [2, 3],
-        reason: 'how many people read each hidden channel, in the clear',
-      );
+      expect(counts, [
+        2,
+        3,
+      ], reason: 'how many people read each hidden channel, in the clear');
     });
 
     test('LEAK: entries of one channel are linkable, and a rotation shows as '
@@ -8130,9 +8252,10 @@ void main() {
 
       expect(await svc.rotateChannelKey(spaceId, target), isTrue);
 
-      final same = (await chain(svc, spaceId))
-          .where((e) => e.channelId == target)
-          .toList();
+      final same = (await chain(
+        svc,
+        spaceId,
+      )).where((e) => e.channelId == target).toList();
       expect(
         same.length,
         greaterThan(1),
@@ -8152,122 +8275,132 @@ void main() {
         for (final entry in bundle.control)
           if (entry.channelControl != null) entry.author,
       };
-      expect(
-        authors,
-        {owner},
-        reason: 'signed by the account, not by the channel',
-      );
+      expect(authors, {
+        owner,
+      }, reason: 'signed by the account, not by the channel');
     });
 
-    test('NOT leaked: the name and the substance stay inside the ciphertext',
-        () async {
-      // The decisive fact for the product decision recorded in
-      // doc/SECRET-CHANNEL-DESIGN.md: what a restricted channel already hides
-      // is exactly what the owner asked to hide. A control entry carries
-      // EITHER a cleartext channel descriptor OR the encrypted envelope,
-      // never both, so the name never reaches the shared chain in the clear.
-      final (svc, spaceId) = await spaceWithTwoHiddenChannels();
-      final bundle = (await svc.load(spaceId))!;
+    test(
+      'NOT leaked: the name and the substance stay inside the ciphertext',
+      () async {
+        // The decisive fact for the product decision recorded in
+        // doc/SECRET-CHANNEL-DESIGN.md: what a restricted channel already hides
+        // is exactly what the owner asked to hide. A control entry carries
+        // EITHER a cleartext channel descriptor OR the encrypted envelope,
+        // never both, so the name never reaches the shared chain in the clear.
+        final (svc, spaceId) = await spaceWithTwoHiddenChannels();
+        final bundle = (await svc.load(spaceId))!;
 
-      final wire = jsonEncode([
-        for (final entry in bundle.control) entry.toJson(),
-      ]);
+        final wire = jsonEncode([
+          for (final entry in bundle.control) entry.toJson(),
+        ]);
 
-      expect(
-        wire.contains('"One"'),
-        isFalse,
-        reason: 'the channel name would be the whole point of hiding it',
-      );
-      expect(wire.contains('"Two"'), isFalse);
-      expect(
-        bundle.control.where((e) => e.channel != null && e.channelControl != null),
-        isEmpty,
-        reason: 'cleartext descriptor and sealed envelope are exclusive',
-      );
-    });
+        expect(
+          wire.contains('"One"'),
+          isFalse,
+          reason: 'the channel name would be the whole point of hiding it',
+        );
+        expect(wire.contains('"Two"'), isFalse);
+        expect(
+          bundle.control.where(
+            (e) => e.channel != null && e.channelControl != null,
+          ),
+          isEmpty,
+          reason: 'cleartext descriptor and sealed envelope are exclusive',
+        );
+      },
+    );
 
-    test('and `secret` is still refused, so none of this is promised away',
-        () async {
+    test(
+      'and `secret` is still refused, so none of this is promised away',
+      () async {
+        final storage = FakeHvContainer().storage();
+        await storage.open(password: 'pw', createIfMissing: true);
+        final svc = GroupService(
+          storage,
+          _FakeSigner(owner),
+          epochService: GroupEpochService(
+            LoopbackMailboxCrypto(senderForOpen: owner),
+          ),
+        );
+        addTearDown(svc.dispose);
+        final spaceId = await svc.createSpace('Refusal');
+        await svc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        );
+        expect(
+          await svc.createChannel(
+            spaceId,
+            name: 'Nope',
+            kind: SpaceChannelKind.text,
+            access: SpaceChannelAccess.secret,
+            members: [bob],
+          ),
+          isNull,
+          reason: 'shipping `secret` over this envelope would hide nothing',
+        );
+      },
+    );
+  });
+
+  test(
+    'a protected channel key can be replaced without touching its ACL',
+    () async {
       final storage = FakeHvContainer().storage();
       await storage.open(password: 'pw', createIfMissing: true);
-      final svc = GroupService(
+      final service = GroupService(
         storage,
         _FakeSigner(owner),
         epochService: GroupEpochService(
           LoopbackMailboxCrypto(senderForOpen: owner),
         ),
       );
-      addTearDown(svc.dispose);
-      final spaceId = await svc.createSpace('Refusal');
-      await svc.addControlOp(
+      final spaceId = await service.createSpace('Rotation');
+      expect(
+        await service.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final channelId = await service.createChannel(
         spaceId,
-        ControlOp.addMember,
-        target: bob,
-        role: GroupRole.member,
+        name: 'private',
+        kind: SpaceChannelKind.text,
+        access: SpaceChannelAccess.restricted,
+      );
+      expect(channelId, isNotNull);
+      expect(
+        await service.setChannelMembers(spaceId, channelId!, [bob]),
+        isTrue,
+      );
+
+      final before = (await service.stateOf(spaceId))!;
+      final beforeEpoch = before.protectedChannels[channelId.hex]!.channelEpoch;
+      final beforeMembers = await service.channelMembersOf(spaceId, channelId);
+
+      expect(await service.rotateChannelKey(spaceId, channelId), isTrue);
+
+      final after = (await service.stateOf(spaceId))!;
+      expect(
+        after.protectedChannels[channelId.hex]!.channelEpoch,
+        beforeEpoch + 1,
+        reason: 'a replaced key is a new epoch',
       );
       expect(
-        await svc.createChannel(
-          spaceId,
-          name: 'Nope',
-          kind: SpaceChannelKind.text,
-          access: SpaceChannelAccess.secret,
-          members: [bob],
-        ),
-        isNull,
-        reason: 'shipping `secret` over this envelope would hide nothing',
+        await service.channelMembersOf(spaceId, channelId),
+        beforeMembers,
+        reason: 'and nobody gained or lost access by it',
       );
-    });
-  });
 
-  test('a protected channel key can be replaced without touching its ACL', () async {
-    final storage = FakeHvContainer().storage();
-    await storage.open(password: 'pw', createIfMissing: true);
-    final service = GroupService(
-      storage,
-      _FakeSigner(owner),
-      epochService: GroupEpochService(
-        LoopbackMailboxCrypto(senderForOpen: owner),
-      ),
-    );
-    final spaceId = await service.createSpace('Rotation');
-    expect(
-      await service.addControlOp(
-        spaceId,
-        ControlOp.addMember,
-        target: bob,
-        role: GroupRole.member,
-      ),
-      isTrue,
-    );
-    final channelId = await service.createChannel(
-      spaceId,
-      name: 'private',
-      kind: SpaceChannelKind.text,
-      access: SpaceChannelAccess.restricted,
-    );
-    expect(channelId, isNotNull);
-    expect(await service.setChannelMembers(spaceId, channelId!, [bob]), isTrue);
-
-    final before = (await service.stateOf(spaceId))!;
-    final beforeEpoch = before.protectedChannels[channelId.hex]!.channelEpoch;
-    final beforeMembers = await service.channelMembersOf(spaceId, channelId);
-
-    expect(await service.rotateChannelKey(spaceId, channelId), isTrue);
-
-    final after = (await service.stateOf(spaceId))!;
-    expect(
-      after.protectedChannels[channelId.hex]!.channelEpoch,
-      beforeEpoch + 1,
-      reason: 'a replaced key is a new epoch',
-    );
-    expect(
-      await service.channelMembersOf(spaceId, channelId),
-      beforeMembers,
-      reason: 'and nobody gained or lost access by it',
-    );
-
-    await storage.close();
-  });
+      await storage.close();
+    },
+  );
 
   test('only someone who may edit the ACL may replace the key', () async {
     final storage = FakeHvContainer().storage();
@@ -8306,7 +8439,9 @@ void main() {
     final bobSvc = GroupService(
       bobStorage,
       _FakeSigner(bob),
-      epochService: GroupEpochService(LoopbackMailboxCrypto(senderForOpen: bob)),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: bob),
+      ),
     );
     expect(
       await bobSvc.ingestSnapshot(
@@ -8314,10 +8449,9 @@ void main() {
       ),
       isTrue,
     );
-    final epochForBob =
-        (await bobSvc.stateOf(spaceId))!
-            .protectedChannels[channelId.hex]!
-            .channelEpoch;
+    final epochForBob = (await bobSvc.stateOf(
+      spaceId,
+    ))!.protectedChannels[channelId.hex]!.channelEpoch;
 
     expect(
       await bobSvc.rotateChannelKey(spaceId, channelId),
@@ -8325,9 +8459,9 @@ void main() {
       reason: 'a reader of the channel is not thereby its key holder',
     );
     expect(
-      (await bobSvc.stateOf(spaceId))!
-          .protectedChannels[channelId.hex]!
-          .channelEpoch,
+      (await bobSvc.stateOf(
+        spaceId,
+      ))!.protectedChannels[channelId.hex]!.channelEpoch,
       epochForBob,
     );
 
@@ -8354,10 +8488,9 @@ void main() {
       access: SpaceChannelAccess.restricted,
     );
     expect(channelId, isNotNull);
-    final epochAtRest =
-        (await service.stateOf(spaceId))!
-            .protectedChannels[channelId!.hex]!
-            .channelEpoch;
+    final epochAtRest = (await service.stateOf(
+      spaceId,
+    ))!.protectedChannels[channelId!.hex]!.channelEpoch;
 
     expect(
       await service.sweepStaleChannelKeys(),
@@ -8370,10 +8503,9 @@ void main() {
     // stamped a few ticks after the clock value the test set.
     clock += GroupService.protectedChannelKeyMaxAgeMs + 60000;
     expect(await service.sweepStaleChannelKeys(), 1);
-    final rotated =
-        (await service.stateOf(spaceId))!
-            .protectedChannels[channelId.hex]!
-            .channelEpoch;
+    final rotated = (await service.stateOf(
+      spaceId,
+    ))!.protectedChannels[channelId.hex]!.channelEpoch;
     expect(rotated, epochAtRest + 1);
 
     expect(
@@ -8403,10 +8535,9 @@ void main() {
       access: SpaceChannelAccess.restricted,
     );
     expect(channelId, isNotNull);
-    final epochAtRest =
-        (await service.stateOf(spaceId))!
-            .protectedChannels[channelId!.hex]!
-            .channelEpoch;
+    final epochAtRest = (await service.stateOf(
+      spaceId,
+    ))!.protectedChannels[channelId!.hex]!.channelEpoch;
 
     for (var i = 0; i < GroupService.protectedChannelKeyMaxMessages; i++) {
       expect(
@@ -8416,9 +8547,9 @@ void main() {
     }
     expect(await service.sweepStaleChannelKeys(), 1);
     expect(
-      (await service.stateOf(spaceId))!
-          .protectedChannels[channelId.hex]!
-          .channelEpoch,
+      (await service.stateOf(
+        spaceId,
+      ))!.protectedChannels[channelId.hex]!.channelEpoch,
       epochAtRest + 1,
     );
     expect(
@@ -14792,9 +14923,7 @@ void main() {
       await ownerSvc.publishSpacePost(
         spaceId,
         body: 'replicated media',
-        media: [
-          MediaObject(contentId: cid, kind: 'file', size: bytes.length),
-        ],
+        media: [MediaObject(contentId: cid, kind: 'file', size: bytes.length)],
         broadcast: false,
       ),
       isNotNull,
