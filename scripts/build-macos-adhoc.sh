@@ -39,7 +39,15 @@ echo "==> flutter config (version=$VERSION)"
 flutter build macos --release --config-only --dart-define=XVEIL_VERSION="$VERSION"
 
 echo "==> xcodebuild (ad-hoc, no VPN entitlement)"
+# -derivedDataPath is NOT optional. Without it xcodebuild writes the app into
+# ~/Library/Developer/Xcode/DerivedData/... while everything else here — the
+# dylib bundling below, and anyone launching the result — looks in
+# build/macos/. The two then diverge silently: the copy under build/macos keeps
+# whatever Dart it was built with, so a "rebuild" appears to change nothing and
+# every observation of the running app is of stale code. `flutter build macos`
+# passes this itself, which is why the problem only shows up here.
 xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner -configuration Release \
+  -derivedDataPath build/macos \
   CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER= DEVELOPMENT_TEAM= \
   CODE_SIGN_ENTITLEMENTS=Runner/ReleaseNoVpn.entitlements \
   build

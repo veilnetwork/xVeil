@@ -17,6 +17,7 @@ import 'package:flutter/services.dart'
     show MethodChannel, MissingPluginException, PlatformException;
 import 'package:path_provider/path_provider.dart';
 
+import '../core/log.dart';
 import '../data/native_libs.dart';
 
 /// Everything the worker isolate needs to transcribe, all sendable.
@@ -153,15 +154,29 @@ class WhisperTranscriber {
           }
         }
       }
-    } else if (_resolvedModel == null && Platform.isLinux) {
-      // XDG data dir (~/.local/share/<app>) — a user-supplied model that
-      // survives app-bundle upgrades.
+    } else if (_resolvedModel == null) {
+      // The support directory, on EVERY remaining platform. This is where the
+      // on-demand download puts the model, and it is the only place that
+      // survives replacing the app bundle.
+      //
+      // It used to be checked on Linux alone, which was invisible while the
+      // model shipped inside the build — the bundle lookup always won first.
+      // With the model fetched on demand it meant macOS downloaded 57 MiB and
+      // then reported no model at all. Found by putting the file there on a
+      // real machine and asking the running app, which is the only way this
+      // shows up: it compiles, and every test passes, because the tests own
+      // their own directory.
       try {
         final dir = await getApplicationSupportDirectory();
         final p = '${dir.path}/$_modelFile';
+        devLog(
+          () =>
+              'xVeil[whisper]: support-dir probe $p '
+              'exists=${File(p).existsSync()}',
+        );
         if (File(p).existsSync()) _resolvedModel = p;
-      } catch (_) {
-        // No usable data dir — transcription simply stays unavailable.
+      } catch (e) {
+        devLog(() => 'xVeil[whisper]: support-dir probe FAILED: $e');
       }
     }
     _resolvedOnce = true;
