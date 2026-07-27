@@ -7638,8 +7638,7 @@ void main() {
     ) async {
       final bundle = (await svc.load(spaceId))!;
       return [
-        for (final entry in bundle.control)
-          if (entry.channelControl case final envelope?) envelope,
+        for (final entry in bundle.control) ?entry.channelControl,
       ];
     }
 
