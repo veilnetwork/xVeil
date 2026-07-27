@@ -1,27 +1,38 @@
 # Secret channels
 
-Status: **specified, not implemented.** `access: secret` is rejected today —
-`_prepareProtectedChannel` accepts only `restricted`, so `createChannel`
-returns null for it, the API does not advertise the value, and the channel list
-says in words that the channel is not hidden. Nothing in the product promises
-what this document describes.
+Status: **will not be built. `restricted` already does the job.**
 
-This exists because the feature was blocked on one thing only: nobody had said
-whom the channel is hidden *from*. That is now decided.
+## The decision that closed this
 
-## The threat model, as decided by the owner
+The owner settled the threat model, and settling it removed the feature:
 
-A secret channel must hide its own existence from **both**:
+> If something truly secret needs writing, private groups exist. Channels are
+> more for teams inside other teams. The fact that people are talking is not
+> much of a problem, as long as the substance is not revealed.
 
-* **(a) an outside network observer** — someone watching the traffic of a
-  participant or of the network, who is not a member of the Space;
-* **(b) other members of the same Space** — people who legitimately read the
-  Space's control chain and its open channels, but are not in this channel.
+That is the whole answer. It drops the network observer entirely, and it
+reduces "hide from other members of the Space" to **hide the substance**, not
+the existence. Both of the expensive layers this document used to specify —
+unlinkable entries and cover traffic on a fixed cadence — existed only to hide
+the *fact* of a channel. Nobody needs that here.
 
-(b) is the harder-sounding one and the cheaper one to build. (a) is the one
-that decides whether the feature is honest, because a channel that is invisible
-in the control chain but visible as a distinct traffic pattern is not hidden —
-it is merely renamed.
+## Why nothing is left to build
+
+A restricted channel already hides the substance from a non-recipient member.
+A control entry carries EITHER a cleartext channel descriptor OR the sealed
+envelope, never both, so the channel's name, its membership list and every
+message stay inside the ciphertext. Asserted, not assumed:
+`test/group_service_test.dart`, *"NOT leaked: the name and the substance stay
+inside the ciphertext"*.
+
+What a non-recipient member CAN still work out is listed below and is now
+accepted rather than fixed: that some hidden channel exists, how many there
+are, how many people read each, when a key was replaced, and who signed the
+control entry.
+
+`access: secret` therefore stays **rejected at creation**. Shipping it as a
+flag over the same envelope would be byte-identical to `restricted` — a
+promise of secrecy that changes nothing, which is worse than not offering it.
 
 ## What is true today
 
@@ -38,9 +49,8 @@ cleartext carries:
 | `enc` length | roughly how much control data it carries |
 | entry author + `createdAtMs` | who administers it and when they act |
 
-So `secret` implemented as a flag over this envelope would be
-**byte-identical to `restricted`** and would hide nothing. That is exactly why
-it is refused rather than shipped.
+Under the decided threat model every row above is ACCEPTABLE: it reveals that
+a team is talking, never what about. That is the line the owner drew.
 
 ## What each adversary must not learn
 
@@ -54,7 +64,12 @@ a leak, provided one channel's traffic is not separable from another's.
 in a hidden channel, distinguish its traffic from the Space's ordinary traffic,
 or infer membership size or activity from volume and timing.
 
-## Design
+## The design that is NOT being built
+
+Kept for the record, so that reviving the feature starts from the reasoning
+rather than from scratch. Everything in this section addresses a threat the
+owner has explicitly set aside.
+
 
 ### Layer 1 — entries a non-recipient cannot attribute (vs. b)
 
@@ -106,7 +121,14 @@ What is needed:
 * Anything at all, if the endpoint is compromised — this is a metadata
   property, not a device-security one.
 
-## Open questions that must be answered before code
+## The questions this used to be blocked on — all moot
+
+They were: the cover-traffic budget, the cap on trial decryption, and whether
+chain-level attribution could be given up. Each of them only exists to pay for
+hiding the *fact* of a channel. With that requirement gone, none needs an
+answer.
+
+## The former open questions, for the record
 
 1. **Cover-traffic budget.** A fixed cadence with cover entries costs bandwidth
    and store growth for every member, forever. What is the acceptable steady
@@ -139,7 +161,14 @@ implementation, this document is wrong and must be corrected first.
 Writing them already corrected one thing here: the headcount is members plus
 the administrator, not members alone.
 
-## Verification this must pass before being called done
+## What is still true and worth keeping
+
+The leak table above is executable (see below). If someone later decides the
+existence of a channel must be hidden after all, those tests are the starting
+point: each is written as the current truth and an implementation would have
+to make it fail.
+
+## Verification a revival would have to pass
 
 * An adversarial member with the full control chain cannot count hidden
   channels, link two entries of one channel, or detect a membership change —
