@@ -28,20 +28,25 @@ class _NoopNode implements NodeController {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('create-identity wizard completes into a ready session',
-      (tester) async {
+  testWidgets('create-identity wizard completes into a ready session', (
+    tester,
+  ) async {
     late ProviderContainer container;
-    await tester.pumpWidget(ProviderScope(
-      overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
-      child: Consumer(builder: (ctx, ref, _) {
-        container = ProviderScope.containerOf(ctx);
-        return MaterialApp(
-          localizationsDelegates: AppL10n.localizationsDelegates,
-          supportedLocales: AppL10n.supportedLocales,
-          home: const OnboardingScreen(),
-        );
-      }),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
+        child: Consumer(
+          builder: (ctx, ref, _) {
+            container = ProviderScope.containerOf(ctx);
+            return MaterialApp(
+              localizationsDelegates: AppL10n.localizationsDelegates,
+              supportedLocales: AppL10n.supportedLocales,
+              home: const OnboardingScreen(),
+            );
+          },
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
     AppL10n l() => AppL10n.of(tester.element(find.byType(OnboardingScreen)));
@@ -78,70 +83,181 @@ void main() {
     expect(container.read(appControllerProvider).phase, AppPhase.ready);
   });
 
-  testWidgets('restore wizard gates on the validator and completes into ready',
-      (tester) async {
-    late ProviderContainer container;
-    final validated = <String>[];
-    await tester.pumpWidget(ProviderScope(
-      overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
-      child: Consumer(builder: (ctx, ref, _) {
-        container = ProviderScope.containerOf(ctx);
-        return MaterialApp(
-          localizationsDelegates: AppL10n.localizationsDelegates,
-          supportedLocales: AppL10n.supportedLocales,
-          home: OnboardingScreen(
-            // Fake validator (the real one is FFI): any 24 words pass.
-            validatePhrase: (p) {
-              validated.add(p);
-              return p.split(' ').length == 24;
+  testWidgets(
+    'restore wizard gates on the validator and completes into ready',
+    (tester) async {
+      late ProviderContainer container;
+      final validated = <String>[];
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
+          child: Consumer(
+            builder: (ctx, ref, _) {
+              container = ProviderScope.containerOf(ctx);
+              return MaterialApp(
+                localizationsDelegates: AppL10n.localizationsDelegates,
+                supportedLocales: AppL10n.supportedLocales,
+                home: OnboardingScreen(
+                  // Fake validator (the real one is FFI): any 24 words pass.
+                  validatePhrase: (p) {
+                    validated.add(p);
+                    return p.split(' ').length == 24;
+                  },
+                ),
+              );
             },
           ),
-        );
-      }),
-    ));
-    await tester.pumpAndSettle();
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    AppL10n l() => AppL10n.of(tester.element(find.byType(OnboardingScreen)));
-    bool submitEnabled() => tester
-            .widget<FilledButton>(
-                find.widgetWithText(FilledButton, l().onboardRestoreSubmit))
-            .onPressed !=
-        null;
+      AppL10n l() => AppL10n.of(tester.element(find.byType(OnboardingScreen)));
+      bool submitEnabled() =>
+          tester
+              .widget<FilledButton>(
+                find.widgetWithText(FilledButton, l().onboardRestoreSubmit),
+              )
+              .onPressed !=
+          null;
 
-    // 0 welcome -> Continue, 1 choose -> Restore from recovery phrase.
-    await tester.tap(find.text(l().actionContinue));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(l().onboardRestoreIdentity));
-    await tester.pumpAndSettle();
+      // 0 welcome -> Continue, 1 choose -> Restore from recovery phrase.
+      await tester.tap(find.text(l().actionContinue));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l().onboardRestoreIdentity));
+      await tester.pumpAndSettle();
 
-    // 5 restore: 23 words keep the button disabled even if the validator
-    // would pass; 24 words that fail validation stay disabled too.
-    final field = find.byType(TextField);
-    await tester.enterText(
-        field, List.generate(23, (i) => 'w$i').join(' '));
-    await tester.pumpAndSettle();
-    expect(submitEnabled(), isFalse);
+      // 5 restore: 23 words keep the button disabled even if the validator
+      // would pass; 24 words that fail validation stay disabled too.
+      final field = find.byType(TextField);
+      await tester.enterText(field, List.generate(23, (i) => 'w$i').join(' '));
+      await tester.pumpAndSettle();
+      expect(submitEnabled(), isFalse);
 
-    // 24 normalized words (extra whitespace + case must not matter).
-    await tester.enterText(
-        field, '  ${List.generate(24, (i) => 'W$i').join('   ')} ');
-    await tester.pumpAndSettle();
-    expect(submitEnabled(), isTrue);
-    await tester.tap(find.text(l().onboardRestoreSubmit));
-    await tester.pumpAndSettle();
-    expect(validated, contains(List.generate(24, (i) => 'w$i').join(' ')));
+      // 24 normalized words (extra whitespace + case must not matter).
+      await tester.enterText(
+        field,
+        '  ${List.generate(24, (i) => 'W$i').join('   ')} ',
+      );
+      await tester.pumpAndSettle();
+      expect(submitEnabled(), isTrue);
+      await tester.tap(find.text(l().onboardRestoreSubmit));
+      await tester.pumpAndSettle();
+      expect(validated, contains(List.generate(24, (i) => 'w$i').join(' ')));
 
-    // 3 storage -> Continue, 4 password -> Done.
-    await tester.tap(find.text(l().actionContinue));
-    await tester.pumpAndSettle();
-    final fields = find.byType(TextField);
-    await tester.enterText(fields.at(0), 'test123');
-    await tester.enterText(fields.at(1), 'test123');
-    await tester.tap(find.text(l().actionDone));
-    for (var i = 0; i < 6; i++) {
-      await tester.pump(const Duration(milliseconds: 50));
+      // 3 storage -> Continue, 4 password -> Done.
+      await tester.tap(find.text(l().actionContinue));
+      await tester.pumpAndSettle();
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), 'test123');
+      await tester.enterText(fields.at(1), 'test123');
+      await tester.tap(find.text(l().actionDone));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      expect(container.read(appControllerProvider).phase, AppPhase.ready);
+    },
+  );
+
+  group('the password step is the last chance to get it right', () {
+    // There is no recovery path for the container password: no reset, no
+    // escrow, nothing to email. A password accepted here that is not the one
+    // the person thinks they chose costs them everything they will ever put in
+    // the app, on the very first screen. Both guards below existed and neither
+    // was covered -- the whole suite passed with the confirmation check
+    // deleted.
+
+    /// Walk the create-identity wizard as far as the password step.
+    Future<ProviderContainer> reachPasswordStep(WidgetTester tester) async {
+      late ProviderContainer container;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
+          child: Consumer(
+            builder: (ctx, ref, _) {
+              container = ProviderScope.containerOf(ctx);
+              return MaterialApp(
+                localizationsDelegates: AppL10n.localizationsDelegates,
+                supportedLocales: AppL10n.supportedLocales,
+                home: const OnboardingScreen(),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      AppL10n l() => AppL10n.of(tester.element(find.byType(OnboardingScreen)));
+      await tester.tap(find.text(l().actionContinue));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l().onboardCreateIdentity));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(Checkbox));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l().actionContinue));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l().actionContinue));
+      await tester.pumpAndSettle();
+      return container;
     }
 
-    expect(container.read(appControllerProvider).phase, AppPhase.ready);
+    Future<void> submit(WidgetTester tester, String pw, String repeat) async {
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), pw);
+      await tester.enterText(fields.at(1), repeat);
+      await tester.tap(
+        find.text(
+          AppL10n.of(tester.element(find.byType(OnboardingScreen))).actionDone,
+        ),
+      );
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    testWidgets('a mistyped confirmation does NOT create the container', (
+      tester,
+    ) async {
+      final container = await reachPasswordStep(tester);
+      final l = AppL10n.of(tester.element(find.byType(OnboardingScreen)));
+      await submit(tester, 'correct-horse', 'correct-hosre');
+
+      expect(
+        container.read(appControllerProvider).phase,
+        isNot(AppPhase.ready),
+        reason:
+            'the container would be sealed with a password they never '
+            'chose, and nothing can open it afterwards',
+      );
+      expect(find.text(l.onboardPasswordMismatch), findsOneWidget);
+    });
+
+    testWidgets('a too-short password does NOT create the container', (
+      tester,
+    ) async {
+      final container = await reachPasswordStep(tester);
+      final l = AppL10n.of(tester.element(find.byType(OnboardingScreen)));
+      await submit(tester, '123', '123');
+
+      expect(
+        container.read(appControllerProvider).phase,
+        isNot(AppPhase.ready),
+      );
+      expect(find.text(l.onboardPasswordTooShort), findsOneWidget);
+    });
+
+    testWidgets('correcting the mistake then proceeds', (tester) async {
+      // Without this the pair above would also pass on a step that can never
+      // succeed at all -- "it refused" has to be distinguishable from "it is
+      // broken".
+      final container = await reachPasswordStep(tester);
+      await submit(tester, 'correct-horse', 'correct-hosre');
+      expect(
+        container.read(appControllerProvider).phase,
+        isNot(AppPhase.ready),
+      );
+
+      await submit(tester, 'correct-horse', 'correct-horse');
+      expect(container.read(appControllerProvider).phase, AppPhase.ready);
+    });
   });
 }
