@@ -6355,6 +6355,115 @@ void main() {
   );
 
   test(
+    'an unreferenced content id costs a subscriber no network round trip',
+    () async {
+      // This pins a check that is redundant for SECURITY and easy to delete
+      // for exactly that reason. Removing either content check inside
+      // requestSubscribedPublicSpaceMedia leaves the whole suite green,
+      // because the authority is one layer down in requestPublicSpaceMedia
+      // (covered by 'public media grant requires an exact cached verified
+      // projection'). What the subscriber-side check actually buys is the
+      // round trip: without it, asking for a content id that plainly is not
+      // in the feed still spends a discovery resolve with an 8 s timeout.
+      final ownerStorage = FakeHvContainer().storage();
+      final readerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await readerStorage.open(password: 'reader', createIfMissing: true);
+      final transport = _FakeSpaceDiscoveryTransport();
+      final ownerSigner = _DiscoveryFakeSigner(17);
+      final ownerId = ownerSigner.selfId;
+      final readerSigner = _DiscoveryFakeSigner(18);
+      final readerId = readerSigner.selfId;
+      late final GroupService readerService;
+      final ownerService = GroupService(
+        ownerStorage,
+        ownerSigner,
+        sendPublicFeedChunk: (requester, chunkJson) async {
+          readerService.handlePublicFeedObjectChunk(ownerId, chunkJson);
+        },
+      );
+      readerService = GroupService(
+        readerStorage,
+        readerSigner,
+        sendPublicFeedRequest: (holder, requestJson) async {
+          await ownerService.handlePublicFeedObjectRequest(
+            readerId,
+            requestJson,
+          );
+        },
+        spaceDiscoveryTransport: transport,
+      );
+      addTearDown(ownerService.dispose);
+      addTearDown(readerService.dispose);
+
+      const referencedCid =
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      const unknownCid =
+          'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+      final spaceId = await ownerService.createSpace(
+        'Subscriber media gate',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      expect(
+        await ownerService.publishSpacePost(
+          spaceId,
+          body: 'Carries exactly one referenced object',
+          media: [
+            const MediaObject(
+              kind: 'image',
+              contentId: referencedCid,
+              name: 'referenced.png',
+              size: 3,
+            ),
+          ],
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      final publication = await ownerService
+          .buildSpacePublicDiscoveryPublication(spaceId);
+      expect(publication, isNotNull);
+      expect(
+        await readerService.subscribeToPublicSpace(
+          publication!.discovery.descriptor,
+          [publication.discovery.holder],
+        ),
+        isNotNull,
+      );
+
+      transport.resolvedRoutes.clear();
+      expect(
+        await readerService.requestSubscribedPublicSpaceMedia(
+          spaceId,
+          unknownCid,
+        ),
+        isFalse,
+      );
+      expect(
+        transport.resolvedRoutes,
+        isEmpty,
+        reason:
+            'the subscription snapshot already answers this — refusing after '
+            'an 8 s discovery timeout is the failure being guarded against',
+      );
+
+      // The other half: a referenced id DOES reach the network. Without this
+      // a subscriber that resolves nothing at all would satisfy the assertion
+      // above and the test would prove nothing.
+      expect(
+        await readerService.requestSubscribedPublicSpaceMedia(
+          spaceId,
+          referencedCid,
+        ),
+        isFalse,
+        reason: 'no holder is published in this transport, so it cannot pull',
+      );
+      expect(transport.resolvedRoutes, isNotEmpty);
+    },
+  );
+
+  test(
     'public discovery publishes native routes and keeps global search quorum',
     () async {
       final storage = FakeHvContainer().storage();

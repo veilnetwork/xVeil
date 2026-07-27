@@ -74,6 +74,7 @@ part 'group_service_compaction.dart';
 part 'group_service_protected_channels.dart';
 part 'group_service_reactions.dart';
 part 'group_service_public_feed_transport.dart';
+part 'group_service_public_subscriptions.dart';
 
 bool _listEquals<T>(List<T>? left, List<T>? right) {
   if (identical(left, right)) return true;
@@ -13842,34 +13843,13 @@ class GroupService {
     return SpaceAcl(state).allows(_signer.selfId, SpacePermission.view);
   }
 
-  SpacePublicSubscriptionView _publicSubscriptionView(
-    SpacePublicSubscriptionSnapshot snapshot,
-    SpaceSubscription subscription,
-  ) => SpacePublicSubscriptionView(
-    subscription: subscription,
-    descriptor: snapshot.package.descriptor,
-    feed: snapshot.package.projection,
-    verifiedAtMs: snapshot.verifiedAtMs,
-    stale: snapshot.isStaleAt(_now()),
+  late final _PublicSubscriptions _publicSubscriptions = _PublicSubscriptions(
+    this,
   );
 
   Future<SpacePublicSubscriptionView?> publicSpaceSubscription(
     NodeId spaceId,
-  ) async {
-    final index = await _loadPublicSubscriptionIndex();
-    if (!index.complete ||
-        !index.ids.contains(spaceId.hex) ||
-        await _hasActiveSpaceMembership(spaceId)) {
-      return null;
-    }
-    final snapshot = await _loadPublicSubscriptionSnapshot(spaceId);
-    if (snapshot == null) return null;
-    final stored = await _storedSpaceSubscription(spaceId);
-    final subscription = stored?.publicOnly == true
-        ? stored!
-        : SpaceSubscription.publicDefault(spaceId);
-    return _publicSubscriptionView(snapshot, subscription);
-  }
+  ) => _publicSubscriptions.publicSpaceSubscription(spaceId);
 
   /// Return the author-signed public discussion for one subscribed post.
   ///
@@ -13879,25 +13859,12 @@ class GroupService {
   Future<List<SpacePublicCommentView>> publicSpacePostComments(
     NodeId spaceId,
     String postId,
-  ) async {
-    final view = await publicSpaceSubscription(spaceId);
-    if (view == null || !view.feed.posts.any((post) => post.postId == postId)) {
-      return const [];
-    }
-    final comments = view.feed.commentsFor(postId, _signer.verifyDetached);
-    return _withoutBlockedSpaceAuthors(comments, (comment) => comment.author);
-  }
+  ) => _publicSubscriptions.publicSpacePostComments(spaceId, postId);
 
   Future<SpacePublicReactions> publicSpacePostReactions(
     NodeId spaceId,
     String postId,
-  ) async {
-    final view = await publicSpaceSubscription(spaceId);
-    if (view == null || !view.feed.posts.any((post) => post.postId == postId)) {
-      return const {};
-    }
-    return view.feed.reactionsFor(postId, _signer.verifyDetached);
-  }
+  ) => _publicSubscriptions.publicSpacePostReactions(spaceId, postId);
 
   /// Stable public root refs known to an active member. The composer uses this
   /// to prevent accidentally marking a reply public when its parent was
@@ -13905,51 +13872,10 @@ class GroupService {
   Future<Set<String>> publicSpacePostCommentRefs(
     NodeId spaceId,
     String postId,
-  ) async {
-    final bundle = await load(spaceId);
-    if (bundle == null ||
-        bundle.manifest.visibility != SpaceVisibility.public) {
-      return const {};
-    }
-    return {
-      for (final comment in foldSpacePublicComments(
-        comments: bundle.publicComments,
-        spaceId: spaceId,
-        postId: postId,
-        verifySignature: _signer.verifyDetached,
-      ))
-        comment.ref,
-    };
-  }
+  ) => _publicSubscriptions.publicSpacePostCommentRefs(spaceId, postId);
 
-  Future<List<SpacePublicSubscriptionView>> publicSpaceSubscriptions() async {
-    final index = await _loadPublicSubscriptionIndex();
-    if (!index.complete) return const [];
-    final views = <SpacePublicSubscriptionView>[];
-    for (final hex in index.ids) {
-      final NodeId spaceId;
-      try {
-        spaceId = NodeId.fromHex(hex);
-      } catch (_) {
-        continue;
-      }
-      if (await _hasActiveSpaceMembership(spaceId)) continue;
-      final snapshot = await _loadPublicSubscriptionSnapshot(spaceId);
-      if (snapshot == null) continue;
-      final stored = await _storedSpaceSubscription(spaceId);
-      final subscription = stored?.publicOnly == true
-          ? stored!
-          : SpaceSubscription.publicDefault(spaceId);
-      views.add(_publicSubscriptionView(snapshot, subscription));
-    }
-    views.sort((left, right) {
-      final name = left.descriptor.name.compareTo(right.descriptor.name);
-      return name != 0
-          ? name
-          : left.descriptor.spaceId.hex.compareTo(right.descriptor.spaceId.hex);
-    });
-    return List<SpacePublicSubscriptionView>.unmodifiable(views);
-  }
+  Future<List<SpacePublicSubscriptionView>> publicSpaceSubscriptions() =>
+      _publicSubscriptions.publicSpaceSubscriptions();
 
   /// Activate or refresh a read-only public subscription from one exact,
   /// currently verified descriptor/feed pair.
@@ -13961,171 +13887,19 @@ class GroupService {
   Future<SpacePublicSubscriptionView?> subscribeToPublicSpace(
     SpacePublicDescriptor descriptor,
     Iterable<SpacePublicHolderAnnouncement> holders,
-  ) => _serializeSpaceFeedPreferences(() async {
-    final nowMs = _now();
-    if (!descriptor.verifyAt(nowMs, _signer.verifyDetached) ||
-        descriptor.genesisManifest.visibility != SpaceVisibility.public ||
-        await _hasActiveSpaceMembership(descriptor.spaceId)) {
-      return null;
-    }
-    final exactHolders = <String, SpacePublicHolderAnnouncement>{};
-    for (final holder in holders) {
-      if (holder.holder == selfId ||
-          holder.spaceId != descriptor.spaceId ||
-          holder.descriptorHash != descriptor.descriptorHash ||
-          holder.publicFeedManifestHash != descriptor.publicFeedManifestHash ||
-          !holder.verifyAt(nowMs, _signer.verifyDetached)) {
-        continue;
-      }
-      exactHolders[holder.holder.hex] = holder;
-    }
-    if (exactHolders.isEmpty) return null;
-
-    final index = await _loadPublicSubscriptionIndex();
-    if (!index.complete ||
-        (!index.ids.contains(descriptor.spaceId.hex) &&
-            index.ids.length >= _kMaxPublicSubscriptions)) {
-      return null;
-    }
-    final prior = index.ids.contains(descriptor.spaceId.hex)
-        ? await _loadPublicSubscriptionSnapshot(descriptor.spaceId)
-        : null;
-    if (prior != null) {
-      final current = prior.package.descriptor;
-      final authorityOrder = descriptor.authorityGeneration.compareTo(
-        current.authorityGeneration,
-      );
-      final sameGeneration = authorityOrder == 0;
-      final authorityForkOrder = descriptor.authorityHash.compareTo(
-        current.authorityHash,
-      );
-      if (authorityOrder < 0 ||
-          (sameGeneration && authorityForkOrder < 0) ||
-          (sameGeneration &&
-              authorityForkOrder == 0 &&
-              (descriptor.revision < current.revision ||
-                  descriptor.publicFeedRevision < current.publicFeedRevision ||
-                  descriptor.publicFeedUpdatedAtMs <
-                      current.publicFeedUpdatedAtMs))) {
-        return null;
-      }
-    }
-
-    SpacePublicFeedProjection? feed;
-    final cached = await _loadVerifiedPublicFeed(
-      descriptor.spaceId,
-      descriptor.publicFeedManifestHash,
-    );
-    if (cached != null &&
-        cached.descriptor.descriptorHash == descriptor.descriptorHash) {
-      feed = cached.feed;
-    }
-    feed ??= await fetchVerifiedPublicSpaceFeed(
-      descriptor,
-      exactHolders.values,
-    );
-    if (feed == null) return null;
-    final package = SpacePublicFeedPackage(
-      descriptor: descriptor,
-      projection: feed,
-    );
-    if (!package.verifyAt(
-      nowMs: nowMs,
-      verifySignature: _signer.verifyDetached,
-      verifyPost: _signer.verifyPost,
-    )) {
-      return null;
-    }
-    if (prior != null &&
-        prior.package.descriptor.descriptorHash == descriptor.descriptorHash &&
-        prior.package.projection.manifest.manifestHash ==
-            feed.manifest.manifestHash) {
-      final stored = await _storedSpaceSubscription(descriptor.spaceId);
-      return _publicSubscriptionView(
-        prior,
-        stored?.publicOnly == true
-            ? stored!
-            : SpaceSubscription.publicDefault(descriptor.spaceId),
-      );
-    }
-    final snapshot = SpacePublicSubscriptionSnapshot(
-      verifiedAtMs: nowMs,
-      package: package,
-    );
-    final snapshotBytes = snapshot.toBytes();
-    if (snapshotBytes.length > kSpacePublicSubscriptionSnapshotMaxBytes) {
-      return null;
-    }
-
-    final stored = index.ids.contains(descriptor.spaceId.hex)
-        ? await _storedSpaceSubscription(descriptor.spaceId)
-        : null;
-    final subscription =
-        (stored?.publicOnly == true
-                ? stored!
-                : SpaceSubscription.publicDefault(descriptor.spaceId))
-            .copyWith(publicOnly: true, updatedAtMs: nowMs);
-    await _storage.storeFile(
-      _publicSubscriptionSnapshotFileId(descriptor.spaceId),
-      snapshotBytes,
-      name: 'public-space-subscription',
-    );
-    await _saveSpaceSubscription(subscription);
-    await _storage.putSetting(_spaceFeedEnabledKey(descriptor.spaceId), '');
-    await _savePublicSubscriptionIndex({...index.ids, descriptor.spaceId.hex});
-    _publicSubscriptionSnapshots[descriptor.spaceId.hex] = snapshot;
-    changes.value++;
-    feedAccessChanges.value++;
-    if (prior != null) {
-      final priorPostIds = {
-        for (final post in prior.package.projection.posts) post.postId,
-      };
-      final priorCommentRefs = <String>{};
-      for (final post in prior.package.projection.posts) {
-        priorCommentRefs.addAll(
-          prior.package.projection
-              .commentsFor(post.postId, _signer.verifyDetached)
-              .map((comment) => comment.ref),
-        );
-      }
-      for (final post in feed.posts) {
-        if (post.author != selfId && !priorPostIds.contains(post.postId)) {
-          _incomingPublicPostCtl.add((spaceId: descriptor.spaceId, post: post));
-        }
-        for (final comment in feed.commentsFor(
-          post.postId,
-          _signer.verifyDetached,
-        )) {
-          if (comment.author != selfId &&
-              !priorCommentRefs.contains(comment.ref)) {
-            _incomingPublicCommentCtl.add((
-              spaceId: descriptor.spaceId,
-              comment: comment,
-            ));
-          }
-        }
-      }
-    }
-    return _publicSubscriptionView(snapshot, subscription);
-  });
+  ) => _publicSubscriptions.subscribeToPublicSpace(descriptor, holders);
 
   Future<SpacePublicSubscriptionView?> subscribeToPublicSpaceDiscovery(
     SpacePublicDiscoveryResult result,
-  ) => subscribeToPublicSpace(result.descriptor, result.holders);
+  ) => _publicSubscriptions.subscribeToPublicSpaceDiscovery(result);
 
   Future<SpacePublicSubscriptionView?> refreshPublicSpaceSubscription(
     NodeId spaceId, {
     Duration timeout = const Duration(seconds: 8),
-  }) async {
-    if (await publicSpaceSubscription(spaceId) == null) return null;
-    final discovery = await resolvePublicSpaceDiscovery(
-      spaceId,
-      timeout: timeout,
-    );
-    return discovery == null
-        ? null
-        : subscribeToPublicSpaceDiscovery(discovery);
-  }
+  }) => _publicSubscriptions.refreshPublicSpaceSubscription(
+    spaceId,
+    timeout: timeout,
+  );
 
   /// Refresh the exact public descriptor/holders before opening a media grant.
   /// Stored bytes remain usable offline, but a new transfer never relies on an
@@ -14134,56 +13908,16 @@ class GroupService {
     NodeId spaceId,
     String contentId, {
     Duration timeout = const Duration(seconds: 8),
-  }) async {
-    final current = await publicSpaceSubscription(spaceId);
-    if (current == null ||
-        !current.feed
-            .verifiedReferencedContentIds(_signer.verifyDetached)
-            .contains(contentId)) {
-      return false;
-    }
-    final discovery = await resolvePublicSpaceDiscovery(
-      spaceId,
-      timeout: timeout,
-    );
-    if (discovery == null) return false;
-    final refreshed = await subscribeToPublicSpaceDiscovery(discovery);
-    if (refreshed == null ||
-        !refreshed.feed
-            .verifiedReferencedContentIds(_signer.verifyDetached)
-            .contains(contentId)) {
-      return false;
-    }
-    return requestPublicSpaceMedia(
-      discovery.descriptor,
-      discovery.holders,
-      contentId,
-    );
-  }
+  }) => _publicSubscriptions.requestSubscribedPublicSpaceMedia(
+    spaceId,
+    contentId,
+    timeout: timeout,
+  );
 
   /// Deactivate first, then best-effort scrub the now-unreachable public
   /// snapshot. Shared downloaded media is reclaimed only by the global GC.
   Future<bool> unsubscribeFromPublicSpace(NodeId spaceId) =>
-      _serializeSpaceFeedPreferences(() async {
-        final index = await _loadPublicSubscriptionIndex();
-        if (!index.complete || !index.ids.contains(spaceId.hex)) return false;
-        final next = Set<String>.of(index.ids)..remove(spaceId.hex);
-        await _savePublicSubscriptionIndex(next);
-        _publicSubscriptionSnapshots.remove(spaceId.hex);
-        try {
-          await _storage.putSetting(_spaceSubscriptionKey(spaceId), '');
-          await _storage.putSetting(_spaceFeedSeenKey(spaceId), '');
-          await _storage.deleteStoredFile(
-            _publicSubscriptionSnapshotFileId(spaceId),
-          );
-        } catch (_) {
-          // The activation index is already authoritative. Any orphaned
-          // public bytes are inert and can be scrubbed by later maintenance.
-        }
-        changes.value++;
-        feedAccessChanges.value++;
-        return true;
-      });
+      _publicSubscriptions.unsubscribeFromPublicSpace(spaceId);
 
   String _spaceFeedEnabledKey(NodeId spaceId) =>
       'space.feed.enabled:${spaceId.hex}';
