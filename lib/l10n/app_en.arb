@@ -1736,5 +1736,6 @@
   "voiceModelTitle": "Speech model",
   "voiceModelResume": "Continue downloading",
   "voiceModelResumeAt": "{percent}% already downloaded",
-  "@voiceModelResumeAt": { "placeholders": { "percent": { "type": "int" } } }
+  "@voiceModelResumeAt": { "placeholders": { "percent": { "type": "int" } } },
+  "voiceModelCancel": "Stop"
 }

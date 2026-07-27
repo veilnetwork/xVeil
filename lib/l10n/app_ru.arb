@@ -1735,5 +1735,6 @@
   "voiceModelTitle": "Модель распознавания",
   "voiceModelResume": "Продолжить скачивание",
   "voiceModelResumeAt": "{percent}% уже скачано",
-  "@voiceModelResumeAt": { "placeholders": { "percent": { "type": "int" } } }
+  "@voiceModelResumeAt": { "placeholders": { "percent": { "type": "int" } } },
+  "voiceModelCancel": "Остановить"
 }

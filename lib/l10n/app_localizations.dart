@@ -9845,6 +9845,12 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'{percent}% already downloaded'**
   String voiceModelResumeAt(int percent);
+
+  /// No description provided for @voiceModelCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop'**
+  String get voiceModelCancel;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

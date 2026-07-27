@@ -111,8 +111,13 @@ class WhisperModelStore {
   /// That also keeps a resumed transfer honest — the server's content-length
   /// describes only the remaining tail, and reporting against it would show a
   /// download that starts at 0% when it is already most of the way there.
+  /// [isCancelled] is consulted per chunk. Stopping is a distinct outcome
+  /// from failing: the bytes are kept either way, but a person who tapped by
+  /// accident on mobile data should see "continue, 40% downloaded" rather
+  /// than an error they did not cause.
   Future<WhisperModelDownload> download({
     void Function(double progress)? onProgress,
+    bool Function()? isCancelled,
     Uri? from,
   }) async {
     final file = await _target();
@@ -152,8 +157,13 @@ class WhisperModelStore {
         mode: resuming ? FileMode.writeOnlyAppend : FileMode.writeOnly,
       );
       var received = have;
+      var cancelled = false;
       try {
         await for (final chunk in response.timeout(stallTimeout)) {
+          if (isCancelled != null && isCancelled()) {
+            cancelled = true;
+            break;
+          }
           sink.add(chunk);
           received += chunk.length;
           if (onProgress != null) {
@@ -164,6 +174,11 @@ class WhisperModelStore {
         }
       } finally {
         await sink.close();
+      }
+      if (cancelled) {
+        // The partial file stays: this is a pause, not a discard.
+        devLog(() => 'xVeil[whisper]: download cancelled at $received bytes');
+        return const WhisperModelDownload.cancelled();
       }
 
       // Size first: it is the cheap half of the same question, and a short
@@ -197,11 +212,21 @@ class WhisperModelStore {
 }
 
 class WhisperModelDownload {
-  const WhisperModelDownload.ok(this.path) : error = null;
-  const WhisperModelDownload.failed(this.error) : path = null;
+  const WhisperModelDownload.ok(this.path) : error = null, wasCancelled = false;
+  const WhisperModelDownload.failed(this.error)
+    : path = null,
+      wasCancelled = false;
+
+  /// Stopped by the person, not by a fault. Distinct from [failed] so the UI
+  /// does not report an error nobody made.
+  const WhisperModelDownload.cancelled()
+    : path = null,
+      error = null,
+      wasCancelled = true;
 
   final String? path;
   final String? error;
+  final bool wasCancelled;
 
   bool get succeeded => path != null;
 }
