@@ -211,13 +211,24 @@ Output: `build/linux/<architecture>/release/bundle/`.
 For a debug build, omit `--release` from the native script and use
 `flutter build linux --debug`; the native and Flutter profiles must match.
 
-Optional on-device voice transcription: build the whisper wrapper with
+On-device voice transcription: build the whisper wrapper with
 `native/whisper/build_veil_whisper_linux.sh` (uses a whisper.cpp checkout at
-`WHISPER_SRC`, building its static CPU libs when missing) and place the ggml
-model (`ggml-base-q5_1.bin`) next to the produced `.so` in
-`native/whisper/linux/`; the app CMake bundles both into the bundle's `lib/`
-automatically. A model in the XDG data dir
-(`~/.local/share/network.veil.xveil/`) or via `XVEIL_WHISPER_MODEL` works too.
+`WHISPER_SRC`, building its static CPU libs when missing) and leave the
+produced `.so` in `native/whisper/linux/`; the app CMake bundles it into the
+bundle's `lib/`.
+
+The ggml model is **not** bundled — it is 57 MiB, it does not compress, and
+most people never transcribe anything, so the app downloads it on demand and
+keeps it once for the whole app (in the support directory, shared by every
+profile), verifying a pinned size and SHA-256. Nothing needs staging for that
+to work.
+
+For a build that must install without a network, put the model next to the
+`.so` and set `XVEIL_BUNDLE_WHISPER_MODEL=1` — the same opt-in Android and
+macOS use. `XVEIL_WHISPER_MODEL` still points at a model anywhere, and
+`XVEIL_WHISPER_MODEL_URL` changes where the download comes from (the default
+is the canonical whisper.cpp distribution, fetched over plain HTTPS from the
+person's own address — worth knowing in this app).
 
 ### Windows
 
@@ -495,13 +506,23 @@ flutter build linux --release
 Для debug-сборки уберите `--release` у нативного скрипта и используйте
 `flutter build linux --debug`. Профили Rust- и Flutter-сборки должны совпадать.
 
-Опциональная локальная транскрипция голосовых: соберите whisper-обёртку
-скриптом `native/whisper/build_veil_whisper_linux.sh` (использует чекаут
-whisper.cpp в `WHISPER_SRC`, при отсутствии сам собирает статические
-CPU-библиотеки) и положите ggml-модель (`ggml-base-q5_1.bin`) рядом с
-полученной `.so` в `native/whisper/linux/` — CMake приложения сам добавит
-обе в `lib/` бандла. Модель также ищется в XDG-каталоге данных
-(`~/.local/share/network.veil.xveil/`) и через `XVEIL_WHISPER_MODEL`.
+Локальная транскрипция голосовых: соберите whisper-обёртку скриптом
+`native/whisper/build_veil_whisper_linux.sh` (использует чекаут whisper.cpp в
+`WHISPER_SRC`, при отсутствии сам собирает статические CPU-библиотеки) и
+оставьте полученную `.so` в `native/whisper/linux/` — CMake приложения сам
+добавит её в `lib/` бандла.
+
+Ggml-модель **не вшивается**: она весит 57 МиБ, не сжимается, а расшифровкой
+пользуются немногие — поэтому приложение скачивает её по требованию и хранит
+один раз на всё приложение (в каталоге поддержки, общем для всех профилей),
+сверяя закреплённые размер и SHA-256. Готовить для этого ничего не нужно.
+
+Для сборки, которая должна ставиться без сети, положите модель рядом с `.so`
+и задайте `XVEIL_BUNDLE_WHISPER_MODEL=1` — тот же флаг, что у Android и
+macOS. `XVEIL_WHISPER_MODEL` по-прежнему указывает на модель в любом месте, а
+`XVEIL_WHISPER_MODEL_URL` меняет адрес загрузки (по умолчанию — канонический
+whisper.cpp, обычным HTTPS с адреса самого человека, что в этом приложении
+стоит учитывать).
 
 ### Windows
 

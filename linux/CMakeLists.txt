@@ -109,22 +109,30 @@ foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
     COMPONENT Runtime)
 endforeach(bundled_library)
 
-# On-device voice transcription (whisper.cpp) — OPTIONAL, mirrors the macOS
-# bundle step (scripts/bundle-macos-dylibs.sh): stage the wrapper .so built by
-# native/whisper/build_veil_whisper_linux.sh (plus, optionally, the ggml model
-# next to it) in native/whisper/linux/ and both land in the bundle's lib/,
-# where the Dart side (whisper_ffi.dart / native_libs.dart) resolves them.
-# Absent artifacts just mean the Transcribe affordance stays hidden.
+# On-device voice transcription (whisper.cpp) — mirrors the macOS bundle step
+# (scripts/bundle-macos-dylibs.sh): stage the wrapper .so built by
+# native/whisper/build_veil_whisper_linux.sh in native/whisper/linux/ and it
+# lands in the bundle's lib/, where the Dart side (whisper_ffi.dart /
+# native_libs.dart) resolves it. Absent, the Transcribe affordance stays
+# hidden.
 set(VEIL_WHISPER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../native/whisper/linux")
-foreach(whisper_artifact
-  "${VEIL_WHISPER_DIR}/libveil_whisper.so"
-  "${VEIL_WHISPER_DIR}/ggml-base-q5_1.bin")
-  if(EXISTS "${whisper_artifact}")
-    install(FILES "${whisper_artifact}"
-      DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
-      COMPONENT Runtime)
-  endif()
-endforeach()
+if(EXISTS "${VEIL_WHISPER_DIR}/libveil_whisper.so")
+  install(FILES "${VEIL_WHISPER_DIR}/libveil_whisper.so"
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    COMPONENT Runtime)
+endif()
+
+# The 57 MiB ggml model is NOT bundled by default — the app fetches it on
+# demand and keeps it once for the whole app. Bundling it stayed possible for
+# a build that must install without a network, and needs the same opt-in as
+# Android and macOS use, so a model merely left in the staging directory does
+# not quietly add 57 MiB to a Linux bundle.
+if(EXISTS "${VEIL_WHISPER_DIR}/ggml-base-q5_1.bin"
+   AND "$ENV{XVEIL_BUNDLE_WHISPER_MODEL}" STREQUAL "1")
+  install(FILES "${VEIL_WHISPER_DIR}/ggml-base-q5_1.bin"
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    COMPONENT Runtime)
+endif()
 
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/linux/")
