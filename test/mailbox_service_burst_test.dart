@@ -288,4 +288,56 @@ void main() {
       reason: 'wake must drain now and keep the burst cadence',
     );
   });
+
+  group('the idle cadence and its ceiling', () {
+    test('an idle client polls a minute apart, not ten seconds', () {
+      // The wake ping delivers; the poll is the net under it. Measured on a
+      // live pair: 16 of 16 deposits arrived by ping, and idling cost 4.2
+      // drains a minute.
+      expect(kIdleDrainInterval, const Duration(seconds: 60));
+    });
+
+    test('the back-off ceiling is a TIME, so the interval cannot blow it up',
+        () {
+      // It used to be a tick count. Raising the interval then multiplied the
+      // worst case with it — at 60s a 32-tick back-off is half an hour of
+      // undelivered mail, and this poll exists to catch the deposit whose ping
+      // was lost.
+      //
+      // Asserted against the function the service actually calls. The first
+      // version of this test recomputed the formula from the two constants and
+      // never touched the code — reverting the cap to a tick count failed
+      // nothing, which is how that was noticed.
+      for (var streak = 1; streak <= 8; streak++) {
+        final skips = idleDrainSkips(streak, kIdleDrainInterval);
+        expect(
+          kIdleDrainInterval * (skips + 1),
+          lessThanOrEqualTo(kMaxIdleDrainGap),
+          reason: 'streak $streak must not outrun the ceiling',
+        );
+      }
+      expect(
+        idleDrainSkips(8, kIdleDrainInterval),
+        greaterThan(1),
+        reason: 'and it must still back off, not collapse to one tick',
+      );
+      // The escalation itself survives where the ceiling is not binding.
+      expect(
+        idleDrainSkips(1, const Duration(seconds: 1)),
+        lessThan(idleDrainSkips(4, const Duration(seconds: 1))),
+      );
+    });
+
+    test('the hot cadence is untouched — a conversation must stay fast', () {
+      final service = MailboxService(
+        client: _FakeClient(),
+        me: _id(1),
+        orchestrator: _FakeOrchestrator(),
+        deliver: (_) {},
+      );
+      addTearDown(service.dispose);
+      expect(service.hotDrainInterval, const Duration(seconds: 3));
+      expect(service.hotWindow, const Duration(minutes: 2));
+    });
+  });
 }
