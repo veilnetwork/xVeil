@@ -1908,6 +1908,56 @@ void main() {
     expect(svc.snapshotJson(bundle), svc.snapshotJson(bundle));
   });
 
+  test('a member outside a restricted channel cannot enter its voice room',
+      () async {
+    // Found by break-checking: making canEnterVoiceChannel always true failed
+    // nothing. Admission to a restricted channel's room is the same question
+    // as reading it — the recipients of its current epoch, no one else — and
+    // belonging to the Space is not that question.
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(
+      storage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    );
+    addTearDown(svc.dispose);
+
+    final spaceId = await svc.createSpace('Voice');
+    for (final member in [bob, carol]) {
+      expect(
+        await svc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: member,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+    }
+    final channelId = await svc.createChannel(
+      spaceId,
+      name: 'Leads only',
+      kind: SpaceChannelKind.voice,
+      access: SpaceChannelAccess.restricted,
+      members: [bob],
+    );
+    expect(channelId, isNotNull);
+
+    expect(
+      await svc.canEnterVoiceChannel(spaceId, channelId, bob),
+      isTrue,
+      reason: 'a recipient of the current epoch belongs in the room',
+    );
+    expect(
+      await svc.canEnterVoiceChannel(spaceId, channelId, carol),
+      isFalse,
+      reason: 'a Space member who is not in the channel is not in its room',
+    );
+  });
+
   test('an ORDINARY group cannot be adopted as the device group, however '
       'legitimately you belong to it', () async {
     // Found by breaking the guard: dropping the isSovereignDevice check let
