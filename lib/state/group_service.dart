@@ -7711,6 +7711,49 @@ class GroupService {
     return out;
   }
 
+  /// Remove index entries that nothing backs: no bundle, no kind hint, no
+  /// deletion tombstone.
+  ///
+  /// One such entry makes [sweepSharedContentGarbage] refuse to collect
+  /// anything at all — it cannot see that group's references, so it fail-closes
+  /// rather than risk deleting live content. The entries themselves are debris
+  /// from the index race closed in [_readIndexJson]: a stale legacy list got
+  /// persisted and resurrected an id whose group had been purged.
+  ///
+  /// Deliberately opt-in and dry by default. All three signals must be absent:
+  /// the kind hint is written inside [_save], so its absence means the bundle
+  /// was never written here (or was purged along with it), and requiring the
+  /// tombstone check too keeps a recoverable Space out of reach. Returns the
+  /// ids it removed, or would remove when [apply] is false.
+  Future<List<String>> repairIndexGhosts({bool apply = false}) async {
+    final ids = await _index();
+    final ghosts = <String>[];
+    for (final hex in ids) {
+      NodeId groupId;
+      try {
+        groupId = NodeId.fromHex(hex);
+      } catch (_) {
+        ghosts.add(hex);
+        continue;
+      }
+      if (await _loadBundleRaw(groupId) != null) continue;
+      if (await _readGroupKindHint(hex) != null) continue;
+      if (await deletedSpaceTombstone(groupId) != null) continue;
+      ghosts.add(hex);
+    }
+    if (apply && ghosts.isNotEmpty) {
+      await _setIndex([
+        for (final hex in ids)
+          if (!ghosts.contains(hex)) hex,
+      ]);
+      devLog(
+        () => 'xVeil[group]: index repaired — removed ${ghosts.length} '
+            'entries nothing backed',
+      );
+    }
+    return ghosts;
+  }
+
   Future<void> _setIndex(List<String> ids) async {
     final write = _storage.storeFile(
       'groups.index',
