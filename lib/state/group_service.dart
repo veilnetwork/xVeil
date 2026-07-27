@@ -28,6 +28,7 @@ import '../domain/chat.dart'
         NotificationMutePolicy,
         kMuteForever;
 import '../domain/call_signal.dart';
+import '../domain/cloud.dart' show CloudItem, unresolvedCloudNoteRevisions;
 import '../domain/device_sync.dart';
 import '../domain/device_link.dart';
 import '../domain/group.dart';
