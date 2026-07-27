@@ -25,7 +25,14 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION="${XVEIL_VERSION:-dev}"
+# Read the version from pubspec rather than defaulting to a placeholder: the
+# error report names the build it came from, and a report that says "dev"
+# cannot be tied to anything a tester actually has.
+VERSION="${XVEIL_VERSION:-$(sed -n 's/^version: *//p' pubspec.yaml | head -1)}"
+if [[ -z "$VERSION" ]]; then
+  echo "cannot read 'version:' from pubspec.yaml" >&2
+  exit 1
+fi
 APP="build/macos/Build/Products/Release/xveil.app"
 
 echo "==> flutter config (version=$VERSION)"
