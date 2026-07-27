@@ -17,6 +17,7 @@ import 'package:xveil/state/whisper_model_controller.dart';
 /// deterministic version of the same question.
 class _ScriptedStore implements WhisperModelStore {
   bool installedNow = false;
+  int pendingOnDisk = 0;
   int downloads = 0;
   int removals = 0;
   Completer<WhisperModelDownload>? pending;
@@ -26,6 +27,9 @@ class _ScriptedStore implements WhisperModelStore {
 
   @override
   Future<File?> installed() async => null;
+
+  @override
+  Future<int> pendingBytes() async => pendingOnDisk;
 
   @override
   Future<void> remove() async {
@@ -141,5 +145,38 @@ void main() {
     await tester.tap(find.byType(ListTile));
     await tester.pump();
     expect(store.downloads, 2, reason: 'a retry is one tap away');
+  });
+
+  testWidgets(
+    'an interrupted attempt offers to CONTINUE, with how far it got',
+    (tester) async {
+      // Otherwise a person on mobile data reads "download 57 MB" and declines a
+      // transfer that is 80% finished.
+      await pump(tester);
+      store.pendingOnDisk = (WhisperModelStore.expectedBytes * 0.8).round();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(WhisperModelTile)),
+      );
+      await container.read(whisperModelControllerProvider.notifier).refresh();
+      await tester.pump();
+
+      expect(find.text(l(tester).voiceModelResume), findsOneWidget);
+      expect(find.text(l(tester).voiceModelResumeAt(80)), findsOneWidget);
+      expect(find.text(l(tester).voiceModelDownload), findsNothing);
+    },
+  );
+
+  testWidgets('with nothing pending it still offers a plain download', (
+    tester,
+  ) async {
+    await pump(tester);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(WhisperModelTile)),
+    );
+    await container.read(whisperModelControllerProvider.notifier).refresh();
+    await tester.pump();
+
+    expect(find.text(l(tester).voiceModelDownload), findsOneWidget);
+    expect(find.text(l(tester).voiceModelResume), findsNothing);
   });
 }
