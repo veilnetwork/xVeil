@@ -639,6 +639,38 @@ void main() {
     },
   );
 
+  test('index repair drops only entries nothing backs, and only on apply',
+      () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _FakeSigner(owner));
+    addTearDown(service.dispose);
+    final live = await service.createGroup('Real group');
+    const ghost =
+        '9e6f04b1884f5311805a8b15ade5670237c6886ccf1e86a9088f656a666bd10a';
+    // Put a ghost in the index the way the race did: a list that names an id
+    // nothing backs.
+    await storage.storeFile(
+      'groups.index',
+      Uint8List.fromList(utf8.encode(jsonEncode([live.hex, ghost]))),
+      name: 'groups-index',
+    );
+
+    final dry = await service.repairIndexGhosts();
+    expect(dry, [ghost]);
+    expect(
+      (await service.indexedGroups()).map((row) => row.hex),
+      containsAll([live.hex, ghost]),
+      reason: 'a dry run must change nothing',
+    );
+
+    final applied = await service.repairIndexGhosts(apply: true);
+    expect(applied, [ghost]);
+    final after = (await service.indexedGroups()).map((row) => row.hex);
+    expect(after, contains(live.hex), reason: 'the real group must survive');
+    expect(after, isNot(contains(ghost)));
+  });
+
   test('a read racing an index write does not fall back to the legacy copy',
       () async {
     // The legacy settings copy is only inert while the file read cannot miss.
