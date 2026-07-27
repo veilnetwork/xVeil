@@ -392,6 +392,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/device_revoke':
           await _deviceRevokeHook(req);
           return;
+        case '/group_index_repair':
+          await _groupIndexRepairHook(req);
+          return;
         case '/group_trace':
           await _groupTraceHook(req);
           return;
@@ -1819,6 +1822,26 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   }
 
   /// My device group's state: id + members + epoch (null id = not linked).
+  /// Stand repair: drop index entries that nothing backs (`?apply=1`).
+  ///
+  /// Dry by default — an accidental call reports and changes nothing. One
+  /// unbacked entry disables shared-content GC entirely, and these are debris
+  /// from the index race; the race itself is closed, so this is a one-time
+  /// clean-up rather than a recurring sweep.
+  Future<void> _groupIndexRepairHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final apply = req.uri.queryParameters['apply'] == '1';
+    final ghosts = await svc.repairIndexGhosts(apply: apply);
+    return _json(req, {
+      'ok': true,
+      'applied': apply,
+      'count': ghosts.length,
+      'ids': ghosts,
+    });
+  }
+
   /// Stand observer: every trace one group id has left in the store
   /// (`?group=<hex>`).
   ///
