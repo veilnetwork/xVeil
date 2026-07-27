@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../common/shown_cause.dart';
 import '../../data/node/managed_node.dart';
 import '../../data/node/node_provisioner.dart';
 import '../../data/node/ssh_client.dart';
@@ -162,7 +163,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
       if (!mounted || request != _releaseRequest) return;
       setState(() {
         _releaseLoading = false;
-        _releaseLoadError = error.toString();
+        _releaseLoadError = shownCause(error, kind: 'provision');
       });
     }
   }

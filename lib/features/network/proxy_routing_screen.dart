@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../common/shown_cause.dart';
 import '../../data/node/proxy_routing.dart';
 import '../../data/vpn/vpn_backend.dart';
 import '../../data/vpn/vpn_application_catalog.dart';
@@ -509,7 +510,7 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
     } on Object catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.vpnApplicationLoadError(error.toString()))),
+        SnackBar(content: Text(l.vpnApplicationLoadError(shownCause(error)))),
       );
       return;
     }
@@ -673,7 +674,7 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
     } on Object catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.vpnApplicationLoadError(error.toString()))),
+        SnackBar(content: Text(l.vpnApplicationLoadError(shownCause(error)))),
       );
       return;
     }

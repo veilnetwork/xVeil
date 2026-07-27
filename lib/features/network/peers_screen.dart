@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../common/shown_cause.dart';
 import '../../data/transport/veil_transport.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
@@ -42,7 +43,7 @@ class PeersScreen extends ConsumerWidget {
       ),
       body: peersAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => _Empty(message: '$e'),
+        error: (e, _) => _Empty(message: shownCause(e, kind: 'peers')),
         data: (peers) {
           if (peers.isEmpty) {
             return _Empty(message: l.peersEmpty, hint: l.peersEmptyHint);

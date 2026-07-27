@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 
+import '../common/shown_cause.dart';
 import '../common/async_error_view.dart';
 import '../../core/ids.dart';
 import '../../data/transport/wire_envelope.dart' show isChatDeletedMarker;
@@ -437,7 +438,7 @@ Future<void> showAddContactSheet(BuildContext context, WidgetRef ref) async {
           ref.invalidate(peerNicknameProvider(ownerHex));
           if (context.mounted) context.push('/chat/$ownerHex');
         } catch (e) {
-          toast('$e');
+          toast(shownCause(e, kind: 'nickname'));
         }
       },
     ),

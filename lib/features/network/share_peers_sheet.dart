@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../common/shown_cause.dart';
 import '../../data/transport/bootstrap_invite.dart';
 import '../../data/transport/peers_invite.dart';
 import '../../l10n/app_localizations.dart';
@@ -54,7 +55,7 @@ class _SharePeersSheetState extends ConsumerState<SharePeersSheet> {
           padding: EdgeInsets.all(32),
           child: Center(child: CircularProgressIndicator()),
         ),
-        error: (e, _) => _empty(context, '$e'),
+        error: (e, _) => _empty(context, shownCause(e, kind: 'peers')),
         data: (seeds) {
           if (seeds.isEmpty) return _empty(context, l.peersShareNone);
           final selected = _selected ??= seeds.map((s) => s.nodeId.hex).toSet();
