@@ -22,14 +22,13 @@ void main() {
   });
 
   /// Raw settings-namespace write, bypassing putSetting's `set:` prefix —
-  /// models the other key families (legacy msgidx, file store, cursors).
+  /// models the other key families (file store, cursors).
   void seedRaw(String key, [String value = 'v']) {
     store.commit([PutOp(Ns.settings, _k(key), _k(value))]);
   }
 
   group('sweepSettingsGarbage', () {
-    test('drops legacy msgidx keys and saved records for dead content',
-        () async {
+    test('drops saved records for dead content', () async {
       // A live message referencing content 'cid-live'.
       await storage.appendMessage(
         Message(
@@ -43,8 +42,6 @@ void main() {
       );
       await storage.putSetting('saved:cid-live', '/tmp/live.bin');
       await storage.putSetting('saved:cid-dead', '/tmp/dead.bin');
-      seedRaw('msgidx:deadbeef-1');
-      seedRaw('msgidx:deadbeef-2');
       // Per-content serve-side bookkeeping: live cid stays, dead cid goes.
       seedRaw('file:mf:cid-live');
       seedRaw('file:mf:cid-dead');
@@ -59,12 +56,11 @@ void main() {
       final swept = await storage.sweepSettingsGarbage();
       expect(
         swept,
-        6,
-        reason: '2 msgidx + dead saved/served/mf/filepiece records',
+        4,
+        reason: 'dead saved/served/mf/filepiece records',
       );
 
       final keys = await storage.settingsKeys();
-      expect(keys, isNot(contains('msgidx:deadbeef-1')));
       expect(keys, isNot(contains('set:saved:cid-dead')));
       expect(keys, isNot(contains('set:served:cid-dead')));
       expect(keys, isNot(contains('file:mf:cid-dead')));
@@ -86,7 +82,6 @@ void main() {
       seedRaw('file:mf:cid-a');
       seedRaw('filepiece:cid-a:0', '17');
       seedRaw('file:record-1');
-      seedRaw('msgidx:dead-1');
       seedRaw('ondisk:cid-a'); // swept too since 78e7cab (forward secrecy:
       // no live reference -> drop the key row AND the ciphertext dir)
       seedRaw('conv_seq:aa:bb', '9');
@@ -95,7 +90,7 @@ void main() {
       await storage.putSetting('sync_floor:aa:bb', '3');
 
       final swept = await storage.sweepSettingsGarbage(wholesale: true);
-      expect(swept, 8);
+      expect(swept, 7);
 
       final keys = await storage.settingsKeys();
       expect(keys, isNot(contains('set:saved:cid-a')));
@@ -104,7 +99,6 @@ void main() {
       expect(keys, isNot(contains('file:mf:cid-a')));
       expect(keys, isNot(contains('filepiece:cid-a:0')));
       expect(keys, isNot(contains('file:record-1')));
-      expect(keys, isNot(contains('msgidx:dead-1')));
       expect(keys, isNot(contains('ondisk:cid-a')));
       expect(keys, contains('conv_seq:aa:bb'));
       expect(keys, contains('file_next_log'));
