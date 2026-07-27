@@ -237,7 +237,7 @@ Future<List<Override>> _bootstrapOverrides() async {
   final cli = Platform.environment['XVEIL_VEIL_CLI'];
   final config = Platform.environment['XVEIL_VEIL_CONFIG'];
   if (cli != null && cli.isNotEmpty && config != null && config.isNotEmpty) {
-    // Legacy dev path: boot from a pre-made config.toml at launch.
+    // Config-file dev path: boot from a pre-made config.toml at launch.
     try {
       if (ensureVeilClientLoaded()) {
         final sock = '${File(config).parent.path}/app.sock';
@@ -253,7 +253,7 @@ Future<List<Override>> _bootstrapOverrides() async {
         overrides.add(realStackProvider.overrideWith((ref) => stack));
         devLog(
           () =>
-              'xVeil[real:legacy]: connected, node=${stack.myInvite.nodeId.short}',
+              'xVeil[real:cfgfile]: connected, node=${stack.myInvite.nodeId.short}',
         );
       } else {
         devLog(() => 'xVeil[real]: veil dylib failed to load');
