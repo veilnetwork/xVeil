@@ -17953,7 +17953,30 @@ class GroupService {
   /// never broadcast as a member list: the peer receives only its own sealed
   /// record and only ciphertext epochs it can open. [recipient] may be omitted
   /// by legacy unit/debug callers; such snapshots contain no epoch material.
-  String snapshotJson(GroupBundle b, {NodeId? recipient, String? receipt}) {
+  /// A counter behind [_freshTransferTag], so two pushes of an UNCHANGED
+  /// bundle within the same millisecond still differ.
+  int _transferSeq = 0;
+
+  /// A value that has never been used for this bundle before.
+  ///
+  /// WHY A FULL-HISTORY PUSH NEEDS ONE: the durable frame id of a snapshot is
+  /// derived from the snapshot's own bytes (messaging_replication.dart, "key
+  /// the frame by CONTENT"), which is right for a re-drive — the same content
+  /// twice should collapse into one delivery. It is wrong for re-seeding a
+  /// peer that LOST what it had: the bundle has not changed, so the frames
+  /// carry exactly the ids the peer acknowledged in its previous life, the
+  /// delivery layer treats them as settled, and the snapshot can never land.
+  /// Measured live on a device whose store was erased: 204 chunks arrived and
+  /// reassembly never completed; one row appended to the source bundle changed
+  /// the content, and adoption then succeeded on the first attempt.
+  String _freshTransferTag() => '${_now()}-${_transferSeq++}';
+
+  String snapshotJson(
+    GroupBundle b, {
+    NodeId? recipient,
+    String? receipt,
+    String? transferTag,
+  }) {
     final encryptionEstablished = _encryptionEstablished(b.manifest, b.control);
     final lifecycleState = foldControlLog(
       owner: b.manifest.owner,
@@ -17987,6 +18010,9 @@ class GroupService {
       retireAtMs,
     );
     return jsonEncode({
+      // Carried only by a full-history push. Older builds ignore an unknown
+      // envelope key, so this is safe in both directions on the wire.
+      'tx': ?transferTag,
       'm': b.manifest.toJson(),
       'c': b.control
           .where(
@@ -19935,6 +19961,10 @@ class GroupService {
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
     var n = 0;
+    // One tag for the whole fan-out: every recipient of THIS push gets a
+    // transfer distinct from any earlier one, which is the point, while a
+    // single push still costs one identity rather than one per member.
+    final transferTag = _freshTransferTag();
     try {
       for (final m in state.members.values) {
         if (m.nodeId == _signer.selfId ||
@@ -19946,7 +19976,12 @@ class GroupService {
           await send(
             m.nodeId,
             groupId,
-            snapshotJson(b, recipient: m.nodeId, receipt: receipt),
+            snapshotJson(
+              b,
+              recipient: m.nodeId,
+              receipt: receipt,
+              transferTag: transferTag,
+            ),
           );
         } catch (_) {
           _cancelSpaceReceipt(receipt);
