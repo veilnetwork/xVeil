@@ -5315,4 +5315,44 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get spaceAbuseReportRemoved => 'Content removed';
+
+  @override
+  String get profileTitle => 'Profiles';
+
+  @override
+  String get profileSettingsHint =>
+      'Run a separate installation from its own container';
+
+  @override
+  String get profileExplainer =>
+      'A profile is a separate installation: its own container, its own password, its own identities. Nothing is shared between profiles. Use one to keep a test build away from your real data.';
+
+  @override
+  String get profileDefaultName => 'Default (production)';
+
+  @override
+  String get profileRunningNow => 'Running now';
+
+  @override
+  String get profileRestartRequired => 'Restart xVeil to switch profile';
+
+  @override
+  String get profileSwitchNote =>
+      'The chosen profile is remembered and applies on the next launch. On Linux and Windows you can also pass --profile <name>; everywhere else set XVEIL_PROFILE.';
+
+  @override
+  String get profileCreateTitle => 'New profile';
+
+  @override
+  String get profileNameHint => 'for example: testing';
+
+  @override
+  String get profileNameRule =>
+      'Lower-case letters, digits, dot, dash, underscore. Up to 32 characters.';
+
+  @override
+  String get profileRevealed => 'Profiles unlocked';
+
+  @override
+  String get commonCreate => 'Create';
 }
