@@ -38,9 +38,10 @@ Duration? _disableAutomaticProviderRetry(int retryCount, Object error) => null;
 /// bootstrap, before any provider reads it.
 String activeProfile = AppProfiles.defaultName;
 
-/// Command-line arguments as delivered by the embedder. Linux and Windows
-/// forward argv to the Dart entrypoint; the stock macOS Runner does not, which
-/// is why [AppProfiles.envVar] exists and is the documented way from a shell.
+/// Command-line arguments as delivered by the embedder — every desktop
+/// platform (macOS needs MainFlutterWindow to hand argv to the Dart project;
+/// Linux and Windows do it for free). Empty on mobile, where a launcher icon
+/// carries no flags and [AppProfiles.envVar] is the only lever.
 List<String> launchArguments = const [];
 
 Future<void> main([List<String> args = const []]) async {
