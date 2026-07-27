@@ -7677,6 +7677,33 @@ class GroupService {
     }
   }
 
+  /// Every id in the group index, with whether a bundle actually backs it and
+  /// whether a deletion tombstone explains its absence.
+  ///
+  /// Diagnostic: an indexed id with no bundle and no tombstone ("a ghost")
+  /// makes [sweepSharedContentGarbage] refuse to collect anything at all, and
+  /// nothing else can name one — the index is not otherwise observable from
+  /// outside. Read-only; it neither repairs nor prunes.
+  Future<List<({String hex, bool hasBundle, bool tombstoned})>>
+  indexedGroups() async {
+    final out = <({String hex, bool hasBundle, bool tombstoned})>[];
+    for (final hex in await _index()) {
+      NodeId groupId;
+      try {
+        groupId = NodeId.fromHex(hex);
+      } catch (_) {
+        out.add((hex: hex, hasBundle: false, tombstoned: false));
+        continue;
+      }
+      out.add((
+        hex: hex,
+        hasBundle: await _loadBundleRaw(groupId) != null,
+        tombstoned: await deletedSpaceTombstone(groupId) != null,
+      ));
+    }
+    return out;
+  }
+
   Future<void> _setIndex(List<String> ids) async {
     await _storage.storeFile(
       'groups.index',

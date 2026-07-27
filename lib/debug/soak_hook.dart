@@ -392,6 +392,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/device_revoke':
           await _deviceRevokeHook(req);
           return;
+        case '/group_index':
+          await _groupIndexHook(req);
+          return;
         case '/devices':
           await _devicesHook(req);
           return;
@@ -1813,6 +1816,35 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   }
 
   /// My device group's state: id + members + epoch (null id = not linked).
+  /// Stand observer: the group index with the one fact it cannot otherwise
+  /// show — whether a bundle actually backs each id.
+  ///
+  /// An indexed id with no bundle and no deletion tombstone stops
+  /// shared-content GC outright, and nothing else can name one.
+  Future<void> _groupIndexHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final rows = await svc.indexedGroups();
+    return _json(req, {
+      'ok': true,
+      'total': rows.length,
+      'ghosts': [
+        for (final row in rows)
+          if (!row.hasBundle && !row.tombstoned) row.hex,
+      ],
+      'groups': [
+        for (final row in rows)
+          {
+            'id': row.hex,
+            'short': row.hex.length >= 8 ? row.hex.substring(0, 8) : row.hex,
+            'bundle': row.hasBundle,
+            'tombstoned': row.tombstoned,
+          },
+      ],
+    });
+  }
+
   Future<void> _devicesHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final svc = _groupSvc();
