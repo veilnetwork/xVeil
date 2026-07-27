@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -1245,6 +1246,15 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                 onPressed: service == null ? null : _showUsage,
                 icon: const Icon(Icons.data_usage_outlined),
               ),
+              // Desktop only: a phone has no folder to mirror that another app
+              // can also write to, and the picker returns nothing there.
+              if (Platform.isMacOS || Platform.isLinux || Platform.isWindows)
+                IconButton(
+                  key: const ValueKey('cloud-folder-sync'),
+                  tooltip: l.folderSyncTitle,
+                  onPressed: () => context.push('/storage/folder-sync'),
+                  icon: const Icon(Icons.sync_outlined),
+                ),
               PopupMenuButton<_CloudSortMode>(
                 key: const ValueKey('cloud-sort'),
                 tooltip: l.cloudSort,
