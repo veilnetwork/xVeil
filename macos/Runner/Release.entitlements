@@ -8,6 +8,17 @@
 	     chooses. -->
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<!-- Calls capture audio and video. Without these the sandbox denies the
+	     devices outright, so a release build could never transmit: the mic
+	     yields silence and the camera never opens, while AVAuthorizationStatus
+	     still reports "authorized". The debug entitlements have carried them
+	     all along, so this was invisible on a dev machine. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<key>com.apple.security.device.microphone</key>
+	<true/>
+	<key>com.apple.security.device.camera</key>
+	<true/>
 	<!-- The embedded P2P node opens outbound circuits (client) and accepts
 	     inbound rendezvous/relay connections (server). Without BOTH, a sandboxed
 	     release build cannot do any network I/O and the node is dead on launch.
