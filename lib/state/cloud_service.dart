@@ -155,6 +155,12 @@ class CloudService {
   final Map<String, CloudItem> _items = {};
   final Map<String, List<CloudItem>> _noteHeads = {};
   final Map<String, CloudFolder> _folders = {};
+
+  /// Deleted rows still holding their bytes, keyed by item id. Local to this
+  /// device and bounded: the trash is an undo buffer, not a second index, and
+  /// an unbounded one would quietly become the reason the store never shrinks.
+  final Map<String, CloudTrashEntry> _trash = {};
+  static const _maxTrashEntries = 256;
   final Map<String, CloudReplicaClaim> _claims = {};
 
   /// Item id -> the revision this device last acknowledged, either by writing
@@ -290,6 +296,7 @@ class CloudService {
           _items.addAll(foldCloudItems(events));
           _noteHeads.addAll(foldCloudNoteHeads(events));
           _folders.addAll(foldCloudFolders(events));
+          _trash.addAll(foldCloudTrash(events));
         }
       } catch (_) {}
     }
@@ -404,6 +411,10 @@ class CloudService {
     jsonEncode([
       for (final item in _indexRows()) item.toEvent().toBody(),
       for (final folder in _folders.values) folder.toEvent().toBody(),
+      // Deliberately NOT from [_indexRows]: everything that iterator yields is
+      // republished to the device group by the reconcile backfill, and posting
+      // a trash row would resurrect the item everywhere.
+      for (final entry in _trash.values) entry.toEvent().toBody(),
     ]),
   );
 
@@ -1011,6 +1022,13 @@ class CloudService {
     return _lastTimestamp;
   }
 
+  /// Delete [itemId] into the trash.
+  ///
+  /// The tombstone is written exactly as before, so the row leaves every
+  /// listing, share and public link at once and every other device sees the
+  /// deletion immediately. Only the physical scrub is deferred: the bytes stay
+  /// reachable through the trash entry until [purgeItem] or [emptyTrash]
+  /// releases them, which is what makes [restoreItem] possible.
   Future<void> deleteItem(String itemId) async {
     await start();
     await _serialized(() async {
@@ -1022,13 +1040,106 @@ class CloudService {
       final tombstone = current.tombstone(_nextTimestamp());
       _items[itemId] = tombstone;
       _noteHeads.remove(itemId);
+      // Only rows that actually own bytes go to the trash. A row with no
+      // content id has nothing to preserve, and writing one would put a
+      // `cid: null` row into the materialized index -- which the storage
+      // content collector reads fail-closed, disabling the sweep outright.
+      if (current.contentId != null) {
+        _trash[itemId] = CloudTrashEntry(
+          item: current,
+          trashedAtMs: _nextTimestamp(),
+        );
+      }
+      final overflowing = await _trimTrash();
       await _saveIndex();
       _postItemBestEffort(tombstone);
+      // Losing note heads are scrubbed as before: only the version the user
+      // was looking at is what restore brings back, so the rest are not roots.
       for (final item in retired) {
-        await _dropContentIfUnreferenced(item);
+        if (item.contentId != current.contentId) {
+          await _dropContentIfUnreferenced(item);
+        }
+      }
+      for (final entry in overflowing) {
+        await _dropContentIfUnreferenced(entry.item);
       }
       _emit();
     });
+  }
+
+  /// Rows deleted on this device and not yet released, newest first.
+  Future<List<CloudTrashEntry>> trashedItems() async {
+    await start();
+    final entries = _trash.values.toList()
+      ..sort((left, right) => right.trashedAtMs.compareTo(left.trashedAtMs));
+    return List.unmodifiable(entries);
+  }
+
+  /// Undo the deletion of [itemId]; false when the trash no longer holds it.
+  Future<bool> restoreItem(String itemId) async {
+    await start();
+    return _serialized(() async {
+      final entry = _trash[itemId];
+      if (entry == null) return false;
+      final tombstone = _items[itemId];
+      final floor = tombstone == null
+          ? entry.item.revision
+          : (tombstone.revision > entry.item.revision
+                ? tombstone.revision
+                : entry.item.revision);
+      final restored = entry.item.restoredAs(floor + 1, _nextTimestamp());
+      _items[itemId] = restored;
+      _trash.remove(itemId);
+      await _saveIndex();
+      _postItemBestEffort(restored);
+      _emit();
+      return true;
+    });
+  }
+
+  /// Release [itemId] from the trash for good, scrubbing bytes nothing else
+  /// references. False when the trash no longer holds it.
+  Future<bool> purgeItem(String itemId) async {
+    await start();
+    return _serialized(() async {
+      final entry = _trash.remove(itemId);
+      if (entry == null) return false;
+      // Save first: the entry is a reachability root, so the drop below can
+      // only free the bytes once the persisted index has stopped naming them.
+      await _saveIndex();
+      await _dropContentIfUnreferenced(entry.item);
+      _emit();
+      return true;
+    });
+  }
+
+  /// Release everything in the trash. Returns how many rows were released.
+  Future<int> emptyTrash() async {
+    await start();
+    return _serialized(() async {
+      if (_trash.isEmpty) return 0;
+      final released = _trash.values.toList();
+      _trash.clear();
+      await _saveIndex();
+      for (final entry in released) {
+        await _dropContentIfUnreferenced(entry.item);
+      }
+      _emit();
+      return released.length;
+    });
+  }
+
+  /// Oldest entries beyond [_maxTrashEntries], removed from the map and
+  /// returned so the caller can scrub them after the index has been saved.
+  Future<List<CloudTrashEntry>> _trimTrash() async {
+    if (_trash.length <= _maxTrashEntries) return const [];
+    final ordered = _trash.values.toList()
+      ..sort((left, right) => left.trashedAtMs.compareTo(right.trashedAtMs));
+    final overflow = ordered.take(_trash.length - _maxTrashEntries).toList();
+    for (final entry in overflow) {
+      _trash.remove(entry.item.id);
+    }
+    return overflow;
   }
 
   static const _maxLiveFolders = 512;
@@ -1477,6 +1588,11 @@ class CloudService {
     if (_items.values.any(
       (item) => !item.deleted && item.contentId == contentId,
     )) {
+      return true;
+    }
+    // A trashed row is a root too, or the bytes restore is supposed to bring
+    // back would be scrubbed by the very tombstone that put it in the trash.
+    if (_trash.values.any((entry) => entry.item.contentId == contentId)) {
       return true;
     }
     return _noteHeads.values

@@ -209,12 +209,104 @@ class CloudItem {
     );
   }
 
+  /// The same logical row brought back from the trash at [revision].
+  ///
+  /// The caller supplies the revision because a restore has to land ABOVE the
+  /// tombstone that retired it: [foldCloudItems] absorbs any live row whose
+  /// revision is below the highest tombstone for that id, so reusing the old
+  /// revision would make the restore vanish on the next merge.
+  CloudItem restoredAs(int revision, int atMs) => CloudItem(
+    id: id,
+    kind: kind,
+    name: name,
+    contentId: contentId,
+    size: size,
+    mime: mime,
+    createdAtMs: createdAtMs,
+    modifiedAtMs: atMs,
+    revision: revision,
+    deleted: false,
+    folderId: folderId,
+    thumbContentId: thumbContentId,
+    parentContentIds: parentContentIds,
+  );
+
   static bool _validId(String id) =>
       id.isNotEmpty && id.length <= 128 && _itemId.hasMatch(id);
 
   static final _itemId = RegExp(r'^[A-Za-z0-9_-]+$');
   static final _contentId = RegExp(r'^[0-9a-f]{64}$');
   static const _maxCloudBytes = 1 << 50; // current content tier: ~1 TiB
+}
+
+/// A row the user deleted, kept until the trash releases it.
+///
+/// Deletion still writes the ordinary tombstone, so the item leaves every
+/// listing, every share and every public link the instant it is deleted — a
+/// forgotten call site therefore hides too much rather than serving something
+/// the user believes is gone. What the trash adds is purely the right to undo:
+/// it holds the row as it was and keeps the bytes reachable so
+/// [CloudService.restoreItem] has something to bring back.
+///
+/// It lives in the same materialized index as the rows themselves, encoded as
+/// an ordinary `cloudEntry` under a `trash:`-prefixed key. That key is not a
+/// valid item id, so [CloudItem.fromEvent] refuses it and neither the item
+/// fold nor anything downstream mistakes it for a live row; the storage-layer
+/// content GC, which reads only the kind and the content id, sees a live row
+/// and keeps the bytes. Both halves fall out of the encoding, with no change
+/// to the fold and no change to the collector.
+///
+/// Local by construction: the entry is never posted to the device group, so
+/// undo belongs to the device that deleted. Other devices see the tombstone
+/// and nothing else, which is what they saw before the trash existed.
+class CloudTrashEntry {
+  const CloudTrashEntry({required this.item, required this.trashedAtMs});
+
+  /// The row exactly as it stood immediately before its tombstone.
+  final CloudItem item;
+  final int trashedAtMs;
+
+  static const keyPrefix = 'trash:';
+
+  DeviceSyncEvent toEvent() => DeviceSyncEvent(
+    kind: DeviceSyncKind.cloudEntry,
+    key: '$keyPrefix${item.id}',
+    tsMs: trashedAtMs,
+    payload: {...item.toEvent().payload, 'trash': trashedAtMs},
+  );
+
+  static CloudTrashEntry? fromEvent(DeviceSyncEvent event) {
+    if (event.kind != DeviceSyncKind.cloudEntry ||
+        !event.key.startsWith(keyPrefix)) {
+      return null;
+    }
+    final trashedAt = event.payload['trash'];
+    if (trashedAt is! int || trashedAt < 0) return null;
+    final item = CloudItem.fromEvent(
+      DeviceSyncEvent(
+        kind: DeviceSyncKind.cloudEntry,
+        key: event.key.substring(keyPrefix.length),
+        tsMs: event.tsMs,
+        payload: event.payload,
+      ),
+    );
+    if (item == null || item.deleted) return null;
+    return CloudTrashEntry(item: item, trashedAtMs: trashedAt);
+  }
+}
+
+/// Newest-wins fold of the trash rows in a materialized index.
+Map<String, CloudTrashEntry> foldCloudTrash(Iterable<DeviceSyncEvent> events) {
+  final winners = <String, CloudTrashEntry>{};
+  for (final event in events) {
+    final entry = CloudTrashEntry.fromEvent(event);
+    if (entry == null) continue;
+    final previous = winners[entry.item.id];
+    if (previous == null || entry.trashedAtMs >= previous.trashedAtMs) {
+      winners[entry.item.id] = entry;
+    }
+  }
+  return winners;
 }
 
 /// One flat personal-cloud folder. Folders are pure owner-side organization of

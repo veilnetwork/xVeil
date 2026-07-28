@@ -777,53 +777,60 @@ void main() {
   });
 
   group('replaceContent', () {
-    test('keeps the row and advances it, instead of minting a new item', () async {
-      // A folder mirror re-uploads on every edit. A fresh item each time would
-      // break the replica claims that say who holds the file, the version
-      // history, and any share link already handed out.
-      final storage = FakeHvContainer().storage();
-      await storage.open(password: 'pw', createIfMissing: true);
-      // A DISTINCT id per call. With a constant one a minted item is
-      // indistinguishable from the kept row, and the test proves nothing —
-      // verified by breaking it.
-      var minted = 0;
-      final service = CloudService(
-        storage,
-        _FakeSync(_id(1)),
-        contentReceived: const Stream.empty(),
-        now: () => DateTime.fromMillisecondsSinceEpoch(100),
-        newId: () => 'item-${minted++}',
-        integrityChecks: false,
-      );
-      final first = _bytes(64);
-      final item = await service.importContent(
-        name: 'doc.bin',
-        size: first.length,
-        readRange: _reader(first),
-      );
+    test(
+      'keeps the row and advances it, instead of minting a new item',
+      () async {
+        // A folder mirror re-uploads on every edit. A fresh item each time would
+        // break the replica claims that say who holds the file, the version
+        // history, and any share link already handed out.
+        final storage = FakeHvContainer().storage();
+        await storage.open(password: 'pw', createIfMissing: true);
+        // A DISTINCT id per call. With a constant one a minted item is
+        // indistinguishable from the kept row, and the test proves nothing —
+        // verified by breaking it.
+        var minted = 0;
+        final service = CloudService(
+          storage,
+          _FakeSync(_id(1)),
+          contentReceived: const Stream.empty(),
+          now: () => DateTime.fromMillisecondsSinceEpoch(100),
+          newId: () => 'item-${minted++}',
+          integrityChecks: false,
+        );
+        final first = _bytes(64);
+        final item = await service.importContent(
+          name: 'doc.bin',
+          size: first.length,
+          readRange: _reader(first),
+        );
 
-      final second = _bytes(128);
-      final updated = await service.replaceContent(
-        itemId: item.id,
-        size: second.length,
-        readRange: _reader(second),
-      );
+        final second = _bytes(128);
+        final updated = await service.replaceContent(
+          itemId: item.id,
+          size: second.length,
+          readRange: _reader(second),
+        );
 
-      expect(updated.id, item.id);
-      expect(updated.createdAtMs, item.createdAtMs, reason: 'the row survives');
-      expect(updated.revision, item.revision + 1);
-      expect(updated.size, second.length);
-      expect(updated.contentId, isNot(item.contentId));
-      expect((await service.listItems()).single.id, item.id);
-      expect(
-        await storage.hasFile(updated.contentId!),
-        isTrue,
-        reason: 'the new bytes must be readable, not just referenced',
-      );
+        expect(updated.id, item.id);
+        expect(
+          updated.createdAtMs,
+          item.createdAtMs,
+          reason: 'the row survives',
+        );
+        expect(updated.revision, item.revision + 1);
+        expect(updated.size, second.length);
+        expect(updated.contentId, isNot(item.contentId));
+        expect((await service.listItems()).single.id, item.id);
+        expect(
+          await storage.hasFile(updated.contentId!),
+          isTrue,
+          reason: 'the new bytes must be readable, not just referenced',
+        );
 
-      await service.close();
-      await storage.close();
-    });
+        await service.close();
+        await storage.close();
+      },
+    );
 
     test('refuses a note — its branches belong to saveTextNote', () async {
       final storage = FakeHvContainer().storage();
@@ -851,7 +858,58 @@ void main() {
       await storage.close();
     });
 
-    test('an unknown or deleted item is refused, not silently created', () async {
+    test(
+      'an unknown or deleted item is refused, not silently created',
+      () async {
+        final storage = FakeHvContainer().storage();
+        await storage.open(password: 'pw', createIfMissing: true);
+        final service = CloudService(
+          storage,
+          _FakeSync(_id(1)),
+          contentReceived: const Stream.empty(),
+          now: () => DateTime.fromMillisecondsSinceEpoch(100),
+          newId: () => 'gone',
+          integrityChecks: false,
+        );
+        final item = await service.importContent(
+          name: 'x.bin',
+          size: 8,
+          readRange: _reader(_bytes(8)),
+        );
+        await service.deleteItem(item.id);
+
+        await expectLater(
+          service.replaceContent(
+            itemId: item.id,
+            size: 1,
+            readRange: _reader(_bytes(1)),
+          ),
+          throwsA(isA<StateError>()),
+        );
+        await expectLater(
+          service.replaceContent(
+            itemId: 'never-existed',
+            size: 1,
+            readRange: _reader(_bytes(1)),
+          ),
+          throwsA(isA<StateError>()),
+        );
+
+        await service.close();
+        await storage.close();
+      },
+    );
+  });
+
+  test(
+    'an UNRECOGNISED cloud index row stops collection — fail-closed',
+    () async {
+      // Found by break-checking: turning the unknown-kind refusal into a skip
+      // failed nothing in the suite. The refusal is the reason this reader is
+      // safe at all — a row it cannot parse may carry a content id, and
+      // collecting without it deletes live content. The complementary case
+      // (folders, which carry none) has its own test below, and the two must
+      // not be confused: one is skipped ON PURPOSE, the other stops the pass.
       final storage = FakeHvContainer().storage();
       await storage.open(password: 'pw', createIfMissing: true);
       final service = CloudService(
@@ -859,91 +917,51 @@ void main() {
         _FakeSync(_id(1)),
         contentReceived: const Stream.empty(),
         now: () => DateTime.fromMillisecondsSinceEpoch(100),
-        newId: () => 'gone',
+        newId: () => 'gc-unknown',
         integrityChecks: false,
       );
-      final item = await service.importContent(
-        name: 'x.bin',
-        size: 8,
-        readRange: _reader(_bytes(8)),
+      final bytes = _bytes(64);
+      await service.importContent(
+        name: 'kept.bin',
+        size: bytes.length,
+        readRange: _reader(bytes),
       );
-      await service.deleteItem(item.id);
+      expect(
+        (await storage.sharedContentReferenceSnapshot()).complete,
+        isTrue,
+        reason: 'the fixture must be collectable BEFORE the unknown row',
+      );
 
-      await expectLater(
-        service.replaceContent(
-          itemId: item.id,
-          size: 1,
-          readRange: _reader(_bytes(1)),
-        ),
-        throwsA(isA<StateError>()),
+      // A row from a future build: valid envelope, kind this reader never saw.
+      // The index is double-buffered: the setting names the live slot ('a'/'b'),
+      // the rows live in cloud.index.v1.<slot>.
+      final slot = await storage.getSetting('cloud.index.v1.active');
+      expect(
+        slot,
+        anyOf('a', 'b'),
+        reason: 'the materialised index must exist',
       );
-      await expectLater(
-        service.replaceContent(
-          itemId: 'never-existed',
-          size: 1,
-          readRange: _reader(_bytes(1)),
-        ),
-        throwsA(isA<StateError>()),
+      final active = 'cloud.index.v1.$slot';
+      final raw = await storage.loadFile(active);
+      final rows = (jsonDecode(utf8.decode(raw!)) as List).toList()
+        ..add(
+          jsonEncode({'v': 1, 'k': 'cloudSomethingNew', 'key': 'x', 'p': {}}),
+        );
+      await storage.storeFile(
+        active,
+        Uint8List.fromList(utf8.encode(jsonEncode(rows))),
+      );
+
+      expect(
+        (await storage.sharedContentReferenceSnapshot()).complete,
+        isFalse,
+        reason: 'a row we cannot read may reference content we would delete',
       );
 
       await service.close();
       await storage.close();
-    });
-  });
-
-  test('an UNRECOGNISED cloud index row stops collection — fail-closed',
-      () async {
-    // Found by break-checking: turning the unknown-kind refusal into a skip
-    // failed nothing in the suite. The refusal is the reason this reader is
-    // safe at all — a row it cannot parse may carry a content id, and
-    // collecting without it deletes live content. The complementary case
-    // (folders, which carry none) has its own test below, and the two must
-    // not be confused: one is skipped ON PURPOSE, the other stops the pass.
-    final storage = FakeHvContainer().storage();
-    await storage.open(password: 'pw', createIfMissing: true);
-    final service = CloudService(
-      storage,
-      _FakeSync(_id(1)),
-      contentReceived: const Stream.empty(),
-      now: () => DateTime.fromMillisecondsSinceEpoch(100),
-      newId: () => 'gc-unknown',
-      integrityChecks: false,
-    );
-    final bytes = _bytes(64);
-    await service.importContent(
-      name: 'kept.bin',
-      size: bytes.length,
-      readRange: _reader(bytes),
-    );
-    expect(
-      (await storage.sharedContentReferenceSnapshot()).complete,
-      isTrue,
-      reason: 'the fixture must be collectable BEFORE the unknown row',
-    );
-
-    // A row from a future build: valid envelope, kind this reader never saw.
-    // The index is double-buffered: the setting names the live slot ('a'/'b'),
-    // the rows live in cloud.index.v1.<slot>.
-    final slot = await storage.getSetting('cloud.index.v1.active');
-    expect(slot, anyOf('a', 'b'), reason: 'the materialised index must exist');
-    final active = 'cloud.index.v1.$slot';
-    final raw = await storage.loadFile(active);
-    final rows = (jsonDecode(utf8.decode(raw!)) as List).toList()
-      ..add(jsonEncode({'v': 1, 'k': 'cloudSomethingNew', 'key': 'x', 'p': {}}));
-    await storage.storeFile(
-      active,
-      Uint8List.fromList(utf8.encode(jsonEncode(rows))),
-    );
-
-    expect(
-      (await storage.sharedContentReferenceSnapshot()).complete,
-      isFalse,
-      reason: 'a row we cannot read may reference content we would delete',
-    );
-
-    await service.close();
-    await storage.close();
-  });
+    },
+  );
 
   test('a folder in the cloud index does not disable content GC', () async {
     // The GC's index reader is fail-closed: a row it does not understand may
@@ -1122,6 +1140,13 @@ void main() {
       await storage.deleteMessage(peer.hex, 'share-post');
       expect(await storage.hasFile(cid), isTrue);
       expect(await storage.hasFile('mf:$cid'), isTrue);
+      expect(
+        (await storage.sharedContentReferenceSnapshot()).referencedContentIds,
+        contains(cid),
+        reason: 'the trash still holds the deleted row, so undo is possible',
+      );
+
+      expect(await service.emptyTrash(), 1);
       final reachability = await storage.sharedContentReferenceSnapshot();
       expect(reachability.complete, isTrue);
       expect(
@@ -1226,6 +1251,151 @@ void main() {
   );
 
   test(
+    'deleting moves the row to the trash and restore brings it back',
+    () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final sync = _FakeSync(_id(1));
+      var clock = 5000;
+      final service = CloudService(
+        storage,
+        sync,
+        contentReceived: const Stream.empty(),
+        now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+        newId: () => 'undo_me',
+      );
+      final bytes = _bytes(600);
+      final item = await service.importContent(
+        name: 'undo.bin',
+        size: bytes.length,
+        readRange: _reader(bytes),
+      );
+
+      await service.deleteItem(item.id);
+      expect(await service.listItems(), isEmpty);
+      final trashed = await service.trashedItems();
+      expect(trashed.single.item.id, item.id);
+      expect(trashed.single.item.name, 'undo.bin');
+
+      // The trash is this device's undo buffer: the tombstone replicates, the
+      // trash row must not, or every other device would resurrect the item.
+      expect(
+        sync.rows.any(
+          (row) => row.event.key.startsWith(CloudTrashEntry.keyPrefix),
+        ),
+        isFalse,
+        reason: 'a trash row must never reach the device group',
+      );
+
+      expect(await service.restoreItem(item.id), isTrue);
+      expect(await service.trashedItems(), isEmpty);
+      final restored = (await service.listItems()).single;
+      expect(restored.id, item.id);
+      expect(restored.name, 'undo.bin');
+      expect(restored.contentId, item.contentId);
+      expect(
+        await service.readContentRange(restored, 0, bytes.length),
+        bytes,
+        reason: 'restore is worthless if the bytes went with the tombstone',
+      );
+      expect(await service.restoreItem(item.id), isFalse);
+
+      await service.close();
+      await storage.close();
+    },
+  );
+
+  test(
+    'a trashed row keeps this device claiming the copy it still holds',
+    () async {
+      // Reconcile retires claims about content no surviving revision references.
+      // A trashed row is such a reference -- the bytes are still here, which is
+      // the whole reason restore works -- so dropping its claim would make the
+      // device under-report its copies and the file look like it has none.
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final sync = _FakeSync(_id(1));
+      var clock = 9000;
+      CloudService open() => CloudService(
+        storage,
+        sync,
+        contentReceived: const Stream.empty(),
+        now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+        newId: () => 'claimed',
+      );
+
+      final first = open();
+      final bytes = _bytes(400);
+      final item = await first.importContent(
+        name: 'claimed.bin',
+        size: bytes.length,
+        readRange: _reader(bytes),
+      );
+      expect(first.replicaCount(item), 1);
+      await first.deleteItem(item.id);
+      await first.close();
+
+      final second = open();
+      await second.start();
+      expect(await second.restoreItem(item.id), isTrue);
+      final restored = (await second.listItems()).single;
+      expect(
+        second.replicaCount(restored),
+        1,
+        reason: 'the copy never left this device, so the claim must not either',
+      );
+      await second.close();
+      await storage.close();
+    },
+  );
+
+  test('a restored row outlives the tombstone that retired it', () async {
+    // foldCloudItems absorbs any live row whose revision sits below the
+    // highest tombstone for that id -- that guard is what stops a stale
+    // replica from resurrecting a deleted file. A restore therefore has to
+    // land ABOVE the tombstone; republished at its old revision it looks
+    // exactly like such a stale row and is swallowed on the next fold, so the
+    // file would come back in the UI and then quietly disappear again.
+    final container = FakeHvContainer();
+    final storage = container.storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sync = _FakeSync(_id(1));
+    var clock = 7000;
+    CloudService open() => CloudService(
+      storage,
+      sync,
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () => 'survivor',
+    );
+
+    final first = open();
+    final bytes = _bytes(300);
+    final item = await first.importContent(
+      name: 'survivor.bin',
+      size: bytes.length,
+      readRange: _reader(bytes),
+    );
+    await first.deleteItem(item.id);
+    expect(await first.restoreItem(item.id), isTrue);
+    await first.close();
+
+    final second = open();
+    await second.start();
+    final rows = await second.listItems();
+    expect(
+      rows.map((row) => row.id),
+      [item.id],
+      reason: 'the fold must not absorb the restore as a stale resurrection',
+    );
+    expect(rows.single.contentId, item.contentId);
+    await second.close();
+    await storage.close();
+  });
+
+  test(
     'tombstone converges and is retained in deniable materialized index',
     () async {
       final storage = FakeHvContainer().storage();
@@ -1248,6 +1418,12 @@ void main() {
       expect(await service.listItems(), isEmpty);
       expect(await storage.hasFile(item.contentId!), isTrue);
       expect(await storage.hasFile('mf:${item.contentId}'), isTrue);
+      expect(
+        (await storage.sharedContentReferenceSnapshot()).referencedContentIds,
+        contains(item.contentId),
+        reason: 'the trash keeps the bytes reachable until it is released',
+      );
+      expect(await service.purgeItem(item.id), isTrue);
       expect(
         (await storage.sharedContentReferenceSnapshot()).referencedContentIds,
         isNot(contains(item.contentId)),
@@ -1306,6 +1482,7 @@ void main() {
     );
     await service.deleteItem(second.id);
     expect(await storage.hasFile(first.contentId!), isTrue);
+    expect(await service.emptyTrash(), 2);
     expect(
       (await storage.sharedContentReferenceSnapshot()).referencedContentIds,
       isNot(contains(first.contentId)),
