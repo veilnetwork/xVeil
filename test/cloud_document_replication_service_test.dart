@@ -2040,6 +2040,15 @@ void main() {
         entry.id,
       );
       expect(fetched, isNotNull);
+      // The return endpoint the chunks come back to must offer a SECOND
+      // introduction point. With one, a chunk big enough to fragment can only
+      // survive its relay by paying redundancy for every fragment, which is
+      // what keeps the chunk small; with two, the host round-robins instead.
+      expect(
+        net.hostedExtraSlots.last,
+        1,
+        reason: 'the member-fetch return endpoint asks for a second relay',
+      );
       expect(editorFiles.files[manifest.contentId], bytes);
       expect(editorFiles.files.containsKey('mf:${manifest.contentId}'), isTrue);
       // 1500 bytes over a 1 KiB piece size is two pieces, and each reached
@@ -2303,6 +2312,7 @@ class _MemberNet implements CloudCapabilityNetworkPort {
   /// derive the same seed and alias, so this is the only field that tells two
   /// of them apart on the wire.
   final hostedSlots = <int>[];
+  final hostedExtraSlots = <int>[];
 
   static Uint8List _appIdFor(String alias) =>
       Uint8List.fromList(sha256.convert(utf8.encode('cap-app:$alias')).bytes);
@@ -2314,8 +2324,10 @@ class _MemberNet implements CloudCapabilityNetworkPort {
     required int endpointId,
     required int providerSlot,
     bool transient = false,
+    int extraProviderSlots = 0,
   }) async {
     hostedSlots.add(providerSlot);
+    hostedExtraSlots.add(extraProviderSlots);
     final seed = Uint8List.fromList(identitySeed);
     identitySeed.fillRange(0, identitySeed.length, 0);
     final serviceKey = await CloudCapabilityCodec.onionServicePublicKeyFromSeed(
@@ -2393,6 +2405,7 @@ class _MemberNetDevice implements CloudCapabilityNetworkPort {
     required int endpointId,
     required int providerSlot,
     bool transient = false,
+    int extraProviderSlots = 0,
   }) async {
     if (!bound.add(endpointId)) {
       throw StateError('bind failed: endpoint $endpointId is already bound');
@@ -2403,6 +2416,7 @@ class _MemberNetDevice implements CloudCapabilityNetworkPort {
       endpointId: endpointId,
       providerSlot: providerSlot,
       transient: transient,
+      extraProviderSlots: extraProviderSlots,
     );
     return _UnbindingEndpoint(endpoint, () => bound.remove(endpointId));
   }

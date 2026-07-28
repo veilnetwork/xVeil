@@ -93,6 +93,7 @@ class _Network implements CloudCapabilityNetworkPort {
     required int endpointId,
     required int providerSlot,
     bool transient = false,
+    int extraProviderSlots = 0,
   }) async {
     final serviceKey = Uint8List.fromList(
       crypto.sha256.convert(identitySeed).bytes,

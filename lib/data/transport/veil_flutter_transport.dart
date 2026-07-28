@@ -367,11 +367,27 @@ class VeilFlutterTransport
   /// One public download gets a short-lived IPC client. Closing that client
   /// releases its return endpoint server-side; AppHandle.close alone does not
   /// APP_UNBIND, so a shared client would eventually exhaust endpoint ids.
+  /// Mirrors `MAX_PROVIDER_SLOTS` in veil-anonymity: the native side refuses a
+  /// slot at or above it, so stop before asking.
+  static const kMaxProviderSlots = 8;
+
+  /// [extraProviderSlots] registers the SAME service identity into that many
+  /// further provider slots, each of which builds its own circuit to its own
+  /// rendezvous relay. A sender then has several introduction points to this
+  /// one node and can round-robin a FRAGMENTED reply across them instead of
+  /// funnelling redundant copies of every fragment through one relay — which
+  /// is what caps bulk download throughput, since reassembly is
+  /// all-or-nothing.
+  ///
+  /// Each extra slot costs a circuit build, so it is worth asking for only
+  /// where the reply is large. Best-effort: a slot that fails to register is
+  /// skipped, since the first one already makes the endpoint reachable.
   Future<VeilCapabilityEndpoint> hostTransientCapabilityEndpoint({
     required Uint8List identitySeed,
     required String name,
     required int endpointId,
     int providerSlot = 0,
+    int extraProviderSlots = 0,
   }) async {
     final client = await VeilClient.connect(_socketPath);
     AppHandle? app;
@@ -385,6 +401,23 @@ class VeilFlutterTransport
         identitySeed,
         providerSlot: providerSlot,
       );
+      for (var i = 1; i <= extraProviderSlots; i++) {
+        final slot = providerSlot + i;
+        if (slot >= kMaxProviderSlots) break;
+        try {
+          await client.registerEphemeralOnionService(
+            identitySeed,
+            providerSlot: slot,
+          );
+        } catch (error) {
+          devLog(
+            () => 'xVeil[capability]: extra provider slot $slot not '
+                'registered ($error) — the endpoint stays reachable via the '
+                'slots that did',
+          );
+          break;
+        }
+      }
       return VeilCapabilityEndpoint._(
         client,
         app,
