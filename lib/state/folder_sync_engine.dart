@@ -151,6 +151,12 @@ class FolderSyncEngine {
         FolderSyncState(
           base: state.base,
           pendingConflicts: state.pendingConflicts,
+          // Carry the answers over, exactly as the rootMissing branch above
+          // does. `resolveConflict` has already moved the path OUT of
+          // pendingConflicts and INTO resolutions, so dropping this field left
+          // the path in neither: the user's answer was erased and the next
+          // pass asked again — the nagging this design explicitly rejects.
+          resolutions: state.resolutions,
           lastPassAtMs: _now(),
           lastRefusal: plan.refusedReason,
         ),
