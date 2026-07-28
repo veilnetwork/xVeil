@@ -120,27 +120,7 @@ jobs:
       # call. Comparing the export table against what Dart actually references
       # is the check that turns that into a build failure.
       - name: Every symbol Dart looks up is exported
-        run: |
-          set -euo pipefail
-          so=third_party/veil/flutter/veil_media/linux/libveil_media.so
-          nm -D --defined-only "$so" | awk '{print $NF}' | grep '^veil_media_' | sort -u > /tmp/exported.txt
-          # Quoted names only. Matching the bare identifier anywhere also
-          # catches the library name in `libveil_media_camera_stub.so`, and a
-          # gate that invents a missing symbol gets switched off by whoever
-          # hits it first.
-          grep -rhoE "'veil_media_[a-z0-9_]+'" lib third_party/veil/flutter/veil_media/lib \
-            | tr -d "'" | sort -u > /tmp/wanted.txt
-          # These two are undefined on purpose: libveilclient_ffi.so defines
-          # them and the loader resolves them from the sibling library.
-          printf 'veil_media_send_datagram\nveil_media_set_recv_callback\n' > /tmp/expected_undefined.txt
-          comm -13 /tmp/exported.txt /tmp/wanted.txt | comm -23 - /tmp/expected_undefined.txt > /tmp/missing.txt
-          echo "exported: $(wc -l < /tmp/exported.txt)   referenced by Dart: $(wc -l < /tmp/wanted.txt)"
-          if [ -s /tmp/missing.txt ]; then
-            echo "::error::the engine is missing symbols the app calls:"
-            cat /tmp/missing.txt
-            exit 1
-          fi
-          echo "OK: nothing the app calls is missing from the engine"
+        run: bash scripts/check-media-symbols.sh third_party/veil/flutter/veil_media/linux/libveil_media.so
 
       - uses: actions/upload-artifact@v4
         with:
