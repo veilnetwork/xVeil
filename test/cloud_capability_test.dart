@@ -185,6 +185,82 @@ void main() {
         random: _SequenceRandom(11),
       );
 
+  test('a malformed link fails as FormatException, never as a crash', () async {
+    // The link is a string the user PASTES, so every rejection on this path has
+    // to arrive as the declared FormatException rather than as some other
+    // throw escaping the decoder.
+    //
+    // What this pins, verified by breaking: nothing SINGLE among the length
+    // bounds. The minimum-length check and take()'s upper bound back each
+    // other up, and the sealed-length floor is covered downstream, so removing
+    // any ONE of them leaves the contract intact. That is defence in depth,
+    // not coverage — the value here is the contract across malformed shapes,
+    // and the clause this file does pin on its own is the exact-length one in
+    // the test below.
+    final link = await _link(manifest);
+    final prefix = link.substring(0, link.indexOf('#') + 1);
+    final raw = base64Url.decode(
+      base64Url.normalize(link.substring(prefix.length)),
+    );
+
+    Future<void> expectFormatException(List<int> mutated, String why) async {
+      await expectLater(
+        CloudCapabilityCodec.parseLink(
+          prefix +
+              base64Url.encode(Uint8List.fromList(mutated)).replaceAll('=', ''),
+        ),
+        throwsA(isA<FormatException>()),
+        reason: why,
+      );
+    }
+
+    await expectFormatException(raw.sublist(0, 8), 'shorter than the header');
+    // A sealed section too short to even hold its MAC. Crafted so the length
+    // field AGREES with the body, otherwise the exact-length check would
+    // reject it first and this shape would never be exercised.
+    const lengthFieldAt = 154; // magic..nonce, then the u32 length
+    final shortSeal = Uint8List.fromList([
+      ...raw.sublist(0, 158),
+      ...List.filled(8, 0),
+    ]);
+    shortSeal.buffer.asByteData().setUint32(lengthFieldAt, 8);
+    await expectFormatException(shortSeal, 'sealed section cannot hold a MAC');
+    await expectFormatException(
+      raw.sublist(0, raw.length - 8),
+      'the sealed manifest is cut short',
+    );
+    // A length field that promises more than the link carries.
+    final lying = Uint8List.fromList(raw);
+    lying[lying.length - 1] ^= 0xFF;
+    await expectFormatException(lying, 'the sealed bytes do not authenticate');
+  });
+
+  test('a link with trailing bytes is refused, not silently accepted', () async {
+    // The sealed length must account for the WHOLE body. Ignoring a tail makes
+    // the encoding non-canonical: the same capability then has unlimited
+    // representations, so anything comparing or deduplicating links by string
+    // is defeated by appending a byte.
+    final link = await _link(manifest);
+    final prefix = link.substring(0, link.indexOf('#') + 1);
+    final raw = base64Url.decode(
+      base64Url.normalize(link.substring(prefix.length)),
+    );
+    expect(
+      await CloudCapabilityCodec.parseLink(link),
+      isA<ParsedCloudFileLink>(),
+      reason: 'the untouched link must parse, or the test proves nothing',
+    );
+    await expectLater(
+      CloudCapabilityCodec.parseLink(
+        prefix +
+            base64Url
+                .encode(Uint8List.fromList([...raw, 0]))
+                .replaceAll('=', ''),
+      ),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
   test('folder link round-trips and legacy file parse fails closed', () async {
     final link = await folderLink(listingRevision: 4);
     final parsed = await CloudCapabilityCodec.parseLink(link);
