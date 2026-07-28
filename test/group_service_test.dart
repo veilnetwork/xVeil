@@ -6794,6 +6794,63 @@ void main() {
     },
   );
 
+  test('two join requests arriving at once do not lose one another', () async {
+    // Same shape as the invite store and worse in consequence: a lost join
+    // request means a person silently never gets admitted, with nothing on
+    // either side to show why.
+    final ownerStorage = FakeHvContainer().storage();
+    final bobStorage = FakeHvContainer().storage();
+    final carolStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'owner', createIfMissing: true);
+    await bobStorage.open(password: 'bob', createIfMissing: true);
+    await carolStorage.open(password: 'carol', createIfMissing: true);
+    final captured = <NodeId, String>{};
+    final ownerService = GroupService(
+      ownerStorage,
+      _FakeSigner(owner),
+      sendSpaceJoinDecision: (peer, requestId, json) async {},
+    );
+    final bobService = GroupService(
+      bobStorage,
+      _FakeSigner(bob),
+      // Capture instead of delivering, so both arrivals can be started
+      // together rather than one after the other.
+      sendSpaceJoinRequest: (peer, requestId, json) async =>
+          captured[bob] = json,
+    );
+    final carolService = GroupService(
+      carolStorage,
+      _FakeSigner(carol),
+      sendSpaceJoinRequest: (peer, requestId, json) async =>
+          captured[carol] = json,
+    );
+    addTearDown(ownerService.dispose);
+    addTearDown(bobService.dispose);
+    addTearDown(carolService.dispose);
+
+    final spaceId = await ownerService.createSpace(
+      'Concurrent arrivals',
+      visibility: SpaceVisibility.public,
+    );
+    final code = (await ownerService.createSpaceJoinCode(spaceId))!;
+    expect(await bobService.requestToJoinSpace(code), isTrue);
+    expect(await carolService.requestToJoinSpace(code), isTrue);
+    expect(captured.length, 2);
+
+    final results = await Future.wait([
+      ownerService.receiveSpaceJoinRequest(bob, captured[bob]!),
+      ownerService.receiveSpaceJoinRequest(carol, captured[carol]!),
+    ]);
+    expect(results, [isTrue, isTrue]);
+
+    final pending = await ownerService.pendingSpaceJoinRequests(spaceId);
+    expect(
+      pending.map((entry) => entry.request.requester).toSet(),
+      {bob, carol},
+      reason: 'a concurrent arrival must not erase the one before it',
+    );
+  });
+
   test(
     'blocking a requester invalidates a received public Space join request',
     () async {
