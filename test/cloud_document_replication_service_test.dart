@@ -343,6 +343,14 @@ void main() {
             .singleWhere((operation) => operation.author == editor)
             .recordHash,
       );
+      // The same frame, delivered by someone who is not in the current epoch,
+      // must be refused: membership decides WHO may push state at this replica,
+      // and nothing downstream re-checks the sender.
+      expect(
+        await receiver.ingest(_id(200), frame.encode()),
+        isFalse,
+        reason: 'a non-member must not be able to push a document frame',
+      );
       expect(await receiver.ingest(owner, frame.encode()), isTrue);
       var view = (await receiver.listDocuments()).single;
       expect(view.currentEpoch, 2);
@@ -1005,6 +1013,14 @@ void main() {
       );
       expect(await editorService.ingest(owner, delta.json), isTrue);
       sent.clear();
+      // Freezing the document is the owner's call. A quiescence proposal
+      // arriving from anyone else must be refused before it can stall edits.
+      expect(
+        await editorService.ingest(editor, proposal.json),
+        isFalse,
+        reason: 'only the document owner may propose quiescence',
+      );
+      expect(sent, isEmpty, reason: 'and it must not be acknowledged');
       expect(await editorService.ingest(owner, proposal.json), isTrue);
       final ack = sent.singleWhere(
         (entry) =>
@@ -1901,9 +1917,7 @@ void main() {
       final invite = CloudDocumentFrame.decode(sent.removeLast().json)!;
       expect(await editorService.ingest(owner, invite.encode()), isTrue);
       expect(await editorService.adopt(documentId), isTrue);
-      final entry = (await editorService.loadSharedFolder(
-        documentId,
-      ))!.single;
+      final entry = (await editorService.loadSharedFolder(documentId))!.single;
       expect(entry.manifest, isNotNull);
       expect(
         await editorService.isSharedFileLocal(manifest.contentId),
@@ -1931,17 +1945,13 @@ void main() {
       // assembling it, so a multi-GB one is bounded by disk rather than RAM.
       expect(manifest.pieceCount, 2);
       expect(editorFiles.piecesSeen[manifest.contentId], [0, 1]);
-      expect(
-        await editorService.isSharedFileLocal(manifest.contentId),
-        isTrue,
-      );
+      expect(await editorService.isSharedFileLocal(manifest.contentId), isTrue);
 
       // The editor now holds the whole folder → it becomes a provider (slot 1).
       await editorService.reconcileMemberHosting();
-      expect(
-        editorService.memberHostDiagnostics()[documentId]!.servable,
-        [manifest.contentId],
-      );
+      expect(editorService.memberHostDiagnostics()[documentId]!.servable, [
+        manifest.contentId,
+      ]);
 
       // A SECOND file the editor does not have makes its copy incomplete, and
       // an incomplete copy must stop serving. Every denial in the host is
@@ -1995,9 +2005,9 @@ void main() {
       expect(
         await ownerService.removeSharedFolderFile(
           documentId,
-          (await ownerService.loadSharedFolder(documentId))!
-              .firstWhere((f) => f.contentId == secondManifest.contentId)
-              .id,
+          (await ownerService.loadSharedFolder(
+            documentId,
+          ))!.firstWhere((f) => f.contentId == secondManifest.contentId).id,
         ),
         isNotNull,
       );
@@ -2036,10 +2046,9 @@ void main() {
         isNotNull,
       );
       await ownerService.reconcileMemberHosting();
-      expect(
-        ownerService.memberHostDiagnostics()[documentId]!.servable,
-        [manifest.contentId],
-      );
+      expect(ownerService.memberHostDiagnostics()[documentId]!.servable, [
+        manifest.contentId,
+      ]);
 
       // INSTANT REVOKE: the epoch rotates, the owner re-keys, and the
       // revoked editor — still holding only the old epoch key — can neither
@@ -2071,7 +2080,8 @@ void main() {
       expect(
         await editorService.ingest(owner, reInvite.encode()),
         isTrue,
-        reason: 'a stale bundle that no longer admits us must not block re-entry',
+        reason:
+            'a stale bundle that no longer admits us must not block re-entry',
       );
       expect(await editorService.adopt(documentId), isTrue);
       final regranted = (await editorService.loadSharedFolder(documentId))!;
@@ -2082,9 +2092,11 @@ void main() {
       // ...and the restored access is real: the file downloads again over the
       // member path, on the epoch the re-grant rotated to.
       await ownerService.reconcileMemberHosting();
-      expect(ownerService.memberHostDiagnostics()[documentId]?.servable, [
-        manifest.contentId,
-      ], reason: 'owner must be hosting again on the re-granted epoch');
+      expect(
+        ownerService.memberHostDiagnostics()[documentId]?.servable,
+        [manifest.contentId],
+        reason: 'owner must be hosting again on the re-granted epoch',
+      );
       expect(
         await editorService.downloadSharedFolderFile(
           documentId,
@@ -2112,10 +2124,9 @@ void main() {
         seed: 513,
       );
       await restarted.reconcileMemberHosting();
-      expect(
-        restarted.memberHostDiagnostics()[documentId]!.servable,
-        [manifest.contentId],
-      );
+      expect(restarted.memberHostDiagnostics()[documentId]!.servable, [
+        manifest.contentId,
+      ]);
       await restarted.close();
       await editorService.close();
     },
@@ -2191,9 +2202,8 @@ class _MemberNet implements CloudCapabilityNetworkPort {
   /// of them apart on the wire.
   final hostedSlots = <int>[];
 
-  static Uint8List _appIdFor(String alias) => Uint8List.fromList(
-    sha256.convert(utf8.encode('cap-app:$alias')).bytes,
-  );
+  static Uint8List _appIdFor(String alias) =>
+      Uint8List.fromList(sha256.convert(utf8.encode('cap-app:$alias')).bytes);
 
   @override
   Future<CloudCapabilityEndpointPort> host({
