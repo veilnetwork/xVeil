@@ -1280,6 +1280,13 @@
   "provisionRunning": "Provisioning… (mining the identity can take a while)",
   "provisionNeedUrl": "Enter an https release URL",
   "provisionInvalidConfig": "Check the required release, transport, port, and TLS fields",
+  "provisionAddedPeer": "Added the server to the peer list",
+  "provisionPeerFailed": "Could not add the server as a peer: {reason}",
+  "@provisionPeerFailed": {
+    "placeholders": { "reason": { "type": "String" } }
+  },
+  "provisionAddedProxy": "Added the oproxy exit to the proxy list",
+  "provisionProxyNeedsNodeId": "oproxy installed, but the server reported no node id \u2014 cannot add it to the proxy list",
   "provisionSavedNodeId": "Saved the node id reported by the server",
   "nodeSshConnect": "Connect over SSH",
   "sshDialogTitle": "SSH to {host}",
@@ -1363,6 +1370,26 @@
   "timeDaysAgo": "{n}d ago",
   "@timeDaysAgo": { "placeholders": { "n": { "type": "int" } } },
 
+  "peersAddAction": "Add peer",
+  "peersAddTitle": "Add a peer by link",
+  "peersAddHint": "Paste a veil:bootstrap link. A node produces its own with `veil-cli bootstrap invite`; a deployed server saves it here automatically.",
+  "peersAddFieldLabel": "Bootstrap link",
+  "peersAddPaste": "Paste",
+  "peersAddInvalid": "Not a bootstrap link: {reason}",
+  "@peersAddInvalid": {
+    "placeholders": { "reason": { "type": "String" } }
+  },
+  "peersAddNoTransport": "This link carries an identity but no address, so there is nothing to dial. Use it to add a contact instead.",
+  "peersAddNoNode": "The node is not running yet",
+  "peersAddDone": "Peer added",
+  "peersAddFailed": "Could not add the peer: {reason}",
+  "@peersAddFailed": {
+    "placeholders": { "reason": { "type": "String" } }
+  },
+  "peersAddResolved": "node {nodeId}… via {transport}",
+  "@peersAddResolved": {
+    "placeholders": { "nodeId": { "type": "String" }, "transport": { "type": "String" } }
+  },
   "peersShareAction": "Share entry nodes",
   "peersShareTitle": "Share entry nodes",
   "peersShareSubtitle": "Pick nodes to give a friend working entry points to the network — useful if the default seeds are blocked where they are. This shares ONLY these nodes, never your identity.",

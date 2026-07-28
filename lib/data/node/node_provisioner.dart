@@ -12,6 +12,102 @@ extension NodeComponentInfo on NodeComponent {
     NodeComponent.oproxyClient => 'oproxy-client',
     NodeComponent.oproxyServer => 'oproxy-server',
   };
+
+  static NodeComponent? fromBinaryName(String name) {
+    for (final c in NodeComponent.values) {
+      if (c.binaryName == name.trim()) return c;
+    }
+    return null;
+  }
+}
+
+/// The machine-readable tail of a provisioning run — the last thing the script
+/// prints, and the only channel through which a deployment tells the app what
+/// it produced.
+///
+/// This exists because a successful deployment used to end at a snackbar: the
+/// node was installed, running and reachable, and the app knew nothing about it
+/// beyond an id it could not dial. Everything that should follow from a
+/// deployment — the node joining the peer list, an oproxy exit joining the
+/// proxy catalog — needs these three facts.
+class ProvisionReport {
+  const ProvisionReport({
+    this.nodeId,
+    this.invite,
+    this.components = const <NodeComponent>{},
+  });
+
+  /// 64 hex chars, lowercased. Null when the node could not report one.
+  final String? nodeId;
+
+  /// The node's own bootstrap entry, already made routable where possible.
+  /// Null when the script could not produce one — an older veil-cli, or a node
+  /// with no listener.
+  final String? invite;
+
+  final Set<NodeComponent> components;
+
+  bool get isEmpty => nodeId == null && invite == null && components.isEmpty;
+}
+
+const _unroutableHosts = {'0.0.0.0', '::', '127.0.0.1', 'localhost', '::1'};
+
+/// Read what the deployment script reported.
+///
+/// [reachableHost] repairs the common case where the operator left the
+/// advertise host empty: `listen add` then binds `0.0.0.0` and the node's own
+/// invite carries `obfs4-tcp://0.0.0.0:5556`, which no peer can dial. The
+/// address we just reached the machine on over SSH demonstrably works, so it is
+/// substituted. A host the node advertised for itself is always left alone —
+/// an operator who set an nginx-fronted name meant it.
+ProvisionReport parseProvisionReport(String output, {String? reachableHost}) {
+  String? nodeId;
+  String? invite;
+  var components = <NodeComponent>{};
+
+  final id = RegExp(r'NODE_ID:\s*([0-9a-fA-F]{64})').firstMatch(output);
+  if (id != null) nodeId = id.group(1)!.toLowerCase();
+
+  final list = RegExp(r'COMPONENTS:\s*([a-z0-9,\-]+)').firstMatch(output);
+  if (list != null) {
+    components = list
+        .group(1)!
+        .split(',')
+        .map(NodeComponentInfo.fromBinaryName)
+        .whereType<NodeComponent>()
+        .toSet();
+  }
+
+  final uri = RegExp(
+    r'BOOTSTRAP_URI:\s*(veil:bootstrap\?\S+)',
+  ).firstMatch(output);
+  if (uri != null) {
+    invite = _withReachableHost(uri.group(1)!.trim(), reachableHost);
+  }
+  return ProvisionReport(
+    nodeId: nodeId,
+    invite: invite,
+    components: components,
+  );
+}
+
+/// Rewrite the `t=` transport of an invite when it names an address that only
+/// means something on the server itself.
+String _withReachableHost(String invite, String? reachableHost) {
+  final host = reachableHost?.trim();
+  if (host == null || host.isEmpty) return invite;
+  final marker = RegExp(r'(^|&)t=([^&]*)');
+  final m = marker.firstMatch(invite);
+  if (m == null) return invite;
+  final transport = Uri.decodeComponent(m.group(2)!);
+  final parsed = Uri.tryParse(transport);
+  if (parsed == null ||
+      !parsed.hasAuthority ||
+      !_unroutableHosts.contains(parsed.host.toLowerCase())) {
+    return invite;
+  }
+  final fixed = parsed.replace(host: host).toString();
+  return invite.replaceRange(m.start, m.end, '${m.group(1)}t=$fixed');
 }
 
 /// Listener presets exposed by the basic UI. Operators can still edit the full
@@ -687,6 +783,13 @@ sudo -u veil /usr/local/bin/veil-cli --config /var/lib/veil/node.toml config get
   sudo -u veil /usr/local/bin/veil-cli --config /var/lib/veil/node.toml node id 2>/dev/null || \\
   echo "(unavailable)"
 echo "COMPONENTS: ${components.map((c) => c.binaryName).join(',')}"
+# The node's own bootstrap entry. A node id alone cannot be dialled: reaching a
+# peer needs transport + public_key + nonce, which is exactly what this URI
+# carries. Without it the app had no way to turn a freshly deployed server into
+# a peer, so deployment succeeded and the node stayed invisible.
+echo -n "BOOTSTRAP_URI: "
+sudo -u veil /usr/local/bin/veil-cli --config /var/lib/veil/node.toml bootstrap invite 2>/dev/null \\
+  | head -1 || echo "(unavailable)"
 
 rm -f $cleanup /tmp/xveil-obfs4-psk.b64 /tmp/xveil-veil.service \\
   /tmp/xveil-ogate.service /tmp/xveil-oproxy-client.service \\

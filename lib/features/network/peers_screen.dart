@@ -7,6 +7,7 @@ import '../../data/transport/veil_transport.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/providers.dart';
+import 'add_peer_sheet.dart';
 import 'share_peers_sheet.dart';
 
 /// The peers detail screen, reached by tapping the peer count on the network
@@ -40,6 +41,19 @@ class PeersScreen extends ConsumerWidget {
             ),
           ),
         ],
+      ),
+      // A labelled button rather than another icon in the app bar: adding a
+      // peer by hand was the one thing this screen could not do, and an icon
+      // among icons is exactly how it stayed unfindable.
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => showModalBottomSheet<void>(
+          context: context,
+          showDragHandle: true,
+          isScrollControlled: true,
+          builder: (_) => const AddPeerSheet(),
+        ),
+        icon: const Icon(Icons.person_add_alt),
+        label: Text(l.peersAddAction),
       ),
       body: peersAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
