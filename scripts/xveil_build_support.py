@@ -105,6 +105,34 @@ def have(tool: str) -> bool:
     return shutil.which(tool) is not None
 
 
+def resolve(tool: str) -> str:
+    """The path to run `tool` by, which on Windows is not `tool`.
+
+    CreateProcess appends only `.exe`, so a bare `flutter` never finds
+    flutter.bat and dies as `[WinError 2] The system cannot find the file
+    specified` — while have() says the tool is present, because which() honours
+    PATHEXT. The check and the call have to agree, or the plan passes its own
+    prerequisites and then fails on the first step that uses one.
+
+    `bash` needs more than a path. Windows ships C:\\Windows\\System32\\bash.exe
+    — the WSL launcher — and System32 usually comes first. With no distro
+    installed it prints "Windows Subsystem for Linux has no installed
+    distributions" and exits 1, so a build script appears to fail for reasons
+    of its own. Git for Windows carries the bash that is actually meant here,
+    next to git.exe.
+    """
+    if os.name != "nt":
+        return tool
+    found = shutil.which(tool)
+    if tool == "bash" and (found is None or "system32" in found.lower()):
+        git = shutil.which("git")
+        if git:
+            git_bash = os.path.join(os.path.dirname(os.path.dirname(git)), "bin", "bash.exe")
+            if os.path.exists(git_bash):
+                return git_bash
+    return found or tool
+
+
 def sh(script_path: str, *args: str) -> list[str]:
     """A POSIX shell script from the repo, plus its arguments, as an argv.
 
@@ -187,7 +215,8 @@ def run(steps: list[Step], *, dry_run: bool) -> None:
                 step.call()
                 continue
             env = {**os.environ, **step.env}
-            result = subprocess.run(step.argv, cwd=ROOT, env=env, check=False)
+            argv = [resolve(step.argv[0]), *step.argv[1:]]
+            result = subprocess.run(argv, cwd=ROOT, env=env, check=False)
             if result.returncode == 0:
                 continue
             raise RuntimeError(f"rc={result.returncode}")
