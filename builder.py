@@ -67,6 +67,41 @@ def _copy(source: str, destination_dir: str) -> None:
     print(f"    staged {os.path.basename(source)} -> {destination_dir}")
 
 
+def _path_remap_env() -> dict[str, str]:
+    """Keep the builder's absolute paths out of the shipped binaries.
+
+    rustc bakes the source path of every panic site into the library — for
+    dependencies that is `$HOME/.cargo/registry/...`, so a release APK carried
+    the builder's account name 186 times. Nothing reads those strings at
+    runtime; they exist for backtraces, and a remapped prefix serves that
+    purpose just as well while making the build reproducible across machines.
+
+    `CARGO_BUILD_RUSTFLAGS` rather than `RUSTFLAGS` so an operator who sets
+    RUSTFLAGS for their own reasons still wins. The .so is produced by each
+    plugin's gradle cargo-ndk task during `flutter build`, several processes
+    below this one, which is why this is an environment variable and not a
+    command-line flag.
+    """
+    home = os.path.expanduser("~")
+    # Longest prefix first: cargo lives under home, and rustc applies the
+    # mappings in order.
+    remaps = [
+        f"--remap-path-prefix={os.path.join(home, '.cargo')}=/cargo",
+        f"--remap-path-prefix={ROOT}=/xveil",
+        f"--remap-path-prefix={home}=/build",
+    ]
+    existing = os.environ.get("CARGO_BUILD_RUSTFLAGS", "").strip()
+    # `--remap-path-prefix` is a rustc flag and stops there. Crates that
+    # compile C through cc-rs (aws-lc-sys is the big one) embed their own
+    # __FILE__ strings, so the C and C++ compilers need the equivalent or the
+    # account name simply moves from the Rust frames to the C ones.
+    cmap = f"-ffile-prefix-map={home}=/build"
+    env = {"CARGO_BUILD_RUSTFLAGS": " ".join(filter(None, [existing, *remaps]))}
+    for var in ("CFLAGS", "CXXFLAGS"):
+        env[var] = " ".join(filter(None, [os.environ.get(var, "").strip(), cmap]))
+    return env
+
+
 def _pubspec_version() -> str:
     """The version the error report will name.
 
@@ -146,11 +181,18 @@ def _android(release: bool) -> list[Step]:
                     "flutter", "build", "apk", "--release", "--split-per-abi",
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
                 ],
+                env=_path_remap_env(),
             )
         )
         steps.append(Step("signing check", call=_check_android_signing))
     else:
-        steps.append(Step("debug APK", argv=["flutter", "build", "apk", "--debug"]))
+        steps.append(
+            Step(
+                "debug APK",
+                argv=["flutter", "build", "apk", "--debug"],
+                env=_path_remap_env(),
+            )
+        )
     return steps
 
 
