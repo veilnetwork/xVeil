@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:convert';
 import 'dart:io';
@@ -160,8 +161,12 @@ void main() {
                 id == 'f1' ? Uint8List.fromList(const [1, 2, 3, 4]) : null,
       saveCloudNote: !cloudAvailable
           ? null
-          : ({String? id, required String title, required String body,
-              String? folderId}) async {
+          : ({
+              String? id,
+              required String title,
+              required String body,
+              String? folderId,
+            }) async {
               if (title == 'stale') {
                 return (item: null, error: 'the note changed elsewhere');
               }
@@ -180,7 +185,8 @@ void main() {
             },
       accountInvite: !accountAvailable
           ? null
-          : () async => inviteAvailable ? 'veil:bootstrap?pk=AAA&a=ed25519' : null,
+          : () async =>
+                inviteAvailable ? 'veil:bootstrap?pk=AAA&a=ed25519' : null,
       account: !accountAvailable
           ? null
           : () async => {
@@ -191,9 +197,7 @@ void main() {
               'activeIdentity': activeIdentity,
               'identities': const ['personal', 'work'],
             },
-      lockAccount: !accountAvailable
-          ? null
-          : () async => accountLocked = true,
+      lockAccount: !accountAvailable ? null : () async => accountLocked = true,
       switchIdentity: !accountAvailable
           ? null
           : (label) async {
@@ -1072,97 +1076,103 @@ void main() {
     );
   });
 
-  test('the cloud surface lists, downloads, writes notes and deletes', () async {
-    final h = make();
+  test(
+    'the cloud surface lists, downloads, writes notes and deletes',
+    () async {
+      final h = make();
 
-    final items = await h.handle(
-      'GET',
-      Uri.parse('/v1/cloud/items'),
-      'Bearer secret-token',
-    );
-    expect(items.status, 200);
-    expect(((items.body! as Map)['items'] as List), hasLength(2));
+      final items = await h.handle(
+        'GET',
+        Uri.parse('/v1/cloud/items'),
+        'Bearer secret-token',
+      );
+      expect(items.status, 200);
+      expect(((items.body! as Map)['items'] as List), hasLength(2));
 
-    final folders = await h.handle(
-      'GET',
-      Uri.parse('/v1/cloud/folders'),
-      'Bearer secret-token',
-    );
-    expect(folders.status, 200);
-    expect(((folders.body! as Map)['folders'] as List).single['name'], 'Docs');
+      final folders = await h.handle(
+        'GET',
+        Uri.parse('/v1/cloud/folders'),
+        'Bearer secret-token',
+      );
+      expect(folders.status, 200);
+      expect(
+        ((folders.body! as Map)['folders'] as List).single['name'],
+        'Docs',
+      );
 
-    final usage = await h.handle(
-      'GET',
-      Uri.parse('/v1/cloud/usage'),
-      'Bearer secret-token',
-    );
-    expect(usage.status, 200);
-    expect((usage.body! as Map)['indexOnlyItems'], 1);
+      final usage = await h.handle(
+        'GET',
+        Uri.parse('/v1/cloud/usage'),
+        'Bearer secret-token',
+      );
+      expect(usage.status, 200);
+      expect((usage.body! as Map)['indexOnlyItems'], 1);
 
-    final file = await h.handle(
-      'GET',
-      Uri.parse('/v1/cloud/file?id=f1'),
-      'Bearer secret-token',
-    );
-    expect(file.status, 200);
-    expect(file.bytes, [1, 2, 3, 4]);
-    expect(file.contentType, 'application/octet-stream');
+      final file = await h.handle(
+        'GET',
+        Uri.parse('/v1/cloud/file?id=f1'),
+        'Bearer secret-token',
+      );
+      expect(file.status, 200);
+      expect(file.bytes, [1, 2, 3, 4]);
+      expect(file.contentType, 'application/octet-stream');
 
-    final missing = await h.handle(
-      'GET',
-      Uri.parse('/v1/cloud/file?id=nope'),
-      'Bearer secret-token',
-    );
-    expect(
-      missing.status,
-      404,
-      reason: 'an unknown id and unreachable content answer the same',
-    );
+      final missing = await h.handle(
+        'GET',
+        Uri.parse('/v1/cloud/file?id=nope'),
+        'Bearer secret-token',
+      );
+      expect(
+        missing.status,
+        404,
+        reason: 'an unknown id and unreachable content answer the same',
+      );
 
-    final noId = await h.handle(
-      'GET',
-      Uri.parse('/v1/cloud/file'),
-      'Bearer secret-token',
-    );
-    expect(noId.status, 400);
+      final noId = await h.handle(
+        'GET',
+        Uri.parse('/v1/cloud/file'),
+        'Bearer secret-token',
+      );
+      expect(noId.status, 400);
 
-    final note = await h.handle(
-      'POST',
-      Uri.parse('/v1/cloud/notes'),
-      'Bearer secret-token',
-      body: {'title': 'Shopping', 'body': 'milk'},
-    );
-    expect(note.status, 200);
-    expect((note.body! as Map)['name'], 'Shopping');
-    expect(cloudNotes.single['title'], 'Shopping');
+      final note = await h.handle(
+        'POST',
+        Uri.parse('/v1/cloud/notes'),
+        'Bearer secret-token',
+        body: {'title': 'Shopping', 'body': 'milk'},
+      );
+      expect(note.status, 200);
+      expect((note.body! as Map)['name'], 'Shopping');
+      expect(cloudNotes.single['title'], 'Shopping');
 
-    final stale = await h.handle(
-      'POST',
-      Uri.parse('/v1/cloud/notes'),
-      'Bearer secret-token',
-      body: {'id': 'n1', 'title': 'stale', 'body': 'x'},
-    );
-    expect(
-      stale.status,
-      409,
-      reason: 'a note that moved on elsewhere is a conflict, not a failure',
-    );
+      final stale = await h.handle(
+        'POST',
+        Uri.parse('/v1/cloud/notes'),
+        'Bearer secret-token',
+        body: {'id': 'n1', 'title': 'stale', 'body': 'x'},
+      );
+      expect(
+        stale.status,
+        409,
+        reason: 'a note that moved on elsewhere is a conflict, not a failure',
+      );
 
-    final deleted = await h.handle(
-      'DELETE',
-      Uri.parse('/v1/cloud/items?id=n1'),
-      'Bearer secret-token',
-    );
-    expect(deleted.status, 200);
-    expect(cloudDeletes, ['n1']);
+      final deleted = await h.handle(
+        'DELETE',
+        Uri.parse('/v1/cloud/items?id=n1'),
+        'Bearer secret-token',
+      );
+      expect(deleted.status, 200);
+      expect(cloudDeletes, ['n1']);
 
-    final ghost = await h.handle(
-      'DELETE',
-      Uri.parse('/v1/cloud/items?id=ghost'),
-      'Bearer secret-token',
-    );
-    expect(ghost.status, 400);
-  });
+      final ghost = await h.handle(
+        'DELETE',
+        Uri.parse('/v1/cloud/items?id=ghost'),
+        'Bearer secret-token',
+      );
+      expect(ghost.status, 400);
+    },
+  );
 
   test('a read-only token reads the cloud but cannot change it', () async {
     final h = make(readOnly: true);
@@ -1225,34 +1235,29 @@ void main() {
       reason: 'without this a bot can only ASK, never be added',
     );
 
-    final readOnly = await make(readOnly: true).handle(
-      'GET',
-      Uri.parse('/v1/account/invite'),
-      'Bearer secret-token',
-    );
+    final readOnly = await make(
+      readOnly: true,
+    ).handle('GET', Uri.parse('/v1/account/invite'), 'Bearer secret-token');
     expect(
       readOnly.status,
       200,
       reason: 'the invite is the public half; reading it changes nothing',
     );
 
-    final booting = await make(inviteAvailable: false).handle(
-      'GET',
-      Uri.parse('/v1/account/invite'),
-      'Bearer secret-token',
-    );
+    final booting = await make(
+      inviteAvailable: false,
+    ).handle('GET', Uri.parse('/v1/account/invite'), 'Bearer secret-token');
     expect(
       booting.status,
       503,
-      reason: 'a node still coming up has no invite yet — not the same as a '
+      reason:
+          'a node still coming up has no invite yet — not the same as a '
           'host that never serves one',
     );
 
-    final absent = await make(accountAvailable: false).handle(
-      'GET',
-      Uri.parse('/v1/account/invite'),
-      'Bearer secret-token',
-    );
+    final absent = await make(
+      accountAvailable: false,
+    ).handle('GET', Uri.parse('/v1/account/invite'), 'Bearer secret-token');
     expect(absent.status, 501);
   });
 
@@ -3175,6 +3180,42 @@ void main() {
       expect(RegExp(r'[0-9a-f]{64}').hasMatch(encoded), isFalse);
       expect(encoded, isNot(contains('nodeId')));
       expect(encoded, isNot(contains('spaceId')));
+    },
+  );
+
+  test(
+    'the event WebSocket refuses a bad token and streams to a good one',
+    () async {
+      // /v1/events upgrades BEFORE the normal header auth runs, so the query
+      // token is the only thing guarding it — and it streams incoming-message
+      // events, which is exactly what a local eavesdropper would want.
+      final events = StreamController<Map<String, dynamic>>.broadcast();
+      final server = ApiServer(make(), events.stream);
+      final port = await server.start(0);
+      addTearDown(() async {
+        await events.close();
+        await server.stop();
+      });
+      final base = 'ws://127.0.0.1:$port/v1/events';
+
+      for (final query in ['', '?token=', '?token=wrong-token']) {
+        await expectLater(
+          WebSocket.connect('$base$query'),
+          throwsA(isA<WebSocketException>()),
+          reason: 'no token, empty token and a wrong one are all refused',
+        );
+      }
+
+      // The right token still gets the feed, or the refusals above would hold
+      // for an endpoint that simply never streams.
+      final ws = await WebSocket.connect('$base?token=secret-token');
+      final first = ws.first;
+      events.add({'kind': 'message', 'id': 'e1'});
+      final decoded = jsonDecode(
+        await first.timeout(const Duration(seconds: 5)) as String,
+      );
+      expect((decoded as Map)['id'], 'e1');
+      await ws.close();
     },
   );
 
