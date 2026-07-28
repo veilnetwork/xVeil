@@ -54,6 +54,7 @@ def _whisper_script(target: str) -> str | None:
         "android": "build_veil_whisper_android.sh",
         "linux": "build_veil_whisper_linux.sh",
         "macos": "build_veil_whisper_macos.sh",
+        "windows": "build_veil_whisper_windows.sh",
     }.get(target)
     if not name:
         return None
@@ -296,6 +297,8 @@ def _windows(release: bool) -> list[Step]:
                 "-p", "hidden-volume-ffi"]
     cargo_veil = ["cargo", "build", "--manifest-path", os.path.join(VEIL, "Cargo.toml"),
                   "-p", "veilclient-ffi", "--features", "node-embedded,production-seeds"]
+    whisper_win = _whisper_script("windows")
+    whisper_dll = os.path.join(ROOT, "native", "whisper", "windows", "veil_whisper.dll")
     if profile:
         cargo_hv.append(profile)
         cargo_veil.append(profile)
@@ -308,6 +311,20 @@ def _windows(release: bool) -> list[Step]:
             call=lambda: _copy(hv_dll, hv_stage),
         ),
         Step("veil client FFI", argv=cargo_veil),
+        # Optional like every other platform's: without it the app still
+        # builds and runs, and `WhisperFfi.nativeReady()` reports transcription
+        # as unavailable rather than offering a 57 MiB model download that
+        # could not help.
+        Step(
+            "whisper wrapper (transcription)",
+            argv=["bash", whisper_win] if whisper_win and have("bash") else [],
+            optional=True,
+            skip_if=(
+                ""
+                if whisper_win and have("bash")
+                else "no build script for this host"
+            ),
+        ),
         Step(
             "flutter bundle",
             argv=["flutter", "build", "windows", "--release" if release else "--debug"],
@@ -316,6 +333,12 @@ def _windows(release: bool) -> list[Step]:
         Step(
             f"stage veilclient_ffi.dll -> {runner}",
             call=lambda: _copy(veil_dll, runner),
+        ),
+        Step(
+            f"stage veil_whisper.dll -> {runner}",
+            call=lambda: _copy(whisper_dll, runner),
+            optional=True,
+            skip_if="" if os.path.isfile(whisper_dll) else "whisper not built",
         ),
         Step(
             "reminder: what must travel with xveil.exe",
