@@ -1201,6 +1201,93 @@ void main() {
     expect(find.text('No accepted contacts to share with'), findsOneWidget);
   });
 
+  testWidgets('deleting a file offers it back from the trash', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    var clock = 21000;
+    final service = CloudService(
+      storage,
+      _Sync(),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () => 'trash_ui',
+      integrityChecks: false,
+    );
+    addTearDown(() {
+      unawaited(service.close());
+      unawaited(storage.close());
+    });
+    final bytes = Uint8List.fromList(List.filled(16, 7));
+    await service.importContent(
+      name: 'oops.bin',
+      size: bytes.length,
+      readRange: (offset, length) async =>
+          Uint8List.sublistView(bytes, offset, offset + length),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [cloudServiceProvider.overrideWithValue(service)],
+        child: const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: CloudStorageScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+    expect(find.text('oops.bin'), findsNothing);
+    expect(await service.listItems(), isEmpty);
+
+    await tester.tap(find.byKey(const ValueKey('cloud-trash')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('cloud-trash-dialog')), findsOneWidget);
+    expect(find.text('oops.bin'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('cloud-trash-restore-trash_ui')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('cloud-trash-restore-trash_ui')),
+      findsNothing,
+      reason: 'a restored row must leave the trash it was restored from',
+    );
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+
+    // The point of the feature: the row the user deleted is back in the list,
+    // still pointing at its bytes.
+    expect(find.text('oops.bin'), findsOneWidget);
+    final restored = (await service.listItems()).single;
+    expect(restored.name, 'oops.bin');
+    expect(await service.readContentRange(restored, 0, bytes.length), bytes);
+
+    // And delete-forever really does empty it.
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cloud-trash')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cloud-trash-empty')));
+    await tester.pumpAndSettle();
+    expect(find.text('The trash is empty'), findsOneWidget);
+    expect(await service.trashedItems(), isEmpty);
+  });
+
   testWidgets('file rename flows through its context menu dialog', (
     tester,
   ) async {

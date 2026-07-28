@@ -2083,7 +2083,34 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get cloudDeleteBody =>
-      'Элемент исчезнет со всех связанных устройств. Это действие нельзя отменить.';
+      'Элемент исчезнет со всех связанных устройств. На этом устройстве он останется в корзине, пока вы её не очистите.';
+
+  @override
+  String get cloudTrash => 'Корзина';
+
+  @override
+  String get cloudTrashEmptyState => 'Корзина пуста';
+
+  @override
+  String get cloudTrashHint =>
+      'Удалённое остаётся на этом устройстве, пока корзина не очищена. На других устройствах этого уже нет.';
+
+  @override
+  String get cloudTrashRestore => 'Восстановить';
+
+  @override
+  String get cloudTrashDeleteForever => 'Удалить навсегда';
+
+  @override
+  String get cloudTrashEmptyAction => 'Очистить корзину';
+
+  @override
+  String cloudTrashRestored(String name) {
+    return 'Восстановлено: «$name»';
+  }
+
+  @override
+  String get cloudTrashEmptied => 'Корзина очищена';
 
   @override
   String get cloudSharedEmpty => 'В общей папке пока нет файлов';

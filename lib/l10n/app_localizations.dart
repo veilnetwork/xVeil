@@ -3657,8 +3657,56 @@ abstract class AppL10n {
   /// No description provided for @cloudDeleteBody.
   ///
   /// In en, this message translates to:
-  /// **'The item will disappear from every linked device. This cannot be undone.'**
+  /// **'The item will disappear from every linked device. This device keeps it in the trash until you empty it.'**
   String get cloudDeleteBody;
+
+  /// No description provided for @cloudTrash.
+  ///
+  /// In en, this message translates to:
+  /// **'Trash'**
+  String get cloudTrash;
+
+  /// No description provided for @cloudTrashEmptyState.
+  ///
+  /// In en, this message translates to:
+  /// **'The trash is empty'**
+  String get cloudTrashEmptyState;
+
+  /// No description provided for @cloudTrashHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Deleted items stay on this device until the trash is emptied. Other devices already see them as gone.'**
+  String get cloudTrashHint;
+
+  /// No description provided for @cloudTrashRestore.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore'**
+  String get cloudTrashRestore;
+
+  /// No description provided for @cloudTrashDeleteForever.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete forever'**
+  String get cloudTrashDeleteForever;
+
+  /// No description provided for @cloudTrashEmptyAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Empty trash'**
+  String get cloudTrashEmptyAction;
+
+  /// No description provided for @cloudTrashRestored.
+  ///
+  /// In en, this message translates to:
+  /// **'Restored “{name}”'**
+  String cloudTrashRestored(String name);
+
+  /// No description provided for @cloudTrashEmptied.
+  ///
+  /// In en, this message translates to:
+  /// **'Trash emptied'**
+  String get cloudTrashEmptied;
 
   /// No description provided for @cloudSharedEmpty.
   ///
