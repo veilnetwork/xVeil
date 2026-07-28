@@ -854,6 +854,105 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
   /// What the cloud costs. Everything shown is folded from state that already
   /// replicates, including the per-device rows — a replica claim carries its
   /// size — so opening this asks nothing of the network.
+  /// The undo buffer for deletions on this device.
+  ///
+  /// A dialog rather than a route: the trash is somewhere you go to take one
+  /// action and leave, and its whole content is a short list. The list is
+  /// rebuilt from the service after every action, so it never shows a row the
+  /// service has already released.
+  Future<void> _showTrash() async {
+    final service = ref.read(cloudServiceProvider);
+    if (service == null) return;
+    var entries = await service.trashedItems();
+    if (!mounted) return;
+    final l = AppL10n.of(context);
+    await showDialog<void>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          key: const ValueKey('cloud-trash-dialog'),
+          title: Text(l.cloudTrash),
+          content: SizedBox(
+            width: 420,
+            child: entries.isEmpty
+                ? Text(l.cloudTrashEmptyState)
+                : SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l.cloudTrashHint,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 8),
+                        for (final entry in entries)
+                          ListTile(
+                            key: ValueKey('cloud-trash-${entry.item.id}'),
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(entry.item.name),
+                            subtitle: Text(_formatBytes(entry.item.size)),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                TextButton(
+                                  key: ValueKey(
+                                    'cloud-trash-restore-${entry.item.id}',
+                                  ),
+                                  onPressed: () async {
+                                    final name = entry.item.name;
+                                    await service.restoreItem(entry.item.id);
+                                    entries = await service.trashedItems();
+                                    if (!context.mounted) return;
+                                    setDialogState(() {});
+                                    _notice(l.cloudTrashRestored(name));
+                                  },
+                                  child: Text(l.cloudTrashRestore),
+                                ),
+                                IconButton(
+                                  key: ValueKey(
+                                    'cloud-trash-purge-${entry.item.id}',
+                                  ),
+                                  tooltip: l.cloudTrashDeleteForever,
+                                  onPressed: () async {
+                                    await service.purgeItem(entry.item.id);
+                                    entries = await service.trashedItems();
+                                    if (!context.mounted) return;
+                                    setDialogState(() {});
+                                  },
+                                  icon: const Icon(Icons.delete_forever),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+          ),
+          actions: [
+            if (entries.isNotEmpty)
+              TextButton(
+                key: const ValueKey('cloud-trash-empty'),
+                onPressed: () async {
+                  await service.emptyTrash();
+                  entries = await service.trashedItems();
+                  if (!context.mounted) return;
+                  setDialogState(() {});
+                  _notice(l.cloudTrashEmptied);
+                },
+                child: Text(l.cloudTrashEmptyAction),
+              ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(l.actionDone),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _showUsage() async {
     final service = ref.read(cloudServiceProvider);
     if (service == null) return;
@@ -1245,6 +1344,12 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                 tooltip: l.cloudUsage,
                 onPressed: service == null ? null : _showUsage,
                 icon: const Icon(Icons.data_usage_outlined),
+              ),
+              IconButton(
+                key: const ValueKey('cloud-trash'),
+                tooltip: l.cloudTrash,
+                onPressed: service == null ? null : _showTrash,
+                icon: const Icon(Icons.delete_outline),
               ),
               // Desktop only: a phone has no folder to mirror that another app
               // can also write to, and the picker returns nothing there.
