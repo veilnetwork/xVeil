@@ -112,7 +112,11 @@ String _withReachableHost(String invite, String? reachableHost) {
 
 /// Listener presets exposed by the basic UI. Operators can still edit the full
 /// node TOML in Advanced settings; these cover the common public-server cases.
-enum NodeListenTransport { obfs4Tcp, tcp, tls, quic, wss }
+/// veil also implements `webtunnel-wss`, which is deliberately absent: it
+/// refuses to start without `webtunnel_secret_path`, a shared secret file that
+/// this script does not deploy, so offering it here would produce a node that
+/// fails at startup for a reason the operator never saw.
+enum NodeListenTransport { obfs4Tcp, tcp, tls, quic, ws, wss }
 
 enum NodeTlsCertificateMode { existingFiles, automatic, selfSigned }
 
@@ -122,6 +126,7 @@ extension NodeListenTransportInfo on NodeListenTransport {
     NodeListenTransport.tcp => 'tcp',
     NodeListenTransport.tls => 'tls',
     NodeListenTransport.quic => 'quic',
+    NodeListenTransport.ws => 'ws',
     NodeListenTransport.wss => 'wss',
   };
 
@@ -130,6 +135,7 @@ extension NodeListenTransportInfo on NodeListenTransport {
     NodeListenTransport.tcp => 9000,
     NodeListenTransport.tls => 9443,
     NodeListenTransport.quic => 4433,
+    NodeListenTransport.ws => 8080,
     NodeListenTransport.wss => 443,
   };
 

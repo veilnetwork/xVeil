@@ -2481,7 +2481,7 @@ abstract class AppL10n {
   /// No description provided for @spaceReplicationTitle.
   ///
   /// In en, this message translates to:
-  /// **'P2P availability'**
+  /// **'Copy redistribution'**
   String get spaceReplicationTitle;
 
   /// No description provided for @spaceReplicationNeighbors.
@@ -2493,7 +2493,7 @@ abstract class AppL10n {
   /// No description provided for @spaceReplicationHint.
   ///
   /// In en, this message translates to:
-  /// **'More distributors improve offline availability and recovery, but use more traffic on this device.'**
+  /// **'Copies are held by members allowed to distribute content. More of them means better availability and recovery, at the cost of traffic here.'**
   String get spaceReplicationHint;
 
   /// No description provided for @spaceYou.
@@ -7109,6 +7109,12 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'QUIC listener over UDP, protected by the shared TLS certificate below.'**
   String get provisionTransportQuicHint;
+
+  /// No description provided for @provisionTransportWsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Plain WebSocket. No certificate, so it survives an HTTP proxy but not an observer — put it behind a TLS front, or prefer wss.'**
+  String get provisionTransportWsHint;
 
   /// No description provided for @provisionTransportWssHint.
   ///

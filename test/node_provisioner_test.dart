@@ -430,4 +430,41 @@ COMPONENTS: veil-cli,ogate,oproxy-server
       expect(r.nodeId, isNotNull);
     });
   });
+  // The deploy UI offers what veil can actually listen on. `ws` was missing
+  // even though veil's websocket transport serves both ws:// and wss://;
+  // `webtunnel-wss` stays out on purpose, because it refuses to start without
+  // a shared secret file this script does not deploy.
+  group('listener transports', () {
+    test('every transport carries a scheme, a port, and a TLS answer', () {
+      for (final t in NodeListenTransport.values) {
+        expect(t.scheme, isNotEmpty, reason: '$t');
+        expect(t.defaultPort, greaterThan(0), reason: '$t');
+      }
+      expect(
+        NodeListenTransport.values.map((t) => t.scheme).toSet(),
+        {'obfs4-tcp', 'tcp', 'tls', 'quic', 'ws', 'wss'},
+      );
+    });
+
+    test('plain ws needs no certificate, wss does', () {
+      expect(NodeListenTransport.ws.needsTls, isFalse);
+      expect(NodeListenTransport.wss.needsTls, isTrue);
+    });
+
+    test('a ws deployment writes a ws:// listener', () {
+      const withWs = NodeProvisionConfig(
+        releaseUrl: 'https://example.com/veil-cli',
+        expectedSha256: sha,
+        obfs4PskB64: 'CWz2E4fUutnZTr2KLjv62z1AUMWDORl1odamTdDdGAI=',
+        listenPort: 5556,
+        transports: {NodeListenTransport.ws},
+        advertiseHost: 'node.example.org',
+      );
+      final script = buildProvisionScript(withWs);
+      expect(script, contains("listen add 'ws://0.0.0.0:8080'"));
+      expect(script, contains("--advertise 'ws://node.example.org:8080'"));
+      // No certificate flags: ws has nothing to present.
+      expect(script, isNot(contains('--tls-cert')));
+    });
+  });
 }

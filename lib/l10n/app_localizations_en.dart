@@ -1395,7 +1395,7 @@ class AppL10nEn extends AppL10n {
       'Transfer ownership to another member before leaving the community.';
 
   @override
-  String get spaceReplicationTitle => 'P2P availability';
+  String get spaceReplicationTitle => 'Copy redistribution';
 
   @override
   String spaceReplicationNeighbors(int count) {
@@ -1404,7 +1404,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get spaceReplicationHint =>
-      'More distributors improve offline availability and recovery, but use more traffic on this device.';
+      'Copies are held by members allowed to distribute content. More of them means better availability and recovery, at the cost of traffic here.';
 
   @override
   String get spaceYou => 'You';
@@ -3945,6 +3945,10 @@ class AppL10nEn extends AppL10n {
   @override
   String get provisionTransportQuicHint =>
       'QUIC listener over UDP, protected by the shared TLS certificate below.';
+
+  @override
+  String get provisionTransportWsHint =>
+      'Plain WebSocket. No certificate, so it survives an HTTP proxy but not an observer — put it behind a TLS front, or prefer wss.';
 
   @override
   String get provisionTransportWssHint =>
