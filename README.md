@@ -6,6 +6,14 @@ built on [veil](https://github.com/veilnetwork/veil) (the network) and
 
 Cross-platform Flutter: **Android · iOS · Windows · Linux · macOS**.
 
+**Getting the app:** builds for Android, Windows and Linux are on the
+[Releases page](https://github.com/veilnetwork/xVeil/releases);
+[`INSTALL.md`](INSTALL.md) says which file to take and what each platform will
+complain about. Nothing is published for macOS or iOS — both need an Apple
+Developer account before there is anything worth handing out — so there you
+build it yourself, from [`BUILDING.md`](BUILDING.md), which now starts from a
+clean machine.
+
 > Built for people in censored and authoritarian environments. Two rules drive
 > the design: the fewest possible actions for the user, and no central source of
 > data. See [`doc/SECURITY-NOTES.md`](doc/SECURITY-NOTES.md).
