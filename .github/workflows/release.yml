@@ -11,8 +11,19 @@ name: release
 #
 # macOS and iOS are absent on purpose: without an Apple signing identity
 # Gatekeeper refuses the result outright, so the build would produce something
-# nobody can run. Windows and Linux have no such gate — see the SmartScreen
-# note on the windows job.
+# nobody can run. Windows has no such gate — see the SmartScreen note there.
+#
+# Linux desktop is absent for a different reason, and a fixable one. The call
+# engine ships as a PREBUILT libveil_media.so — veil_media/linux/CMakeLists.txt
+# stops the build outright when it is missing — and producing it needs an
+# x86_64 host with a from-source WebRTC checkout (out/linux-x64/
+# compile_commands.json), which is hours of build and tens of GB: not something
+# a runner can do inside a job. The copy that exists out-of-band is from
+# 2026-07-16 and no longer matches the app: it exports 78 veil_media_* symbols
+# while the Dart layer now looks up 10 more (capture-device selection, screen
+# sharing, the RTP size cap). Bundling it would build cleanly and then fail at
+# dlsym the first time someone placed a call. Restore this job once a current
+# .so can be produced — the recipe is veil_media/linux/build_veil_media_so_linux.sh.
 on:
   push:
     tags:
@@ -181,60 +192,6 @@ jobs:
           path: build/app/outputs/flutter-apk/*-release.apk
           if-no-files-found: error
 
-  linux:
-    name: linux bundle
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      # From prepare.py's LINUX_PACKAGES: the GTK headers the desktop embedder
-      # links against, plus the C/C++ toolchain the Rust crates' build scripts
-      # shell out to.
-      - name: System packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config \
-            libgtk-3-dev liblzma-dev libstdc++-12-dev
-
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: whisper.cpp at the pinned commit
-        run: |
-          set -euo pipefail
-          git init whisper.cpp
-          cd whisper.cpp
-          git remote add origin "$WHISPER_REPO"
-          git fetch --depth 1 origin "$WHISPER_COMMIT"
-          git checkout FETCH_HEAD
-
-      - name: Build the bundle
-        env:
-          WHISPER_SRC: ${{ github.workspace }}/whisper.cpp
-          CARGO_BUILD_RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/src
-          CFLAGS: -ffile-prefix-map=${{ github.workspace }}=/src
-          CXXFLAGS: -ffile-prefix-map=${{ github.workspace }}=/src
-        run: python3 builder.py linux --release
-
-      # A Flutter desktop build is a directory; a Release asset is a file.
-      - name: Archive
-        run: |
-          set -euo pipefail
-          cd build/linux/x64/release
-          tar -czf "$GITHUB_WORKSPACE/xveil-linux-x64.tar.gz" bundle
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linux
-          path: xveil-linux-x64.tar.gz
-          if-no-files-found: error
-
   windows:
     name: windows bundle
     runs-on: windows-latest
@@ -269,12 +226,31 @@ jobs:
           git checkout FETCH_HEAD
 
       # `python3` is not the name on a Windows runner.
+      #
+      # The PATH dance is not optional. `shell: bash` here is Git Bash, and its
+      # launcher puts /usr/bin ahead of everything msvc-dev-cmd just set. Git
+      # ships a coreutils `link.exe` there — the hard-link utility — and rustc
+      # resolves its linker through PATH, so it called that one and the build
+      # died on `/usr/bin/link: extra operand ...rcgu.o`. cl.exe has no
+      # coreutils twin, so its directory is the reliable way back to the real
+      # toolchain. The check afterwards is the point: without it a PATH that
+      # silently failed to take effect looks identical until the same cryptic
+      # linker error shows up twenty minutes later.
       - name: Build the bundle
         shell: bash
         env:
           WHISPER_SRC: ${{ github.workspace }}/whisper.cpp
           CARGO_BUILD_RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/src
-        run: python builder.py windows --release
+        run: |
+          set -euo pipefail
+          msvc_bin="$(dirname "$(command -v cl.exe)")"
+          export PATH="$msvc_bin:$PATH"
+          if [ "$(dirname "$(command -v link.exe)")" != "$msvc_bin" ]; then
+            echo "::error::link.exe resolves to $(command -v link.exe), not the MSVC one in $msvc_bin"
+            exit 1
+          fi
+          echo "toolchain: $msvc_bin"
+          python builder.py windows --release
 
       - name: Archive
         shell: pwsh
@@ -298,7 +274,7 @@ jobs:
   # has no business living in a public repository.
   scan:
     name: scan artifacts
-    needs: [android, linux, windows]
+    needs: [android, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
