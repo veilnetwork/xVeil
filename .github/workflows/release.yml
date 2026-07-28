@@ -1,11 +1,18 @@
 name: release
 
-# A tag builds the APKs. Everything slow and everything that only re-proves
-# what the local gate already proved is opt-in: `run_checks` on a manual
-# dispatch. Building on a runner also keeps the builder's home directory out
-# of the binary — `libapp.so` carries the absolute path of the Flutter plugin
-# registrant, and there is no remap flag for it, so a laptop build always
-# names its owner. `/home/runner/work/...` does not.
+# A tag builds the artifacts. Everything slow and everything that only
+# re-proves what the local gate already proved is opt-in: `run_checks` on a
+# manual dispatch.
+#
+# Building on a runner also keeps the builder's home directory out of the
+# binaries. `libapp.so` carries the absolute path of the Flutter plugin
+# registrant and there is no remap flag for it, so a laptop build always names
+# its owner; `/home/runner/work/...` does not.
+#
+# macOS and iOS are absent on purpose: without an Apple signing identity
+# Gatekeeper refuses the result outright, so the build would produce something
+# nobody can run. Windows and Linux have no such gate — see the SmartScreen
+# note on the windows job.
 on:
   push:
     tags:
@@ -19,16 +26,15 @@ on:
         default: false
 
 permissions:
-  contents: write  # to attach the APKs to a draft Release
+  contents: write  # to attach the artifacts to a draft Release
 
 env:
   FLUTTER_VERSION: '3.44.0'
-  # Pinned rather than tracking master: this is a third-party checkout that
-  # ends up inside the shipped .so, and an unpinned dependency is a
-  # supply-chain decision made by whoever pushed last.
+  # Pinned rather than tracking master: this checkout ends up inside a shipped
+  # library, and an unpinned dependency is a supply-chain decision made by
+  # whoever pushed to it last.
   WHISPER_REPO: 'https://github.com/ggml-org/whisper.cpp.git'
   WHISPER_COMMIT: '7695a5331230c585f5ce92291c4256973985ae5a'
-  NDK_VERSION: '27.0.12077973'
 
 jobs:
   # Opt-in only. `analyze` and the 1985-test suite are the local pre-tag gate;
@@ -49,7 +55,7 @@ jobs:
       - run: flutter analyze
       - run: flutter test
 
-  build:
+  android:
     name: android APKs
     runs-on: ubuntu-latest
     steps:
@@ -98,8 +104,6 @@ jobs:
           echo "using NDK $p"
           echo "path=$p" >> "$GITHUB_OUTPUT"
 
-      # Not a submodule and not vendored, so the exact revision has to be
-      # named here. Its static libraries are linked into libveil_whisper.so.
       - name: whisper.cpp at the pinned commit
         run: |
           set -euo pipefail
@@ -111,8 +115,8 @@ jobs:
 
       # -ffile-prefix-map here and --remap-path-prefix below: rustc and the C
       # compiler each bake their own source paths into the binary, and neither
-      # flag covers the other. A release APK once carried the builder's
-      # account name 213 times because only one of the two was set.
+      # flag covers the other. A release APK once carried the builder's account
+      # name 213 times because only one of the two was set.
       - name: whisper static libs
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.path }}
@@ -171,11 +175,137 @@ jobs:
           WHISPER_SRC: ${{ github.workspace }}/whisper.cpp
         run: python3 builder.py android --release
 
-      # The repository scan skips binaries by design; this is the one that
-      # would have caught the account name inside the .so files. Patterns come
-      # from a secret because a list of what must never be published has no
-      # business living in a public repository.
-      - name: Scan the artifacts for leaked identifiers
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: build/app/outputs/flutter-apk/*-release.apk
+          if-no-files-found: error
+
+  linux:
+    name: linux bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # From prepare.py's LINUX_PACKAGES: the GTK headers the desktop embedder
+      # links against, plus the C/C++ toolchain the Rust crates' build scripts
+      # shell out to.
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: whisper.cpp at the pinned commit
+        run: |
+          set -euo pipefail
+          git init whisper.cpp
+          cd whisper.cpp
+          git remote add origin "$WHISPER_REPO"
+          git fetch --depth 1 origin "$WHISPER_COMMIT"
+          git checkout FETCH_HEAD
+
+      - name: Build the bundle
+        env:
+          WHISPER_SRC: ${{ github.workspace }}/whisper.cpp
+          CARGO_BUILD_RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/src
+          CFLAGS: -ffile-prefix-map=${{ github.workspace }}=/src
+          CXXFLAGS: -ffile-prefix-map=${{ github.workspace }}=/src
+        run: python3 builder.py linux --release
+
+      # A Flutter desktop build is a directory; a Release asset is a file.
+      - name: Archive
+        run: |
+          set -euo pipefail
+          cd build/linux/x64/release
+          tar -czf "$GITHUB_WORKSPACE/xveil-linux-x64.tar.gz" bundle
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: xveil-linux-x64.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: windows bundle
+    runs-on: windows-latest
+    # Unsigned, and it will stay that way until someone buys an Authenticode
+    # certificate: SmartScreen warns on first run ("Windows protected your PC"
+    # → More info → Run anyway). That is a worse first impression than Linux
+    # gets, but unlike macOS the app does run.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Puts cl.exe on PATH. The whisper wrapper is linked with MSVC and its
+      # .def export list only works from a Developer environment.
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: whisper.cpp at the pinned commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init whisper.cpp
+          cd whisper.cpp
+          git remote add origin "$WHISPER_REPO"
+          git fetch --depth 1 origin "$WHISPER_COMMIT"
+          git checkout FETCH_HEAD
+
+      # `python3` is not the name on a Windows runner.
+      - name: Build the bundle
+        shell: bash
+        env:
+          WHISPER_SRC: ${{ github.workspace }}/whisper.cpp
+          CARGO_BUILD_RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/src
+        run: python builder.py windows --release
+
+      - name: Archive
+        shell: pwsh
+        run: |
+          Compress-Archive -Path build/windows/x64/runner/Release/* `
+            -DestinationPath xveil-windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: xveil-windows-x64.zip
+          if-no-files-found: error
+
+  # One scan over everything that was built. Kept out of the build jobs so the
+  # rule lives in one place rather than three copies drifting apart, and so a
+  # leak fails the release rather than only the platform that produced it.
+  #
+  # The repository scan skips binaries by design; this is the check that would
+  # have caught the account name inside the .so files of a release APK.
+  # Patterns come from a secret because a list of what must never be published
+  # has no business living in a public repository.
+  scan:
+    name: scan artifacts
+    needs: [android, linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Scan for leaked identifiers
         env:
           PATTERNS: ${{ secrets.LEAK_PATTERNS }}
         run: |
@@ -188,49 +318,66 @@ jobs:
           lit=(); allow=()
           while IFS= read -r line; do
             case "$line" in
-              ''|'#'*) continue ;;
-              're:'*)  continue ;;
-              'allow:'*) entry="${line#allow:}"; entry="${entry%%#*}"
-                         # Trim with parameter expansion, not xargs: an allow
-                         # entry may legitimately contain a quote (the PEM
-                         # signature does), and xargs treats quotes as syntax.
-                         entry="${entry#"${entry%%[![:space:]]*}"}"
-                         entry="${entry%"${entry##*[![:space:]]}"}"
-                         allow+=("$entry") ;;
-              *)       lit+=(-e "$line") ;;
+              ''|'#'*|'re:'*) continue ;;
+              'allow:'*)
+                entry="${line#allow:}"; entry="${entry%%#*}"
+                # Trim with parameter expansion, not xargs: an allow entry may
+                # legitimately contain a quote (the PEM signature does), and
+                # xargs treats quotes as syntax.
+                entry="${entry#"${entry%%[![:space:]]*}"}"
+                entry="${entry%"${entry##*[![:space:]]}"}"
+                allow+=("$entry") ;;
+              *) lit+=(-e "$line") ;;
             esac
           done < "$RUNNER_TEMP/patterns.txt"
-          rc=0
-          for apk in build/app/outputs/flutter-apk/*-release.apk; do
-            echo "== $apk"
-            for entry in $(unzip -l "$apk" | awk 'NR>3 && NF>=4 {print $4}' | grep -v '^$'); do
-              ctx="$(unzip -p "$apk" "$entry" 2>/dev/null | strings -a | grep -aiF "${lit[@]}" | sort -u || true)"
-              for a in "${allow[@]}"; do
-                [ -n "$a" ] && ctx="$(grep -vF -- "$a" <<< "$ctx" || true)"
-              done
-              if [ -n "${ctx// }" ]; then
-                echo "::error file=$entry::leaked identifier in $entry: $(head -1 <<< "$ctx")"
-                rc=1
-              fi
+
+          # -a everywhere: without it grep silently skips binary content, which
+          # is exactly how 213 copies of an account name stayed invisible.
+          scan_stream() { # $1 = what to call it; content on stdin
+            local what="$1" ctx
+            ctx="$(strings -a | grep -aiF "${lit[@]}" | sort -u || true)"
+            for a in "${allow[@]}"; do
+              [ -n "$a" ] && ctx="$(grep -vF -- "$a" <<< "$ctx" || true)"
             done
-          done
+            if [ -n "${ctx// }" ]; then
+              echo "::error::leaked identifier in $what: $(head -1 <<< "$ctx")"
+              return 1
+            fi
+            return 0
+          }
+
+          rc=0
+          while IFS= read -r f; do
+            case "$f" in
+              *.apk|*.zip)
+                for entry in $(unzip -l "$f" | awk 'NR>3 && NF>=4 {print $4}' | grep -v '^$'); do
+                  unzip -p "$f" "$entry" 2>/dev/null | scan_stream "$f:$entry" || rc=1
+                done ;;
+              *.tar.gz)
+                for entry in $(tar -tzf "$f"); do
+                  case "$entry" in */) continue ;; esac
+                  tar -xzOf "$f" "$entry" 2>/dev/null | scan_stream "$f:$entry" || rc=1
+                done ;;
+              *) scan_stream "$f" < "$f" || rc=1 ;;
+            esac
+          done < <(find artifacts -type f)
           exit $rc
 
-      - name: Upload the APKs
-        uses: actions/upload-artifact@v4
+  # A DRAFT: publishing is a decision someone makes after looking at what was
+  # built, and none of this has run on a phone.
+  publish:
+    name: draft release
+    needs: scan
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
         with:
-          name: xveil-apks
-          path: build/app/outputs/flutter-apk/*-release.apk
-          if-no-files-found: error
-
-      # A DRAFT: publishing is a decision someone makes after looking at what
-      # was built, and this build has never run on a phone.
-      - name: Attach to a draft Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: xVeil ${{ github.ref_name }}
           draft: true
-          files: build/app/outputs/flutter-apk/*-release.apk
+          files: artifacts/**/*
           fail_on_unmatched_files: true
