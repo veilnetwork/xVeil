@@ -1346,6 +1346,108 @@ void main() {
   );
 
   test(
+    'an editor cannot pass off another editor quiescence ACK as its own',
+    () async {
+      // A quiescence round completes when EVERY required editor has confirmed
+      // it reached the frozen state; completion schedules compaction, which
+      // discards history. So an editor who fills its own slot with someone
+      // else's confirmation forces the owner to compact away history that this
+      // editor may still need. The ACK relayed below is genuine and correctly
+      // signed -- only the sender differs -- so the signature check cannot be
+      // what refuses it.
+      final owner = _id(1);
+      final editorA = _id(2);
+      final editorB = _id(3);
+      final envelopes = CloudDocumentEnvelopeService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      );
+      final ownerStore = await _openStore(FakeHvContainer());
+      final storeA = await _openStore(FakeHvContainer());
+      final storeB = await _openStore(FakeHvContainer());
+      final sent = <({NodeId peer, String documentId, String json})>[];
+      final ownerService = _service(
+        self: owner,
+        store: ownerStore,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(owner, 1),
+        random: Random(191),
+      );
+      final serviceA = _service(
+        self: editorA,
+        store: storeA,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(editorA, 2),
+        random: Random(192),
+      );
+      final serviceB = _service(
+        self: editorB,
+        store: storeB,
+        envelopes: envelopes,
+        sent: sent,
+        signer: _Signer(editorB, 3),
+        random: Random(193),
+      );
+
+      final id = (await ownerService.createDocument())!.documentId;
+      await ownerService.grant(id, editorA, CloudDocumentRole.editor);
+      await ownerService.grant(id, editorB, CloudDocumentRole.editor);
+      for (final entry in sent.where((entry) => entry.peer == editorA)) {
+        await serviceA.ingest(owner, entry.json);
+      }
+      for (final entry in sent.where((entry) => entry.peer == editorB)) {
+        await serviceB.ingest(owner, entry.json);
+      }
+      expect(await serviceA.adopt(id), isTrue);
+      expect(await serviceB.adopt(id), isTrue);
+
+      sent.clear();
+      expect(
+        await ownerService.requestQuiescence(id, ignoreThreshold: true),
+        isTrue,
+      );
+      expect(ownerService.quiescenceStatus(id)!.requiredEditors, {
+        editorA.hex,
+        editorB.hex,
+      });
+      final proposal = sent.firstWhere((entry) => entry.peer == editorA);
+      sent.clear();
+      expect(await serviceA.ingest(owner, proposal.json), isTrue);
+      final ackFromA = sent.singleWhere(
+        (entry) =>
+            CloudDocumentFrame.decode(entry.json)?.kind ==
+            CloudDocumentFrameKind.quiescenceAck,
+      );
+
+      expect(
+        await ownerService.ingest(editorB, ackFromA.json),
+        isFalse,
+        reason: 'an ACK counts only for the peer that actually sent it',
+      );
+      expect(
+        ownerService.quiescenceStatus(id)!.acknowledgedEditors,
+        isNot(contains(editorB.hex)),
+      );
+
+      // The same bytes from their real author must still be accepted, or the
+      // assertions above would hold for a round that accepts nothing at all.
+      expect(await ownerService.ingest(editorA, ackFromA.json), isTrue);
+      final status = ownerService.quiescenceStatus(id)!;
+      expect(status.acknowledgedEditors, contains(editorA.hex));
+      expect(
+        status.complete,
+        isFalse,
+        reason: 'the round must still wait for the editor that never acked',
+      );
+
+      await ownerService.close();
+      await serviceA.close();
+      await serviceB.close();
+    },
+  );
+
+  test(
     'signed root compaction shrinks history, converges and rejects replay',
     () async {
       final owner = _id(1);
