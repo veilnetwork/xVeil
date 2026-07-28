@@ -209,11 +209,23 @@ class NicknameController extends StateNotifier<NicknameState> {
       );
       if (_disposed || resolved == null || state.ownedName != name) return;
       if (_sameBytes(resolved.ownerNodeId, self)) {
-        state = state.copyWith(
-          ownedWeight: resolved.weight,
-          ownedTakenOver: false,
-        );
-        await _persistClaim(name, resolved.weight);
+        // Cumulative PoW weight only ever GROWS for a claim we still hold —
+        // the whole ownership model is "strictly greater weight displaces". A
+        // partial or stale DHT replica can still answer with a smaller number,
+        // and this branch used to write it into both the card and the
+        // persisted claim. `_loadPersisted` calls us on every app start, so
+        // one such answer silently deflated the claim, and `topUp` then mined
+        // its moat (`ownedWeight * 2`) from the deflated figure while telling
+        // the user the top-up had succeeded. Take the floor.
+        //
+        // Only when the previous view was also OURS: while `ownedTakenOver` is
+        // set, `ownedWeight` holds the RIVAL's weight, which is not a floor
+        // for our own.
+        final floored = state.ownedTakenOver || resolved.weight > state.ownedWeight
+            ? resolved.weight
+            : state.ownedWeight;
+        state = state.copyWith(ownedWeight: floored, ownedTakenOver: false);
+        await _persistClaim(name, floored);
       } else {
         state = state.copyWith(
           ownedWeight: resolved.weight,

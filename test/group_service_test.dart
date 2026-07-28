@@ -6337,6 +6337,38 @@ void main() {
         hasLength(1),
         reason: 'an uncommitted CID must be rejected before network disclosure',
       );
+
+      // A requester signs its own `createdAtMs`, so it can future-date a
+      // request by up to the tolerated clock skew. The replay set used to be
+      // pruned after the REQUEST window alone, so the identical signed bytes
+      // outlived the memory of having served them and renewed the serve TTL
+      // again and again.
+      final base = DateTime.now().millisecondsSinceEpoch;
+      readerService.debugWallClockMs = () =>
+          base + const Duration(minutes: 5).inMilliseconds;
+      expect(
+        await readerService.requestPublicSpaceMedia(
+          ownerPublication.discovery.descriptor,
+          [ownerPublication.discovery.holder],
+          mediaCid,
+        ),
+        isTrue,
+      );
+      expect(sentMediaRequests, hasLength(2));
+      expect(grants, hasLength(2), reason: 'the fresh request is served once');
+
+      ownerService.debugWallClockMs = () =>
+          base + const Duration(minutes: 3).inMilliseconds;
+      await ownerService.handlePublicMediaGrantRequest(
+        bob,
+        sentMediaRequests.last,
+      );
+      expect(
+        grants,
+        hasLength(2),
+        reason: 'a future-dated request must stay remembered for as long as it '
+            'stays acceptable',
+      );
     },
   );
 

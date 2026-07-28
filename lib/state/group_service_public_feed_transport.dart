@@ -39,8 +39,22 @@ class _PublicFeedTransport {
     _owner._publicMediaServeQuotas.removeWhere(
       (_, quota) => quota.windowStartedAtMs < cutoff,
     );
+    // The replay set has to outlive the ACCEPTANCE window, not the request
+    // window. A requester signs its own `createdAtMs`, so it may future-date a
+    // request by up to the tolerated clock skew and the same bytes stay
+    // structurally valid for `window + skew`. Pruning after `window` alone let
+    // the identical signed request find an empty replay set and fire `grant()`
+    // again — each hit renewing the serve TTL, so one signed request stretched
+    // into several windows of serve authority. This handler promises that
+    // "invalid, replayed, unreferenced and unavailable requests are all
+    // silent"; remembering a request for exactly as long as it can be accepted
+    // is what makes that true.
+    final replayCutoff =
+        _owner._now() -
+        (kSpacePublicMediaGrantRequestWindow + kSpacePublicClockSkew)
+            .inMilliseconds;
     _owner._seenPublicMediaRequests.removeWhere(
-      (_, seenAtMs) => seenAtMs < cutoff,
+      (_, seenAtMs) => seenAtMs < replayCutoff,
     );
   }
 

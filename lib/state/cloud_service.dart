@@ -1569,17 +1569,15 @@ class CloudService {
   }
 
   Future<void> _dropContentIfUnreferenced(CloudItem previous) async {
-    final cid = previous.contentId;
-    if (cid == null) return;
-    if (_cloudReferencesContent(cid)) {
-      await _setLocalClaim(previous, present: false);
-      return;
-    }
-    // A hash-CID may simultaneously belong to a personal chat, Group/Space or
-    // another cloud row. No individual domain has enough information to prove
-    // global unreachability. Keep payload+manifest until GroupService's single
-    // fail-closed mark/sweep has observed every durable root for a full grace
-    // period; this also closes the register-then-post race.
+    if (previous.contentId == null) return;
+    // Dropping the claim is ALL this does, whether or not the cloud still
+    // references the bytes: a hash-CID may simultaneously belong to a personal
+    // chat, a Group/Space or another cloud row, and no individual domain has
+    // enough information to prove global unreachability. Payload+manifest stay
+    // until GroupService's single fail-closed mark/sweep has observed every
+    // durable root for a full grace period; that also closes the
+    // register-then-post race. (There used to be a `_cloudReferencesContent`
+    // branch here that did exactly the same thing and returned early.)
     await _setLocalClaim(previous, present: false);
   }
 

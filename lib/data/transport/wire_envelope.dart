@@ -381,9 +381,12 @@ class WireEnvelope {
   const WireEnvelope.callSignal(String bodyJson)
     : this(WireKind.callSignal, bodyJson);
 
-  /// React to message [targetMsgId] with [emoji] (empty = remove the reaction).
-  const WireEnvelope.reaction(String targetMsgId, String emoji)
-    : this(WireKind.reaction, emoji, id: targetMsgId);
+  /// React to message [targetMsgId] with [emoji] (empty = remove the
+  /// reaction). [sentAtMs] orders the reactor's own successive reactions:
+  /// mailbox blobs are unordered by design, so without it a late-arriving
+  /// older frame would resurrect a reaction the peer already removed.
+  const WireEnvelope.reaction(String targetMsgId, String emoji, {int? sentAtMs})
+    : this(WireKind.reaction, emoji, id: targetMsgId, sentAtMs: sentAtMs);
 
   /// A group snapshot ([bodyJson] = the bundle {m, c, g}) for the receiver to
   /// ingest. Delivered durably to each member (direct fanout, v1).

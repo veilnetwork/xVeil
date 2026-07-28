@@ -29,13 +29,49 @@ class _MessagingLocalChat {
     }
   }
 
+  /// Per-reactor ordering stamps, kept BESIDE the reactions themselves
+  /// (`rxat:` vs `rx:`) so the on-disk reaction format is unchanged and data
+  /// written before this existed simply carries no floor.
+  Future<Map<String, Map<String, int>>> _loadReactionStamps(
+    String convId,
+  ) async {
+    try {
+      final raw = await _owner._storage.getSetting('rxat:$convId');
+      if (raw == null || raw.isEmpty) return {};
+      final j = jsonDecode(raw);
+      if (j is! Map) return {};
+      return {
+        for (final e in j.entries)
+          if (e.value is Map)
+            e.key as String: {
+              for (final r in (e.value as Map).entries)
+                r.key as String: (r.value as num).toInt(),
+            },
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
   /// Apply one reaction to the store (empty [emoji] removes this reactor's).
+  ///
+  /// [atMs] is the sender's stamp for THIS reaction. A frame older than the one
+  /// already applied for the same reactor is ignored: mailbox blobs arrive
+  /// unordered, so a delayed 👍 must not undo the ❤️ that replaced it.
   Future<void> applyReaction(
     String convId,
     String msgId,
     String reactorHex,
-    String emoji,
-  ) async {
+    String emoji, {
+    int? atMs,
+  }) async {
+    final stamps = await _loadReactionStamps(convId);
+    if (atMs != null) {
+      final seen = stamps[msgId]?[reactorHex];
+      if (seen != null && atMs < seen) return;
+      (stamps[msgId] ??= <String, int>{})[reactorHex] = atMs;
+      await _owner._storage.putSetting('rxat:$convId', jsonEncode(stamps));
+    }
     final all = await loadReactions(convId);
     final forMsg = all[msgId] ?? <String, String>{};
     if (emoji.isEmpty) {
@@ -54,14 +90,20 @@ class _MessagingLocalChat {
   /// Apply a reaction locally and persist its durable wire frame for a peer.
   Future<void> sendReaction(NodeId peer, String msgId, String emoji) async {
     final selfHex = await _owner._selfHex();
-    await applyReaction(peer.hex, msgId, selfHex, emoji);
+    final atMs = DateTime.now().millisecondsSinceEpoch;
+    await applyReaction(peer.hex, msgId, selfHex, emoji, atMs: atMs);
     _owner._signal();
     // Saved Messages is local-only: never address a reaction to ourselves.
     if (peer.hex == selfHex) return;
+    // The frame id must carry the VERSION, not just the message: every
+    // reaction to one message used to share `rx:<msgId>`, so the receiver's
+    // generic dedup gate ACKED the change/removal and then dropped it. The
+    // sender retired the frame on that ack and believed it delivered, leaving
+    // the two sides showing different emoji until the receiver restarted.
     await _owner.sendDurable(
       peer,
-      'rx:$msgId',
-      WireEnvelope.reaction(msgId, emoji),
+      'rx:$msgId:$atMs',
+      WireEnvelope.reaction(msgId, emoji, sentAtMs: atMs),
     );
   }
 

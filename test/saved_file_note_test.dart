@@ -154,6 +154,48 @@ void main() {
       'message-1': {a.hex: '🔥'},
     });
     expect(tA.sent, isNotEmpty);
+
+    // Changing the reaction has to reach the peer. Every reaction to one
+    // message used to travel under the same frame id `rx:<msgId>`, so the
+    // receiver's generic dedup gate ACKED the second frame and then dropped
+    // it — the sender retired it as delivered and the two sides silently
+    // disagreed until the receiver restarted.
+    await mA.sendReaction(b, 'message-1', '❤️');
+    await _pump();
+    expect(await mA.loadReactions(b.hex), {
+      'message-1': {a.hex: '❤️'},
+    });
+    expect(await mB.loadReactions(a.hex), {
+      'message-1': {a.hex: '❤️'},
+    }, reason: 'a changed reaction must reach the peer, not be deduped away');
+
+    // ...and removing it must land too.
+    await mA.sendReaction(b, 'message-1', '');
+    await _pump();
+    expect(await mB.loadReactions(a.hex), isEmpty);
+  });
+
+  test('a late reaction frame does not resurrect a removed one', () async {
+    await mA.sendRequest(b, 'hi');
+    await _pump();
+    await mB.acceptContact(a);
+    await _pump();
+
+    // Mailbox blobs are unordered by design, so the receiver can see an older
+    // frame after a newer one. Applying it would undo a removal the peer
+    // already made.
+    await mB.debugApplyReaction(a.hex, 'message-1', a.hex, '👍', atMs: 2000);
+    expect(await mB.loadReactions(a.hex), {
+      'message-1': {a.hex: '👍'},
+    });
+    await mB.debugApplyReaction(a.hex, 'message-1', a.hex, '', atMs: 3000);
+    expect(await mB.loadReactions(a.hex), isEmpty);
+    await mB.debugApplyReaction(a.hex, 'message-1', a.hex, '👍', atMs: 2000);
+    expect(
+      await mB.loadReactions(a.hex),
+      isEmpty,
+      reason: 'a frame older than the applied one must not resurrect it',
+    );
   });
 
   test('image note carries the micro-thumb from the injected maker', () async {

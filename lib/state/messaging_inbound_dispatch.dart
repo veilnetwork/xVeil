@@ -605,7 +605,13 @@ extension _MessagingInboundDispatch on MessagingService {
         if (existing?.status != ContactStatus.accepted) return;
         final targetId = env.id;
         if (targetId == null) return;
-        await _applyReaction(m.src.hex, targetId, m.src.hex, env.body);
+        await _applyReaction(
+          m.src.hex,
+          targetId,
+          m.src.hex,
+          env.body,
+          atMs: env.sentAtMs,
+        );
         _signal();
         return;
       case WireKind.groupEntry:
@@ -683,11 +689,23 @@ extension _MessagingInboundDispatch on MessagingService {
         // system-notice marker in the chat via the normal store path, so
         // unread/notification behave like any incoming event.
         if (existing?.status != ContactStatus.accepted) return;
+        // A DETERMINISTIC id, so a re-delivery cannot mint a second marker.
+        // This is the only branch here that writes a chat row without a
+        // content-level dedup: its sole guard was `_outbox.remember`, whose
+        // seen-set lives in RAM and is gone after a restart. The sender's copy
+        // sits in the mailbox until acked, so "marker written, app killed,
+        // blob re-drained" produced a duplicate row and a duplicate
+        // notification. Every sibling branch that writes a row (message,
+        // spaceRecommendation, file offers) already dedups on content.
+        final markerId = 'sys:chatdel:${fid ?? m.src.hex}';
+        if (await _hasMessage(m.src, markerId)) return;
+        if (await _storage.isMessageDeleted(m.src.hex, markerId)) return;
         await _store(
           m.src,
           MessageDirection.incoming,
           kChatDeletedMarkerBody,
           MessageStatus.delivered,
+          id: markerId,
           // Fall back to receive time: an unstamped marker would sort into
           // the middle of the chat instead of closing it.
           timestamp: _wireSentAt(env) ?? _now(),
