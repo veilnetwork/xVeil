@@ -63,9 +63,19 @@ RUST_TARGETS = {
 # headers the desktop embedder links against, plus the C/C++ toolchain the
 # Rust crates' build scripts shell out to.
 LINUX_PACKAGES = {
+    # libayatana-appindicator3-dev is for tray_manager, which stops the CMake
+    # configure with "requires ayatana-appindicator3-0.1 or appindicator3-0.1"
+    # when it is absent — an error that names a pkg-config module and no
+    # package, from a plugin nothing in this repo mentions. It is listed only
+    # for apt because that is the one name verified against a live archive;
+    # the equivalents are libayatana-appindicator-gtk3-devel (dnf),
+    # libayatana-appindicator (pacman) and libayatana-appindicator3-devel
+    # (zypper), and adding an unverified name would break the whole install
+    # step on a distro nobody here can test.
     "apt-get": [
         "clang", "cmake", "ninja-build", "pkg-config",
-        "libgtk-3-dev", "liblzma-dev", "libstdc++-12-dev", "unzip", "curl", "git",
+        "libgtk-3-dev", "liblzma-dev", "libstdc++-12-dev",
+        "libayatana-appindicator3-dev", "unzip", "curl", "git",
     ],
     "dnf": [
         "clang", "cmake", "ninja-build", "pkgconf-pkg-config",
