@@ -191,7 +191,12 @@ jobs:
               ''|'#'*) continue ;;
               're:'*)  continue ;;
               'allow:'*) entry="${line#allow:}"; entry="${entry%%#*}"
-                         allow+=("$(echo "$entry" | xargs)") ;;
+                         # Trim with parameter expansion, not xargs: an allow
+                         # entry may legitimately contain a quote (the PEM
+                         # signature does), and xargs treats quotes as syntax.
+                         entry="${entry#"${entry%%[![:space:]]*}"}"
+                         entry="${entry%"${entry##*[![:space:]]}"}"
+                         allow+=("$entry") ;;
               *)       lit+=(-e "$line") ;;
             esac
           done < "$RUNNER_TEMP/patterns.txt"
