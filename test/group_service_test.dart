@@ -13382,6 +13382,95 @@ void main() {
   );
 
   test(
+    'two moderation appeals arriving at once do not lose one another',
+    () async {
+      // Last of the inbound gates with this shape. Two appeals landing
+      // together is ordinary once a Space has several restricted members; here
+      // one member appeals two separate actions, which is the same collision
+      // with half the scene.
+      final ownerStorage = FakeHvContainer().storage();
+      final bobStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final captured = <String>[];
+      final ownerSvc = GroupService(ownerStorage, _FakeSigner(owner));
+      final bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        // Capture instead of delivering, so both arrivals start together.
+        sendSpaceModerationAppeal: (peer, appealId, appealJson) async =>
+            captured.add(appealJson),
+      );
+      addTearDown(ownerSvc.dispose);
+      addTearDown(bobSvc.dispose);
+
+      final spaceId = await ownerSvc.createSpace('Concurrent appeals');
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      Future<void> mirror() async {
+        expect(
+          await bobSvc.ingestSnapshot(
+            ownerSvc.snapshotJson(
+              (await ownerSvc.load(spaceId))!,
+              recipient: bob,
+            ),
+          ),
+          isTrue,
+        );
+      }
+
+      await mirror();
+      final first = await ownerSvc.moderateSpace(
+        spaceId,
+        kind: SpaceModerationKind.restrictMessages,
+        target: bob,
+        scope: SpaceModerationScope.space,
+        reason: 'first action',
+      );
+      final second = await ownerSvc.moderateSpace(
+        spaceId,
+        kind: SpaceModerationKind.mute,
+        target: bob,
+        scope: SpaceModerationScope.space,
+        reason: 'second action',
+      );
+      expect(first, isNotNull);
+      expect(second, isNotNull);
+      await mirror();
+
+      expect(
+        await bobSvc.appealSpaceModeration(spaceId, first!, text: 'First'),
+        isTrue,
+      );
+      expect(
+        await bobSvc.appealSpaceModeration(spaceId, second!, text: 'Second'),
+        isTrue,
+      );
+      expect(captured.length, 2);
+
+      final results = await Future.wait([
+        ownerSvc.receiveSpaceModerationAppeal(bob, captured[0]),
+        ownerSvc.receiveSpaceModerationAppeal(bob, captured[1]),
+      ]);
+      expect(results, [isTrue, isTrue]);
+
+      final inbox = await ownerSvc.incomingSpaceModerationAppeals();
+      expect(
+        inbox.map((entry) => entry.appeal.actionId).toSet(),
+        {first, second},
+        reason: 'a concurrent appeal must not erase the one before it',
+      );
+    },
+  );
+
+  test(
     'moderation appeal crosses the membership boundary once and revokes through signed audit',
     () async {
       final ownerStorage = FakeHvContainer().storage();
