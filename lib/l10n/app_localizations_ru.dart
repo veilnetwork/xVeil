@@ -2292,6 +2292,9 @@ class AppL10nRu extends AppL10n {
   String get cloudSearchEmpty => 'Ничего не найдено';
 
   @override
+  String get cloudSettings => 'Настройки облака';
+
+  @override
   String get cloudSort => 'Сортировка';
 
   @override

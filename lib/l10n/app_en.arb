@@ -702,6 +702,7 @@
   "cloudSearch": "Search",
   "cloudSearchHint": "Search in storage",
   "cloudSearchEmpty": "Nothing found",
+  "cloudSettings": "Cloud settings",
   "cloudSort": "Sort",
   "cloudSortByName": "By name",
   "cloudSortByDate": "By date",
