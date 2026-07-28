@@ -13654,6 +13654,108 @@ void main() {
     },
   );
 
+  test('two abuse reports arriving at once do not lose one another', () async {
+    // Last gate of this class. The inbox dedupes by (reporter, contentKey),
+    // so ONE reporter filing on TWO posts is the same collision as two
+    // reporters — and the per-reporter caps (16 pending, 32/day) leave room.
+    final ownerStorage = FakeHvContainer().storage();
+    final bobStorage = FakeHvContainer().storage();
+    final carolStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'pw', createIfMissing: true);
+    await bobStorage.open(password: 'pw', createIfMissing: true);
+    await carolStorage.open(password: 'pw', createIfMissing: true);
+
+    final captured = <String>[];
+    final ownerSvc = GroupService(ownerStorage, _FakeSigner(owner));
+    final bobSvc = GroupService(
+      bobStorage,
+      _FakeSigner(bob),
+      // Capture instead of delivering, so both arrivals start together.
+      sendSpaceAbuseReport: (peer, reportId, reportJson) async =>
+          captured.add(reportJson),
+    );
+    final carolSvc = GroupService(carolStorage, _FakeSigner(carol));
+    addTearDown(ownerSvc.dispose);
+    addTearDown(bobSvc.dispose);
+    addTearDown(carolSvc.dispose);
+
+    final spaceId = await ownerSvc.createSpace(
+      'Concurrent reports',
+      visibility: SpaceVisibility.public,
+    );
+    for (final member in [bob, carol]) {
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: member,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+    }
+    final ownerBundle = (await ownerSvc.load(spaceId))!;
+    for (final pair in [(bobSvc, bob), (carolSvc, carol)]) {
+      expect(
+        await pair.$1.ingestSnapshot(
+          ownerSvc.snapshotJson(ownerBundle, recipient: pair.$2),
+        ),
+        isTrue,
+      );
+    }
+
+    final firstPost = await carolSvc.publishSpacePost(
+      spaceId,
+      body: 'first publication under review',
+      broadcast: false,
+    );
+    final secondPost = await carolSvc.publishSpacePost(
+      spaceId,
+      body: 'second publication under review',
+      broadcast: false,
+    );
+    expect(firstPost, isNotNull);
+    expect(secondPost, isNotNull);
+    final carolBundle = (await carolSvc.load(spaceId))!;
+    for (final pair in [(ownerSvc, owner), (bobSvc, bob)]) {
+      expect(
+        await pair.$1.ingestSnapshot(
+          carolSvc.snapshotJson(carolBundle, recipient: pair.$2),
+        ),
+        isTrue,
+      );
+    }
+
+    for (final post in [firstPost!, secondPost!]) {
+      expect(
+        await bobSvc.reportSpaceContent(
+          spaceId,
+          post.postId,
+          category: SpaceAbuseCategory.harassment,
+          details: 'Please review this publication.',
+        ),
+        isTrue,
+      );
+    }
+    expect(captured.length, 2);
+
+    final results = await Future.wait([
+      ownerSvc.receiveSpaceAbuseReport(bob, captured[0]),
+      ownerSvc.receiveSpaceAbuseReport(bob, captured[1]),
+    ]);
+    expect(results, [isTrue, isTrue]);
+
+    final inbox = await ownerSvc.incomingSpaceAbuseReports(
+      spaceId: spaceId,
+      pendingOnly: true,
+    );
+    expect(
+      inbox.map((entry) => entry.report.postId).toSet(),
+      {firstPost.postId, secondPost.postId},
+      reason: 'a concurrent report must not erase the one before it',
+    );
+  });
+
   test(
     'signed abuse report is deduplicated, reviewed and removes exact content through audit',
     () async {
