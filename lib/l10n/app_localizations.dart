@@ -7314,6 +7314,30 @@ abstract class AppL10n {
   /// **'Check the required release, transport, port, and TLS fields'**
   String get provisionInvalidConfig;
 
+  /// No description provided for @provisionAddedPeer.
+  ///
+  /// In en, this message translates to:
+  /// **'Added the server to the peer list'**
+  String get provisionAddedPeer;
+
+  /// No description provided for @provisionPeerFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not add the server as a peer: {reason}'**
+  String provisionPeerFailed(String reason);
+
+  /// No description provided for @provisionAddedProxy.
+  ///
+  /// In en, this message translates to:
+  /// **'Added the oproxy exit to the proxy list'**
+  String get provisionAddedProxy;
+
+  /// No description provided for @provisionProxyNeedsNodeId.
+  ///
+  /// In en, this message translates to:
+  /// **'oproxy installed, but the server reported no node id — cannot add it to the proxy list'**
+  String get provisionProxyNeedsNodeId;
+
   /// No description provided for @provisionSavedNodeId.
   ///
   /// In en, this message translates to:
@@ -7751,6 +7775,72 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'{n}d ago'**
   String timeDaysAgo(int n);
+
+  /// No description provided for @peersAddAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Add peer'**
+  String get peersAddAction;
+
+  /// No description provided for @peersAddTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a peer by link'**
+  String get peersAddTitle;
+
+  /// No description provided for @peersAddHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste a veil:bootstrap link. A node produces its own with `veil-cli bootstrap invite`; a deployed server saves it here automatically.'**
+  String get peersAddHint;
+
+  /// No description provided for @peersAddFieldLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Bootstrap link'**
+  String get peersAddFieldLabel;
+
+  /// No description provided for @peersAddPaste.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste'**
+  String get peersAddPaste;
+
+  /// No description provided for @peersAddInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Not a bootstrap link: {reason}'**
+  String peersAddInvalid(String reason);
+
+  /// No description provided for @peersAddNoTransport.
+  ///
+  /// In en, this message translates to:
+  /// **'This link carries an identity but no address, so there is nothing to dial. Use it to add a contact instead.'**
+  String get peersAddNoTransport;
+
+  /// No description provided for @peersAddNoNode.
+  ///
+  /// In en, this message translates to:
+  /// **'The node is not running yet'**
+  String get peersAddNoNode;
+
+  /// No description provided for @peersAddDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Peer added'**
+  String get peersAddDone;
+
+  /// No description provided for @peersAddFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not add the peer: {reason}'**
+  String peersAddFailed(String reason);
+
+  /// No description provided for @peersAddResolved.
+  ///
+  /// In en, this message translates to:
+  /// **'node {nodeId}… via {transport}'**
+  String peersAddResolved(String nodeId, String transport);
 
   /// No description provided for @peersShareAction.
   ///

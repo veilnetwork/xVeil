@@ -7,11 +7,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../common/shown_cause.dart';
 import '../../data/node/managed_node.dart';
 import '../../data/node/node_provisioner.dart';
+import '../../data/node/proxy_routing.dart';
 import '../../data/node/ssh_client.dart';
 import '../../data/node/ssh_credentials.dart';
 import '../../data/node/veil_github_release.dart';
+import '../../data/transport/bootstrap_invite.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/managed_nodes_controller.dart';
+import '../../state/providers.dart';
+import '../../state/proxy_routing_controller.dart';
 import '../../state/ssh_credentials.dart';
 import 'ssh_public_key_card.dart';
 
@@ -322,29 +326,91 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   /// here, [sshRun] throws on a pin mismatch) AND save a freshly-reported node
   /// id. Combined into a single derive-from-[widget.node] upsert so the two
   /// updates can't clobber each other.
+  /// Everything a successful run should leave behind.
+  ///
+  /// Deployment used to end here with a saved node id and a snackbar, which
+  /// meant a server could be installed, running and reachable while staying
+  /// invisible to the app: not in the peer list, and — if an oproxy exit was
+  /// installed — not in the proxy catalog either. The operator had no way to
+  /// finish the job by hand, because the one thing needed to dial the node (its
+  /// bootstrap entry) never left the server.
+  ///
+  /// The host-key pin and the node id are still one upsert derived from
+  /// [widget.node] so the two updates cannot clobber each other.
   Future<void> _persistAfterRun({
     required String fingerprint,
     required String output,
   }) async {
+    final report = parseProvisionReport(
+      output,
+      reachableHost: widget.node.sshHost,
+    );
     var node = widget.node;
     var changed = false;
     if (fingerprint.isNotEmpty && node.sshHostFingerprint == null) {
       node = node.copyWith(sshHostFingerprint: fingerprint);
       changed = true;
     }
-    final m = RegExp(r'NODE_ID:\s*([0-9a-fA-F]{64})').firstMatch(output);
-    final savedId = m != null;
-    if (savedId) {
-      node = node.copyWith(nodeId: m.group(1)!.toLowerCase());
+    if (report.nodeId != null) {
+      node = node.copyWith(nodeId: report.nodeId);
       changed = true;
     }
     if (changed) {
       await ref.read(managedNodesProvider.notifier).upsert(node);
     }
-    if (savedId && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppL10n.of(context).provisionSavedNodeId)),
-      );
+
+    final done = <String>[];
+    final l = mounted ? AppL10n.of(context) : null;
+    if (report.nodeId != null && l != null) done.add(l.provisionSavedNodeId);
+
+    // Add the node as a bootstrap peer. Failure here is reported, never
+    // swallowed: a deployment that cannot be dialled is the whole defect this
+    // step exists to close, and a silent catch would restore it.
+    if (report.invite != null && l != null) {
+      try {
+        final invite = BootstrapInvite.parse(report.invite!);
+        await ref.read(realStackProvider)?.addContact(invite);
+        done.add(l.provisionAddedPeer);
+      } catch (e) {
+        done.add(l.provisionPeerFailed('$e'));
+      }
+    }
+
+    // An oproxy exit is only useful once it is in the catalog the routing UI
+    // reads. The catalog keys on node id, so a node that failed to report one
+    // cannot be registered — say so rather than adding a blank entry.
+    if (report.components.contains(NodeComponent.oproxyServer) && l != null) {
+      final id = report.nodeId;
+      if (id == null) {
+        done.add(l.provisionProxyNeedsNodeId);
+      } else {
+        final routing = ref.read(proxyRoutingProvider);
+        final already = routing.oProxies.any((e) => e.nodeId == id);
+        if (!already) {
+          await ref
+              .read(proxyRoutingProvider.notifier)
+              .set(
+                routing.copyWith(
+                  oProxies: [
+                    ...routing.oProxies,
+                    OproxyEndpoint(
+                      nodeId: id,
+                      label: node.label.isNotEmpty
+                          ? node.label
+                          : (node.sshHost ?? id.substring(0, 8)),
+                    ),
+                  ],
+                ),
+              );
+        }
+        done.add(l.provisionAddedProxy);
+      }
+    }
+
+    if (done.isNotEmpty && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(done.join('\n'))));
     }
   }
 
@@ -832,7 +898,16 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
     return Scaffold(
       appBar: AppBar(title: Text(l.provisionTitle)),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        // The bottom inset rather than a flat 16: the deploy button is the last
+        // control on the list, and on a phone with gesture navigation a
+        // constant leaves it under the system bar, half-visible and awkward to
+        // hit exactly when the operator is waiting to press it.
+        padding: EdgeInsets.fromLTRB(
+          16,
+          16,
+          16,
+          16 + MediaQuery.viewPaddingOf(context).bottom,
+        ),
         children: [
           Text(
             '${widget.node.sshUser}@${widget.node.sshHost}:${widget.node.sshPort}',

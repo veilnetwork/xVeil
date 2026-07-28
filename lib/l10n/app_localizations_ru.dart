@@ -4112,6 +4112,21 @@ class AppL10nRu extends AppL10n {
       'Проверьте обязательные поля релиза, транспортов, портов и TLS';
 
   @override
+  String get provisionAddedPeer => 'Сервер добавлен в список пиров';
+
+  @override
+  String provisionPeerFailed(String reason) {
+    return 'Не удалось добавить сервер в пиры: $reason';
+  }
+
+  @override
+  String get provisionAddedProxy => 'oproxy-выход добавлен в список прокси';
+
+  @override
+  String get provisionProxyNeedsNodeId =>
+      'oproxy установлен, но сервер не сообщил node id — в список прокси его не добавить';
+
+  @override
   String get provisionSavedNodeId => 'node id, сообщённый сервером, сохранён';
 
   @override
@@ -4355,6 +4370,47 @@ class AppL10nRu extends AppL10n {
   @override
   String timeDaysAgo(int n) {
     return '$n дн назад';
+  }
+
+  @override
+  String get peersAddAction => 'Добавить пир';
+
+  @override
+  String get peersAddTitle => 'Добавление пира по ссылке';
+
+  @override
+  String get peersAddHint =>
+      'Вставьте ссылку veil:bootstrap. Узел выдаёт свою командой `veil-cli bootstrap invite`; развёрнутый сервер сохраняется сюда сам.';
+
+  @override
+  String get peersAddFieldLabel => 'Ссылка bootstrap';
+
+  @override
+  String get peersAddPaste => 'Вставить';
+
+  @override
+  String peersAddInvalid(String reason) {
+    return 'Это не ссылка bootstrap: $reason';
+  }
+
+  @override
+  String get peersAddNoTransport =>
+      'В ссылке есть личность, но нет адреса — набирать нечего. Такую ссылку добавляют как контакт.';
+
+  @override
+  String get peersAddNoNode => 'Узел ещё не запущен';
+
+  @override
+  String get peersAddDone => 'Пир добавлен';
+
+  @override
+  String peersAddFailed(String reason) {
+    return 'Не удалось добавить пир: $reason';
+  }
+
+  @override
+  String peersAddResolved(String nodeId, String transport) {
+    return 'узел $nodeId… через $transport';
   }
 
   @override

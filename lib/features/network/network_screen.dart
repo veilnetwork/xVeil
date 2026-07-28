@@ -198,21 +198,12 @@ class NetworkScreen extends ConsumerWidget {
               );
             },
           ),
-          ListTile(
-            leading: const Icon(Icons.extension_outlined),
-            title: Text(l.networkExtTitle),
-            subtitle: Text(l.networkExtSub),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _soon(context),
-          ),
+          // Lua extensions are not implemented. The row was a chevron that led
+          // to a "coming later" snackbar, which reads as a feature that exists
+          // and is merely switched off. The strings stay in the ARB files so
+          // restoring the entry is one widget, not a translation round.
         ],
       ),
-    );
-  }
-
-  void _soon(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppL10n.of(context).networkComingLater)),
     );
   }
 }
