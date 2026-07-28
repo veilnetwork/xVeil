@@ -1,0 +1,149 @@
+name: webrtc-linux
+
+# Produces libveil_media.so for linux-x64 — the one input the Linux desktop
+# bundle cannot build for itself.
+#
+# veil_media/linux/CMakeLists.txt stops the build outright when that .so is
+# missing, and making it needs a from-source WebRTC: depot_tools, a full
+# checkout, gclient sync, then a codec-stripped libwebrtc.a. That is hours of
+# work and tens of GB, so it does not belong in the release pipeline — it runs
+# here, by hand, and its result is carried forward as an artifact.
+#
+# It runs on a runner rather than a laptop for the same reason the release
+# builds do: an x86_64 Linux host is required (WebRTC's gn asserts on the host
+# OS and ships linux-x86_64 toolchains only), and the runner is one, natively,
+# for free. Emulating x86_64 elsewhere would put the most expensive build in
+# the stack on the slowest possible hardware.
+on:
+  workflow_dispatch:
+    inputs:
+      keep_symbols:
+        description: 'Skip the strip (bigger .so, symbolicated crashes)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  # The same commit the verified macOS and Android engines were built against.
+  # The engine and the transport shim call WebRTC APIs whose signatures move
+  # between revisions (SendRtp's span, DeliverRtpPacket's arity), so a
+  # different pin does not fail to link — it fails to compile, later, in a way
+  # that reads like our code is wrong.
+  WEBRTC_PIN: '4ef980bc2c70834276c791e71e7834b8809f24ad'
+  WEBRTC_ROOT: /home/runner/webrtc
+
+jobs:
+  engine:
+    name: libveil_media.so (linux-x64)
+    runs-on: ubuntu-latest
+    # A GitHub-hosted job is killed at six hours. The checkout and sync take
+    # well under one; the rest is ninja on four cores.
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The WebRTC checkout plus its build tree does not fit beside the
+      # runner's preinstalled toolchains, and the failure comes as a confusing
+      # write error deep inside gclient rather than as "no space".
+      - name: Reclaim disk
+        run: |
+          echo "before:"; df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /usr/local/share/powershell \
+                      /usr/local/lib/node_modules "${AGENT_TOOLSDIRECTORY:-}" || true
+          sudo apt-get clean
+          echo "after:"; df -h / | tail -1
+
+      - name: depot_tools
+        run: |
+          set -euo pipefail
+          git clone --depth 1 \
+            https://chromium.googlesource.com/chromium/tools/depot_tools.git \
+            "$HOME/depot_tools"
+          echo "$HOME/depot_tools" >> "$GITHUB_PATH"
+
+      # Full history, not a shallow fetch: the pin has to be checked out by
+      # SHA, and a shallow clone can only do that when the server happens to
+      # allow fetching an arbitrary object. Disk is the cheaper thing to spend.
+      - name: WebRTC at the pinned commit
+        run: |
+          set -euo pipefail
+          mkdir -p "$WEBRTC_ROOT"
+          cd "$WEBRTC_ROOT"
+          fetch --nohooks webrtc
+          cd src
+          git checkout "$WEBRTC_PIN"
+          # Transient 429s from the Google mirrors are normal under load; the
+          # macOS build needed the retries too.
+          ok=0
+          for attempt in 1 2 3 4 5 6; do
+            echo "sync attempt $attempt"
+            if gclient sync --with_branch_heads --reset --jobs 4; then ok=1; break; fi
+            sleep $((attempt * 20))
+          done
+          [ "$ok" = 1 ] || { echo "::error::gclient sync failed after 6 attempts"; exit 1; }
+
+      # Same switches as the verified Android build, retargeted at linux-x64.
+      # --export-compile-commands is not decoration: build_veil_media_so_linux.sh
+      # reads call.cc's exact command out of compile_commands.json to compile
+      # the engine with the identical clang, sysroot and libc++ namespace.
+      - name: Build libwebrtc.a
+        run: |
+          set -euo pipefail
+          cd "$WEBRTC_ROOT/src"
+          gn gen out/linux-x64 --export-compile-commands --args='target_os="linux" target_cpu="x64" is_debug=false is_component_build=false symbol_level=0 rtc_include_tests=false rtc_build_examples=false rtc_build_tools=false rtc_enable_protobuf=false rtc_use_h264=false enable_libaom=false rtc_include_opus=true treat_warnings_as_errors=false'
+          test -f out/linux-x64/compile_commands.json \
+            || { echo "::error::gn produced no compile_commands.json — the engine build reads call.cc's command from it"; exit 1; }
+          ninja -C out/linux-x64 webrtc
+          ls -la out/linux-x64/obj/libwebrtc.a
+
+      - name: Build libveil_media.so
+        env:
+          VEIL_MEDIA_NO_STRIP: ${{ inputs.keep_symbols && '1' || '' }}
+        run: |
+          set -euo pipefail
+          # patchelf writes the DT_NEEDED on libveilclient_ffi.so; without it
+          # the script warns and carries on, and the loader fails to resolve
+          # the two datagram symbols at runtime instead.
+          sudo apt-get update && sudo apt-get install -y patchelf
+          WEBRTC_SRC="$WEBRTC_ROOT/src" WEBRTC_OUT=out/linux-x64 \
+            bash third_party/veil/flutter/veil_media/linux/build_veil_media_so_linux.sh
+
+      # The reason this workflow exists at all: the previous out-of-band .so
+      # was 12 commits behind and short 10 of the symbols the app looks up. It
+      # linked, it bundled, and it would have failed at dlsym on the first
+      # call. Comparing the export table against what Dart actually references
+      # is the check that turns that into a build failure.
+      - name: Every symbol Dart looks up is exported
+        run: |
+          set -euo pipefail
+          so=third_party/veil/flutter/veil_media/linux/libveil_media.so
+          nm -D --defined-only "$so" | awk '{print $NF}' | grep '^veil_media_' | sort -u > /tmp/exported.txt
+          # Quoted names only. Matching the bare identifier anywhere also
+          # catches the library name in `libveil_media_camera_stub.so`, and a
+          # gate that invents a missing symbol gets switched off by whoever
+          # hits it first.
+          grep -rhoE "'veil_media_[a-z0-9_]+'" lib third_party/veil/flutter/veil_media/lib \
+            | tr -d "'" | sort -u > /tmp/wanted.txt
+          # These two are undefined on purpose: libveilclient_ffi.so defines
+          # them and the loader resolves them from the sibling library.
+          printf 'veil_media_send_datagram\nveil_media_set_recv_callback\n' > /tmp/expected_undefined.txt
+          comm -13 /tmp/exported.txt /tmp/wanted.txt | comm -23 - /tmp/expected_undefined.txt > /tmp/missing.txt
+          echo "exported: $(wc -l < /tmp/exported.txt)   referenced by Dart: $(wc -l < /tmp/wanted.txt)"
+          if [ -s /tmp/missing.txt ]; then
+            echo "::error::the engine is missing symbols the app calls:"
+            cat /tmp/missing.txt
+            exit 1
+          fi
+          echo "OK: nothing the app calls is missing from the engine"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libveil_media-linux-x64
+          path: third_party/veil/flutter/veil_media/linux/libveil_media.so
+          if-no-files-found: error
