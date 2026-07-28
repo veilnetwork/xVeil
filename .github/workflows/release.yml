@@ -277,6 +277,8 @@ jobs:
     needs: [android, windows]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -284,60 +286,7 @@ jobs:
       - name: Scan for leaked identifiers
         env:
           PATTERNS: ${{ secrets.LEAK_PATTERNS }}
-        run: |
-          set -uo pipefail
-          if [ -z "$PATTERNS" ]; then
-            echo "::error::LEAK_PATTERNS is not set — this check would pass by knowing nothing."
-            exit 1
-          fi
-          printf '%s\n' "$PATTERNS" > "$RUNNER_TEMP/patterns.txt"
-          lit=(); allow=()
-          while IFS= read -r line; do
-            case "$line" in
-              ''|'#'*|'re:'*) continue ;;
-              'allow:'*)
-                entry="${line#allow:}"; entry="${entry%%#*}"
-                # Trim with parameter expansion, not xargs: an allow entry may
-                # legitimately contain a quote (the PEM signature does), and
-                # xargs treats quotes as syntax.
-                entry="${entry#"${entry%%[![:space:]]*}"}"
-                entry="${entry%"${entry##*[![:space:]]}"}"
-                allow+=("$entry") ;;
-              *) lit+=(-e "$line") ;;
-            esac
-          done < "$RUNNER_TEMP/patterns.txt"
-
-          # -a everywhere: without it grep silently skips binary content, which
-          # is exactly how 213 copies of an account name stayed invisible.
-          scan_stream() { # $1 = what to call it; content on stdin
-            local what="$1" ctx
-            ctx="$(strings -a | grep -aiF "${lit[@]}" | sort -u || true)"
-            for a in "${allow[@]}"; do
-              [ -n "$a" ] && ctx="$(grep -vF -- "$a" <<< "$ctx" || true)"
-            done
-            if [ -n "${ctx// }" ]; then
-              echo "::error::leaked identifier in $what: $(head -1 <<< "$ctx")"
-              return 1
-            fi
-            return 0
-          }
-
-          rc=0
-          while IFS= read -r f; do
-            case "$f" in
-              *.apk|*.zip)
-                for entry in $(unzip -l "$f" | awk 'NR>3 && NF>=4 {print $4}' | grep -v '^$'); do
-                  unzip -p "$f" "$entry" 2>/dev/null | scan_stream "$f:$entry" || rc=1
-                done ;;
-              *.tar.gz)
-                for entry in $(tar -tzf "$f"); do
-                  case "$entry" in */) continue ;; esac
-                  tar -xzOf "$f" "$entry" 2>/dev/null | scan_stream "$f:$entry" || rc=1
-                done ;;
-              *) scan_stream "$f" < "$f" || rc=1 ;;
-            esac
-          done < <(find artifacts -type f)
-          exit $rc
+        run: python3 scripts/scan-artifacts.py artifacts
 
   # A DRAFT: publishing is a decision someone makes after looking at what was
   # built, and none of this has run on a phone.
