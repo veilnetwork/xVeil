@@ -70,7 +70,9 @@ jobs:
       - name: Rust with the Android targets
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+          # i686 is here only because hidden-volume's build-android.sh checks
+          # for all four targets up front, even when asked for three ABIs.
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
 
       - name: cargo-ndk
         run: cargo install cargo-ndk --locked
