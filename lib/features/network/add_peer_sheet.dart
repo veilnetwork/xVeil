@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../common/shown_cause.dart';
 import '../../data/transport/bootstrap_invite.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/providers.dart';
@@ -102,7 +103,9 @@ class _AddPeerSheetState extends ConsumerState<AddPeerSheet> {
         context,
       ).showSnackBar(SnackBar(content: Text(l.peersAddDone)));
     } catch (e) {
-      if (mounted) setState(() => _error = l.peersAddFailed('$e'));
+      if (mounted) {
+        setState(() => _error = l.peersAddFailed(shownCause(e, kind: 'peer')));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
