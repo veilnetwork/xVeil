@@ -1055,6 +1055,84 @@ void main() {
     },
   );
 
+  test(
+    'the settings sweep keeps per-content rows when roots are unknown',
+    () async {
+      // Sibling of the blob sweep above, and the more damaging half: these rows
+      // include `file:mf:<cid>`, the manifest a restart or a re-offer needs. The
+      // code comment is explicit that dropping stale bookkeeping is optional and
+      // dropping the last manifest is not -- but nothing checked the guard that
+      // makes that true.
+      Future<HiddenVolumeStorage> fixture({required bool breakIndex}) async {
+        final storage = FakeHvContainer().storage();
+        await storage.open(password: 'pw', createIfMissing: true);
+        final service = CloudService(
+          storage,
+          _FakeSync(_id(1)),
+          contentReceived: const Stream.empty(),
+          now: () => DateTime.fromMillisecondsSinceEpoch(100),
+          newId: () => 'settings-sweep',
+          integrityChecks: false,
+        );
+        await service.importContent(
+          name: 'indexed.bin',
+          size: 64,
+          readRange: _reader(_bytes(64)),
+        );
+        // A per-content row nothing references. Deliberately NOT hash-shaped:
+        // hash-cids are handed to the global collector, so a hash-shaped row
+        // would survive for that reason instead and prove nothing.
+        await storage.storeFile(
+          'mf:legacy-cid-1',
+          _bytes(16),
+          name: 'stale-mf',
+        );
+        if (breakIndex) {
+          final slot = await storage.getSetting('cloud.index.v1.active');
+          final active = 'cloud.index.v1.$slot';
+          final rows =
+              (jsonDecode(utf8.decode((await storage.loadFile(active))!))
+                      as List)
+                  .toList()
+                ..add(
+                  jsonEncode({
+                    'v': 1,
+                    'k': 'cloudSomethingNew',
+                    'key': 'x',
+                    'p': {},
+                  }),
+                );
+          await storage.storeFile(
+            active,
+            Uint8List.fromList(utf8.encode(jsonEncode(rows))),
+          );
+        }
+        await service.close();
+        return storage;
+      }
+
+      // Control: with roots enumerable the stale row IS collected, so the
+      // assertion below cannot hold for a sweep that never collects.
+      final healthy = await fixture(breakIndex: false);
+      await healthy.sweepSettingsGarbage();
+      expect(
+        await healthy.hasFile('mf:legacy-cid-1'),
+        isFalse,
+        reason: 'a readable index lets the settings sweep drop a dead row',
+      );
+      await healthy.close();
+
+      final broken = await fixture(breakIndex: true);
+      await broken.sweepSettingsGarbage();
+      expect(
+        await broken.hasFile('mf:legacy-cid-1'),
+        isTrue,
+        reason: 'unknown roots must retain every per-content row',
+      );
+      await broken.close();
+    },
+  );
+
   test('a folder in the cloud index does not disable content GC', () async {
     // The GC's index reader is fail-closed: a row it does not understand may
     // hide a content id, so it refuses to collect. Folders describe structure
