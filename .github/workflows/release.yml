@@ -156,6 +156,28 @@ jobs:
         working-directory: third_party/hidden-volume
         run: ABIS="arm64-v8a armeabi-v7a x86_64" PROFILE=release ./scripts/build-android.sh
 
+      # assets/prod/obfs4_psk.b64 is gitignored — it is a network secret — so a
+      # fresh checkout has the directory without it, pubspec bundles what is
+      # there, and the build succeeds. The app then calls
+      # _loadBundledObfs4Psk(), catches the missing asset and returns null to
+      # "degrade gracefully": it starts, looks healthy, and silently cannot
+      # complete an obfs4 handshake with any production seed. The first CI APK
+      # shipped exactly that.
+      #
+      # Not a downgrade in secrecy: this key is deployment-wide and travels
+      # inside every APK handed to anyone, so a repository secret holds nothing
+      # the artifact does not already carry.
+      - name: Production obfs4 PSK
+        env:
+          PSK: ${{ secrets.PROD_OBFS4_PSK }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PSK" ]; then
+            echo "::error::PROD_OBFS4_PSK is not set — the APK would build, install, run and never reach the network."
+            exit 1
+          fi
+          printf '%s\n' "$PSK" > assets/prod/obfs4_psk.b64
+
       - name: Signing key
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -185,6 +207,21 @@ jobs:
           NDK: ${{ steps.ndk.outputs.path }}
           WHISPER_SRC: ${{ github.workspace }}/whisper.cpp
         run: python3 builder.py android --release
+
+      # Check the artifact, not the step that made it. Writing the file before
+      # the build proves nothing about what pubspec picked up, and the failure
+      # mode here is an app that runs and cannot connect — invisible from any
+      # build log.
+      - name: The APKs carry the PSK
+        run: |
+          set -euo pipefail
+          for apk in build/app/outputs/flutter-apk/*-release.apk; do
+            if ! unzip -l "$apk" | grep -q 'assets/prod/obfs4_psk.b64'; then
+              echo "::error::$apk has no bundled PSK — it cannot reach the production network"
+              exit 1
+            fi
+            echo "  ok $(basename "$apk")"
+          done
 
       - uses: actions/upload-artifact@v4
         with:
@@ -225,6 +262,22 @@ jobs:
           git fetch --depth 1 origin "$WHISPER_COMMIT"
           git checkout FETCH_HEAD
 
+      # Desktop reads XVEIL_OBFS4_PSK from the environment first, but falls
+      # back to the same bundled asset, and a packaged build has no environment
+      # to read. See the note on the android job for why a secret is the right
+      # home for it.
+      - name: Production obfs4 PSK
+        shell: bash
+        env:
+          PSK: ${{ secrets.PROD_OBFS4_PSK }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PSK" ]; then
+            echo "::error::PROD_OBFS4_PSK is not set — the bundle would build, run and never reach the network."
+            exit 1
+          fi
+          printf '%s\n' "$PSK" > assets/prod/obfs4_psk.b64
+
       # `python3` is not the name on a Windows runner.
       #
       # The PATH dance is not optional. `shell: bash` here is Git Bash, and its
@@ -251,6 +304,14 @@ jobs:
           fi
           echo "toolchain: $msvc_bin"
           python builder.py windows --release
+
+      - name: The bundle carries the PSK
+        shell: bash
+        run: |
+          set -euo pipefail
+          psk=build/windows/x64/runner/Release/data/flutter_assets/assets/prod/obfs4_psk.b64
+          [ -s "$psk" ] || { echo "::error::no bundled PSK at $psk — the bundle cannot reach the production network"; exit 1; }
+          echo "  ok $psk"
 
       - name: Archive
         shell: pwsh
