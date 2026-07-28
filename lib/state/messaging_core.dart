@@ -849,11 +849,22 @@ class MessagingService {
     String convId,
     String msgId,
     String reactorHex,
-    String emoji,
-  ) => _localChat.applyReaction(convId, msgId, reactorHex, emoji);
+    String emoji, {
+    int? atMs,
+  }) => _localChat.applyReaction(convId, msgId, reactorHex, emoji, atMs: atMs);
 
   Future<void> sendReaction(NodeId peer, String msgId, String emoji) =>
       _localChat.sendReaction(peer, msgId, emoji);
+
+  /// Test seam: apply an inbound reaction with an explicit stamp, so the
+  /// unordered-delivery ordering rule can be driven without a mailbox.
+  Future<void> debugApplyReaction(
+    String convId,
+    String msgId,
+    String reactorHex,
+    String emoji, {
+    int? atMs,
+  }) => _applyReaction(convId, msgId, reactorHex, emoji, atMs: atMs);
 
   Future<String> savedSelfHex() => _selfHex();
 
