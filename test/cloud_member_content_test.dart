@@ -103,6 +103,47 @@ void main() {
     await hostToClient.close();
   });
 
+  /// The manifest is the only integrity anchor: bytes come from a host the
+  /// member does not trust, and nothing re-checks the assembled file — there is
+  /// no whole-file hash after the pieces. A host serving the right LENGTH of
+  /// wrong bytes must be refused per piece.
+  test(
+    'a member host serving bytes that do not match the manifest is refused',
+    () async {
+      final f = fixture();
+      final hostToClient = StreamController<Uint8List>.broadcast();
+      final host = CloudMemberContentHost(
+        documentId: documentId,
+        servicePublicKey: servicePublicKey,
+        appId: appId,
+        endpointId: endpointId,
+        expiresAtMs: expiresAtMs,
+        storage: f.storage,
+        epochKey: epoch1,
+        servable: [f.manifest],
+        send:
+            ({
+              required servicePublicKey,
+              required targetAppId,
+              required targetEndpointId,
+              required data,
+            }) async => hostToClient.add(data),
+      );
+      // Same length, different content: the manifest the member verifies
+      // against is already fixed.
+      f.storage.files[f.manifest.contentId] = Uint8List.fromList(
+        List.generate(f.bytes.length, (i) => (f.bytes[i] + 1) & 0xff),
+      );
+      final member = client(
+        epochKey: epoch1,
+        incoming: hostToClient.stream,
+        host: host,
+      );
+      await expectLater(member.fetchFile(f.manifest), throwsA(isA<Object>()));
+      await hostToClient.close();
+    },
+  );
+
   test('an epoch rotation instantly cuts off the old-key member', () async {
     final f = fixture();
     final hostToClient = StreamController<Uint8List>.broadcast();

@@ -244,6 +244,55 @@ void main() {
     await hostToClient.close();
   });
 
+  /// The manifest is the downloader's only integrity anchor here: bytes come
+  /// from a host it does not trust, and nothing re-checks the assembled file —
+  /// there is no whole-file hash after the pieces. A host that serves the right
+  /// LENGTH of wrong bytes has to be refused per piece.
+  test(
+    'a folder host serving bytes that do not match the manifest is refused',
+    () async {
+      final fixture = await buildFolder(fileCount: 1);
+      final hostToClient = StreamController<Uint8List>.broadcast();
+      final host = CloudFolderShareHost(
+        capability: fixture.capability,
+        storage: fixture.storage,
+        listing: fixture.listing,
+        send:
+            ({
+              required servicePublicKey,
+              required targetAppId,
+              required targetEndpointId,
+              required data,
+            }) async => hostToClient.add(data),
+      );
+      final client = CloudFolderShareClient(
+        capability: fixture.capability,
+        returnServicePublicKey: Uint8List.fromList(List.filled(32, 3)),
+        returnAppId: Uint8List.fromList(List.filled(32, 4)),
+        returnEndpointId: 48,
+        incoming: hostToClient.stream,
+        timeout: const Duration(milliseconds: 200),
+        send: (data) async => unawaited(host.serve(data)),
+        randomBytes: _counterBytes(),
+      );
+
+      final listing = await client.fetchListing();
+      final file = listing.entries.firstWhere((e) => !e.isFolder);
+      final contentId = file.manifest!.contentId;
+
+      // Same length, different content: the listing (and so the manifest the
+      // client verifies against) is already published and unchanged.
+      final honest = fixture.storage.files[contentId]!;
+      fixture.storage.files[contentId] = Uint8List.fromList(
+        List.generate(honest.length, (i) => (honest[i] + 1) & 0xff),
+      );
+
+      await expectLater(client.fetchFile(file), throwsA(isA<Object>()));
+
+      await hostToClient.close();
+    },
+  );
+
   test('a dropped chunk request is asked for again, not abandoned', () async {
     final fixture = await buildFolder(fileCount: 1);
     final hostToClient = StreamController<Uint8List>.broadcast();
