@@ -354,4 +354,80 @@ void main() {
     final result = await Process.run('bash', ['-n', '-c', script]);
     expect(result.exitCode, 0, reason: '${result.stderr}\n$script');
   });
+
+  // The report is the only channel through which a deployment tells the app
+  // what it produced. Before it existed a run ended with a node id nobody could
+  // dial, so the server stayed out of the peer list — these pin the parts that
+  // made that a silent outcome rather than an error.
+  group('provision report', () {
+    const output = '''
+STATUS: active
+NODE_ID: 3d3575c9b6d728bc2d9b0b3a5fd9cd39449c0d9d47074623dda69ce4b63b4904
+BOOTSTRAP_URI: veil:bootstrap?pk=VVxxLVptuXZ%2FqFV94aPP1daiz6ZYg2yf1JLbc1VHXhQ=&t=obfs4-tcp://0.0.0.0:5556&nc=AdW8kw==&a=ed25519
+COMPONENTS: veil-cli,ogate,oproxy-server
+''';
+
+    test('reads the three facts a deployment reports', () {
+      final r = parseProvisionReport(output);
+      expect(
+        r.nodeId,
+        '3d3575c9b6d728bc2d9b0b3a5fd9cd39449c0d9d47074623dda69ce4b63b4904',
+      );
+      expect(r.components, {
+        NodeComponent.veilCli,
+        NodeComponent.ogate,
+        NodeComponent.oproxyServer,
+      });
+      expect(r.invite, isNotNull);
+    });
+
+    test('a bind address nobody can dial is replaced by the one that worked', () {
+      // `listen add` binds 0.0.0.0 and only advertises when the operator filled
+      // in a public host. Left alone, the node's own invite tells peers to dial
+      // 0.0.0.0 — the deployment succeeds and the peer entry is useless.
+      final r = parseProvisionReport(output, reachableHost: '203.0.113.7');
+      expect(r.invite, contains('t=obfs4-tcp://203.0.113.7:5556'));
+      expect(r.invite, isNot(contains('0.0.0.0')));
+    });
+
+    test('an advertised host is never second-guessed', () {
+      final advertised = output.replaceAll('0.0.0.0', 'node.example.org');
+      final r = parseProvisionReport(advertised, reachableHost: '203.0.113.7');
+      expect(r.invite, contains('t=obfs4-tcp://node.example.org:5556'));
+      expect(r.invite, isNot(contains('203.0.113.7')));
+    });
+
+    test('loopback counts as undialable too', () {
+      for (final host in ['127.0.0.1', 'localhost']) {
+        final r = parseProvisionReport(
+          output.replaceAll('0.0.0.0', host),
+          reachableHost: '203.0.113.7',
+        );
+        expect(r.invite, contains('203.0.113.7'), reason: host);
+      }
+    });
+
+    test('the rest of the invite survives the rewrite', () {
+      final r = parseProvisionReport(output, reachableHost: '203.0.113.7');
+      expect(r.invite, contains('pk=VVxxLVptuXZ%2FqFV94aPP1daiz6ZYg2yf1JLbc1VHXhQ='));
+      expect(r.invite, contains('nc=AdW8kw=='));
+      expect(r.invite, contains('a=ed25519'));
+    });
+
+    test('a run that reported nothing yields nothing, not a blank peer', () {
+      final r = parseProvisionReport('STATUS: failed\n');
+      expect(r.isEmpty, isTrue);
+      expect(r.invite, isNull);
+      expect(r.nodeId, isNull);
+    });
+
+    test('an unavailable invite is not mistaken for one', () {
+      final r = parseProvisionReport(
+        'NODE_ID: 3d3575c9b6d728bc2d9b0b3a5fd9cd39449c0d9d47074623dda69ce4b63b4904\n'
+        'BOOTSTRAP_URI: (unavailable)\n',
+      );
+      expect(r.invite, isNull);
+      expect(r.nodeId, isNotNull);
+    });
+  });
 }

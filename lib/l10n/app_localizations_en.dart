@@ -4073,6 +4073,21 @@ class AppL10nEn extends AppL10n {
       'Check the required release, transport, port, and TLS fields';
 
   @override
+  String get provisionAddedPeer => 'Added the server to the peer list';
+
+  @override
+  String provisionPeerFailed(String reason) {
+    return 'Could not add the server as a peer: $reason';
+  }
+
+  @override
+  String get provisionAddedProxy => 'Added the oproxy exit to the proxy list';
+
+  @override
+  String get provisionProxyNeedsNodeId =>
+      'oproxy installed, but the server reported no node id — cannot add it to the proxy list';
+
+  @override
   String get provisionSavedNodeId => 'Saved the node id reported by the server';
 
   @override
@@ -4314,6 +4329,47 @@ class AppL10nEn extends AppL10n {
   @override
   String timeDaysAgo(int n) {
     return '${n}d ago';
+  }
+
+  @override
+  String get peersAddAction => 'Add peer';
+
+  @override
+  String get peersAddTitle => 'Add a peer by link';
+
+  @override
+  String get peersAddHint =>
+      'Paste a veil:bootstrap link. A node produces its own with `veil-cli bootstrap invite`; a deployed server saves it here automatically.';
+
+  @override
+  String get peersAddFieldLabel => 'Bootstrap link';
+
+  @override
+  String get peersAddPaste => 'Paste';
+
+  @override
+  String peersAddInvalid(String reason) {
+    return 'Not a bootstrap link: $reason';
+  }
+
+  @override
+  String get peersAddNoTransport =>
+      'This link carries an identity but no address, so there is nothing to dial. Use it to add a contact instead.';
+
+  @override
+  String get peersAddNoNode => 'The node is not running yet';
+
+  @override
+  String get peersAddDone => 'Peer added';
+
+  @override
+  String peersAddFailed(String reason) {
+    return 'Could not add the peer: $reason';
+  }
+
+  @override
+  String peersAddResolved(String nodeId, String transport) {
+    return 'node $nodeId… via $transport';
   }
 
   @override
