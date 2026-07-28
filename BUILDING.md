@@ -43,6 +43,80 @@ the per-platform sections stay the reference for what actually happens, and
 anything unusual (staging a single DLL, a signing workaround) can still be run
 by hand.
 
+### From a clean machine
+
+`prepare.py` deliberately stops at anything that needs a licence agreement or
+tens of gigabytes. This section is what to do when it stops. Do these once,
+then let `prepare.py` finish the rest.
+
+**Disk.** Budget ~100 GB if you intend to iterate: Rust debug trees are the
+dominant cost (veil alone reaches ~22 GB), and each platform you switch to adds
+its own. A single build needs far less, but you will run `cargo clean` often.
+
+**macOS host — Xcode.** The command-line tools are not enough for macOS or iOS
+builds; the full IDE is required.
+
+```sh
+xcode-select --install                       # command-line tools
+# then install Xcode itself from the App Store (~10 GB), and:
+sudo xcodebuild -license accept
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+xcodebuild -runFirstLaunch
+```
+
+`xcode-select -s` matters: with only the command-line tools selected, Flutter
+reports Xcode as missing even though it is installed.
+
+**macOS host — the rest.**
+
+```sh
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install --cask flutter          # or download the SDK and add bin/ to PATH
+brew install cocoapods
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+**Android, on any host.** Android Studio is the easy route because it installs
+the SDK, the NDK and a JDK together. Without it, install JDK 17 and the
+command-line tools, then let `prepare.py android` fetch the SDK packages. Point
+`ANDROID_HOME` at the SDK (`~/Library/Android/sdk` on macOS,
+`~/Android/Sdk` on Linux) before running it.
+
+**Windows host.** Visual Studio with the *Desktop development with C++*
+workload — the Build Tools alone are not enough for `flutter build windows`.
+Git for Windows provides the bash that `builder.py` needs for the whisper
+wrapper.
+
+**Linux host.** Everything is a package; `prepare.py` installs the list for
+apt, dnf, pacman or zypper. On a Debian-family system that is:
+
+```sh
+sudo apt-get install -y clang cmake ninja-build pkg-config \
+  libgtk-3-dev liblzma-dev libstdc++-12-dev libayatana-appindicator3-dev \
+  unzip curl git
+```
+
+Flutter has no official linux-arm64 tarball; on an ARM machine clone the SDK
+instead (`git clone -b stable https://github.com/flutter/flutter.git`) — the
+tool then fetches an arm64 Dart SDK and works.
+
+**Then, for every host:**
+
+```sh
+git clone --recurse-submodules https://github.com/veilnetwork/xVeil.git
+cd xVeil
+./prepare.py            # or: ./prepare.py android|ios|linux|windows|macos
+flutter doctor -v       # should report no blocking issues for your target
+./builder.py
+```
+
+**Signing, for Apple platforms only.** An iOS build needs a team selected in
+`ios/Runner.xcworkspace` (Xcode → Runner → Signing & Capabilities). A free
+Apple ID is enough to run on your own device, with a 7-day profile expiry. For
+macOS without a developer account, use `scripts/build-macos-adhoc.sh` as
+described in the macOS section below — the normal build fails at signing,
+debug included.
+
 ### Requirements
 
 Common requirements:
@@ -382,6 +456,79 @@ Android и NDK, системные пакеты Linux, CocoaPods, git-подмо
 разделы по платформам остаются источником правды о происходящем, а всё
 нестандартное (выкладка одной DLL, обход подписи) по-прежнему можно выполнить
 руками.
+
+### С нуля
+
+`prepare.py` намеренно останавливается на всём, что требует согласия с
+лицензией или десятков гигабайт. Этот раздел — что делать, когда он
+остановился. Один раз выполняете это, дальше `prepare.py` доделывает остальное.
+
+**Диск.** Закладывайте ~100 ГБ, если собираетесь работать итеративно: основная
+статья — debug-деревья Rust (один veil дорастает до ~22 ГБ), и каждая новая
+платформа добавляет своё. Разовая сборка требует заметно меньше, но `cargo
+clean` придётся звать часто.
+
+**macOS — Xcode.** Одних command-line tools для сборок под macOS и iOS
+недостаточно, нужен полный Xcode.
+
+```sh
+xcode-select --install                       # command-line tools
+# затем сам Xcode из App Store (~10 ГБ), и:
+sudo xcodebuild -license accept
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+xcodebuild -runFirstLaunch
+```
+
+`xcode-select -s` здесь существен: если выбраны только command-line tools,
+Flutter сообщает, что Xcode отсутствует, хотя он установлен.
+
+**macOS — остальное.**
+
+```sh
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install --cask flutter          # либо скачать SDK и добавить bin/ в PATH
+brew install cocoapods
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+**Android, на любом хосте.** Проще всего через Android Studio — он ставит SDK,
+NDK и JDK разом. Без него: поставьте JDK 17 и command-line tools, а пакеты SDK
+докачает `prepare.py android`. Перед запуском укажите `ANDROID_HOME` на SDK
+(`~/Library/Android/sdk` на macOS, `~/Android/Sdk` на Linux).
+
+**Windows.** Visual Studio с нагрузкой *Desktop development with C++* — одних
+Build Tools для `flutter build windows` не хватает. Git for Windows даёт bash,
+который нужен `builder.py` для обёртки whisper.
+
+**Linux.** Здесь всё ставится пакетами; `prepare.py` знает списки для apt, dnf,
+pacman и zypper. Для семейства Debian это:
+
+```sh
+sudo apt-get install -y clang cmake ninja-build pkg-config \
+  libgtk-3-dev liblzma-dev libstdc++-12-dev libayatana-appindicator3-dev \
+  unzip curl git
+```
+
+Официального архива Flutter под linux-arm64 не существует: на ARM-машине
+клонируйте SDK (`git clone -b stable https://github.com/flutter/flutter.git`) —
+инструмент подтянет arm64-сборку Dart SDK и заработает.
+
+**Дальше — одинаково для всех хостов:**
+
+```sh
+git clone --recurse-submodules https://github.com/veilnetwork/xVeil.git
+cd xVeil
+./prepare.py            # или: ./prepare.py android|ios|linux|windows|macos
+flutter doctor -v       # для вашей цели не должно остаться блокирующих пунктов
+./builder.py
+```
+
+**Подпись — только для платформ Apple.** Сборке под iOS нужна выбранная команда
+в `ios/Runner.xcworkspace` (Xcode → Runner → Signing & Capabilities).
+Бесплатного Apple ID достаточно, чтобы запустить на своём устройстве, но
+profile истекает через 7 дней. Для macOS без учётной записи разработчика
+используйте `scripts/build-macos-adhoc.sh`, как описано ниже в разделе macOS:
+обычная сборка падает на подписи, включая debug.
 
 ### Требования
 
