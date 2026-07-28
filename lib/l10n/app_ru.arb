@@ -1279,6 +1279,13 @@
   "provisionRunning": "Развёртывание… (майнинг личности может занять время)",
   "provisionNeedUrl": "Укажите https-ссылку на релиз",
   "provisionInvalidConfig": "Проверьте обязательные поля релиза, транспортов, портов и TLS",
+  "provisionAddedPeer": "Сервер добавлен в список пиров",
+  "provisionPeerFailed": "Не удалось добавить сервер в пиры: {reason}",
+  "@provisionPeerFailed": {
+    "placeholders": { "reason": { "type": "String" } }
+  },
+  "provisionAddedProxy": "oproxy-выход добавлен в список прокси",
+  "provisionProxyNeedsNodeId": "oproxy установлен, но сервер не сообщил node id — в список прокси его не добавить",
   "provisionSavedNodeId": "node id, сообщённый сервером, сохранён",
   "nodeSshConnect": "Подключиться по SSH",
   "sshDialogTitle": "SSH к {host}",
@@ -1362,6 +1369,26 @@
   "timeDaysAgo": "{n} дн назад",
   "@timeDaysAgo": { "placeholders": { "n": { "type": "int" } } },
 
+  "peersAddAction": "Добавить пир",
+  "peersAddTitle": "Добавление пира по ссылке",
+  "peersAddHint": "Вставьте ссылку veil:bootstrap. Узел выдаёт свою командой `veil-cli bootstrap invite`; развёрнутый сервер сохраняется сюда сам.",
+  "peersAddFieldLabel": "Ссылка bootstrap",
+  "peersAddPaste": "Вставить",
+  "peersAddInvalid": "Это не ссылка bootstrap: {reason}",
+  "@peersAddInvalid": {
+    "placeholders": { "reason": { "type": "String" } }
+  },
+  "peersAddNoTransport": "В ссылке есть личность, но нет адреса — набирать нечего. Такую ссылку добавляют как контакт.",
+  "peersAddNoNode": "Узел ещё не запущен",
+  "peersAddDone": "Пир добавлен",
+  "peersAddFailed": "Не удалось добавить пир: {reason}",
+  "@peersAddFailed": {
+    "placeholders": { "reason": { "type": "String" } }
+  },
+  "peersAddResolved": "узел {nodeId}… через {transport}",
+  "@peersAddResolved": {
+    "placeholders": { "nodeId": { "type": "String" }, "transport": { "type": "String" } }
+  },
   "peersShareAction": "Поделиться узлами входа",
   "peersShareTitle": "Поделиться узлами входа",
   "peersShareSubtitle": "Выберите узлы, чтобы дать другу рабочие точки входа в сеть — пригодится, если у него заблокированы узлы по умолчанию. Передаются ТОЛЬКО эти узлы, а не ваша личность.",
