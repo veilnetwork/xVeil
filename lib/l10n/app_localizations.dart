@@ -4032,6 +4032,12 @@ abstract class AppL10n {
   /// **'Nothing found'**
   String get cloudSearchEmpty;
 
+  /// No description provided for @cloudSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud settings'**
+  String get cloudSettings;
+
   /// No description provided for @cloudSort.
   ///
   /// In en, this message translates to:

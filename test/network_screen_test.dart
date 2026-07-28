@@ -42,13 +42,15 @@ void main() {
     expect(find.text(l.networkStatusConnecting), findsOneWidget);
   });
 
-  testWidgets('renders the secondary controls (proxy / nodes / extensions)',
-      (tester) async {
+  testWidgets('renders the secondary controls (proxy / nodes)', (tester) async {
     await tester.pumpWidget(
         _host(const NodeStatus(phase: NodePhase.connected, peerCount: 1)));
     await tester.pump();
     expect(find.byIcon(Icons.vpn_lock_outlined), findsOneWidget);
     expect(find.byIcon(Icons.dns_outlined), findsOneWidget);
-    expect(find.byIcon(Icons.extension_outlined), findsOneWidget);
+    // Lua extensions are not implemented. The row was a chevron leading to a
+    // "coming later" snackbar, which reads as a feature that exists and is
+    // merely switched off — so it is gone until there is something behind it.
+    expect(find.byIcon(Icons.extension_outlined), findsNothing);
   });
 }

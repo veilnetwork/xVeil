@@ -2264,6 +2264,9 @@ class AppL10nEn extends AppL10n {
   String get cloudSearchEmpty => 'Nothing found';
 
   @override
+  String get cloudSettings => 'Cloud settings';
+
+  @override
   String get cloudSort => 'Sort';
 
   @override
