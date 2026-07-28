@@ -228,6 +228,14 @@ String _hexFill(int byte) => List.filled(
   byte,
 ).map((value) => value.toRadixString(16).padLeft(2, '0')).join();
 
+/// The cloud root keeps its actions in a single labelled menu — seven icon-only
+/// buttons left the title rendering as one character. Tests open the menu the
+/// way a person does.
+Future<void> openCloudMenu(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('cloud-menu')));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('shared-document invite stays explicit and can be rejected', (
     tester,
@@ -1191,10 +1199,24 @@ void main() {
       reason: 'a local file with fewer than two replicas warns inline',
     );
     expect(find.textContaining('1 verified copy'), findsOneWidget);
+    // The replication mode and the integrity check are no longer standing on
+    // the file list: the mode is a once-made setting and lives in cloud
+    // settings, the check is a named entry in the one menu. Both are still one
+    // gesture away, and both are now named rather than drawn.
+    expect(
+      find.text('Index only'),
+      findsNothing,
+      reason: 'a storage policy does not belong above the files',
+    );
+    await openCloudMenu(tester);
+    expect(find.text('Verify and repair'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('cloud-settings')));
+    await tester.pumpAndSettle();
     expect(find.text('Index only'), findsOneWidget);
-    expect(find.byIcon(Icons.health_and_safety_outlined), findsOneWidget);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.tap(find.byType(PopupMenuButton<String>).first);
     await tester.pumpAndSettle();
     expect(find.text('Share with contact'), findsOneWidget);
     await tester.tap(find.text('Share with contact'));
@@ -1241,7 +1263,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.tap(find.byType(PopupMenuButton<String>).first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete'));
     await tester.pumpAndSettle();
@@ -1250,6 +1272,7 @@ void main() {
     expect(find.text('oops.bin'), findsNothing);
     expect(await service.listItems(), isEmpty);
 
+    await openCloudMenu(tester);
     await tester.tap(find.byKey(const ValueKey('cloud-trash')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('cloud-trash-dialog')), findsOneWidget);
@@ -1275,12 +1298,13 @@ void main() {
     expect(await service.readContentRange(restored, 0, bytes.length), bytes);
 
     // And delete-forever really does empty it.
-    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.tap(find.byType(PopupMenuButton<String>).first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
     await tester.pumpAndSettle();
+    await openCloudMenu(tester);
     await tester.tap(find.byKey(const ValueKey('cloud-trash')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('cloud-trash-empty')));
@@ -1330,7 +1354,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.tap(find.byType(PopupMenuButton<String>).first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Rename'));
     await tester.pumpAndSettle();
@@ -1510,21 +1534,18 @@ void main() {
       'apple.bin',
     ], reason: 'newest-first is the default ordering');
 
-    await tester.tap(find.byKey(const ValueKey('cloud-sort')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('By name'));
+    await openCloudMenu(tester);
+    await tester.tap(find.byKey(const ValueKey('cloud-sort-name')));
     await tester.pumpAndSettle();
     expect(visibleOrder(), ['apple.bin', 'mango.bin', 'zebra.bin']);
 
-    await tester.tap(find.byKey(const ValueKey('cloud-sort')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('By size'));
+    await openCloudMenu(tester);
+    await tester.tap(find.byKey(const ValueKey('cloud-sort-size')));
     await tester.pumpAndSettle();
     expect(visibleOrder(), ['zebra.bin', 'apple.bin', 'mango.bin']);
 
-    await tester.tap(find.byKey(const ValueKey('cloud-sort')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('By date'));
+    await openCloudMenu(tester);
+    await tester.tap(find.byKey(const ValueKey('cloud-sort-date')));
     await tester.pumpAndSettle();
     expect(visibleOrder(), ['mango.bin', 'zebra.bin', 'apple.bin']);
   });

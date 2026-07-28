@@ -702,6 +702,7 @@
   "cloudSearch": "Поиск",
   "cloudSearchHint": "Поиск в хранилище",
   "cloudSearchEmpty": "Ничего не найдено",
+  "cloudSettings": "Настройки облака",
   "cloudSort": "Сортировка",
   "cloudSortByName": "По имени",
   "cloudSortByDate": "По дате",

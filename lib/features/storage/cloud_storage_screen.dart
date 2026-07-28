@@ -43,6 +43,21 @@ class CloudStorageScreen extends ConsumerStatefulWidget {
 /// Session-only document ordering. Folders always list first, name-sorted.
 enum _CloudSortMode { name, date, size }
 
+/// Everything the cloud root's overflow menu can do. Sorting shares the menu
+/// with the actions rather than owning a second button: it is the one thing
+/// here with a current value, and a checkmark shows it without a tooltip.
+enum _CloudMenu {
+  sortName,
+  sortDate,
+  sortSize,
+  trash,
+  usage,
+  verify,
+  importLink,
+  folderSync,
+  settings,
+}
+
 class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
   bool _busy = false;
 
@@ -860,6 +875,79 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
   /// action and leave, and its whole content is a short list. The list is
   /// rebuilt from the service after every action, so it never shows a row the
   /// service has already released.
+  /// A menu row that names what it does. `ListTile` inside the item rather
+  /// than a bare `Text` so the icon travels WITH its label — the icons were
+  /// never the problem, being alone was.
+  PopupMenuItem<_CloudMenu> _menuItem(
+    _CloudMenu value,
+    IconData icon,
+    String label, {
+    bool enabled = true,
+  }) => PopupMenuItem<_CloudMenu>(
+    key: ValueKey('cloud-${value.name}'),
+    value: value,
+    enabled: enabled,
+    child: ListTile(
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon),
+      title: Text(label),
+    ),
+  );
+
+  void _onMenuSelected(_CloudMenu item) {
+    switch (item) {
+      case _CloudMenu.sortName:
+        setState(() => _sort = _CloudSortMode.name);
+      case _CloudMenu.sortDate:
+        setState(() => _sort = _CloudSortMode.date);
+      case _CloudMenu.sortSize:
+        setState(() => _sort = _CloudSortMode.size);
+      case _CloudMenu.trash:
+        _showTrash();
+      case _CloudMenu.usage:
+        _showUsage();
+      case _CloudMenu.verify:
+        _verifyAll();
+      case _CloudMenu.importLink:
+        _importPublicLink();
+      case _CloudMenu.folderSync:
+        context.push('/storage/folder-sync');
+      case _CloudMenu.settings:
+        _showCloudSettings();
+    }
+  }
+
+  /// Cloud settings, which is where a setting belongs.
+  ///
+  /// "Keep on this device" used to sit above the file list on every visit: a
+  /// three-line explanation of a replication mode, permanently occupying the
+  /// space where the files are, for a choice made once. Someone opening their
+  /// cloud is looking for a file, not for a storage policy.
+  Future<void> _showCloudSettings() async {
+    final service = ref.read(cloudServiceProvider);
+    if (service == null) return;
+    final l = AppL10n.of(context);
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(
+                l.cloudSettings,
+                style: Theme.of(sheet).textTheme.titleMedium,
+              ),
+            ),
+            _ReplicationProfile(service: service),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _showTrash() async {
     final service = ref.read(cloudServiceProvider);
     if (service == null) return;
@@ -1339,61 +1427,86 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                 onPressed: service == null ? null : _startSearch,
                 icon: const Icon(Icons.search),
               ),
-              IconButton(
-                key: const ValueKey('cloud-usage'),
-                tooltip: l.cloudUsage,
-                onPressed: service == null ? null : _showUsage,
-                icon: const Icon(Icons.data_usage_outlined),
-              ),
-              IconButton(
-                key: const ValueKey('cloud-trash'),
-                tooltip: l.cloudTrash,
-                onPressed: service == null ? null : _showTrash,
-                icon: const Icon(Icons.delete_outline),
-              ),
-              // Desktop only: a phone has no folder to mirror that another app
-              // can also write to, and the picker returns nothing there.
-              if (Platform.isMacOS || Platform.isLinux || Platform.isWindows)
-                IconButton(
-                  key: const ValueKey('cloud-folder-sync'),
-                  tooltip: l.folderSyncTitle,
-                  onPressed: () => context.push('/storage/folder-sync'),
-                  icon: const Icon(Icons.sync_outlined),
-                ),
-              PopupMenuButton<_CloudSortMode>(
-                key: const ValueKey('cloud-sort'),
-                tooltip: l.cloudSort,
-                icon: const Icon(Icons.sort),
-                initialValue: _sort,
-                onSelected: (mode) => setState(() => _sort = mode),
+              // One menu with written names, where there used to be seven
+              // icon-only buttons. Seven 48dp targets plus a back button leave
+              // a phone's app bar with room for roughly one character of the
+              // folder name — the title rendered as "Л…" — and a row of bare
+              // glyphs is legible only to someone who already knows what each
+              // one does. A tooltip is not an answer: it needs a long-press
+              // nobody performs, and on the way to the wrong icon.
+              PopupMenuButton<_CloudMenu>(
+                key: const ValueKey('cloud-menu'),
+                icon: const Icon(Icons.more_vert),
+                onSelected: _onMenuSelected,
                 itemBuilder: (context) => [
+                  PopupMenuItem<_CloudMenu>(
+                    enabled: false,
+                    height: 34,
+                    child: Text(
+                      l.cloudSort,
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ),
                   CheckedPopupMenuItem(
-                    value: _CloudSortMode.name,
+                    key: const ValueKey('cloud-sort-name'),
+                    value: _CloudMenu.sortName,
                     checked: _sort == _CloudSortMode.name,
                     child: Text(l.cloudSortByName),
                   ),
                   CheckedPopupMenuItem(
-                    value: _CloudSortMode.date,
+                    key: const ValueKey('cloud-sort-date'),
+                    value: _CloudMenu.sortDate,
                     checked: _sort == _CloudSortMode.date,
                     child: Text(l.cloudSortByDate),
                   ),
                   CheckedPopupMenuItem(
-                    value: _CloudSortMode.size,
+                    key: const ValueKey('cloud-sort-size'),
+                    value: _CloudMenu.sortSize,
                     checked: _sort == _CloudSortMode.size,
                     child: Text(l.cloudSortBySize),
                   ),
+                  const PopupMenuDivider(),
+                  _menuItem(
+                    _CloudMenu.trash,
+                    Icons.delete_outline,
+                    l.cloudTrash,
+                    enabled: service != null,
+                  ),
+                  _menuItem(
+                    _CloudMenu.usage,
+                    Icons.data_usage_outlined,
+                    l.cloudUsage,
+                    enabled: service != null,
+                  ),
+                  _menuItem(
+                    _CloudMenu.verify,
+                    Icons.health_and_safety_outlined,
+                    l.cloudVerify,
+                    enabled: service != null && !_busy,
+                  ),
+                  if (ref.watch(cloudCapabilityServiceProvider) != null)
+                    _menuItem(
+                      _CloudMenu.importLink,
+                      Icons.link,
+                      l.cloudPublicImport,
+                      enabled: !_busy,
+                    ),
+                  // Desktop only: a phone has no folder to mirror that another
+                  // app can also write to, and the picker returns nothing.
+                  if (Platform.isMacOS || Platform.isLinux || Platform.isWindows)
+                    _menuItem(
+                      _CloudMenu.folderSync,
+                      Icons.sync_outlined,
+                      l.folderSyncTitle,
+                    ),
+                  const PopupMenuDivider(),
+                  _menuItem(
+                    _CloudMenu.settings,
+                    Icons.settings_outlined,
+                    l.cloudSettings,
+                    enabled: service != null,
+                  ),
                 ],
-              ),
-              if (ref.watch(cloudCapabilityServiceProvider) != null)
-                IconButton(
-                  tooltip: l.cloudPublicImport,
-                  onPressed: _busy ? null : _importPublicLink,
-                  icon: const Icon(Icons.link),
-                ),
-              IconButton(
-                tooltip: l.cloudVerify,
-                onPressed: service == null || _busy ? null : _verifyAll,
-                icon: const Icon(Icons.health_and_safety_outlined),
               ),
             ],
             if (_busy)
@@ -1419,7 +1532,8 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                       service: documentService,
                       cloud: service,
                     ),
-                  if (openFolder == null) _ReplicationProfile(service: service),
+                  // "Keep on this device" now lives in cloud settings: it is a
+                  // once-made choice, and it was standing where the files go.
                   if (openFolder != null)
                     SizedBox(
                       height: 40,
@@ -3215,7 +3329,11 @@ class _CloudItemTileState extends State<_CloudItemTile> {
           : widget.onEnterSelection,
       trailing: widget.selectionMode
           ? null
+          // Keyed because the app bar now carries a menu of its own: two
+          // identical more_vert glyphs on one screen are ambiguous to a finder
+          // and, more to the point, to a person.
           : PopupMenuButton<String>(
+              key: ValueKey('cloud-item-menu-${widget.item.id}'),
               onSelected: (action) {
                 switch (action) {
                   case 'fetch':

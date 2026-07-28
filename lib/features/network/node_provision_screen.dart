@@ -372,7 +372,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
         await ref.read(realStackProvider)?.addContact(invite);
         done.add(l.provisionAddedPeer);
       } catch (e) {
-        done.add(l.provisionPeerFailed('$e'));
+        done.add(l.provisionPeerFailed(shownCause(e, kind: 'provision')));
       }
     }
 
