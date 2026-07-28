@@ -4939,6 +4939,54 @@ void main() {
     },
   );
 
+  test('two Space invites arriving at once do not lose one another', () async {
+    // The invite store is read, modified and written back across awaits, so
+    // without the mutation gate two concurrent arrivals both start from the
+    // same snapshot and the second write erases the first. Tests that await
+    // one delivery before starting the next never see it.
+    final ownerStorage = FakeHvContainer().storage();
+    final bobStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'owner', createIfMissing: true);
+    await bobStorage.open(password: 'bob', createIfMissing: true);
+    await ownerStorage.upsertContact(
+      Contact(nodeId: bob, status: ContactStatus.accepted),
+    );
+    await bobStorage.upsertContact(
+      Contact(nodeId: owner, status: ContactStatus.accepted),
+    );
+    final captured = <String>[];
+    final ownerService = GroupService(
+      ownerStorage,
+      _FakeSigner(owner),
+      // Capture instead of delivering, so both arrivals can be started
+      // together rather than one after the other.
+      sendSpaceInvite: (peer, inviteId, json) async => captured.add(json),
+    );
+    final bobService = GroupService(bobStorage, _FakeSigner(bob));
+    addTearDown(ownerService.dispose);
+    addTearDown(bobService.dispose);
+
+    final first = await ownerService.createSpace('Room one');
+    final second = await ownerService.createSpace('Room two');
+    expect(await ownerService.inviteToSpace(first, bob), isTrue);
+    expect(await ownerService.inviteToSpace(second, bob), isTrue);
+    expect(captured.length, 2);
+
+    // Both deliveries in flight at the same time.
+    final results = await Future.wait([
+      bobService.receiveSpaceInvite(owner, captured[0]),
+      bobService.receiveSpaceInvite(owner, captured[1]),
+    ]);
+    expect(results, [isTrue, isTrue]);
+
+    final pending = await bobService.pendingSpaceInvites();
+    expect(
+      pending.map((entry) => entry.invite.spaceId).toSet(),
+      {first, second},
+      reason: 'a concurrent arrival must not erase the one before it',
+    );
+  });
+
   test(
     'blocking an inviter invalidates decisions and accepted Space invites',
     () async {
