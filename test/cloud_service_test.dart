@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/cloud.dart';
 import 'package:xveil/domain/cloud_capability.dart';
@@ -960,6 +961,97 @@ void main() {
 
       await service.close();
       await storage.close();
+    },
+  );
+
+  test(
+    'an unreadable cloud index stops the blob sweep, not just the reader',
+    () async {
+      // The reader refusing to enumerate roots is only half the protection: the
+      // SWEEP has to honour that refusal. If it collects anyway, it deletes
+      // blobs whose only reference sits in the row it could not parse — silent
+      // user data loss, and the reader's fail-closed answer bought nothing.
+      Future<HiddenVolumeStorage> fixture({required bool breakIndex}) async {
+        final storage = FakeHvContainer().storage();
+        await storage.open(password: 'pw', createIfMissing: true);
+        final peer = _id(9);
+        await storage.upsertContact(
+          Contact(nodeId: peer, name: 'Peer', status: ContactStatus.accepted),
+        );
+        final service = CloudService(
+          storage,
+          _FakeSync(_id(1)),
+          contentReceived: const Stream.empty(),
+          now: () => DateTime.fromMillisecondsSinceEpoch(100),
+          newId: () => 'sweep-fixture',
+          integrityChecks: false,
+        );
+        // Something in the cloud index, so there IS an index to make unreadable.
+        await service.importContent(
+          name: 'indexed.bin',
+          size: 64,
+          readRange: _reader(_bytes(64)),
+        );
+        // A LEGACY attachment id: hash-cids are always deferred to the global
+        // collector, so only a legacy id can show the sweep acting at all.
+        await storage.storeFile('legacy-att-1', _bytes(32), name: 'att.bin');
+        await storage.appendMessage(
+          Message(
+            id: 'att-post',
+            conversationId: peer.hex,
+            direction: MessageDirection.outgoing,
+            body: '📎 att.bin',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(101),
+            fileId: 'legacy-att-1',
+            fileName: 'att.bin',
+          ),
+        );
+        if (breakIndex) {
+          final slot = await storage.getSetting('cloud.index.v1.active');
+          final active = 'cloud.index.v1.$slot';
+          final rows =
+              (jsonDecode(utf8.decode((await storage.loadFile(active))!))
+                      as List)
+                  .toList()
+                ..add(
+                  jsonEncode({
+                    'v': 1,
+                    'k': 'cloudSomethingNew',
+                    'key': 'x',
+                    'p': {},
+                  }),
+                );
+          await storage.storeFile(
+            active,
+            Uint8List.fromList(utf8.encode(jsonEncode(rows))),
+          );
+        }
+        await service.close();
+        return storage;
+      }
+
+      // Control first: with roots enumerable, deleting the only reference DOES
+      // collect the blob. Without this the assertion below would hold for a
+      // sweep that never collects anything.
+      final healthy = await fixture(breakIndex: false);
+      expect((await healthy.sharedContentReferenceSnapshot()).complete, isTrue);
+      await healthy.deleteMessage(_id(9).hex, 'att-post');
+      expect(
+        await healthy.hasFile('legacy-att-1'),
+        isFalse,
+        reason: 'a readable index lets the sweep collect the last reference',
+      );
+      await healthy.close();
+
+      final broken = await fixture(breakIndex: true);
+      expect((await broken.sharedContentReferenceSnapshot()).complete, isFalse);
+      await broken.deleteMessage(_id(9).hex, 'att-post');
+      expect(
+        await broken.hasFile('legacy-att-1'),
+        isTrue,
+        reason: 'a row we cannot read may be the reference that keeps it alive',
+      );
+      await broken.close();
     },
   );
 
