@@ -247,6 +247,12 @@ abstract class AppL10n {
   /// **'I have written down my recovery phrase'**
   String get recoveryConfirm;
 
+  /// No description provided for @recoveryPlaceholderWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'These are PLACEHOLDER words. The identity generator is unavailable in this build, so the identity is being minted randomly and these words restore nothing. Do not write them down as a backup.'**
+  String get recoveryPlaceholderWarning;
+
   /// No description provided for @storageTitle.
   ///
   /// In en, this message translates to:
@@ -5391,7 +5397,7 @@ abstract class AppL10n {
   /// No description provided for @settingsStorageCompactBody.
   ///
   /// In en, this message translates to:
-  /// **'Reclaim unused space — the app re-opens.'**
+  /// **'Reclaim unused space — the app re-opens. Keeps ONLY the unlocked space: any other hidden identity in this container is discarded.'**
   String get settingsStorageCompactBody;
 
   /// No description provided for @settingsStorageCompactDone.
