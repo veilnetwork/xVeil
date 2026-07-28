@@ -167,6 +167,107 @@ void main() {
     },
   );
 
+  test('a stored blob is not shared with a peer who never consented', () async {
+    // shareStoredContent is a PUBLIC entry that takes an arbitrary destination,
+    // and its consent check is the only thing standing between a stored blob
+    // and any node id the caller names. Nothing else on the path re-asks.
+    final data = rnd(4096, 21);
+    final manifest = ContentManifest.fromBytes(
+      'private.bin',
+      data,
+      pieceSize: ContentManifest.adaptivePieceSize(data.length),
+      chunkBytes: 4096,
+    );
+    await sA.storeFile(manifest.contentId, data, name: manifest.name);
+    await sA.storeFile(
+      'mf:${manifest.contentId}',
+      Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+      name: 'cloud-manifest',
+    );
+
+    final stranger = _id(9);
+    expect(
+      await mA.shareStoredContent(stranger, manifest.contentId),
+      isFalse,
+      reason: 'an unknown peer must not be offered stored content',
+    );
+    expect(
+      (await sA.loadMessages(stranger.hex)),
+      isEmpty,
+      reason: 'and no file-post event may be minted for them',
+    );
+
+    await sA.upsertContact(
+      Contact(nodeId: stranger, status: ContactStatus.blocked),
+    );
+    expect(
+      await mA.shareStoredContent(stranger, manifest.contentId),
+      isFalse,
+      reason: 'blocking is not weaker than being unknown',
+    );
+
+    // The same call to an ACCEPTED peer must still work, or the refusals above
+    // would hold for a share path that is simply broken.
+    expect(await mA.shareStoredContent(b, manifest.contentId), isTrue);
+  });
+
+  test('a streamed file is not served to a peer who never consented', () async {
+    // sendFileStreaming is reachable from the chat UI AND from the REST server,
+    // where the destination comes from the API caller, so its consent check is
+    // the only thing between an open file handle and any node id asked for.
+    final data = rnd(4096, 22);
+    final stranger = _id(11);
+    var closed = 0;
+
+    Future<Uint8List> read(int offset, int length) async =>
+        Uint8List.sublistView(data, offset, offset + length);
+
+    expect(
+      await mA.sendFileStreaming(
+        stranger,
+        'stream.bin',
+        data.length,
+        read,
+        close: () async => closed++,
+      ),
+      isNull,
+      reason: 'an unknown peer must not be served a stream',
+    );
+    expect(
+      closed,
+      1,
+      reason: 'the refusal must RELEASE the handle, not leak it',
+    );
+
+    await sA.upsertContact(
+      Contact(nodeId: stranger, status: ContactStatus.blocked),
+    );
+    expect(
+      await mA.sendFileStreaming(
+        stranger,
+        'stream.bin',
+        data.length,
+        read,
+        close: () async => closed++,
+      ),
+      isNull,
+      reason: 'blocking is not weaker than being unknown',
+    );
+    expect(closed, 2);
+
+    // An accepted peer is still served, or the refusals prove nothing.
+    expect(
+      await mA.sendFileStreaming(
+        b,
+        'stream.bin',
+        data.length,
+        read,
+        close: () async => closed++,
+      ),
+      isNotNull,
+    );
+  });
+
   test(
     'a dropped piece is re-requested and the transfer still completes',
     () async {
