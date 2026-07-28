@@ -2057,7 +2057,34 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get cloudDeleteBody =>
-      'The item will disappear from every linked device. This cannot be undone.';
+      'The item will disappear from every linked device. This device keeps it in the trash until you empty it.';
+
+  @override
+  String get cloudTrash => 'Trash';
+
+  @override
+  String get cloudTrashEmptyState => 'The trash is empty';
+
+  @override
+  String get cloudTrashHint =>
+      'Deleted items stay on this device until the trash is emptied. Other devices already see them as gone.';
+
+  @override
+  String get cloudTrashRestore => 'Restore';
+
+  @override
+  String get cloudTrashDeleteForever => 'Delete forever';
+
+  @override
+  String get cloudTrashEmptyAction => 'Empty trash';
+
+  @override
+  String cloudTrashRestored(String name) {
+    return 'Restored “$name”';
+  }
+
+  @override
+  String get cloudTrashEmptied => 'Trash emptied';
 
   @override
   String get cloudSharedEmpty => 'No files in this shared folder yet';
