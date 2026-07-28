@@ -69,3 +69,6 @@ ios/Runner.xcworkspace/xcshareddata/swiftpm/
 /.dev-mailbox-mesh/
 /.dev-mailbox-onion/
 /assets/prod/obfs4_psk.b64
+
+# Local leak guard — deliberately not tracked (see the header in the script).
+check-leaks.sh
