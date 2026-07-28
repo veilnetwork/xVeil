@@ -13,17 +13,13 @@ name: release
 # Gatekeeper refuses the result outright, so the build would produce something
 # nobody can run. Windows has no such gate — see the SmartScreen note there.
 #
-# Linux desktop is absent for a different reason, and a fixable one. The call
-# engine ships as a PREBUILT libveil_media.so — veil_media/linux/CMakeLists.txt
-# stops the build outright when it is missing — and producing it needs an
-# x86_64 host with a from-source WebRTC checkout (out/linux-x64/
-# compile_commands.json), which is hours of build and tens of GB: not something
-# a runner can do inside a job. The copy that exists out-of-band is from
-# 2026-07-16 and no longer matches the app: it exports 78 veil_media_* symbols
-# while the Dart layer now looks up 10 more (capture-device selection, screen
-# sharing, the RTP size cap). Bundling it would build cleanly and then fail at
-# dlsym the first time someone placed a call. Restore this job once a current
-# .so can be produced — the recipe is veil_media/linux/build_veil_media_so_linux.sh.
+# Linux carries one thing this job cannot build: the call engine is a prebuilt
+# libveil_media.so, and producing it needs a from-source WebRTC checkout —
+# hours and tens of GB, more than a release job should hold. The webrtc-linux
+# workflow makes it by hand and this one pins the run that did. That pin is the
+# part that rots, so the engine is checked against the symbols Dart looks up
+# before anything is built with it: the copy this replaced was twelve commits
+# behind and would have failed at dlsym on the first call.
 on:
   push:
     tags:
@@ -229,6 +225,102 @@ jobs:
           path: build/app/outputs/flutter-apk/*-release.apk
           if-no-files-found: error
 
+  linux:
+    name: linux bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # From prepare.py's LINUX_PACKAGES. libayatana-appindicator3-dev is for
+      # tray_manager, which stops the CMake configure with a message naming a
+      # pkg-config module and no package.
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev libayatana-appindicator3-dev
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: whisper.cpp at the pinned commit
+        run: |
+          set -euo pipefail
+          git init whisper.cpp
+          cd whisper.cpp
+          git remote add origin "$WHISPER_REPO"
+          git fetch --depth 1 origin "$WHISPER_COMMIT"
+          git checkout FETCH_HEAD
+
+      - name: Production obfs4 PSK
+        env:
+          PSK: ${{ secrets.PROD_OBFS4_PSK }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PSK" ]; then
+            echo "::error::PROD_OBFS4_PSK is not set — the bundle would build, run and never reach the network."
+            exit 1
+          fi
+          printf '%s\n' "$PSK" > assets/prod/obfs4_psk.b64
+
+      # The call engine is a prebuilt: veil_media/linux/CMakeLists.txt refuses
+      # to configure without it, and building one needs a from-source WebRTC
+      # checkout that does not fit in a release job. The webrtc-linux workflow
+      # produces it by hand; this pins the run that did.
+      #
+      # Update ENGINE_RUN whenever veil_media/src changes, and note that run
+      # artifacts expire — if the download 404s, re-run webrtc-linux and pin
+      # the new id. The symbol check below is what makes a stale pin loud
+      # rather than a call that fails at dlsym on someone's machine.
+      - name: Prebuilt call engine
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENGINE_RUN: '30377834797'
+        run: |
+          set -euo pipefail
+          dest=third_party/veil/flutter/veil_media/linux
+          gh run download "$ENGINE_RUN" -n libveil_media-linux-x64 -D "$dest"
+          ls -la "$dest/libveil_media.so"
+          bash scripts/check-media-symbols.sh "$dest/libveil_media.so"
+
+      - name: Build the bundle
+        env:
+          WHISPER_SRC: ${{ github.workspace }}/whisper.cpp
+          CARGO_BUILD_RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/src
+          CFLAGS: -ffile-prefix-map=${{ github.workspace }}=/src
+          CXXFLAGS: -ffile-prefix-map=${{ github.workspace }}=/src
+        run: python3 builder.py linux --release
+
+      - name: The bundle carries the PSK and the engine
+        run: |
+          set -euo pipefail
+          root=build/linux/x64/release/bundle
+          psk="$root/data/flutter_assets/assets/prod/obfs4_psk.b64"
+          [ -s "$psk" ] || { echo "::error::no bundled PSK at $psk"; exit 1; }
+          engine="$(find "$root" -name libveil_media.so | head -1)"
+          [ -n "$engine" ] || { echo "::error::libveil_media.so is not in the bundle — calls would fail at dlopen"; exit 1; }
+          echo "  ok $psk"
+          echo "  ok $engine"
+
+      # A Flutter desktop build is a directory; a Release asset is a file.
+      - name: Archive
+        run: |
+          set -euo pipefail
+          cd build/linux/x64/release
+          tar -czf "$GITHUB_WORKSPACE/xveil-linux-x64.tar.gz" bundle
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: xveil-linux-x64.tar.gz
+          if-no-files-found: error
+
   windows:
     name: windows bundle
     runs-on: windows-latest
@@ -335,7 +427,7 @@ jobs:
   # has no business living in a public repository.
   scan:
     name: scan artifacts
-    needs: [android, windows]
+    needs: [android, linux, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
