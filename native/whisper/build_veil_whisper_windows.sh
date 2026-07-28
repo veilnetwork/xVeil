@@ -31,6 +31,18 @@ command -v cl.exe >/dev/null 2>&1 || {
   exit 1
 }
 
+# Git Bash puts its own /usr/bin first, and Git ships a coreutils `link.exe`
+# (the hard-link utility). Anything that resolves a linker through PATH — cmake
+# configuring whisper.cpp, or cl.exe's /link — finds that one and fails on an
+# "extra operand" complaint that names no compiler. cl.exe has no such twin, so
+# its directory is the way back to the real toolchain.
+MSVC_BIN="$(dirname "$(command -v cl.exe)")"
+export PATH="$MSVC_BIN:$PATH"
+if [ "$(dirname "$(command -v link.exe)")" != "$MSVC_BIN" ]; then
+  echo "link.exe resolves to $(command -v link.exe), not the MSVC one in $MSVC_BIN" >&2
+  exit 1
+fi
+
 # cl.exe does not understand /c/src paths. Convert when cygpath is available
 # (Git Bash ships it); fall back to the value as-is elsewhere.
 win() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else echo "$1"; fi; }
