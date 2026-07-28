@@ -426,6 +426,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
         NodeListenTransport.tcp => l.provisionTransportTcpHint,
         NodeListenTransport.tls => l.provisionTransportTlsHint,
         NodeListenTransport.quic => l.provisionTransportQuicHint,
+        NodeListenTransport.ws => l.provisionTransportWsHint,
         NodeListenTransport.wss => l.provisionTransportWssHint,
       };
 

@@ -1413,7 +1413,7 @@ class AppL10nRu extends AppL10n {
       'Перед выходом из сообщества передайте владение другому участнику.';
 
   @override
-  String get spaceReplicationTitle => 'Доступность в P2P';
+  String get spaceReplicationTitle => 'Распространение копий';
 
   @override
   String spaceReplicationNeighbors(int count) {
@@ -1422,7 +1422,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get spaceReplicationHint =>
-      'Больше распространителей повышает доступность без владельца и надёжность восстановления, но расходует больше трафика этого устройства.';
+      'Копии хранят участники с правом распространять содержимое. Чем их больше, тем выше доступность и надёжность восстановления, но и трафика больше.';
 
   @override
   String get spaceYou => 'Вы';
@@ -3983,6 +3983,10 @@ class AppL10nRu extends AppL10n {
   @override
   String get provisionTransportQuicHint =>
       'QUIC-листенер поверх UDP, защищённый общим TLS-сертификатом ниже.';
+
+  @override
+  String get provisionTransportWsHint =>
+      'Обычный WebSocket. Без сертификата: проходит через HTTP-прокси, но не скрывает содержимое от наблюдателя — ставьте за TLS-фронтом либо берите wss.';
 
   @override
   String get provisionTransportWssHint =>
