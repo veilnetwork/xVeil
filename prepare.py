@@ -24,7 +24,9 @@ rather than doing it again.
 from __future__ import annotations
 
 import os
+import secrets
 import stat
+import string
 import subprocess
 import sys
 import zipfile
@@ -108,6 +110,155 @@ CMDLINE_TOOLS = {
     "Windows": "https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip",
 }
 NDK_VERSION = "27.0.12077973"
+
+
+# Where a freshly generated release keystore goes: BESIDE the checkout, not
+# inside it. `android/.gitignore` already covers `key.properties` and `*.jks`,
+# but a keystore inside the tree is one `git clean -xdf` away from being gone
+# forever, and losing it means every friend who installed the app can never
+# update it — Android identifies an app by its signing key.
+KEYSTORE_DIR = os.environ.get("XVEIL_KEYSTORE_DIR", os.path.dirname(ROOT))
+KEYSTORE_PATH = os.path.join(KEYSTORE_DIR, "xveil-release.jks")
+KEYSTORE_PASSWORD_FILE = os.path.join(KEYSTORE_DIR, "xveil-android-keystore-password.txt")
+KEY_PROPERTIES = os.path.join(ROOT, "android", "key.properties")
+
+
+def _keytool() -> str | None:
+    """Find keytool: PATH, then JAVA_HOME, then Android Studio's bundled JDK.
+
+    macOS ships a `/usr/bin/keytool` shim that only reports "Unable to locate a
+    Java Runtime", so being on PATH is not the same as being usable.
+    """
+    candidates = []
+    if os.environ.get("JAVA_HOME"):
+        candidates.append(os.path.join(os.environ["JAVA_HOME"], "bin", "keytool"))
+    candidates += [
+        "/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/keytool",
+        os.path.expanduser("~/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/keytool"),
+    ]
+    found = _which("keytool")
+    if found:
+        candidates.append(found)
+    for candidate in candidates:
+        if not os.path.isfile(candidate):
+            continue
+        try:
+            subprocess.run(
+                [candidate, "-help"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return candidate
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
+def _write_key_properties(store_file: str, alias: str, password: str) -> None:
+    with open(KEY_PROPERTIES, "w", encoding="utf-8") as handle:
+        handle.write(
+            f"storeFile={store_file}\n"
+            f"storePassword={password}\n"
+            f"keyAlias={alias}\n"
+            f"keyPassword={password}\n"
+        )
+    os.chmod(KEY_PROPERTIES, 0o600)
+
+
+def _generate_release_keystore() -> None:
+    keytool = _keytool()
+    if keytool is None:
+        raise Abort(
+            "no usable keytool found — install a JDK (or Android Studio) and re-run"
+        )
+    if os.path.exists(KEYSTORE_PATH):
+        raise Abort(
+            f"{KEYSTORE_PATH} already exists; refusing to overwrite an app identity.\n"
+            "    Point key.properties at it by choosing 'existing' instead."
+        )
+    os.makedirs(KEYSTORE_DIR, exist_ok=True)
+    alphabet = string.ascii_letters + string.digits
+    password = "".join(secrets.choice(alphabet) for _ in range(40))
+    old_umask = os.umask(0o077)
+    try:
+        with open(KEYSTORE_PASSWORD_FILE, "w", encoding="utf-8") as handle:
+            handle.write(password + "\n")
+        os.chmod(KEYSTORE_PASSWORD_FILE, 0o600)
+        subprocess.run(
+            [
+                keytool, "-genkeypair", "-v",
+                "-keystore", KEYSTORE_PATH, "-storetype", "PKCS12",
+                "-alias", "xveil", "-keyalg", "RSA", "-keysize", "4096",
+                "-validity", "10000",
+                "-dname", "CN=xVeil, O=Veil Network, C=RU",
+                "-storepass", password, "-keypass", password,
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+    finally:
+        os.umask(old_umask)
+    os.chmod(KEYSTORE_PATH, 0o600)
+    _write_key_properties(KEYSTORE_PATH, "xveil", password)
+    print(f"    created {KEYSTORE_PATH}")
+    print(f"    password written to {KEYSTORE_PASSWORD_FILE} (mode 600)")
+    print("    BACK BOTH UP somewhere off this machine. Android identifies an")
+    print("    app by its signing key: lose it and nobody who installed this")
+    print("    build can ever update — only uninstall and reinstall, losing")
+    print("    their encrypted volume with it.")
+
+
+def _adopt_existing_keystore() -> None:
+    path = input("      path to the existing .jks/.p12: ").strip()
+    if not os.path.isfile(path):
+        raise Abort(f"no keystore at {path}")
+    alias = input("      key alias: ").strip()
+    if not alias:
+        raise Abort("alias is required")
+    import getpass
+
+    password = getpass.getpass("      keystore password (not echoed): ")
+    if not password:
+        raise Abort("password is required")
+    keytool = _keytool()
+    if keytool is not None:
+        probe = subprocess.run(
+            [keytool, "-list", "-keystore", path, "-alias", alias, "-storepass", password],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if probe.returncode != 0:
+            raise Abort("that password/alias does not open that keystore")
+    _write_key_properties(os.path.abspath(path), alias, password)
+    print(f"    key.properties now points at {os.path.abspath(path)}")
+
+
+def _ensure_release_signing_key() -> None:
+    """Wire up release signing, or explain what staying unsigned costs.
+
+    Without `android/key.properties` gradle silently falls back to the DEBUG
+    key. That build installs and runs, so the problem only surfaces later, when
+    an update cannot be installed over it.
+    """
+    if not sys.stdin.isatty():
+        print("    not a terminal — skipping the prompt.")
+        print(f"    Release builds stay DEBUG-SIGNED until {KEY_PROPERTIES} exists.")
+        print("    Re-run this from a terminal, or write that file by hand.")
+        return
+    print("    A release APK must be signed with a key you keep. Without one,")
+    print("    gradle falls back to the debug key and the build cannot be")
+    print("    updated over later.")
+    print("      1) create a new signing key (writes the password to a file)")
+    print("      2) use a keystore you already have")
+    print("      3) skip — release builds stay debug-signed")
+    choice = input("    choose [1/2/3]: ").strip()
+    if choice == "1":
+        _generate_release_keystore()
+    elif choice == "2":
+        _adopt_existing_keystore()
+    else:
+        print("    skipped; release builds will be debug-signed.")
 
 
 def _sdkmanager() -> str:
@@ -299,6 +450,17 @@ def plan(target: str, *, release: bool) -> list[Step]:
                     f"ndk;{NDK_VERSION}",
                 ],
                 env={"ANDROID_SDK_ROOT": ANDROID_SDK_ROOT},
+            )
+        )
+        steps.append(
+            Step(
+                "Android release signing key",
+                call=_ensure_release_signing_key,
+                skip_if=(
+                    f"key.properties already at {KEY_PROPERTIES}"
+                    if os.path.isfile(KEY_PROPERTIES)
+                    else ""
+                ),
             )
         )
         steps.append(
