@@ -92,6 +92,10 @@ class AppL10nEn extends AppL10n {
   String get recoveryConfirm => 'I have written down my recovery phrase';
 
   @override
+  String get recoveryPlaceholderWarning =>
+      'These are PLACEHOLDER words. The identity generator is unavailable in this build, so the identity is being minted randomly and these words restore nothing. Do not write them down as a backup.';
+
+  @override
   String get storageTitle => 'How should we store your data?';
 
   @override
@@ -2999,7 +3003,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get settingsStorageCompactBody =>
-      'Reclaim unused space — the app re-opens.';
+      'Reclaim unused space — the app re-opens. Keeps ONLY the unlocked space: any other hidden identity in this container is discarded.';
 
   @override
   String get settingsStorageCompactDone => 'Reclaimed';

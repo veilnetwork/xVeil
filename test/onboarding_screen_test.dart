@@ -261,6 +261,77 @@ void main() {
     });
   });
 
+  testWidgets('a placeholder phrase says so; a restored one does not', (
+    tester,
+  ) async {
+    // `veilGeneratePhrase()` returns null when the native generator is
+    // unavailable (exactly this environment) SO THAT the caller can degrade
+    // honestly. The screen still showed those placeholder words under the
+    // ordinary "these 24 words ARE your identity, write them down" copy, while
+    // the identity was minted at random — the user would have backed up 24
+    // words that restore nothing.
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: OnboardingScreen(validatePhrase: (_) => true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    AppL10n l() => AppL10n.of(tester.element(find.byType(OnboardingScreen)));
+
+    await tester.tap(find.text(l().actionContinue));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l().onboardCreateIdentity));
+    await tester.pumpAndSettle();
+    expect(
+      find.text(l().recoveryTitle),
+      findsOneWidget,
+      reason: 'we are on the recovery step',
+    );
+    expect(
+      find.text(l().recoveryPlaceholderWarning),
+      findsOneWidget,
+      reason: 'a phrase that restores nothing must be labelled as such',
+    );
+
+  });
+
+  testWidgets('a restored phrase carries no placeholder warning', (
+    tester,
+  ) async {
+    // The warning must not cry wolf: a phrase the user supplied IS real, and
+    // labelling it "restores nothing" would push them to discard a good one.
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: OnboardingScreen(validatePhrase: (_) => true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    AppL10n l() => AppL10n.of(tester.element(find.byType(OnboardingScreen)));
+
+    await tester.tap(find.text(l().actionContinue));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l().onboardRestoreIdentity));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextField),
+      List.generate(24, (i) => 'w$i').join(' '),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l().onboardRestoreSubmit));
+    await tester.pumpAndSettle();
+    expect(find.text(l().recoveryPlaceholderWarning), findsNothing);
+  });
+
   testWidgets('the word count gates on its own, not via the validator', (
     tester,
   ) async {

@@ -29,6 +29,7 @@
   "recoveryTitle": "Save your recovery phrase",
   "recoveryBody": "These 24 words ARE your identity. Anyone with them controls it; lose them and it is gone forever. Write them on paper and store them somewhere safe. Never store them online or photograph them.",
   "recoveryConfirm": "I have written down my recovery phrase",
+  "recoveryPlaceholderWarning": "These are PLACEHOLDER words. The identity generator is unavailable in this build, so the identity is being minted randomly and these words restore nothing. Do not write them down as a backup.",
 
   "storageTitle": "How should we store your data?",
   "storageHiddenTitle": "Hidden space (recommended)",
@@ -944,7 +945,7 @@
   "settingsIdentity": "Identity",
   "settingsStorage": "Storage & spaces",
   "settingsStorageCompact": "Compact storage",
-  "settingsStorageCompactBody": "Reclaim unused space — the app re-opens.",
+  "settingsStorageCompactBody": "Reclaim unused space — the app re-opens. Keeps ONLY the unlocked space: any other hidden identity in this container is discarded.",
   "settingsStorageCompactDone": "Reclaimed",
   "settingsStorageCompactFailed": "Couldn't compact storage",
   "settingsStorageAutoCompact": "Auto-compact on unlock",
