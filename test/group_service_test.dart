@@ -9391,6 +9391,47 @@ void main() {
     },
   );
 
+  test('two posts scheduled at once do not lose one another', () async {
+    // The queue index is read and written back across awaits, so without the
+    // mutation gate both calls start from the same snapshot and the second
+    // write drops the first job. Scheduling is a local action, but two
+    // composer screens — or one impatient double-tap — reach it together.
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _FakeSigner(owner));
+    addTearDown(service.dispose);
+    final spaceId = await service.createSpace(
+      'Concurrent scheduling',
+      visibility: SpaceVisibility.public,
+    );
+    final dueAt =
+        DateTime.now().millisecondsSinceEpoch +
+        const Duration(minutes: 10).inMilliseconds;
+
+    final both = await Future.wait([
+      service.scheduleSpacePost(
+        spaceId,
+        title: 'First',
+        body: 'Queued together with the second.',
+        scheduledAtMs: dueAt,
+      ),
+      service.scheduleSpacePost(
+        spaceId,
+        title: 'Second',
+        body: 'Queued together with the first.',
+        scheduledAtMs: dueAt + 1000,
+      ),
+    ]);
+    expect(both.every((job) => job != null), isTrue);
+
+    final queued = await service.scheduledSpacePosts(spaceId);
+    expect(
+      queued.map((job) => job.id).toSet(),
+      both.map((job) => job!.id).toSet(),
+      reason: 'a concurrent schedule must not drop the job before it',
+    );
+  });
+
   test(
     'scheduled Space posts stay local, survive restart and publish once when due',
     () async {
