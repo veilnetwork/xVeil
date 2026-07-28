@@ -77,12 +77,26 @@ jobs:
       - name: cargo-ndk
         run: cargo install cargo-ndk --locked
 
+      # The runner image already carries a complete NDK. Downloading another
+      # one gave a tree whose clang was missing at the path cmake was told to
+      # use, and cmake only says so after configuring — hence the explicit
+      # check here rather than a failure three steps later.
       - name: Android NDK
         id: ndk
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r27
-          local-cache: true
+        run: |
+          set -euo pipefail
+          p="${ANDROID_NDK_LATEST_HOME:-}"
+          if [ -z "$p" ] || [ ! -d "$p" ]; then
+            p="$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | sort -V | tail -1)"
+          fi
+          cc="$p/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+          if [ ! -x "$cc" ]; then
+            echo "::error::no usable NDK clang at $cc"
+            ls -la "$ANDROID_HOME/ndk" 2>/dev/null || true
+            exit 1
+          fi
+          echo "using NDK $p"
+          echo "path=$p" >> "$GITHUB_OUTPUT"
 
       # Not a submodule and not vendored, so the exact revision has to be
       # named here. Its static libraries are linked into libveil_whisper.so.
@@ -101,7 +115,7 @@ jobs:
       # account name 213 times because only one of the two was set.
       - name: whisper static libs
         env:
-          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.path }}
         run: |
           set -euo pipefail
           cd whisper.cpp
@@ -120,7 +134,7 @@ jobs:
       # in any build log. Build it explicitly so CI cannot inherit that.
       - name: hidden-volume cdylib
         env:
-          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.path }}
           CARGO_BUILD_RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/src
           CFLAGS: -ffile-prefix-map=${{ github.workspace }}=/src
           CXXFLAGS: -ffile-prefix-map=${{ github.workspace }}=/src
@@ -152,8 +166,8 @@ jobs:
       # wrapper, builds one APK per ABI and fails if the signing key is absent.
       - name: Build the APKs
         env:
-          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
-          NDK: ${{ steps.ndk.outputs.ndk-path }}
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.path }}
+          NDK: ${{ steps.ndk.outputs.path }}
           WHISPER_SRC: ${{ github.workspace }}/whisper.cpp
         run: python3 builder.py android --release
 
