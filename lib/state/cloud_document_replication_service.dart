@@ -1278,6 +1278,13 @@ class CloudDocumentReplicationService {
         endpointId: CloudCapabilityCodec.memberReturnEndpointId,
         providerSlot: 0,
         transient: true,
+        // File chunks come back HERE, and a chunk big enough to fragment can
+        // only survive one relay by paying redundancy for every fragment. A
+        // second introduction point lets the host round-robin them instead.
+        // One extra, not more: each is a circuit build charged to the start of
+        // every download, and the second already removes the single-relay
+        // funnel.
+        extraProviderSlots: 1,
       );
       try {
         final client = CloudMemberContentClient(
