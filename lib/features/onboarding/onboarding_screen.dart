@@ -114,6 +114,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             ),
             2 => _Recovery(
               phrase: _phrase,
+              real: _realPhrase,
               confirmed: _phraseConfirmed,
               onConfirmedChanged: (v) => setState(() => _phraseConfirmed = v),
               onNext: () => _go(3),
@@ -304,11 +305,18 @@ class _OptionCard extends StatelessWidget {
 class _Recovery extends StatelessWidget {
   const _Recovery({
     required this.phrase,
+    required this.real,
     required this.confirmed,
     required this.onConfirmedChanged,
     required this.onNext,
   });
   final List<String> phrase;
+  /// False when the native generator was unavailable and [phrase] is the
+  /// placeholder. `veilGeneratePhrase()` returns null precisely so callers can
+  /// degrade HONESTLY; showing these words with the ordinary "write them down"
+  /// copy told the user to back up 24 words that restore nothing, while the
+  /// identity was minted at random.
+  final bool real;
   final bool confirmed;
   final ValueChanged<bool> onConfirmedChanged;
   final VoidCallback onNext;
@@ -322,6 +330,34 @@ class _Recovery extends StatelessWidget {
         Text(l.recoveryTitle, style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 12),
         Text(l.recoveryBody, style: Theme.of(context).textTheme.bodyMedium),
+        if (!real) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.warning_amber_outlined,
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    l.recoveryPlaceholderWarning,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         Expanded(
           child: SingleChildScrollView(

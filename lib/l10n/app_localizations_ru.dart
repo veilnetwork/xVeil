@@ -92,6 +92,10 @@ class AppL10nRu extends AppL10n {
   String get recoveryConfirm => 'Я записал(а) фразу восстановления';
 
   @override
+  String get recoveryPlaceholderWarning =>
+      'Это слова-ЗАГЛУШКИ. Генератор личности в этой сборке недоступен, поэтому личность создаётся случайно, и эти слова ничего не восстановят. Не записывайте их как резервную копию.';
+
+  @override
   String get storageTitle => 'Как хранить ваши данные?';
 
   @override
@@ -3031,7 +3035,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get settingsStorageCompactBody =>
-      'Освободить неиспользуемое место — приложение переоткроется.';
+      'Освободить неиспользуемое место — приложение переоткроется. Сохраняется ТОЛЬКО разблокированное пространство: любая другая скрытая личность в этом контейнере будет потеряна.';
 
   @override
   String get settingsStorageCompactDone => 'Освобождено';
