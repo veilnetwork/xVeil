@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
@@ -1242,6 +1241,20 @@ class CallService {
   }
 }
 
+/// Whether a call begins with the microphone off, on every platform.
+///
+/// Named rather than inlined because the value used to be
+/// `Platform.isAndroid`: every call on a phone connected muted, the person
+/// answering said hello into a dead mic, and the caller heard only the DTX
+/// comfort-noise floor (about two 33-byte packets a second) with nothing in the
+/// UI announcing it. The stated reason — "the physical phone is used as a
+/// receive/camera endpoint and must never begin transmitting room audio" —
+/// described the verification stand, not the product, and it arrived inside a
+/// commit about camera throughput. A constant keeps the decision in one place
+/// and lets a test pin it; `CallService(startMuted:)` still exists so the stand
+/// and unit tests can opt in explicitly.
+const bool kCallsStartMuted = false;
+
 /// The call service for the ACTIVE identity's messaging pipeline. Rebuilds (and
 /// disposes the prior one) whenever [messagingServiceProvider] re-points at an
 /// identity switch / node reboot.
@@ -1257,11 +1270,17 @@ final callServiceProvider = Provider<CallService>((ref) {
     messaging,
     media: media,
     callSlot: ref.read(callSlotProvider),
-    // The physical phone is used as a receive/camera endpoint and must never
-    // begin transmitting room audio merely because a call connected. The user
-    // can explicitly unmute from the call controls. Keep desktop behavior
-    // unchanged; iOS currently has a separate device posture/test flow.
-    startMuted: Platform.isAndroid,
+    // Calls start UNMUTED on every platform. Android used to pass
+    // `Platform.isAndroid` here, so every call on a phone connected with the
+    // microphone off: the person answering said hello into a muted mic and the
+    // caller heard the DTX comfort-noise floor — around two 33-byte packets a
+    // second — with nothing in the UI announcing the mute. The stated reason
+    // ("the physical phone is used as a receive/camera endpoint and must never
+    // begin transmitting room audio") is a description of the verification
+    // stand, not of the product, and it arrived inside a commit about camera
+    // throughput. `startMuted` stays a parameter so the stand and the tests can
+    // still opt in explicitly.
+    startMuted: kCallsStartMuted,
     localAllowsP2P: (peer) =>
         ref.read(p2pPolicyProvider.notifier).allowsPeer(peer),
     // Reachability starts endpoint sharing + dialing. CallService applies its

@@ -1440,6 +1440,41 @@ void main() {
       });
     });
 
+    test('the shipped policy is to start a call unmuted', () {
+      // The provider used to pass `Platform.isAndroid` here, so on a phone
+      // every call — placed or answered — began with the mic off and the peer
+      // heard only DTX comfort noise, with nothing in the UI saying so. This
+      // pins the value the provider actually passes. It does NOT stop someone
+      // inlining a platform check again; the provider itself has no test
+      // because nothing can construct it without the whole messaging stack.
+      expect(kCallsStartMuted, isFalse);
+    });
+
+    test('a call starts unmuted when start-muted is not asked for', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake, now: () => clock.now())..start();
+
+        svc.placeCall(peer, const CallMedia(audio: true, video: false));
+        async.flushMicrotasks();
+        expect(svc.current?.micOn, isTrue, reason: 'outgoing starts unmuted');
+        svc.cancel();
+        async.flushMicrotasks();
+
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'incoming-unmuted',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true, video: false),
+          ),
+        );
+        async.flushMicrotasks();
+        expect(svc.current?.micOn, isTrue, reason: 'incoming starts unmuted');
+        svc.dispose();
+      });
+    });
+
     test('start-muted policy applies to outgoing and incoming calls', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
