@@ -445,6 +445,81 @@ void main() {
     },
   );
 
+  /// The manifest is the only integrity anchor a downloader has: the bytes
+  /// arrive from a host it does not trust, and nothing downstream re-checks
+  /// them — there is no whole-file hash after the pieces are stored. So a host
+  /// that serves the right LENGTH of wrong bytes must be refused per piece, or
+  /// the recipient stores attacker content under a legitimate content id.
+  test(
+    'a host serving bytes that do not match the manifest is refused',
+    () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final honest = Uint8List.fromList(
+        List.generate(5000, (i) => (i * 17) & 0xff),
+      );
+      final manifest = ContentManifest.fromBytes(
+        'shared.bin',
+        honest,
+        pieceSize: 4096,
+      );
+      await storage.storeFile(manifest.contentId, honest, name: manifest.name);
+      await storage.storeFile(
+        'mf:${manifest.contentId}',
+        Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+      );
+      final item = CloudItem(
+        id: 'item-tamper',
+        kind: CloudItemKind.file,
+        name: manifest.name,
+        contentId: manifest.contentId,
+        size: honest.length,
+        mime: 'application/octet-stream',
+        createdAtMs: 1,
+        modifiedAtMs: 2,
+        revision: 1,
+        deleted: false,
+      );
+      final network = _Network();
+      final host = CloudCapabilityService(
+        storage,
+        network,
+        now: () => DateTime(2030),
+        random: _Random(),
+      );
+      final share = await host.createShare(item);
+
+      // Swap the stored bytes for a same-length forgery AFTER the manifest is
+      // published, so the host serves content the manifest does not describe.
+      final forged = Uint8List.fromList(
+        List.generate(5000, (i) => (i * 31) & 0xff),
+      );
+      await storage.storeFile(manifest.contentId, forged, name: manifest.name);
+
+      final recipientContainer = FakeHvContainer();
+      final recipientStorage = recipientContainer.storage();
+      await recipientStorage.open(password: 'recipient', createIfMissing: true);
+      final recipient = CloudCapabilityService(
+        recipientStorage,
+        network,
+        now: () => DateTime(2030),
+        random: _Random(),
+      );
+      await expectLater(recipient.download(share.link), throwsStateError);
+      expect(
+        await recipientStorage.loadFile(manifest.contentId),
+        isNull,
+        reason:
+            'nothing may be stored under the content id it does not hash to',
+      );
+      await recipient.close();
+      await recipientStorage.close();
+      await host.close();
+      await storage.close();
+    },
+  );
+
   test(
     'encrypted registry rehosts, serves authorized chunk, and revoke is silent',
     () async {
