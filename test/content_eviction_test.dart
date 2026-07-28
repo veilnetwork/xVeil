@@ -29,7 +29,11 @@ class _Feed implements VeilTransport {
   @override
   Stream<InboundMessage> messages() => _in.stream;
   @override
-  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {}
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async {}
   @override
   Future<void> sendWithReply(NodeId dst, Uint8List payload) async {}
   @override
@@ -56,25 +60,75 @@ void main() {
   final me = _id(1);
   final peer = _id(2);
 
-  test('serving cache evicts files idle past the TTL — the sender no longer '
-      'keeps the full bytes of every file it ever sent (RAM bounded)', () async {
+  test(
+    'serving cache evicts files idle past the TTL — the sender no longer '
+    'keeps the full bytes of every file it ever sent (RAM bounded)',
+    () async {
+      var clock = DateTime(2026, 6, 28, 12, 0, 0);
+      final s = HiddenVolumeStorage(_mem());
+      await s.open(password: 'a', createIfMissing: true);
+      await s.upsertContact(
+        Contact(nodeId: peer, status: ContactStatus.accepted),
+      );
+      final m = MessagingService(
+        _Feed(me),
+        s,
+        now: () => clock,
+        contentPacing: Duration.zero,
+      )..start();
+      addTearDown(m.dispose);
+
+      await m.sendContent(peer, _rnd(2000, 1), 'f1.bin');
+      await m.sendContent(peer, _rnd(2000, 2), 'f2.bin');
+      expect(m.servingCount, 2, reason: 'both freshly advertised');
+
+      clock = clock.add(
+        const Duration(minutes: 11),
+      ); // past _servingTtl (10 min)
+      await m.sendContent(
+        peer,
+        _rnd(2000, 3),
+        'f3.bin',
+      ); // advertise → _evictServing
+      expect(
+        m.servingCount,
+        1,
+        reason: 'f1+f2 idle past the TTL are evicted; only f3 remains',
+      );
+    },
+  );
+
+  test('the serving cache is bounded even when nothing has aged out', () async {
+    // The TTL only reclaims IDLE entries. A sender that keeps offering stays
+    // inside the window, so the count cap is the only thing bounding this map
+    // — and every entry can hold an open source. Without it the sender grows
+    // for as long as it keeps sending.
     var clock = DateTime(2026, 6, 28, 12, 0, 0);
     final s = HiddenVolumeStorage(_mem());
     await s.open(password: 'a', createIfMissing: true);
-    await s.upsertContact(Contact(nodeId: peer, status: ContactStatus.accepted));
-    final m = MessagingService(_Feed(me), s,
-        now: () => clock, contentPacing: Duration.zero)
-      ..start();
+    await s.upsertContact(
+      Contact(nodeId: peer, status: ContactStatus.accepted),
+    );
+    final m = MessagingService(
+      _Feed(me),
+      s,
+      now: () => clock,
+      contentPacing: Duration.zero,
+    )..start();
     addTearDown(m.dispose);
 
-    await m.sendContent(peer, _rnd(2000, 1), 'f1.bin');
-    await m.sendContent(peer, _rnd(2000, 2), 'f2.bin');
-    expect(m.servingCount, 2, reason: 'both freshly advertised');
-
-    clock = clock.add(const Duration(minutes: 11)); // past _servingTtl (10 min)
-    await m.sendContent(peer, _rnd(2000, 3), 'f3.bin'); // advertise → _evictServing
-    expect(m.servingCount, 1,
-        reason: 'f1+f2 idle past the TTL are evicted; only f3 remains');
+    // Well past the cap of 256, all within one TTL window so nothing ages out.
+    for (var i = 0; i < 300; i++) {
+      await m.sendContent(peer, _rnd(64, i), 'f$i.bin');
+    }
+    expect(
+      m.servingCount,
+      lessThanOrEqualTo(256),
+      reason: 'the count cap must bound the map when the TTL cannot',
+    );
+    // And it must still be serving the recent ones rather than having emptied
+    // itself, which would satisfy the bound for the wrong reason.
+    expect(m.servingCount, greaterThan(1));
   });
 
   test('abandoned fetch reassembler is evicted when a later transfer starts '
@@ -82,10 +136,16 @@ void main() {
     var clock = DateTime(2026, 6, 28, 12, 0, 0);
     final s = HiddenVolumeStorage(_mem());
     await s.open(password: 'b', createIfMissing: true);
-    await s.upsertContact(Contact(nodeId: peer, status: ContactStatus.accepted));
+    await s.upsertContact(
+      Contact(nodeId: peer, status: ContactStatus.accepted),
+    );
     final t = _Feed(me);
-    final m = MessagingService(t, s, now: () => clock, contentPacing: Duration.zero)
-      ..start();
+    final m = MessagingService(
+      t,
+      s,
+      now: () => clock,
+      contentPacing: Duration.zero,
+    )..start();
     addTearDown(m.dispose);
 
     // The peer advertises a file → we start fetching it; NO chunks ever follow.
@@ -99,8 +159,11 @@ void main() {
     final man2 = ContentManifest.fromBytes('b.bin', _rnd(3000, 8));
     t.feed(peer, contentManifestEnvelope(jsonEncode(man2.toJson())).encode());
     await Future<void>.delayed(const Duration(milliseconds: 40));
-    expect(m.fetchingCount, 1,
-        reason: 'the abandoned a.bin reassembler is evicted; only b.bin remains');
+    expect(
+      m.fetchingCount,
+      1,
+      reason: 'the abandoned a.bin reassembler is evicted; only b.bin remains',
+    );
   });
 
   test('same-content retry closes a stale plaintext sink and dispose closes '
@@ -173,57 +236,70 @@ void main() {
     );
   });
 
-  test('full manifests and compact refs share one 256-offer RAM budget',
-      () async {
-    final s = HiddenVolumeStorage(_mem());
-    await s.open(password: 'd', createIfMissing: true);
-    await s.upsertContact(Contact(nodeId: peer, status: ContactStatus.accepted));
-    final t = _Feed(me);
-    final m = MessagingService(t, s, contentPacing: Duration.zero)..start();
-    addTearDown(m.dispose);
-    await m.setFileDownloadPolicy(
-      m.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
-    );
+  test(
+    'full manifests and compact refs share one 256-offer RAM budget',
+    () async {
+      final s = HiddenVolumeStorage(_mem());
+      await s.open(password: 'd', createIfMissing: true);
+      await s.upsertContact(
+        Contact(nodeId: peer, status: ContactStatus.accepted),
+      );
+      final t = _Feed(me);
+      final m = MessagingService(t, s, contentPacing: Duration.zero)..start();
+      addTearDown(m.dispose);
+      await m.setFileDownloadPolicy(
+        m.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
 
-    for (var i = 0; i < 130; i++) {
-      final manifest = ContentManifest.fromBytes(
-        'full-$i.bin',
-        Uint8List.fromList([i]),
-      );
-      t.feed(
-        peer,
-        contentManifestEnvelope(jsonEncode(manifest.toJson())).encode(),
-      );
-      final refId = (1000 + i).toRadixString(16).padLeft(64, '0');
-      t.feed(
-        peer,
-        contentManifestEnvelope(
-          jsonEncode({'ref': 1, 'id': refId, 'name': 'ref-$i.bin', 'size': 1}),
-        ).encode(),
-      );
-    }
+      for (var i = 0; i < 130; i++) {
+        final manifest = ContentManifest.fromBytes(
+          'full-$i.bin',
+          Uint8List.fromList([i]),
+        );
+        t.feed(
+          peer,
+          contentManifestEnvelope(jsonEncode(manifest.toJson())).encode(),
+        );
+        final refId = (1000 + i).toRadixString(16).padLeft(64, '0');
+        t.feed(
+          peer,
+          contentManifestEnvelope(
+            jsonEncode({
+              'ref': 1,
+              'id': refId,
+              'name': 'ref-$i.bin',
+              'size': 1,
+            }),
+          ).encode(),
+        );
+      }
 
-    final deadline = DateTime.now().add(const Duration(seconds: 5));
-    while (m.offeredContentCount < 256 &&
-        DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 100));
-    expect(
-      m.offeredContentCount,
-      256,
-      reason: 'alternating manifests and refs must not get separate 256 caps',
-    );
-    await m.dispose();
-    expect(m.offeredContentCount, 0,
-        reason: 'dispose must release manifest hash lists immediately');
-  });
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (m.offeredContentCount < 256 && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(
+        m.offeredContentCount,
+        256,
+        reason: 'alternating manifests and refs must not get separate 256 caps',
+      );
+      await m.dispose();
+      expect(
+        m.offeredContentCount,
+        0,
+        reason: 'dispose must release manifest hash lists immediately',
+      );
+    },
+  );
 
   test('replacing a parked plaintext save closes the old sink and dispose '
       'awaits the replacement', () async {
     final s = HiddenVolumeStorage(_mem());
     await s.open(password: 'e', createIfMissing: true);
-    await s.upsertContact(Contact(nodeId: peer, status: ContactStatus.accepted));
+    await s.upsertContact(
+      Contact(nodeId: peer, status: ContactStatus.accepted),
+    );
     final m = MessagingService(_Feed(me), s, contentPacing: Duration.zero)
       ..start();
     addTearDown(m.dispose);
@@ -252,12 +328,18 @@ void main() {
       ContentDownloadResult.requestedReoffer,
     );
     await Future<void>.delayed(Duration.zero);
-    expect(firstClosed, 1,
-        reason: 'replacing a parked destination must not leak its file handle');
+    expect(
+      firstClosed,
+      1,
+      reason: 'replacing a parked destination must not leak its file handle',
+    );
     expect(secondClosed, 0);
 
     await m.dispose();
-    expect(secondClosed, 1,
-        reason: 'dispose must await the currently parked destination close');
+    expect(
+      secondClosed,
+      1,
+      reason: 'dispose must await the currently parked destination close',
+    );
   });
 }
