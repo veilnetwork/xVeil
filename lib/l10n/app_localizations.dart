@@ -2100,6 +2100,234 @@ abstract class AppL10n {
   /// **'media only'**
   String get spacePolicyAuditMediaOnly;
 
+  /// No description provided for @spaceRecentActionsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent actions'**
+  String get spaceRecentActionsTitle;
+
+  /// No description provided for @spaceRecentActionsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed administrative history. You see what your rights allow.'**
+  String get spaceRecentActionsHint;
+
+  /// No description provided for @spaceRecentActionsEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing has been done here yet.'**
+  String get spaceRecentActionsEmpty;
+
+  /// No description provided for @spaceRecentActionsWithheld.
+  ///
+  /// In en, this message translates to:
+  /// **'Event unavailable'**
+  String get spaceRecentActionsWithheld;
+
+  /// No description provided for @spaceRecentActionsWithheldHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Something happened here that your rights do not cover.'**
+  String get spaceRecentActionsWithheldHint;
+
+  /// No description provided for @spaceRecentActionsBy.
+  ///
+  /// In en, this message translates to:
+  /// **'by {author}'**
+  String spaceRecentActionsBy(String author);
+
+  /// No description provided for @spaceActionMemberAdded.
+  ///
+  /// In en, this message translates to:
+  /// **'Added {member}'**
+  String spaceActionMemberAdded(String member);
+
+  /// No description provided for @spaceActionMemberRemoved.
+  ///
+  /// In en, this message translates to:
+  /// **'Removed {member}'**
+  String spaceActionMemberRemoved(String member);
+
+  /// No description provided for @spaceActionMemberLeft.
+  ///
+  /// In en, this message translates to:
+  /// **'{member} left'**
+  String spaceActionMemberLeft(String member);
+
+  /// No description provided for @spaceActionRoleChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Changed the role of {member}'**
+  String spaceActionRoleChanged(String member);
+
+  /// No description provided for @spaceActionOwnershipTransferred.
+  ///
+  /// In en, this message translates to:
+  /// **'Handed ownership to {member}'**
+  String spaceActionOwnershipTransferred(String member);
+
+  /// No description provided for @spaceActionMemberMuted.
+  ///
+  /// In en, this message translates to:
+  /// **'Muted {member}'**
+  String spaceActionMemberMuted(String member);
+
+  /// No description provided for @spaceActionMemberUnmuted.
+  ///
+  /// In en, this message translates to:
+  /// **'Unmuted {member}'**
+  String spaceActionMemberUnmuted(String member);
+
+  /// No description provided for @spaceActionMemberBanned.
+  ///
+  /// In en, this message translates to:
+  /// **'Banned {member}'**
+  String spaceActionMemberBanned(String member);
+
+  /// No description provided for @spaceActionModerationApplied.
+  ///
+  /// In en, this message translates to:
+  /// **'Moderated {member}'**
+  String spaceActionModerationApplied(String member);
+
+  /// No description provided for @spaceActionModerationRevoked.
+  ///
+  /// In en, this message translates to:
+  /// **'Lifted a moderation action on {member}'**
+  String spaceActionModerationRevoked(String member);
+
+  /// No description provided for @spaceActionChannelCreated.
+  ///
+  /// In en, this message translates to:
+  /// **'Created a channel'**
+  String get spaceActionChannelCreated;
+
+  /// No description provided for @spaceActionChannelUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Changed a channel'**
+  String get spaceActionChannelUpdated;
+
+  /// No description provided for @spaceActionSpaceRenamed.
+  ///
+  /// In en, this message translates to:
+  /// **'Renamed the community'**
+  String get spaceActionSpaceRenamed;
+
+  /// No description provided for @spaceActionSpaceDescriptionChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Changed the description'**
+  String get spaceActionSpaceDescriptionChanged;
+
+  /// No description provided for @spaceActionSpaceProfileMediaChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Changed the avatar or cover'**
+  String get spaceActionSpaceProfileMediaChanged;
+
+  /// No description provided for @spaceActionRulesPublished.
+  ///
+  /// In en, this message translates to:
+  /// **'Published new rules'**
+  String get spaceActionRulesPublished;
+
+  /// No description provided for @spaceActionRulesAccepted.
+  ///
+  /// In en, this message translates to:
+  /// **'{member} accepted the rules'**
+  String spaceActionRulesAccepted(String member);
+
+  /// No description provided for @spaceActionAccessPolicyChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Changed roles and access'**
+  String get spaceActionAccessPolicyChanged;
+
+  /// No description provided for @spaceActionRetentionChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Changed the retention policy'**
+  String get spaceActionRetentionChanged;
+
+  /// No description provided for @spaceActionSpaceArchived.
+  ///
+  /// In en, this message translates to:
+  /// **'Archived the community'**
+  String get spaceActionSpaceArchived;
+
+  /// No description provided for @spaceActionSpaceDeleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Deleted the community'**
+  String get spaceActionSpaceDeleted;
+
+  /// No description provided for @spaceActionSpaceRestored.
+  ///
+  /// In en, this message translates to:
+  /// **'Restored the community'**
+  String get spaceActionSpaceRestored;
+
+  /// No description provided for @spaceActionPostPinChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Changed the pinned publication'**
+  String get spaceActionPostPinChanged;
+
+  /// No description provided for @spaceActionRecommendationCampaignChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Changed a recommendation campaign'**
+  String get spaceActionRecommendationCampaignChanged;
+
+  /// No description provided for @spaceActionRecommendationPolicyChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Changed the recommendation policy'**
+  String get spaceActionRecommendationPolicyChanged;
+
+  /// No description provided for @spaceActionEncryptionRotated.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotated the encryption key'**
+  String get spaceActionEncryptionRotated;
+
+  /// No description provided for @spaceActionCheckpointRecorded.
+  ///
+  /// In en, this message translates to:
+  /// **'Recorded a control checkpoint'**
+  String get spaceActionCheckpointRecorded;
+
+  /// No description provided for @spaceActionOther.
+  ///
+  /// In en, this message translates to:
+  /// **'Performed an administrative action'**
+  String get spaceActionOther;
+
+  /// No description provided for @spaceActionDetailChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'Channel “{channel}”'**
+  String spaceActionDetailChannel(String channel);
+
+  /// No description provided for @spaceActionDetailNewName.
+  ///
+  /// In en, this message translates to:
+  /// **'New name: {name}'**
+  String spaceActionDetailNewName(String name);
+
+  /// No description provided for @spaceActionDetailRole.
+  ///
+  /// In en, this message translates to:
+  /// **'Role: {role}'**
+  String spaceActionDetailRole(String role);
+
+  /// No description provided for @spaceActionDetailModeration.
+  ///
+  /// In en, this message translates to:
+  /// **'Action: {action}'**
+  String spaceActionDetailModeration(String action);
+
   /// No description provided for @spaceAccessDelegatedHint.
   ///
   /// In en, this message translates to:
@@ -4241,6 +4469,60 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Merge prepared — save the note to resolve every version'**
   String get cloudNoteMergeReady;
+
+  /// No description provided for @cloudAttachment.
+  ///
+  /// In en, this message translates to:
+  /// **'Attachment'**
+  String get cloudAttachment;
+
+  /// No description provided for @cloudAttachmentMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'Attachment unavailable'**
+  String get cloudAttachmentMissing;
+
+  /// No description provided for @cloudAttachmentGone.
+  ///
+  /// In en, this message translates to:
+  /// **'This attachment is no longer in your cloud'**
+  String get cloudAttachmentGone;
+
+  /// No description provided for @cloudAttachmentInsert.
+  ///
+  /// In en, this message translates to:
+  /// **'Attach a file'**
+  String get cloudAttachmentInsert;
+
+  /// No description provided for @cloudAttachmentPick.
+  ///
+  /// In en, this message translates to:
+  /// **'Attach from your cloud'**
+  String get cloudAttachmentPick;
+
+  /// No description provided for @cloudAttachmentUpload.
+  ///
+  /// In en, this message translates to:
+  /// **'Upload a new file…'**
+  String get cloudAttachmentUpload;
+
+  /// No description provided for @cloudAttachmentEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing in your cloud to attach yet'**
+  String get cloudAttachmentEmpty;
+
+  /// No description provided for @cloudAttachmentFetched.
+  ///
+  /// In en, this message translates to:
+  /// **'Attachment downloaded to this device'**
+  String get cloudAttachmentFetched;
+
+  /// No description provided for @cloudAttachmentFetchFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not download the attachment'**
+  String get cloudAttachmentFetchFailed;
 
   /// No description provided for @settingsCatAccount.
   ///
