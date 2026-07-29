@@ -1157,6 +1157,157 @@ class AppL10nEn extends AppL10n {
   String get spacePolicyAuditMediaOnly => 'media only';
 
   @override
+  String get spaceRecentActionsTitle => 'Recent actions';
+
+  @override
+  String get spaceRecentActionsHint =>
+      'Signed administrative history. You see what your rights allow.';
+
+  @override
+  String get spaceRecentActionsEmpty => 'Nothing has been done here yet.';
+
+  @override
+  String get spaceRecentActionsWithheld => 'Event unavailable';
+
+  @override
+  String get spaceRecentActionsWithheldHint =>
+      'Something happened here that your rights do not cover.';
+
+  @override
+  String spaceRecentActionsBy(String author) {
+    return 'by $author';
+  }
+
+  @override
+  String spaceActionMemberAdded(String member) {
+    return 'Added $member';
+  }
+
+  @override
+  String spaceActionMemberRemoved(String member) {
+    return 'Removed $member';
+  }
+
+  @override
+  String spaceActionMemberLeft(String member) {
+    return '$member left';
+  }
+
+  @override
+  String spaceActionRoleChanged(String member) {
+    return 'Changed the role of $member';
+  }
+
+  @override
+  String spaceActionOwnershipTransferred(String member) {
+    return 'Handed ownership to $member';
+  }
+
+  @override
+  String spaceActionMemberMuted(String member) {
+    return 'Muted $member';
+  }
+
+  @override
+  String spaceActionMemberUnmuted(String member) {
+    return 'Unmuted $member';
+  }
+
+  @override
+  String spaceActionMemberBanned(String member) {
+    return 'Banned $member';
+  }
+
+  @override
+  String spaceActionModerationApplied(String member) {
+    return 'Moderated $member';
+  }
+
+  @override
+  String spaceActionModerationRevoked(String member) {
+    return 'Lifted a moderation action on $member';
+  }
+
+  @override
+  String get spaceActionChannelCreated => 'Created a channel';
+
+  @override
+  String get spaceActionChannelUpdated => 'Changed a channel';
+
+  @override
+  String get spaceActionSpaceRenamed => 'Renamed the community';
+
+  @override
+  String get spaceActionSpaceDescriptionChanged => 'Changed the description';
+
+  @override
+  String get spaceActionSpaceProfileMediaChanged =>
+      'Changed the avatar or cover';
+
+  @override
+  String get spaceActionRulesPublished => 'Published new rules';
+
+  @override
+  String spaceActionRulesAccepted(String member) {
+    return '$member accepted the rules';
+  }
+
+  @override
+  String get spaceActionAccessPolicyChanged => 'Changed roles and access';
+
+  @override
+  String get spaceActionRetentionChanged => 'Changed the retention policy';
+
+  @override
+  String get spaceActionSpaceArchived => 'Archived the community';
+
+  @override
+  String get spaceActionSpaceDeleted => 'Deleted the community';
+
+  @override
+  String get spaceActionSpaceRestored => 'Restored the community';
+
+  @override
+  String get spaceActionPostPinChanged => 'Changed the pinned publication';
+
+  @override
+  String get spaceActionRecommendationCampaignChanged =>
+      'Changed a recommendation campaign';
+
+  @override
+  String get spaceActionRecommendationPolicyChanged =>
+      'Changed the recommendation policy';
+
+  @override
+  String get spaceActionEncryptionRotated => 'Rotated the encryption key';
+
+  @override
+  String get spaceActionCheckpointRecorded => 'Recorded a control checkpoint';
+
+  @override
+  String get spaceActionOther => 'Performed an administrative action';
+
+  @override
+  String spaceActionDetailChannel(String channel) {
+    return 'Channel “$channel”';
+  }
+
+  @override
+  String spaceActionDetailNewName(String name) {
+    return 'New name: $name';
+  }
+
+  @override
+  String spaceActionDetailRole(String role) {
+    return 'Role: $role';
+  }
+
+  @override
+  String spaceActionDetailModeration(String action) {
+    return 'Action: $action';
+  }
+
+  @override
   String get spaceAccessDelegatedHint =>
       'You can manage only roles below your current permission ceiling. Your own roles and peer managers are locked.';
 
@@ -2393,6 +2544,34 @@ class AppL10nEn extends AppL10n {
   @override
   String get cloudNoteMergeReady =>
       'Merge prepared — save the note to resolve every version';
+
+  @override
+  String get cloudAttachment => 'Attachment';
+
+  @override
+  String get cloudAttachmentMissing => 'Attachment unavailable';
+
+  @override
+  String get cloudAttachmentGone =>
+      'This attachment is no longer in your cloud';
+
+  @override
+  String get cloudAttachmentInsert => 'Attach a file';
+
+  @override
+  String get cloudAttachmentPick => 'Attach from your cloud';
+
+  @override
+  String get cloudAttachmentUpload => 'Upload a new file…';
+
+  @override
+  String get cloudAttachmentEmpty => 'Nothing in your cloud to attach yet';
+
+  @override
+  String get cloudAttachmentFetched => 'Attachment downloaded to this device';
+
+  @override
+  String get cloudAttachmentFetchFailed => 'Could not download the attachment';
 
   @override
   String get settingsCatAccount => 'Identities & account';

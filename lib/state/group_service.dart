@@ -43,6 +43,7 @@ import '../domain/group_reaction.dart';
 import '../domain/inline_custom_emoji.dart';
 import '../domain/message_mention.dart';
 import '../domain/space_abuse_report.dart';
+import '../domain/space_action_log.dart';
 import '../domain/space_channel.dart';
 import '../domain/space_discovery.dart';
 import '../domain/space_discovery_carrier.dart';
@@ -7818,6 +7819,21 @@ class GroupService {
       return changed != 0 ? changed : right.stableId.compareTo(left.stableId);
     });
     return List.unmodifiable(entries);
+  }
+
+  /// The Space's administrative history as this member is allowed to read it.
+  ///
+  /// The whole decision lives in [spaceActionLog]; this only pairs the accepted
+  /// rows with the folded state they must be judged against.
+  Future<List<SpaceActionLogItem>> spaceRecentActions(NodeId spaceId) async {
+    final bundle = await load(spaceId);
+    final state = await stateOf(spaceId);
+    if (bundle == null || state == null) return const [];
+    return spaceActionLog(
+      control: bundle.control,
+      state: state,
+      viewer: _signer.selfId,
+    );
   }
 
   String _localSpaceRetentionKey(NodeId spaceId) =>
