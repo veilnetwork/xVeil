@@ -2435,6 +2435,22 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                           ),
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      // Ungated on purpose: the log itself decides row by row
+                      // what this member may read, and an entry point that
+                      // disappeared would tell them less than the log does.
+                      Card(
+                        child: ListTile(
+                          key: const ValueKey('space-recent-actions-tile'),
+                          leading: const Icon(Icons.history_outlined),
+                          title: Text(l.spaceRecentActionsTitle),
+                          subtitle: Text(l.spaceRecentActionsHint),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => context.push(
+                            '/space/${widget.spaceIdHex}/recent-actions',
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),

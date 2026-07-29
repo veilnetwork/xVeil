@@ -37,6 +37,7 @@ import '../features/spaces/space_list_screen.dart';
 import '../features/spaces/space_moderation_screen.dart';
 import '../features/spaces/space_post_comments_screen.dart';
 import '../features/spaces/space_posts_screen.dart';
+import '../features/spaces/space_recent_actions_screen.dart';
 import '../features/spaces/space_screen.dart';
 import '../features/spaces/space_rules_screen.dart';
 import '../features/spaces/space_settings_screen.dart';
@@ -249,6 +250,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/space/:id/moderation',
         builder: (_, state) =>
             SpaceModerationScreen(spaceIdHex: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/space/:id/recent-actions',
+        builder: (_, state) =>
+            SpaceRecentActionsScreen(spaceIdHex: state.pathParameters['id']!),
       ),
       // Group chats live in the Chats surface; keep the old list deep-link
       // useful without conflating it with Communities.
