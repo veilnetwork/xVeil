@@ -81,6 +81,63 @@ void main() {
             'without it a debug-signed APK can be handed out, and an '
             'update can never be shipped over it',
       );
+      expect(
+        plan,
+        contains('call media staged'),
+        reason:
+            'libveil_media.so is gitignored, so a fresh clone has none and '
+            'the build goes green without it — v0.9.1 shipped that way',
+      );
+      expect(
+        plan,
+        contains('native libraries in the APKs'),
+        reason:
+            'the v0.9.1 pipeline was honestly green; only reading the APK '
+            'itself can tell that what it produced can do its job',
+      );
+    });
+
+    test('the APK check refuses an APK with no media engine', () {
+      // The point of the check is that it FAILS on the artifact that shipped.
+      // A check that only ever passes is why v0.9.1 was published at all, so
+      // this builds that exact APK shape and requires a refusal.
+      final temp = Directory.systemTemp.createTempSync('xveil_apk_check');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final repo = Directory.current.path;
+      final probe = File('${temp.path}/probe.py')..writeAsStringSync('''
+import sys, os, zipfile
+sys.path.insert(0, ${_pyStr(repo)})
+import builder
+root = ${_pyStr(temp.path)}
+apks = os.path.join(root, "build", "app", "outputs", "flutter-apk")
+os.makedirs(apks, exist_ok=True)
+# ALL THREE APKs exist and every other ABI is complete, so the missing media
+# engine on arm64 is the ONLY defect left to refuse. Written the short way
+# first, with just the arm64 APK, and that refused for a different reason
+# entirely — the other two being absent — which passed just as happily with
+# the media requirement removed.
+for abi in ("arm64-v8a", "armeabi-v7a", "x86_64"):
+    path = os.path.join(apks, "app-" + abi + "-release.apk")
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("lib/" + abi + "/libveilclient_ffi.so", "x")
+        z.writestr("lib/" + abi + "/libhidden_volume_ffi.so", "x")
+builder.ROOT = root
+try:
+    builder._check_android_native_libs()
+    print("ACCEPTED")
+except RuntimeError as error:
+    print("REFUSED " + " | ".join(str(error).splitlines()[1:]))
+''');
+      final result = Process.runSync(python!, [probe.path]);
+      expect(result.exitCode, 0, reason: result.stderr.toString());
+      expect(
+        result.stdout.toString(),
+        contains('arm64-v8a: missing libveil_media.so'),
+        reason:
+            'an APK that cannot record a voice message must not pass, and it '
+            'has to be refused for THAT reason — a refusal that merely '
+            'mentions arm64 survives deleting the media requirement',
+      );
     });
 
     test('a debug android build does NOT claim to check signing', () {
@@ -98,6 +155,11 @@ void main() {
     });
   }, skip: python == null ? 'no python3 on PATH' : null);
 }
+
+/// A path as a Python string literal. Windows paths carry backslashes, which
+/// a bare quoted literal would read as escapes.
+String _pyStr(String value) =>
+    "'${value.replaceAll('\\', r'\\').replaceAll("'", r"\'")}'";
 
 String? _python() {
   for (final candidate in ['python3', 'python']) {
