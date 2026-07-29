@@ -1171,6 +1171,157 @@ class AppL10nRu extends AppL10n {
   String get spacePolicyAuditMediaOnly => 'только медиа';
 
   @override
+  String get spaceRecentActionsTitle => 'Последние действия';
+
+  @override
+  String get spaceRecentActionsHint =>
+      'Подписанная история управления. Видно ровно то, что позволяют ваши права.';
+
+  @override
+  String get spaceRecentActionsEmpty => 'Здесь пока ничего не делали.';
+
+  @override
+  String get spaceRecentActionsWithheld => 'Событие недоступно';
+
+  @override
+  String get spaceRecentActionsWithheldHint =>
+      'Здесь что-то произошло, но ваших прав на это не хватает.';
+
+  @override
+  String spaceRecentActionsBy(String author) {
+    return 'автор: $author';
+  }
+
+  @override
+  String spaceActionMemberAdded(String member) {
+    return 'Участник добавлен: $member';
+  }
+
+  @override
+  String spaceActionMemberRemoved(String member) {
+    return 'Участник удалён: $member';
+  }
+
+  @override
+  String spaceActionMemberLeft(String member) {
+    return 'Выход из сообщества: $member';
+  }
+
+  @override
+  String spaceActionRoleChanged(String member) {
+    return 'Изменена роль: $member';
+  }
+
+  @override
+  String spaceActionOwnershipTransferred(String member) {
+    return 'Передано владение: $member';
+  }
+
+  @override
+  String spaceActionMemberMuted(String member) {
+    return 'Участник заглушён: $member';
+  }
+
+  @override
+  String spaceActionMemberUnmuted(String member) {
+    return 'Заглушение снято: $member';
+  }
+
+  @override
+  String spaceActionMemberBanned(String member) {
+    return 'Участник забанен: $member';
+  }
+
+  @override
+  String spaceActionModerationApplied(String member) {
+    return 'Модерация: $member';
+  }
+
+  @override
+  String spaceActionModerationRevoked(String member) {
+    return 'Мера модерации снята: $member';
+  }
+
+  @override
+  String get spaceActionChannelCreated => 'Создан канал';
+
+  @override
+  String get spaceActionChannelUpdated => 'Изменён канал';
+
+  @override
+  String get spaceActionSpaceRenamed => 'Сообщество переименовано';
+
+  @override
+  String get spaceActionSpaceDescriptionChanged => 'Изменено описание';
+
+  @override
+  String get spaceActionSpaceProfileMediaChanged =>
+      'Изменены аватар или обложка';
+
+  @override
+  String get spaceActionRulesPublished => 'Опубликованы новые правила';
+
+  @override
+  String spaceActionRulesAccepted(String member) {
+    return 'Правила приняты: $member';
+  }
+
+  @override
+  String get spaceActionAccessPolicyChanged => 'Изменены роли и доступ';
+
+  @override
+  String get spaceActionRetentionChanged => 'Изменена политика хранения';
+
+  @override
+  String get spaceActionSpaceArchived => 'Сообщество архивировано';
+
+  @override
+  String get spaceActionSpaceDeleted => 'Сообщество удалено';
+
+  @override
+  String get spaceActionSpaceRestored => 'Сообщество восстановлено';
+
+  @override
+  String get spaceActionPostPinChanged => 'Изменена закреплённая публикация';
+
+  @override
+  String get spaceActionRecommendationCampaignChanged =>
+      'Изменена кампания рекомендаций';
+
+  @override
+  String get spaceActionRecommendationPolicyChanged =>
+      'Изменена политика рекомендаций';
+
+  @override
+  String get spaceActionEncryptionRotated => 'Ключ шифрования обновлён';
+
+  @override
+  String get spaceActionCheckpointRecorded => 'Записана контрольная точка';
+
+  @override
+  String get spaceActionOther => 'Административное действие';
+
+  @override
+  String spaceActionDetailChannel(String channel) {
+    return 'Канал «$channel»';
+  }
+
+  @override
+  String spaceActionDetailNewName(String name) {
+    return 'Новое название: $name';
+  }
+
+  @override
+  String spaceActionDetailRole(String role) {
+    return 'Роль: $role';
+  }
+
+  @override
+  String spaceActionDetailModeration(String action) {
+    return 'Мера: $action';
+  }
+
+  @override
   String get spaceAccessDelegatedHint =>
       'Можно управлять только ролями ниже текущего потолка прав. Собственные роли и равные управляющие защищены.';
 
@@ -2426,6 +2577,33 @@ class AppL10nRu extends AppL10n {
   @override
   String get cloudNoteMergeReady =>
       'Объединение подготовлено — сохраните заметку, чтобы разрешить все версии';
+
+  @override
+  String get cloudAttachment => 'Вложение';
+
+  @override
+  String get cloudAttachmentMissing => 'Вложение недоступно';
+
+  @override
+  String get cloudAttachmentGone => 'Этого вложения больше нет в облаке';
+
+  @override
+  String get cloudAttachmentInsert => 'Прикрепить файл';
+
+  @override
+  String get cloudAttachmentPick => 'Прикрепить из облака';
+
+  @override
+  String get cloudAttachmentUpload => 'Загрузить новый файл…';
+
+  @override
+  String get cloudAttachmentEmpty => 'В облаке пока нечего прикрепить';
+
+  @override
+  String get cloudAttachmentFetched => 'Вложение загружено на устройство';
+
+  @override
+  String get cloudAttachmentFetchFailed => 'Не удалось загрузить вложение';
 
   @override
   String get settingsCatAccount => 'Личности и аккаунт';
