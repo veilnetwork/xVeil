@@ -175,8 +175,16 @@ class AppController extends Notifier<AppState> {
     // The REAL master phrase shown on the recovery step (null on the
     // loopback/test path where the native generator is unavailable).
     String? identityPhrase,
+    // The user picked "link to a device you already use": [identity] is a
+    // temporary one that only has to reach the network, and the session this
+    // opens should land on the device-link screen instead of chats.
+    bool joinExisting = false,
   }) async {
     _pendingIdentityPhrase = identityPhrase;
+    // Set BEFORE the session opens: _enterSession flips the phase to ready, and
+    // the router consumes the flag on that transition. Setting it afterwards
+    // would race the redirect and drop the user on chats.
+    ref.read(pendingDeviceLinkProvider.notifier).state = joinExisting;
     // Show the "setting up" screen up front and let it paint a frame BEFORE the
     // CPU-heavy work begins — creating the container (Argon2id KDF) and
     // provisioning the node identity both block briefly, and without this the
