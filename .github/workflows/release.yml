@@ -398,6 +398,29 @@ jobs:
           fi
           printf '%s\n' "$PSK" > assets/prod/obfs4_psk.b64
 
+      # Windows had NO call engine at all until this was wired: veil_media had
+      # no windows/ directory, so every published zip through v0.9.1 started,
+      # looked healthy and threw at the first voice message. Same pin-a-run
+      # mechanism as the linux and android jobs.
+      - name: Prebuilt call engine
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Run webrtc-windows once, then pin its run id here. Empty on purpose
+          # until that happens: failing this job is the correct outcome while
+          # the alternative is another bundle that cannot record a voice
+          # message.
+          ENGINE_RUN: ''
+        run: |
+          set -euo pipefail
+          if [ -z "$ENGINE_RUN" ]; then
+            echo "::error::WINDOWS call engine is not pinned. Run the webrtc-windows workflow, then set ENGINE_RUN here to its run id. Without it the bundle builds and cannot do voice messages, video notes, calls or speech-to-text."
+            exit 1
+          fi
+          dest=third_party/veil/flutter/veil_media/windows
+          gh run download "$ENGINE_RUN" -n libveil_media-win-x64 -D "$dest"
+          ls -la "$dest/veil_media.dll"
+
       # `python3` is not the name on a Windows runner.
       #
       # The PATH dance is not optional. `shell: bash` here is Git Bash, and its
@@ -425,13 +448,17 @@ jobs:
           echo "toolchain: $msvc_bin"
           python builder.py windows --release
 
-      - name: The bundle carries the PSK
+      - name: The bundle carries the PSK and the engine
         shell: bash
         run: |
           set -euo pipefail
-          psk=build/windows/x64/runner/Release/data/flutter_assets/assets/prod/obfs4_psk.b64
+          root=build/windows/x64/runner/Release
+          psk="$root/data/flutter_assets/assets/prod/obfs4_psk.b64"
           [ -s "$psk" ] || { echo "::error::no bundled PSK at $psk — the bundle cannot reach the production network"; exit 1; }
+          engine="$(find "$root" -name veil_media.dll | head -1)"
+          [ -n "$engine" ] || { echo "::error::veil_media.dll is not in the bundle — voice messages and calls would fail at LoadLibrary"; exit 1; }
           echo "  ok $psk"
+          echo "  ok $engine"
 
       - name: Archive
         shell: pwsh

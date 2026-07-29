@@ -1,0 +1,152 @@
+name: webrtc-windows
+
+# Produces veil_media.dll for win-x64 — the one input the Windows bundle cannot
+# build for itself, and the one it has never had. Every published Windows zip
+# up to and including v0.9.1 shipped without it: voice messages, video notes,
+# calls and speech-to-text all throw at the first LoadLibrary.
+#
+# Separate from webrtc-linux because this one needs a WINDOWS host (WebRTC's
+# win-x64 toolchain and Media Foundation headers), where that one needs an
+# x86_64 Linux host for its own target and for android. Same shape otherwise:
+# run it by hand, carry the result forward as an artifact, pin the run in the
+# release workflow.
+#
+# DEPOT_TOOLS_WIN_TOOLCHAIN=0 is not optional: without it depot_tools tries to
+# fetch Google's internal Visual Studio package and fails with an access error
+# that reads like a network problem.
+on:
+  workflow_dispatch:
+    inputs:
+      keep_symbols:
+        description: 'Skip the strip (bigger .dll, symbolicated crashes)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  # The same commit every other verified engine was built against — see the
+  # note in webrtc-linux.yml: a different pin does not fail to link, it fails
+  # to compile in a way that reads like our code is wrong.
+  WEBRTC_PIN: '4ef980bc2c70834276c791e71e7834b8809f24ad'
+  WEBRTC_ROOT: 'C:\webrtc'
+  DEPOT_TOOLS_WIN_TOOLCHAIN: '0'
+
+jobs:
+  engine-windows:
+    name: veil_media.dll (win-x64)
+    runs-on: windows-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The WebRTC checkout plus its build tree is tens of GB and the runner's
+      # C: drive is the only one large enough once the preinstalled SDKs go.
+      - name: Reclaim disk
+        shell: pwsh
+        run: |
+          Get-PSDrive C | Select-Object Used, Free
+          foreach ($path in @(
+            "$env:ProgramFiles\dotnet\sdk",
+            "${env:ProgramFiles(x86)}\Android",
+            "$env:AGENT_TOOLSDIRECTORY\Ruby",
+            "$env:AGENT_TOOLSDIRECTORY\go",
+            "$env:AGENT_TOOLSDIRECTORY\CodeQL"
+          )) {
+            if (Test-Path $path) { Remove-Item -Recurse -Force $path -ErrorAction SilentlyContinue }
+          }
+          Get-PSDrive C | Select-Object Used, Free
+
+      - name: depot_tools
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git C:\depot_tools
+          "C:\depot_tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: WebRTC at the pinned commit
+        shell: cmd
+        run: |
+          mkdir %WEBRTC_ROOT%
+          cd /d %WEBRTC_ROOT%
+          call fetch --nohooks webrtc || exit /b 1
+          cd src
+          call git checkout %WEBRTC_PIN% || exit /b 1
+          rem Transient 429s from the Google mirrors are normal under load.
+          for /L %%a in (1,1,6) do (
+            echo sync attempt %%a
+            call gclient sync --with_branch_heads --reset --jobs 4 && goto :synced
+            timeout /t 30 /nobreak > nul
+          )
+          echo ::error::gclient sync failed after 6 attempts
+          exit /b 1
+          :synced
+          echo sync complete
+
+      # --export-compile-commands is load-bearing, exactly as on the other two
+      # platforms: build_veil_media_dll_windows.ps1 reads call.cc's command out
+      # of compile_commands.json so the veil translation units are compiled
+      # with WebRTC's own clang-cl, __Cr libc++ and winsysroot.
+      - name: Build webrtc.lib
+        shell: cmd
+        run: |
+          cd /d %WEBRTC_ROOT%\src
+          call gn gen out/win-x64 --export-compile-commands --args="target_os=\"win\" target_cpu=\"x64\" is_debug=false is_component_build=false symbol_level=0 rtc_include_tests=false rtc_build_examples=false rtc_build_tools=false rtc_enable_protobuf=false rtc_use_h264=false enable_libaom=false rtc_include_opus=true treat_warnings_as_errors=false" || exit /b 1
+          if not exist out\win-x64\compile_commands.json (
+            echo ::error::gn produced no compile_commands.json - the engine build reads call.cc's command from it
+            exit /b 1
+          )
+          call ninja -C out/win-x64 webrtc || exit /b 1
+          dir out\win-x64\obj\webrtc.lib
+
+      - name: Build veil_media.dll
+        shell: pwsh
+        env:
+          VEIL_MEDIA_NO_STRIP: ${{ inputs.keep_symbols && '1' || '' }}
+        run: |
+          & third_party\veil\flutter\veil_media\windows\build_veil_media_dll_windows.ps1 `
+            -WebrtcSrc "$env:WEBRTC_ROOT\src" `
+            -WebrtcOut 'out\win-x64' `
+            -Dest "$env:GITHUB_WORKSPACE\engine-out"
+
+      # The reason webrtc-linux exists at all applies here unchanged: an engine
+      # short of the symbols Dart looks up links, bundles, and fails at the
+      # first call. check-media-symbols.sh reads ELF, so the export table comes
+      # from dumpbin here and the comparison is done in place.
+      - name: Every symbol Dart looks up is exported
+        shell: pwsh
+        run: |
+          $dll = "$env:GITHUB_WORKSPACE\engine-out\veil_media.dll"
+          $dumpbin = Get-ChildItem -Recurse -Filter dumpbin.exe `
+            -Path "${env:ProgramFiles(x86)}\Microsoft Visual Studio", "$env:ProgramFiles\Microsoft Visual Studio" `
+            -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $dumpbin) { throw 'dumpbin.exe not found' }
+          $exported = & $dumpbin.FullName /EXPORTS $dll |
+            Select-String -Pattern '\bveil_media_[a-z0-9_]+' -AllMatches |
+            ForEach-Object { $_.Matches.Value } | Sort-Object -Unique
+          # Quoted names only, mirroring check-media-symbols.sh: the bare
+          # identifier also appears inside library names, and a check that
+          # invents a missing symbol is a check someone switches off.
+          $looked = Select-String -Path `
+            "lib\**\*.dart", "third_party\veil\flutter\veil_media\lib\**\*.dart" `
+            -Pattern "'(veil_media_[a-z0-9_]+)'" -AllMatches |
+            ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } |
+            Sort-Object -Unique
+          # These two are thunks into veilclient_ffi.dll and deliberately not
+          # exported - see veil_win_datagram_thunk.cc.
+          $looked = $looked | Where-Object { $_ -notin @('veil_media_send_datagram', 'veil_media_set_recv_callback') }
+          $missing = $looked | Where-Object { $_ -notin $exported }
+          Write-Host "exported: $($exported.Count), looked up: $($looked.Count)"
+          if ($missing) {
+            Write-Host "::error::the engine does not export: $($missing -join ', ')"
+            exit 1
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libveil_media-win-x64
+          path: engine-out/veil_media.dll
+          if-no-files-found: error
