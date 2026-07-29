@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/error_journal.dart';
+import '../../data/storage/app_profile.dart';
 import '../../l10n/app_localizations.dart';
 import '../../main.dart' show activeProfile;
 
@@ -33,7 +34,7 @@ Future<void> copyErrorReport(
     platform: Platform.operatingSystem,
     osVersion: Platform.operatingSystemVersion,
     appVersion: kAppVersion,
-    profile: activeProfile,
+    defaultProfile: activeProfile == AppProfiles.defaultName,
     phase: phase,
   );
   await Clipboard.setData(ClipboardData(text: report));
