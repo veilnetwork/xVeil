@@ -100,9 +100,23 @@ class ContentManifest {
   /// the hash list near 4096 pieces, with a hard 32 MiB RAM ceiling per piece.
   /// Beyond that the piece count grows; a ~1 TiB object still has a manifest
   /// small enough for the deniable file store.
+  /// Hard RAM ceiling for one piece. A piece is held whole while it is
+  /// verified, so this is the largest allocation one manifest can ask a
+  /// receiver for. Shared with [fromJson] deliberately: the value that bounds
+  /// what WE send is the value that bounds what we accept, so the two cannot
+  /// drift into a sender-generous/receiver-trusting pair.
+  static const int maxPieceBytes = 32 * 1024 * 1024;
+
+  /// The most wire chunks one piece may be cut into — what the sender's own
+  /// pairing (32 MiB pieces, 256 B chunks) produces at its extreme. The
+  /// per-piece missing-chunk bitmap is one bit per chunk, so this is also the
+  /// bound on that allocation: without it a manifest declaring 1-byte chunks
+  /// over a 32 MiB piece asks for a 4 MiB bitmap per piece, chosen entirely by
+  /// whoever sent it.
+  static const int maxChunksPerPiece = maxPieceBytes ~/ defaultChunkBytes;
+
   static int adaptivePieceSize(int size) {
     const maxPieces = 4096;
-    const maxPieceBytes = 32 * 1024 * 1024;
     final needed = (size + maxPieces - 1) ~/ maxPieces;
     if (needed <= defaultPieceSize) return defaultPieceSize;
     return needed > maxPieceBytes ? maxPieceBytes : needed;
@@ -358,12 +372,39 @@ class ContentManifest {
       // pieceSize/size, which drive offset math and allocations downstream.
       final cb = (j['cb'] as int?) ?? defaultChunkBytes;
       if (cb <= 0 || ps <= 0 || size < 0) return null;
+      // GEOMETRY. Self-consistency proves only that the manifest hashes to its
+      // own id — which its author computed, so it says nothing about whether
+      // the numbers agree with each other. They have to be checked here:
+      //
+      //  * `pieceCount` is `pieceHashes.length`, and that alone decides when a
+      //    transfer is complete, while `size` is what the receiver shows and
+      //    writes. Nothing tied them together, so a manifest declaring 2 MiB
+      //    with 256 KiB pieces and ONE hash was accepted and the transfer
+      //    reported 1/1 complete — stored and ACKed — after 256 KiB.
+      //  * `pieceSize` and `chunkBytes` are chosen by the sender and drive
+      //    receiver-side allocations: a whole piece in RAM, and a
+      //    one-bit-per-chunk bitmap. Unbounded, they are a memory amplifier
+      //    that costs the sender nothing to write down.
+      //
+      // The ceilings are the sender's own ([maxPieceBytes], and the chunk
+      // count its default pairing produces), so nothing this project emits is
+      // rejected — only manifests no honest sender here would author.
+      if (ps > maxPieceBytes) return null;
+      if (cb > ps || ps ~/ cb > maxChunksPerPiece) return null;
+      // The content id encodes pieceSize and the hash count with _u32le, which
+      // truncates silently. A value past 32 bits therefore does NOT appear in
+      // the id it is supposed to bind, and two manifests differing by 2^32
+      // share one canonical encoding without anyone breaking SHA-256.
+      if (ps > 0xffffffff) return null;
       final blob = _unhex(j['ph'] as String);
       if (blob.length % 32 != 0) return null;
       final hashes = <Uint8List>[
         for (var i = 0; i < blob.length; i += 32)
           Uint8List.sublistView(blob, i, i + 32),
       ];
+      if (hashes.length > 0xffffffff) return null;
+      final expectedPieces = size == 0 ? 0 : (size + ps - 1) ~/ ps;
+      if (hashes.length != expectedPieces) return null;
       final m = ContentManifest(
         name: name,
         size: size,
