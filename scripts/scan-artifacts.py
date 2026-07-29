@@ -1,19 +1,23 @@
 """Refuse to publish an artifact that carries a forbidden string.
 
-Substring matching alone does not work on a 30 MB binary. `REDACTED` sits inside
-`REDACTEDime` (variable-time arithmetic, in every curve25519 build), `REDACTED` sits
-inside `BratiREDACTED1` (timezone data), and the linker packs unrelated string
-literals end to end, so `obfs4_accept_variants` and
-`reconnect_quiet_after_failures` share storage and spell `..._REDACTED_after_...`
-at the seam. Three false alarms, none of them a leak, and a gate that cries
-wolf gets switched off by whoever hits it first.
+Substring matching alone does not work on a 30 MB binary. A short handle is a
+substring of ordinary identifiers — one four-letter name sits inside a common
+crypto suffix present in every curve25519 build, another inside a city name in
+the timezone table — and the linker packs unrelated string literals end to end,
+so two adjacent config keys can spell a third word across the seam. Three false
+alarms, none of them a leak, and a gate that cries wolf gets switched off by
+whoever hits it first.
 
-So an identifier-shaped pattern only counts when at least one side of it is
-NOT an identifier character. A real leak is a path or a token — /Users/REDACTED/,
-REDACTED@host, /home/REDACTED_backup — and every one of those has a boundary. A
+So an identifier-shaped pattern only counts when at least one side of it is NOT
+an identifier character. A real leak is a path or a token — `/Users/NAME/`,
+`NAME@host`, `/home/NAME_backup` — and every one of those has a boundary. A
 pattern welded between identifier characters on both sides is the linker's
 doing. Patterns that already contain punctuation (an address, an email) are
 matched as they are: they cannot collide with an identifier by accident.
+
+NOTE: no real pattern appears in this file, deliberately. An earlier version of
+this docstring quoted the actual examples and this scanner flagged itself — in
+a public repository, which is exactly the failure it exists to prevent.
 """
 
 from __future__ import annotations
