@@ -194,9 +194,37 @@ jobs:
           keyPassword=$KEYSTORE_PASSWORD
           EOF
 
+      # Android needs the same out-of-band prebuilt Linux does, and nobody
+      # wired it: libveil_media.so is gitignored, so a clean checkout has none,
+      # gradle packaged the ABI directories that existed and the build went
+      # green. v0.9.1 shipped that way — its arm64 APK carried eleven native
+      # libraries and no media engine, and the app installed, started and threw
+      # 'library libveil_media.so not found' the first time anyone recorded a
+      # voice message. Same pin-a-run mechanism as the linux job below.
+      - name: Prebuilt call engine
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Run webrtc-linux (engine-android job) once, then pin its run id
+          # here. Empty on purpose until that happens: failing this job is the
+          # correct outcome, because the alternative is another release that
+          # cannot record a voice message.
+          ENGINE_RUN: ''
+        run: |
+          set -euo pipefail
+          if [ -z "$ENGINE_RUN" ]; then
+            echo "::error::ANDROID call engine is not pinned. Run the webrtc-linux workflow (engine-android job), then set ENGINE_RUN here to its run id. Without it the APK builds and cannot do voice messages, video notes, calls or speech-to-text."
+            exit 1
+          fi
+          dest=android/app/src/main/jniLibs/arm64-v8a
+          mkdir -p "$dest"
+          gh run download "$ENGINE_RUN" -n libveil_media-android-arm64 -D "$dest"
+          ls -la "$dest/libveil_media.so"
+          bash scripts/check-media-symbols.sh "$dest/libveil_media.so"
+
       # builder.py is the same entry point used by hand, so CI and a laptop
       # cannot drift: it sets the path-remap environment, runs the whisper
-      # wrapper, builds one APK per ABI and fails if the signing key is absent.
+      # wrapper, builds the arm64 APK and fails if the signing key is absent
+      # or the call engine is not staged.
       - name: Build the APKs
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.path }}
