@@ -184,6 +184,14 @@ final deniableBootProvider = Provider<DeniableBootConfig?>((ref) => null);
 /// rebuild when it changes.
 final realStackProvider = StateProvider<RealVeilStack?>((ref) => null);
 
+/// One-shot: the user finished onboarding by choosing "link to a device you
+/// already use", so the session that just opened should land on the device-link
+/// screen rather than on chats. Set by [AppController.completeOnboarding] and
+/// consumed by the router on the first `ready`. Deliberately NOT persisted —
+/// an interrupted link is resumed from Settings, and a flag that outlived the
+/// process would keep hijacking every launch.
+final pendingDeviceLinkProvider = StateProvider<bool>((ref) => false);
+
 /// HONEST boot status of the REAL node, when a real node is expected (a packaged
 /// build / armed deniable boot) but the stack isn't up yet. Non-null ⇒ the UI
 /// must show THIS (e.g. `starting`, or `error`/`offline` with a message) rather
