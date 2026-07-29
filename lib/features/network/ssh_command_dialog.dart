@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'ssh_host_confirm.dart';
+
 import '../../data/node/managed_node.dart';
 import '../../data/node/ssh_client.dart';
 import '../../data/node/ssh_credentials.dart';
@@ -97,13 +99,27 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
           )
         : SshAuth.password(_password.text);
     try {
+      // Identity before credentials: on first contact this learns the host key
+      // on a connection that offers nothing, and asks the user to compare it.
+      final pin = await confirmSshHost(
+        context,
+        host: node.sshHost!,
+        port: node.sshPort,
+        pinned: node.sshHostFingerprint,
+      );
+      if (pin == null) {
+        if (mounted) {
+          setState(() => _error = AppL10n.of(context).sshHostNotConfirmed);
+        }
+        return;
+      }
       final result = await sshRun(
         host: node.sshHost!,
         port: node.sshPort,
         user: node.sshUser!,
         auth: auth,
         command: widget.command,
-        expectedHostFingerprint: node.sshHostFingerprint,
+        expectedHostFingerprint: pin,
         timeout: widget.timeout,
       );
       if (result.hostFingerprint.isNotEmpty &&

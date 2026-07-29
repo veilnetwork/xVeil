@@ -31,6 +31,12 @@
 
   "onboardSetupFailed": "Could not create the encrypted container. Check that there is free space on the device and try again.",
 
+  "sshConfirmHostTitle": "Is this the right server?",
+  "sshConfirmHostBody": "This is the first connection to {host}, so there is nothing to compare its identity against yet. Check the fingerprint below against the one the server shows — on the server itself, not over this connection. If they differ, someone is sitting between you and it.",
+  "sshConfirmHostHint": "Run this on the server: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub",
+  "sshConfirmHostAccept": "It matches, continue",
+  "sshHostNotConfirmed": "Connection cancelled: the server identity was not confirmed.",
+
   "storageUnavailableTitle": "Secure storage is unavailable",
   "storageUnavailableBody": "xVeil could not load the component that encrypts everything it stores. It will not start without it: continuing would mean a password that protects nothing and data that disappears when the app closes.",
   "storageUnavailableAction": "This build is damaged or incomplete. Install xVeil again from the release page. Nothing that was already stored on this device has been touched.",

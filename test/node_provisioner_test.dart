@@ -95,7 +95,9 @@ void main() {
     // The checksum is verified against the download, and that check precedes
     // the `sudo install` — so a mismatched (tampered) binary aborts the script
     // before it is ever placed on PATH or executed as root.
-    expect(s, contains("echo '$sha  /tmp/veil-cli' | sha256sum -c -"));
+    // The staging path is now a private mktemp -d directory, not a fixed
+    // /tmp name anyone on the host could occupy first.
+    expect(s, contains("echo '$sha  \$XVEIL_TMP/veil-cli' | sha256sum -c -"));
     final verifyAt = s.indexOf('sha256sum -c -');
     final installAt = s.indexOf('sudo install -o root -g root');
     expect(verifyAt, greaterThanOrEqualTo(0));
@@ -261,7 +263,7 @@ void main() {
     expect(script, contains('IP.1 = 203.0.113.10'));
     expect(script, contains('-days 730'));
     expect(script, contains("203.0.113.10|730"));
-    expect(script, contains("-m 0640 /tmp/xveil-selfsigned-key.pem"));
+    expect(script, contains("-m 0640 \$XVEIL_TMP/xveil-selfsigned-key.pem"));
     expect(script, contains("--tls-cert '/etc/veil/tls/selfsigned-cert.pem'"));
     expect(
       script.indexOf('openssl req'),

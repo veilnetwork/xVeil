@@ -63,6 +63,56 @@ class SshException implements Exception {
 /// it to the user to verify out-of-band. dartssh2 verifies the key SIGNATURE
 /// against the presented host key independently; this adds the identity pin on
 /// top, which is what stops MITM.
+/// The server's host-key fingerprint, learned WITHOUT authenticating to it.
+///
+/// The handshake presents the host key before any credential is offered, so
+/// this connects, records what `onVerifyHostKey` was shown, and hangs up. No
+/// password is sent, no key is offered, no command runs.
+///
+/// That ordering is the whole point. Trust-on-first-use used to happen inside
+/// the same connection that then authenticated and ran the provisioning
+/// script: a man-in-the-middle on that first contact collected the SSH
+/// password, the script and the obfs4 PSK it carries, answered with something
+/// plausible, and had its own key saved as the trusted one. The user was shown
+/// a fingerprint to verify only after everything worth stealing had been
+/// handed over.
+///
+/// Confirm the returned fingerprint out of band, then pass it to [sshRun] as
+/// `expectedHostFingerprint` — on a second, separate connection.
+Future<String> sshDiscoverHostKey({
+  required String host,
+  required int port,
+  Duration timeout = const Duration(seconds: 30),
+}) async {
+  SSHClient? client;
+  var observed = '';
+  try {
+    final socket = await SSHSocket.connect(host, port, timeout: timeout);
+    client = SSHClient(
+      socket,
+      // Deliberately no username credential material: authentication is
+      // expected to fail, and failing is fine — the fingerprint arrives first.
+      username: 'x',
+      onVerifyHostKey: (type, fingerprint) {
+        observed = utf8.decode(fingerprint);
+        // Refuse the connection: we already have what we came for, and
+        // continuing would start an auth exchange we do not want.
+        return false;
+      },
+    );
+    await client.authenticated.timeout(timeout);
+  } catch (_) {
+    // Expected: we refused the key, so the handshake ends in an error. The
+    // fingerprint was captured before that.
+  } finally {
+    client?.close();
+  }
+  if (observed.isEmpty) {
+    throw const SshException('could not read the server host key');
+  }
+  return observed;
+}
+
 Future<SshResult> sshRun({
   required String host,
   required int port,
@@ -71,6 +121,12 @@ Future<SshResult> sshRun({
   required String command,
   String? expectedHostFingerprint,
   Duration timeout = const Duration(seconds: 30),
+  // Accept a host key we have never seen. Defaults to REFUSING, because the
+  // caller that wants this is the one at risk: an unpinned connection hands
+  // the password and the command to whoever answered. Callers that genuinely
+  // do first contact should use [sshDiscoverHostKey], have the user confirm,
+  // and then connect pinned.
+  bool allowUnknownHost = false,
 }) async {
   SSHClient? client;
   // Populated by onVerifyHostKey during the handshake (fires before execute).
@@ -91,7 +147,10 @@ Future<SshResult> sshRun({
       // server's host key. Without this callback the library accepts ANY key.
       onVerifyHostKey: (type, fingerprint) {
         observedFingerprint = utf8.decode(fingerprint);
-        if (expectedHostFingerprint == null) return true; // trust-on-first-use
+        // No pin and no explicit opt-in ⇒ refuse. Trust-on-first-use inside
+        // the connection that also carries the password and the command is
+        // not first-use trust, it is no trust at all.
+        if (expectedHostFingerprint == null) return allowUnknownHost;
         // The fingerprint is public, so a plain compare leaks nothing sensitive.
         final ok = observedFingerprint == expectedHostFingerprint;
         if (!ok) pinMismatch = true;
