@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'ssh_host_confirm.dart';
+
 import '../../data/node/managed_node.dart';
 import '../../data/node/node_lifecycle.dart';
 import '../../data/node/ssh_client.dart';
@@ -55,13 +57,26 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
       _output = null;
     });
     try {
+      // Identity before credentials — see confirmSshHost.
+      final pin = await confirmSshHost(
+        context,
+        host: node.sshHost!,
+        port: node.sshPort,
+        pinned: node.sshHostFingerprint,
+      );
+      if (pin == null) {
+        if (mounted) {
+          setState(() => _error = AppL10n.of(context).sshHostNotConfirmed);
+        }
+        return null;
+      }
       final result = await sshRun(
         host: node.sshHost!,
         port: node.sshPort,
         user: node.sshUser!,
         auth: _auth,
         command: command,
-        expectedHostFingerprint: node.sshHostFingerprint,
+        expectedHostFingerprint: pin,
         timeout: const Duration(minutes: 2),
       );
       if (result.hostFingerprint.isNotEmpty &&

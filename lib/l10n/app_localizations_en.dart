@@ -97,6 +97,25 @@ class AppL10nEn extends AppL10n {
       'Could not create the encrypted container. Check that there is free space on the device and try again.';
 
   @override
+  String get sshConfirmHostTitle => 'Is this the right server?';
+
+  @override
+  String sshConfirmHostBody(Object host) {
+    return 'This is the first connection to $host, so there is nothing to compare its identity against yet. Check the fingerprint below against the one the server shows — on the server itself, not over this connection. If they differ, someone is sitting between you and it.';
+  }
+
+  @override
+  String get sshConfirmHostHint =>
+      'Run this on the server: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub';
+
+  @override
+  String get sshConfirmHostAccept => 'It matches, continue';
+
+  @override
+  String get sshHostNotConfirmed =>
+      'Connection cancelled: the server identity was not confirmed.';
+
+  @override
   String get storageUnavailableTitle => 'Secure storage is unavailable';
 
   @override

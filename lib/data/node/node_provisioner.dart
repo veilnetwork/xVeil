@@ -512,8 +512,8 @@ String _installArtifact(NodeReleaseArtifact a) {
 
 String _artifactTempPath(NodeComponent component) =>
     component == NodeComponent.veilCli
-    ? '/tmp/veil-cli'
-    : '/tmp/xveil-${component.binaryName}';
+    ? '\$XVEIL_TMP/veil-cli'
+    : '\$XVEIL_TMP/xveil-${component.binaryName}';
 
 String _listenerCommand(NodeProvisionConfig c, NodeListenTransport t) {
   final port = c.portFor(t);
@@ -530,7 +530,7 @@ String _listenerCommand(NodeProvisionConfig c, NodeListenTransport t) {
       t.needsTls && (c.effectiveTlsCaCertPath?.trim().isNotEmpty ?? false)
       ? " --tls-ca-cert '${c.effectiveTlsCaCertPath}'"
       : '';
-  return "sudo -u veil /usr/local/bin/veil-cli -c /tmp/xveil-node.toml listen add '$uri'$advertise$tls$ca";
+  return "sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml listen add '$uri'$advertise$tls$ca";
 }
 
 String _ensureServerCommand(String command, String package) =>
@@ -572,7 +572,7 @@ fi
 
 # Certbot's source key stays root-only. The deploy hook updates a stable copy
 # readable by the veil group after every automatic renewal.
-cat > /tmp/xveil-certbot-deploy-hook <<'HOOK_EOF'
+cat > \$XVEIL_TMP/xveil-certbot-deploy-hook <<'HOOK_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 install -d -o root -g veil -m 0750 /etc/veil/tls
@@ -580,7 +580,7 @@ install -o root -g veil -m 0644 '/etc/letsencrypt/live/$domain/fullchain.pem' '/
 install -o root -g veil -m 0640 '/etc/letsencrypt/live/$domain/privkey.pem' '/etc/veil/tls/letsencrypt-privkey.pem'
 systemctl try-restart veil.service || true
 HOOK_EOF
-sudo install -o root -g root -m 0755 /tmp/xveil-certbot-deploy-hook \\
+sudo install -o root -g root -m 0755 \$XVEIL_TMP/xveil-certbot-deploy-hook \\
   /etc/letsencrypt/renewal-hooks/deploy/xveil-veil
 sudo /etc/letsencrypt/renewal-hooks/deploy/xveil-veil
 sudo systemctl enable --now certbot.timer >/dev/null 2>&1 || true
@@ -603,8 +603,7 @@ elif ! sudo openssl x509 -checkend 86400 -noout -in '${c.effectiveTlsCertPath}' 
   selfsigned_regenerate=true
 fi
 if [ "\$selfsigned_regenerate" = true ]; then
-  umask 077
-  cat > /tmp/xveil-openssl.cnf <<'OPENSSL_EOF'
+    cat > \$XVEIL_TMP/xveil-openssl.cnf <<'OPENSSL_EOF'
 [req]
 distinguished_name = dn
 x509_extensions = v3
@@ -617,13 +616,13 @@ subjectAltName = @alt_names
 $sanKind = $name
 OPENSSL_EOF
   openssl req -x509 -nodes -newkey rsa:3072 -sha256 \\
-    -days ${c.selfSignedDays} -config /tmp/xveil-openssl.cnf \\
-    -keyout /tmp/xveil-selfsigned-key.pem \\
-    -out /tmp/xveil-selfsigned-cert.pem
-  printf '%s' '$certificateSpec' > /tmp/xveil-selfsigned-spec
-  sudo install -o root -g veil -m 0644 /tmp/xveil-selfsigned-cert.pem '${c.effectiveTlsCertPath}'
-  sudo install -o root -g veil -m 0640 /tmp/xveil-selfsigned-key.pem '${c.effectiveTlsKeyPath}'
-  sudo install -o root -g veil -m 0644 /tmp/xveil-selfsigned-spec /etc/veil/tls/selfsigned-spec
+    -days ${c.selfSignedDays} -config \$XVEIL_TMP/xveil-openssl.cnf \\
+    -keyout \$XVEIL_TMP/xveil-selfsigned-key.pem \\
+    -out \$XVEIL_TMP/xveil-selfsigned-cert.pem
+  printf '%s' '$certificateSpec' > \$XVEIL_TMP/xveil-selfsigned-spec
+  sudo install -o root -g veil -m 0644 \$XVEIL_TMP/xveil-selfsigned-cert.pem '${c.effectiveTlsCertPath}'
+  sudo install -o root -g veil -m 0640 \$XVEIL_TMP/xveil-selfsigned-key.pem '${c.effectiveTlsKeyPath}'
+  sudo install -o root -g veil -m 0644 \$XVEIL_TMP/xveil-selfsigned-spec /etc/veil/tls/selfsigned-spec
 fi
 sudo -u veil test -r '${c.effectiveTlsCertPath}'
 sudo -u veil test -r '${c.effectiveTlsKeyPath}'
@@ -657,39 +656,39 @@ String _optionalComponentSetup(Set<NodeComponent> components) {
     out.writeln("sudo mkdir -p /etc/ogate");
     out.writeln(
       '''if ! sudo test -f /etc/ogate/ogate.toml; then
-  sudo -u veil /usr/local/bin/ogate gen-config -o /tmp/xveil-ogate.toml
-  sudo install -o veil -g veil -m 0640 /tmp/xveil-ogate.toml /etc/ogate/ogate.toml
+  sudo -u veil /usr/local/bin/ogate gen-config -o \$XVEIL_TMP/xveil-ogate.toml
+  sudo install -o veil -g veil -m 0640 \$XVEIL_TMP/xveil-ogate.toml /etc/ogate/ogate.toml
 fi
-cat > /tmp/xveil-ogate.service <<'UNIT_EOF'
+cat > \$XVEIL_TMP/xveil-ogate.service <<'UNIT_EOF'
 $_ogateService
 UNIT_EOF
-sudo install -m 0644 /tmp/xveil-ogate.service /etc/systemd/system/ogate.service''',
+sudo install -m 0644 \$XVEIL_TMP/xveil-ogate.service /etc/systemd/system/ogate.service''',
     );
   }
   if (components.contains(NodeComponent.oproxyClient)) {
     out.writeln(
       '''sudo mkdir -p /etc/oproxy
 if ! sudo test -f /etc/oproxy/client.toml; then
-  sudo -u veil /usr/local/bin/oproxy-client --gen-config > /tmp/xveil-oproxy-client.toml
-  sudo install -o veil -g veil -m 0640 /tmp/xveil-oproxy-client.toml /etc/oproxy/client.toml
+  sudo -u veil /usr/local/bin/oproxy-client --gen-config > \$XVEIL_TMP/xveil-oproxy-client.toml
+  sudo install -o veil -g veil -m 0640 \$XVEIL_TMP/xveil-oproxy-client.toml /etc/oproxy/client.toml
 fi
-cat > /tmp/xveil-oproxy-client.service <<'UNIT_EOF'
+cat > \$XVEIL_TMP/xveil-oproxy-client.service <<'UNIT_EOF'
 $_oproxyClientService
 UNIT_EOF
-sudo install -m 0644 /tmp/xveil-oproxy-client.service /etc/systemd/system/oproxy-client.service''',
+sudo install -m 0644 \$XVEIL_TMP/xveil-oproxy-client.service /etc/systemd/system/oproxy-client.service''',
     );
   }
   if (components.contains(NodeComponent.oproxyServer)) {
     out.writeln(
       '''sudo mkdir -p /etc/oproxy
 if ! sudo test -f /etc/oproxy/server.toml; then
-  sudo -u veil /usr/local/bin/oproxy-server --gen-config > /tmp/xveil-oproxy-server.toml
-  sudo install -o veil -g veil -m 0640 /tmp/xveil-oproxy-server.toml /etc/oproxy/server.toml
+  sudo -u veil /usr/local/bin/oproxy-server --gen-config > \$XVEIL_TMP/xveil-oproxy-server.toml
+  sudo install -o veil -g veil -m 0640 \$XVEIL_TMP/xveil-oproxy-server.toml /etc/oproxy/server.toml
 fi
-cat > /tmp/xveil-oproxy-server.service <<'UNIT_EOF'
+cat > \$XVEIL_TMP/xveil-oproxy-server.service <<'UNIT_EOF'
 $_oproxyServerService
 UNIT_EOF
-sudo install -m 0644 /tmp/xveil-oproxy-server.service /etc/systemd/system/oproxy-server.service''',
+sudo install -m 0644 \$XVEIL_TMP/xveil-oproxy-server.service /etc/systemd/system/oproxy-server.service''',
     );
   }
   return out.toString();
@@ -716,6 +715,24 @@ String buildProvisionScript(NodeProvisionConfig c) {
   return '''#!/usr/bin/env bash
 set -euo pipefail
 
+# Private scratch directory, owner-only, removed on EVERY exit path.
+#
+# This script writes the deployment obfs4 PSK, the systemd unit, a TLS private
+# key and the node's own config, and then hands each to `sudo install`. Those
+# staging files used to live at fixed /tmp/xveil-* names under the login
+# umask, which on a shared server is three separate problems: another local
+# account could read the PSK and the TLS key in the window before install
+# moved them; it could pre-create or symlink any of those names and have a
+# root-privileged install follow it; and cleanup only ran on the success path,
+# so a failed run left the secrets sitting there.
+#
+# `umask 077` covers the files, `mktemp -d` makes the name unguessable and the
+# directory owner-only, and the trap fires on error and signal as well as on
+# success.
+umask 077
+XVEIL_TMP="\$(mktemp -d)" || { echo 'cannot create a private temp dir' >&2; exit 1; }
+trap 'rm -rf -- "\$XVEIL_TMP"' EXIT INT TERM
+
 $_tomlScalarHelper
 
 # 0. dedicated account + state directories
@@ -730,37 +747,37 @@ $downloads
 $installs
 
 # 3. deployment obfs4 PSK
-cat > /tmp/xveil-obfs4-psk.b64 <<'PSK_EOF'
+cat > \$XVEIL_TMP/xveil-obfs4-psk.b64 <<'PSK_EOF'
 ${c.obfs4PskB64.trim()}
 PSK_EOF
-sudo install -o veil -g veil -m 0600 /tmp/xveil-obfs4-psk.b64 /var/lib/veil/obfs4_psk.b64
+sudo install -o veil -g veil -m 0600 \$XVEIL_TMP/xveil-obfs4-psk.b64 /var/lib/veil/obfs4_psk.b64
 
 # 4. veil service + stable local IPC used by ogate/oproxy
-cat > /tmp/xveil-veil.service <<'UNIT_EOF'
+cat > \$XVEIL_TMP/xveil-veil.service <<'UNIT_EOF'
 $_veilService
 UNIT_EOF
-sudo install -m 0644 /tmp/xveil-veil.service /etc/systemd/system/veil.service
+sudo install -m 0644 \$XVEIL_TMP/xveil-veil.service /etc/systemd/system/veil.service
 
 # 5. prepare TLS material before changing any listener configuration
 $tlsSetup
 
 # 6. preserve identity, but reconcile listeners and service configuration
 if ! sudo test -f /var/lib/veil/node.toml || ! sudo grep -qE '^\\[Identity\\]' /var/lib/veil/node.toml; then
-  sudo -u veil /usr/local/bin/veil-cli config init -d 24 -f /tmp/xveil-node.toml
+  sudo -u veil /usr/local/bin/veil-cli config init -d 24 -f \$XVEIL_TMP/xveil-node.toml
 else
-  sudo install -o veil -g veil -m 0600 /var/lib/veil/node.toml /tmp/xveil-node.toml
+  sudo install -o veil -g veil -m 0600 /var/lib/veil/node.toml \$XVEIL_TMP/xveil-node.toml
 fi
 while read -r listen_id; do
-  sudo -u veil /usr/local/bin/veil-cli -c /tmp/xveil-node.toml listen del "\$listen_id"
-done < <(sudo -u veil /usr/local/bin/veil-cli -c /tmp/xveil-node.toml listen list | awk 'NR > 1 && \$1 ~ /^[0-9]+\$/ {print \$1}')
+  sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml listen del "\$listen_id"
+done < <(sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml listen list | awk 'NR > 1 && \$1 ~ /^[0-9]+\$/ {print \$1}')
 $listeners
-set_toml_scalar transport obfs4_psk_file '"/var/lib/veil/obfs4_psk.b64"' /tmp/xveil-node.toml
-sudo -u veil /usr/local/bin/veil-cli -c /tmp/xveil-node.toml config set ipc.enabled true
-sudo -u veil /usr/local/bin/veil-cli -c /tmp/xveil-node.toml config set ipc.socket_uri unix:///run/veil/app.sock
+set_toml_scalar transport obfs4_psk_file '"/var/lib/veil/obfs4_psk.b64"' \$XVEIL_TMP/xveil-node.toml
+sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml config set ipc.enabled true
+sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml config set ipc.socket_uri unix:///run/veil/app.sock
 $exitComment
-set_toml_scalar proxy.exit enabled '$exitValue' /tmp/xveil-node.toml
-sudo -u veil /usr/local/bin/veil-cli -c /tmp/xveil-node.toml config validate
-sudo install -o veil -g veil -m 0600 /tmp/xveil-node.toml /var/lib/veil/node.toml
+set_toml_scalar proxy.exit enabled '$exitValue' \$XVEIL_TMP/xveil-node.toml
+sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml config validate
+sudo install -o veil -g veil -m 0600 \$XVEIL_TMP/xveil-node.toml /var/lib/veil/node.toml
 
 # 7. optional applications: install complete templates + units, but do not
 # enable them until the operator replaces their fail-closed placeholders.
@@ -797,12 +814,12 @@ echo -n "BOOTSTRAP_URI: "
 sudo -u veil /usr/local/bin/veil-cli --config /var/lib/veil/node.toml bootstrap invite 2>/dev/null \\
   | head -1 || echo "(unavailable)"
 
-rm -f $cleanup /tmp/xveil-obfs4-psk.b64 /tmp/xveil-veil.service \\
-  /tmp/xveil-ogate.service /tmp/xveil-oproxy-client.service \\
-  /tmp/xveil-oproxy-server.service /tmp/xveil-ogate.toml \\
-  /tmp/xveil-oproxy-client.toml /tmp/xveil-oproxy-server.toml \\
-  /tmp/xveil-node.toml /tmp/xveil-certbot-deploy-hook \\
-  /tmp/xveil-openssl.cnf /tmp/xveil-selfsigned-cert.pem \\
-  /tmp/xveil-selfsigned-key.pem /tmp/xveil-selfsigned-spec
+rm -f $cleanup \$XVEIL_TMP/xveil-obfs4-psk.b64 \$XVEIL_TMP/xveil-veil.service \\
+  \$XVEIL_TMP/xveil-ogate.service \$XVEIL_TMP/xveil-oproxy-client.service \\
+  \$XVEIL_TMP/xveil-oproxy-server.service \$XVEIL_TMP/xveil-ogate.toml \\
+  \$XVEIL_TMP/xveil-oproxy-client.toml \$XVEIL_TMP/xveil-oproxy-server.toml \\
+  \$XVEIL_TMP/xveil-node.toml \$XVEIL_TMP/xveil-certbot-deploy-hook \\
+  \$XVEIL_TMP/xveil-openssl.cnf \$XVEIL_TMP/xveil-selfsigned-cert.pem \\
+  \$XVEIL_TMP/xveil-selfsigned-key.pem \$XVEIL_TMP/xveil-selfsigned-spec
 ''';
 }

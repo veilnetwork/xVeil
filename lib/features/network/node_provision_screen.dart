@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../common/shown_cause.dart';
+import 'ssh_host_confirm.dart';
 import '../../data/node/managed_node.dart';
 import '../../data/node/node_provisioner.dart';
 import '../../data/node/proxy_routing.dart';
@@ -292,6 +293,25 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
             passphrase: _passphrase.text.isEmpty ? null : _passphrase.text,
           )
         : SshAuth.password(_password.text);
+    // Settle the server's identity BEFORE the password and the script (which
+    // carries the obfs4 PSK) go anywhere. On a known host this returns the
+    // saved pin and shows nothing; on first contact it learns the key without
+    // authenticating and asks the user to compare it out of band.
+    final pin = await confirmSshHost(
+      context,
+      host: widget.node.sshHost!,
+      port: widget.node.sshPort,
+      pinned: widget.node.sshHostFingerprint,
+    );
+    if (pin == null) {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = AppL10n.of(context).sshHostNotConfirmed;
+        });
+      }
+      return;
+    }
     try {
       final r = await sshRun(
         host: widget.node.sshHost!,
@@ -299,9 +319,10 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
         user: widget.node.sshUser!,
         auth: auth,
         command: buildProvisionScript(cfg),
-        // Pin the host key: enforce it if we already saved one (reject a MITM),
-        // capture it trust-on-first-use otherwise. A mismatch throws below.
-        expectedHostFingerprint: widget.node.sshHostFingerprint,
+        // Always pinned now: either the fingerprint we already trusted, or the
+        // one the user just confirmed on a separate, credential-free
+        // connection. A mismatch throws below.
+        expectedHostFingerprint: pin,
         // Mining the identity (PoW) on first run can take minutes.
         timeout: const Duration(minutes: 6),
       );
