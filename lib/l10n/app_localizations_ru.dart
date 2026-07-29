@@ -82,6 +82,18 @@ class AppL10nRu extends AppL10n {
   String get onboardRestoreSubmit => 'Восстановить';
 
   @override
+  String get onboardLinkDevice =>
+      'Привязать к устройству, которым вы уже пользуетесь';
+
+  @override
+  String get onboardLinkDeviceSub =>
+      'Фраза восстановления не нужна — подтвердите это устройство с того, что уже есть';
+
+  @override
+  String get onboardLinkDeviceBody =>
+      'Это устройство получит собственную временную личность, чтобы выйти в сеть. Как только вы подтвердите его со старого устройства, оно войдёт в вашу личность, а временная перестанет что-либо значить. Фразу восстановления оставьте там, где она лежит — здесь её не спросят.';
+
+  @override
   String get recoveryTitle => 'Сохраните фразу восстановления';
 
   @override

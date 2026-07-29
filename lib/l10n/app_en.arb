@@ -25,6 +25,9 @@
   "onboardRestoreIdentitySub": "Use your 24-word phrase to recover an existing identity",
   "onboardRestoreBody": "Enter the 24-word recovery phrase you wrote down when the identity was created. The same identity will be recreated on this device.",
   "onboardRestoreSubmit": "Restore",
+  "onboardLinkDevice": "Link to a device you already use",
+  "onboardLinkDeviceSub": "No recovery phrase needed — approve this device from the one you already have",
+  "onboardLinkDeviceBody": "This device gets a temporary identity of its own so it can reach the network. Once you approve it from your existing device, it joins your identity and the temporary one stops mattering. Keep your recovery phrase where it is — you will not be asked for it here.",
 
   "recoveryTitle": "Save your recovery phrase",
   "recoveryBody": "These 24 words ARE your identity. Anyone with them controls it; lose them and it is gone forever. Write them on paper and store them somewhere safe. Never store them online or photograph them.",

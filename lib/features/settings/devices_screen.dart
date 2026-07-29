@@ -17,8 +17,28 @@ import '../../state/group_service_providers.dart';
 import '../../state/providers.dart';
 import '../contacts/qr_scan_screen.dart';
 
+/// Whether the onboarding hand-off should open the join sheet on THIS build.
+///
+/// Extracted as a pure function for the same reason `redirectForPhase` was:
+/// the invariant is not observable through the widget. Arriving from
+/// onboarding, the node is still coming up, so [ready] is false for the first
+/// frames and the sheet's two providers read null. Firing anyway burns the
+/// one shot on a call that returns silently at its own null guard, and the
+/// user is left on a Devices list that never opens anything — a failure with
+/// no visible symptom to test against.
+bool shouldOpenJoinSheet({
+  required bool autoJoin,
+  required bool ready,
+  required bool alreadyOpened,
+}) => autoJoin && ready && !alreadyOpened;
+
 class DevicesScreen extends ConsumerStatefulWidget {
-  const DevicesScreen({super.key});
+  const DevicesScreen({super.key, this.autoJoin = false});
+
+  /// Arrived here straight from the onboarding "link to a device you already
+  /// use" path — open the join sheet as soon as the node is up, instead of
+  /// making someone who just asked to link hunt for the same row by hand.
+  final bool autoJoin;
 
   @override
   ConsumerState<DevicesScreen> createState() => _DevicesScreenState();
@@ -30,6 +50,9 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   bool _hasSovereignBundle = false;
   bool _hasDeviceGroup = false;
   String? _credentialKind;
+  /// The auto-open has fired. Guards against re-opening the sheet on every
+  /// rebuild, and against re-opening it after the user closes it.
+  bool _autoJoinFired = false;
 
   @override
   void initState() {
@@ -180,6 +203,19 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
         ref.watch(realStackProvider) != null;
     final phraseBacked = ref.watch(identityOriginProvider).value == 'phrase';
     final canOwn = ready && (_hasSovereignBundle || phraseBacked);
+    // Driven from build, not initState: right after onboarding the node is
+    // still coming up, so both providers read null for the first frames and an
+    // initState call would open nothing and never retry.
+    if (shouldOpenJoinSheet(
+      autoJoin: widget.autoJoin,
+      ready: ready,
+      alreadyOpened: _autoJoinFired,
+    )) {
+      _autoJoinFired = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showTarget();
+      });
+    }
     return Scaffold(
       appBar: AppBar(
         leading: const RootedBackButton(),

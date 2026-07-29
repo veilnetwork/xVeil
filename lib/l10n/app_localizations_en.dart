@@ -82,6 +82,17 @@ class AppL10nEn extends AppL10n {
   String get onboardRestoreSubmit => 'Restore';
 
   @override
+  String get onboardLinkDevice => 'Link to a device you already use';
+
+  @override
+  String get onboardLinkDeviceSub =>
+      'No recovery phrase needed — approve this device from the one you already have';
+
+  @override
+  String get onboardLinkDeviceBody =>
+      'This device gets a temporary identity of its own so it can reach the network. Once you approve it from your existing device, it joins your identity and the temporary one stops mattering. Keep your recovery phrase where it is — you will not be asked for it here.';
+
+  @override
   String get recoveryTitle => 'Save your recovery phrase';
 
   @override

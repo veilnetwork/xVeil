@@ -159,6 +159,149 @@ void main() {
     },
   );
 
+  group('linking to a device you already use', () {
+    // A second device joins an existing device group. It must NOT be walked
+    // through the sovereign ritual: the 24 words it would be told to write
+    // down restore an identity it never owns, and the person already has the
+    // real phrase on the device they are linking from. What it needs is a
+    // temporary identity good enough to reach the network and be adopted.
+
+    Future<ProviderContainer> pump(WidgetTester tester) async {
+      late ProviderContainer container;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
+          child: Consumer(
+            builder: (ctx, ref, _) {
+              container = ProviderScope.containerOf(ctx);
+              return MaterialApp(
+                localizationsDelegates: AppL10n.localizationsDelegates,
+                supportedLocales: AppL10n.supportedLocales,
+                home: const OnboardingScreen(),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return container;
+    }
+
+    AppL10n l(WidgetTester tester) =>
+        AppL10n.of(tester.element(find.byType(OnboardingScreen)));
+
+    Future<void> toChoosePath(WidgetTester tester) async {
+      await tester.tap(find.text(l(tester).actionContinue));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the link path reaches ready and asks for no phrase', (
+      tester,
+    ) async {
+      final container = await pump(tester);
+      await toChoosePath(tester);
+      await tester.tap(find.text(l(tester).onboardLinkDevice));
+      await tester.pumpAndSettle();
+
+      // The explanation step, NOT the recovery step.
+      expect(find.text(l(tester).onboardLinkDeviceBody), findsOneWidget);
+      expect(
+        find.text(l(tester).recoveryTitle),
+        findsNothing,
+        reason: 'a device being adopted must never be told to back up words '
+            'that restore an identity it will not own',
+      );
+      expect(find.byType(Checkbox), findsNothing);
+
+      await tester.tap(find.text(l(tester).actionContinue));
+      await tester.pumpAndSettle(); // 3 storage
+      await tester.tap(find.text(l(tester).actionContinue));
+      await tester.pumpAndSettle(); // 4 password
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), 'test123');
+      await tester.enterText(fields.at(1), 'test123');
+      await tester.tap(find.text(l(tester).actionDone));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      expect(container.read(appControllerProvider).phase, AppPhase.ready);
+      expect(
+        container.read(pendingDeviceLinkProvider),
+        isTrue,
+        reason: 'the session must open on the device-link screen; without '
+            'this the user lands on chats as a stranger to their own account',
+      );
+    });
+
+    testWidgets('the create path does NOT arm the device-link handoff', (
+      tester,
+    ) async {
+      // Guards the flag against firing for everyone: a create-path user
+      // hijacked onto the link screen would be told to approve a device from
+      // an account that does not exist yet.
+      final container = await pump(tester);
+      await toChoosePath(tester);
+      await tester.tap(find.text(l(tester).onboardCreateIdentity));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(Checkbox));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l(tester).actionContinue));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l(tester).actionContinue));
+      await tester.pumpAndSettle();
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), 'test123');
+      await tester.enterText(fields.at(1), 'test123');
+      await tester.tap(find.text(l(tester).actionDone));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      expect(container.read(appControllerProvider).phase, AppPhase.ready);
+      expect(container.read(pendingDeviceLinkProvider), isFalse);
+    });
+
+    testWidgets('backing out of link and creating instead clears the intent', (
+      tester,
+    ) async {
+      // The intent is a field that outlives the step. Someone who opens the
+      // link path, changes their mind, and creates an identity would otherwise
+      // finish as a device sitting on the join screen waiting for an approval
+      // that is never coming.
+      final container = await pump(tester);
+      await toChoosePath(tester);
+      await tester.tap(find.text(l(tester).onboardLinkDevice));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(l(tester).onboardCreateIdentity),
+        findsOneWidget,
+        reason: 'back from the link step lands on the path choice, not welcome',
+      );
+      await tester.tap(find.text(l(tester).onboardCreateIdentity));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(Checkbox));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l(tester).actionContinue));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l(tester).actionContinue));
+      await tester.pumpAndSettle();
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), 'test123');
+      await tester.enterText(fields.at(1), 'test123');
+      await tester.tap(find.text(l(tester).actionDone));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      expect(container.read(appControllerProvider).phase, AppPhase.ready);
+      expect(container.read(pendingDeviceLinkProvider), isFalse);
+    });
+  });
+
   group('the password step is the last chance to get it right', () {
     // There is no recovery path for the container password: no reset, no
     // escrow, nothing to email. A password accepted here that is not the one

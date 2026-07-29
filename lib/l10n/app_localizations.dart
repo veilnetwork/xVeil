@@ -229,6 +229,24 @@ abstract class AppL10n {
   /// **'Restore'**
   String get onboardRestoreSubmit;
 
+  /// No description provided for @onboardLinkDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Link to a device you already use'**
+  String get onboardLinkDevice;
+
+  /// No description provided for @onboardLinkDeviceSub.
+  ///
+  /// In en, this message translates to:
+  /// **'No recovery phrase needed — approve this device from the one you already have'**
+  String get onboardLinkDeviceSub;
+
+  /// No description provided for @onboardLinkDeviceBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This device gets a temporary identity of its own so it can reach the network. Once you approve it from your existing device, it joins your identity and the temporary one stops mattering. Keep your recovery phrase where it is — you will not be asked for it here.'**
+  String get onboardLinkDeviceBody;
+
   /// No description provided for @recoveryTitle.
   ///
   /// In en, this message translates to:

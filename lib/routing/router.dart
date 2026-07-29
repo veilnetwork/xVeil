@@ -43,6 +43,7 @@ import '../features/spaces/space_settings_screen.dart';
 import '../features/storage/cloud_storage_screen.dart';
 import '../features/storage/folder_sync_screen.dart';
 import '../state/app_controller.dart';
+import '../state/providers.dart';
 
 /// The routing SECURITY GATE, as a pure function of (phase, current location):
 /// returns null to stay put, or a path to redirect to. Each pre-`ready` phase
@@ -118,6 +119,24 @@ final routerProvider = Provider<GoRouter>((ref) {
       final location = state.matchedLocation;
       if (phase == AppPhase.preparingNode && location.startsWith('/settings')) {
         resumeAfterPrepare = location; // about to be bounced to /preparing
+      }
+      // Onboarding finished on the "link to a device you already use" path:
+      // the session is open on a temporary identity whose only job is to be
+      // adopted, so send the user to the device-link screen instead of chats.
+      // PUSHED onto home, not returned as the redirect target — a redirect
+      // REPLACES the stack and would leave the screen's back arrow with
+      // nowhere to go (the same reason resumeAfterPrepare pushes below).
+      if (phase == AppPhase.ready && ref.read(pendingDeviceLinkProvider)) {
+        ref.read(pendingDeviceLinkProvider.notifier).state = false; // one-shot
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          try {
+            router.push('/settings/devices?link=1');
+          } catch (_) {
+            // Router torn down between redirect and frame. Landing on home is
+            // not a dead end — the same screen is reachable from Settings.
+          }
+        });
+        return '/home';
       }
       if (phase == AppPhase.ready && location == '/preparing') {
         final resume = resumeAfterPrepare;
@@ -248,7 +267,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/settings/devices',
-        builder: (_, _) => const DevicesScreen(),
+        builder: (_, state) =>
+            DevicesScreen(autoJoin: state.uri.queryParameters['link'] == '1'),
       ),
       GoRoute(
         path: '/settings/privacy',

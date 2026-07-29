@@ -13,11 +13,20 @@ import 'recovery_phrase_input.dart';
 /// First-launch wizard. Steps:
 ///   0 welcome → 1 choose path → 2 recovery phrase → 3 storage mode → 4 password
 ///   restore:             1 → 5 phrase entry → 3 storage mode → 4 password
+///   link:                1 → 6 what happens → 3 storage mode → 4 password
 ///
 /// Create and restore both drive the deterministic first-boot identity
 /// derivation from the phrase (P2/P3). A file-based backup action is
 /// intentionally absent: there is no matching secure export format, and
 /// writing identity documents to disk would violate the deniable canon.
+///
+/// The link path mints NO phrase: the identity it creates is a temporary one
+/// (origin `mined`), enough to boot a node and be adopted into an existing
+/// device group. It still creates a container — the node identity lives INSIDE
+/// the space, which is the point of deniable storage, not a gap in it. What it
+/// skips is the sovereign ritual: a device that is about to be governed by
+/// someone else's device group must not be told to write down 24 words that
+/// restore an identity it will never own.
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key, this.validatePhrase = veilPhraseValid});
 
@@ -33,6 +42,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   int _step = 0;
   List<String> _phrase = const [];
   bool _phraseConfirmed = false;
+  /// The user chose to join an existing device group rather than own an
+  /// identity. Reset by BOTH other paths: a user who backs out of the link
+  /// step and picks create/restore instead must not silently finish as a
+  /// device waiting to be adopted.
+  bool _joinExisting = false;
   StorageMode _mode = StorageMode.hiddenSpace;
   final _passwordCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
@@ -58,7 +72,19 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _realPhrase = real != null;
     _phrase = real?.split(' ') ?? _generatePhrase();
     _phraseConfirmed = false;
+    _joinExisting = false;
     _go(2);
+  }
+
+  /// Join an existing device group: no phrase is generated and none is asked
+  /// for. The identity minted at the end is temporary — it carries this device
+  /// onto the network so the existing device can approve it.
+  void _startLink() {
+    _realPhrase = false;
+    _phrase = const [];
+    _phraseConfirmed = false;
+    _joinExisting = true;
+    _go(6);
   }
 
   /// The user typed a phrase that passed the native validator: it feeds the
@@ -67,6 +93,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   void _restoreWith(String phrase) {
     _phrase = phrase.split(' ');
     _realPhrase = true;
+    _joinExisting = false;
     _go(3);
   }
 
@@ -83,6 +110,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           // The REAL phrase drives the deterministic identity derivation on
           // the first node boot; the placeholder never leaves this screen.
           identityPhrase: _realPhrase ? _phrase.join(' ') : null,
+          joinExisting: _joinExisting,
         );
     // Router redirect takes over once phase flips to ready.
   }
@@ -97,7 +125,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                 icon: const Icon(Icons.arrow_back),
                 onPressed: () => _go(switch (_step) {
                   4 => 3,
-                  2 || 5 => 1,
+                  2 || 5 || 6 => 1,
                   _ => 0,
                 }),
               ),
@@ -107,11 +135,16 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
           child: switch (_step) {
             0 => _Welcome(onNext: () => _go(1)),
-            1 => _ChoosePath(onCreate: _startCreate, onRestore: () => _go(5)),
+            1 => _ChoosePath(
+              onCreate: _startCreate,
+              onRestore: () => _go(5),
+              onLink: _startLink,
+            ),
             5 => _RestoreStep(
               validate: widget.validatePhrase,
               onSubmit: _restoreWith,
             ),
+            6 => _LinkStep(onNext: () => _go(3)),
             2 => _Recovery(
               phrase: _phrase,
               real: _realPhrase,
@@ -210,9 +243,58 @@ class _Welcome extends StatelessWidget {
 }
 
 class _ChoosePath extends StatelessWidget {
-  const _ChoosePath({required this.onCreate, required this.onRestore});
+  const _ChoosePath({
+    required this.onCreate,
+    required this.onRestore,
+    required this.onLink,
+  });
   final VoidCallback onCreate;
   final VoidCallback onRestore;
+  final VoidCallback onLink;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            l.onboardChooseTitle,
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 24),
+          _OptionCard(
+            icon: Icons.add_circle_outline,
+            title: l.onboardCreateIdentity,
+            subtitle: l.onboardCreateIdentitySub,
+            onTap: onCreate,
+          ),
+          _OptionCard(
+            icon: Icons.restore,
+            title: l.onboardRestoreIdentity,
+            subtitle: l.onboardRestoreIdentitySub,
+            onTap: onRestore,
+          ),
+          _OptionCard(
+            icon: Icons.add_link,
+            title: l.onboardLinkDevice,
+            subtitle: l.onboardLinkDeviceSub,
+            onTap: onLink,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// What the link path is about to do, said before the password step rather
+/// than after it: the user picked "link" expecting no setup, and a container
+/// password arriving unexplained reads like the wrong path was taken.
+class _LinkStep extends StatelessWidget {
+  const _LinkStep({required this.onNext});
+  final VoidCallback onNext;
 
   @override
   Widget build(BuildContext context) {
@@ -221,22 +303,19 @@ class _ChoosePath extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          l.onboardChooseTitle,
+          l.onboardLinkDevice,
           style: Theme.of(context).textTheme.headlineSmall,
         ),
-        const SizedBox(height: 24),
-        _OptionCard(
-          icon: Icons.add_circle_outline,
-          title: l.onboardCreateIdentity,
-          subtitle: l.onboardCreateIdentitySub,
-          onTap: onCreate,
+        const SizedBox(height: 16),
+        Expanded(
+          child: SingleChildScrollView(
+            child: Text(
+              l.onboardLinkDeviceBody,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
         ),
-        _OptionCard(
-          icon: Icons.restore,
-          title: l.onboardRestoreIdentity,
-          subtitle: l.onboardRestoreIdentitySub,
-          onTap: onRestore,
-        ),
+        FilledButton(onPressed: onNext, child: Text(l.actionContinue)),
       ],
     );
   }
