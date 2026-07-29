@@ -253,6 +253,36 @@ abstract class AppL10n {
   /// **'Could not create the encrypted container. Check that there is free space on the device and try again.'**
   String get onboardSetupFailed;
 
+  /// No description provided for @sshConfirmHostTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Is this the right server?'**
+  String get sshConfirmHostTitle;
+
+  /// No description provided for @sshConfirmHostBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This is the first connection to {host}, so there is nothing to compare its identity against yet. Check the fingerprint below against the one the server shows — on the server itself, not over this connection. If they differ, someone is sitting between you and it.'**
+  String sshConfirmHostBody(Object host);
+
+  /// No description provided for @sshConfirmHostHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Run this on the server: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub'**
+  String get sshConfirmHostHint;
+
+  /// No description provided for @sshConfirmHostAccept.
+  ///
+  /// In en, this message translates to:
+  /// **'It matches, continue'**
+  String get sshConfirmHostAccept;
+
+  /// No description provided for @sshHostNotConfirmed.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection cancelled: the server identity was not confirmed.'**
+  String get sshHostNotConfirmed;
+
   /// No description provided for @storageUnavailableTitle.
   ///
   /// In en, this message translates to:
