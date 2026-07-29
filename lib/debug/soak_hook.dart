@@ -208,7 +208,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       final server = await HttpServer.bind(
         InternetAddress.loopbackIPv4,
         _debugHookPort,
-        shared: true,
+        // Exclusive, for the same reason the API server is: SO_REUSEPORT hands
+        // a share of the connections to any other process of this user that
+        // binds the port, and this hook answers powerful commands without a
+        // token. Debug-only, but a debug build runs against real data.
+        shared: false,
       );
       _server = server;
       _sub = server.listen(_handle);
