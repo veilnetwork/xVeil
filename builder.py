@@ -146,6 +146,99 @@ def _check_android_signing() -> None:
     )
 
 
+# libveil_media.so is NOT built by any gradle task: it is a prebuilt staged
+# into android/app/src/main/jniLibs/<abi>/ by veil_media/android/
+# build_veil_media_so.sh, which needs a from-source WebRTC checkout on an
+# x86_64 Linux host. That script builds arm64 ONLY, so arm64-v8a is the one ABI
+# whose APK can carry the media engine at all.
+_MEDIA_ABI = "arm64-v8a"
+_MEDIA_SO = "libveil_media.so"
+_MEDIA_STAGE_DIR = os.path.join("android", "app", "src", "main", "jniLibs")
+_MEDIA_BUILD_SCRIPT = os.path.join(
+    VEIL, "flutter", "veil_media", "android", "build_veil_media_so.sh"
+)
+# Produced per ABI by the plugins' own gradle cargo-ndk tasks. Listed because
+# their absence is exactly as silent and exactly as fatal: no network, no store.
+_REQUIRED_EVERY_ABI = ("libveilclient_ffi.so", "libhidden_volume_ffi.so")
+_RELEASE_APK_ABIS = ("arm64-v8a", "armeabi-v7a", "x86_64")
+
+
+def _staged_media_so() -> str:
+    return os.path.join(ROOT, _MEDIA_STAGE_DIR, _MEDIA_ABI, _MEDIA_SO)
+
+
+def _check_media_staged() -> None:
+    """Refuse to start a release build that would ship without call media.
+
+    The prebuilt is gitignored, so a FRESH CLONE has nothing here and nothing
+    downstream notices: gradle packages whatever ABI directories exist, the
+    build goes green, and the APK installs and runs right up until someone
+    records a voice message. v0.9.1 shipped exactly this way.
+
+    Checked before the build rather than only after it because the build costs
+    minutes and this costs a stat call.
+    """
+    if os.path.isfile(_staged_media_so()):
+        print(f"    {_MEDIA_ABI}/{_MEDIA_SO} staged")
+        return
+    raise RuntimeError(
+        f"MISSING {_MEDIA_SO} — this build would ship without call media.\n"
+        f"    Expected at {_MEDIA_STAGE_DIR}/{_MEDIA_ABI}/{_MEDIA_SO}\n"
+        "    It is gitignored, so a fresh clone never has it. Voice messages,\n"
+        "    video notes, in-chat video, calls and speech-to-text all load it;\n"
+        "    without it each one throws 'library libveil_media.so not found'.\n"
+        "    Restore it by copying the .so from a checkout that has one, or\n"
+        "    rebuild it on an x86_64 Linux host with a WebRTC checkout:\n"
+        f"      WEBRTC_BUILD=~/webrtc-android {_MEDIA_BUILD_SCRIPT}"
+    )
+
+
+def _check_android_native_libs() -> None:
+    """Verify the ARTIFACT, not the exit status.
+
+    The build being green says gradle ran, not that what it produced can do
+    its job — the APK that shipped as v0.9.1 was honestly green and could not
+    load its media engine. So open each APK and read what is actually in it.
+    """
+    import zipfile
+
+    apk_dir = os.path.join(ROOT, "build", "app", "outputs", "flutter-apk")
+    problems: list[str] = []
+    for abi in _RELEASE_APK_ABIS:
+        apk = os.path.join(apk_dir, f"app-{abi}-release.apk")
+        if not os.path.isfile(apk):
+            problems.append(f"{abi}: no APK at {apk}")
+            continue
+        with zipfile.ZipFile(apk) as bundle:
+            names = {
+                entry.rsplit("/", 1)[-1]
+                for entry in bundle.namelist()
+                if entry.startswith(f"lib/{abi}/")
+            }
+        required = list(_REQUIRED_EVERY_ABI)
+        if abi == _MEDIA_ABI:
+            required.append(_MEDIA_SO)
+        missing = [so for so in required if so not in names]
+        if missing:
+            problems.append(f"{abi}: missing {', '.join(missing)}")
+        else:
+            print(f"    {abi}: {len(names)} native libs, all required ones present")
+        if abi != _MEDIA_ABI and _MEDIA_SO not in names:
+            # Not a failure: no build of it exists for these ABIs. Said out
+            # loud every time so nobody hands one to a tester believing it is
+            # the same app as the arm64 one.
+            print(
+                f"    {abi}: NO CALL MEDIA — {_MEDIA_SO} is built for "
+                f"{_MEDIA_ABI} only, so voice messages, video notes, calls "
+                "and speech-to-text cannot work in this APK"
+            )
+    if problems:
+        raise RuntimeError(
+            "APK CONTENTS ARE WRONG — do not publish these.\n    "
+            + "\n    ".join(problems)
+        )
+
+
 def _android(release: bool) -> list[Step]:
     # The per-ABI .so is produced by each plugin's gradle cargo-ndk task during
     # `flutter build apk`; this script only preflights the toolchain, so a host
@@ -172,6 +265,7 @@ def _android(release: bool) -> list[Step]:
         )
     )
     if release:
+        steps.append(Step("call media staged", call=_check_media_staged))
         # Done here rather than in a shell script so a Windows host can also
         # produce release APKs — and so the signing check cannot drift from
         # the build it guards. scripts/build-android-release.sh calls this.
@@ -184,6 +278,9 @@ def _android(release: bool) -> list[Step]:
                 ],
                 env=_path_remap_env(),
             )
+        )
+        steps.append(
+            Step("native libraries in the APKs", call=_check_android_native_libs)
         )
         steps.append(Step("signing check", call=_check_android_signing))
     else:
