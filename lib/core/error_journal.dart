@@ -39,6 +39,11 @@ class ErrorJournal {
     required int atMs,
   }) {
     final message = redact(error.toString());
+    // The runtime type is the part of an exception that is reliably about the
+    // FAILURE rather than about the data it happened to touch, and it survives
+    // redaction intact — so the report keeps its diagnostic value while the
+    // message can be stripped hard.
+    final type = error.runtimeType.toString();
     final existing = _entries.indexWhere(
       (entry) => entry.kind == kind && entry.message == message,
     );
@@ -49,6 +54,7 @@ class ErrorJournal {
     _entries.add(
       RecordedError(
         kind: kind,
+        type: type,
         message: message,
         frames: _topFrames(stack),
         atMs: atMs,
@@ -63,21 +69,27 @@ class ErrorJournal {
 
   /// The report, as JSON.
   ///
-  /// [phase] and [profile] are included because they change what "broken"
-  /// means; neither identifies anyone. There is deliberately no identity, no
-  /// contact, no message body, no store path and no node id anywhere in here.
+  /// [phase] changes what "broken" means and identifies nobody. There is
+  /// deliberately no identity, no contact, no message body, no store path and
+  /// no node id anywhere in here.
+  ///
+  /// The profile is reported as default-or-not rather than by NAME. Whether a
+  /// non-default profile was active explains a class of failure; which one it
+  /// was is a label the person chose, and in a deniable messenger the mere
+  /// existence of a second profile is the fact worth hiding. A pasted report
+  /// used to carry it verbatim.
   String toJson({
     required String platform,
     required String osVersion,
     required String appVersion,
-    required String profile,
+    required bool defaultProfile,
     required String phase,
   }) => const JsonEncoder.withIndent('  ').convert({
     'schema': 'xveil-error-report/1',
     'app': appVersion,
     'platform': platform,
     'os': osVersion,
-    'profile': profile,
+    'profile': defaultProfile ? 'default' : 'custom',
     'phase': phase,
     'errors': [for (final entry in _entries) entry.toJson()],
   });
@@ -113,18 +125,40 @@ class ErrorJournal {
     r'(?<![\w./])(?:package:|dart:)[\w./]+(?::\d+)?(?::\d+)?',
   );
 
-  /// Strip anything that could name a person or their data.
+  /// Strip everything that could name a person, a peer or a place.
   ///
-  /// Conservative on purpose: it is better for a report to read
-  /// `<id>` where a hash was than to carry a node id into a group chat. The
-  /// caps exist because an exception message can quote a whole payload.
+  /// Conservative on purpose: it is better for a report to read `<id>` where a
+  /// hash was than to carry a node id into a group chat. The length cap exists
+  /// because an exception message can quote a whole payload.
+  ///
+  /// Honest about what this is: a DENY-list over free text, and a deny-list
+  /// only removes what someone thought of. The class's contract says
+  /// allow-list, and the message body is the one field that never satisfied
+  /// it — an exception carries whatever the thrower put in it. A real
+  /// allow-list means every `record` call site naming a typed code instead of
+  /// handing over `error.toString()`, which is a change at ~every throw site
+  /// rather than here. Until then this covers the classes an audit named, and
+  /// [RecordedError.type] carries the diagnostic that used to justify keeping
+  /// the message generous.
   static String redact(String raw, {int maxLength = 300}) {
     var text = raw
-        // Node ids, content ids, epoch keys: 32 bytes as hex.
-        .replaceAll(_hex64, '<id>')
-        // A home directory names the person on most desktops.
-        .replaceAll(_homePath, '<path>')
-        // Anything long and base64-ish is a payload, a key or a blob.
+        // A whole URL names a host and often a path and query with it.
+        .replaceAll(_url, '<url>')
+        .replaceAll(_email, '<email>')
+        // Peers, relays, bootstrap seeds — an address is a social graph edge.
+        .replaceAll(_ipv4, '<ip>')
+        .replaceAll(_ipv6, '<ip>')
+        // Node ids, content ids, epoch keys. 16 hex, not 32: an 8-byte handle
+        // is just as identifying as a 32-byte one and used to pass straight
+        // through.
+        .replaceAll(_hexId, '<id>')
+        // Any absolute path, not just a home directory: /var and /private name
+        // the machine's layout, and an app-support path carries the profile.
+        .replaceAll(_absPath, '<path>')
+        .replaceAll(_winPath, '<path>')
+        // Anything base64-ish. 20 chars, not 40: a 16-byte token is 22
+        // characters before its padding, so the old floor let every one of
+        // them through — and 16 bytes is the usual size of an API token here.
         .replaceAll(_base64Blob, '<blob>');
     if (text.length > maxLength) {
       text = '${text.substring(0, maxLength)}…';
@@ -132,14 +166,20 @@ class ErrorJournal {
     return text;
   }
 
-  static final _hex64 = RegExp(r'\b[0-9a-fA-F]{32,}\b');
-  static final _homePath = RegExp(r'(/Users/|/home/|C:\\Users\\)[^\s"\)]+');
-  static final _base64Blob = RegExp(r'\b[A-Za-z0-9+/]{40,}={0,2}\b');
+  static final _hexId = RegExp(r'\b[0-9a-fA-F]{16,}\b');
+  static final _absPath = RegExp(r'/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+');
+  static final _winPath = RegExp(r'[A-Za-z]:\\[^\s"\)]+');
+  static final _base64Blob = RegExp(r'\b[A-Za-z0-9+/]{20,}={0,2}');
+  static final _ipv4 = RegExp(r'\b\d{1,3}(?:\.\d{1,3}){3}\b');
+  static final _ipv6 = RegExp(r'\b(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}\b');
+  static final _email = RegExp(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\b');
+  static final _url = RegExp(r'\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s"\)]+');
 }
 
 class RecordedError {
   const RecordedError({
     required this.kind,
+    required this.type,
     required this.message,
     required this.frames,
     required this.atMs,
@@ -149,6 +189,11 @@ class RecordedError {
 
   /// Which net caught it: `flutter`, `platform`, `zone`, or a caller's label.
   final String kind;
+
+  /// The exception's runtime type. Survives redaction because it describes the
+  /// FAILURE, not the data that tripped it — which is what lets the message be
+  /// stripped hard without leaving the report useless.
+  final String type;
   final String message;
   final List<String> frames;
 
@@ -166,6 +211,7 @@ class RecordedError {
   /// the first timestamp, advance the last one.
   RecordedError seenAgain(int atMs) => RecordedError(
     kind: kind,
+    type: type,
     message: message,
     frames: frames,
     atMs: atMs,
@@ -175,6 +221,7 @@ class RecordedError {
 
   Map<String, Object?> toJson() => {
     'kind': kind,
+    'type': type,
     'at': atMs,
     if (count > 1) 'count': count,
     if (count > 1) 'firstAt': firstAtMs,

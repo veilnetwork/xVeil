@@ -33,7 +33,7 @@ void main() {
       platform: 'macos',
       osVersion: '26.0',
       appVersion: '1.0.0+1',
-      profile: 'default',
+      defaultProfile: true,
       phase: 'ready',
     );
     final entries = (jsonDecode(report) as Map)['errors']! as List;
