@@ -160,7 +160,12 @@ _MEDIA_BUILD_SCRIPT = os.path.join(
 # Produced per ABI by the plugins' own gradle cargo-ndk tasks. Listed because
 # their absence is exactly as silent and exactly as fatal: no network, no store.
 _REQUIRED_EVERY_ABI = ("libveilclient_ffi.so", "libhidden_volume_ffi.so")
-_RELEASE_APK_ABIS = ("arm64-v8a", "armeabi-v7a", "x86_64")
+# arm64-v8a ONLY, deliberately. armeabi-v7a and x86_64 built fine and were
+# published through v0.9.1, but neither can carry the media engine, so voice
+# messages, video notes, calls and speech-to-text are dead in them. Shipping an
+# APK that looks like the app and quietly cannot do half of it is worse than
+# not shipping one: every phone the project has seen is arm64 anyway.
+_RELEASE_APK_ABIS = ("arm64-v8a",)
 
 
 def _staged_media_so() -> str:
@@ -223,14 +228,19 @@ def _check_android_native_libs() -> None:
             problems.append(f"{abi}: missing {', '.join(missing)}")
         else:
             print(f"    {abi}: {len(names)} native libs, all required ones present")
-        if abi != _MEDIA_ABI and _MEDIA_SO not in names:
-            # Not a failure: no build of it exists for these ABIs. Said out
-            # loud every time so nobody hands one to a tester believing it is
-            # the same app as the arm64 one.
-            print(
-                f"    {abi}: NO CALL MEDIA — {_MEDIA_SO} is built for "
-                f"{_MEDIA_ABI} only, so voice messages, video notes, calls "
-                "and speech-to-text cannot work in this APK"
+        stray = [
+            entry
+            for entry in os.listdir(apk_dir)
+            if entry.endswith("-release.apk")
+            and entry != f"app-{abi}-release.apk"
+        ]
+        if stray:
+            # A leftover from a build before the ABI list narrowed. Left in
+            # place it gets uploaded beside the good one and installed by
+            # whoever reads the filename as a choice.
+            problems.append(
+                "these are not published and must not be handed out "
+                f"(stale from an earlier build): {', '.join(sorted(stray))}"
             )
     if problems:
         raise RuntimeError(
@@ -271,9 +281,13 @@ def _android(release: bool) -> list[Step]:
         # the build it guards. scripts/build-android-release.sh calls this.
         steps.append(
             Step(
-                "release APKs, one per ABI",
+                "release APK (arm64 only)",
                 argv=[
                     "flutter", "build", "apk", "--release", "--split-per-abi",
+                    # arm64 only — see _RELEASE_APK_ABIS. Kept as split-per-abi
+                    # rather than a plain build so the file kept the name
+                    # people already have links to.
+                    "--target-platform", "android-arm64",
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
                 ],
                 env=_path_remap_env(),

@@ -71,6 +71,14 @@ void main() {
       );
       expect(
         plan,
+        contains('android-arm64'),
+        reason:
+            'armeabi-v7a and x86_64 cannot carry the media engine, so they '
+            'installed and then could not record a voice message or take a '
+            'call — they are no longer built, let alone published',
+      );
+      expect(
+        plan,
         contains('XVEIL_VERSION=${_pubspecVersion()}'),
         reason: 'a report saying "dev" cannot be tied to a build a tester has',
       );
@@ -111,16 +119,15 @@ import builder
 root = ${_pyStr(temp.path)}
 apks = os.path.join(root, "build", "app", "outputs", "flutter-apk")
 os.makedirs(apks, exist_ok=True)
-# ALL THREE APKs exist and every other ABI is complete, so the missing media
-# engine on arm64 is the ONLY defect left to refuse. Written the short way
-# first, with just the arm64 APK, and that refused for a different reason
-# entirely — the other two being absent — which passed just as happily with
-# the media requirement removed.
-for abi in ("arm64-v8a", "armeabi-v7a", "x86_64"):
-    path = os.path.join(apks, "app-" + abi + "-release.apk")
-    with zipfile.ZipFile(path, "w") as z:
-        z.writestr("lib/" + abi + "/libveilclient_ffi.so", "x")
-        z.writestr("lib/" + abi + "/libhidden_volume_ffi.so", "x")
+# The one published APK, complete but for the media engine, so that is the ONLY
+# defect left to refuse. When three ABIs were still published this had to build
+# all three: with just one present the check refused because the OTHER TWO were
+# missing, which passed just as happily with the media requirement removed.
+abi = "arm64-v8a"
+path = os.path.join(apks, "app-" + abi + "-release.apk")
+with zipfile.ZipFile(path, "w") as z:
+    z.writestr("lib/" + abi + "/libveilclient_ffi.so", "x")
+    z.writestr("lib/" + abi + "/libhidden_volume_ffi.so", "x")
 builder.ROOT = root
 try:
     builder._check_android_native_libs()

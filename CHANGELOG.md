@@ -85,6 +85,6 @@ on a clean checkout. macOS and iOS are absent: without an Apple Developer
 account the result is something nobody can install — see
 [INSTALL.md](INSTALL.md).
 
-Android APKs are split per ABI and signed with the project release key. Speech
+Android ships one APK, `arm64-v8a`, signed with the project release key. Speech
 recognition downloads its model on first use, which keeps the download near
 30 MB.

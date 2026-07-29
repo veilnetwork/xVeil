@@ -1,7 +1,8 @@
 name: webrtc-linux
 
-# Produces libveil_media.so for linux-x64 — the one input the Linux desktop
-# bundle cannot build for itself.
+# Produces libveil_media.so for linux-x64 and android-arm64 — the one input
+# those bundles cannot build for themselves. (The name says linux because the
+# HOST must be x86_64 Linux for both, not because the targets are.)
 #
 # veil_media/linux/CMakeLists.txt stops the build outright when that .so is
 # missing, and making it needs a from-source WebRTC: depot_tools, a full
@@ -126,4 +127,94 @@ jobs:
         with:
           name: libveil_media-linux-x64
           path: third_party/veil/flutter/veil_media/linux/libveil_media.so
+          if-no-files-found: error
+
+  # Android needs the same treatment and never got it, which is how v0.9.1
+  # shipped an APK with no media engine at all. Same host requirement, for a
+  # stricter reason: WebRTC's gn asserts host_os=="linux" for Android targets
+  # and the NDK it downloads is linux-x86_64 only, so neither a Mac nor an
+  # arm64 Linux box can produce this one.
+  engine-android:
+    name: libveil_media.so (android-arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Reclaim disk
+        run: |
+          echo "before:"; df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /usr/local/share/powershell \
+                      /usr/local/lib/node_modules "${AGENT_TOOLSDIRECTORY:-}" || true
+          sudo apt-get clean
+          echo "after:"; df -h / | tail -1
+
+      - name: depot_tools
+        run: |
+          set -euo pipefail
+          git clone --depth 1 \
+            https://chromium.googlesource.com/chromium/tools/depot_tools.git \
+            "$HOME/depot_tools"
+          echo "$HOME/depot_tools" >> "$GITHUB_PATH"
+
+      # target_os=android has to be in .gclient BEFORE the sync, or the NDK and
+      # the android sysroot are simply never fetched and gn fails later on a
+      # missing toolchain rather than on the thing that is actually wrong.
+      - name: WebRTC at the pinned commit
+        run: |
+          set -euo pipefail
+          mkdir -p "$WEBRTC_ROOT"
+          cd "$WEBRTC_ROOT"
+          fetch --nohooks webrtc
+          grep -q "target_os" .gclient || echo "target_os = ['android']" >> .gclient
+          cd src
+          git checkout "$WEBRTC_PIN"
+          ok=0
+          for attempt in 1 2 3 4 5 6; do
+            echo "sync attempt $attempt"
+            if gclient sync --with_branch_heads --reset --jobs 4; then ok=1; break; fi
+            sleep $((attempt * 20))
+          done
+          [ "$ok" = 1 ] || { echo "::error::gclient sync failed after 6 attempts"; exit 1; }
+
+      # Same args as veil_media/android/build_libwebrtc_android_linux.sh, with
+      # --export-compile-commands added. That script omits it and then prints a
+      # line claiming the file exists; build_veil_media_so.sh reads call.cc's
+      # exact command out of that file and refuses to start without it, so the
+      # pair as shipped cannot actually run end to end. Done inline here rather
+      # than patched in the submodule, mirroring the linux job above.
+      - name: Build libwebrtc.a
+        run: |
+          set -euo pipefail
+          cd "$WEBRTC_ROOT/src"
+          gn gen out/android-arm64 --export-compile-commands --args='target_os="android" target_cpu="arm64" is_debug=false is_component_build=false symbol_level=0 rtc_include_tests=false rtc_build_examples=false rtc_build_tools=false rtc_enable_protobuf=false rtc_use_h264=false enable_libaom=false rtc_include_opus=true treat_warnings_as_errors=false'
+          test -f out/android-arm64/compile_commands.json \
+            || { echo "::error::gn produced no compile_commands.json — the engine build reads call.cc's command from it"; exit 1; }
+          ninja -C out/android-arm64 webrtc
+          ls -la out/android-arm64/obj/libwebrtc.a
+
+      - name: Build libveil_media.so
+        env:
+          VEIL_MEDIA_NO_STRIP: ${{ inputs.keep_symbols && '1' || '' }}
+        run: |
+          set -euo pipefail
+          # patchelf writes DT_NEEDED libveilclient_ffi.so, which is how the
+          # two datagram symbols resolve when bionic dlopen's the engine. The
+          # script only WARNS when it is missing, and the .so it produces then
+          # fails at load on the phone instead of here.
+          sudo apt-get update && sudo apt-get install -y patchelf
+          WEBRTC_BUILD="$WEBRTC_ROOT" \
+            bash third_party/veil/flutter/veil_media/android/build_veil_media_so.sh \
+            "$GITHUB_WORKSPACE/engine-out"
+
+      - name: Every symbol Dart looks up is exported
+        run: bash scripts/check-media-symbols.sh "$GITHUB_WORKSPACE/engine-out/libveil_media.so"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libveil_media-android-arm64
+          path: engine-out/libveil_media.so
           if-no-files-found: error
