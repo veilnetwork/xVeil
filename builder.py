@@ -395,6 +395,40 @@ def _ios(release: bool) -> list[Step]:
     return steps
 
 
+_WINDOWS_ENGINE_DLL = "veil_media.dll"
+_WINDOWS_ENGINE_STAGE = os.path.join(
+    VEIL, "flutter", "veil_media", "windows", _WINDOWS_ENGINE_DLL
+)
+
+
+def _check_windows_engine(runner: str) -> None:
+    """Refuse a Windows bundle with no call media, the way linux already does.
+
+    Windows had no engine at all until the veil_media windows/ port: every zip
+    through v0.9.1 started, looked healthy, and threw at the first voice
+    message. The plugin CMake fails the build when the prebuilt is absent, so
+    reaching here without it means the bundle was assembled some other way —
+    check the artifact rather than trusting that.
+    """
+    found = None
+    for directory, _, files in os.walk(os.path.join(ROOT, runner)):
+        if _WINDOWS_ENGINE_DLL in files:
+            found = os.path.join(directory, _WINDOWS_ENGINE_DLL)
+            break
+    if found is not None:
+        print(f"    {os.path.relpath(found, ROOT)}")
+        return
+    raise RuntimeError(
+        f"MISSING {_WINDOWS_ENGINE_DLL} — this bundle has no call media.\n"
+        f"    Expected it bundled from {_WINDOWS_ENGINE_STAGE}\n"
+        "    It is gitignored, so a fresh clone never has it. Voice messages,\n"
+        "    video notes, in-chat video, calls and speech-to-text all load it.\n"
+        "    Build it on a Windows host with a from-source win-x64 WebRTC:\n"
+        "      veil_media/windows/build_veil_media_dll_windows.ps1\n"
+        "    or download the artifact the webrtc-windows workflow produces."
+    )
+
+
 def _windows(release: bool) -> list[Step]:
     profile = "--release" if release else ""
     out = "release" if release else "debug"
@@ -450,6 +484,10 @@ def _windows(release: bool) -> list[Step]:
             call=lambda: _copy(whisper_dll, runner),
             optional=True,
             skip_if="" if os.path.isfile(whisper_dll) else "whisper not built",
+        ),
+        Step(
+            "call engine in the bundle",
+            call=lambda: _check_windows_engine(runner),
         ),
         Step(
             "reminder: what must travel with xveil.exe",

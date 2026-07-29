@@ -147,6 +147,42 @@ except RuntimeError as error:
       );
     });
 
+    test('the windows plan refuses a bundle with no call engine', () {
+      // Windows had NO engine at all until the veil_media windows/ port, and
+      // nothing noticed: every zip through v0.9.1 started, looked healthy and
+      // threw at the first voice message. The check has to FAIL on that shape,
+      // not merely exist.
+      final temp = Directory.systemTemp.createTempSync('xveil_win_engine');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final runner = 'build/windows/x64/runner/Release';
+      Directory('${temp.path}/$runner').createSync(recursive: true);
+      final probe = File('${temp.path}/probe.py')..writeAsStringSync('''
+import sys, os
+sys.path.insert(0, ${_pyStr(Directory.current.path)})
+import builder
+builder.ROOT = ${_pyStr(temp.path)}
+runner = ${_pyStr(runner)}
+try:
+    builder._check_windows_engine(runner)
+    print("ACCEPTED-EMPTY")
+except RuntimeError as error:
+    print("REFUSED " + str(error).splitlines()[0])
+# ...and it accepts the bundle once the engine is there, so the check is a
+# check and not a wall.
+open(os.path.join(builder.ROOT, runner, "veil_media.dll"), "w").close()
+try:
+    builder._check_windows_engine(runner)
+    print("ACCEPTED-WITH-ENGINE")
+except RuntimeError as error:
+    print("REFUSED-WITH-ENGINE " + str(error).splitlines()[0])
+''');
+      final result = Process.runSync(python!, [probe.path]);
+      expect(result.exitCode, 0, reason: result.stderr.toString());
+      final out = result.stdout.toString();
+      expect(out, contains('REFUSED MISSING veil_media.dll'));
+      expect(out, contains('ACCEPTED-WITH-ENGINE'));
+    });
+
     test('a debug android build does NOT claim to check signing', () {
       // The check belongs to the build that gets distributed. Running it on a
       // debug build would train people to ignore it.
