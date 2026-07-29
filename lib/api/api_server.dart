@@ -3875,6 +3875,13 @@ class ApiHandler {
   /// True if [raw] matches any token — the WS path's query-token check.
   bool tokenOk(String? raw) => _matchRaw(raw) != null;
 
+  /// True if an `Authorization:` header carries a token this server accepts.
+  ///
+  /// Exists so the transport can refuse an unauthenticated request BEFORE it
+  /// reads a body from it. [handle] still re-checks: this is a gate in front of
+  /// the parser, never a replacement for the one that guards the work.
+  bool authHeaderOk(String? header) => _matchHeader(header) != null;
+
   Future<ApiResponse> handle(
     String method,
     Uri uri,
@@ -6075,14 +6082,66 @@ class ApiServer {
 
   Future<int?> start(int port) async {
     if (_server != null) return _server!.port;
+    // EXCLUSIVE bind. `shared: true` maps to SO_REUSEPORT, which load-balances
+    // new connections across every socket bound to the port — including one
+    // opened by another process of the same user. That process would receive a
+    // share of the client's requests, bearer token and all, and could answer
+    // them. A local control plane must fail loudly on a busy port instead of
+    // quietly splitting traffic with whoever got there first.
     final s = await HttpServer.bind(
       InternetAddress.loopbackIPv4, // LOOPBACK ONLY (privacy canon)
       port,
-      shared: true,
+      shared: false,
     );
     _server = s;
     unawaited(s.forEach(_onRequest));
     return s.port;
+  }
+
+  /// Every request body this API accepts is a small JSON object — even the
+  /// any-size file endpoints take a local PATH, never bytes. 4 MiB is far above
+  /// anything legitimate and still a hard ceiling on what one caller can make
+  /// the app hold.
+  static const _maxBodyBytes = 4 * 1024 * 1024;
+
+  /// The body as text, or null if the caller sent more than [_maxBodyBytes].
+  ///
+  /// Counted as it arrives rather than trusted from `Content-Length`: a chunked
+  /// request declares no length, and a declared one is the caller's claim, not
+  /// a limit on what they then send.
+  ///
+  /// Past the cap it keeps consuming but stops KEEPING, which is the part that
+  /// mattered — memory stays flat while the sender wastes their own bandwidth.
+  /// Abandoning the stream instead would be cheaper still and unusable: the
+  /// unread remainder makes Dart tear the connection down, and the caller sees
+  /// "connection closed before full header" rather than the refusal.
+  Future<String?> _readBoundedBody(HttpRequest req) async {
+    var chunks = <List<int>>[];
+    var total = 0;
+    var overflowed = false;
+    await for (final chunk in req) {
+      total += chunk.length;
+      if (!overflowed && total > _maxBodyBytes) {
+        overflowed = true;
+        chunks = <List<int>>[]; // release what was already held
+      }
+      if (!overflowed) chunks.add(chunk);
+    }
+    if (overflowed) return null;
+    return utf8.decode(
+      chunks.expand((chunk) => chunk).toList(growable: false),
+      allowMalformed: true,
+    );
+  }
+
+  /// Consume and discard, so a refusal can still be delivered on the same
+  /// connection. Used for callers rejected before their body is worth parsing.
+  Future<void> _discardBody(HttpRequest req) async {
+    try {
+      await req.drain<void>();
+    } catch (_) {
+      // The caller hung up mid-send; nothing left to answer to.
+    }
   }
 
   Future<void> _onRequest(HttpRequest req) async {
@@ -6115,7 +6174,27 @@ class ApiServer {
       final auth = req.headers.value(HttpHeaders.authorizationHeader);
       Map<String, dynamic>? body;
       if (const {'POST', 'PATCH', 'DELETE'}.contains(req.method)) {
-        final raw = await utf8.decoder.bind(req).join();
+        // AUTH BEFORE BODY. The token check used to live inside handle(), which
+        // runs after the body has been fully joined into one string — so an
+        // unauthenticated local process could hold the request open and stream
+        // until the app ran out of memory. Nothing here is reachable without a
+        // token any more, and what is reachable is bounded.
+        if (!_handler.authHeaderOk(auth)) {
+          await _discardBody(req);
+          req.response.statusCode = 401;
+          req.response.headers.contentType = ContentType.json;
+          req.response.write(jsonEncode({'error': 'unauthorized'}));
+          await req.response.close();
+          return;
+        }
+        final raw = await _readBoundedBody(req);
+        if (raw == null) {
+          req.response.statusCode = 413;
+          req.response.headers.contentType = ContentType.json;
+          req.response.write(jsonEncode({'error': 'body too large'}));
+          await req.response.close();
+          return;
+        }
         if (raw.isNotEmpty) {
           final decoded = jsonDecode(raw);
           if (decoded is Map<String, dynamic>) body = decoded;

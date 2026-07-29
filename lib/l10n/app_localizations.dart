@@ -247,6 +247,30 @@ abstract class AppL10n {
   /// **'This device gets a temporary identity of its own so it can reach the network. Once you approve it from your existing device, it joins your identity and the temporary one stops mattering. Keep your recovery phrase where it is — you will not be asked for it here.'**
   String get onboardLinkDeviceBody;
 
+  /// No description provided for @onboardSetupFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not create the encrypted container. Check that there is free space on the device and try again.'**
+  String get onboardSetupFailed;
+
+  /// No description provided for @storageUnavailableTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Secure storage is unavailable'**
+  String get storageUnavailableTitle;
+
+  /// No description provided for @storageUnavailableBody.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not load the component that encrypts everything it stores. It will not start without it: continuing would mean a password that protects nothing and data that disappears when the app closes.'**
+  String get storageUnavailableBody;
+
+  /// No description provided for @storageUnavailableAction.
+  ///
+  /// In en, this message translates to:
+  /// **'This build is damaged or incomplete. Install xVeil again from the release page. Nothing that was already stored on this device has been touched.'**
+  String get storageUnavailableAction;
+
   /// No description provided for @recoveryTitle.
   ///
   /// In en, this message translates to:

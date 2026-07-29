@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' show PlatformDispatcher;
 
-import 'package:flutter/foundation.dart' show kReleaseMode;
+import 'package:flutter/foundation.dart' show kProfileMode, kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -27,6 +27,7 @@ import 'data/storage/hv_native.dart';
 import 'data/transport/veil_native.dart';
 import 'data/veil_stack.dart';
 import 'debug/soak_hook.dart';
+import 'features/bootstrap/storage_unavailable_app.dart';
 import 'state/providers.dart';
 import 'state/storage_preferences.dart';
 import 'package:xveil/core/error_journal.dart';
@@ -111,9 +112,21 @@ Future<void> main([List<String> args = const []]) async {
         ErrorWidget.builder = (details) => const SizedBox.shrink();
       }
 
+      final boot = await _bootstrapOverrides();
+      if (mustRefuseInsecureStorage(
+        shipped: kReleaseMode || kProfileMode,
+        secureStorageReady: boot.secureStorageReady,
+      )) {
+        // Refuse here rather than anywhere later: this runs before the router,
+        // so no unlock screen, no onboarding and no API can be reached by any
+        // subsequent navigation. A dead end is the point.
+        runApp(const StorageUnavailableApp());
+        return;
+      }
+
       runApp(
         ProviderScope(
-          overrides: await _bootstrapOverrides(),
+          overrides: boot.overrides,
           // Riverpod 3 retries failed providers by default. Preserve the
           // established fail-fast behavior here: operational retries already
           // live in the mailbox/node services with their own bounded backoff,
@@ -137,14 +150,44 @@ Future<void> main([List<String> args = const []]) async {
   );
 }
 
+/// Whether this build must refuse to start rather than run on the fake store.
+///
+/// [FakeKvLogStore] is the dev/test wiring: EVERY non-empty password opens the
+/// SAME in-memory space, nothing is encrypted and nothing survives the process.
+/// Degrading to it is defensible while developing and indefensible in a build
+/// handed to someone: the app would show a password prompt, accept whatever was
+/// typed, and present an empty space that looks like their secure one. They
+/// would write a recovery phrase down for a container that does not exist.
+///
+/// The old code degraded silently in exactly the build where it mattered. Its
+/// FATAL banner goes through [devLog], which is compiled out under
+/// `dart.vm.product` unless XVEIL_RELEASE_LOG is set — so a shipped build with
+/// a missing or ABI-broken hidden-volume library said nothing at all.
+///
+/// Pure and separate so the decision is unit-testable without a bootstrap:
+/// the same reason [redirectForPhase] and [shouldOpenJoinSheet] are.
+bool mustRefuseInsecureStorage({
+  required bool shipped,
+  required bool secureStorageReady,
+}) => shipped && !secureStorageReady;
+
+/// What [_bootstrapOverrides] resolved: the provider overrides, and whether the
+/// NATIVE container actually backs storage. The flag is not derivable from the
+/// override list — an empty list is both "nothing to override" and "the secure
+/// path failed", which is precisely the ambiguity that let this ship.
+typedef BootstrapResult = ({List<Override> overrides, bool secureStorageReady});
+
 /// Builds provider overrides at launch:
-/// - Native hidden-volume storage when available (else the in-memory fake).
+/// - Native hidden-volume storage when available (else the in-memory fake, and
+///   see [mustRefuseInsecureStorage] for what a shipped build does then).
 /// - The real veil stack ONLY when the opt-in env flags XVEIL_VEIL_CLI +
 ///   XVEIL_VEIL_CONFIG are set; otherwise the default loopback path is left
-///   entirely untouched. Any failure degrades to the fakes rather than
-///   blocking launch.
-Future<List<Override>> _bootstrapOverrides() async {
+///   entirely untouched. A veil-side failure still degrades to the loopback
+///   fakes rather than blocking launch — an app that cannot reach the network
+///   is honest about it on screen, unlike one that cannot protect a password.
+Future<BootstrapResult> _bootstrapOverrides() async {
   final overrides = <Override>[];
+  var secureStorageReady = false;
   String? storePath; // the deniable container path, shared with the boot config
   unawaited(_sweepPickedFileCache());
 
@@ -204,6 +247,7 @@ Future<List<Override>> _bootstrapOverrides() async {
           return storage;
         }),
       );
+      secureStorageReady = true;
     } else {
       // SAFETY: the native hidden-volume library did not load, so the app is
       // about to run on the IN-MEMORY FAKE store — every password opens the same
@@ -365,7 +409,7 @@ Future<List<Override>> _bootstrapOverrides() async {
     );
   }
 
-  return overrides;
+  return (overrides: overrides, secureStorageReady: secureStorageReady);
 }
 
 /// Load the deployment-wide obfs4 PSK bundled at `assets/prod/obfs4_psk.b64`

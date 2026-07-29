@@ -14,6 +14,29 @@ import 'transport/veil_flutter_transport.dart';
 import 'transport/veil_transport.dart';
 import 'package:xveil/core/log.dart';
 
+/// Make the node's runtime directory readable by its owner only.
+///
+/// It holds `admin.sock` — the node's CONTROL socket — next to `app.sock` and
+/// the obfs4 PSK. `Directory.create` leaves it at the process umask, which on a
+/// typical desktop is world-readable, so on a shared machine another local user
+/// could reach the admin endpoint of someone else's node. On mobile the path is
+/// already inside the app's private data dir and this is redundant; on Windows
+/// the permission model is different and the POSIX mode is meaningless, so both
+/// are skipped rather than faked.
+///
+/// Best-effort by design: a filesystem that cannot express the mode (a mounted
+/// share, some Android vendor mounts) must not stop the node from booting —
+/// the directory is ephemeral and identity-free, and refusing to start would
+/// trade a hardening measure for an outage.
+Future<void> restrictRuntimeDir(String dir) async {
+  if (Platform.isWindows) return;
+  try {
+    await Process.run('chmod', ['700', dir]);
+  } catch (e) {
+    devLog(() => 'xVeil[deniable]: could not restrict $dir: $e');
+  }
+}
+
 /// Register every application-supplied seed on the already-running node.
 ///
 /// Deferred boot applies the real config as a reload. The native runtime keeps
@@ -239,6 +262,7 @@ class RealVeilStack {
 
     // 2. Ephemeral, identity-free runtime endpoints.
     await Directory(runtimeDir).create(recursive: true);
+    await restrictRuntimeDir(runtimeDir);
     // iOS application-container paths exceed sockaddr_un's SUN_LEN on both
     // physical devices and Simulator. Keep discovery sidecars in the sandbox,
     // but carry local admin + IPC over authenticated loopback TCP there.

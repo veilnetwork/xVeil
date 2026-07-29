@@ -4397,4 +4397,67 @@ void main() {
       );
     },
   );
+
+  // Everything above drives ApiHandler directly. These drive the SOCKET, which
+  // is where the audit's two API findings live: the body used to be read in
+  // full before anything checked the token, so an unauthenticated local process
+  // could stream until the app died.
+  group('the API socket', () {
+    late ApiServer server;
+    late int port;
+
+    setUp(() async {
+      server = ApiServer(make(), const Stream.empty());
+      port = (await server.start(0))!;
+    });
+    tearDown(() => server.stop());
+
+    /// POST [bytes] bytes of JSON-ish filler, optionally with a valid token.
+    Future<int> post({required int bytes, required bool authorised}) async {
+      final client = HttpClient();
+      try {
+        final req = await client.post('127.0.0.1', port, '/v1/messages');
+        if (authorised) {
+          req.headers.set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
+        }
+        // Chunked on purpose: no Content-Length to consult, so the cap has to
+        // count what actually arrives rather than trust a declared length.
+        req.headers.chunkedTransferEncoding = true;
+        req.add(utf8.encode('{"filler":"${'x' * bytes}"}'));
+        final res = await req.close();
+        await res.drain<void>();
+        return res.statusCode;
+      } finally {
+        client.close(force: true);
+      }
+    }
+
+    test('refuses an oversized body from an authorised caller', () async {
+      expect(await post(bytes: 5 * 1024 * 1024, authorised: true), 413);
+    });
+
+    test('still accepts an ordinary body', () async {
+      // The cap has to be a cap and not a wall: a server that refused every
+      // body would pass the test above while serving nobody. 400 here is the
+      // handler rejecting the filler payload — it got past the transport,
+      // which is the whole point.
+      expect(
+        await post(bytes: 16, authorised: true),
+        isNot(anyOf(413, 401)),
+      );
+    });
+
+    test('rejects an unauthenticated caller BEFORE reading its body', () async {
+      // 401 rather than 413 is the entire assertion. Both statuses mean the
+      // request was refused, but only 401 proves the token was checked while
+      // the body was still on the wire: the old order read all 5 MiB first and
+      // would have answered 413.
+      expect(
+        await post(bytes: 5 * 1024 * 1024, authorised: false),
+        401,
+        reason: '413 here means the server buffered the body of a caller it '
+            'had not authenticated yet',
+      );
+    });
+  });
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/log.dart';
 import '../../data/identity/veil_identity.dart';
 import '../../domain/identity.dart';
 import '../../l10n/app_localizations.dart';
@@ -97,22 +98,41 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _go(3);
   }
 
+  /// Set when the container could not be created. Kept on screen instead of a
+  /// snackbar: this is the last step, the button is disabled while it runs, and
+  /// a message that slides away leaves the user pressing a dead control.
+  String? _finishError;
+
   Future<void> _finish() async {
     if (_busy) return;
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _finishError = null;
+    });
     final identity = AppController.generateIdentity();
-    await ref
-        .read(appControllerProvider.notifier)
-        .completeOnboarding(
-          identity: identity,
-          password: _passwordCtrl.text,
-          mode: _mode,
-          // The REAL phrase drives the deterministic identity derivation on
-          // the first node boot; the placeholder never leaves this screen.
-          identityPhrase: _realPhrase ? _phrase.join(' ') : null,
-          joinExisting: _joinExisting,
-        );
-    // Router redirect takes over once phase flips to ready.
+    try {
+      await ref
+          .read(appControllerProvider.notifier)
+          .completeOnboarding(
+            identity: identity,
+            password: _passwordCtrl.text,
+            mode: _mode,
+            // The REAL phrase drives the deterministic identity derivation on
+            // the first node boot; the placeholder never leaves this screen.
+            identityPhrase: _realPhrase ? _phrase.join(' ') : null,
+            joinExisting: _joinExisting,
+          );
+      // Router redirect takes over once phase flips to ready.
+    } catch (e) {
+      // Creating the container runs Argon2 and touches the filesystem; a full
+      // disk or a native fault threw straight through the old code and left
+      // `_busy` true forever, so the Done button never came back and the only
+      // way on was to kill the app.
+      devLog(() => 'xVeil[onboarding]: completeOnboarding failed: $e');
+      if (mounted) setState(() => _finishError = AppL10n.of(context).onboardSetupFailed);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
@@ -162,6 +182,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               confirmCtrl: _confirmCtrl,
               busy: _busy,
               onFinish: _finish,
+              setupError: _finishError,
             ),
           },
         ),
@@ -578,11 +599,16 @@ class _PasswordStep extends StatefulWidget {
     required this.confirmCtrl,
     required this.busy,
     required this.onFinish,
+    this.setupError,
   });
   final TextEditingController passwordCtrl;
   final TextEditingController confirmCtrl;
   final bool busy;
   final VoidCallback onFinish;
+
+  /// Set when creating the container itself failed, as opposed to the two
+  /// local validation errors this step raises on its own.
+  final String? setupError;
 
   @override
   State<_PasswordStep> createState() => _PasswordStepState();
@@ -636,10 +662,10 @@ class _PasswordStepState extends State<_PasswordStep> {
           decoration: InputDecoration(labelText: l.onboardRepeatPassword),
           onSubmitted: (_) => _submit(),
         ),
-        if (_error != null) ...[
+        if (_error != null || widget.setupError != null) ...[
           const SizedBox(height: 12),
           Text(
-            _error!,
+            _error ?? widget.setupError!,
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         ],
