@@ -102,16 +102,22 @@ jobs:
 
       # Compiling needs only compile_commands.json; linking is what needs
       # webrtc.lib. Doing the compile here reports what this never-compiled
-      # port gets wrong an hour in, instead of after the multi-hour ninja.
+      # port gets wrong forty minutes in, instead of after the multi-hour
+      # ninja.
       #
-      # ADVISORY, and it has to be: WebRTC generates some headers from ninja
-      # actions rather than from gn, so a failure here can mean "not built
-      # yet" as easily as "wrong code". The authoritative compile is the one
-      # inside the real build below - this step exists to put the error log in
-      # front of a human early, not to gate anything.
-      - name: Compile the veil sources early (advisory)
-        id: early_compile
-        continue-on-error: true
+      # This started out advisory, on the theory that WebRTC generates some
+      # headers from ninja actions rather than from gn, so a failure here
+      # might mean "not built yet" rather than "wrong code". Run 30490005008
+      # settled it: straight after gn gen, the engine, the transport shim and
+      # the video-note recorder all compiled clean, and the camera produced
+      # exactly one real diagnostic. No generated header was missing.
+      #
+      # So it gates. Advisory was also actively harmful: continue-on-error
+      # makes the step report conclusion=success whatever happens, and GitHub
+      # withholds a job's logs until the job ends - so the early failure was
+      # both invisible in the API and unreadable until the multi-hour build it
+      # was supposed to pre-empt had finished.
+      - name: Compile the veil sources early
         shell: pwsh
         run: |
           & third_party\veil\flutter\veil_media\windows\build_veil_media_dll_windows.ps1 `
