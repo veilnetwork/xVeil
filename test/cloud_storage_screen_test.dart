@@ -18,6 +18,8 @@ import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/state/cloud_capability_service.dart';
 import 'package:xveil/features/storage/cloud_storage_screen.dart';
+import 'package:xveil/features/storage/cloud_note_editor.dart';
+import 'package:xveil/features/chat/message_markdown.dart';
 import 'package:xveil/features/storage/cloud_collection_editor.dart';
 import 'package:xveil/features/storage/cloud_shared_document_editor.dart';
 import 'package:xveil/l10n/app_localizations.dart';
@@ -1749,5 +1751,98 @@ void main() {
       findsNothing,
       reason: 'and it is the preview standing there, not the icon beside it',
     );
+  });
+  // A note is written once and read many times, so the marks that make it
+  // readable have to render somewhere. These pin the toggle and the counter —
+  // the two things the editor change touches.
+  testWidgets('a note reads as rendered text and writes as raw marks', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = CloudService(
+      storage,
+      _Sync(),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(1000),
+      newId: () => 'note_md',
+      integrityChecks: false,
+    );
+    addTearDown(() {
+      unawaited(service.close());
+      unawaited(storage.close());
+    });
+    final note = await service.saveTextNote(
+      title: 'shopping',
+      body: 'buy **milk** today',
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          locale: const Locale('ru'),
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: CloudNoteEditorScreen(service: service, item: note),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Writing: the body is editable and shows the marks as typed.
+    expect(find.widgetWithText(TextField, 'buy **milk** today'), findsOneWidget);
+    expect(find.byType(FormattedText), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('cloud-note-preview')));
+    await tester.pumpAndSettle();
+
+    // Reading: rendered, and the raw body is no longer offered for editing.
+    expect(find.byType(FormattedText), findsOneWidget);
+    expect(find.widgetWithText(TextField, 'buy **milk** today'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('cloud-note-preview')));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextField, 'buy **milk** today'), findsOneWidget);
+  });
+
+  testWidgets('a short title is not followed around by a counter', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = CloudService(
+      storage,
+      _Sync(),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(1000),
+      newId: () => 'note_counter',
+      integrityChecks: false,
+    );
+    addTearDown(() {
+      unawaited(service.close());
+      unawaited(storage.close());
+    });
+    final note = await service.saveTextNote(title: 'shopping', body: 'x');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          locale: const Locale('ru'),
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: CloudNoteEditorScreen(service: service, item: note),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('/512'), findsNothing);
+
+    // It comes back when it is actually information: near the limit.
+    await tester.enterText(
+      find.widgetWithText(TextField, 'shopping'),
+      'x' * 500,
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('/512'), findsOneWidget);
   });
 }
