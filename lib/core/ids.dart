@@ -24,8 +24,25 @@ String mintShortId([Random? random]) {
 /// Wrapped in a value type so equality/hashing work as map keys and the
 /// hex/short representations live in one place.
 class NodeId {
-  NodeId(this.bytes)
-      : assert(bytes.length == 32, 'node id must be 32 bytes');
+  /// Copies [bytes] and checks the length at RUNTIME.
+  ///
+  /// The length was an `assert`, which is compiled out of a release build, so
+  /// a wrong-sized id became a NodeId in the shipped app and only surfaced
+  /// later as a mismatched hex string or a lookup that never hit.
+  ///
+  /// The copy closes the other half: the buffer used to be retained as passed,
+  /// so a caller that reused its scratch `Uint8List` — or mutated one after
+  /// putting the id in a Map — changed a live key underneath the hash it was
+  /// filed under, and the entry became unreachable without ever looking wrong.
+  NodeId(Uint8List bytes) : bytes = Uint8List.fromList(bytes) {
+    if (bytes.length != 32) {
+      throw ArgumentError.value(
+        bytes.length,
+        'bytes',
+        'node id must be 32 bytes',
+      );
+    }
+  }
 
   final Uint8List bytes;
 
