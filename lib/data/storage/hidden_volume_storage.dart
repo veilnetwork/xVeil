@@ -290,6 +290,19 @@ class HiddenVolumeStorage implements Storage {
     ]);
     final bytes = _sk(json);
     final existing = await _as.get(Ns.settings, _sk('master:roster'));
+    // FAIL CLOSED on an unreadable roster. `loadRoster` answers null both for
+    // "this space has no roster" and for "this space has one I could not
+    // parse", so `_updateRoster` starts from an empty list either way, mutates
+    // it, and lands here to overwrite. On the second reading that write drops
+    // every other identity's SpaceKeys — the child spaces stay on disk and
+    // become permanently unopenable, because those keys existed nowhere else.
+    // A corrupt roster is a case for a repair flow, never for a blind rewrite.
+    if (existing != null && _decodeRoster(existing) == null) {
+      throw StateError(
+        'refusing to overwrite an unreadable master roster: rewriting it '
+        'would drop the SpaceKeys of every identity it lists',
+      );
+    }
     if (_bytesEqual(existing, bytes)) return;
     await _as.commit([PutOp(Ns.settings, _sk('master:roster'), bytes)]);
   }
@@ -301,6 +314,16 @@ class HiddenVolumeStorage implements Storage {
     // A corrupt / truncated roster blob must not crash a roster-edit or the
     // master open (jsonDecode, the cast, or base64.decode would throw). Treat
     // it as no-roster so the caller degrades gracefully rather than wedging.
+    //
+    // That degradation is safe only for READERS. `null` here is the same value
+    // a plain identity space returns, so a writer cannot tell "no roster" from
+    // "roster I could not read" — see the guard in [saveRoster], which is what
+    // stops the difference from costing someone their identities.
+    return _decodeRoster(raw);
+  }
+
+  /// The roster in [raw], or null if it does not parse.
+  static List<RosterEntry>? _decodeRoster(Uint8List raw) {
     try {
       final list = jsonDecode(utf8.decode(raw)) as List;
       return [

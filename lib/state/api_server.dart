@@ -843,10 +843,7 @@ class ApiServerController extends Notifier<ApiConfig> {
     _rewireWebhook();
   }
 
-  String _mintId() => base64Url
-      .encode(List<int>.generate(6, (_) => Random.secure().nextInt(256)))
-      .replaceAll(RegExp('[=_-]'), '')
-      .substring(0, 6);
+  String _mintId() => mintShortId();
 
   Future<void> _persistTokens() => ref
       .read(storageProvider)
