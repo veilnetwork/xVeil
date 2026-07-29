@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
-import 'dart:math';
 import 'dart:typed_data';
 
 import '../api/api_server.dart';
@@ -671,13 +670,7 @@ class HeadlessRuntime {
     }
   }
 
-  static String _mintId() {
-    final random = Random.secure();
-    return base64Url
-        .encode(List<int>.generate(6, (_) => random.nextInt(256)))
-        .replaceAll(RegExp('[=_-]'), '')
-        .substring(0, 6);
-  }
+  static String _mintId() => mintShortId();
 
   static bool _constantTimeEqual(String a, String b) {
     if (a.length != b.length) return false;
