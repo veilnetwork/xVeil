@@ -703,6 +703,46 @@ void main() {
     },
   );
 
+  test('an unreadable roster is never silently rewritten', () async {
+    // loadRoster answers null for BOTH "no roster" and "a roster I could not
+    // parse", and _updateRoster starts from an empty list on null. Without a
+    // guard, adding one identity to a master whose roster blob is damaged
+    // rewrites it with that single entry — and the SpaceKeys of every other
+    // identity, which exist nowhere else, are gone. The child spaces stay on
+    // disk and can never be opened again.
+    await storage.saveRoster([
+      RosterEntry(label: 'me', spaceKeys: Uint8List.fromList(List.filled(64, 1))),
+      RosterEntry(
+        label: 'work',
+        spaceKeys: Uint8List.fromList(List.filled(64, 2)),
+      ),
+    ]);
+    // Damage it underneath the storage layer, the way a truncated write or a
+    // format regression would.
+    store.commit([
+      PutOp(
+        Ns.settings,
+        Uint8List.fromList(utf8.encode('master:roster')),
+        Uint8List.fromList(utf8.encode('{not json at all')),
+      ),
+    ]);
+    expect(
+      await storage.loadRoster(),
+      isNull,
+      reason: 'readers still degrade rather than wedge the master open',
+    );
+
+    await expectLater(
+      storage.saveRoster([
+        RosterEntry(
+          label: 'newcomer',
+          spaceKeys: Uint8List.fromList(List.filled(64, 3)),
+        ),
+      ]),
+      throwsA(isA<StateError>()),
+    );
+  });
+
   test(
     'roster round-trips: labels + opaque SpaceKeys, survives reopen',
     () async {

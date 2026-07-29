@@ -1,4 +1,23 @@
+import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
+
+/// A short, URL-safe random identifier (six characters).
+///
+/// Six random bytes encode to exactly eight base64url characters and no
+/// padding, so there is nothing to trim but `=` — which cannot appear here at
+/// all. The two copies this replaced also stripped `-` and `_`, which ARE
+/// base64url characters: strip three or more and the string is shorter than
+/// six, and `substring(0, 6)` throws. With 2 of 64 symbols eligible over eight
+/// draws that landed at roughly one call in 585 — rare enough to survive
+/// review twice and common enough to hit a real user minting a token.
+String mintShortId([Random? random]) {
+  final rng = random ?? Random.secure();
+  return base64Url
+      .encode(List<int>.generate(6, (_) => rng.nextInt(256)))
+      .replaceAll('=', '')
+      .substring(0, 6);
+}
 
 /// A 32-byte veil node identity (BLAKE3 of the signing public key).
 ///

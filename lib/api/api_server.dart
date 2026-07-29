@@ -6134,11 +6134,25 @@ class ApiServer {
     );
   }
 
+  /// How long an unauthenticated caller gets to finish a body we are only
+  /// reading in order to throw away. Generous for a local client on loopback,
+  /// and short enough that holding sockets open is not a strategy.
+  static const _discardDeadline = Duration(seconds: 5);
+
   /// Consume and discard, so a refusal can still be delivered on the same
   /// connection. Used for callers rejected before their body is worth parsing.
+  ///
+  /// BOUNDED. Draining without a deadline is a slowloris the other way round:
+  /// a local process opens many chunked requests, never finishes one, and each
+  /// costs a socket, a file descriptor and a pending future for as long as it
+  /// likes — while never presenting a token. Past the deadline we stop waiting
+  /// and answer anyway; the caller may see a truncated response, which is the
+  /// correct outcome for one that would not finish its request.
   Future<void> _discardBody(HttpRequest req) async {
     try {
-      await req.drain<void>();
+      await req.drain<void>().timeout(_discardDeadline);
+    } on TimeoutException {
+      // Deliberate: stop reading, let the refusal go out, drop the socket.
     } catch (_) {
       // The caller hung up mid-send; nothing left to answer to.
     }
@@ -6181,6 +6195,10 @@ class ApiServer {
         // token any more, and what is reachable is bounded.
         if (!_handler.authHeaderOk(auth)) {
           await _discardBody(req);
+          // Do not keep the socket alive for a caller that has not
+          // authenticated: one that is collecting connections should have to
+          // pay for a new one every time.
+          req.response.persistentConnection = false;
           req.response.statusCode = 401;
           req.response.headers.contentType = ContentType.json;
           req.response.write(jsonEncode({'error': 'unauthorized'}));

@@ -31,7 +31,20 @@ import 'package:xveil/core/log.dart';
 Future<void> restrictRuntimeDir(String dir) async {
   if (Platform.isWindows) return;
   try {
-    await Process.run('chmod', ['700', dir]);
+    // The exit code is the whole point of running it. `Process.run` completing
+    // means chmod RAN, not that it WORKED — on a mounted share or a filesystem
+    // without POSIX modes it exits non-zero and the directory keeps whatever
+    // the umask gave it. Swallowing that silently is how a hardening step
+    // becomes a comment that claims something untrue.
+    final result = await Process.run('chmod', ['700', dir]);
+    if (result.exitCode != 0) {
+      devLog(
+        () =>
+            'xVeil[deniable]: chmod 700 $dir failed (exit '
+            '${result.exitCode}): ${result.stderr} — admin.sock and the PSK '
+            'may be readable by other local users on this filesystem',
+      );
+    }
   } catch (e) {
     devLog(() => 'xVeil[deniable]: could not restrict $dir: $e');
   }

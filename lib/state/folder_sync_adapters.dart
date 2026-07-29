@@ -7,6 +7,50 @@ import '../domain/folder_sync.dart';
 import 'cloud_service.dart';
 import 'folder_sync_engine.dart';
 
+/// The path a mirrored file may occupy under a sync root, or null if it may
+/// not occupy one at all.
+///
+/// Mirror paths are built from CLOUD ITEM NAMES, and a cloud item can be
+/// created by any device linked to the account — including one that has been
+/// compromised. Nothing upstream constrains a name to a single path component,
+/// so `../../.ssh/authorized_keys` arrives here as an ordinary string and used
+/// to be concatenated straight into `File('$root/$path')`. The write is
+/// temp-then-rename, so it would have landed atomically on whatever it hit.
+///
+/// Rejected, component by component, rather than sanitised: silently rewriting
+/// a hostile name into a nearby legal one still creates a file the user never
+/// asked for, and leaves the mirror disagreeing with the cloud about where
+/// that item lives.
+///
+///  * an absolute path, a Windows drive (`C:`) or a UNC prefix — it is not
+///    relative to anything, let alone to this root;
+///  * `.` and `..` in any position, and an empty component (`a//b`);
+///  * a separator INSIDE a component, which is how a name smuggles depth;
+///  * anything that, once joined, does not resolve back inside the root —
+///    the belt to the component check's braces, and the only part that also
+///    catches a symlinked directory pointing outward.
+String? mirrorPathWithin(String root, String path) {
+  if (path.isEmpty) return null;
+  // Windows accepts both separators; normalise before splitting so a
+  // backslash cannot hide a component boundary from the checks below.
+  final normalised = path.replaceAll('\\', '/');
+  if (normalised.startsWith('/')) return null; // absolute
+  if (normalised.length >= 2 && normalised[1] == ':') return null; // drive
+  final parts = normalised.split('/');
+  for (final part in parts) {
+    if (part.isEmpty || part == '.' || part == '..') return null;
+  }
+  final joined = '$root/${parts.join('/')}';
+  // Canonical containment. `..` is already gone, so this exists to catch what
+  // the string check cannot see: a component that is a symlink out of the
+  // tree. Compared with a trailing separator so `/roots` does not pass as a
+  // child of `/root`.
+  final rootReal = Directory(root).absolute.path;
+  final prefix = rootReal.endsWith('/') ? rootReal : '$rootReal/';
+  if (!File(joined).absolute.path.startsWith(prefix)) return null;
+  return joined;
+}
+
 /// [FolderSyncCloud] over the real [CloudService].
 ///
 /// Only FILES are mirrored. A note carries a revision DAG that a folder cannot
@@ -169,7 +213,9 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
 
   @override
   Future<Uint8List?> read(String root, String path) async {
-    final file = File('$root/$path');
+    final resolved = mirrorPathWithin(root, path);
+    if (resolved == null) return null;
+    final file = File(resolved);
     if (!file.existsSync()) return null;
     try {
       return await file.readAsBytes();
@@ -186,7 +232,14 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
   /// is atomic on every platform this runs on.
   @override
   Future<void> write(String root, String path, Uint8List bytes) async {
-    final file = File('$root/$path');
+    final resolved = mirrorPathWithin(root, path);
+    if (resolved == null) {
+      // Refuse rather than throw: one hostile name must not stop the pass from
+      // mirroring every other file, and a throw here would be reported to the
+      // user as "sync failed" with nothing they can act on.
+      return;
+    }
+    final file = File(resolved);
     await file.parent.create(recursive: true);
     final temp = File('${file.path}$kPartialSuffix');
     await temp.writeAsBytes(bytes, flush: true);
@@ -195,7 +248,9 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
 
   @override
   Future<void> remove(String root, String path) async {
-    final file = File('$root/$path');
+    final resolved = mirrorPathWithin(root, path);
+    if (resolved == null) return;
+    final file = File(resolved);
     if (file.existsSync()) await file.delete();
     // Prune the directories the file left behind, but never the pair's root:
     // a mirror that removes the folder the user pointed at looks like the
