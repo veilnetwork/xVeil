@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'ssh_host_confirm.dart';
 import '../../data/node/ssh_client.dart';
 import '../../data/node/ssh_credentials.dart';
 import '../../l10n/app_localizations.dart';
@@ -96,13 +97,27 @@ class _SshCheckDialogState extends State<SshCheckDialog> {
           )
         : SshAuth.password(_password.text);
     try {
+      // Identity before credentials — see confirmSshHost. A status check is
+      // still a password sent to whoever answered.
+      final pin = await confirmSshHost(
+        context,
+        host: widget.host,
+        port: widget.port,
+        pinned: widget.expectedHostFingerprint,
+      );
+      if (pin == null) {
+        if (mounted) {
+          setState(() => _error = AppL10n.of(context).sshHostNotConfirmed);
+        }
+        return;
+      }
       final r = await sshRun(
         host: widget.host,
         port: widget.port,
         user: widget.user,
         auth: auth,
         command: _statusCmd,
-        expectedHostFingerprint: widget.expectedHostFingerprint,
+        expectedHostFingerprint: pin,
       );
       // Pin trust-on-first-use: surface the observed key to the caller so a
       // check (not just a provision) establishes the pin for later connects.

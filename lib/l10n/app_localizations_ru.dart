@@ -98,6 +98,25 @@ class AppL10nRu extends AppL10n {
       'Не удалось создать зашифрованный контейнер. Проверьте, есть ли на устройстве свободное место, и попробуйте ещё раз.';
 
   @override
+  String get sshConfirmHostTitle => 'Это тот самый сервер?';
+
+  @override
+  String sshConfirmHostBody(Object host) {
+    return 'Это первое подключение к $host, поэтому сверить его личность пока не с чем. Сравните отпечаток ниже с тем, что показывает сам сервер — на сервере, а не по этому соединению. Если они разные, между вами кто-то есть.';
+  }
+
+  @override
+  String get sshConfirmHostHint =>
+      'Выполните на сервере: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub';
+
+  @override
+  String get sshConfirmHostAccept => 'Совпадает, продолжить';
+
+  @override
+  String get sshHostNotConfirmed =>
+      'Подключение отменено: личность сервера не подтверждена.';
+
+  @override
   String get storageUnavailableTitle => 'Защищённое хранилище недоступно';
 
   @override
