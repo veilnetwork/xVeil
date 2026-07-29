@@ -90,7 +90,7 @@ jobs:
       # platforms: build_veil_media_dll_windows.ps1 reads call.cc's command out
       # of compile_commands.json so the veil translation units are compiled
       # with WebRTC's own clang-cl, __Cr libc++ and winsysroot.
-      - name: Build webrtc.lib
+      - name: Configure WebRTC
         shell: cmd
         run: |
           cd /d %WEBRTC_ROOT%\src
@@ -99,6 +99,31 @@ jobs:
             echo ::error::gn produced no compile_commands.json - the engine build reads call.cc's command from it
             exit /b 1
           )
+
+      # Compiling needs only compile_commands.json; linking is what needs
+      # webrtc.lib. Doing the compile here reports what this never-compiled
+      # port gets wrong an hour in, instead of after the multi-hour ninja.
+      #
+      # ADVISORY, and it has to be: WebRTC generates some headers from ninja
+      # actions rather than from gn, so a failure here can mean "not built
+      # yet" as easily as "wrong code". The authoritative compile is the one
+      # inside the real build below - this step exists to put the error log in
+      # front of a human early, not to gate anything.
+      - name: Compile the veil sources early (advisory)
+        id: early_compile
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          & third_party\veil\flutter\veil_media\windows\build_veil_media_dll_windows.ps1 `
+            -WebrtcSrc "$env:WEBRTC_ROOT\src" `
+            -WebrtcOut 'out\win-x64' `
+            -Dest "$env:GITHUB_WORKSPACE\engine-out" `
+            -CompileOnly
+
+      - name: Build webrtc.lib
+        shell: cmd
+        run: |
+          cd /d %WEBRTC_ROOT%\src
           call ninja -C out/win-x64 webrtc || exit /b 1
           dir out\win-x64\obj\webrtc.lib
 
