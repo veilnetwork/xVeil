@@ -5,6 +5,27 @@ import 'device_sync.dart';
 
 enum CloudItemKind { file, note, task, calendarEvent }
 
+/// How a note names an attachment: `veil-cloud:<itemId>`, written straight into
+/// the markdown body.
+///
+/// Nothing here touches [CloudItem], its event encoding or replication — the
+/// note's own bytes carry the whole attachment, so an attached file costs the
+/// index nothing and travels wherever the note already travels. The accepted
+/// price is that a reference can outlive its object: deleting the item leaves
+/// the text behind. That is deliberate, and it is why the renderer must draw a
+/// dangling reference as a VISIBLY unavailable attachment rather than hide it —
+/// a reference nobody can see is a reference nobody can repair.
+const kCloudAttachmentScheme = 'veil-cloud:';
+
+/// Item ids are `[A-Za-z0-9_-]`, at most 128 long ([CloudItem._itemId]). None of
+/// `.,)!?:;` is in that set, so a reference ending a sentence ends where the
+/// sentence does — no trailing-punctuation trimming of the kind a URL needs.
+final cloudAttachmentPattern = RegExp(
+  '$kCloudAttachmentScheme[A-Za-z0-9_-]{1,128}',
+);
+
+String cloudAttachmentRef(String itemId) => '$kCloudAttachmentScheme$itemId';
+
 /// One logical object in the personal-cloud index. The object id survives a
 /// content update; [contentId] addresses the current immutable bytes. Deletes
 /// are ABSORBING tombstones against anything at a lower revision: a stale row

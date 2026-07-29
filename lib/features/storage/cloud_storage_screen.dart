@@ -1,13 +1,10 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' as ui;
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../core/ids.dart';
 import '../../domain/cloud.dart';
@@ -27,6 +24,7 @@ import '../../state/cloud_document_providers.dart';
 import '../../state/cloud_document_replication_service.dart';
 import '../../state/cloud_service.dart';
 import 'cloud_collection_editor.dart';
+import 'cloud_item_actions.dart';
 import 'cloud_note_editor.dart';
 import 'cloud_shared_document_editor.dart';
 
@@ -105,68 +103,21 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
   Future<void> _importFile() async {
     final service = _service;
     if (service == null || _busy) return;
-    final picked = await FilePicker.pickFiles(
-      allowMultiple: false,
-      withData: false,
-      withReadStream: false,
-    );
-    if (!mounted || picked == null || picked.files.single.path == null) return;
-    final path = picked.files.single.path!;
-    final name = picked.files.single.name;
     setState(() => _busy = true);
-    _RangeFileReader? reader;
     try {
-      final file = File(path);
-      final size = await file.length();
-      reader = _RangeFileReader(await file.open(mode: FileMode.read));
-      await service.importContent(
-        name: name,
-        size: size,
-        readRange: reader.read,
+      // Cancelling the picker is not an import and not a failure; it says
+      // nothing.
+      final imported = await importPickedCloudFile(
+        service,
         folderId: _openFolderId,
-        thumbnail: await _previewOf(file, name),
       );
-      if (mounted) _notice(AppL10n.of(context).cloudImported);
+      if (mounted && imported != null) {
+        _notice(AppL10n.of(context).cloudImported);
+      }
     } catch (_) {
       if (mounted) _notice(AppL10n.of(context).cloudImportFailed);
     } finally {
-      await reader?.close();
       if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  /// A small preview of an imported picture, or null when there is nothing to
-  /// preview. Decoding lives here rather than in the service: the state layer
-  /// stays free of image codecs and testable without a Flutter binding.
-  ///
-  /// Failure is never fatal — a file that claims to be a picture and is not,
-  /// or a format this platform cannot decode, simply gets no preview.
-  Future<Uint8List?> _previewOf(File file, String name) async {
-    const previewWidth = 96;
-    const decodableCeiling = 32 * 1024 * 1024;
-    final lower = name.toLowerCase();
-    const extensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'];
-    if (!extensions.any(lower.endsWith)) return null;
-    try {
-      // Decoding wants the whole picture in memory at once, so the very large
-      // ones are left alone: a preview is not worth an out-of-memory on a
-      // phone. Width only, so the shape survives.
-      if (await file.length() > decodableCeiling) return null;
-      final codec = await ui.instantiateImageCodec(
-        await file.readAsBytes(),
-        targetWidth: previewWidth,
-      );
-      final frame = await codec.getNextFrame();
-      final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
-      frame.image.dispose();
-      codec.dispose();
-      final bytes = data?.buffer.asUint8List();
-      if (bytes == null || bytes.length > CloudService.maxThumbnailBytes) {
-        return null;
-      }
-      return bytes;
-    } catch (_) {
-      return null;
     }
   }
 
@@ -980,7 +931,7 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                             dense: true,
                             contentPadding: EdgeInsets.zero,
                             title: Text(entry.item.name),
-                            subtitle: Text(_formatBytes(entry.item.size)),
+                            subtitle: Text(formatCloudBytes(entry.item.size)),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -1062,14 +1013,14 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                 contentPadding: EdgeInsets.zero,
                 title: Text(l.cloudUsageOnThisDevice),
                 subtitle: Text(l.cloudUsageItems(usage.localItems)),
-                trailing: Text(_formatBytes(usage.localBytes)),
+                trailing: Text(formatCloudBytes(usage.localBytes)),
               ),
               ListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 title: Text(l.cloudUsageInCloud),
                 subtitle: Text(l.cloudUsageItems(usage.logicalItems)),
-                trailing: Text(_formatBytes(usage.logicalBytes)),
+                trailing: Text(formatCloudBytes(usage.logicalBytes)),
               ),
               Text(
                 l.cloudUsageNotHeldHere(usage.indexOnlyItems),
@@ -1091,7 +1042,7 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                           : device.deviceId.short,
                     ),
                     subtitle: Text(l.cloudUsageItems(device.items)),
-                    trailing: Text(_formatBytes(device.bytes)),
+                    trailing: Text(formatCloudBytes(device.bytes)),
                   ),
               ],
             ],
@@ -2081,7 +2032,7 @@ class _SharedFolderScreenState extends State<_SharedFolderScreen> {
                       key: ValueKey('shared-add-${item.id}'),
                       leading: const Icon(Icons.insert_drive_file_outlined),
                       title: Text(item.name, overflow: TextOverflow.ellipsis),
-                      subtitle: Text(_formatBytes(item.size)),
+                      subtitle: Text(formatCloudBytes(item.size)),
                       onTap: () => Navigator.pop(sheetContext, item),
                     ),
                 ],
@@ -2152,7 +2103,7 @@ class _SharedFolderScreenState extends State<_SharedFolderScreen> {
                           : Icons.cloud_outlined,
                     ),
                     title: Text(entry.name, overflow: TextOverflow.ellipsis),
-                    subtitle: Text(_formatBytes(entry.size)),
+                    subtitle: Text(formatCloudBytes(entry.size)),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -2921,81 +2872,24 @@ class _CloudItemTileState extends State<_CloudItemTile> {
     }
   }
 
-  /// Copy one item's content out of the volume and into an ordinary file.
-  ///
-  /// [_fetch] brings bytes onto this device but leaves them encrypted and
-  /// reachable only through the app; this is the other half — the one that
-  /// makes the storage usable from the rest of the machine.
   Future<void> _export() async {
     if (_working) return;
-    final item = widget.item;
-    if (item.contentId == null || item.deleted) return;
     final l = AppL10n.of(context);
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _working = true);
     try {
-      // The bytes may live only on another device. Waiting for them is the
-      // whole point of the action, so unlike a preview this one blocks.
-      if (!await widget.service.ensureLocal(item)) {
-        if (mounted) {
-          messenger.showSnackBar(SnackBar(content: Text(l.cloudExportFailed)));
-        }
-        return;
-      }
-      final String? destination;
-      if (Platform.isAndroid || Platform.isIOS) {
-        // saveFile wants every byte up front on mobile, which an item of any
-        // size cannot promise, so there the destination is app documents.
-        destination =
-            '${(await getApplicationDocumentsDirectory()).path}/'
-            '${_safeExportName(item.name)}';
-      } else {
-        destination = await FilePicker.saveFile(
-          fileName: _safeExportName(item.name),
-        );
-      }
-      if (destination == null) return; // cancelled, which is not a failure
-      // Written beside the target and renamed only once whole: picking an
-      // existing file must not destroy it because the copy failed halfway,
-      // and a truncated file that looks complete is worse than none.
-      final partial = File('$destination.part');
-      var written = 0;
-      final sink = partial.openWrite();
-      try {
-        const chunk = 4 * 1024 * 1024;
-        while (written < item.size) {
-          final want = (item.size - written) < chunk
-              ? item.size - written
-              : chunk;
-          final part = await widget.service.readContentRange(
-            item,
-            written,
-            want,
-          );
-          if (part == null || part.isEmpty) break;
-          sink.add(part);
-          written += part.length;
-        }
-      } finally {
-        await sink.close();
-      }
-      final complete = written >= item.size;
-      if (complete) {
-        await partial.rename(destination);
-      } else {
-        await partial.delete();
-      }
-      if (mounted) {
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(complete ? l.cloudExportDone : l.cloudExportFailed),
+      final result = await exportCloudItem(widget.service, widget.item);
+      // Cancelling the save dialog is not a failure and gets no report.
+      if (!mounted || result == CloudExportResult.cancelled) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            result == CloudExportResult.done
+                ? l.cloudExportDone
+                : l.cloudExportFailed,
           ),
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text(l.cloudExportFailed)));
-      }
+        ),
+      );
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -3265,7 +3159,7 @@ class _CloudItemTileState extends State<_CloudItemTile> {
         _local == true &&
         replicas < 2;
     final subtitle =
-        '${_formatBytes(widget.item.size)} · '
+        '${formatCloudBytes(widget.item.size)} · '
         '${_local == true ? l.cloudLocal : l.cloudRemote} · '
         '${l.cloudReplicas(replicas)}'
         '${singleCopy ? ' · ${l.cloudSingleCopy}' : ''}'
@@ -3387,22 +3281,6 @@ class _CloudItemTileState extends State<_CloudItemTile> {
   }
 }
 
-/// A cloud item's name is whatever the user typed, so it may carry separators
-/// that would place the export somewhere else entirely.
-String _safeExportName(String value) {
-  final sanitized = value.trim().replaceAll(RegExp(r'[/\\\x00]'), '_');
-  return sanitized.isEmpty ? 'file' : sanitized;
-}
-
-String _formatBytes(int bytes) {
-  if (bytes < 1024) return '$bytes B';
-  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KiB';
-  if (bytes < 1024 * 1024 * 1024) {
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MiB';
-  }
-  return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GiB';
-}
-
 /// Browses one received folder bearer link: fetches the listing anonymously,
 /// renders the (read-only) tree, and downloads+adopts individual files on
 /// demand. No content bytes are held until the user taps download.
@@ -3506,7 +3384,7 @@ class _CloudReceivedFolderScreenState extends State<CloudReceivedFolderScreen> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            subtitle: Text(_formatBytes(entry.size ?? 0)),
+            subtitle: Text(formatCloudBytes(entry.size ?? 0)),
             trailing: _done.contains(cid)
                 ? const Icon(Icons.cloud_done)
                 : _downloading.contains(cid)
@@ -3544,25 +3422,4 @@ class _CloudReceivedFolderScreenState extends State<CloudReceivedFolderScreen> {
           : ListView(children: _rows(listing.entries, 0)),
     );
   }
-}
-
-/// A RandomAccessFile has one mutable cursor. [ContentManifest.fromReader]
-/// prefetches the next range, so serialize cursor moves without buffering the
-/// whole source in memory.
-class _RangeFileReader {
-  _RangeFileReader(this._file);
-
-  final RandomAccessFile _file;
-  Future<void> _gate = Future.value();
-
-  Future<Uint8List> read(int offset, int length) {
-    final result = _gate.then((_) async {
-      await _file.setPosition(offset);
-      return Uint8List.fromList(await _file.read(length));
-    });
-    _gate = result.then<void>((_) {}, onError: (_) {});
-    return result;
-  }
-
-  Future<void> close() => _gate.then((_) => _file.close());
 }

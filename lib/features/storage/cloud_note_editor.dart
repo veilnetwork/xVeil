@@ -6,6 +6,7 @@ import '../../domain/cloud.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/cloud_service.dart';
 import '../chat/message_markdown.dart';
+import 'cloud_attachment.dart';
 
 class CloudNoteEditorScreen extends StatefulWidget {
   const CloudNoteEditorScreen({
@@ -216,6 +217,31 @@ class _CloudNoteEditorScreenState extends State<CloudNoteEditorScreen> {
     }
   }
 
+  /// Attach BY REFERENCE: the chosen item's id lands in the body as
+  /// `veil-cloud:<id>`. Nothing is copied, no row is rewritten, and the note
+  /// keeps costing the index exactly what it cost before — the body is the
+  /// whole mechanism. The reference can therefore outlive the object it names,
+  /// which the preview answers for by drawing a dead one as unavailable.
+  Future<void> _attach() async {
+    if (_loading || _saving) return;
+    final picked = await pickCloudAttachment(
+      context,
+      widget.service,
+      excludeItemId: _item?.id,
+    );
+    if (picked == null || !mounted) return;
+    final edit = insertCloudAttachment(
+      _body.text,
+      _body.selection,
+      picked.id,
+    );
+    _body.value = TextEditingValue(
+      text: edit.text,
+      selection: edit.selection,
+    );
+    setState(() {});
+  }
+
   void _notice(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -238,6 +264,16 @@ class _CloudNoteEditorScreenState extends State<CloudNoteEditorScreen> {
         appBar: AppBar(
           title: Text(_item == null ? l.cloudNoteNew : l.cloudNoteEdit),
           actions: [
+            IconButton(
+              key: const ValueKey('cloud-note-attach'),
+              tooltip: l.cloudAttachmentInsert,
+              icon: const Icon(Icons.attach_file),
+              // Insertion targets the body's caret, and in read mode there is
+              // no caret to target.
+              onPressed: _loading || _saving || _loadError != null || _preview
+                  ? null
+                  : _attach,
+            ),
             IconButton(
               key: const ValueKey('cloud-note-preview'),
               tooltip: _preview ? l.cloudNoteEditAction : l.cloudNotePreview,
