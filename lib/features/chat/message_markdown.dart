@@ -9,8 +9,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/ids.dart';
 import '../../l10n/app_localizations.dart';
+import '../../domain/cloud.dart';
 import '../../domain/inline_custom_emoji.dart';
 import '../../state/mention_identity.dart';
+import '../storage/cloud_attachment.dart';
 import 'message_mentions.dart';
 
 /// Inline formatting a message run can carry. Non-nested in v1: the content of
@@ -26,6 +28,11 @@ enum FmtKind {
   codeBlock,
   spoiler,
   link,
+
+  /// A `veil-cloud:<itemId>` reference to a personal-cloud object. The token's
+  /// text is the bare item id — the scheme is vocabulary, and everything
+  /// downstream wants the id.
+  cloudAttachment,
 }
 
 /// http/https URLs, terminated at whitespace. Trailing sentence punctuation is
@@ -79,6 +86,16 @@ List<FmtToken> parseFormatted(String body) {
   var i = 0;
   outer:
   while (i < body.length) {
+    // Ahead of the markers, not in the post-pass with links: an item id may
+    // legitimately contain `_`, and a marker pass that ran first would read
+    // `veil-cloud:a_b_c` as an italic run and lose the reference entirely.
+    final attachment = _attachmentAt(body, i);
+    if (attachment != null) {
+      flushPlain();
+      out.add(FmtToken(FmtKind.cloudAttachment, attachment));
+      i += kCloudAttachmentScheme.length + attachment.length;
+      continue;
+    }
     for (final (marker, kind) in _markers) {
       if (!_startsWith(body, i, marker)) continue;
       final contentStart = i + marker.length;
@@ -131,6 +148,13 @@ List<FmtToken> _splitLinks(String text) {
     out.add(FmtToken(FmtKind.plain, text.substring(last)));
   }
   return out;
+}
+
+/// The item id of a `veil-cloud:` reference beginning exactly at [at], or null.
+String? _attachmentAt(String body, int at) {
+  if (!_startsWith(body, at, kCloudAttachmentScheme)) return null;
+  final match = cloudAttachmentPattern.matchAsPrefix(body, at);
+  return match?.group(0)!.substring(kCloudAttachmentScheme.length);
 }
 
 bool _startsWith(String s, int at, String marker) {
@@ -851,6 +875,15 @@ class _FormattedTextState extends ConsumerState<FormattedText> {
                 hlColor,
                 recognizer: recognizer,
               ),
+            ),
+          );
+        case FmtKind.cloudAttachment:
+          // A widget, not a span: an attachment has a state (present, being
+          // fetched, gone) that no run of text can carry.
+          spans.add(
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: CloudAttachmentChip(itemId: t.text),
             ),
           );
         case FmtKind.spoiler:
