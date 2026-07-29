@@ -716,6 +716,8 @@
   "cloudNoteNew": "New note",
   "cloudNoteEdit": "Edit note",
   "cloudNoteTitleHint": "Title",
+  "cloudNotePreview": "Preview",
+  "cloudNoteEditAction": "Edit",
   "cloudNoteBodyHint": "Write a private note…",
   "cloudNoteSave": "Save",
   "cloudNoteSaved": "Note saved",

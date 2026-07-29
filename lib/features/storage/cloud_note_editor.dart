@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../domain/cloud.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/cloud_service.dart';
+import '../chat/message_markdown.dart';
 
 class CloudNoteEditorScreen extends StatefulWidget {
   const CloudNoteEditorScreen({
@@ -33,6 +34,9 @@ class _CloudNoteEditorScreenState extends State<CloudNoteEditorScreen> {
   bool _saving = false;
   String? _loadError;
   List<CloudItem> _heads = const [];
+  /// Read mode. A note is written once and read many times, and the marks
+  /// that make it readable are noise until they are rendered.
+  bool _preview = false;
   Set<String>? _mergeParents;
 
   @override
@@ -234,6 +238,14 @@ class _CloudNoteEditorScreenState extends State<CloudNoteEditorScreen> {
         appBar: AppBar(
           title: Text(_item == null ? l.cloudNoteNew : l.cloudNoteEdit),
           actions: [
+            IconButton(
+              key: const ValueKey('cloud-note-preview'),
+              tooltip: _preview ? l.cloudNoteEditAction : l.cloudNotePreview,
+              icon: Icon(_preview ? Icons.edit_outlined : Icons.visibility_outlined),
+              onPressed: _loading || _loadError != null
+                  ? null
+                  : () => setState(() => _preview = !_preview),
+            ),
             TextButton.icon(
               onPressed: _loading || _saving || _loadError != null
                   ? null
@@ -280,6 +292,18 @@ class _CloudNoteEditorScreenState extends State<CloudNoteEditorScreen> {
                         controller: _title,
                         autofocus: _item == null,
                         maxLength: 512,
+                        // Show the count only when it starts to matter. A
+                        // permanent 0/512 under a title reads as a quota being
+                        // spent, on a field nobody was going to fill.
+                        buildCounter:
+                            (
+                              _, {
+                              required currentLength,
+                              required isFocused,
+                              maxLength,
+                            }) => currentLength > (maxLength ?? 512) - 64
+                            ? Text('$currentLength/$maxLength')
+                            : null,
                         textInputAction: TextInputAction.next,
                         decoration: InputDecoration(
                           labelText: l.cloudNoteTitleHint,
@@ -288,19 +312,49 @@ class _CloudNoteEditorScreenState extends State<CloudNoteEditorScreen> {
                       ),
                       const SizedBox(height: 12),
                       Expanded(
-                        child: TextField(
-                          controller: _body,
-                          expands: true,
-                          minLines: null,
-                          maxLines: null,
-                          keyboardType: TextInputType.multiline,
-                          textAlignVertical: TextAlignVertical.top,
-                          decoration: InputDecoration(
-                            hintText: l.cloudNoteBodyHint,
-                            alignLabelWithHint: true,
-                            border: const OutlineInputBorder(),
-                          ),
-                        ),
+                        // The same renderer the chat and comments use, so a
+                        // note and a message agree on what `**bold**` means.
+                        child: _preview
+                            ? Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.outlineVariant,
+                                  ),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: SingleChildScrollView(
+                                  child: Align(
+                                    alignment: Alignment.topLeft,
+                                    child: _body.text.trim().isEmpty
+                                        ? Text(
+                                            l.cloudNoteBodyHint,
+                                            style: TextStyle(
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.onSurfaceVariant,
+                                            ),
+                                          )
+                                        : FormattedText(_body.text),
+                                  ),
+                                ),
+                              )
+                            : TextField(
+                                controller: _body,
+                                expands: true,
+                                minLines: null,
+                                maxLines: null,
+                                keyboardType: TextInputType.multiline,
+                                textAlignVertical: TextAlignVertical.top,
+                                decoration: InputDecoration(
+                                  hintText: l.cloudNoteBodyHint,
+                                  alignLabelWithHint: true,
+                                  border: const OutlineInputBorder(),
+                                ),
+                              ),
                       ),
                     ],
                   ),

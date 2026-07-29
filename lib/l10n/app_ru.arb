@@ -716,6 +716,8 @@
   "cloudNoteNew": "Новая заметка",
   "cloudNoteEdit": "Редактировать заметку",
   "cloudNoteTitleHint": "Название",
+  "cloudNotePreview": "Предпросмотр",
+  "cloudNoteEditAction": "Править",
   "cloudNoteBodyHint": "Напишите приватную заметку…",
   "cloudNoteSave": "Сохранить",
   "cloudNoteSaved": "Заметка сохранена",

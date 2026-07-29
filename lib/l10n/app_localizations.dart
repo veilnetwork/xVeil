@@ -4104,6 +4104,18 @@ abstract class AppL10n {
   /// **'Title'**
   String get cloudNoteTitleHint;
 
+  /// No description provided for @cloudNotePreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview'**
+  String get cloudNotePreview;
+
+  /// No description provided for @cloudNoteEditAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get cloudNoteEditAction;
+
   /// No description provided for @cloudNoteBodyHint.
   ///
   /// In en, this message translates to:
