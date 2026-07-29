@@ -151,8 +151,13 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
   Future<FolderSyncReport?> runOnce(FolderSyncPair pair) async {
     final engine = _engine;
     if (engine == null || !_running.add(pair.id)) return null;
-    await reload();
     try {
+      // Inside the try, not before it. `_running` is what stops a second pass
+      // over the same pair, and the id went in one statement earlier — so a
+      // throw from this reload left the pair marked busy for the lifetime of
+      // the controller, and the only way to sync that folder again was a
+      // restart.
+      await reload();
       return await engine.runOnce(pair);
     } finally {
       _running.remove(pair.id);

@@ -322,7 +322,7 @@ class CloudService {
         }
       } catch (_) {}
     }
-    final seenRaw = await _loadMaterialized(_seenSetting);
+    final seenRaw = await _loadMaterialized(_seenSetting, object: true);
     if (seenRaw != null) {
       try {
         final rows = jsonDecode(seenRaw);
@@ -361,7 +361,17 @@ class CloudService {
     return seen != null && item.revision > seen;
   }
 
-  Future<String?> _loadMaterialized(String key) async {
+  /// A materialized view, or null if neither slot holds a usable one.
+  ///
+  /// The shape check is what makes a half-written or malformed slot fall
+  /// through to its predecessor, so it has to accept the shape the WRITER
+  /// produced. The index and the claims are JSON arrays; `_seen` is a JSON
+  /// OBJECT, and the check used to demand a List — so the seen-revision map
+  /// was written on every change and discarded on every load. Nothing failed
+  /// visibly: the app just forgot, on each restart, everything it had already
+  /// caught up with, and `changedElsewhere` answered false for items that had
+  /// in fact changed elsewhere.
+  Future<String?> _loadMaterialized(String key, {bool object = false}) async {
     final active = await _storage.getSetting('$key.active');
     final slots = active == 'a' || active == 'b'
         ? [active!, active == 'a' ? 'b' : 'a']
@@ -371,7 +381,8 @@ class CloudService {
       if (chunked != null) {
         final decoded = utf8.decode(chunked, allowMalformed: true);
         try {
-          if (jsonDecode(decoded) is List) return decoded;
+          final parsed = jsonDecode(decoded);
+          if (object ? parsed is Map : parsed is List) return decoded;
         } catch (_) {}
       }
     }
