@@ -13,14 +13,14 @@ checkout, not from anyone's laptop.
 | Platform | File | Notes |
 |---|---|---|
 | Android | `app-arm64-v8a-release.apk` | almost every phone made since 2016 |
-| Android | `app-armeabi-v7a-release.apk` | older 32-bit devices |
-| Android | `app-x86_64-release.apk` | emulators |
 | Windows | `xveil-windows-x64.zip` | unzip, run `xveil.exe` |
 | Linux | `xveil-linux-x64.tar.gz` | unpack, run `bundle/xveil` |
 
-The APKs are split per architecture so the download is ~30 MB instead of ~90.
-Pick the one matching your phone; `arm64-v8a` is the right answer unless the
-device is genuinely old.
+Android is `arm64-v8a` only. Builds for `armeabi-v7a` and `x86_64` were
+published through v0.9.1 and are not any more: the call media engine is built
+for arm64 alone, so those APKs started and then could not record a voice
+message, play a video note, take a call or transcribe anything. An APK that
+looks like the app and quietly cannot do half of it is worse than no APK.
 
 Speech recognition downloads its model (~57 MB) the first time you use it,
 which is why the app itself is small.
@@ -115,14 +115,14 @@ by hand from a `veil:bootstrap?…` link: **Network → Peers → Add peer**.
 | Платформа | Файл | Примечание |
 |---|---|---|
 | Android | `app-arm64-v8a-release.apk` | почти все телефоны с 2016 года |
-| Android | `app-armeabi-v7a-release.apk` | старые 32-битные |
-| Android | `app-x86_64-release.apk` | эмуляторы |
 | Windows | `xveil-windows-x64.zip` | распаковать, запустить `xveil.exe` |
 | Linux | `xveil-linux-x64.tar.gz` | распаковать, запустить `bundle/xveil` |
 
-APK разделены по архитектурам, поэтому файл весит ~30 МБ, а не ~90. Берите тот,
-что подходит вашему телефону; `arm64-v8a` — верный ответ, если устройство не
-совсем старое.
+Android — только `arm64-v8a`. Сборки под `armeabi-v7a` и `x86_64` публиковались
+по v0.9.1 включительно и больше не публикуются: движок звонков собирается лишь
+под arm64, поэтому те APK запускались, но не могли ни записать голосовое, ни
+проиграть кружочек, ни принять звонок, ни распознать речь. APK, который выглядит
+как приложение и молча не умеет половины, хуже, чем его отсутствие.
 
 Модель распознавания речи (~57 МБ) докачивается при первом использовании —
 поэтому само приложение небольшое.
