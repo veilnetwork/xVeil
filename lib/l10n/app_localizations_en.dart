@@ -2311,6 +2311,12 @@ class AppL10nEn extends AppL10n {
   String get cloudNoteTitleHint => 'Title';
 
   @override
+  String get cloudNotePreview => 'Preview';
+
+  @override
+  String get cloudNoteEditAction => 'Edit';
+
+  @override
   String get cloudNoteBodyHint => 'Write a private note…';
 
   @override

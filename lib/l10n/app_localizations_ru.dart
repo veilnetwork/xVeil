@@ -2340,6 +2340,12 @@ class AppL10nRu extends AppL10n {
   String get cloudNoteTitleHint => 'Название';
 
   @override
+  String get cloudNotePreview => 'Предпросмотр';
+
+  @override
+  String get cloudNoteEditAction => 'Править';
+
+  @override
   String get cloudNoteBodyHint => 'Напишите приватную заметку…';
 
   @override
