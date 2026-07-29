@@ -70,6 +70,7 @@ import 'space_observability.dart';
 part 'group_service_types.dart';
 part 'group_service_signers.dart';
 part 'group_service_channel_keys.dart';
+part 'group_service_channel_queries.dart';
 part 'group_service_compaction.dart';
 part 'group_service_protected_channels.dart';
 part 'group_service_reactions.dart';
@@ -6801,32 +6802,7 @@ class GroupService {
   Future<List<SpaceChannel>> channelsOf(
     NodeId spaceId, {
     bool includeArchived = false,
-  }) async {
-    final bundle = await load(spaceId);
-    if (bundle == null || !bundle.manifest.isSpace) return const [];
-    final state = foldControlLog(
-      owner: bundle.manifest.owner,
-      entries: bundle.control,
-      verify: (entry) => _validControlFor(bundle.manifest, entry),
-      initialName: bundle.manifest.name,
-    ).state;
-    if (!SpaceAcl(state).allows(_signer.selfId, SpacePermission.view)) {
-      return const [];
-    }
-    final protected = await _protectedChannelsOf(bundle, state);
-    final channels = [
-      for (final channel in state.channels.values)
-        if (includeArchived || !channel.archived) channel,
-      for (final clear in protected.values)
-        if (includeArchived || !clear.channel.archived) clear.channel,
-    ];
-    channels.sort((left, right) {
-      final position = left.position.compareTo(right.position);
-      if (position != 0) return position;
-      return left.channelId.hex.compareTo(right.channelId.hex);
-    });
-    return channels;
-  }
+  }) => _channelQueries.channelsOf(spaceId, includeArchived: includeArchived);
 
   /// Current participants allowed into one voice scope. Resolving this once
   /// lets the call FSM reconcile an N-party room without decrypting the same
@@ -6886,12 +6862,7 @@ class GroupService {
     NodeId groupId,
     NodeId? channelId,
     NodeId member,
-  ) async =>
-      (await currentVoiceChannelAdmission(
-        groupId,
-        channelId,
-      ))?.recipients.contains(member) ??
-      false;
+  ) => _channelQueries.canEnterVoiceChannel(groupId, channelId, member);
 
   Future<NodeId?> createChannel(
     NodeId spaceId, {
@@ -7045,6 +7016,7 @@ class GroupService {
   /// Key rotation lives in its own file; the lock stays here because it is the
   /// owner's, and the public methods stay here because they are the API.
   late final _ChannelKeyRotation _channelKeys = _ChannelKeyRotation(this);
+  late final _ChannelQueries _channelQueries = _ChannelQueries(this);
 
   late final _LogCompaction _compaction = _LogCompaction(this);
   late final _Reactions _reactions = _Reactions(this);
@@ -7114,55 +7086,17 @@ class GroupService {
     );
   });
 
-  Future<List<NodeId>?> channelMembersOf(
-    NodeId spaceId,
-    NodeId channelId,
-  ) async {
-    final bundle = await load(spaceId);
-    if (bundle == null || !bundle.manifest.isSpace) return null;
-    final state = foldControlLog(
-      owner: bundle.manifest.owner,
-      entries: bundle.control,
-      verify: (entry) => _validControlFor(bundle.manifest, entry),
-      initialName: bundle.manifest.name,
-    ).state;
-    final protected = await _protectedChannelsOf(bundle, state);
-    final clear = protected[channelId.hex];
-    if (clear != null) return List.unmodifiable(clear.recipients);
-    if (state.channels.containsKey(channelId.hex)) {
-      return List.unmodifiable(
-        state.members.values.map((member) => member.nodeId),
-      );
-    }
-    return null;
-  }
+  Future<List<NodeId>?> channelMembersOf(NodeId spaceId, NodeId channelId) =>
+      _channelQueries.channelMembersOf(spaceId, channelId);
 
   Future<bool> setChannelArchived(
     NodeId spaceId,
     NodeId channelId,
     bool archived,
-  ) async {
-    final current = (await channelsOf(
-      spaceId,
-      includeArchived: true,
-    )).where((channel) => channel.channelId == channelId).firstOrNull;
-    if (current == null || current.archived == archived) return current != null;
-    return updateChannel(spaceId, current.copyWith(archived: archived));
-  }
+  ) => _channelQueries.setChannelArchived(spaceId, channelId, archived);
 
-  Future<bool> setDefaultChannel(NodeId spaceId, NodeId channelId) async {
-    final current = (await channelsOf(
-      spaceId,
-      includeArchived: true,
-    )).where((channel) => channel.channelId == channelId).firstOrNull;
-    if (current == null ||
-        current.kind != SpaceChannelKind.text ||
-        current.archived) {
-      return false;
-    }
-    if (current.isDefault) return true;
-    return updateChannel(spaceId, current.copyWith(isDefault: true));
-  }
+  Future<bool> setDefaultChannel(NodeId spaceId, NodeId channelId) =>
+      _channelQueries.setDefaultChannel(spaceId, channelId);
 
   /// The next per-author seq for [author] in a list of entries carrying seq.
   int _nextSeq(Iterable<int> seqs) {
