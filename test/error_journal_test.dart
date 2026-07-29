@@ -85,7 +85,7 @@ void main() {
                   platform: 'macos',
                   osVersion: '26.0',
                   appVersion: '1.0.0+1',
-                  profile: 'default',
+                  defaultProfile: true,
                   phase: 'ready',
                 ),
               )
@@ -124,7 +124,7 @@ void main() {
                   platform: 'linux',
                   osVersion: '?',
                   appVersion: '1.0.0+1',
-                  profile: 'debug',
+                  defaultProfile: false,
                   phase: 'locked',
                 ),
               )
@@ -210,15 +210,19 @@ void main() {
                   platform: 'linux',
                   osVersion: '1',
                   appVersion: '1',
-                  profile: 'default',
+                  defaultProfile: true,
                   phase: 'ready',
                 ),
               )
               as Map<String, Object?>;
       expect(
         ((once['errors']! as List).single as Map).keys,
-        {'kind', 'at', 'message'},
-        reason: 'an allow-list for entries too — a single failure stays lean',
+        {'kind', 'type', 'at', 'message'},
+        reason:
+            'an allow-list for entries too — a single failure stays lean. '
+            '`type` is the exception class, which describes the failure and '
+            'not the data behind it; it is what lets `message` be redacted '
+            'hard without leaving the report useless',
       );
 
       journal.record(kind: 'zone', error: 'once', atMs: 2);
@@ -228,18 +232,72 @@ void main() {
                   platform: 'linux',
                   osVersion: '1',
                   appVersion: '1',
-                  profile: 'default',
+                  defaultProfile: true,
                   phase: 'ready',
                 ),
               )
               as Map<String, Object?>;
       expect(((twice['errors']! as List).single as Map).keys, {
         'kind',
+        'type',
         'at',
         'count',
         'firstAt',
         'message',
       });
+    });
+  });
+
+  _redactionVectors();
+}
+
+/// The classes an audit found still leaving the app in a pasted report.
+///
+/// The contract says allow-list; the message body is the one field that never
+/// satisfied it, because an exception carries whatever the thrower put in it.
+/// These are the shapes that used to survive the old three-pattern deny-list.
+void _redactionVectors() {
+  group('redaction', () {
+    String r(String s) => ErrorJournal.redact(s);
+
+    test('an address is a social-graph edge, not a diagnostic', () {
+      expect(r('dial failed 203.0.113.7:5556'), isNot(contains('203.0.113')));
+      expect(r('relay 2001:db8::dead:beef refused'), isNot(contains('db8')));
+    });
+
+    test('a host, a URL and an address book entry go too', () {
+      expect(r('GET https://seed.example.org/v1/x'), isNot(contains('example')));
+      expect(r('bounce from someone@example.org'), isNot(contains('someone')));
+    });
+
+    test('a path names the machine even outside a home directory', () {
+      for (final p in [
+        '/private/var/folders/ab/xveil/store.hv',
+        '/var/lib/veil/node.toml',
+        '/data/user/0/network.veil.xveil/files/db',
+        r'D:\keys\store.hv',
+      ]) {
+        expect(
+          r('open failed $p'),
+          isNot(contains(p)),
+          reason: '$p survived redaction',
+        );
+      }
+    });
+
+    test('a short handle is as identifying as a long one', () {
+      // 16 hex was under the old 32-char floor and passed through intact.
+      expect(r('peer 0123456789abcdef gone'), isNot(contains('0123456789')));
+      // 24 base64 chars is a 16-byte token; the old floor was 40.
+      expect(
+        r('token YWJjZGVmZ2hpamtsbW5vcA=='),
+        isNot(contains('YWJjZGVmZ2hpamtsbW5vcA')),
+      );
+    });
+
+    test('it still says what broke', () {
+      // A deny-list that ate the sentence would be safe and useless.
+      expect(r('SocketException: connection refused'), contains('refused'));
     });
   });
 }
