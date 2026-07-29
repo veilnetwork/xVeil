@@ -12,9 +12,8 @@ storage it was built against.
 
 ## [0.9.2] — unreleased
 
-Built on veil `405a0f35` and hidden-volume `87b7a09` — both AHEAD of their last
-tags (v0.4.1, v1.2.2). Tag those first: a pin to an untagged commit is not a
-pin anyone else can resolve.
+Built on [veil v0.4.2](https://github.com/veilnetwork/veil/releases/tag/v0.4.2)
+and [hidden-volume v1.2.3](https://github.com/veilnetwork/hidden-volume/releases/tag/v1.2.3).
 
 ⚠️ **This version cannot be published yet.** The release workflow deliberately
 fails until the two call-engine runs are pinned (`ENGINE_RUN` for android and
@@ -85,7 +84,8 @@ checklist at the bottom of this entry.
 
 ### Release checklist
 
-1. Tag veil and hidden-volume, and repoint the pins at those tags.
+1. ~~Tag veil and hidden-volume, and repoint the pins at those tags.~~ Done:
+   v0.4.2 and v1.2.3.
 2. Run the `webrtc-linux` workflow (job `engine-android`), pin its run id in
    `release.yml`.
 3. Run `webrtc-windows`, fix what the never-compiled port gets wrong, pin its
