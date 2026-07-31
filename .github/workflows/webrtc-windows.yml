@@ -161,11 +161,24 @@ jobs:
           # Quoted names only, mirroring check-media-symbols.sh: the bare
           # identifier also appears inside library names, and a check that
           # invents a missing symbol is a check someone switches off.
-          $looked = Select-String -Path `
-            "lib\**\*.dart", "third_party\veil\flutter\veil_media\lib\**\*.dart" `
-            -Pattern "'(veil_media_[a-z0-9_]+)'" -AllMatches |
+          # Get-ChildItem -Recurse, not a ** in -Path: PowerShell has no
+          # recursive glob, it treats ** as a single *. That happens to find
+          # all 87 names today only because they all sit in one file two
+          # levels down; move it deeper and the gate would go on passing while
+          # checking nothing.
+          $dartFiles = Get-ChildItem -Recurse -File -Filter *.dart -Path `
+            "$env:GITHUB_WORKSPACE\lib", `
+            "$env:GITHUB_WORKSPACE\third_party\veil\flutter\veil_media\lib"
+          $looked = $dartFiles |
+            Select-String -Pattern "'(veil_media_[a-z0-9_]+)'" -AllMatches |
             ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } |
             Sort-Object -Unique
+          # A gate that finds nothing to check passes trivially, which is the
+          # failure mode of every check keyed on discovery. 87 names today.
+          if ($looked.Count -lt 50) {
+            Write-Host "::error::found only $($looked.Count) veil_media_* lookups in the Dart tree - discovery is broken, not the engine"
+            exit 1
+          }
           # These two are thunks into veilclient_ffi.dll and deliberately not
           # exported - see veil_win_datagram_thunk.cc.
           $looked = $looked | Where-Object { $_ -notin @('veil_media_send_datagram', 'veil_media_set_recv_callback') }
