@@ -700,8 +700,13 @@ class HiddenVolumeStorage implements Storage {
       // chunk payload (~700 pieces). Old metas may still carry `st`; ignored.
       final blobs = _blobs;
       if (blobs == null) return false;
-      return await blobs.piecesPresent(meta['fn'] as String) >=
-          (meta['pc'] as int);
+      // The recorded piece count is the layout's, so it is also the only range
+      // that counts. Passing it turns `>=` from "are there enough files in the
+      // directory" into "did every piece of THIS blob arrive" — an extra p999
+      // used to make up for a missing p3.
+      final expected = meta['pc'] as int;
+      return await blobs.piecesPresent(meta['fn'] as String, expected) >=
+          expected;
     }
     return AsyncFileStore(_as).hasFile(fileId);
   }
@@ -716,11 +721,20 @@ class HiddenVolumeStorage implements Storage {
     Uint8List bytes, {
     String? name,
   }) {
-    // Route by size — but a file already known on-disk stays on-disk even if a
-    // (re)store passes a smaller-looking total, so reads remain consistent.
-    if (_blobs != null && totalSize > _onDiskMinBytes) {
-      return _fileSerialized(
-        () => _storeFilePieceOnDisk(
+    // Tier is decided ONCE, by the first piece, and is then a property of the
+    // file rather than of whatever the current call happens to say.
+    //
+    // Re-deciding it per call on `totalSize` is what the comment here used to
+    // promise against and the code did anyway: a second store passing a
+    // smaller-looking total routed the same content id into the in-volume
+    // store while its earlier pieces sat on disk. One id, two tiers, each half
+    // answering `hasFile` about its own half.
+    return _fileSerialized(() async {
+      final blobs = _blobs;
+      final known = blobs == null ? null : await _odMeta(fileId);
+      final onDisk = blobs != null && (known != null || totalSize > _onDiskMinBytes);
+      if (onDisk) {
+        return _storeFilePieceOnDisk(
           fileId,
           pieceIndex,
           pieceCount,
@@ -728,11 +742,9 @@ class HiddenVolumeStorage implements Storage {
           totalSize,
           bytes,
           name,
-        ),
-      );
-    }
-    return _fileSerialized(
-      () => AsyncFileStore(_as).storeFilePiece(
+        );
+      }
+      return AsyncFileStore(_as).storeFilePiece(
         fileId,
         pieceIndex,
         pieceCount,
@@ -740,8 +752,8 @@ class HiddenVolumeStorage implements Storage {
         totalSize,
         bytes,
         name: name,
-      ),
-    );
+      );
+    });
   }
 
   /// Store one piece of a large blob in the on-disk encrypted tier. Runs under
@@ -775,6 +787,33 @@ class HiddenVolumeStorage implements Storage {
       };
       await _putOdMeta(cid, meta);
     }
+
+    // The minted layout is authoritative. A later piece that disagrees with it
+    // is not a piece of this file, and storing it anyway puts bytes at an index
+    // the read path will interpret under the RECORDED pieceSize — which returns
+    // the wrong plaintext rather than failing, and passes its MAC while doing
+    // it, because each piece is sealed independently.
+    final pc = meta['pc'] as int;
+    final ps = meta['ps'] as int;
+    final sz = meta['sz'] as int;
+    if (pieceCount != pc || pieceSize != ps || totalSize != sz) {
+      throw StateError(
+        'piece layout disagrees with the stored blob for $cid: '
+        'got pc=$pieceCount ps=$pieceSize sz=$totalSize, have pc=$pc ps=$ps sz=$sz',
+      );
+    }
+    if (pieceIndex < 0 || pieceIndex >= pc) {
+      throw RangeError('piece index $pieceIndex outside [0, $pc) for $cid');
+    }
+    // Every piece but the last is full; the last carries the remainder. A short
+    // middle piece would leave a hole that reads as zeroes at some later offset.
+    final expected = pieceIndex == pc - 1 ? sz - pieceIndex * ps : ps;
+    if (bytes.length != expected) {
+      throw StateError(
+        'piece $pieceIndex of $cid is ${bytes.length} bytes, layout says $expected',
+      );
+    }
+
     await _blobs!.storePiece(
       meta['fn'] as String,
       base64.decode(meta['k'] as String),
