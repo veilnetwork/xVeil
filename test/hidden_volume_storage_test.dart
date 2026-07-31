@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -1567,5 +1568,51 @@ void main() {
         expect(sync.holes[conv], isNull);
       },
     );
+  });
+
+  group('on-disk tier is a property of the file, not of the current call', () {
+    late Directory blobRoot;
+
+    setUp(() async {
+      blobRoot = await Directory.systemTemp.createTemp('xveil-hv-tier-test');
+      storage.useOnDiskTier(blobRoot, minBytes: 64);
+    });
+    tearDown(() async {
+      if (await blobRoot.exists()) await blobRoot.delete(recursive: true);
+    });
+
+    test('a smaller-looking restore cannot move a blob into the volume',
+        () async {
+      const ps = 100, pc = 3, sz = 250;
+      await storage.storeFilePiece('cid-tier', 0, pc, ps, sz, Uint8List(ps));
+      await storage.storeFilePiece('cid-tier', 1, pc, ps, sz, Uint8List(ps));
+      await storage.storeFilePiece('cid-tier', 2, pc, ps, sz, Uint8List(50));
+      expect(await storage.hasFile('cid-tier'), isTrue);
+
+      // Routing used to be re-decided per call from totalSize alone, so this
+      // one — under the 64-byte threshold — landed in the in-volume store while
+      // the pieces above stayed on disk. One content id, two tiers, each half
+      // answering hasFile about its own half.
+      await expectLater(
+        storage.storeFilePiece('cid-tier', 0, 1, 50, 50, Uint8List(50)),
+        throwsA(isA<StateError>()),
+      );
+      expect(await storage.hasFile('cid-tier'), isTrue,
+          reason: 'the refused restore must leave the blob as it was');
+    });
+
+    test('a piece outside the recorded layout is refused', () async {
+      const ps = 100, pc = 2, sz = 150;
+      await storage.storeFilePiece('cid-idx', 0, pc, ps, sz, Uint8List(ps));
+      await expectLater(
+        storage.storeFilePiece('cid-idx', 7, pc, ps, sz, Uint8List(ps)),
+        throwsA(isA<RangeError>()),
+      );
+      await expectLater(
+        storage.storeFilePiece('cid-idx', 1, pc, ps, sz, Uint8List(ps)),
+        throwsA(isA<StateError>()),
+        reason: 'the last piece carries the remainder, not a full pieceSize',
+      );
+    });
   });
 }

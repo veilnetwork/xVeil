@@ -19,6 +19,37 @@ void main() {
     if (await root.exists()) await root.delete(recursive: true);
   });
 
+  test('a stray high-index piece cannot stand in for a missing one', () async {
+    // hasFile compares piecesPresent() with the recorded piece count using
+    // `>=`, so any file that inflates the count reports the blob as complete.
+    // Anyone able to write into the blob directory — or a peer that sent one
+    // piece too many — could make a half-received file read as whole.
+    const expected = 3;
+    await store.storePiece('blobC', key, 0, _seq(10));
+    await store.storePiece('blobC', key, 1, _seq(10));
+    // p2 never arrives; p999 does.
+    await store.storePiece('blobC', key, 999, _seq(10));
+
+    expect(await store.piecesPresent('blobC', expected), 2,
+        reason: 'p999 is not part of a 3-piece layout');
+    expect(await store.piecesPresent('blobC', expected) >= expected, isFalse,
+        reason: 'the blob is incomplete and must not report otherwise');
+
+    await store.storePiece('blobC', key, 2, _seq(10));
+    expect(await store.piecesPresent('blobC', expected), expected);
+  });
+
+  test('an oversized piece file is refused without being read', () async {
+    // readPiece used to readAsBytes() first and sanity-check afterwards, so a
+    // piece file claiming gigabytes committed the allocation before any MAC
+    // was checked. The bound is the caller's declared layout.
+    await store.storePiece('blobD', key, 0, _seq(4096));
+    expect(await store.readPiece('blobD', key, 0, maxPlaintextBytes: 4096),
+        isNotNull);
+    expect(await store.readPiece('blobD', key, 0, maxPlaintextBytes: 16), isNull,
+        reason: 'a piece larger than the layout allows must not be loaded');
+  });
+
   test('pieces seal/store out of order; ranged + whole reads decrypt correctly',
       () async {
     const pieceSize = 1000;
