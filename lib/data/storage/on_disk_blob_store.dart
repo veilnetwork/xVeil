@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 
+import '../../domain/content_manifest.dart';
+
 /// Encrypted blob store on the NORMAL filesystem — the LARGE-FILE tier (Phase B).
 ///
 /// A file too big for the hidden-volume index (its per-namespace B+ tree caps at
@@ -73,10 +75,21 @@ class OnDiskBlobStore {
 
   /// Decrypt + return the whole plaintext of piece [pieceIndex], or null if it is
   /// not stored / fails authentication (tampered ciphertext, wrong key).
-  Future<Uint8List?> readPiece(
-      String name, Uint8List key, int pieceIndex) async {
+  ///
+  /// [maxPlaintextBytes] bounds what this will pull into memory. The size check
+  /// happens BEFORE the read, not after: a piece file is attacker-influenced
+  /// (anyone who can write into the blob directory, or a sparse file crafted to
+  /// look enormous), and `readAsBytes` on a file that claims gigabytes commits
+  /// the allocation before any MAC has been checked. The ceiling defaults to
+  /// the largest piece this project will ever produce, and callers that know
+  /// the real layout pass it.
+  Future<Uint8List?> readPiece(String name, Uint8List key, int pieceIndex,
+      {int maxPlaintextBytes = ContentManifest.maxPieceBytes}) async {
     final f = _pieceFile(name, pieceIndex);
     if (!await f.exists()) return null;
+    final sealedLen = await f.length();
+    if (sealedLen < _macLen) return null;
+    if (sealedLen > maxPlaintextBytes + _macLen) return null;
     final sealed = await f.readAsBytes();
     if (sealed.length < _macLen) return null;
     final cut = sealed.length - _macLen;
@@ -107,7 +120,10 @@ class OnDiskBlobStore {
     while (remaining > 0 && pos < totalSize) {
       final pieceIndex = pos ~/ pieceSize;
       if (pieceIndex != cachedIndex) {
-        cached = await readPiece(name, key, pieceIndex);
+        // The layout is known here, so bound the read by it rather than by the
+        // project-wide ceiling.
+        cached = await readPiece(name, key, pieceIndex,
+            maxPlaintextBytes: pieceSize);
         if (cached == null) return null;
         cachedIndex = pieceIndex;
       }
@@ -126,20 +142,34 @@ class OnDiskBlobStore {
   /// tracked by the caller (the volume metadata counts stored pieces).
   Future<bool> exists(String name) => _blobDir(name).exists();
 
-  /// Number of durably stored pieces (atomic-renamed `p<idx>` files; a
-  /// half-written `.tmp` never counts). The FILESYSTEM is the piece-presence
-  /// source of truth — tracking indices in a volume row meant one padded
-  /// commit per piece AND an ever-growing value that hit the ~4 KB chunk cap
-  /// around ~700 pieces (the real ceiling behind "TB needs chunked manifest").
-  Future<int> piecesPresent(String name) async {
+  /// Number of durably stored pieces of the blob's own layout (atomic-renamed
+  /// `p<idx>` files; a half-written `.tmp` never counts). The FILESYSTEM is the
+  /// piece-presence source of truth — tracking indices in a volume row meant one
+  /// padded commit per piece AND an ever-growing value that hit the ~4 KB chunk
+  /// cap around ~700 pieces (the real ceiling behind "TB needs chunked
+  /// manifest").
+  ///
+  /// Counts only DISTINCT indices inside `[0, expectedPieces)`. Counting every
+  /// `p<digits>` file made the count a measure of how many files are in the
+  /// directory rather than of how much of this blob arrived: one extra `p999`
+  /// dropped in beside a 10-piece blob pushed the count to the expected total
+  /// while a real piece was still missing, and the caller compares with `>=`,
+  /// so the file read as complete.
+  Future<int> piecesPresent(String name, int expectedPieces) async {
+    if (expectedPieces <= 0) return 0;
     final d = _blobDir(name);
     if (!await d.exists()) return 0;
-    var n = 0;
+    final seen = <int>{};
+    final re = RegExp(r'^p(\d+)$');
     await for (final e in d.list(followLinks: false)) {
-      final base = e.uri.pathSegments.last;
-      if (e is File && RegExp(r'^p\d+$').hasMatch(base)) n++;
+      if (e is! File) continue;
+      final m = re.firstMatch(e.uri.pathSegments.last);
+      if (m == null) continue;
+      final idx = int.tryParse(m.group(1)!);
+      if (idx == null || idx < 0 || idx >= expectedPieces) continue;
+      seen.add(idx);
     }
-    return n;
+    return seen.length;
   }
 
   /// Remove every piece of the blob. Confidentiality rests on the in-volume key
