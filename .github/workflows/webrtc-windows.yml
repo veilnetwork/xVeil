@@ -169,8 +169,13 @@ jobs:
           $dartFiles = Get-ChildItem -Recurse -File -Filter *.dart -Path `
             "$env:GITHUB_WORKSPACE\lib", `
             "$env:GITHUB_WORKSPACE\third_party\veil\flutter\veil_media\lib"
+          # -CaseSensitive, because Select-String is not by default and grep is:
+          # check-media-symbols.sh has always been case-sensitive, so the ELF
+          # platforms never saw this. Without it the lowercase pattern matches
+          # VEIL_MEDIA_DYLIB - the env var native.dart reads to override the
+          # library path - and the check demands the engine export it.
           $looked = $dartFiles |
-            Select-String -Pattern "'(veil_media_[a-z0-9_]+)'" -AllMatches |
+            Select-String -Pattern "'(veil_media_[a-z0-9_]+)'" -AllMatches -CaseSensitive |
             ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } |
             Sort-Object -Unique
           # A gate that finds nothing to check passes trivially, which is the
