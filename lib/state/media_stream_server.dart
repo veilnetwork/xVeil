@@ -1,17 +1,26 @@
 // Loopback media streaming (video epic): the player plugins (ExoPlayer /
 // AVPlayer) can only consume a FILE or a URL, but our blobs live in the
 // encrypted container and the privacy canon forbids spilling plaintext to
-// disk. So playback rides a 127.0.0.1 HTTP server that serves the decrypted
-// bytes STRAIGHT FROM RAM, with the Range support seeking requires.
+// disk. So playback rides a 127.0.0.1 HTTP server, with the Range support
+// seeking requires.
+//
+// P0-5: it serves from a [RangeSource] rather than a resident buffer. It used
+// to hold the entire decrypted item in RAM for the life of the player, so
+// opening a multi-GB video cost a multi-GB allocation before the first frame —
+// and the whole file was decrypted even when the viewer watched ten seconds
+// and closed it. Now only the range a player actually asks for is decrypted,
+// and only while it is in flight. Still nothing on disk: the source reads out
+// of the container, it does not stage a copy.
 //
 // Scope: one active item at a time (the open player), a fresh random token
 // path per serve (a co-resident local process cannot guess the URL), stopped
-// the moment the player closes. Nothing is ever written to disk.
+// the moment the player closes.
 
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
+
+import '../domain/range_source.dart';
 
 /// A parsed `Range: bytes=a-b` header against a body of [total] bytes:
 /// closed, half-open (`a-`) and suffix (`-n`) forms, clamped to the body.
@@ -53,18 +62,21 @@ String mediaMimeFor(String? name) {
   return 'application/octet-stream';
 }
 
-/// Serves ONE in-RAM blob over loopback HTTP for the lifetime of a player.
+/// Serves ONE blob over loopback HTTP, in ranges, for the lifetime of a player.
 class LocalMediaServer {
   HttpServer? _server;
-  Uint8List? _bytes;
+  RangeSource? _source;
   String _mime = 'application/octet-stream';
   String _token = '';
 
-  /// Start serving [bytes] and return the playback URL. Restarts cleanly if
+  /// Start serving [source] and return the playback URL. Restarts cleanly if
   /// already serving (the previous URL dies with its token).
-  Future<Uri> serve(Uint8List bytes, {String? name}) async {
+  ///
+  /// Takes ownership: [stop] disposes the source, so the container handle it
+  /// holds is released when the player closes rather than at the next GC.
+  Future<Uri> serve(RangeSource source, {String? name}) async {
     await stop();
-    _bytes = bytes;
+    _source = source;
     _mime = mediaMimeFor(name);
     _token = _randomToken();
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -74,15 +86,15 @@ class LocalMediaServer {
   }
 
   Future<void> _handle(HttpRequest req) async {
-    final bytes = _bytes;
+    final source = _source;
     final res = req.response;
     try {
-      if (bytes == null || req.uri.path != '/m/$_token') {
+      if (source == null || req.uri.path != '/m/$_token') {
         res.statusCode = HttpStatus.notFound;
         await res.close();
         return;
       }
-      final total = bytes.length;
+      final total = source.size;
       res.headers
         ..set(HttpHeaders.acceptRangesHeader, 'bytes')
         ..contentType = ContentType.parse(_mime);
@@ -99,21 +111,29 @@ class LocalMediaServer {
           return;
         }
       }
+      final int start;
+      final int length;
       if (range == null) {
         res.statusCode = HttpStatus.ok;
-        res.contentLength = total;
-        if (req.method != 'HEAD') {
-          res.add(bytes);
-        }
+        start = 0;
+        length = total;
       } else {
         res.statusCode = HttpStatus.partialContent;
         res.headers.set(
           HttpHeaders.contentRangeHeader,
           'bytes ${range.start}-${range.end}/$total',
         );
-        res.contentLength = range.end - range.start + 1;
-        if (req.method != 'HEAD') {
-          res.add(Uint8List.sublistView(bytes, range.start, range.end + 1));
+        start = range.start;
+        length = range.end - range.start + 1;
+      }
+      res.contentLength = length;
+      if (req.method != 'HEAD') {
+        // Chunk by chunk with a flush between: the awaited flush is what keeps
+        // a player that requested a huge range from pulling the whole thing
+        // into this process ahead of consuming it.
+        await for (final chunk in rangeChunks(source, start, length)) {
+          res.add(chunk);
+          await res.flush();
         }
       }
       await res.close();
@@ -125,13 +145,15 @@ class LocalMediaServer {
     }
   }
 
-  /// Stop serving and drop the plaintext buffer reference.
+  /// Stop serving, release the source and its handle.
   Future<void> stop() async {
     final s = _server;
+    final source = _source;
     _server = null;
-    _bytes = null;
+    _source = null;
     _token = '';
     if (s != null) await s.close(force: true);
+    await source?.dispose();
   }
 
   static String _randomToken() {

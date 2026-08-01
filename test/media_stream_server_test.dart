@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/domain/range_source.dart';
 import 'package:xveil/state/media_stream_server.dart';
 
 void main() {
@@ -33,7 +34,7 @@ void main() {
       () async {
     final srv = LocalMediaServer();
     final bytes = Uint8List.fromList(List.generate(1000, (i) => i & 0xff));
-    final url = await srv.serve(bytes, name: 'clip.mp4');
+    final url = await srv.serve(bytesRangeSource(bytes), name: 'clip.mp4');
     final client = HttpClient();
     addTearDown(() async {
       client.close(force: true);
@@ -83,5 +84,118 @@ void main() {
       () => get(url).timeout(const Duration(seconds: 2)),
       throwsA(anything),
     );
+  });
+
+  group('P0-5: the server streams instead of holding the item', () {
+    test('a range request decrypts only that range', () async {
+      // The whole point: opening a large video must not cost an allocation its
+      // size, and a viewer who watches ten seconds must not decrypt the film.
+      final reads = <(int, int)>[];
+      final srv = LocalMediaServer();
+      final source = RangeSource(
+        size: 100 * 1024 * 1024,
+        read: (offset, length) async {
+          reads.add((offset, length));
+          return Uint8List(length);
+        },
+      );
+      final url = await srv.serve(source, name: 'big.mp4');
+      final client = HttpClient();
+      addTearDown(() async {
+        client.close(force: true);
+        await srv.stop();
+      });
+
+      final req = await client.getUrl(url);
+      req.headers.set(HttpHeaders.rangeHeader, 'bytes=1048576-1048591');
+      final res = await req.close();
+      final body = await res.fold<int>(0, (n, c) => n + c.length);
+
+      expect(res.statusCode, HttpStatus.partialContent);
+      expect(body, 16);
+      expect(reads, [(1048576, 16)]);
+      expect(
+        reads.fold<int>(0, (n, r) => n + r.$2),
+        16,
+        reason: 'a 16-byte seek must not read more than 16 bytes',
+      );
+    });
+
+    test('a full-body GET walks in bounded hops', () async {
+      final asked = <int>[];
+      final size = kRangeChunkBytes * 2 + 11;
+      final srv = LocalMediaServer();
+      final url = await srv.serve(
+        RangeSource(
+          size: size,
+          read: (offset, length) async {
+            asked.add(length);
+            return Uint8List(length);
+          },
+        ),
+        name: 'clip.webm',
+      );
+      final client = HttpClient();
+      addTearDown(() async {
+        client.close(force: true);
+        await srv.stop();
+      });
+
+      final res = await (await client.getUrl(url)).close();
+      final body = await res.fold<int>(0, (n, c) => n + c.length);
+
+      expect(res.statusCode, HttpStatus.ok);
+      expect(body, size);
+      expect(
+        asked.every((n) => n <= kRangeChunkBytes),
+        isTrue,
+        reason: 'a hop larger than the chunk defeats the bound',
+      );
+      expect(asked.length, greaterThan(1));
+    });
+
+    test('a HEAD reports the size without reading a byte', () async {
+      var reads = 0;
+      final srv = LocalMediaServer();
+      final url = await srv.serve(
+        RangeSource(
+          size: 4096,
+          read: (_, length) async {
+            reads++;
+            return Uint8List(length);
+          },
+        ),
+        name: 'clip.mp4',
+      );
+      final client = HttpClient();
+      addTearDown(() async {
+        client.close(force: true);
+        await srv.stop();
+      });
+
+      final res = await (await client.headUrl(url)).close();
+      await res.drain<void>();
+
+      expect(res.statusCode, HttpStatus.ok);
+      expect(res.headers.contentLength, 4096);
+      expect(reads, 0, reason: 'a HEAD must not decrypt anything');
+    });
+
+    test('stop disposes the source, releasing its handle', () async {
+      var closed = false;
+      final srv = LocalMediaServer();
+      await srv.serve(
+        RangeSource(
+          size: 10,
+          read: (_, length) async => Uint8List(length),
+          close: () async => closed = true,
+        ),
+        name: 'clip.mp4',
+      );
+
+      await srv.stop();
+
+      expect(closed, isTrue);
+    });
   });
 }

@@ -1,7 +1,9 @@
 // In-chat video playback (media epic, v1): full-screen player over the
-// loopback media server — the encrypted blob is decrypted to RAM and served
-// on 127.0.0.1 with Range support, so ExoPlayer/AVPlayer can seek and
-// NOTHING plaintext ever touches disk. Android/iOS/macOS use the official
+// loopback media server — the blob is served on 127.0.0.1 with Range support,
+// so ExoPlayer/AVPlayer can seek and NOTHING plaintext ever touches disk.
+// P0-5: it is decrypted RANGE BY RANGE as the player asks, not read whole
+// first; opening a large video no longer costs an allocation its size, and a
+// viewer who watches ten seconds decrypts ten seconds. Android/iOS/macOS use the official
 // video_player backend. Linux has no such backend and ships no OS media stack
 // (media_kit/libmpv rejected: LGPL + 40-80 MB); it plays through the NATIVE
 // veil_media bricks instead — the WebM is demuxed in Dart, VP8 frames stream
@@ -19,6 +21,8 @@ import 'package:video_player/video_player.dart';
 
 import '../../core/log.dart';
 import '../../l10n/app_localizations.dart';
+import '../../data/range_sources.dart';
+import '../../domain/range_source.dart';
 import '../../state/media_stream_server.dart';
 import '../../state/native_video_player.dart';
 import '../../state/providers.dart';
@@ -95,11 +99,11 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     unawaited(_load());
   }
 
-  Future<Uint8List?> _loadBytes() async {
-    if (widget.sourcePath != null) {
-      return File(widget.sourcePath!).readAsBytes();
-    }
-    return ref.read(storageProvider).loadFile(widget.fileKey!);
+  /// Open the item as a range source. Never reads it whole: a stored video is
+  /// pulled out of the container range by range as the player seeks.
+  Future<RangeSource?> _openSource() async {
+    if (widget.sourcePath != null) return fileRangeSource(widget.sourcePath!);
+    return storageRangeSource(ref.read(storageProvider), widget.fileKey!);
   }
 
   Future<void> _load() async {
@@ -112,13 +116,17 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       if (widget.sourcePath != null) {
         controller = VideoPlayerController.file(File(widget.sourcePath!));
       } else {
-        final bytes = await ref.read(storageProvider).loadFile(widget.fileKey!);
-        if (!mounted) return;
-        if (bytes == null) {
+        final source = await _openSource();
+        if (!mounted) {
+          await source?.dispose();
+          return;
+        }
+        if (source == null) {
           setState(() => _error = StateError('blob missing'));
           return;
         }
-        final url = await _server.serve(bytes, name: widget.name);
+        // The server takes ownership and disposes it on stop().
+        final url = await _server.serve(source, name: widget.name);
         controller = VideoPlayerController.networkUrl(url);
       }
       await controller.initialize();
@@ -135,7 +143,28 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   }
 
   Future<void> _loadNative() async {
-    final bytes = await _loadBytes();
+    // The native path demuxes WebM from one buffer, so unlike the HTTP path it
+    // cannot stream. Bound it explicitly and refuse loudly: an unbounded read
+    // here is the same availability hole the rest of this work removed, and a
+    // clear message beats being killed by the OOM reaper.
+    final source = await _openSource();
+    if (!mounted) {
+      await source?.dispose();
+      return;
+    }
+    if (source == null) {
+      setState(() => _error = StateError('blob missing'));
+      return;
+    }
+    final Uint8List? bytes;
+    try {
+      bytes = await drainRangeSource(source, limit: kNativeVideoMaxBytes);
+    } on RangeSourceTooLarge catch (e) {
+      if (mounted) setState(() => _error = e);
+      return;
+    } finally {
+      await source.dispose();
+    }
     if (!mounted) return;
     if (bytes == null) {
       setState(() => _error = StateError('blob missing'));
