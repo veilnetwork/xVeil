@@ -36,3 +36,40 @@ class RosterEntry {
         anonymous: anonymous ?? this.anonymous,
       );
 }
+
+/// Whether [candidateKeys] names a space this master already knows.
+///
+/// A space is derived from its password, so two identities entered under the
+/// same password resolve to byte-identical keys. Adding one on top of the other
+/// is not a duplicate ROW — it is one space with two names, and the second
+/// write lands inside the first identity's storage. When the collision is with
+/// the master itself, the master's roster is replaced by child data, after
+/// which deleting that "child" deletes the master's storage.
+///
+/// ## Deniability boundary
+///
+/// This compares ONLY against the master the caller has already unlocked and
+/// the entries in that master's own roster — state this session legitimately
+/// sees. It must never grow into "is this password used anywhere in the
+/// container": a hidden identity's whole defence is that nothing outside it can
+/// tell it exists, and a check that answered for spaces beyond the current
+/// roster would be a password oracle against exactly that.
+///
+/// Callers surface a collision as the same generic failure a duplicate label
+/// already produces, so the answer never distinguishes "in use" from "rejected
+/// for some other reason".
+bool identitySpaceCollides({
+  required Uint8List? masterKeys,
+  required List<RosterEntry> roster,
+  required Uint8List candidateKeys,
+}) {
+  bool same(Uint8List? a) {
+    if (a == null || a.length != candidateKeys.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != candidateKeys[i]) return false;
+    }
+    return true;
+  }
+
+  return same(masterKeys) || roster.any((e) => same(e.spaceKeys));
+}

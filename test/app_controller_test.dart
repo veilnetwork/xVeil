@@ -68,6 +68,54 @@ void main() {
     },
   );
 
+  test('the onboarding recovery phrase can only be read once', () async {
+    // Audit X-02. The phrase used to be cleared AFTER the node boot it was
+    // handed to — so a boot that threw left it in the controller, and the next
+    // unlock of a DIFFERENT legacy or decoy identity consumed it and derived
+    // the same node identity. Two spaces that must not know about each other
+    // would then share one identity on the wire.
+    //
+    // There is no longer a way to read it without spending it, which is the
+    // property that makes the ordering irrelevant.
+    final c = ProviderContainer();
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+
+    await ctrl.completeOnboarding(
+      identity: AppController.generateIdentity(displayName: 'Me'),
+      password: 'pw',
+      mode: StorageMode.hiddenSpace,
+      identityPhrase: 'correct horse battery staple',
+    );
+
+    expect(ctrl.takePendingIdentityPhrase(), 'correct horse battery staple');
+    expect(
+      ctrl.takePendingIdentityPhrase(),
+      isNull,
+      reason: 'a second consumer must not be able to reuse it',
+    );
+  });
+
+  test('locking discards a phrase no node boot consumed', () async {
+    // The user finished onboarding and locked before the stack came up. The
+    // next unlock may be an entirely different identity.
+    final c = ProviderContainer();
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+
+    await ctrl.completeOnboarding(
+      identity: AppController.generateIdentity(displayName: 'Me'),
+      password: 'pw',
+      mode: StorageMode.hiddenSpace,
+      identityPhrase: 'correct horse battery staple',
+    );
+    await ctrl.lock();
+
+    expect(ctrl.takePendingIdentityPhrase(), isNull);
+  });
+
   test(
     'lock then unlock with the right password restores the session',
     () async {
