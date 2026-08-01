@@ -355,22 +355,65 @@ void main() {
     expect(all.missing, isNull);
   });
 
-  // `fileStream` is a RESERVED slot: the push-stream prototype was abandoned
-  // and its builder removed (audit P3-25), but the slot itself is load-bearing.
-  // The wire carries `kind.index`, so deleting the variant would silently
-  // renumber every kind after it and make new senders unintelligible to old
-  // receivers. These tests pin that contract rather than the dead builder.
-  test('the reserved fileStream slot keeps its wire index', () {
+  // The wire carries `kind.index`, so the enum's ORDER is the protocol
+  // (audit P3-26). These pin the whole layout, not one slot's neighbours:
+  // renumbering is silent on both ends, so the only place it can be caught is
+  // here.
+
+  test('the wire layout matches the registry, kind for kind', () {
+    // Deliberately compared as NAME LISTS: a diff then says which kind moved
+    // and where to, instead of "expected 46, got 45".
     expect(
-      WireKind.fileStream.index,
-      13,
-      reason: 'reserved slot moved — every later kind just changed meaning',
+      WireKind.values.map((k) => k.name).toList(),
+      kWireKindOrder,
+      reason:
+          'a kind was inserted, removed or reordered — every wire index after '
+          'it now means something else to an older peer. Append before '
+          '`unknown` and update kWireKindOrder in the same commit.',
     );
-    expect(
-      WireKind.contentManifest.index,
-      14,
-      reason: 'the kind right after the reserved slot must not shift',
-    );
+  });
+
+  test('every registry entry lands on its own index', () {
+    for (var i = 0; i < kWireKindOrder.length; i++) {
+      expect(
+        WireKind.values[i].name,
+        kWireKindOrder[i],
+        reason: 'wire index $i is not ${kWireKindOrder[i]}',
+      );
+    }
+  });
+
+  test('unknown stays last, so a newer kind decodes to it', () {
+    // RULE WC: an out-of-range index from a newer build must fall through to
+    // `unknown`. That only holds while `unknown` is the final variant.
+    expect(WireKind.values.last, WireKind.unknown);
+    expect(kWireKindOrder.last, 'unknown');
+  });
+
+  test('reserved slots are declared, with a reason', () {
+    expect(kReservedWireKinds, isNotEmpty);
+    for (final entry in kReservedWireKinds.entries) {
+      expect(
+        kWireKindOrder[entry.key.index],
+        entry.key.name,
+        reason: 'a reserved slot moved — that is the one thing it must not do',
+      );
+      expect(
+        entry.value.length,
+        greaterThan(20),
+        reason:
+            'a reserved slot without a real reason becomes a slot nobody dares '
+            'touch and nobody remembers why',
+      );
+    }
+  });
+
+  test('a reserved kind is not reachable as a normal kind', () {
+    // It must decode to ITSELF rather than to `unknown`, so an old
+    // experimental frame is recognised and dropped instead of being read as
+    // whatever kind would otherwise sit at that index.
+    expect(kReservedWireKinds.containsKey(WireKind.fileStream), isTrue);
+    expect(WireKind.fileStream.index, 13);
   });
 
   test('a frame on the reserved slot decodes to it, so it can be dropped', () {
