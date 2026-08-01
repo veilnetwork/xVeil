@@ -47,6 +47,56 @@ void main() {
     });
   });
 
+  group('mergeBootstrapPeers', () {
+    const alt = BootstrapPeerCfg(
+      transport: 'obfs4-tcp://10.0.0.9:5556',
+      publicKey: 'ALT=',
+      nonce: 'NA=',
+    );
+    const seed1 = BootstrapPeerCfg(
+      transport: 'obfs4-tcp://10.0.0.1:5556',
+      publicKey: 'PK1=',
+      nonce: 'N1=',
+    );
+    const seed2 = BootstrapPeerCfg(
+      transport: 'obfs4-tcp://10.0.0.2:5556',
+      publicKey: 'PK2=',
+      nonce: 'N2=',
+    );
+
+    test('an operator-supplied entry point does not drop the bundled seeds', () {
+      // The regression: the env file REPLACED the bundled seeds, so naming one
+      // alternative cost the node every production seed.
+      final merged = mergeBootstrapPeers(const [alt], const [seed1, seed2]);
+      expect(merged.map((p) => p.publicKey), ['ALT=', 'PK1=', 'PK2=']);
+    });
+
+    test('the same node listed in both sources is dialed once', () {
+      final merged = mergeBootstrapPeers(const [seed1], const [seed1, seed2]);
+      expect(merged.map((p) => p.publicKey), ['PK1=', 'PK2=']);
+    });
+
+    test('deduplicates by public key, not by transport', () {
+      // Same node reached over a second transport is still one dial target.
+      const sameNodeOtherTransport = BootstrapPeerCfg(
+        transport: 'tls://relay.example:9906',
+        publicKey: 'PK1=',
+        nonce: 'N1=',
+      );
+      final merged = mergeBootstrapPeers(const [sameNodeOtherTransport], const [
+        seed1,
+      ]);
+      expect(merged, hasLength(1));
+      expect(merged.single.transport, 'tls://relay.example:9906');
+    });
+
+    test('either side may be empty', () {
+      expect(mergeBootstrapPeers(const [], const [seed1]), hasLength(1));
+      expect(mergeBootstrapPeers(const [alt], const []), hasLength(1));
+      expect(mergeBootstrapPeers(const [], const []), isEmpty);
+    });
+  });
+
   group('EmbeddedNode.withBootstrapPeers', () {
     test('no-op for an empty peer list (relies on builtin seeds)', () {
       const toml = 'listen = "tcp://127.0.0.1:9000"\n';
