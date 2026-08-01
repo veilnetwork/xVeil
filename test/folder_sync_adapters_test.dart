@@ -10,6 +10,9 @@ import 'package:xveil/domain/cloud.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/state/cloud_service.dart';
 import 'package:xveil/state/folder_sync_adapters.dart';
+import 'package:xveil/state/folder_sync_engine.dart';
+
+import 'support/range_source_util.dart';
 
 import 'support/fake_hv_container.dart';
 
@@ -54,7 +57,7 @@ void main() {
     });
 
     test('a completed write leaves the file and no debris beside it', () async {
-      await disk.write(root.path, 'nested/a.txt', _bytes('hello'));
+      await writeBytes(disk, root.path, 'nested/a.txt', _bytes('hello'));
 
       expect(File('${root.path}/nested/a.txt').readAsStringSync(), 'hello');
       expect(
@@ -73,7 +76,7 @@ void main() {
     // do pin is the debris such a crash leaves behind, which is the part that
     // would otherwise be uploaded as if the user had created it.
     test('debris from a crashed write is invisible to the scan', () async {
-      await disk.write(root.path, 'a.txt', _bytes('original'));
+      await writeBytes(disk, root.path, 'a.txt', _bytes('original'));
       File('${root.path}/a.txt$kPartialSuffix').writeAsStringSync('trunc');
 
       expect(File('${root.path}/a.txt').readAsStringSync(), 'original');
@@ -84,7 +87,7 @@ void main() {
     test('debris does not defeat the next write of the same file', () async {
       File('${root.path}/a.txt$kPartialSuffix').writeAsStringSync('stale');
 
-      await disk.write(root.path, 'a.txt', _bytes('fresh'));
+      await writeBytes(disk, root.path, 'a.txt', _bytes('fresh'));
 
       expect(File('${root.path}/a.txt').readAsStringSync(), 'fresh');
       expect(File('${root.path}/a.txt$kPartialSuffix').existsSync(), isFalse);
@@ -92,7 +95,7 @@ void main() {
 
     test('removing the last file prunes its folders but never the root',
         () async {
-      await disk.write(root.path, 'a/b/c.txt', _bytes('x'));
+      await writeBytes(disk, root.path, 'a/b/c.txt', _bytes('x'));
 
       await disk.remove(root.path, 'a/b/c.txt');
 
@@ -105,8 +108,8 @@ void main() {
     });
 
     test('a folder with other files in it is kept', () async {
-      await disk.write(root.path, 'a/one.txt', _bytes('1'));
-      await disk.write(root.path, 'a/two.txt', _bytes('2'));
+      await writeBytes(disk, root.path, 'a/one.txt', _bytes('1'));
+      await writeBytes(disk, root.path, 'a/two.txt', _bytes('2'));
 
       await disk.remove(root.path, 'a/one.txt');
 
@@ -114,10 +117,10 @@ void main() {
     });
 
     test('stat reports what is on disk, and null for what is not', () async {
-      await disk.write(root.path, 'a.txt', _bytes('abcd'));
+      await writeBytes(disk, root.path, 'a.txt', _bytes('abcd'));
       expect((await disk.stat(root.path, 'a.txt'))!.size, 4);
       expect(await disk.stat(root.path, 'nope.txt'), isNull);
-      expect(await disk.read(root.path, 'nope.txt'), isNull);
+      expect(await readAllFrom(disk, root.path, 'nope.txt'), isNull);
     });
   });
 
@@ -146,13 +149,13 @@ void main() {
     });
 
     test('a nested path creates the folder chain once and reads back', () async {
-      await adapter.upload(
+      await uploadBytes(adapter, 
         path: 'docs/2026/notes.txt',
         folderId: null,
         existingItemId: null,
         bytes: _bytes('body'),
       );
-      await adapter.upload(
+      await uploadBytes(adapter, 
         path: 'docs/2026/other.txt',
         folderId: null,
         existingItemId: null,
@@ -174,13 +177,13 @@ void main() {
     test('listing a pair rooted at a folder excludes everything outside it',
         () async {
       final inside = await cloud.createFolder('mirror');
-      await adapter.upload(
+      await uploadBytes(adapter, 
         path: 'in.txt',
         folderId: inside.id,
         existingItemId: null,
         bytes: _bytes('a'),
       );
-      await adapter.upload(
+      await uploadBytes(adapter, 
         path: 'out.txt',
         folderId: null,
         existingItemId: null,
@@ -193,13 +196,13 @@ void main() {
     });
 
     test('re-uploading an existing path advances the SAME item', () async {
-      final first = await adapter.upload(
+      final first = await uploadBytes(adapter, 
         path: 'a.txt',
         folderId: null,
         existingItemId: null,
         bytes: _bytes('one'),
       );
-      final second = await adapter.upload(
+      final second = await uploadBytes(adapter, 
         path: 'a.txt',
         folderId: null,
         existingItemId: first.itemId,
@@ -214,7 +217,7 @@ void main() {
     test('a note is not mirrored — its branches cannot survive a file',
         () async {
       await cloud.saveTextNote(title: 'N', body: 'b');
-      await adapter.upload(
+      await uploadBytes(adapter, 
         path: 'a.txt',
         folderId: null,
         existingItemId: null,
@@ -227,7 +230,7 @@ void main() {
     test('rename moves the item inside the pair, not to the cloud root',
         () async {
       final pairRoot = await cloud.createFolder('mirror');
-      final file = await adapter.upload(
+      final file = await uploadBytes(adapter, 
         path: 'old/name.txt',
         folderId: pairRoot.id,
         existingItemId: null,
@@ -246,7 +249,7 @@ void main() {
     });
 
     test('a deleted item disappears from the listing', () async {
-      final file = await adapter.upload(
+      final file = await uploadBytes(adapter, 
         path: 'a.txt',
         folderId: null,
         existingItemId: null,
@@ -256,7 +259,108 @@ void main() {
       await adapter.delete(file.itemId);
 
       expect(await adapter.list(null), isEmpty);
-      expect(await adapter.download(file.itemId), isNull);
+      expect(await downloadBytes(adapter, file.itemId), isNull);
+    });
+  });
+
+  group('folder sync moves files in ranges, not whole (P0-5)', () {
+    late Directory root;
+
+    setUp(() {
+      final tmp = Directory.systemTemp.createTempSync('xveil_ranges');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      root = Directory('${tmp.path}/root')..createSync();
+    });
+
+    test('openRead serves slices without reading the file whole', () async {
+      const disk = LocalFolderSyncDisk();
+      await writeBytes(disk, root.path, 'a.bin', _bytes('abcdefghij'));
+
+      final source = (await disk.openRead(root.path, 'a.bin'))!;
+      try {
+        expect(source.size, 10);
+        expect(await source.read(0, 3), _bytes('abc'));
+        expect(await source.read(4, 3), _bytes('efg'));
+        // A read running past the end returns what exists, not an error.
+        expect(await source.read(8, 100), _bytes('ij'));
+      } finally {
+        await source.dispose();
+      }
+    });
+
+    test('openRead is null for a file that is not there', () async {
+      const disk = LocalFolderSyncDisk();
+      expect(await disk.openRead(root.path, 'nope.bin'), isNull);
+    });
+
+    test('writeFrom pulls in bounded hops, never the whole file', () async {
+      const disk = LocalFolderSyncDisk();
+      final asked = <int>[];
+      final size = kFolderSyncChunkBytes * 2 + 17;
+      final source = RangeSource(
+        size: size,
+        read: (offset, length) async {
+          asked.add(length);
+          return Uint8List(length);
+        },
+      );
+
+      await disk.writeFrom(root.path, 'big.bin', source);
+
+      expect(File('${root.path}/big.bin').lengthSync(), size);
+      expect(
+        asked.every((n) => n <= kFolderSyncChunkBytes),
+        isTrue,
+        reason: 'a hop larger than the chunk defeats the bound',
+      );
+      expect(asked.length, greaterThan(1));
+    });
+
+    test('a source that dies partway publishes nothing', () async {
+      // The property that matters most here: renaming a short file into place
+      // would make the next scan read the truncation as a deliberate user edit
+      // and faithfully upload the damage over the good cloud copy.
+      const disk = LocalFolderSyncDisk();
+      var hops = 0;
+      final source = RangeSource(
+        size: kFolderSyncChunkBytes * 3,
+        read: (offset, length) async {
+          hops++;
+          return hops > 1 ? null : Uint8List(length);
+        },
+      );
+
+      await disk.writeFrom(root.path, 'half.bin', source);
+
+      expect(
+        File('${root.path}/half.bin').existsSync(),
+        isFalse,
+        reason: 'a truncated download must never reach the mirrored path',
+      );
+    });
+
+    test('an existing file is replaced only once the write completes', () async {
+      const disk = LocalFolderSyncDisk();
+      await writeBytes(disk, root.path, 'keep.txt', _bytes('good'));
+
+      var hops = 0;
+      await disk.writeFrom(
+        root.path,
+        'keep.txt',
+        RangeSource(
+          size: kFolderSyncChunkBytes * 2,
+          read: (offset, length) async {
+            hops++;
+            return hops > 1 ? null : Uint8List(length);
+          },
+        ),
+      );
+
+      expect(
+        await readAllFrom(disk, root.path, 'keep.txt'),
+        _bytes('good'),
+        reason: 'the previous contents must survive a failed replacement',
+      );
     });
   });
 }
