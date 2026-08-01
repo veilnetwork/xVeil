@@ -823,6 +823,16 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
+  Future<int?> fileSize(String fileId) async {
+    final meta = await _odMeta(fileId);
+    if (meta != null) {
+      final size = meta['sz'];
+      return size is int ? size : null;
+    }
+    return AsyncFileStore(_as).fileSize(fileId);
+  }
+
+  @override
   Future<Uint8List?> readFileRange(
     String fileId,
     int offset,

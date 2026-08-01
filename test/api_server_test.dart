@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/domain/space_post.dart' show kSpacePostMediaMax;
+import 'package:xveil/api/blob_sources.dart';
 import 'package:xveil/state/api_server.dart';
 
 // The automation API's auth + routing (pure ApiHandler — no socket).
@@ -157,8 +158,9 @@ void main() {
             },
       cloudFile: !cloudAvailable
           ? null
-          : (id) async =>
-                id == 'f1' ? Uint8List.fromList(const [1, 2, 3, 4]) : null,
+          : (id) async => id == 'f1'
+                ? inMemoryBlobSource(Uint8List.fromList(const [1, 2, 3, 4]))
+                : null,
       saveCloudNote: !cloudAvailable
           ? null
           : ({
@@ -240,7 +242,9 @@ void main() {
         {'id': 'm1', 'body': 'hi', 'direction': 'incoming'},
       ],
       sendFile: (to, path, name) async => to == 'bad' ? 'invalid peer' : null,
-      loadFile: (fileId) async => fileId == 'known' ? [1, 2, 3] : null,
+      loadFile: (fileId) async => fileId == 'known'
+          ? inMemoryBlobSource(Uint8List.fromList(const [1, 2, 3]))
+          : null,
       placeCall: (to, media) async => to == 'bad' ? 'invalid peer' : null,
       callState: () => call,
       callAction: (action) async => call = null,
@@ -319,10 +323,15 @@ void main() {
       fetchGroupFile: (group, message) async =>
           group == 'missing' ? 'group message attachment not found' : null,
       loadGroupFile: (group, message) async => group == 'missing'
-          ? (error: 'group message attachment not found', bytes: null)
+          ? (error: 'group message attachment not found', source: null)
           : group == 'pending'
-          ? (error: 'group content not downloaded', bytes: null)
-          : (error: null, bytes: <int>[4, 5, 6]),
+          ? (error: 'group content not downloaded', source: null)
+          : (
+              error: null,
+              source: inMemoryBlobSource(
+                Uint8List.fromList(const [4, 5, 6]),
+              ),
+            ),
       groupMembers: (group, isSpace) async => group == 'missing'
           ? null
           : {
@@ -1114,7 +1123,7 @@ void main() {
         'Bearer secret-token',
       );
       expect(file.status, 200);
-      expect(file.bytes, [1, 2, 3, 4]);
+      expect(await drainBlobSource(file.blob!), [1, 2, 3, 4]);
       expect(file.contentType, 'application/octet-stream');
 
       final missing = await h.handle(
@@ -1400,7 +1409,8 @@ void main() {
             (_, _, _, _, _, {kind, width, height, durationMs}) async =>
                 (error: null, contentId: 'cid'),
         fetchGroupFile: (_, _) async => null,
-        loadGroupFile: (_, _) async => (error: null, bytes: <int>[]),
+        loadGroupFile: (_, _) async =>
+            (error: null, source: inMemoryBlobSource(Uint8List(0))),
         groupMembers: (_, _) async => const {},
         groupMemberAction: (_, _, _, _, _) async => null,
         renameGroup: (_, _, _) async => null,
@@ -3364,7 +3374,7 @@ void main() {
         'Bearer secret-token',
       );
       expect(downloaded.status, 200);
-      expect(downloaded.bytes, [4, 5, 6]);
+      expect(await drainBlobSource(downloaded.blob!), [4, 5, 6]);
       expect(
         (await h.handle(
           'GET',
@@ -3888,7 +3898,7 @@ void main() {
         'Bearer secret-token',
       );
       expect(hit.status, 200);
-      expect(hit.bytes, [1, 2, 3]);
+      expect(await drainBlobSource(hit.blob!), [1, 2, 3]);
       expect(hit.contentType, 'application/octet-stream');
     },
   );
@@ -4281,7 +4291,8 @@ void main() {
             (_, _, _, _, _, {kind, width, height, durationMs}) async =>
                 (error: null, contentId: 'cid'),
         fetchGroupFile: (_, _) async => null,
-        loadGroupFile: (_, _) async => (error: null, bytes: <int>[]),
+        loadGroupFile: (_, _) async =>
+            (error: null, source: inMemoryBlobSource(Uint8List(0))),
         groupMembers: (_, _) async => const {},
         groupMemberAction: (_, _, _, _, _) async => null,
         renameGroup: (_, _, _) async => null,
