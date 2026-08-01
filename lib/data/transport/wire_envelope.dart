@@ -227,6 +227,59 @@ enum WireKind {
   unknown,
 }
 
+/// The canonical wire layout: name at position N occupies wire index N.
+///
+/// The envelope carries `kind.index`, so the enum's ORDER *is* the protocol.
+/// Deleting a variant, inserting one anywhere but the end, or reordering two
+/// silently renumbers everything after it — new senders then mean something
+/// different to old receivers, with no error anywhere to notice it by. Pinning
+/// one reserved slot's index (which is all that existed) only caught a change
+/// adjacent to that slot; this registry catches drift ANYWHERE.
+///
+/// ## The rule
+///
+/// * A new kind is **appended immediately before [WireKind.unknown]** and its
+///   name added here in the same commit.
+/// * A retired kind is **never deleted**. Its slot moves to
+///   [kReservedWireKinds] and stays, because the index belongs to the wire and
+///   not to us.
+/// * Removing a reserved slot — or any compatibility flag — is a MAJOR,
+///   versioned migration: every peer must already refuse the old layout before
+///   the slot can be reclaimed. There is no in-place way to do it, which is
+///   precisely why the slot is cheaper to keep than to reason about.
+///
+/// Deliberately a list of NAMES rather than a length or a checksum: a
+/// mismatched test then says which kind moved and where to, instead of "the
+/// enum changed".
+const List<String> kWireKindOrder = [
+  'request', 'accept', 'message', 'fileMeta', 'fileChunk', 'ack', 'edit',
+  'del', 'sync', 'voidSeq', 'fileQuery', 'fileNack', 'reconnect',
+  'fileStream', 'contentManifest', 'pieceRequest', 'pieceChunk', 'clear',
+  'contentReoffer', 'contentGone', 'signRequest', 'signResponse',
+  'callSignal', 'reaction', 'groupEntry', 'groupEntryChunk',
+  'groupContentRequest', 'chatDeleted', 'cloudDocument',
+  'cloudDocumentChunk', 'groupCallSignal', 'p2pEndpoints', 'spaceInvite',
+  'spaceInviteDecision', 'spaceJoinRequest', 'spaceJoinDecision',
+  'spaceRecommendation', 'spaceModerationAppeal',
+  'spaceModerationAppealDecision', 'groupContentReceipt',
+  'groupContentManifest', 'spacePublicFeedRequest', 'spacePublicFeedChunk',
+  'spacePublicMediaGrantRequest', 'spaceAbuseReport',
+  'spaceAbuseReportDecision', 'unknown',
+];
+
+/// Slots that exist ONLY to hold their wire index, mapped to why they are dead.
+///
+/// A reserved kind is never emitted. Inbound it is still decoded — to its own
+/// kind, not to [WireKind.unknown] — so a frame from some old experimental
+/// build is recognised and dropped rather than being mistaken for whatever
+/// kind now sits at a shifted index. Machine-readable so the rule is testable
+/// instead of resting on a comment attached to one variant.
+const Map<WireKind, String> kReservedWireKinds = {
+  WireKind.fileStream:
+      'abandoned push-stream prototype (audit P3-25); large files use '
+      'contentManifest with a receiver-initiated, content-id-bound pull',
+};
+
 /// Stored body of the LOCAL marker message a [WireKind.chatDeleted] farewell
 /// leaves in the receiver's chat. Never typed by a user (bodies are trimmed
 /// user text; this exact token is produced only by the receive path), so the
