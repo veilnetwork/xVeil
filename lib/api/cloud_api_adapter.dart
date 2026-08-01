@@ -1,7 +1,6 @@
-import 'dart:typed_data';
-
 import '../domain/cloud.dart';
 import '../state/cloud_service.dart';
+import 'api_server.dart';
 
 /// Turns [CloudService] into the plain maps and bytes the REST router serves.
 ///
@@ -15,9 +14,11 @@ class CloudApiAdapter {
 
   final CloudService _cloud;
 
-  /// Reads content bytes already on this device. The adapter never reaches
-  /// for the network itself; see [file].
-  final Future<Uint8List?> Function(String contentId) loadFile;
+  /// Opens content already on this device as a streamable source. The adapter
+  /// never reaches for the network itself; see [file]. A source rather than
+  /// bytes so a multi-GB item is served range by range instead of being
+  /// reassembled in RAM first.
+  final Future<ApiBlobSource?> Function(String contentId) loadFile;
 
   Map<String, dynamic> _item(CloudItem item) => {
     'id': item.id,
@@ -78,7 +79,7 @@ class CloudApiAdapter {
   /// one outcome for both, because a caller that may list the index learns
   /// nothing from the difference and a caller that may not should learn even
   /// less.
-  Future<Uint8List?> file(String itemId) async {
+  Future<ApiBlobSource?> file(String itemId) async {
     final items = await _cloud.listItems();
     CloudItem? found;
     for (final item in items) {

@@ -404,6 +404,15 @@ abstract interface class Storage {
   /// straight from disk. Null if unknown / a needed record is missing.
   Future<Uint8List?> readFileRange(String fileId, int offset, int length);
 
+  /// Byte length of a stored file, or null if unknown / incomplete.
+  ///
+  /// The missing half of [readFileRange]: a caller that wants to stream a blob
+  /// needs its length to walk the ranges and to answer HTTP `Content-Length` /
+  /// `Content-Range`, and without this the only way to learn it was
+  /// [loadFile] — reading the whole blob into RAM to find out how big it is,
+  /// which is exactly what streaming exists to avoid.
+  Future<int?> fileSize(String fileId);
+
   /// Lock the space and zeroize in-memory key material.
   Future<void> close();
 }
