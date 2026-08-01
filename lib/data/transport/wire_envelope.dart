@@ -51,6 +51,14 @@ enum WireKind {
   fileQuery,
   fileNack,
   reconnect,
+
+  /// RESERVED — never emitted. The push-stream prototype this belonged to was
+  /// abandoned; large files use [contentManifestEnvelope] with a
+  /// receiver-initiated, content-id-bound pull stream instead. The slot stays
+  /// so later enum indices keep their wire values, and the inbound dispatcher
+  /// decodes then drops the kind so an experimental old frame cannot be
+  /// mistaken for anything. Do not build new behaviour on it; the builder that
+  /// used to construct it was removed (audit P3-25).
   fileStream,
   contentManifest,
   pieceRequest,
@@ -592,28 +600,6 @@ WireEnvelope fileMetaEnvelope({
     'name': ?name,
     'size': ?size,
     'count': ?count,
-    'seq': ?seq,
-    's': ?sentAtMs,
-  }),
-);
-
-/// Reserved frame from the abandoned push-stream prototype. No production
-/// sender ever emitted it: large files now use [contentManifestEnvelope] and a
-/// receiver-initiated, content-id-bound pull stream. Keep the wire index and
-/// codec so later enum indices do not shift and an experimental old frame is
-/// decoded then dropped safely; do not build new behavior on this kind.
-WireEnvelope fileStreamEnvelope({
-  required String transferId,
-  String? name,
-  int? size,
-  int? seq,
-  int? sentAtMs,
-}) => WireEnvelope(
-  WireKind.fileStream,
-  jsonEncode({
-    'tid': transferId,
-    'name': ?name,
-    'size': ?size,
     'seq': ?seq,
     's': ?sentAtMs,
   }),
