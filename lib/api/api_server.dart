@@ -3255,19 +3255,176 @@ class ApiConfig {
 }
 
 /// An API response: either a JSON [body] or raw [bytes] (a file download).
+/// Largest payload a whole-in-RAM [ApiResponse.binary] may carry.
+///
+/// Byte-array responses hold the blob in memory at least twice — once in the
+/// handler's result and again in the socket's write queue — so an "any size"
+/// byte path is an availability hole that needs no attacker: one ordinary
+/// large file downloaded over a read-only token is enough. Anything that can
+/// exceed this must be served through [ApiResponse.blob], which streams.
+const int kMaxInlineBinaryResponseBytes = 8 * 1024 * 1024;
+
+/// A blob the API can serve WITHOUT ever holding it whole in RAM.
+///
+/// [read] is a range reader — the same primitive the storage layer already
+/// exposes as `readFileRange` — so the HTTP layer can walk the blob in bounded
+/// chunks and honour a `Range` request instead of materialising the file to
+/// answer one. [size] is the full length of the blob, independent of any range
+/// actually requested.
+class ApiBlobSource {
+  const ApiBlobSource({
+    required this.size,
+    required this.read,
+    this.contentType = 'application/octet-stream',
+  });
+
+  final int size;
+
+  /// Reads at most [length] bytes at [offset]. Null means the blob became
+  /// unreadable mid-stream (deleted, or a needed record is missing); the
+  /// writer aborts rather than padding the response with zeros.
+  final Future<Uint8List?> Function(int offset, int length) read;
+
+  final String contentType;
+}
+
+/// Bytes the API reads per hop when streaming a [ApiBlobSource]. Bounds the
+/// peak: one chunk in flight, not one file.
+const int kBlobStreamChunkBytes = 64 * 1024;
+
+/// Raised when a blob stops being readable partway through a walk — deleted
+/// under us, or a needed record is missing.
+class BlobUnreadable implements Exception {
+  const BlobUnreadable(this.offset);
+  final int offset;
+  @override
+  String toString() => 'blob became unreadable at offset $offset';
+}
+
+/// Walk [total] bytes of [source] starting at [start], in hops of at most
+/// [kBlobStreamChunkBytes].
+///
+/// The single place that knows how to traverse a blob, so both the socket
+/// writer and [drainBlobSource] inherit the same two guarantees instead of
+/// each re-deriving them: no hop exceeds the chunk bound, and the walk yields
+/// EXACTLY [total] bytes even if a reader hands back more than it was asked
+/// for. Overshooting matters because the writer has already promised a
+/// `Content-Length`.
+///
+/// Throws [BlobUnreadable] rather than ending short: a caller must never be
+/// able to mistake a truncated blob for a complete one.
+Stream<Uint8List> blobChunks(ApiBlobSource source, int start, int total) async* {
+  var sent = 0;
+  while (sent < total) {
+    final want = total - sent;
+    final chunk = await source.read(
+      start + sent,
+      want < kBlobStreamChunkBytes ? want : kBlobStreamChunkBytes,
+    );
+    if (chunk == null || chunk.isEmpty) throw BlobUnreadable(start + sent);
+    final take = chunk.length > want
+        ? Uint8List.sublistView(chunk, 0, want)
+        : chunk;
+    yield take;
+    sent += take.length;
+  }
+}
+
+/// One resolved byte range, inclusive at both ends, or the "cannot satisfy"
+/// verdict that must become a 416.
+class ParsedByteRange {
+  const ParsedByteRange(this.start, this.endInclusive) : unsatisfiable = false;
+  const ParsedByteRange.unsatisfiable()
+    : start = 0,
+      endInclusive = -1,
+      unsatisfiable = true;
+
+  final int start;
+  final int endInclusive;
+  final bool unsatisfiable;
+
+  int get length => endInclusive - start + 1;
+}
+
+/// Parse an HTTP `Range` header against a blob of [size] bytes (RFC 7233,
+/// single-range subset — what a video seek actually sends).
+///
+/// Null means "serve the whole blob": the header is absent, uses a unit we do
+/// not speak, asks for multiple ranges, or is malformed. Ignoring a range we
+/// do not understand is allowed and is the safe direction — the client gets
+/// more bytes than it asked for, never the wrong ones. A well-formed range
+/// that falls outside the blob is NOT ignored: it returns
+/// [ParsedByteRange.unsatisfiable] so the caller answers 416 instead of
+/// quietly sending something else.
+///
+/// Pure so the whole matrix is testable without a socket.
+ParsedByteRange? parseByteRange(String? header, int size) {
+  if (header == null) return null;
+  final raw = header.trim();
+  if (!raw.startsWith('bytes=')) return null;
+  final spec = raw.substring('bytes='.length).trim();
+  // Multi-range would need a multipart/byteranges body; we serve one range or
+  // the whole thing.
+  if (spec.isEmpty || spec.contains(',')) return null;
+  final dash = spec.indexOf('-');
+  if (dash < 0) return null;
+  final startText = spec.substring(0, dash).trim();
+  final endText = spec.substring(dash + 1).trim();
+
+  if (startText.isEmpty) {
+    // Suffix form `-N`: the last N bytes.
+    final n = int.tryParse(endText);
+    if (n == null || n <= 0) return null;
+    if (size <= 0) return const ParsedByteRange.unsatisfiable();
+    final start = n >= size ? 0 : size - n;
+    return ParsedByteRange(start, size - 1);
+  }
+
+  final start = int.tryParse(startText);
+  if (start == null || start < 0) return null;
+  // An empty size cannot satisfy any explicit start, including 0.
+  if (size <= 0 || start > size - 1) return const ParsedByteRange.unsatisfiable();
+
+  if (endText.isEmpty) return ParsedByteRange(start, size - 1);
+  final end = int.tryParse(endText);
+  if (end == null || end < 0) return null;
+  if (end < start) return const ParsedByteRange.unsatisfiable();
+  return ParsedByteRange(start, end > size - 1 ? size - 1 : end);
+}
+
 class ApiResponse {
   const ApiResponse(this.status, [this.body])
     : bytes = null,
-      contentType = null;
+      contentType = null,
+      blob = null;
+
+  /// Whole-in-RAM response. Only for payloads bounded well under
+  /// [kMaxInlineBinaryResponseBytes] — use [ApiResponse.blob] otherwise.
   const ApiResponse.binary(
     this.bytes, {
     this.contentType = 'application/octet-stream',
   }) : status = 200,
-       body = null;
+       body = null,
+       blob = null;
+
+  /// Streamed response backed by a range reader. The bytes never exist whole
+  /// in this process.
+  ///
+  /// [contentType] mirrors the source's so every response answers the question
+  /// the same way, whether it streams or not — a caller should not have to
+  /// know which kind it holds to learn what it is carrying.
+  ApiResponse.blob(ApiBlobSource source)
+    : status = 200,
+      body = null,
+      bytes = null,
+      contentType = source.contentType,
+      blob = source;
+
   final int status;
   final Object? body;
   final List<int>? bytes;
   final String? contentType;
+  final ApiBlobSource? blob;
 }
 
 /// Pure request router — no socket, so tests exercise auth + endpoints directly.
@@ -3420,7 +3577,10 @@ class ApiHandler {
   sendFile;
 
   /// Load the bytes of a stored file by [fileId], or null if unknown.
-  final Future<List<int>?> Function(String fileId) loadFile;
+  /// Opens a stored file as a streamable range source. Deliberately NOT
+  /// `Future<List<int>?>`: that signature forced every caller to materialise
+  /// the whole blob just to hand it to the socket.
+  final Future<ApiBlobSource?> Function(String fileId) loadFile;
 
   /// Place a call to [toHex] ([media] = audio|video|screen); null on success.
   final Future<String?> Function(String toHex, String media) placeCall;
@@ -3466,7 +3626,7 @@ class ApiHandler {
   sendGroupFile;
   final Future<String?> Function(String groupHex, String messageRef)
   fetchGroupFile;
-  final Future<({String? error, List<int>? bytes})> Function(
+  final Future<({String? error, ApiBlobSource? source})> Function(
     String groupHex,
     String messageRef,
   )
@@ -3833,7 +3993,7 @@ class ApiHandler {
   /// Bytes of one item, pulled from another device first if need be. Null for
   /// an unknown id and for content that could not be had — one outcome, since
   /// the difference tells a caller about content it cannot read anyway.
-  final Future<Uint8List?> Function(String itemId)? cloudFile;
+  final Future<ApiBlobSource?> Function(String itemId)? cloudFile;
 
   final Future<({Map<String, dynamic>? item, String? error})> Function({
     String? id,
@@ -3937,10 +4097,10 @@ class ApiHandler {
       if (id == null || id.isEmpty) {
         return const ApiResponse(400, {'error': 'id required'});
       }
-      final bytes = await cloudFile!(id);
-      return bytes == null
+      final source = await cloudFile!(id);
+      return source == null
           ? const ApiResponse(404, {'error': 'not available'})
-          : ApiResponse.binary(bytes);
+          : ApiResponse.blob(source);
     }
     if (method == 'POST' && path == '/v1/cloud/notes') {
       if (saveCloudNote == null) {
@@ -5717,7 +5877,7 @@ class ApiHandler {
       }
       final result = await loadGroupFile(group, message);
       return result.error == null
-          ? ApiResponse.binary(result.bytes!)
+          ? ApiResponse.blob(result.source!)
           : _groupFileError(result.error!);
     }
     if (method == 'GET' &&
@@ -5946,10 +6106,10 @@ class ApiHandler {
       if (fileId == null || fileId.isEmpty) {
         return const ApiResponse(400, {'error': 'fileId required'});
       }
-      final bytes = await loadFile(fileId);
-      return bytes == null
+      final source = await loadFile(fileId);
+      return source == null
           ? const ApiResponse(404, {'error': 'not found'})
-          : ApiResponse.binary(bytes);
+          : ApiResponse.blob(source);
     }
     if (path.startsWith('/v1/calls') && !callsAvailable) {
       return const ApiResponse(501, {
@@ -6219,20 +6379,87 @@ class ApiServer {
         }
       }
       final res = await _handler.handle(req.method, req.uri, auth, body: body);
-      req.response.statusCode = res.status;
-      if (res.bytes != null) {
+      final blob = res.blob;
+      if (blob != null) {
+        await _writeBlob(req, blob);
+      } else if (res.bytes != null) {
+        req.response.statusCode = res.status;
         req.response.headers.contentType = ContentType.parse(
           res.contentType ?? 'application/octet-stream',
         );
         req.response.add(res.bytes!);
       } else {
+        req.response.statusCode = res.status;
         req.response.headers.contentType = ContentType.json;
         req.response.write(jsonEncode(res.body ?? const {}));
       }
     } catch (_) {
-      req.response.statusCode = 500;
+      // Headers may already be on the wire for a streamed blob, in which case
+      // the status can no longer be changed — swallow that rather than let it
+      // mask the original failure.
+      try {
+        req.response.statusCode = 500;
+      } catch (_) {}
     } finally {
-      await req.response.close();
+      // A blob cut short leaves fewer bytes than the promised Content-Length,
+      // so close() throws by design. The connection still tears down, which is
+      // the signal the client needs.
+      try {
+        await req.response.close();
+      } catch (_) {}
+    }
+  }
+
+  /// Stream a blob to the socket in [kBlobStreamChunkBytes] hops, honouring a
+  /// single-range `Range` request.
+  ///
+  /// `await response.add(...)` is what supplies backpressure: it resolves as
+  /// the socket drains, so a slow reader slows the READS instead of letting
+  /// the whole blob pile up in the write queue. That is the difference between
+  /// bounded memory and a byte-array response, which has the entire file
+  /// resident before the first byte goes out.
+  Future<void> _writeBlob(HttpRequest req, ApiBlobSource blob) async {
+    final range = parseByteRange(req.headers.value(HttpHeaders.rangeHeader), blob.size);
+    // Advertised unconditionally so a client knows it may seek at all.
+    req.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+
+    if (range != null && range.unsatisfiable) {
+      req.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+      req.response.headers
+        ..set(HttpHeaders.contentRangeHeader, 'bytes */${blob.size}')
+        ..contentType = ContentType.json;
+      req.response.write(jsonEncode({'error': 'range not satisfiable'}));
+      return;
+    }
+
+    final start = range?.start ?? 0;
+    final total = range?.length ?? blob.size;
+    req.response.statusCode = range == null
+        ? HttpStatus.ok
+        : HttpStatus.partialContent;
+    req.response.headers.contentType = ContentType.parse(blob.contentType);
+    req.response.headers.contentLength = total;
+    if (range != null) {
+      req.response.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes $start-${range.endInclusive}/${blob.size}',
+      );
+    }
+
+    try {
+      await for (final chunk in blobChunks(blob, start, total)) {
+        req.response.add(chunk);
+        // This await is the backpressure: it resolves as the socket drains, so
+        // a slow reader slows the READS rather than letting the whole blob
+        // queue up in memory.
+        await req.response.flush();
+      }
+    } on BlobUnreadable {
+      // Content-Length is already on the wire, so there is no honest way to
+      // finish. Stop writing and let the short body fail the transfer — a
+      // client must never be able to mistake a truncated file for a whole one,
+      // which is exactly what closing cleanly here would produce.
+      req.response.persistentConnection = false;
     }
   }
 

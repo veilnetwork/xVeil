@@ -6,6 +6,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../core/ids.dart';
+import 'api_server.dart';
 import '../data/serve_source.dart';
 import '../domain/group.dart';
 import '../domain/group_message.dart';
@@ -42,7 +43,10 @@ final class GroupApiAdapter {
 
   final GroupService _groups;
   final RegisterGroupContentSource registerContentSource;
-  final Future<List<int>?> Function(String contentId) loadContent;
+  /// Opens group content already on this device as a streamable source.
+  /// A source rather than bytes so a large attachment is served range by
+  /// range instead of being reassembled in RAM first.
+  final Future<ApiBlobSource?> Function(String contentId) loadContent;
 
   Future<List<Map<String, dynamic>>> list() async => [
     for (final group in await _groups.listGroups()) _listEntry(group),
@@ -2067,21 +2071,21 @@ final class GroupApiAdapter {
 
   /// Load an encrypted-store blob only when a validated message in the named
   /// visible group references it. This deliberately accepts no bare contentId.
-  Future<({String? error, List<int>? bytes})> loadFile(
+  Future<({String? error, ApiBlobSource? source})> loadFile(
     String groupHex,
     String messageRef,
   ) async {
     final resolved = await _resolveAttachment(groupHex, messageRef);
     if (resolved == null) {
-      return (error: 'group message attachment not found', bytes: null);
+      return (error: 'group message attachment not found', source: null);
     }
     try {
-      final bytes = await loadContent(resolved.$2);
-      return bytes == null
-          ? (error: 'group content not downloaded', bytes: null)
-          : (error: null, bytes: bytes);
+      final source = await loadContent(resolved.$2);
+      return source == null
+          ? (error: 'group content not downloaded', source: null)
+          : (error: null, source: source);
     } catch (_) {
-      return (error: 'group content load failed', bytes: null);
+      return (error: 'group content load failed', source: null);
     }
   }
 

@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_server.dart';
+import '../api/blob_sources.dart';
 import '../api/cloud_api_adapter.dart';
 import '../api/group_api_adapter.dart';
 import '../core/ids.dart';
@@ -313,8 +314,8 @@ class ApiServerController extends Notifier<ApiConfig> {
     }
   }
 
-  Future<List<int>?> _loadFile(String fileId) =>
-      ref.read(storageProvider).loadFile(fileId);
+  Future<ApiBlobSource?> _loadFile(String fileId) =>
+      storedBlobSource(ref.read(storageProvider), fileId);
 
   Future<String?> _placeCall(String toHex, String media) async {
     final NodeId peer;
@@ -619,7 +620,8 @@ class ApiServerController extends Notifier<ApiConfig> {
             registerContentSource: ref
                 .read(messagingServiceProvider)
                 .registerGroupContentStreaming,
-            loadContent: ref.read(storageProvider).loadFile,
+            loadContent: (contentId) =>
+                storedBlobSource(ref.read(storageProvider), contentId),
           );
     final groupCalls = groupService == null
         ? null
@@ -627,7 +629,11 @@ class ApiServerController extends Notifier<ApiConfig> {
     final cloud = ref.read(cloudServiceProvider);
     final cloudApi = cloud == null
         ? null
-        : CloudApiAdapter(cloud, loadFile: ref.read(storageProvider).loadFile);
+        : CloudApiAdapter(
+            cloud,
+            loadFile: (contentId) =>
+                storedBlobSource(ref.read(storageProvider), contentId),
+          );
     final handler = ApiHandler(
       cloudItems: cloudApi?.items,
       cloudFolders: cloudApi?.folders,
@@ -673,7 +679,7 @@ class ApiServerController extends Notifier<ApiConfig> {
           ? (_, _) async => 'group media unavailable'
           : groupApi.fetchFile,
       loadGroupFile: groupApi == null
-          ? (_, _) async => (error: 'group media unavailable', bytes: null)
+          ? (_, _) async => (error: 'group media unavailable', source: null)
           : groupApi.loadFile,
       groupMembers: groupApi == null ? (_, _) async => null : groupApi.members,
       groupMemberAction: groupApi == null

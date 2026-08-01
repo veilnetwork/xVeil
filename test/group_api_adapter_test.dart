@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/api/blob_sources.dart';
 import 'package:xveil/api/group_api_adapter.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
@@ -140,7 +141,7 @@ void main() {
             await close();
             return 'unused';
           },
-      loadContent: storage.loadFile,
+      loadContent: (cid) => storedBlobSource(storage, cid),
     );
     try {
       final space = await api.createSpace(
@@ -245,7 +246,7 @@ void main() {
             await close();
             return 'unused';
           },
-      loadContent: storage.loadFile,
+      loadContent: (cid) => storedBlobSource(storage, cid),
     );
     try {
       final space = (await api.createSpace('Rules', '', 'private'))!;
@@ -283,7 +284,7 @@ void main() {
             await close();
             return 'unused';
           },
-      loadContent: storage.loadFile,
+      loadContent: (cid) => storedBlobSource(storage, cid),
     );
     try {
       final space = (await api.createSpace('News', '', 'public'))!;
@@ -364,7 +365,7 @@ void main() {
               await close();
               return 'unused';
             },
-        loadContent: storage.loadFile,
+        loadContent: (cid) => storedBlobSource(storage, cid),
       );
       try {
         final space = (await api.createSpace('Consent', '', 'private'))!;
@@ -394,7 +395,7 @@ void main() {
             await close();
             return 'unused';
           },
-      loadContent: storage.loadFile,
+      loadContent: (cid) => storedBlobSource(storage, cid),
     );
     try {
       final privateSpace = (await api.createSpace('Private', '', 'private'))!;
@@ -449,7 +450,7 @@ void main() {
               await close();
               return 'unused';
             },
-        loadContent: storage.loadFile,
+        loadContent: (cid) => storedBlobSource(storage, cid),
       );
       try {
         final space = (await api.createSpace('Ownership', '', 'private'))!;
@@ -510,7 +511,7 @@ void main() {
               await close();
               return 'unused';
             },
-        loadContent: storage.loadFile,
+        loadContent: (cid) => storedBlobSource(storage, cid),
       );
       try {
         final space = (await api.createSpace('Veil builders', '', 'private'))!;
@@ -635,7 +636,7 @@ void main() {
               await close();
               return 'unused';
             },
-        loadContent: storage.loadFile,
+        loadContent: (cid) => storedBlobSource(storage, cid),
       );
       try {
         final spaceId = await service.createSpace(
@@ -916,7 +917,7 @@ void main() {
               }
               return cid;
             },
-        loadContent: storage.loadFile,
+        loadContent: (cid) => storedBlobSource(storage, cid),
       );
       final directory = await Directory.systemTemp.createTemp(
         'xveil-group-api-',
@@ -946,7 +947,7 @@ void main() {
 
         final loaded = await api.loadFile(group, message.ref);
         expect(loaded.error, isNull);
-        expect(loaded.bytes, [9, 8, 7, 6]);
+        expect(await drainBlobSource(loaded.source!), [9, 8, 7, 6]);
         expect(
           await api.fetchFile(group, message.ref),
           isNull,
@@ -985,7 +986,7 @@ void main() {
             await close();
             return 'a' * 64;
           },
-      loadContent: storage.loadFile,
+      loadContent: (cid) => storedBlobSource(storage, cid),
     );
     final directory = await Directory.systemTemp.createTemp('xveil-authored-');
     try {
@@ -1101,7 +1102,7 @@ void main() {
             closed = true;
             return 'large-cid';
           },
-      loadContent: storage.loadFile,
+      loadContent: (cid) => storedBlobSource(storage, cid),
     );
     final directory = await Directory.systemTemp.createTemp(
       'xveil-group-api-large-',
@@ -1156,7 +1157,7 @@ void main() {
       GroupApiAdapter apiFor(GroupService service) => GroupApiAdapter(
         service,
         registerContentSource: register,
-        loadContent: storage.loadFile,
+        loadContent: (cid) => storedBlobSource(storage, cid),
       );
 
       final ownerApi = apiFor(ownerService);
@@ -1321,7 +1322,7 @@ void main() {
             await close();
             return 'unused';
           },
-      loadContent: storage.loadFile,
+      loadContent: (cid) => storedBlobSource(storage, cid),
     );
     try {
       final group = (await api.create('Private group chat'))!;
@@ -1393,7 +1394,7 @@ void main() {
               await close();
               return 'unused';
             },
-        loadContent: storage.loadFile,
+        loadContent: (cid) => storedBlobSource(storage, cid),
       );
       var candidates = await memberApi.moderationAppeals(space);
       expect(
@@ -1468,7 +1469,7 @@ void main() {
               await close();
               return 'unused';
             },
-        loadContent: storage.loadFile,
+        loadContent: (cid) => storedBlobSource(storage, cid),
       );
       try {
         final group = (await api.create('Group chat'))!;
@@ -1616,7 +1617,7 @@ void main() {
             await close();
             return 'unused';
           },
-      loadContent: storage.loadFile,
+      loadContent: (cid) => storedBlobSource(storage, cid),
     );
     addTearDown(service.dispose);
     await storage.upsertContact(
@@ -1684,7 +1685,7 @@ void main() {
               await close();
               return 'unused';
             },
-        loadContent: storage.loadFile,
+        loadContent: (cid) => storedBlobSource(storage, cid),
       );
       addTearDown(service.dispose);
       final space = (await api.createSpace('Access API', '', 'private'))!;
@@ -1831,7 +1832,7 @@ void main() {
               await close();
               return 'unused';
             },
-        loadContent: storage.loadFile,
+        loadContent: (cid) => storedBlobSource(storage, cid),
       );
 
       addTearDown(ownerService.dispose);
