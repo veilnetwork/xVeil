@@ -9,6 +9,31 @@ import '../domain/folder_sync.dart';
 /// A narrow port rather than CloudService itself: the engine's job is the
 /// order of operations and what happens when one fails, and both are far
 /// easier to pin against five methods than against a service with a hundred.
+/// A blob either side can hand over in ranges instead of whole.
+///
+/// Both ports used to move `Uint8List` — so a folder pass held every synced
+/// file entirely in RAM, twice for a round trip, for no reason: the cloud
+/// service underneath already spoke ranges (`importContent(readRange:)`,
+/// `readContentRange`) and the adapters were materialising a file only to
+/// range over the copy. Syncing a folder of ordinary large files was enough to
+/// kill the app; no attacker required.
+class RangeSource {
+  const RangeSource({required this.size, required this.read, this.close});
+
+  final int size;
+
+  /// Reads up to [length] bytes at [offset]. Null means the blob stopped being
+  /// readable — the caller abandons this file and retries next pass rather
+  /// than writing a truncated one.
+  final Future<Uint8List?> Function(int offset, int length) read;
+
+  /// Releases whatever the source holds open (a file handle). Optional because
+  /// an in-memory or store-backed source holds nothing.
+  final Future<void> Function()? close;
+
+  Future<void> dispose() async => close == null ? null : await close!();
+}
+
 abstract class FolderSyncCloud {
   /// Every file under the pair's cloud folder, keyed by path RELATIVE to it.
   Future<List<RemoteFile>> list(String? folderId);
@@ -29,10 +54,13 @@ abstract class FolderSyncCloud {
     required String path,
     required String? folderId,
     required String? existingItemId,
-    required Uint8List bytes,
+    required int size,
+    required Future<Uint8List> Function(int offset, int length) readRange,
   });
 
-  Future<Uint8List?> download(String itemId);
+  /// Open the cloud copy for reading in ranges, or null when the content is
+  /// not here yet. The caller disposes it.
+  Future<RangeSource?> openDownload(String itemId);
 
   Future<void> delete(String itemId);
 
@@ -43,8 +71,16 @@ abstract class FolderSyncCloud {
 /// What one sync pass needs from the local folder.
 abstract class FolderSyncDisk {
   Future<FolderScan> scan(String root);
-  Future<Uint8List?> read(String root, String path);
-  Future<void> write(String root, String path, Uint8List bytes);
+
+  /// Open a local file for reading in ranges, or null if it vanished. The
+  /// caller disposes it.
+  Future<RangeSource?> openRead(String root, String path);
+
+  /// Write a local file by pulling [source] in ranges. Still atomic — the
+  /// bytes land in a sibling and are renamed into place — so a crash halfway
+  /// cannot leave a truncated file that the next scan reads as a user edit.
+  Future<void> writeFrom(String root, String path, RangeSource source);
+
   Future<void> remove(String root, String path);
 
   /// Size and mtime AFTER a write, so the base records what is actually on
@@ -185,34 +221,53 @@ class FolderSyncEngine {
             // the differ leaves this path alone.
             conflicts.add(action.path);
           case SyncActionKind.upload:
-            final bytes = await _disk.read(pair.localPath, action.path);
-            if (bytes == null) continue; // vanished mid-pass: next pass sees it
-            final stored = await _cloud.upload(
-              path: action.path,
-              folderId: pair.cloudFolderId,
-              existingItemId:
-                  action.itemId ?? remoteByPath[action.path]?.itemId,
-              bytes: bytes,
-            );
+            final source = await _disk.openRead(pair.localPath, action.path);
+            if (source == null) continue; // vanished mid-pass: next pass sees it
+            final RemoteFile stored;
+            try {
+              stored = await _cloud.upload(
+                path: action.path,
+                folderId: pair.cloudFolderId,
+                existingItemId:
+                    action.itemId ?? remoteByPath[action.path]?.itemId,
+                size: source.size,
+                // The cloud pulls the file range by range straight off disk;
+                // a null read means it changed under us, and failing the pass
+                // is better than uploading a half-old file.
+                readRange: (offset, length) async {
+                  final chunk = await source.read(offset, length);
+                  if (chunk == null) {
+                    throw StateError('local file became unreadable mid-upload');
+                  }
+                  return chunk;
+                },
+              );
+            } finally {
+              await source.dispose();
+            }
             final stat = await _disk.stat(pair.localPath, action.path);
             base[action.path] = SyncedFile(
               path: action.path,
               contentId: stored.contentId,
-              size: stat?.size ?? bytes.length,
+              size: stat?.size ?? source.size,
               localModifiedAtMs: stat?.modifiedAtMs ?? _now(),
             );
             applied.add(action);
           case SyncActionKind.download:
             final id = action.itemId;
             if (id == null) continue;
-            final bytes = await _cloud.download(id);
-            if (bytes == null) continue; // content not here yet; try next pass
-            await _disk.write(pair.localPath, action.path, bytes);
+            final source = await _cloud.openDownload(id);
+            if (source == null) continue; // content not here yet; try next pass
+            try {
+              await _disk.writeFrom(pair.localPath, action.path, source);
+            } finally {
+              await source.dispose();
+            }
             final stat = await _disk.stat(pair.localPath, action.path);
             base[action.path] = SyncedFile(
               path: action.path,
               contentId: remoteByPath[action.path]?.contentId ?? '',
-              size: stat?.size ?? bytes.length,
+              size: stat?.size ?? source.size,
               localModifiedAtMs: stat?.modifiedAtMs ?? _now(),
             );
             applied.add(action);

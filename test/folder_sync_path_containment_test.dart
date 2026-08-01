@@ -1,8 +1,9 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/state/folder_sync_adapters.dart';
+
+import 'support/range_source_util.dart';
 
 /// Mirror paths are built from CLOUD ITEM NAMES, and any device linked to the
 /// account can create a cloud item — including one that has been compromised.
@@ -63,10 +64,11 @@ void main() {
     final outside = File('${tmp.path}/victim');
     outside.writeAsStringSync('original');
 
-    await const LocalFolderSyncDisk().write(
+    await writeBytes(
+      const LocalFolderSyncDisk(),
       rootDir.path,
       '../victim',
-      Uint8List.fromList(<int>[1, 2, 3]),
+      <int>[1, 2, 3],
     );
 
     expect(
