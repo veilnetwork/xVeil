@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/storage/file_store.dart' show kMaxStoredFileBytes;
+import 'package:xveil/data/storage/materialized_view.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/cloud.dart';
@@ -648,12 +650,12 @@ void main() {
       expect((await first.listItems()).length, 80);
       final active = await storage.getSetting('cloud.index.v1.active');
       expect(active, anyOf('a', 'b'));
-      final encoded = await storage.loadFile('cloud.index.v1.$active');
+      final encoded = await storage.loadFile('cloud.index.v1.$active.p0');
       expect(encoded, isNotNull);
       expect(encoded!.length, greaterThan(4096));
       await first.close();
       final missingSlot = active == 'a' ? 'b' : 'a';
-      expect(await storage.hasFile('cloud.index.v1.$missingSlot'), isFalse);
+      expect(await storage.hasFile('cloud.index.v1.$missingSlot.p0'), isFalse);
       await storage.putSetting('cloud.index.v1.active', missingSlot);
       await storage.close();
 
@@ -667,7 +669,7 @@ void main() {
       );
       expect((await second.listItems()).length, 80);
       expect(
-        await reopened.hasFile('cloud.index.v1.$missingSlot'),
+        await reopened.hasFile('cloud.index.v1.$missingSlot.p0'),
         isTrue,
         reason:
             'save repairs into the missing slot without overwriting the '
@@ -942,7 +944,8 @@ void main() {
         anyOf('a', 'b'),
         reason: 'the materialised index must exist',
       );
-      final active = 'cloud.index.v1.$slot';
+      // One page: these fixtures hold a handful of rows.
+          final active = 'cloud.index.v1.$slot.p0';
       final raw = await storage.loadFile(active);
       final rows = (jsonDecode(utf8.decode(raw!)) as List).toList()
         ..add(
@@ -1008,7 +1011,8 @@ void main() {
         );
         if (breakIndex) {
           final slot = await storage.getSetting('cloud.index.v1.active');
-          final active = 'cloud.index.v1.$slot';
+          // One page: these fixtures hold a handful of rows.
+          final active = 'cloud.index.v1.$slot.p0';
           final rows =
               (jsonDecode(utf8.decode((await storage.loadFile(active))!))
                       as List)
@@ -1089,7 +1093,8 @@ void main() {
         );
         if (breakIndex) {
           final slot = await storage.getSetting('cloud.index.v1.active');
-          final active = 'cloud.index.v1.$slot';
+          // One page: these fixtures hold a handful of rows.
+          final active = 'cloud.index.v1.$slot.p0';
           final rows =
               (jsonDecode(utf8.decode((await storage.loadFile(active))!))
                       as List)
@@ -1602,7 +1607,7 @@ void main() {
       expect(all.single.deleted, isTrue);
       final active = await storage.getSetting('cloud.index.v1.active');
       final raw = utf8.decode(
-        (await storage.loadFile('cloud.index.v1.$active'))!,
+        (await storage.loadFile('cloud.index.v1.$active.p0'))!,
       );
       final rows = jsonDecode(raw) as List;
       expect(
@@ -2471,5 +2476,159 @@ void main() {
     await service.close();
     await received.close();
     await storage.close();
+  });
+
+  group('P2-21: a materialized view is paged, not one capped blob', () {
+    test('an index larger than the store cap survives a restart', () async {
+      // The bug: the view was ONE stored blob capped at ~3.6 MB, so a big
+      // enough account made every later mutation fail and the device's idea of
+      // it drift from the account.
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+
+      // Long names so the encoded index crosses several pages without needing
+      // thousands of items.
+      final big = 'n' * 40000;
+      for (var i = 0; i < 200; i++) {
+        await storage.putSetting('unused.$i', 'x');
+      }
+      final payload = jsonEncode([
+        for (var i = 0; i < 200; i++) {'id': 'item-$i', 'name': '$big-$i'},
+      ]);
+      expect(
+        payload.length,
+        greaterThan(kMaxStoredFileBytes),
+        reason: 'the fixture must actually exceed the single-blob ceiling',
+      );
+
+      await writeMaterializedView(storage, 'cloud.test.v1', payload);
+      final back = await readMaterializedView(
+          key: 'cloud.test.v1',
+          getSetting: storage.getSetting,
+          loadFile: storage.loadFile,
+        );
+
+      expect(back, payload);
+    });
+
+    test('the page count is what makes a slot readable', () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+
+      await writeMaterializedView(
+        storage,
+        'cloud.test.v1',
+        jsonEncode([
+          {'id': 'a'},
+        ]),
+      );
+      final active = await storage.getSetting('cloud.test.v1.active');
+      expect(await storage.getSetting('cloud.test.v1.$active.pages'), '1');
+    });
+
+    test('a slot missing a page is skipped, not read short', () async {
+      // Returning the prefix would hand back a SHORTER index, which reconcile
+      // reads as mass deletion rather than as a damaged slot.
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+
+      final payload = jsonEncode([
+        for (var i = 0; i < 40; i++) {'id': 'item-$i', 'name': 'x' * 40000},
+      ]);
+      await writeMaterializedView(storage, 'cloud.test.v1', payload);
+      final active = await storage.getSetting('cloud.test.v1.active');
+      final pages = int.parse(
+        (await storage.getSetting('cloud.test.v1.$active.pages'))!,
+      );
+      expect(pages, greaterThan(1));
+      await storage.deleteStoredFile('cloud.test.v1.$active.p${pages - 1}');
+
+      expect(
+        await readMaterializedView(
+          key: 'cloud.test.v1',
+          getSetting: storage.getSetting,
+          loadFile: storage.loadFile,
+        ),
+        isNull,
+      );
+    });
+
+    test('a legacy single-blob slot still loads after upgrade', () async {
+      // An upgrade must not look like a wiped index: reconcile would then treat
+      // every cloud item as new.
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+
+      final legacy = jsonEncode([
+        {'id': 'old-1'},
+      ]);
+      await storage.storeFile(
+        'cloud.test.v1.a',
+        Uint8List.fromList(utf8.encode(legacy)),
+      );
+      await storage.putSetting('cloud.test.v1.active', 'a');
+
+      expect(
+        await readMaterializedView(
+          key: 'cloud.test.v1',
+          getSetting: storage.getSetting,
+          loadFile: storage.loadFile,
+        ),
+        legacy,
+      );
+    });
+
+    test('a view over quota is refused by name, not by PayloadTooLarge', () async {
+      final container = FakeHvContainer();
+      final storage = container.storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+
+      expect(
+        () => writeMaterializedView(
+          storage,
+          'cloud.test.v1',
+          'x' * (kMaterializedViewMaxBytes + 1),
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('the pointer flips LAST, after every page and the page count', () {
+      // The commit protocol is an ORDER, and an order is invisible in-process:
+      // nothing crashes between two awaits, so no behavioural test can see it.
+      // Record the calls instead. Flipping `active` early is the one reordering
+      // that corrupts rather than merely fails — a slot that previously held
+      // MORE pages would be read as fresh page 0 plus stale pages 1..n, a
+      // document that parses and is wrong.
+      final calls = <String>[];
+      final settings = <String, String>{};
+
+      return writeMaterializedViewWith(
+        key: 'v',
+        value: 'x' * (kMaterializedPageBytes * 2 + 5),
+        getSetting: (k) async => settings[k],
+        putSetting: (k, v) async {
+          calls.add('set:$k');
+          settings[k] = v;
+        },
+        storeFile: (id, _) async => calls.add('file:$id'),
+        hasFile: (_) async => false,
+      ).then((_) {
+        expect(calls.last, 'set:v.active');
+        expect(
+          calls.indexOf('set:v.a.pages'),
+          greaterThan(calls.indexOf('file:v.a.p2')),
+          reason: 'the page count must not appear before its last page',
+        );
+        expect(
+          calls.where((c) => c.startsWith('file:')).toList(),
+          ['file:v.a.p0', 'file:v.a.p1', 'file:v.a.p2'],
+        );
+      });
+    });
   });
 }
