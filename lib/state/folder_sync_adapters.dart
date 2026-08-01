@@ -5,6 +5,8 @@ import '../data/folder_scan.dart';
 import '../domain/cloud.dart';
 import '../domain/folder_sync.dart';
 import 'cloud_service.dart';
+import '../data/range_sources.dart';
+import '../domain/range_source.dart';
 import 'folder_sync_engine.dart';
 
 /// The path a mirrored file may occupy under a sync root, or null if it may
@@ -225,37 +227,7 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
   Future<RangeSource?> openRead(String root, String path) async {
     final resolved = mirrorPathWithin(root, path);
     if (resolved == null) return null;
-    final file = File(resolved);
-    if (!file.existsSync()) return null;
-    RandomAccessFile? handle;
-    try {
-      final size = await file.length();
-      handle = await file.open(mode: FileMode.read);
-      final open = handle;
-      return RangeSource(
-        size: size,
-        read: (offset, length) async {
-          try {
-            await open.setPosition(offset);
-            return await open.read(length);
-          } catch (_) {
-            return null;
-          }
-        },
-        close: () async {
-          try {
-            await open.close();
-          } catch (_) {}
-        },
-      );
-    } catch (_) {
-      // Opening failed after length() succeeded, or vice versa — release the
-      // handle rather than leak it, and let the pass treat the file as gone.
-      try {
-        await handle?.close();
-      } catch (_) {}
-      return null;
-    }
+    return fileRangeSource(resolved);
   }
 
   /// Written to a sibling and then renamed.
@@ -279,22 +251,23 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     final sink = await temp.open(mode: FileMode.writeOnly);
     var written = 0;
     try {
-      while (written < source.size) {
-        final want = source.size - written;
-        final chunk = await source.read(
-          written,
-          want < kFolderSyncChunkBytes ? want : kFolderSyncChunkBytes,
-        );
-        // The remote copy stopped being readable. Leave the `.part` behind
-        // unrenamed and bail: the real path keeps whatever it had, and the
-        // next pass retries. Renaming a short file would publish a truncated
-        // one that the following scan reads as a deliberate user edit and
-        // faithfully uploads over the good copy.
-        if (chunk == null || chunk.isEmpty) return;
+      await for (final chunk in rangeChunks(
+        source,
+        0,
+        source.size,
+        chunkBytes: kFolderSyncChunkBytes,
+      )) {
         await sink.writeFrom(chunk);
         written += chunk.length;
       }
       await sink.flush();
+    } on RangeSourceUnreadable {
+      // The remote copy stopped being readable. Leave the `.part` behind
+      // unrenamed and bail: the real path keeps whatever it had, and the next
+      // pass retries. Renaming a short file would publish a truncated one that
+      // the following scan reads as a deliberate user edit and faithfully
+      // uploads over the good copy.
+      return;
     } finally {
       await sink.close();
     }

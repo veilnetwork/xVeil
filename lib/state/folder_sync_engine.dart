@@ -3,37 +3,25 @@ import 'dart:typed_data';
 import '../data/folder_scan.dart';
 import '../data/storage/folder_sync_store.dart';
 import '../domain/folder_sync.dart';
+import '../domain/range_source.dart';
+
+// Re-exported so the ports and their implementers speak one type without every
+// adapter reaching into domain/ for it.
+export '../domain/range_source.dart' show RangeSource;
 
 /// What one sync pass needs from the cloud, and nothing more.
 ///
 /// A narrow port rather than CloudService itself: the engine's job is the
 /// order of operations and what happens when one fails, and both are far
 /// easier to pin against five methods than against a service with a hundred.
-/// A blob either side can hand over in ranges instead of whole.
+/// Both ports carry a [RangeSource] rather than `Uint8List`.
 ///
-/// Both ports used to move `Uint8List` — so a folder pass held every synced
-/// file entirely in RAM, twice for a round trip, for no reason: the cloud
+/// They used to move whole byte arrays, so a folder pass held every synced
+/// file entirely in RAM — twice for a round trip — for no reason: the cloud
 /// service underneath already spoke ranges (`importContent(readRange:)`,
 /// `readContentRange`) and the adapters were materialising a file only to
 /// range over the copy. Syncing a folder of ordinary large files was enough to
 /// kill the app; no attacker required.
-class RangeSource {
-  const RangeSource({required this.size, required this.read, this.close});
-
-  final int size;
-
-  /// Reads up to [length] bytes at [offset]. Null means the blob stopped being
-  /// readable — the caller abandons this file and retries next pass rather
-  /// than writing a truncated one.
-  final Future<Uint8List?> Function(int offset, int length) read;
-
-  /// Releases whatever the source holds open (a file handle). Optional because
-  /// an in-memory or store-backed source holds nothing.
-  final Future<void> Function()? close;
-
-  Future<void> dispose() async => close == null ? null : await close!();
-}
-
 abstract class FolderSyncCloud {
   /// Every file under the pair's cloud folder, keyed by path RELATIVE to it.
   Future<List<RemoteFile>> list(String? folderId);

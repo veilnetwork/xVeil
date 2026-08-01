@@ -45,6 +45,15 @@ import 'voice_play_controller.dart' show VoicePlayer, VoicePlayerFactory;
 /// video's size; a window swap is a bounded memcpy, not a decode.
 const int kNativeVideoWindowBytes = 64 << 20;
 
+/// Largest item the NATIVE path will open (P0-5).
+///
+/// [kNativeVideoWindowBytes] caps what the native player holds AFTER the
+/// container is parsed, but `demuxWebm` needs the whole compressed file in one
+/// buffer first — so without this an arbitrarily large attachment is still an
+/// arbitrarily large allocation. The HTTP path streams and has no such limit;
+/// this bounds only the demuxer that cannot.
+const int kNativeVideoMaxBytes = 512 << 20;
+
 /// A forward seek that would walk-decode more than this many frames inside
 /// the current window is done by swapping to a fresh window at the target's
 /// keyframe instead (the walk runs on the UI isolate — keep it ~one GOP).
