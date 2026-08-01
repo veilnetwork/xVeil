@@ -350,10 +350,15 @@ Future<BootstrapResult> _bootstrapOverrides() async {
     // candidate, never registers a rendezvous publisher, and is unreachable by
     // node_id. (These mirror veil's compiled-in builtin_seeds, so DHT bootstrap
     // is unchanged — this only makes them available to Dart as relay options.)
-    var bootstrapPeers = _loadBootstrapPeers();
-    if (bootstrapPeers.isEmpty) {
-      bootstrapPeers = await _loadBundledSeeds();
-    }
+    // MERGE rather than either/or: the env file used to REPLACE the bundled
+    // seeds, so naming one alternative entry point silently cost the node
+    // every production seed — trading one single point of failure for
+    // another. Both sets ride together, env entries first (an operator who
+    // names a host meant it to be tried), deduplicated by public key.
+    final bootstrapPeers = mergeBootstrapPeers(
+      _loadBootstrapPeers(),
+      await _loadBundledSeeds(),
+    );
     // XVEIL_OBFS4_PSK: base64 deployment-wide obfs4 key for networks that pin
     // one (testnet/production). Without it, dialing obfs4 bootstrap peers fails
     // the handshake. Treated as config, not a secret — but environment-specific.
