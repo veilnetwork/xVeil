@@ -52,6 +52,29 @@ class BootstrapPeerCfg {
   ];
 }
 
+/// Combine two bootstrap-peer sources into one candidate list, `primary`
+/// first, dropping any entry whose `public_key` already appeared.
+///
+/// Exists because the two sources used to be either/or: an operator-supplied
+/// list REPLACED the bundled production seeds, so naming a single alternative
+/// entry point silently dropped every seed. A node that wants a way in when
+/// the seeds are blocked needs both sets at once, not a choice between them.
+/// Deduplication is by public key, not transport: the same node reached over
+/// two transports is still one dial target, and dialing it twice doubles the
+/// DPI-visible handshake traffic for nothing.
+///
+/// Pure (no FFI, no assets) so it is unit-testable.
+List<BootstrapPeerCfg> mergeBootstrapPeers(
+  List<BootstrapPeerCfg> primary,
+  List<BootstrapPeerCfg> fallback,
+) {
+  final seen = <String>{};
+  return [
+    for (final p in [...primary, ...fallback])
+      if (seen.add(p.publicKey)) p,
+  ];
+}
+
 // C ABI from veilclient-ffi (node-embedded feature):
 //   char     *veil_config_init(uint32_t difficulty, char** err_out);
 //   VeilNode *veil_node_start(const uint8_t*, size_t, char** err_out);
