@@ -696,6 +696,17 @@ class AsyncFileStore {
     return out.toBytes();
   }
 
+  /// Byte length of a stored file, or null if unknown. Reads only the metadata
+  /// record, so a caller can size a streamed response without touching a
+  /// single chunk.
+  Future<int?> fileSize(String fileId) async {
+    final raw = await _store.get(Ns.settings, _k('file:$fileId'));
+    if (raw == null) return null;
+    final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    final size = m['size'];
+    return size is int ? size : null;
+  }
+
   /// Reassemble the whole stored file, or null if unknown / incomplete. For a
   /// large STREAMED file prefer [readFileRange] to avoid holding it all in RAM.
   Future<Uint8List?> loadFile(String fileId) async {

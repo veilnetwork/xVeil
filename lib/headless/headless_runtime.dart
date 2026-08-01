@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../api/api_server.dart';
+import '../api/blob_sources.dart';
 import '../api/group_api_adapter.dart';
 import '../core/ids.dart';
 import '../core/log.dart';
@@ -268,7 +269,7 @@ class HeadlessRuntime {
       final groupApi = GroupApiAdapter(
         groups,
         registerContentSource: messaging.registerGroupContentStreaming,
-        loadContent: storage.loadFile,
+        loadContent: (contentId) => storedBlobSource(storage, contentId),
       );
 
       final handler = ApiHandler(
@@ -310,7 +311,7 @@ class HeadlessRuntime {
         send: (to, body) => _send(messaging!, to, body),
         messages: (peer, limit) => _messages(storage, peer, limit),
         sendFile: (to, path, name) => _sendFile(messaging!, to, path, name),
-        loadFile: storage.loadFile,
+        loadFile: (fileId) => storedBlobSource(storage, fileId),
         placeCall: (_, _) async => 'calls unavailable in headless mode',
         callState: () => null,
         callAction: (_) async {},
