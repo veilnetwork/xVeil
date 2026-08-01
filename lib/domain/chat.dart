@@ -223,7 +223,8 @@ class Message {
   final String? thumb;
 
   /// True for a LARGE file whose blob lives in the external encrypted blob store
-  /// (ExternalBlobStore[fileId]) instead of the in-container FileStore — sent /
+  /// (the on-disk blob store, keyed by fileId) instead of the in-container
+  /// FileStore — sent /
   /// received over a reliable veil stream. False (default) = small file in the
   /// deniable container. Drives which store loadFile / delete / gap-fill touch.
   final bool fileExternal;
