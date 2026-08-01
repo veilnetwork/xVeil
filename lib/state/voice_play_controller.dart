@@ -25,6 +25,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_media/veil_media.dart';
 import 'package:video_player/video_player.dart';
 
+import '../domain/range_source.dart';
 import 'media_stream_server.dart';
 import 'providers.dart';
 
@@ -53,7 +54,12 @@ class _WavVoicePlayer implements VoicePlayer {
     if (wav == null) return null;
     final server = LocalMediaServer();
     try {
-      final url = await server.serve(wav, name: 'voice.wav');
+      // Already decoded in RAM and small (a voice message), so it is handed
+      // over as an in-memory source rather than read from anywhere.
+      final url = await server.serve(
+        bytesRangeSource(wav),
+        name: 'voice.wav',
+      );
       final c = VideoPlayerController.networkUrl(url);
       await c.initialize();
       return _WavVoicePlayer._(server, c);
