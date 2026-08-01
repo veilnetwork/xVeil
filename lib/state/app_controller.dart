@@ -168,6 +168,23 @@ class AppController extends Notifier<AppState> {
   /// node identity is derived. Never persisted anywhere.
   String? _pendingIdentityPhrase;
 
+  /// Read the pending phrase AND clear it, in one step.
+  ///
+  /// There is deliberately no way to read it without spending it. The bug this
+  /// closes was a read whose matching clear sat after an `await` that could
+  /// throw: on a failed node boot the phrase stayed in the controller, and the
+  /// next unlock — of a different legacy or decoy identity with no node config
+  /// of its own — consumed it and derived the SAME node identity, binding two
+  /// storage spaces that must not know about each other to one identity on the
+  /// wire. Separating read from clear is what made that possible, so they are
+  /// not separable any more.
+  @visibleForTesting
+  String? takePendingIdentityPhrase() {
+    final phrase = _pendingIdentityPhrase;
+    _pendingIdentityPhrase = null;
+    return phrase;
+  }
+
   Future<void> completeOnboarding({
     required Identity identity,
     required String password,
@@ -1176,6 +1193,10 @@ class AppController extends Notifier<AppState> {
       }
       final existingRoster = await storage.loadRoster();
       final masterHasIdentity = await storage.loadIdentity() != null;
+      // Capture the master's own derived keys while it is open — the collision
+      // check below needs them, and re-opening just to read them would be a
+      // second password derivation for nothing.
+      final masterKeys = await storage.exportSpaceKeys();
       await storage.close();
 
       // Clash: the master password opened a real IDENTITY space (has an identity,
@@ -1220,20 +1241,45 @@ class AppController extends Notifier<AppState> {
       }
 
       // Create + name the new identity space (its node config is mined lazily on
-      // first boot, like onboarding). Distinct child passwords are assumed (the UI
-      // instructs this; the design can't deniably dedupe passwords).
+      // first boot, like onboarding).
       if (!await storage.open(password: password, createIfMissing: true)) {
         await _recoverToActive();
         return false;
       }
+
+      // Derive the candidate's storage keys BEFORE the first write.
+      //
+      // `createIfMissing` does not create anything when the password already
+      // has a space — it OPENS that space. The old order wrote an Identity
+      // into whatever it opened and only then exported the keys, so re-using an
+      // existing child's password overwrote that child (leaving two roster
+      // entries pointing at one space), and re-using the MASTER's password
+      // overwrote the master with child data — after which deleting that
+      // "child" deleted the master's storage.
+      //
+      // Deniability boundary: this compares ONLY against the master we just
+      // unlocked and the entries in its own roster — things this session
+      // already legitimately sees. It must never grow to "is this password used
+      // anywhere in the container", which would be a password oracle against
+      // hidden identities. A collision returns the same plain `false` a
+      // duplicate label already returned, so the caller learns nothing new
+      // either. The comment this replaces said the design "can't deniably
+      // dedupe passwords" — it can, within the roster it is editing.
+      final candidateKeys = await storage.exportSpaceKeys();
+      if (identitySpaceCollides(
+        masterKeys: masterKeys,
+        roster: base,
+        candidateKeys: candidateKeys,
+      )) {
+        await storage.close();
+        await _recoverToActive();
+        return false;
+      }
+
       await storage.saveIdentity(generateIdentity(displayName: label));
       final roster = <RosterEntry>[
         ...base,
-        RosterEntry(
-          label: label,
-          spaceKeys: await storage.exportSpaceKeys(),
-          anonymous: anonymous,
-        ),
+        RosterEntry(label: label, spaceKeys: candidateKeys, anonymous: anonymous),
       ];
       await storage.close();
 
@@ -1430,6 +1476,16 @@ class AppController extends Notifier<AppState> {
     if (ref.read(realStackProvider) != null) return;
     final boot = ref.read(deniableBootProvider);
     if (boot == null) return;
+    // One shot, taken BEFORE the await rather than cleared after it.
+    //
+    // Clearing on success only meant a failed boot left the phrase sitting in
+    // the controller, where the next unlock — of a DIFFERENT legacy or decoy
+    // identity with no node config of its own — would consume it and derive
+    // the SAME node identity. That binds two storage spaces which are supposed
+    // not to know about each other to one identity on the wire, which is the
+    // one thing deniable separation cannot survive. It also kept the secret in
+    // the Dart heap across a lock.
+    final identityPhrase = takePendingIdentityPhrase();
     try {
       final stack = await RealVeilStack.startDeniable(
         storage: ref.read(storageProvider),
@@ -1452,11 +1508,8 @@ class AppController extends Notifier<AppState> {
         udpReflectors: boot.udpReflectors,
         obfs4Psk: boot.obfs4Psk,
         proxy: ref.read(effectiveProxyRoutingProvider),
-        identityPhrase: _pendingIdentityPhrase,
+        identityPhrase: identityPhrase,
       );
-      // One shot: the phrase only matters for the first-run identity
-      // derivation; drop the reference as soon as the boot consumed it.
-      _pendingIdentityPhrase = null;
       ref.read(realStackProvider.notifier).state = stack;
       // Real node is up — clear any pending boot status so the UI follows the
       // real controller's live state, not a stale "connecting…".
@@ -1487,6 +1540,10 @@ class AppController extends Notifier<AppState> {
     final t0 = DateTime.now();
     int ms() => DateTime.now().difference(t0).inMilliseconds;
     devLog(() => 'xVeil[lock]: begin');
+    // A phrase that never reached a node boot (the user finished onboarding
+    // and locked before the stack came up) must not outlive the session that
+    // produced it — the next unlock may be a different identity entirely.
+    takePendingIdentityPhrase();
     await _teardownSession(); // all-online: stop every node + release the lock
     await _teardownRealStack();
     devLog(() => 'xVeil[lock]: node/session torn down (+${ms()}ms)');
