@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/ids.dart';
 import '../data/storage/file_store.dart' show kMaxStoredFileBytes;
+import '../data/storage/materialized_view.dart';
 import '../data/storage/storage.dart';
 import '../domain/chat.dart';
 import '../domain/cloud.dart';
@@ -117,6 +118,31 @@ class GroupCloudSyncPort implements CloudSyncPort {
     unawaited(_changes.close());
   }
 }
+
+/// Publish [value] as the new authoritative copy of the view at [key].
+///
+/// Two alternating slots make replacement crash-safe: every page of the
+/// INACTIVE slot is written first, then its page count, and only then does the
+/// tiny `key.active` pointer flip. That order IS the commit protocol — a crash
+/// before the count leaves a slot the reader cannot open, and a crash before
+/// the flip leaves the previous slot authoritative. Neither can produce a slot
+/// that reads SHORT, which is the one outcome that would look like data rather
+/// than damage.
+///
+/// Throws [StateError] past [kMaterializedViewMaxBytes].
+Future<void> writeMaterializedView(
+  Storage storage,
+  String key,
+  String value,
+) => writeMaterializedViewWith(
+  key: key,
+  value: value,
+  getSetting: storage.getSetting,
+  putSetting: storage.putSetting,
+  storeFile: (fileId, bytes) =>
+      storage.storeFile(fileId, bytes, name: 'cloud-materialized-index'),
+  hasFile: storage.hasFile,
+);
 
 class CloudService {
   CloudService(
@@ -371,23 +397,20 @@ class CloudService {
   /// visibly: the app just forgot, on each restart, everything it had already
   /// caught up with, and `changedElsewhere` answered false for items that had
   /// in fact changed elsewhere.
-  Future<String?> _loadMaterialized(String key, {bool object = false}) async {
-    final active = await _storage.getSetting('$key.active');
-    final slots = active == 'a' || active == 'b'
-        ? [active!, active == 'a' ? 'b' : 'a']
-        : const ['a', 'b'];
-    for (final slot in slots) {
-      final chunked = await _storage.loadFile('$key.$slot');
-      if (chunked != null) {
-        final decoded = utf8.decode(chunked, allowMalformed: true);
-        try {
-          final parsed = jsonDecode(decoded);
-          if (object ? parsed is Map : parsed is List) return decoded;
-        } catch (_) {}
-      }
-    }
-    return null;
-  }
+  Future<String?> _loadMaterialized(String key, {bool object = false}) =>
+      readMaterializedView(
+        key: key,
+        getSetting: _storage.getSetting,
+        loadFile: _storage.loadFile,
+        accept: (decoded) {
+          try {
+            final parsed = jsonDecode(decoded);
+            return object ? parsed is Map : parsed is List;
+          } catch (_) {
+            return false;
+          }
+        },
+      );
 
   /// Cloud indexes are unbounded materialized views, not preferences. A single
   /// hidden-volume setting has a ~4 KiB record cap; once enough historical
@@ -396,26 +419,8 @@ class CloudService {
   /// group bundles. Two alternating slots make replacement crash-safe: fully
   /// publish the inactive blob, then atomically flip a tiny settings pointer.
   /// The previous slot remains a valid fallback if the active blob is missing.
-  Future<void> _saveMaterialized(String key, String value) async {
-    var active = await _storage.getSetting('$key.active');
-    if (active == 'a' || active == 'b') {
-      final other = active == 'a' ? 'b' : 'a';
-      if (!await _storage.hasFile('$key.$active') &&
-          await _storage.hasFile('$key.$other')) {
-        // The pointer survived but its slot did not. Treat the readable
-        // fallback as active so we never overwrite the only valid copy before
-        // publishing a replacement in the missing slot.
-        active = other;
-      }
-    }
-    final next = active == 'a' ? 'b' : 'a';
-    await _storage.storeFile(
-      '$key.$next',
-      Uint8List.fromList(utf8.encode(value)),
-      name: 'cloud-materialized-index',
-    );
-    await _storage.putSetting('$key.active', next);
-  }
+  Future<void> _saveMaterialized(String key, String value) =>
+      writeMaterializedView(_storage, key, value);
 
   Future<void> _saveIndex() => _saveMaterialized(
     _indexSetting,

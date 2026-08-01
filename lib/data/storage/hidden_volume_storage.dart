@@ -17,6 +17,7 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import 'async_kv_log_store.dart';
 import 'file_store.dart';
+import 'materialized_view.dart';
 import 'kv_log_store.dart';
 import 'on_disk_blob_store.dart';
 import 'storage.dart';
@@ -2054,6 +2055,13 @@ class HiddenVolumeStorage implements Storage {
       // into the chunked file-store. Prefer it, but retain the legacy setting
       // fallback so a pre-migration store remains GC-safe on first unlock.
       final fileStore = AsyncFileStore(_as);
+      // Settings are read through the same `set:` prefix the writer uses, so
+      // the shared layout helper sees exactly what CloudService wrote.
+      Future<String?> settingString(String name) async {
+        final raw = await _as.get(Ns.settings, _sk('set:$name'));
+        return raw == null ? null : utf8.decode(raw, allowMalformed: true);
+      }
+
       final activeRaw = await _as.get(
         Ns.settings,
         _sk('set:cloud.index.v1.active'),
@@ -2099,14 +2107,28 @@ class HiddenVolumeStorage implements Storage {
         }
       }
 
+      // Reads through the SHARED layout helper, not by file name. The index is
+      // paged, and a reader that does not know that sees an empty index and
+      // concludes nothing is referenced — with a garbage collector on the other
+      // end of that conclusion.
+      Future<Uint8List?> slotBytes(String slot) async {
+        final decoded = await readMaterializedSlot(
+          key: 'cloud.index.v1',
+          slot: slot,
+          getSetting: settingString,
+          loadFile: fileStore.loadFile,
+        );
+        return decoded == null
+            ? null
+            : Uint8List.fromList(utf8.encode(decoded));
+      }
+
       if (active == 'a' || active == 'b') {
-        final current = await fileStore.loadFile('cloud.index.v1.$active');
+        final current = await slotBytes(active!);
         if (current != null && collect(current)) {
           return (contentIds: live, complete: true);
         }
-        final fallback = await fileStore.loadFile(
-          'cloud.index.v1.${active == 'a' ? 'b' : 'a'}',
-        );
+        final fallback = await slotBytes(active == 'a' ? 'b' : 'a');
         if (fallback != null && collect(fallback)) {
           // The fallback is enough to recover the UI, but not proof that the
           // missing authoritative generation named no additional content. Let
@@ -2122,7 +2144,7 @@ class HiddenVolumeStorage implements Storage {
         // service will publish a fresh generation and repair the pointer.
         var recovered = false;
         for (final slot in const ['a', 'b']) {
-          final bytes = await fileStore.loadFile('cloud.index.v1.$slot');
+          final bytes = await slotBytes(slot);
           if (bytes != null) {
             if (!collect(bytes)) {
               return (contentIds: live, complete: false);
