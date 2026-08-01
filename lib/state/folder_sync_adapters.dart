@@ -90,25 +90,27 @@ class CloudServiceFolderSync implements FolderSyncCloud {
     required String path,
     required String? folderId,
     required String? existingItemId,
-    required Uint8List bytes,
+    required int size,
+    required Future<Uint8List> Function(int offset, int length) readRange,
   }) async {
     final segments = path.split('/');
     final name = segments.removeLast();
     final parent = await _ensureFolderChain(folderId, segments);
-    Future<Uint8List> read(int offset, int length) async =>
-        Uint8List.sublistView(bytes, offset, offset + length);
 
+    // The reader is passed straight through: the cloud has always chunked its
+    // own writes, and the adapter used to defeat that by materialising the
+    // file just to hand back slices of the copy.
     final item = existingItemId == null
         ? await _cloud.importContent(
             name: name,
-            size: bytes.length,
-            readRange: read,
+            size: size,
+            readRange: readRange,
             folderId: parent,
           )
         : await _cloud.replaceContent(
             itemId: existingItemId,
-            size: bytes.length,
-            readRange: read,
+            size: size,
+            readRange: readRange,
           );
     return RemoteFile(
       path: path,
@@ -120,7 +122,7 @@ class CloudServiceFolderSync implements FolderSyncCloud {
   }
 
   @override
-  Future<Uint8List?> download(String itemId) async {
+  Future<RangeSource?> openDownload(String itemId) async {
     final item = (await _cloud.listItems()).where((i) => i.id == itemId);
     if (item.isEmpty) return null;
     final target = item.first;
@@ -128,7 +130,11 @@ class CloudServiceFolderSync implements FolderSyncCloud {
     // let a miss be a miss — the engine simply tries again next pass rather
     // than writing a truncated file.
     if (!await _cloud.ensureLocal(target)) return null;
-    return _cloud.readContentRange(target, 0, target.size);
+    return RangeSource(
+      size: target.size,
+      read: (offset, length) =>
+          _cloud.readContentRange(target, offset, length),
+    );
   }
 
   @override
@@ -205,6 +211,10 @@ class CloudServiceFolderSync implements FolderSyncCloud {
 }
 
 /// [FolderSyncDisk] over the real file system.
+/// Bytes moved per hop when mirroring a file to or from disk. Bounds the peak
+/// at one chunk rather than one file.
+const int kFolderSyncChunkBytes = 256 * 1024;
+
 class LocalFolderSyncDisk implements FolderSyncDisk {
   const LocalFolderSyncDisk();
 
@@ -212,14 +222,38 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
   Future<FolderScan> scan(String root) => scanFolder(Directory(root));
 
   @override
-  Future<Uint8List?> read(String root, String path) async {
+  Future<RangeSource?> openRead(String root, String path) async {
     final resolved = mirrorPathWithin(root, path);
     if (resolved == null) return null;
     final file = File(resolved);
     if (!file.existsSync()) return null;
+    RandomAccessFile? handle;
     try {
-      return await file.readAsBytes();
+      final size = await file.length();
+      handle = await file.open(mode: FileMode.read);
+      final open = handle;
+      return RangeSource(
+        size: size,
+        read: (offset, length) async {
+          try {
+            await open.setPosition(offset);
+            return await open.read(length);
+          } catch (_) {
+            return null;
+          }
+        },
+        close: () async {
+          try {
+            await open.close();
+          } catch (_) {}
+        },
+      );
     } catch (_) {
+      // Opening failed after length() succeeded, or vice versa — release the
+      // handle rather than leak it, and let the pass treat the file as gone.
+      try {
+        await handle?.close();
+      } catch (_) {}
       return null;
     }
   }
@@ -231,7 +265,7 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
   /// faithfully upload the damage over the good copy in the cloud. The rename
   /// is atomic on every platform this runs on.
   @override
-  Future<void> write(String root, String path, Uint8List bytes) async {
+  Future<void> writeFrom(String root, String path, RangeSource source) async {
     final resolved = mirrorPathWithin(root, path);
     if (resolved == null) {
       // Refuse rather than throw: one hostile name must not stop the pass from
@@ -242,8 +276,35 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     final file = File(resolved);
     await file.parent.create(recursive: true);
     final temp = File('${file.path}$kPartialSuffix');
-    await temp.writeAsBytes(bytes, flush: true);
-    await temp.rename(file.path);
+    final sink = await temp.open(mode: FileMode.writeOnly);
+    var written = 0;
+    try {
+      while (written < source.size) {
+        final want = source.size - written;
+        final chunk = await source.read(
+          written,
+          want < kFolderSyncChunkBytes ? want : kFolderSyncChunkBytes,
+        );
+        // The remote copy stopped being readable. Leave the `.part` behind
+        // unrenamed and bail: the real path keeps whatever it had, and the
+        // next pass retries. Renaming a short file would publish a truncated
+        // one that the following scan reads as a deliberate user edit and
+        // faithfully uploads over the good copy.
+        if (chunk == null || chunk.isEmpty) return;
+        await sink.writeFrom(chunk);
+        written += chunk.length;
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+    // Deliberately a second gate: the loop already returns without renaming on
+    // a dead source, but that makes publishing depend on a `return` staying a
+    // `return`. Turn it into a `break` — a plausible refactor — and this is the
+    // only thing left standing between a truncated download and the mirrored
+    // path. Verified by weakening: dropping either alone keeps the tests green,
+    // dropping both turns them red.
+    if (written == source.size) await temp.rename(file.path);
   }
 
   @override

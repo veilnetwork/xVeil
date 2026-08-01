@@ -10,6 +10,34 @@ import 'package:xveil/state/folder_sync_engine.dart';
 
 import 'support/fake_hv_container.dart';
 
+/// A [RangeSource] over bytes the fake already holds.
+RangeSource _sourceOf(Uint8List data) => RangeSource(
+  size: data.length,
+  read: (offset, length) async {
+    if (offset >= data.length) return Uint8List(0);
+    final end = offset + length;
+    return Uint8List.sublistView(
+      data,
+      offset,
+      end > data.length ? data.length : end,
+    );
+  },
+);
+
+/// Walk a range reader to the end — what the real sinks do.
+Future<Uint8List> _drain(
+  int size,
+  Future<Uint8List> Function(int offset, int length) read,
+) async {
+  final out = BytesBuilder(copy: false);
+  while (out.length < size) {
+    final chunk = await read(out.length, size - out.length);
+    if (chunk.isEmpty) break;
+    out.add(chunk);
+  }
+  return out.toBytes();
+}
+
 class _FakeCloud implements FolderSyncCloud {
   final Map<String, RemoteFile> files = {};
   final Map<String, Uint8List> content = {};
@@ -24,7 +52,8 @@ class _FakeCloud implements FolderSyncCloud {
     required String path,
     required String? folderId,
     required String? existingItemId,
-    required Uint8List bytes,
+    required int size,
+    required Future<Uint8List> Function(int offset, int length) readRange,
   }) async {
     calls.add('upload:$path:${existingItemId ?? "new"}');
     final failure = failNextUpload;
@@ -32,6 +61,10 @@ class _FakeCloud implements FolderSyncCloud {
       failNextUpload = null;
       throw failure;
     }
+    // Pull through the range reader exactly as the real cloud does, so the
+    // fake exercises the engine's streaming contract instead of a byte path
+    // that no longer exists.
+    final bytes = await _drain(size, readRange);
     final id = existingItemId ?? 'item-$path';
     final stored = RemoteFile(
       path: path,
@@ -46,9 +79,11 @@ class _FakeCloud implements FolderSyncCloud {
   }
 
   @override
-  Future<Uint8List?> download(String itemId) async {
+  Future<RangeSource?> openDownload(String itemId) async {
     calls.add('download:$itemId');
-    return content[itemId];
+    final bytes = content[itemId];
+    if (bytes == null) return null;
+    return _sourceOf(bytes);
   }
 
   @override
@@ -108,14 +143,16 @@ class _FakeDisk implements FolderSyncDisk {
   );
 
   @override
-  Future<Uint8List?> read(String root, String path) async {
+  Future<RangeSource?> openRead(String root, String path) async {
     final body = files[path];
-    return body == null ? null : Uint8List.fromList(utf8.encode(body));
+    if (body == null) return null;
+    return _sourceOf(Uint8List.fromList(utf8.encode(body)));
   }
 
   @override
-  Future<void> write(String root, String path, Uint8List bytes) async {
+  Future<void> writeFrom(String root, String path, RangeSource source) async {
     calls.add('write:$path');
+    final bytes = await _drain(source.size, (o, l) async => (await source.read(o, l))!);
     files[path] = utf8.decode(bytes);
   }
 
