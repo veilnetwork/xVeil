@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dartssh2/dartssh2.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 /// How to authenticate an SSH connection. The secret is held only for the
 /// duration of one call — it is NOT persisted (a leaked node registry must never
@@ -24,12 +25,21 @@ class SshAuth {
   final String? passphrase;
 }
 
+/// Per-stream ceiling on what one `sshRun` will hold in memory.
+///
+/// The host key is pinned, but a pin says the box is the one we saw before —
+/// not that it is still honest. A compromised box can stream for the whole
+/// timeout window, and an unbounded fold turns that into the app's memory
+/// (audit XV-17). 1 MiB is far past any provisioning command's real output.
+const int kSshMaxStreamBytes = 1024 * 1024;
+
 class SshResult {
   const SshResult({
     required this.stdout,
     required this.stderr,
     required this.exitCode,
     required this.hostFingerprint,
+    this.truncated = false,
   });
   final String stdout;
   final String stderr;
@@ -40,6 +50,13 @@ class SshResult {
   /// [sshRun]'s `expectedHostFingerprint` on later connects, and/or shows it to
   /// the user to verify out-of-band.
   final String hostFingerprint;
+
+  /// The server sent more than [kSshMaxStreamBytes] on a stream and the rest
+  /// was dropped. Reported rather than hidden: a caller that parses the output
+  /// is looking at a prefix, and a command that "succeeded" with truncated
+  /// output has not necessarily done what its output claims.
+  final bool truncated;
+
   bool get ok => exitCode == 0;
 }
 
@@ -158,17 +175,23 @@ Future<SshResult> sshRun({
       },
     );
     final session = await client.execute(command);
-    final outF = session.stdout
-        .fold<BytesBuilder>(BytesBuilder(), (b, d) => b..add(d));
-    final errF = session.stderr
-        .fold<BytesBuilder>(BytesBuilder(), (b, d) => b..add(d));
-    final collected = await Future.wait([outF, errF]).timeout(timeout);
+    // Bounded, not folded: an unbounded fold lets a compromised host stream
+    // for the whole timeout window and land it all in our heap. Past the cap
+    // we stop keeping bytes AND close the session, so the peer stops sending
+    // rather than being read and discarded for another 30 seconds.
+    final out = SshBoundedSink(() => session.close());
+    final err = SshBoundedSink(() => session.close());
+    await Future.wait([
+      session.stdout.forEach(out.add),
+      session.stderr.forEach(err.add),
+    ]).timeout(timeout);
     await session.done.timeout(timeout);
     return SshResult(
-      stdout: utf8.decode(collected[0].takeBytes(), allowMalformed: true),
-      stderr: utf8.decode(collected[1].takeBytes(), allowMalformed: true),
+      stdout: out.text(),
+      stderr: err.text(),
       exitCode: session.exitCode,
       hostFingerprint: observedFingerprint,
+      truncated: out.truncated || err.truncated,
     );
   } on SshException {
     rethrow;
@@ -188,4 +211,37 @@ Future<SshResult> sshRun({
   } finally {
     client?.close();
   }
+}
+
+
+/// Accumulates at most [kSshMaxStreamBytes], then stops and tells the caller.
+///
+/// Kept as a class rather than a fold so the overflow can do two things at
+/// once: stop growing, and hang up. Dropping bytes while still reading would
+/// leave the sender free to keep the connection busy for the full timeout.
+@visibleForTesting
+class SshBoundedSink {
+  SshBoundedSink(this._onOverflow);
+
+  final void Function() _onOverflow;
+  final BytesBuilder _buf = BytesBuilder();
+  bool truncated = false;
+
+  void add(List<int> data) {
+    if (truncated) return;
+    final room = kSshMaxStreamBytes - _buf.length;
+    if (data.length < room) {
+      _buf.add(data);
+      return;
+    }
+    _buf.add(data.sublist(0, room));
+    truncated = true;
+    // Best-effort: the result we already have is what the caller gets, and a
+    // throw from the hang-up would replace it with a less useful failure.
+    try {
+      _onOverflow();
+    } catch (_) {}
+  }
+
+  String text() => utf8.decode(_buf.takeBytes(), allowMalformed: true);
 }

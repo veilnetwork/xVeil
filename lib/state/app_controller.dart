@@ -27,6 +27,8 @@ import 'identity_scoped_prefs.dart';
 import 'notifications.dart';
 import 'providers.dart';
 import 'storage_preferences.dart';
+import 'vpn_controller.dart';
+import 'whisper_model_controller.dart';
 import 'package:xveil/core/log.dart';
 
 /// Top-level lifecycle of the app, used by the router to gate screens.
@@ -1593,6 +1595,32 @@ class AppController extends Notifier<AppState> {
     }
   }
 
+
+  /// Bring down the OS-level VPN tunnel.
+  ///
+  /// The tunnel lives in the operating system, not in this process, so it
+  /// survives a lock and a wipe on its own. Leaving it up after either is the
+  /// opposite of what the user asked for: traffic keeps flowing through the
+  /// configured exit, and on a locked device the tunnel itself is a visible
+  /// statement that this machine is running xVeil (audit XV-15).
+  ///
+  /// Best-effort and always before the node teardown — a tunnel pointed at a
+  /// node that has just gone away is worse than one shut down cleanly.
+  Future<void> _stopVpnTunnel() async {
+    try {
+      await ref
+          .read(vpnControllerProvider.notifier)
+          .stop()
+          // Bounded: the tunnel lives behind a platform channel, and a wipe
+          // that hangs because the VPN plugin is unresponsive is worse than
+          // one that leaves the tunnel up — the user asked for their data
+          // gone, and that part does not depend on the OS answering.
+          .timeout(const Duration(seconds: 3));
+    } catch (e) {
+      devLog(() => 'xVeil[vpn]: stop during lock/wipe failed: $e');
+    }
+  }
+
   Future<void> lock() async {
     // Timestamped phases: a lock that takes seconds points at whichever step
     // stalled (a busy storage worker on close is the prime suspect for the
@@ -1600,6 +1628,7 @@ class AppController extends Notifier<AppState> {
     final t0 = DateTime.now();
     int ms() => DateTime.now().difference(t0).inMilliseconds;
     devLog(() => 'xVeil[lock]: begin');
+    await _stopVpnTunnel();
     // A phrase that never reached a node boot (the user finished onboarding
     // and locked before the stack came up) must not outlive the session that
     // produced it — the next unlock may be a different identity entirely.
@@ -1727,6 +1756,7 @@ class AppController extends Notifier<AppState> {
   /// existing container file is left untouched on disk — deniability means we
   /// can't and shouldn't prove it exists; the user simply sets up anew.
   Future<void> startOver() async {
+    await _stopVpnTunnel();
     await _teardownSession();
     await _teardownRealStack();
     await _stopBackgroundService();
@@ -1756,6 +1786,7 @@ class AppController extends Notifier<AppState> {
   /// spaces are unrecoverable without the container. The UI must gate this
   /// behind an explicit, clearly-worded confirmation.
   Future<void> wipeContainers() async {
+    await _stopVpnTunnel();
     await _teardownSession();
     await _teardownRealStack();
     await _stopBackgroundService();
@@ -1798,6 +1829,28 @@ class AppController extends Notifier<AppState> {
     // disk, in plaintext, readable without opening anything.
     for (final key in kIdentityPosturePrefKeys) {
       await prefs.remove(identityScopedPrefKey(key));
+    }
+    // The speech model too, on THIS path only. It is ~57 MiB fetched from a
+    // public CDN, so its presence on disk says the user enabled voice
+    // transcription and roughly when — a fact about how they used the app that
+    // survives a wipe of everything the app itself stored. Re-downloadable, so
+    // nothing is lost that cannot be got back.
+    //
+    // NOT removed by `startOver`: that is the forgot-my-password escape hatch,
+    // which deliberately leaves the container in place, and taking a 57 MiB
+    // download away from someone who mistyped a password would be a surprise
+    // rather than a wipe.
+    try {
+      // Bounded for the same reason as the tunnel: resolving the support
+      // directory goes through a platform channel, and a wipe that hangs on an
+      // unresponsive plugin is worse than one that leaves a re-downloadable
+      // file behind.
+      await ref
+          .read(whisperModelStoreProvider)
+          .remove()
+          .timeout(const Duration(seconds: 3));
+    } catch (e) {
+      devLog(() => 'xVeil[wipe]: failed to remove the speech model: $e');
     }
     state = const AppState(AppPhase.onboarding);
   }
