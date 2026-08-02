@@ -18,6 +18,19 @@ class _MessagingOutbox {
   _liveBackoff = {};
 
   final Set<String> _seenFrames = {};
+
+  /// Frames whose live leg has gone out but whose durable row is not written
+  /// yet, and the subset of those the peer already acknowledged.
+  ///
+  /// `startLiveBeforeEnqueue` sends before persisting on purpose — call control
+  /// must not queue behind a slow encrypted store. That opens a window: an ACK
+  /// arriving inside it retires a frame whose row does not exist, the retire
+  /// finds nothing to delete, and the enqueue right after creates a row for a
+  /// frame that was already confirmed. Nothing ever retires it again, so it
+  /// re-drives on every outbox cycle for the life of the session (audit
+  /// XV-19).
+  final Set<String> _sendingUnpersisted = {};
+  final Set<String> _ackedWhileUnpersisted = {};
   final Map<String, Timer> _fastCallRetryTimers = {};
 
   static const _seenFramesCap = 4096;
@@ -132,8 +145,12 @@ class _MessagingOutbox {
     // Call/P2P control must not wait behind a slow encrypted-store operation.
     // The live leg gets a bounded scheduling head start, while persistence is
     // still authoritative and always completes before this method returns.
+    final unpersistedKey = _key(peer.hex, frameId);
     final earlyLive = startLiveBeforeEnqueue ? tryLive() : null;
     if (earlyLive != null) {
+      // From here until the row exists, an ACK has nothing to delete. Mark the
+      // window so `retire` can tell us, rather than losing the fact.
+      _sendingUnpersisted.add(unpersistedKey);
       await Future.any<void>([
         earlyLive,
         Future<void>.delayed(const Duration(milliseconds: 100)),
@@ -145,6 +162,17 @@ class _MessagingOutbox {
       peer.hex,
       callSignal: frameId.startsWith('call:') || frameId.startsWith('gcall:'),
     );
+    if (earlyLive != null) {
+      _sendingUnpersisted.remove(unpersistedKey);
+      if (_ackedWhileUnpersisted.remove(unpersistedKey)) {
+        // Confirmed while we were still writing it. Retire the row we have
+        // just created — persisting first instead would put the encrypted
+        // store back in front of call setup, which is the latency this flag
+        // exists to avoid.
+        retire(peer.hex, frameId);
+        return;
+      }
+    }
     if (earlyLive != null) {
       if (awaitLive) await earlyLive;
     } else if (awaitLive) {
@@ -393,6 +421,13 @@ class _MessagingOutbox {
   /// guessed the frameId could ACK it and retire a frame addressed to someone
   /// else, suppressing that delivery entirely (audit XV-02).
   void retire(String peerHex, String frameId) {
+    final key = _key(peerHex, frameId);
+    if (_sendingUnpersisted.contains(key)) {
+      // The row is still being written. Remember the ACK so the sender retires
+      // it the moment it exists — otherwise this call deletes nothing and the
+      // frame is left pending forever.
+      _ackedWhileUnpersisted.add(key);
+    }
     _fastCallRetryTimers.remove(frameId)?.cancel();
     _owner._mailboxDelivery.removeStashed(frameId);
     _liveBackoff.remove(_key(peerHex, frameId));

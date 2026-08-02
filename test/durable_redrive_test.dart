@@ -407,6 +407,52 @@ void main() {
           reason: "C's ack (sent from the accept arm) retired the frame");
     });
 
+    test('an ACK that beats the durable write does not leave a pending frame',
+        () async {
+      // `startLiveBeforeEnqueue` sends before persisting on purpose: call
+      // control must not queue behind a slow encrypted store. That opens a
+      // window — an ACK arriving inside it retires a frame whose row does not
+      // exist yet, finds nothing to delete, and then the enqueue creates a row
+      // for a frame the peer has already confirmed. Nothing retires it again,
+      // so it re-drives every outbox cycle for the life of the session
+      // (audit XV-19).
+      //
+      // Its own service pair, because the whole point is a storage whose write
+      // loses the race to the peer's ACK.
+      final slowA = _SlowEnqueueStorage(_memOpener());
+      await slowA.open(password: 'slow-a', createIfMissing: true);
+      final tSlowA = _Link(a);
+      final tSlowB = _Link(b);
+      tSlowA.peer = tSlowB;
+      tSlowB.peer = tSlowA;
+      final sSlowB = HiddenVolumeStorage(_memOpener());
+      await sSlowB.open(password: 'slow-b', createIfMissing: true);
+      final mSlowA = MessagingService(tSlowA, slowA, now: () => clock)..start();
+      final mSlowB = MessagingService(tSlowB, sSlowB, now: () => clock)..start();
+      addTearDown(mSlowA.dispose);
+      addTearDown(mSlowB.dispose);
+      await mSlowA.sendRequest(b, '');
+      await _settle();
+      await mSlowB.acceptContact(a);
+      await _settle();
+
+      // From here the enqueue takes long enough for B's ACK to get in first.
+      slowA.delayEnqueue = true;
+      await mSlowA.sendCallSignal(
+        b,
+        const CallSignal(callId: 'race', type: CallSignalType.offer),
+      );
+      await _settle();
+      await _settle();
+
+      expect(
+        await slowA.pendingOutboxFrames(),
+        isEmpty,
+        reason: 'a frame the peer already confirmed must not stay pending — '
+            'nothing would ever retire it again',
+      );
+    });
+
     test('call health heartbeat is live-only and never enters durable outbox',
         () async {
       tA.online = false;
@@ -759,4 +805,28 @@ void main() {
           reason: 'nothing was delivered — the frame was retired locally');
     });
   });
+}
+
+
+/// Makes the durable write lose the race to the peer's ACK.
+///
+/// The XV-19 window is real but narrow — an encrypted store that happens to be
+/// slower than a round trip. Widening it deliberately is the only way to test
+/// the ordering rather than the machine it runs on.
+class _SlowEnqueueStorage extends HiddenVolumeStorage {
+  _SlowEnqueueStorage(super.opener);
+
+  bool delayEnqueue = false;
+
+  @override
+  Future<void> enqueueOutboxFrame(
+    String frameId,
+    String peerHex,
+    Uint8List wire,
+  ) async {
+    if (delayEnqueue) {
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    }
+    return super.enqueueOutboxFrame(frameId, peerHex, wire);
+  }
 }
