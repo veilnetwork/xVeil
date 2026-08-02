@@ -1,3 +1,4 @@
+import 'dart:io';
 import '../data/serve_source.dart';
 // Clean public param names are worth more than initializing-formal terseness
 // for this small orchestration constructor.
@@ -168,6 +169,8 @@ class MultiIdentitySession {
     this._backing, {
     required String runtimeDirBase,
     required int listenPortBase,
+    Directory? blobRoot,
+    Duration bootTimeout = _defaultBootTimeout,
     List<BootstrapPeerCfg> bootstrapPeers = const [],
     String? obfs4Psk,
     List<String> udpReflectors = const [],
@@ -176,6 +179,8 @@ class MultiIdentitySession {
     IdentityNodeBoot boot = _realBoot,
   }) : _runtimeDirBase = runtimeDirBase,
        _listenPortBase = listenPortBase,
+       _blobRoot = blobRoot,
+       _bootTimeout = bootTimeout,
        _bootstrapPeers = bootstrapPeers,
        _obfs4Psk = obfs4Psk,
        _udpReflectors = udpReflectors,
@@ -184,6 +189,21 @@ class MultiIdentitySession {
        _boot = boot;
 
   final AsyncMultiSpaceBacking _backing;
+
+  /// The shared large-file tier, or null when this build has none.
+  ///
+  /// All-online storages were built WITHOUT it (audit XV-02): only the
+  /// single-space boot ever called `useOnDiskTier`, so switching modes made
+  /// already-stored large files read as missing, and new ones fell back into
+  /// the volume index — whose ceiling the code itself warns about.
+  ///
+  /// Every space gets the SAME directory, deliberately. A directory per space
+  /// would publish how many hidden spaces the container holds, right next to
+  /// it — the fingerprint class hidden-volume removed from the cleartext header
+  /// in v3. Ownership is resolved inside each space instead: `eraseSpace`
+  /// deletes only the blob names its own volume names (XV-01).
+  final Directory? _blobRoot;
+
   final String _runtimeDirBase;
   final int _listenPortBase;
   final List<BootstrapPeerCfg> _bootstrapPeers;
@@ -200,7 +220,10 @@ class MultiIdentitySession {
   /// Per-identity node-boot ceiling (mining a fresh identity can take a few
   /// seconds; the deferred admin-connect retries up to ~90s, so cap well under
   /// that to fail fast on a stuck bind).
-  static const _bootTimeout = Duration(seconds: 45);
+  /// Per-identity node-boot ceiling. Overridable so a test can exercise the
+  /// LATE-arrival path without waiting three quarters of a minute for it.
+  static const _defaultBootTimeout = Duration(seconds: 45);
+  final Duration _bootTimeout;
 
   final _storages = <String, Storage>{};
   final _nodes = <String, IdentityNode>{};
@@ -233,12 +256,46 @@ class MultiIdentitySession {
       final storage = HiddenVolumeStorage.fromAsyncStore(
         AsyncMultiSpaceKvLogStore(_backing, spec.spaceId),
       );
+      // Same tier the single-space boot uses — without it this identity cannot
+      // read the large files it already stored (XV-02).
+      final blobRoot = _blobRoot;
+      if (blobRoot != null) storage.useOnDiskTier(blobRoot);
       _storages[spec.label] = storage;
       try {
         // Bound the boot: a node that can't bind its port (e.g. one just freed
         // by a previous mode) otherwise retries the admin-connect for ~90s and
         // would hang the whole unlock. On timeout we skip it (best-effort).
-        final node = await _boot(spec, storage).timeout(_bootTimeout);
+        //
+        // `Future.timeout` abandons the WAIT, not the WORK (audit XV-05): the
+        // boot keeps running, and a node that finishes late used to land
+        // nowhere — not in `_nodes`, so `disposeAll` never stopped it. It kept
+        // its port, its sockets and its network presence for the life of the
+        // process, invisible to the only code that could shut it down.
+        //
+        // The boot future is therefore tracked, and a late arrival is stopped
+        // rather than dropped. The `whenComplete` runs on the ORIGINAL future,
+        // so it fires for the late case too.
+        final booting = _boot(spec, storage);
+        final IdentityNode node;
+        try {
+          node = await booting.timeout(_bootTimeout);
+        } on TimeoutException {
+          // The boot is still running and we are no longer waiting for it.
+          // Attach the reaper HERE, not before the await: registered up front
+          // it fires ahead of the success continuation and disposes a node we
+          // actually wanted.
+          unawaited(
+            booting.then(
+              (stranded) async {
+                try {
+                  await stranded.dispose();
+                } catch (_) {}
+              },
+              onError: (_) {},
+            ),
+          );
+          rethrow;
+        }
         _nodes[spec.label] = node;
         _messaging[spec.label] =
             MessagingService(

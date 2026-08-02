@@ -318,7 +318,12 @@ void main() {
     );
   });
 
-  test('eraseSpace removes the whole on-disk tier directory', () async {
+  test('eraseSpace removes THIS space\'s on-disk blobs', () async {
+    // This used to assert that the whole DIRECTORY went, which is what made
+    // XV-01 possible: the directory is shared by every space of the container,
+    // so "erase everything under it" destroyed other identities' files. What
+    // must be gone is this space's own ciphertext — an erased identity may not
+    // leave size-shaped traces of ITS files — and no more than that.
     final s = HiddenVolumeStorage(_mem());
     await s.open(password: 'p', createIfMissing: true);
     s.useOnDiskTier(blobDir, minBytes: 1000);
@@ -328,9 +333,60 @@ void main() {
     await s.eraseSpace();
 
     expect(
-      await blobDir.exists(),
-      isFalse,
+      blobDir.listSync(recursive: true).whereType<File>(),
+      isEmpty,
       reason: 'an erased identity must not leave size-shaped blob traces',
     );
   });
+
+  test(
+    'erasing one space leaves another space\'s blobs intact',
+    () async {
+      // Audit XV-01. Every space of a container shares ONE blob directory, and
+      // `eraseSpace` finished with `deleteAll()` — so erasing identity A
+      // destroyed the large-file ciphertext of identities B and C, whose own
+      // metadata still pointed at files that no longer existed. Irreversible,
+      // and silent until someone opened an old attachment.
+      //
+      // (Giving each space its own directory would fix it and publish how many
+      // hidden spaces the container holds, right beside it — the fingerprint
+      // class hidden-volume removed from the cleartext header in v3. Ownership
+      // is resolved inside the space instead.)
+      Future<HiddenVolumeStorage> openSpace(String pw) async {
+        final s = HiddenVolumeStorage(_mem());
+        await s.open(password: pw, createIfMissing: true);
+        s.useOnDiskTier(blobDir, minBytes: 100);
+        return s;
+      }
+
+      Future<void> storeBig(HiddenVolumeStorage s, String id) async {
+        final bytes = Uint8List.fromList(List.generate(400, (i) => i % 251));
+        await s.storeFilePiece(id, 0, 1, 400, 400, bytes, name: '$id.bin');
+      }
+
+      final a = await openSpace('space-a');
+      await storeBig(a, 'a-file');
+      final b = await openSpace('space-b');
+      await storeBig(b, 'b-file');
+
+      expect(await a.loadFile('a-file'), isNotNull, reason: 'precondition');
+      expect(await b.loadFile('b-file'), isNotNull, reason: 'precondition');
+      final blobsBefore = blobDir.listSync().length;
+      expect(blobsBefore, greaterThanOrEqualTo(2));
+
+      await a.eraseSpace();
+
+      // A is gone...
+      expect(await a.loadFile('a-file'), isNull);
+      // ...and B still reads. This is the assertion the old code failed.
+      expect(
+        await b.loadFile('b-file'),
+        isNotNull,
+        reason: "erasing one identity must not destroy another's large files",
+      );
+      // The erased space took its own ciphertext with it — leaving it would be
+      // the XV-11 shape (unreadable is not absent).
+      expect(blobDir.listSync().length, lessThan(blobsBefore));
+    },
+  );
 }
