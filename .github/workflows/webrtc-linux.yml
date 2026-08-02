@@ -44,7 +44,7 @@ jobs:
     # well under one; the rest is ninja on four cores.
     timeout-minutes: 350
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
@@ -60,12 +60,22 @@ jobs:
           sudo apt-get clean
           echo "after:"; df -h / | tail -1
 
+      # PINNED (audit X-08). depot_tools ships auto-updating build tooling that
+      # runs with full permissions in this job; `--depth 1` off HEAD meant every
+      # run executed whatever was pushed to `main` that day, and a compromise
+      # upstream would land straight in the artifacts we publish. Bump the SHA
+      # deliberately, the same way the WebRTC commit below is bumped.
       - name: depot_tools
         run: |
           set -euo pipefail
-          git clone --depth 1 \
+          DEPOT_TOOLS_COMMIT=e154c8eda5e63cbe85a765ae9d06e2b7af05139e
+          git clone --filter=blob:none \
             https://chromium.googlesource.com/chromium/tools/depot_tools.git \
             "$HOME/depot_tools"
+          git -C "$HOME/depot_tools" checkout --detach "$DEPOT_TOOLS_COMMIT"
+          # depot_tools self-updates on first use unless told not to, which
+          # would undo the pin a moment after we set it.
+          echo "DEPOT_TOOLS_UPDATE=0" >> "$GITHUB_ENV"
           echo "$HOME/depot_tools" >> "$GITHUB_PATH"
 
       # Full history, not a shallow fetch: the pin has to be checked out by
@@ -123,7 +133,7 @@ jobs:
       - name: Every symbol Dart looks up is exported
         run: bash scripts/check-media-symbols.sh third_party/veil/flutter/veil_media/linux/libveil_media.so
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: libveil_media-linux-x64
           path: third_party/veil/flutter/veil_media/linux/libveil_media.so
@@ -139,7 +149,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
@@ -152,12 +162,22 @@ jobs:
           sudo apt-get clean
           echo "after:"; df -h / | tail -1
 
+      # PINNED (audit X-08). depot_tools ships auto-updating build tooling that
+      # runs with full permissions in this job; `--depth 1` off HEAD meant every
+      # run executed whatever was pushed to `main` that day, and a compromise
+      # upstream would land straight in the artifacts we publish. Bump the SHA
+      # deliberately, the same way the WebRTC commit below is bumped.
       - name: depot_tools
         run: |
           set -euo pipefail
-          git clone --depth 1 \
+          DEPOT_TOOLS_COMMIT=e154c8eda5e63cbe85a765ae9d06e2b7af05139e
+          git clone --filter=blob:none \
             https://chromium.googlesource.com/chromium/tools/depot_tools.git \
             "$HOME/depot_tools"
+          git -C "$HOME/depot_tools" checkout --detach "$DEPOT_TOOLS_COMMIT"
+          # depot_tools self-updates on first use unless told not to, which
+          # would undo the pin a moment after we set it.
+          echo "DEPOT_TOOLS_UPDATE=0" >> "$GITHUB_ENV"
           echo "$HOME/depot_tools" >> "$GITHUB_PATH"
 
       # target_os=android has to be in .gclient BEFORE the sync, or the NDK and
@@ -213,7 +233,7 @@ jobs:
       - name: Every symbol Dart looks up is exported
         run: bash scripts/check-media-symbols.sh "$GITHUB_WORKSPACE/engine-out/libveil_media.so"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: libveil_media-android-arm64
           path: engine-out/libveil_media.so
