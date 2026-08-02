@@ -55,4 +55,36 @@ void main() {
       expect(soakKeyMatches(key, '01b2c3d4'), isFalse);
     });
   });
+
+  group('the request log line', () {
+    test('the soak key never reaches the log', () {
+      // Audit XV-15. This line ran BEFORE the gate and printed the whole URI —
+      // including the `?k=` the gate accepts — so the per-run key landed in the
+      // dev-log ring, which the hook itself serves over `/dev_log`. The secret
+      // leaked through the diagnostic channel it was meant to protect.
+      final uri = Uri.parse('/unlock?k=deadbeefcafe&password=hunter2');
+      final line = redactSoakKey(uri);
+      expect(line, isNot(contains('deadbeefcafe')));
+      expect(line, contains('REDACTED'));
+      // Everything else still readable — a log that hides the request is not a
+      // diagnostic.
+      expect(line, contains('/unlock'));
+      expect(line, contains('hunter2'));
+    });
+
+    test('a partial key is not good enough', () {
+      // Whole-value replacement, not a prefix trim: half a key in a log is
+      // still half a key.
+      const key = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+      final line = redactSoakKey(Uri.parse('/health?k=$key'));
+      for (var i = 8; i <= key.length; i += 8) {
+        expect(line, isNot(contains(key.substring(0, i))));
+      }
+    });
+
+    test('a URI with no key is passed through untouched', () {
+      final uri = Uri.parse('/health?limit=5');
+      expect(redactSoakKey(uri), uri.toString());
+    });
+  });
 }

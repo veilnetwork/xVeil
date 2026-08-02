@@ -24,6 +24,7 @@ import 'data/storage/async_kv_log_store.dart';
 import 'data/storage/hidden_volume_storage.dart';
 import 'data/storage/hv_kv_log_store.dart';
 import 'data/storage/hv_native.dart';
+import 'data/storage/on_disk_blob_store.dart';
 import 'data/transport/veil_native.dart';
 import 'data/veil_stack.dart';
 import 'debug/soak_hook.dart';
@@ -252,7 +253,7 @@ Future<BootstrapResult> _bootstrapOverrides() async {
           // volume). Alongside the container so a separate store (dev override)
           // gets its own. Capability only — a large file is stored on disk only
           // when the per-identity policy opts in (the receiver gates download).
-          storage.useOnDiskTier(Directory('${File(path).parent.path}/blobs'));
+          storage.useOnDiskTier(blobRootFor(path));
           ref.onDispose(storage.close);
           return storage;
         }),
@@ -335,14 +336,17 @@ Future<BootstrapResult> _bootstrapOverrides() async {
     } else {
       runtimeBase = Directory.systemTemp.path;
     }
-    final runtimeDir =
-        Platform.environment['XVEIL_RUNTIME_DIR'] ??
-        '$runtimeBase/xveil-rt-$pid';
-    // Claim it now, while we still know we are the ones setting it up. Teardown
-    // removes this directory RECURSIVELY and refuses to touch anything without
-    // the marker, so the claim has to happen here rather than lazily — a base
-    // that was never claimed simply survives lock, which is the safe outcome.
-    await markRuntimeDirOwned(runtimeDir);
+    // `XVEIL_RUNTIME_DIR` names a BASE we may create under — never a directory
+    // we may own. Teardown removes the claimed directory RECURSIVELY, and the
+    // first version of this claimed the operator's path itself: aimed at a
+    // directory that already held data, the marker we wrote became the evidence
+    // that it was ours to delete (audit XV-09). We now create a fresh child and
+    // own only that, so a recursive delete can never reach anything that was
+    // there before us.
+    final runtimeDir = await claimRuntimeDirUnder(
+      Platform.environment['XVEIL_RUNTIME_DIR'] ?? runtimeBase,
+      uniqueSuffix: '$pid',
+    );
     // The soak hook is default-OFF now; say so once, or a stand polling a port
     // that answers nothing reads as a node that failed to bootstrap.
     final hookNote = debugHookDisabledExplanation();
@@ -351,7 +355,12 @@ Future<BootstrapResult> _bootstrapOverrides() async {
     // the graceful teardown that would remove these): one xveil-rt-<pid> dir
     // per launch, each holding the node's veil-deferred working dir with a
     // ~1.5 MB outbox.db — hundreds of launches quietly cost ~100 MB.
-    unawaited(_sweepStaleRuntimeDirs(runtimeBase));
+    // Sweep the base we actually claimed under, not the platform default — an
+    // operator who set XVEIL_RUNTIME_DIR gets their leftovers reaped too, and
+    // the default path is unchanged when they did not.
+    unawaited(
+      _sweepStaleRuntimeDirs(File(runtimeDir).parent.path),
+    );
     final port =
         int.tryParse(Platform.environment['XVEIL_LISTEN_PORT'] ?? '') ??
         AppProfiles.listenPort(
