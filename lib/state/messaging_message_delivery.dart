@@ -171,8 +171,8 @@ class _MessagingMessageDelivery {
     final reconnectFrameId = 'reconnect:${peer.hex}';
     if (!anyTrying) {
       if (_lastReconnectAt.remove(peer.hex) != null ||
-          _owner._outbox.hasLiveEntry(reconnectFrameId)) {
-        _owner._retireOutboxFrame(reconnectFrameId);
+          _owner._outbox.hasLiveEntry(peer.hex, reconnectFrameId)) {
+        _owner._retireOutboxFrame(peer.hex, reconnectFrameId);
       }
       return;
     }

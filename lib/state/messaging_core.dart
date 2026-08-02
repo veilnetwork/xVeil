@@ -1101,7 +1101,8 @@ class MessagingService {
   /// re-stashing it, and drop it from the persistent outbox. [ackOutboxFrame]
   /// is a no-op for an id that is not in the outbox, so this is safe to call
   /// with an ordinary message id too.
-  void _retireOutboxFrame(String frameId) => _outbox.retire(frameId);
+  void _retireOutboxFrame(String peerHex, String frameId) =>
+      _outbox.retire(peerHex, frameId);
 
   // ── Opt-in authorship attestation ─────────────────────────────────────────
 
