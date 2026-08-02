@@ -15,6 +15,7 @@ import '../data/native_libs.dart';
 import '../core/ids.dart';
 import '../data/node/node_controller.dart';
 import '../data/node/proxy_routing.dart';
+import '../data/storage/on_disk_blob_store.dart';
 import '../data/veil_stack.dart';
 import '../domain/identity.dart';
 import '../domain/p2p_policy.dart';
@@ -22,6 +23,7 @@ import '../domain/roster.dart';
 import 'background_node_controller.dart';
 import 'keep_all_online_controller.dart';
 import 'proxy_routing_controller.dart';
+import 'notifications.dart';
 import 'providers.dart';
 import 'storage_preferences.dart';
 import 'package:xveil/core/log.dart';
@@ -1583,6 +1585,18 @@ class AppController extends Notifier<AppState> {
     // and locked before the stack came up) must not outlive the session that
     // produced it — the next unlock may be a different identity entirely.
     takePendingIdentityPhrase();
+    // Posted alerts and their payloads outlive a lock otherwise (audit XV-03):
+    // `cancelAll` only ran on RESUME, so locking left the shade holding
+    // notifications for a session that is over — and, before the opaque-token
+    // change, their conversation ids with them. Cancel first, then drop the
+    // token map: a token that resolved after lock would point at a chat this
+    // process can no longer open.
+    try {
+      await ref.read(notificationServiceProvider).cancelAll();
+    } catch (_) {
+      // A notification backend that is not up cannot be holding anything.
+    }
+    ref.read(opaqueNotificationPayloadsProvider).clear();
     await _teardownSession(); // all-online: stop every node + release the lock
     await _teardownRealStack();
     devLog(() => 'xVeil[lock]: node/session torn down (+${ms()}ms)');
@@ -1702,6 +1716,19 @@ class AppController extends Notifier<AppState> {
         if (await f.exists()) await f.delete();
       } catch (e) {
         devLog(() => 'xVeil[wipe]: failed to delete container at $path: $e');
+      }
+      // The large-file tier lives BESIDE the container, not inside it, so
+      // deleting the container left the whole blob directory standing (audit
+      // XV-11). The ciphertext is unreadable once the keys go with the volume,
+      // but "unreadable" is not "absent": the file count, the sizes and the
+      // directory's very existence still say that this machine ran xVeil and
+      // roughly how much was stored. A wipe that leaves a shaped artifact
+      // behind is not the wipe the confirmation dialog promised.
+      final blobRoot = blobRootFor(path);
+      try {
+        if (await blobRoot.exists()) await blobRoot.delete(recursive: true);
+      } catch (e) {
+        devLog(() => 'xVeil[wipe]: failed to delete blobs at ${blobRoot.path}: $e');
       }
     }
 
