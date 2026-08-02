@@ -35,3 +35,25 @@ import '../main.dart' show activeProfile;
 /// behaviour: a decoy should not begin life wearing the real profile's posture.
 String identityScopedPrefKey(String key) =>
     AppProfiles.scopedPrefKey(key, activeProfile);
+
+/// Every profile-scoped posture key, for the paths that must clear them.
+///
+/// A wipe used to remove only `onboarded` and `storage_mode` (audit XV-15), so
+/// "clear all data" left the proxy exit, the VPN app list, CIDR and DNS, the
+/// notification preview mode and the always-online choice sitting in the
+/// preference store in plaintext. Someone who wiped because they had to still
+/// had their network posture on disk, readable without a container.
+///
+/// A list rather than a prefix sweep: `shared_preferences` holds plenty that is
+/// not ours to delete, and a wipe that guesses is a wipe that eventually
+/// removes someone else's key. Adding a posture setting means adding it here,
+/// which is the point — the compiler cannot notice, so the list has to be the
+/// obvious place to look.
+const kIdentityPosturePrefKeys = <String>[
+  'proxy_routing',
+  'vpn_routing_policy',
+  'keep_all_online',
+  'notifications_enabled',
+  'notifications_preview',
+  'storage.lean_padding.v1',
+];

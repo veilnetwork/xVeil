@@ -13,6 +13,7 @@ import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/p2p_policy.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/state/app_controller.dart';
+import 'package:xveil/state/identity_scoped_prefs.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/providers.dart';
 
@@ -34,6 +35,7 @@ void main() {
   _runtimeBaseTeardownTests();
   _wipeRemovesBlobsTests();
   _lockAlwaysCompletesTests();
+  _wipeClearsPostureTests();
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     errorJournal.clear();
@@ -1407,5 +1409,57 @@ void _lockAlwaysCompletesTests() {
       isNull,
       reason: 'sensitive session state must be dropped regardless',
     );
+  });
+}
+
+void _wipeClearsPostureTests() {
+  test('wipe removes the network posture, not just the onboarding flag',
+      () async {
+    // Audit XV-15. `wipeContainers` cleared `onboarded` and `storage_mode` and
+    // nothing else, so "clear all data" left the proxy exit, the VPN app list,
+    // CIDR and DNS, the preview mode and the always-online choice sitting in
+    // the preference store in plaintext. Someone who wiped because they HAD to
+    // still had their whole network posture on disk, readable without opening
+    // a container.
+    final seeded = <String, Object>{
+      'onboarded': true,
+      for (final k in kIdentityPosturePrefKeys) k: 'set-by-the-user',
+    };
+    SharedPreferences.setMockInitialValues(seeded);
+
+    final dir = Directory.systemTemp.createTempSync('xveil_wipe_posture');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final store = File('${dir.path}/test.store')..writeAsStringSync('c');
+
+    final container = FakeHvContainer();
+    final app = container.storage();
+    final c = ProviderContainer(
+      overrides: [
+        storageProvider.overrideWith((ref) => app),
+        deniableBootProvider.overrideWithValue(
+          DeniableBootConfig(
+            runtimeDir: '${dir.path}/rt',
+            listenPort: 9000,
+            storePath: store.path,
+          ),
+        ),
+      ],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+
+    await ctrl.wipeContainers();
+
+    final prefs = await SharedPreferences.getInstance();
+    for (final key in kIdentityPosturePrefKeys) {
+      expect(
+        prefs.get(identityScopedPrefKey(key)),
+        isNull,
+        reason: '$key survived a wipe',
+      );
+    }
   });
 }
