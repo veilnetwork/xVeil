@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'identity_scoped_prefs.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -15,7 +16,10 @@ import 'app_controller.dart';
 import 'providers.dart';
 import 'proxy_routing_controller.dart';
 
-const _kVpnRoutingKey = 'vpn_routing_policy';
+/// Profile-scoped: a decoy profile must not inherit the real profile's
+/// posture, and this value is read before any container is open (audit
+/// XV-10). See [identityScopedPrefKey].
+String get _kVpnRoutingKey => identityScopedPrefKey('vpn_routing_policy');
 
 class VpnState {
   const VpnState({

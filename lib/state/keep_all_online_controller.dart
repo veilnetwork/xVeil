@@ -1,8 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'identity_scoped_prefs.dart';
 
 import 'providers.dart';
 
-const _kKeepAllOnlineKey = 'keep_all_online';
+/// Profile-scoped: a decoy profile must not inherit the real profile's
+/// posture, and this value is read before any container is open (audit
+/// XV-10). See [identityScopedPrefKey].
+String get _kKeepAllOnlineKey => identityScopedPrefKey('keep_all_online');
 
 /// Whether a master session should keep ALL its identities online at once
 /// (every identity's node running simultaneously) instead of one active at a
