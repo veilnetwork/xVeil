@@ -5,6 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/features/lock/lock_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/app_controller.dart';
+import 'dart:io';
+import 'package:xveil/data/whisper_model_store.dart';
+import 'package:xveil/state/whisper_model_controller.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({'onboarded': true}));
@@ -67,8 +70,20 @@ void main() {
     tester,
   ) async {
     late ProviderContainer container;
+    // The wipe removes the speech model, and resolving the support directory
+    // goes through path_provider — which never answers in a widget test, so
+    // without this the wipe is still in flight when the assertion runs.
+    final modelDir = Directory.systemTemp.createTempSync('lock_wipe_model');
+    addTearDown(() {
+      if (modelDir.existsSync()) modelDir.deleteSync(recursive: true);
+    });
     await tester.pumpWidget(
       ProviderScope(
+        overrides: [
+          whisperModelStoreProvider.overrideWithValue(
+            WhisperModelStore(supportDirectory: () async => modelDir),
+          ),
+        ],
         child: Consumer(
           builder: (ctx, ref, _) {
             container = ProviderScope.containerOf(ctx);

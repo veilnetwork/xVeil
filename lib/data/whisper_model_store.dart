@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path_provider/path_provider.dart';
 
 import '../core/log.dart';
@@ -190,10 +191,15 @@ class WhisperModelStore {
           'expected $expectedBytes bytes, got $onDisk',
         );
       }
-      // Hash the finished file rather than the stream: a resumed download is
-      // half bytes this process never saw, so streaming the digest would only
-      // cover the tail.
-      final actual = sha256.convert(part.readAsBytesSync()).toString();
+      // Hash the finished FILE rather than the download stream: a resumed
+      // download is half bytes this process never saw, so digesting the stream
+      // would only cover the tail.
+      //
+      // Read in chunks, though. `readAsBytesSync` pulled all ~57 MiB into the
+      // heap at once, on whatever isolate this runs — a spike big enough to
+      // matter on the low-end devices this model exists for, and synchronous
+      // besides (audit XV-21). The digest is identical either way.
+      final actual = await sha256OfFileStreaming(part);
       if (actual != expectedSha256) {
         part.deleteSync();
         return WhisperModelDownload.failed('checksum mismatch');
@@ -229,4 +235,37 @@ class WhisperModelDownload {
   final bool wasCancelled;
 
   bool get succeeded => path != null;
+}
+
+
+/// SHA-256 of a file, read in chunks rather than loaded whole.
+///
+/// Same digest as `sha256.convert(file.readAsBytesSync())`, without holding
+/// the file in memory — which for the speech model is ~57 MiB (audit XV-21).
+@visibleForTesting
+Future<String> sha256OfFileStreaming(File file) async {
+  final sink = _DigestSink();
+  final input = sha256.startChunkedConversion(sink);
+  await for (final chunk in file.openRead()) {
+    input.add(chunk);
+  }
+  input.close();
+  final digest = sink.digest;
+  if (digest == null) {
+    // Unreachable: `close` always emits exactly one digest. Surfaced rather
+    // than defaulted, because a silent empty hash would read as "mismatch"
+    // and delete a file that was fine.
+    throw StateError('sha256 chunked conversion produced no digest');
+  }
+  return digest.toString();
+}
+
+class _DigestSink implements Sink<Digest> {
+  Digest? digest;
+
+  @override
+  void add(Digest data) => digest = data;
+
+  @override
+  void close() {}
 }

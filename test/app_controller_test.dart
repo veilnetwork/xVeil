@@ -13,6 +13,9 @@ import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/p2p_policy.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/state/app_controller.dart';
+import 'package:xveil/data/whisper_model_store.dart';
+import 'package:xveil/state/whisper_model_controller.dart';
+import 'package:xveil/state/vpn_controller.dart';
 import 'package:xveil/state/identity_scoped_prefs.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/providers.dart';
@@ -1462,4 +1465,63 @@ void _wipeClearsPostureTests() {
       );
     }
   });
+
+  test('wipe takes the speech model and the OS tunnel down too', () async {
+    // The remaining two halves of XV-15. The ~57 MiB model is fetched from a
+    // public CDN, so its presence on disk says the user enabled voice
+    // transcription and roughly when — a fact about HOW they used the app that
+    // outlived a wipe of everything the app itself stored. And the VPN tunnel
+    // lives in the OS, not this process, so it kept running after the wipe
+    // with traffic still going through the configured exit.
+    SharedPreferences.setMockInitialValues(<String, Object>{'onboarded': true});
+
+    final dir = Directory.systemTemp.createTempSync('xveil_wipe_model');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final store = File('${dir.path}/test.store')..writeAsStringSync('c');
+    final modelDir = Directory('${dir.path}/model')..createSync();
+    final model = File('${modelDir.path}/${WhisperModelStore.fileName}')
+      ..writeAsStringSync('x');
+
+    final vpn = _RecordingVpn();
+    final container = FakeHvContainer();
+    final app = container.storage();
+    final c = ProviderContainer(
+      overrides: [
+        storageProvider.overrideWith((ref) => app),
+        whisperModelStoreProvider.overrideWithValue(
+          WhisperModelStore(supportDirectory: () async => modelDir),
+        ),
+        vpnControllerProvider.overrideWith(() => vpn),
+        deniableBootProvider.overrideWithValue(
+          DeniableBootConfig(
+            runtimeDir: '${dir.path}/rt',
+            listenPort: 9000,
+            storePath: store.path,
+          ),
+        ),
+      ],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+
+    await ctrl.wipeContainers();
+
+    expect(model.existsSync(), isFalse, reason: 'the model survived the wipe');
+    expect(
+      vpn.stops,
+      1,
+      reason: 'the tunnel is in the OS — a wipe that leaves it up is not one',
+    );
+  });
+}
+
+/// Records `stop()` without touching a platform channel.
+class _RecordingVpn extends VpnController {
+  int stops = 0;
+
+  @override
+  Future<void> stop() async => stops++;
 }
