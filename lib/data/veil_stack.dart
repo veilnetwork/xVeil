@@ -563,13 +563,23 @@ class RealVeilStack {
         // (startDeferred) from a slow admin CONNECT/apply (applyConfig holds the
         // ~90s connect-retry — a big number here is the port-bind stall).
         final ssw = Stopwatch()..start();
-        final node = EmbeddedNode.startDeferred(
-          adminEndpoint,
-          anonymous: anonymous,
-          lib: lib,
+        var tDeferred = 0;
+        // The node exists between these two calls and the controller does not
+        // own it yet — a throw from applyConfig used to strand it running, with
+        // its ports held and no handle left to stop it (audit XV-03).
+        final node = createThenPromote<EmbeddedNode>(
+          create: () {
+            final n = EmbeddedNode.startDeferred(
+              adminEndpoint,
+              anonymous: anonymous,
+              lib: lib,
+            );
+            tDeferred = ssw.elapsedMilliseconds;
+            return n;
+          },
+          promote: (n) => n.applyConfig(fullConfig),
+          abandon: (n) => n.stop(),
         );
-        final tDeferred = ssw.elapsedMilliseconds;
-        node.applyConfig(fullConfig);
         devLog(
           () =>
               'xVeil[deniable]: startDeferred +${tDeferred}ms, '
