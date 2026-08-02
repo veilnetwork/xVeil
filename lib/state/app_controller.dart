@@ -23,6 +23,7 @@ import '../domain/roster.dart';
 import 'background_node_controller.dart';
 import 'keep_all_online_controller.dart';
 import 'proxy_routing_controller.dart';
+import 'identity_scoped_prefs.dart';
 import 'notifications.dart';
 import 'providers.dart';
 import 'storage_preferences.dart';
@@ -1735,6 +1736,14 @@ class AppController extends Notifier<AppState> {
     final prefs = await ref.read(prefsProvider.future);
     await prefs.remove(_onboardedKey());
     await prefs.remove(_kStorageModeKey);
+    // The NETWORK POSTURE goes too (audit XV-15). A wipe that leaves the proxy
+    // exit, the VPN app list, CIDR and DNS, the preview mode and the
+    // always-online choice behind is not the wipe the confirmation promised:
+    // someone who wiped because they had to would still have all of it on
+    // disk, in plaintext, readable without opening anything.
+    for (final key in kIdentityPosturePrefKeys) {
+      await prefs.remove(identityScopedPrefKey(key));
+    }
     state = const AppState(AppPhase.onboarding);
   }
 
@@ -1782,6 +1791,14 @@ class AppController extends Notifier<AppState> {
     final prefs = await ref.read(prefsProvider.future);
     await prefs.remove(_onboardedKey());
     await prefs.remove(_kStorageModeKey);
+    // The NETWORK POSTURE goes too (audit XV-15). A wipe that leaves the proxy
+    // exit, the VPN app list, CIDR and DNS, the preview mode and the
+    // always-online choice behind is not the wipe the confirmation promised:
+    // someone who wiped because they had to would still have all of it on
+    // disk, in plaintext, readable without opening anything.
+    for (final key in kIdentityPosturePrefKeys) {
+      await prefs.remove(identityScopedPrefKey(key));
+    }
     state = const AppState(AppPhase.onboarding);
   }
 
