@@ -6307,6 +6307,20 @@ class ApiServer {
   final int _maxInFlight;
   int _inFlight = 0;
 
+  /// Concurrent `/v1/events` subscriptions (audit XV-14).
+  ///
+  /// Separate from the request cap because these are long-lived by design:
+  /// counting them together would let a few idle feeds starve ordinary calls,
+  /// and not counting them at all is what let a token holder exhaust
+  /// descriptors.
+  static const _maxLiveSockets = 16;
+  int _liveSockets = 0;
+
+  /// Events one subscriber may leave un-taken before it is disconnected.
+  /// `WebSocket.add` buffers without bound, so a client that stops reading is
+  /// otherwise a heap leak driven by someone else's traffic.
+  static const _maxQueuedEvents = 512;
+
   Future<int?> start(int port) async {
     if (_server != null) return _server!.port;
     // EXCLUSIVE bind. `shared: true` maps to SO_REUSEPORT, which load-balances
@@ -6453,16 +6467,73 @@ class ApiServer {
         await req.response.close();
         return;
       }
+      // COUNTED (audit XV-14). This returned before the in-flight cap, so a
+      // token holder could open subscriptions without limit — each one a
+      // socket, a descriptor and a stream listener held for as long as it
+      // liked. The request cap below bounded everything EXCEPT the one path
+      // that stays open indefinitely, which is the wrong way round.
+      //
+      // Its own budget rather than the request one: a long-lived subscription
+      // is not a request, and charging them to the same pool would let a
+      // handful of idle feeds starve ordinary calls.
+      if (_liveSockets >= _maxLiveSockets) {
+        req.response.statusCode = 503;
+        req.response.headers.contentType = ContentType.json;
+        req.response.write(
+          jsonEncode({'error': 'too many event subscriptions'}),
+        );
+        await req.response.close();
+        return;
+      }
       try {
         final ws = await WebSocketTransformer.upgrade(req);
+        _liveSockets++;
+        var released = false;
+        void release() {
+          if (released) return;
+          released = true;
+          _liveSockets--;
+        }
+
+        // BOUNDED QUEUE with real backpressure (audit XV-14). `WebSocket.add`
+        // buffers without limit when the peer stops reading, so a slow client
+        // turned the event feed into a heap allocation driven by OTHER
+        // people's traffic, with nothing watching it grow.
+        //
+        // `addStream` pulls from this queue only as the socket accepts data,
+        // so `queued` is a true count of events the client has not taken.
+        // Past the ceiling the subscriber is the problem, so the subscriber is
+        // what gets dropped — dropping events instead would leave a bot
+        // silently missing messages, which is worse than a reconnect.
+        final queue = StreamController<String>();
+        var queued = 0;
         final sub = _events.listen((e) {
           try {
-            ws.add(jsonEncode(e));
+            if (queued >= _maxQueuedEvents) {
+              unawaited(ws.close(1013, 'client too slow'));
+              return;
+            }
+            queued++;
+            queue.add(jsonEncode(e));
           } catch (_) {
             /* client gone mid-encode */
           }
         });
-        unawaited(ws.done.whenComplete(sub.cancel));
+        unawaited(
+          ws
+              .addStream(queue.stream.map((line) {
+                queued--;
+                return line;
+              }))
+              .catchError((Object _) {/* socket died mid-send */}),
+        );
+        unawaited(
+          ws.done.whenComplete(() async {
+            release();
+            await sub.cancel();
+            await queue.close();
+          }),
+        );
       } catch (_) {
         /* upgrade failed */
       }
