@@ -423,10 +423,17 @@ Future<BootstrapResult> _bootstrapOverrides() async {
           'obfs4Psk=${obfs4Psk != null && obfs4Psk.isNotEmpty} '
           'udpReflectors=${udpReflectors.length})',
     );
-  } else if (Platform.isAndroid || Platform.isIOS) {
-    // A packaged mobile build ALWAYS ships the in-process node, so reaching here
-    // means the native library failed to load / lacks the embedded-node FFI.
-    // Surface that honestly instead of silently showing the demo node.
+  } else if (Platform.isAndroid || Platform.isIOS || kReleaseMode || kProfileMode) {
+    // A packaged build ALWAYS ships the in-process node, so reaching here means
+    // the native library failed to load / lacks the embedded-node FFI. Surface
+    // that honestly instead of silently showing the demo node.
+    //
+    // `kReleaseMode || kProfileMode` covers DESKTOP too (audit XV-01). The
+    // guard used to be mobile-only, so a packaged desktop build whose veil
+    // dylib failed to load fell through with a null boot state — which selects
+    // `FakeNodeController`, and the transport provider paired it with a
+    // loopback that answers your own messages. A dev build still gets the demo
+    // node, which is what it is for.
     overrides.add(
       nodeBootStateProvider.overrideWith(
         (ref) => const NodeStatus(
@@ -437,7 +444,7 @@ Future<BootstrapResult> _bootstrapOverrides() async {
     );
     devLog(
       () =>
-          'xVeil[real]: embedded node unavailable on mobile '
+          'xVeil[real]: embedded node unavailable '
           '(veilLoaded=${ensureVeilClientLoaded()} embedded=${embeddedNodeAvailable()})',
     );
   }
