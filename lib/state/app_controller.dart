@@ -582,8 +582,26 @@ class AppController extends Notifier<AppState> {
           ? hv.PaddingPreset.none
           : hv.PaddingPreset.bucket256KiB,
     );
-    await session.bootAll(roster);
-    await ref.read(backgroundNodeProvider.notifier).applyIfNodeUp(nodeUp: true);
+    // The session OWNS every node it boots and the container's shared lock, and
+    // nothing else can reach it until it is published. So everything between
+    // "constructed" and "published" has to hand it back on failure (audit
+    // XV-06): a throw in `bootAll` or in the foreground-service call used to
+    // leave booted nodes running and the lock held, with the only reference to
+    // them going out of scope — unreachable for cleanup, and the next unlock
+    // then failed on the lock it could no longer release.
+    try {
+      await session.bootAll(roster);
+      await ref.read(backgroundNodeProvider.notifier).applyIfNodeUp(nodeUp: true);
+    } catch (_) {
+      // Best-effort: a teardown failure must not mask the original error, and
+      // the original is what the caller needs to see.
+      try {
+        await session.disposeAll();
+      } catch (_) {}
+      rethrow;
+    }
+    // Published only once it is whole. From here `disposeAll` is reachable
+    // through the provider, so lock/teardown can find it.
     ref.read(sessionProvider.notifier).state = session;
     final first = roster.first.label;
     await _activateOnline(first, [for (final e in roster) e.label]);
@@ -1597,15 +1615,44 @@ class AppController extends Notifier<AppState> {
       // A notification backend that is not up cannot be holding anything.
     }
     ref.read(opaqueNotificationPayloadsProvider).clear();
-    await _teardownSession(); // all-online: stop every node + release the lock
-    await _teardownRealStack();
+    // EVERY LEG RUNS (audit XV-08). These were a plain `await` chain, so the
+    // first failure skipped all of it: a session that would not stop left the
+    // node running, the runtime dir populated, the container OPEN and the
+    // master keys in memory — while the UI moved to `locked`. A lock that
+    // reports success with the container still open is the one failure this
+    // screen exists to prevent.
+    //
+    // Independent legs, errors collected. The first error is rethrown after
+    // everything has been attempted, so the caller still learns something went
+    // wrong — it just no longer decides how much cleanup happened.
+    Object? firstError;
+    StackTrace? firstStack;
+    Future<void> leg(String name, Future<void> Function() run) async {
+      try {
+        await run();
+      } catch (e, st) {
+        devLog(() => 'xVeil[lock]: $name FAILED: $e');
+        firstError ??= e;
+        firstStack ??= st;
+      }
+    }
+
+    // all-online: stop every node + release the lock
+    await leg('teardownSession', _teardownSession);
+    await leg('teardownRealStack', _teardownRealStack);
     devLog(() => 'xVeil[lock]: node/session torn down (+${ms()}ms)');
-    await _stopBackgroundService();
-    await _cleanRuntimeBase();
-    await ref.read(storageProvider).close();
+    await leg('stopBackgroundService', _stopBackgroundService);
+    await leg('cleanRuntimeBase', _cleanRuntimeBase);
+    await leg('closeStorage', () => ref.read(storageProvider).close());
     devLog(() => 'xVeil[lock]: storage closed (+${ms()}ms)');
+    // Sensitive references go regardless of what failed above: keys held after
+    // a partial lock are the worst outcome of all, and dropping them costs
+    // nothing even when the container is somehow still open.
     _clearMasterSession();
     state = const AppState(AppPhase.locked);
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError!, firstStack ?? StackTrace.current);
+    }
   }
 
   void _clearMasterSession() {

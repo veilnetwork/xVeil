@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/error_journal.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/on_disk_blob_store.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/veil_stack.dart';
@@ -32,6 +34,7 @@ void main() {
   _onboardingOpenFailureTests();
   _runtimeBaseTeardownTests();
   _wipeRemovesBlobsTests();
+  _lockAlwaysCompletesTests();
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     errorJournal.clear();
@@ -1330,6 +1333,80 @@ void _wipeRemovesBlobsTests() {
       blobs.existsSync(),
       isFalse,
       reason: 'the blob tier must go with the container it belonged to',
+    );
+  });
+}
+
+/// A real storage that ALWAYS fails to close — the wedged storage worker behind
+/// the "won't unlock until restart" reports.
+///
+/// Extends rather than wraps: every other method must behave exactly as
+/// production does, or the test would be exercising a different lock.
+class _CloseFailingStorage extends HiddenVolumeStorage {
+  _CloseFailingStorage(FakeHvContainer c)
+      : super(c.passwordOpener, keysOpener: c.keysOpener);
+
+  bool closeAttempted = false;
+
+  @override
+  Future<void> close() async {
+    closeAttempted = true;
+    throw StateError('storage worker is wedged');
+  }
+}
+
+void _lockAlwaysCompletesTests() {
+  test('a failing cleanup leg does not abort the rest of lock', () async {
+    // Audit XV-08. These were a plain `await` chain, so the FIRST failure
+    // skipped everything after it: the container stayed OPEN, the master keys
+    // stayed in memory and the phase never reached `locked` — while the caller
+    // saw an exception it could do nothing useful with. A lock that stops
+    // half-way is the one failure this screen exists to prevent.
+    SharedPreferences.setMockInitialValues({});
+    final dir = Directory.systemTemp.createTempSync('xveil_lock_legs');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+
+    final container = FakeHvContainer();
+    final failing = _CloseFailingStorage(container);
+    final c = ProviderContainer(
+      overrides: [
+        storageProvider.overrideWith((ref) => failing),
+        deniableBootProvider.overrideWithValue(
+          DeniableBootConfig(
+            runtimeDir: '${dir.path}/rt',
+            listenPort: 9000,
+            storePath: '${dir.path}/test.store',
+          ),
+        ),
+      ],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.completeOnboarding(
+      identity: AppController.generateIdentity(displayName: 'Me'),
+      password: 'pw',
+      mode: StorageMode.hiddenSpace,
+    );
+
+    // The failure is surfaced — a lock that swallowed it would be worse.
+    await expectLater(ctrl.lock(), throwsA(isA<StateError>()));
+
+    expect(failing.closeAttempted, isTrue, reason: 'precondition');
+    // ...and everything AFTER the failing leg still happened. This is the
+    // assertion the old chain could not satisfy: it propagated immediately and
+    // never reached either of these.
+    expect(
+      c.read(appControllerProvider).phase,
+      AppPhase.locked,
+      reason: 'the UI must not be left in an unlocked-looking phase',
+    );
+    expect(
+      ctrl.takePendingIdentityPhrase(),
+      isNull,
+      reason: 'sensitive session state must be dropped regardless',
     );
   });
 }
