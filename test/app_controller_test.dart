@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/identity.dart';
+import 'package:xveil/domain/p2p_policy.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/messaging.dart';
@@ -24,6 +25,7 @@ Future<void> _settle(ProviderContainer c) async {
 }
 
 void main() {
+  _p2pPolicyTests();
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     errorJournal.clear();
@@ -1108,6 +1110,44 @@ void main() {
         entry.message,
         contains('busy'),
         reason: 'the report must name the cause, not just say it failed',
+      );
+    });
+  });
+}
+
+void _p2pPolicyTests() {
+  group('AppController.lanListenAllowed', () {
+    test('an unreadable policy denies, it does not fall back to the default', () {
+      // Audit X-14. The old `catch` returned the DEFAULT, which is permissive,
+      // so a transient storage error bound a LAN listener for a user who had
+      // explicitly denied P2P.
+      expect(
+        AppController.lanListenAllowed(storedPolicy: null, readFailed: true),
+        isFalse,
+      );
+      // Even when a policy string was already in hand, a failed read denies.
+      expect(
+        AppController.lanListenAllowed(storedPolicy: 'allowed', readFailed: true),
+        isFalse,
+      );
+    });
+
+    test('an absent policy is not the same as an unreadable one', () {
+      // Never set = fresh install. Denying here would break every one of them,
+      // so the two cases must stay distinguishable.
+      expect(
+        AppController.lanListenAllowed(storedPolicy: null, readFailed: false),
+        kDefaultP2PGlobalPolicy != P2PGlobalPolicy.denied,
+      );
+    });
+
+    test('an explicit denial is honoured', () {
+      expect(
+        AppController.lanListenAllowed(
+          storedPolicy: P2PGlobalPolicy.denied.name,
+          readFailed: false,
+        ),
+        isFalse,
       );
     });
   });
