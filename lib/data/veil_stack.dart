@@ -50,21 +50,92 @@ Future<ProcessResult> _chmod700(String dir) => Process.run('chmod', ['700', dir]
 /// removes it RECURSIVELY. Nothing checked that the path was ours, so a wrong
 /// launcher entry — or an env var set by anything else in the session — turned
 /// lock/wipe into a recursive delete of whatever it pointed at (audit X-12).
-///
-/// A marker file is the cheap version of ownership: we write it when we set the
-/// directory up, and refuse to recursively delete a directory that does not
-/// carry it. It does not defend against an attacker who can write inside the
-/// directory — nothing at this layer could — but that is not the failure mode.
-/// The one that actually happens is a path that was never ours.
 const kRuntimeDirMarker = '.xveil-runtime';
 
-/// Mark [dir] as ours, creating it if needed. Safe to call repeatedly.
-Future<void> markRuntimeDirOwned(String dir) async {
-  await Directory(dir).create(recursive: true);
+/// Claim a runtime directory we CREATED, and return its path.
+///
+/// ## Why this returns a child rather than marking [base]
+///
+/// The first version of this wrote the marker straight into whatever
+/// `XVEIL_RUNTIME_DIR` named, creating it if absent. That made the marker prove
+/// the wrong thing: not "we created this directory" but "we were once pointed
+/// at it". Aim the variable at a directory that already holds data and the very
+/// next teardown recursively removed it — with the marker we had just written
+/// ourselves as the evidence it was ours (audit XV-09).
+///
+/// So the operator's path is treated as a BASE we may create things under, not
+/// as a directory we may own. We make a fresh, uniquely-named child inside it
+/// with `create-new` semantics and own only that. Deleting it can never take
+/// anything that was in the base beforehand, because the child did not exist
+/// beforehand.
+///
+/// The operator's choice of base is still honoured. Refusing a non-empty or
+/// pre-existing path — the audit's suggestion — would break headless and bot
+/// deployments and profiles, which legitimately run on an operator-chosen
+/// directory; that is the same reason the "overrides only in debug" half of
+/// X-12 was declined.
+///
+/// [uniqueSuffix] exists for tests. Production passes the pid, which is the
+/// same disambiguator the default base already uses.
+Future<String> claimRuntimeDirUnder(
+  String base, {
+  required String uniqueSuffix,
+}) async {
+  // The BASE may legitimately already exist (it is usually the system temp dir
+  // or the app-support dir). It must not be a symlink: `Directory.create`
+  // follows one, and a link planted here would relocate everything below.
+  if (FileSystemEntity.typeSync(base, followLinks: false) ==
+      FileSystemEntityType.link) {
+    throw RuntimeDirNotPrivate(base, 'runtime base is a symlink');
+  }
+  await Directory(base).create(recursive: true);
+
+  // `create` on a Directory is not exclusive, so uniqueness is what stands in
+  // for O_EXCL here: a name that carries the pid and a fresh counter cannot
+  // collide with a live sibling, and a stale one from a dead pid is reaped by
+  // the sweeper rather than adopted.
+  var attempt = 0;
+  while (true) {
+    final suffix = attempt == 0 ? uniqueSuffix : '$uniqueSuffix-$attempt';
+    final child = '$base/xveil-rt-$suffix';
+    final type = FileSystemEntity.typeSync(child, followLinks: false);
+    if (type != FileSystemEntityType.notFound) {
+      // Occupied — by a live sibling, a dead run's leftovers, or something
+      // planted. Never adopt it; take the next name.
+      attempt++;
+      if (attempt > 64) {
+        throw RuntimeDirNotPrivate(base, 'no free runtime directory name');
+      }
+      continue;
+    }
+    await Directory(child).create();
+    await _writeRuntimeDirMarker(child);
+    return child;
+  }
+}
+
+/// Write the ownership marker into a directory we just created.
+Future<void> _writeRuntimeDirMarker(String dir) async {
   await File('$dir/$kRuntimeDirMarker').writeAsString(
     'Created by xVeil. Deleting this file makes xVeil leave the directory '
     'alone on teardown instead of removing it.\n',
   );
+}
+
+/// Mark an ALREADY-CREATED directory as ours.
+///
+/// Only for callers that made the directory themselves (the headless runtime
+/// builds its own layout). It deliberately does NOT create the directory: a
+/// marker written into a directory we did not create is the XV-09 hole.
+Future<void> markRuntimeDirOwned(String dir) async {
+  if (!Directory(dir).existsSync()) {
+    throw RuntimeDirNotPrivate(dir, 'refusing to claim a directory we did not create');
+  }
+  if (FileSystemEntity.typeSync(dir, followLinks: false) ==
+      FileSystemEntityType.link) {
+    throw RuntimeDirNotPrivate(dir, 'path is a symlink');
+  }
+  await _writeRuntimeDirMarker(dir);
 }
 
 /// Whether [dir] carries our marker — i.e. may be removed recursively.
