@@ -106,6 +106,9 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
       _call<Uint8List>((reply) => _MExportKeys(id, reply));
   @override
   Future<void> scrub(int id) => _call<void>((reply) => _MScrub(id, reply));
+  @override
+  Future<void> vacuumOrphans(int id) =>
+      _call<void>((reply) => _MVacuumOrphans(id, reply));
 
   @override
   Future<void> close() async {
@@ -216,6 +219,11 @@ class _MExportKeys extends _MReq {
   final int id;
 }
 
+class _MVacuumOrphans extends _MReq {
+  const _MVacuumOrphans(this.id, super.reply);
+  final int id;
+}
+
 class _MScrub extends _MReq {
   const _MScrub(this.id, super.reply);
   final int id;
@@ -306,6 +314,11 @@ void _multiWorkerEntry(_MOpenConfig cfg) {
         run(() => backing.kvKeys(id, namespace));
       case _MExportKeys(:final id):
         run(() => backing.exportKeys(id));
+      case _MVacuumOrphans(:final id):
+        run<Object?>(() {
+          backing.vacuumOrphans(id);
+          return null;
+        });
       case _MScrub(:final id):
         run<Object?>(() {
           backing.scrub(id);
