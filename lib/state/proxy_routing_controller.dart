@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'identity_scoped_prefs.dart';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,7 +8,10 @@ import 'package:flutter_riverpod/legacy.dart';
 import '../data/node/proxy_routing.dart';
 import 'providers.dart';
 
-const _kProxyRoutingKey = 'proxy_routing';
+/// Profile-scoped: a decoy profile must not inherit the real profile's
+/// posture, and this value is read before any container is open (audit
+/// XV-10). See [identityScopedPrefKey].
+String get _kProxyRoutingKey => identityScopedPrefKey('proxy_routing');
 
 /// Persisted traffic-routing config ("Маршрутизация трафика"). Stored in
 /// `shared_preferences` as JSON; default = everything off.

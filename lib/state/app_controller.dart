@@ -1797,7 +1797,40 @@ class AppController extends Notifier<AppState> {
     return Identity(nodeId: NodeId(bytes), displayName: displayName);
   }
 
-  Identity _placeholderIdentity() => generateIdentity();
+  /// A stand-in shown when a space opened but holds NO identity record.
+  ///
+  /// This is an anomaly, not a normal state: the space unlocked, so the keys
+  /// were right, but the identity it should contain is missing or unreadable.
+  /// It used to be minted silently (audit XV-18), so the UI presented a
+  /// plausible-looking identity — a DIFFERENT one on every call, since the id
+  /// is random — and the underlying corruption left no trace anywhere. Someone
+  /// reporting "my node id keeps changing" was describing this, and nothing in
+  /// the logs would have said why.
+  ///
+  /// Recorded now, every time. The random id is kept deliberately: an all-zero
+  /// or fixed id would flow into maps, comparisons and the wire as a REAL id
+  /// shared by every affected install, which trades a display bug for a
+  /// correctness one.
+  ///
+  /// ⛔ NOT a recovery flow. The audit asks for typed
+  /// `MissingIdentity`/`CorruptIdentity` states with a UI to act on them, and
+  /// that is a feature — this makes the condition diagnosable, which is the
+  /// part that was missing entirely.
+  Identity _placeholderIdentity() {
+    devLog(
+      () =>
+          'xVeil[identity]: space opened but holds NO identity record — '
+          'showing a placeholder. The container unlocked, so this is missing '
+          'or unreadable identity data, not a wrong password.',
+    );
+    errorJournal.record(
+      kind: 'identity',
+      error: StateError('space has no identity record; placeholder shown'),
+      stack: StackTrace.current,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    return generateIdentity();
+  }
 }
 
 final appControllerProvider = NotifierProvider<AppController, AppState>(

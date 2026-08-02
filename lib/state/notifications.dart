@@ -11,6 +11,7 @@ import '../data/notifications/opaque_payload.dart';
 import '../domain/space_post.dart';
 import '../domain/chat.dart' show NotificationMuteMode;
 import '../routing/router.dart';
+import 'identity_scoped_prefs.dart';
 import 'group_service_providers.dart' show groupServiceProvider;
 import 'messaging.dart';
 import 'providers.dart';
@@ -160,8 +161,12 @@ T? newestByTimestamp<T>(
   return newest;
 }
 
-const _kEnabledKey = 'notifications_enabled';
-const _kPreviewKey = 'notifications_preview';
+/// Profile-scoped (audit XV-10). The PREVIEW mode is the one that matters: a
+/// decoy profile inheriting `full` from the real one paints the sender and the
+/// message text onto a lock screen the decoy was supposed to keep quiet. Both
+/// are read while locked, so neither can live inside the container.
+String get _kEnabledKey => identityScopedPrefKey('notifications_enabled');
+String get _kPreviewKey => identityScopedPrefKey('notifications_preview');
 
 class NotificationSettings {
   const NotificationSettings({required this.enabled, required this.preview});
