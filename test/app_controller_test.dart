@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/error_journal.dart';
+import 'package:xveil/data/storage/on_disk_blob_store.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/veil_stack.dart';
 import 'package:xveil/domain/chat.dart';
@@ -30,6 +31,7 @@ void main() {
   _p2pPolicyTests();
   _onboardingOpenFailureTests();
   _runtimeBaseTeardownTests();
+  _wipeRemovesBlobsTests();
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     errorJournal.clear();
@@ -1282,5 +1284,52 @@ void _runtimeBaseTeardownTests() {
     await lockWithRuntimeDir(dir.path);
 
     expect(dir.existsSync(), isFalse, reason: 'our own runtime dir is reaped');
+  });
+}
+
+void _wipeRemovesBlobsTests() {
+  test('wipe removes the large-file tier, not just the container', () async {
+    // Audit XV-11. The blob tier lives BESIDE the container, so deleting the
+    // container left the whole directory standing. The ciphertext is unreadable
+    // once the keys go with the volume — but "unreadable" is not "absent": the
+    // file count, the sizes and the directory's very existence still say this
+    // machine ran xVeil and roughly how much was stored. A wipe that leaves a
+    // shaped artifact behind is not the wipe the confirmation promised.
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    final dir = Directory.systemTemp.createTempSync('xveil_wipe_blobs');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final store = File('${dir.path}/test.store')..writeAsStringSync('container');
+    final blobs = blobRootFor(store.path)..createSync(recursive: true);
+    File('${blobs.path}/aa/ciphertext').createSync(recursive: true);
+
+    final container = FakeHvContainer();
+    final app = container.storage();
+    final c = ProviderContainer(
+      overrides: [
+        storageProvider.overrideWith((ref) => app),
+        deniableBootProvider.overrideWithValue(
+          DeniableBootConfig(
+            runtimeDir: '${dir.path}/rt',
+            listenPort: 9000,
+            storePath: store.path,
+          ),
+        ),
+      ],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    expect(blobs.existsSync(), isTrue, reason: 'precondition');
+
+    await ctrl.wipeContainers();
+
+    expect(store.existsSync(), isFalse);
+    expect(
+      blobs.existsSync(),
+      isFalse,
+      reason: 'the blob tier must go with the container it belonged to',
+    );
   });
 }

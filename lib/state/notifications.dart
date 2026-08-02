@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/legacy.dart';
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/notifications/notification_service.dart';
+import '../data/notifications/opaque_payload.dart';
 import '../domain/space_post.dart';
 import '../domain/chat.dart' show NotificationMuteMode;
 import '../routing/router.dart';
@@ -234,11 +235,33 @@ final activeConversationProvider = StateProvider<String?>((ref) => null);
 
 /// The OS-notification backend, initialized once. The tap handler opens the
 /// chat named by the notification's payload (the peer hex).
+/// Session-lifetime map from opaque notification tokens to real payloads.
+///
+/// See [OpaqueNotificationPayloads]: in hidden-preview mode the OS gets a token
+/// instead of the conversation id, so its notification database stops
+/// accumulating a social graph outside the volume (audit XV-03).
+final opaqueNotificationPayloadsProvider = Provider<OpaqueNotificationPayloads>(
+  (ref) => OpaqueNotificationPayloads(),
+);
+
+/// Turn whatever the OS handed back into the payload the router understands.
+///
+/// An opaque token that no longer resolves — minted before a lock, or evicted —
+/// yields null, and the tap falls through to simply opening the app. That is
+/// the correct outcome: the alternative is guessing a destination for a
+/// conversation this session may not be able to open.
+String? resolveNotificationPayload(Ref ref, String? payload) {
+  if (payload == null || payload.isEmpty) return null;
+  if (!isOpaqueNotificationToken(payload)) return payload;
+  return ref.read(opaqueNotificationPayloadsProvider).resolve(payload);
+}
+
 final notificationServiceProvider = Provider<NotificationService>((ref) {
   final svc = NotificationService();
   // Fire-and-forget init; show() is a no-op until it completes.
   svc.init(
-    onTap: (payload) {
+    onTap: (raw) {
+      final payload = resolveNotificationPayload(ref, raw);
       final route = notificationRouteForPayload(payload);
       if (route != null) {
         // go() alone REPLACES the stack: the chat would open with no back
@@ -250,7 +273,13 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
           ..push(route);
       }
     },
-    onReply: (payload, text) {
+    onReply: (raw, text) {
+      // Reply is offered only in FULL preview (the hidden lock screen has no
+      // sender to reply to), so `raw` is normally the real payload — but it is
+      // resolved anyway rather than assumed, because the two decisions live in
+      // different files and only one of them is about privacy.
+      final payload = resolveNotificationPayload(ref, raw);
+      if (payload == null) return;
       // A notification reply (showsUserInterface:true) foregrounds the app and
       // lands here on the MAIN isolate, where the unlocked container + the node
       // live, so the send actually works. Open the chat too, so the user sees
