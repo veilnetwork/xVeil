@@ -328,6 +328,31 @@ class MultiIdentitySession {
         // this identity just can't send/receive live until re-booted.
       }
     }
+    await _vacuumOpenedSpaces(specs);
+  }
+
+  /// Erase what deletion only unlinked, for every space this unlock opened.
+  ///
+  /// The constant-time open used to do this inline, and that leaked: the scrub's
+  /// duration depends on the space's history, so a real space took measurably
+  /// longer to open than a decoy, and the equalized scan that hides which
+  /// password was right stopped hiding it (audit HV-02).
+  ///
+  /// So it runs HERE instead — after every node has booted, well past the point
+  /// where any timing still attaches to the unlock decision. It is not optional
+  /// work: skip it and values a previous session deleted stay decryptable to
+  /// anyone who later obtains the password and an old snapshot of the file.
+  ///
+  /// Best-effort per space, like the boot loop above: a scrub that faults must
+  /// not cost the user the identities that opened fine.
+  Future<void> _vacuumOpenedSpaces(List<IdentityBootSpec> specs) async {
+    for (final spec in specs) {
+      try {
+        await _backing.vacuumOrphans(spec.spaceId);
+      } catch (_) {
+        /* the space is open and usable; the scrub retries next unlock */
+      }
+    }
   }
 
   /// Tear down all messaging pipelines and nodes, then release the shared lock.

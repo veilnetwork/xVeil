@@ -31,6 +31,18 @@ abstract interface class MultiSpaceBacking {
   Uint8List exportKeys(int id);
   void scrub(int id);
 
+  /// Reclaim slots whose data a previous session deleted, for one hosted space.
+  ///
+  /// Separate from [scrub], which compacts data batches. This one erases what
+  /// deletion only unlinked — skip it and those values stay decryptable to
+  /// anyone who later obtains the password and an old snapshot of the file.
+  ///
+  /// The constant-time open deliberately does NOT do this inline: the scrub's
+  /// duration depends on the space's history, which made a successful open
+  /// measurably longer than a failed one (audit HV-02). The host calls it once
+  /// unlock is complete, when the timing is no longer attached to the decision.
+  void vacuumOrphans(int id);
+
   /// Release the container lock and free the underlying handle. Closes ALL
   /// hosted spaces at once (they share the one handle).
   void close();
@@ -117,6 +129,9 @@ abstract interface class AsyncMultiSpaceBacking {
   Future<List<Uint8List>> kvKeys(int id, int namespace);
   Future<Uint8List> exportKeys(int id);
   Future<void> scrub(int id);
+
+  /// See [MultiSpaceBacking.vacuumOrphans]. Called after unlock completes.
+  Future<void> vacuumOrphans(int id);
 
   /// Release the container lock + free the handle (and tear the worker down).
   /// Closes ALL hosted spaces at once.
@@ -219,6 +234,8 @@ class SyncWrappedAsyncMultiSpaceBacking implements AsyncMultiSpaceBacking {
   Future<Uint8List> exportKeys(int id) async => _inner.exportKeys(id);
   @override
   Future<void> scrub(int id) async => _inner.scrub(id);
+  @override
+  Future<void> vacuumOrphans(int id) async => _inner.vacuumOrphans(id);
   @override
   Future<void> close() async => _inner.close();
 }
