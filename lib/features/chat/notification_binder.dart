@@ -869,7 +869,15 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           id: notificationIdForIncomingMessage(convHex),
           title: content.title,
           body: content.body,
-          payload: convHex, // tap → open this chat
+          // HIDDEN mode hands the OS a token, not the conversation (audit
+          // XV-03). Neutralising the title while still passing `convHex` left
+          // the system notification database holding who the user talks to —
+          // outside the volume, and long after the app is locked. Full preview
+          // keeps the real payload: the title already names the sender, so an
+          // indirection there would cost tap-routing and buy nothing.
+          payload: full
+              ? convHex
+              : ref.read(opaqueNotificationPayloadsProvider).mint(convHex),
           // Offer inline reply ONLY when the sender is visible (full preview) —
           // replying to an anonymous "new message" would be confusing, and it
           // keeps the hidden-preview lock-screen surface minimal.

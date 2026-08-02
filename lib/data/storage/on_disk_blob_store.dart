@@ -27,6 +27,16 @@ import '../../domain/content_manifest.dart';
 /// blobs of some size (existence revealable — the §16.5 deniability trade-off)
 /// but cannot read them, and a delete that scrubs the key in the volume makes the
 /// ciphertext unrecoverable (forward secrecy on delete) even if the file lingers.
+/// Where the large-file tier lives for the container at [containerPath].
+///
+/// Beside the container, not inside it: the blobs are far larger than the
+/// hidden-volume index is meant to carry. Derived in ONE place because two
+/// call sites already needed it — the boot that opens it and the wipe that
+/// removes it — and a wipe computing a slightly different path is a wipe that
+/// silently leaves the data behind (audit XV-11).
+Directory blobRootFor(String containerPath) =>
+    Directory('${File(containerPath).parent.path}/blobs');
+
 class OnDiskBlobStore {
   OnDiskBlobStore(this._root);
 
