@@ -56,4 +56,19 @@ const kIdentityPosturePrefKeys = <String>[
   'notifications_enabled',
   'notifications_preview',
   'storage.lean_padding.v1',
+  'whisper.auto_fetch.v1',
 ];
+
+/// Whether this profile has agreed to the speech model being fetched on its
+/// own, without being asked at the time.
+///
+/// Default absent, which means NO. The model is ~57 MiB from a public CDN, and
+/// fetching it the moment a session opens told that CDN this device runs
+/// xVeil, from this IP, at this minute — with a traffic shape distinctive
+/// enough to recognise again (audit XV-05). For an app built so that its use
+/// leaves as little trace as possible, that is the wrong thing to do
+/// unprompted.
+///
+/// Set by the deliberate offer in Settings or under a voice message: tapping
+/// Download IS the agreement, so nobody is asked twice for the same thing.
+const kWhisperAutoFetchPrefKey = 'whisper.auto_fetch.v1';

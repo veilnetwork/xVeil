@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:isolate';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hidden_volume/hidden_volume.dart' as hv;
+import 'package:xveil/data/storage/worker_death.dart';
 
 /// The storage worker runs in its own isolate, and every RPC used to
 /// `await reply.first` with nothing watching that isolate. A worker that
@@ -10,11 +12,16 @@ import 'package:flutter_test/flutter_test.dart';
 /// end, and every later call joined it. `errorsAreFatal: true` made the isolate
 /// die quietly; nothing was listening for the death (audit XV-07).
 ///
-/// `_WorkerDeath` is private to the store, so this exercises the ISOLATE
-/// CONTRACT it is built on — that `onExit`/`onError` fire and that racing a
+/// Two levels are covered here. The first group exercises the ISOLATE CONTRACT
+/// the supervisor is built on — that `onExit`/`onError` fire and that racing a
 /// pending reply against them converts an unbounded hang into an error. If Dart
 /// ever stopped delivering these, the supervisor would silently stop working
 /// and this is what would notice.
+///
+/// The second exercises [WorkerDeath] itself, which both the single-space store
+/// and the all-online multi-space backing now share — the latter matters more,
+/// because there ONE worker holds every hosted identity's store and its death
+/// takes all of them down at once.
 void _crashingWorker(SendPort _) {
   throw StateError('worker exploded');
 }
@@ -81,6 +88,70 @@ void main() {
     );
   });
 
+  group('WorkerDeath, the shared supervisor', () {
+    test('an isolate error completes the future with the reason', () async {
+      final death = WorkerDeath();
+      addTearDown(death.dispose);
+      final reply = ReceivePort();
+      addTearDown(reply.close);
+
+      await Isolate.spawn<SendPort>(
+        _crashingWorker,
+        reply.sendPort,
+        errorsAreFatal: true,
+        onExit: death.exitPort.sendPort,
+        onError: death.errorPort.sendPort,
+      );
+
+      await expectLater(
+        death.future.timeout(const Duration(seconds: 10)),
+        throwsA(
+          isA<hv.HvException>().having(
+            (e) => '$e',
+            'message',
+            contains('worker exploded'),
+          ),
+        ),
+      );
+    });
+
+    test('a silent exit is reported too, not only errors Dart can describe',
+        () async {
+      // The OOM-kill / FFI-abort shape: no error, only an absence. `onExit`
+      // is what makes it visible.
+      final death = WorkerDeath();
+      addTearDown(death.dispose);
+      final reply = ReceivePort();
+      addTearDown(reply.close);
+
+      await Isolate.spawn<SendPort>(
+        _silentExitWorker,
+        reply.sendPort,
+        errorsAreFatal: true,
+        onExit: death.exitPort.sendPort,
+        onError: death.errorPort.sendPort,
+      );
+
+      await expectLater(
+        Future.any<Object?>([reply.first, death.future])
+            .timeout(const Duration(seconds: 10)),
+        throwsA(isA<hv.HvException>()),
+        reason: 'a worker that vanishes must not leave the caller waiting',
+      );
+    });
+
+    test('dispose stops watching without inventing a death', () async {
+      // Our own teardown kills the worker; reporting that as a crash would
+      // turn every clean close into an error.
+      final death = WorkerDeath();
+      var reported = false;
+      death.future.then((_) {}, onError: (_) => reported = true);
+      death.dispose();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(reported, isFalse);
+    });
+  });
+
   test('a worker that answers is unaffected by the watch', () async {
     // The race must not turn a working RPC into a failure — a supervisor that
     // breaks the happy path is worse than none.
@@ -117,3 +188,4 @@ void main() {
 void _answeringWorker(SendPort reply) {
   reply.send('pong');
 }
+

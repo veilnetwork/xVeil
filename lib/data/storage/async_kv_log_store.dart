@@ -7,6 +7,7 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'hv_kv_log_store.dart';
 import 'hv_native.dart';
 import 'kv_log_store.dart';
+import 'worker_death.dart';
 import 'package:xveil/core/log.dart';
 
 /// Async, OFF-UI-isolate facade over a single unlocked hidden-volume space.
@@ -290,45 +291,6 @@ void _workerEntry(_OpenConfig cfg) {
 /// Off-UI-isolate [AsyncKvLogStore] backed by a dedicated worker isolate that
 /// owns the real [HvKvLogStore]. One instance == one worker == one container
 /// handle. Drop with [close].
-/// Watches a worker isolate and turns its death into a failed future.
-///
-/// `onExit` fires for any termination; `onError` fires first when the isolate
-/// died from an uncaught error and carries the message. Both are wired so a
-/// silent exit — an OOM kill, an FFI abort — is reported too, not only the
-/// errors Dart could describe.
-class _WorkerDeath {
-  _WorkerDeath() {
-    errorPort.listen((message) {
-      final detail = message is List && message.isNotEmpty
-          ? '${message.first}'
-          : '$message';
-      _die('storage worker isolate error: $detail');
-    });
-    exitPort.listen((_) => _die('storage worker isolate exited'));
-  }
-
-  final exitPort = ReceivePort();
-  final errorPort = ReceivePort();
-  final _completer = Completer<Never>();
-
-  Future<Never> get future => _completer.future;
-
-  void _die(String why) {
-    if (_completer.isCompleted) return;
-    _completer.completeError(hv.HvException('Internal', why), StackTrace.current);
-  }
-
-  /// Stop watching. The future is left as it is: a caller already holding it
-  /// must still see the death, and completing it here would invent one.
-  void dispose() {
-    exitPort.close();
-    errorPort.close();
-    // An uncompleted error future with no listener is an unhandled-error
-    // report at GC time; give it a handler that does nothing.
-    _completer.future.ignore();
-  }
-}
-
 class WorkerKvLogStore implements AsyncKvLogStore {
   WorkerKvLogStore._(this._isolate, this._toWorker, this._watch);
 
@@ -345,7 +307,7 @@ class WorkerKvLogStore implements AsyncKvLogStore {
   ///
   /// Racing each wait against this turns an invisible hang into an error the
   /// caller can report and recover from.
-  final _WorkerDeath _watch;
+  final WorkerDeath _watch;
   Future<Never> get _death => _watch.future;
   bool _closed = false;
 
@@ -364,7 +326,7 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     // rather than after, because a worker that fails while opening the
     // container fails FAST — most often on the very first FFI call — and a
     // watcher attached afterwards would miss exactly that case.
-    final death = _WorkerDeath();
+    final death = WorkerDeath();
     final isolate = await Isolate.spawn<_OpenConfig>(
       _workerEntry,
       _OpenConfig(
