@@ -13,11 +13,13 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.util.Log
 import android.util.Rational
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import com.veil.veil_flutter.CallActionCapability
 import io.flutter.plugin.common.MethodChannel
 
 /**
@@ -637,8 +639,32 @@ class MainActivity : FlutterActivity() {
         ActivityCompat.requestPermissions(this, arrayOf(permFor(type)), micRequestCode)
     }
 
-    private fun callActionFrom(intent: Intent?): String? =
-        intent?.getStringExtra("xveil_call_action")
+    /**
+     * The call action this intent is AUTHORISED to perform, or null.
+     *
+     * This activity is `exported="true"` — it has to be, it is the launcher —
+     * so any installed app can start it explicitly with whatever extras it
+     * likes. The action extra alone was therefore a request from an unknown
+     * party: another app could answer an incoming call, turning on the
+     * microphone and camera under permissions the user granted for a call they
+     * never took, or hang up a call in progress.
+     *
+     * The action is now honoured only when it arrives with a capability this
+     * process minted for that exact action and has not yet spent. Ours come
+     * from the notification's `FLAG_IMMUTABLE` PendingIntents, whose extras no
+     * other app can read or rewrite. A forged intent carries no token, or a
+     * guessed one, and is dropped.
+     */
+    private fun callActionFrom(intent: Intent?): String? {
+        val action = intent?.getStringExtra(CallActionCapability.EXTRA_CALL_ACTION)
+            ?: return null
+        val token = intent.getStringExtra(CallActionCapability.EXTRA_CALL_TOKEN)
+        if (!CallActionCapability.consume(action, token)) {
+            Log.w("XVeilCall", "call action '" + action + "' rejected: no valid capability")
+            return null
+        }
+        return action
+    }
 
     private fun deliverCallAction(intent: Intent?) {
         val action = callActionFrom(intent) ?: return
