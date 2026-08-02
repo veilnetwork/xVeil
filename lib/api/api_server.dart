@@ -3176,13 +3176,25 @@ Future<bool> pushWebhookEvent(
 }) async {
   final client = HttpClient()..connectionTimeout = timeout;
   try {
-    final req = await client.postUrl(Uri.parse(url));
-    req.headers.contentType = ContentType.json;
-    req.headers.set('X-XVeil-Event', event['type']?.toString() ?? 'event');
-    req.write(jsonEncode(event));
-    final res = await req.close().timeout(timeout);
-    await res.drain<void>();
-    return res.statusCode < 500; // delivered (or client error — don't retry)
+    // ONE deadline over the whole exchange, not just the headers.
+    //
+    // The timeout used to cover `req.close()` and stop there, leaving
+    // `res.drain()` unbounded: a server that answered promptly and then
+    // dribbled a body forever held this future, its socket and its buffers
+    // open indefinitely, and the webhook target is a URL the operator
+    // configures — not necessarily one that is behaving (audit XV-09).
+    //
+    // `client.close(force: true)` in the `finally` is what actually severs it
+    // when the deadline fires; the timeout is what makes the deadline exist.
+    return await () async {
+      final req = await client.postUrl(Uri.parse(url));
+      req.headers.contentType = ContentType.json;
+      req.headers.set('X-XVeil-Event', event['type']?.toString() ?? 'event');
+      req.write(jsonEncode(event));
+      final res = await req.close();
+      await res.drain<void>();
+      return res.statusCode < 500; // delivered (or client error — don't retry)
+    }().timeout(timeout);
   } catch (_) {
     return false;
   } finally {

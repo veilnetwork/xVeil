@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/whisper_model_store.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/state/identity_scoped_prefs.dart';
 import 'package:xveil/state/whisper_model_controller.dart';
 
 /// A store that answers on command, so the controller's own decisions are what
@@ -53,6 +55,8 @@ void main() {
   late ProviderContainer container;
 
   setUp(() {
+    // No stored answer = no consent, which is the shipped default.
+    SharedPreferences.setMockInitialValues(<String, Object>{});
     store = _ScriptedStore();
     container = ProviderContainer(
       overrides: [
@@ -184,10 +188,20 @@ void main() {
     expect(read().phase, WhisperModelPhase.absent);
   });
 
-  group('fetching it without being asked', () {
-    // Nobody should have to know a speech model exists. It is fetched once
-    // when the session opens; the offers in Settings and under a voice
-    // message exist for a deliberate retry, not as the normal route.
+  group('fetching it in the background, once agreed to', () {
+    // Nobody should have to know a speech model exists — but fetching ~57 MiB
+    // from a public CDN the moment a session opens tells that CDN this device
+    // runs xVeil, from this IP, at this minute, with a traffic shape
+    // distinctive enough to recognise again (audit XV-05). So the automatic
+    // path waits for an answer, and tapping Download in Settings or under a
+    // voice message IS that answer.
+
+    /// Grant what a deliberate Download would have granted.
+    Future<void> agree() async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        identityScopedPrefKey(kWhisperAutoFetchPrefKey): true,
+      });
+    }
 
     /// The background path awaits a probe, then a disk check, then starts the
     /// download — several hops, so one microtask is not enough to see it.
@@ -197,14 +211,38 @@ void main() {
       }
     }
 
-    test('an absent model is fetched', () async {
+    test('nothing is fetched until the person has agreed', () async {
+      await ctrl().ensureDownloadedInBackground();
+      await settle();
+      expect(
+        store.downloads,
+        0,
+        reason: 'an unprompted CDN fetch announces the device — the one thing '
+            'this app exists to avoid doing on its own',
+      );
+    });
+
+    test('an absent model is fetched once agreed to', () async {
+      await agree();
       unawaited(ctrl().ensureDownloadedInBackground());
       await settle();
       expect(store.downloads, 1);
       expect(read().isBusy, isTrue);
     });
 
+    test('a deliberate Download is itself the agreement', () async {
+      unawaited(ctrl().download());
+      await settle();
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getBool(identityScopedPrefKey(kWhisperAutoFetchPrefKey)),
+        isTrue,
+        reason: 'nobody should be asked twice for the same thing',
+      );
+    });
+
     test('an installed model is not fetched again', () async {
+      await agree();
       store.installedNow = true;
       await ctrl().ensureDownloadedInBackground();
       expect(store.downloads, 0);
@@ -214,6 +252,7 @@ void main() {
     test('only once, however often the session re-enters', () async {
       // A person who leaves during the transfer is not chased on the next
       // screen. A deliberate retry is still a tap away.
+      await agree();
       unawaited(ctrl().ensureDownloadedInBackground());
       await Future<void>.delayed(Duration.zero);
       store.pending!.complete(const WhisperModelDownload.failed('no network'));
@@ -231,9 +270,10 @@ void main() {
     });
 
     test('a failure is silent — no error state to interrupt anyone', () async {
-      // The person did not ask for this, so it must not surface as something
-      // they have to dismiss. It may leave "failed" for the tile to show, but
-      // nothing here throws.
+      // Agreeing to a background fetch is not asking to be interrupted by its
+      // failure. It may leave "failed" for the tile to show, but nothing here
+      // throws.
+      await agree();
       unawaited(ctrl().ensureDownloadedInBackground());
       await settle();
       store.pending!.complete(const WhisperModelDownload.failed('offline'));
