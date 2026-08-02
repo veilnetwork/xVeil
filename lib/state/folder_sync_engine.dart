@@ -252,11 +252,20 @@ class FolderSyncEngine {
               await source.dispose();
             }
             final stat = await _disk.stat(pair.localPath, action.path);
+            // CONFIRMED, not assumed (audit XV-12). `writeFrom` returns
+            // silently when it refuses a path or the remote copy stops being
+            // readable — both deliberate, both indistinguishable from success
+            // here. The state was then recorded with `source.size` and
+            // `_now()`, so the mirror believed it held a file that was never
+            // written: the next pass saw nothing to do, and the file never
+            // arrived. Absent or short means not applied — leave base alone and
+            // let the next pass retry.
+            if (stat == null || stat.size != source.size) continue;
             base[action.path] = SyncedFile(
               path: action.path,
               contentId: remoteByPath[action.path]?.contentId ?? '',
-              size: stat?.size ?? source.size,
-              localModifiedAtMs: stat?.modifiedAtMs ?? _now(),
+              size: stat.size,
+              localModifiedAtMs: stat.modifiedAtMs,
             );
             applied.add(action);
           case SyncActionKind.deleteLocal:

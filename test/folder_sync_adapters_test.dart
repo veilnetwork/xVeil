@@ -85,12 +85,34 @@ void main() {
     });
 
     test('debris does not defeat the next write of the same file', () async {
-      File('${root.path}/a.txt$kPartialSuffix').writeAsStringSync('stale');
+      // Scratch names are randomised now (audit XV-13), so a leftover no
+      // longer collides with the next attempt — which means it no longer gets
+      // reused and cleaned up either. The write sweeps its own leftovers for
+      // the target instead, or the directory would slowly fill with files the
+      // scanner deliberately ignores.
+      File('${root.path}/a.txt.deadbeef$kPartialSuffix')
+          .writeAsStringSync('stale');
 
       await writeBytes(disk, root.path, 'a.txt', _bytes('fresh'));
 
       expect(File('${root.path}/a.txt').readAsStringSync(), 'fresh');
-      expect(File('${root.path}/a.txt$kPartialSuffix').existsSync(), isFalse);
+      expect(
+        root.listSync().where((e) => e.path.endsWith(kPartialSuffix)),
+        isEmpty,
+        reason: 'stale scratch files must not accumulate',
+      );
+    });
+
+    test('a user file that merely looks like scratch is left alone', () async {
+      // The sweep is scoped to `<target>.<hex>.xveil-part`. A real file the
+      // user happens to have must survive, or the fix would be deleting data.
+      final bystander = File('${root.path}/b.txt.deadbeef$kPartialSuffix')
+        ..writeAsStringSync('mine');
+
+      await writeBytes(disk, root.path, 'a.txt', _bytes('fresh'));
+
+      expect(bystander.existsSync(), isTrue);
+      expect(bystander.readAsStringSync(), 'mine');
     });
 
     test('removing the last file prunes its folders but never the root',

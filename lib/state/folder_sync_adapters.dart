@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import '../data/folder_scan.dart';
@@ -51,6 +52,11 @@ String? mirrorPathWithin(String root, String path) {
   final parts = normalised.split('/');
   for (final part in parts) {
     if (part.isEmpty || part == '.' || part == '..') return null;
+    // The scanner SKIPS names carrying the scratch suffix, so a remote file
+    // named that way would be written and then be invisible to every later
+    // pass — present on disk, absent from the mirror's view of itself, and
+    // silently re-downloaded forever (audit XV-13).
+    if (part.endsWith(kPartialSuffix)) return null;
   }
   final joined = '$root/${parts.join('/')}';
   // Containment on the STRING. `..` is already gone, so this mostly guards
@@ -271,8 +277,9 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     }
     final file = File(resolved);
     await file.parent.create(recursive: true);
-    final temp = File('${file.path}$kPartialSuffix');
-    final sink = await temp.open(mode: FileMode.writeOnly);
+    final temp = await _openScratch(file);
+    if (temp == null) return;
+    final sink = temp.sink;
     var written = 0;
     try {
       await for (final chunk in rangeChunks(
@@ -301,7 +308,76 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     // only thing left standing between a truncated download and the mirrored
     // path. Verified by weakening: dropping either alone keeps the tests green,
     // dropping both turns them red.
-    if (written == source.size) await temp.rename(file.path);
+    if (written == source.size) {
+      await temp.file.rename(file.path);
+    } else {
+      // Nothing will rename it now; do not leave a scratch file behind under a
+      // name the scanner does not recognise.
+      try {
+        await temp.file.delete();
+      } catch (_) {}
+    }
+  }
+
+  /// Open an unpredictable scratch file beside [target], or null if it cannot
+  /// be created safely.
+  ///
+  /// The old name was `<target>.xveil-part` — fixed, and derivable from the
+  /// remote listing (audit XV-13). Anyone able to write into the sync root
+  /// could pre-create a SYMLINK there pointing anywhere the user can write,
+  /// and `File.open` follows it: the next download truncated and overwrote
+  /// whatever it aimed at, entirely outside the mirrored tree.
+  ///
+  /// A random name cannot be pre-created, which is the part that actually
+  /// closes it. The no-follow check is belt-and-braces for a name that somehow
+  /// already exists.
+  ///
+  /// Residual TOCTOU, stated rather than implied: between the check and the
+  /// open the name could still be replaced. Closing that needs `O_NOFOLLOW`
+  /// with `O_EXCL`, which `dart:io` does not expose — the same boundary
+  /// `mirrorPathWithin` documents.
+  Future<({File file, RandomAccessFile sink})?> _openScratch(File target) async {
+    // Sweep OUR OWN leftovers for this target first. A random name means an
+    // interrupted write no longer collides with the next attempt — which also
+    // means it no longer gets reused and cleaned up, so without this the
+    // directory would slowly fill with scratch files the scanner deliberately
+    // ignores. Scoped to `<this target>.<hex>.xveil-part` so a user file can
+    // never match, and `delete` on a symlink removes the LINK, not its target.
+    final base = target.uri.pathSegments.last;
+    try {
+      for (final entry in target.parent.listSync(followLinks: false)) {
+        final name = entry.uri.pathSegments.last;
+        if (name.startsWith('$base.') && name.endsWith(kPartialSuffix)) {
+          try {
+            entry.deleteSync();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {
+      // Unreadable directory — the open below will fail for the same reason.
+    }
+
+    final rand = Random.secure();
+    for (var attempt = 0; attempt < 8; attempt++) {
+      final tag = List.generate(
+        8,
+        (_) => rand.nextInt(256).toRadixString(16).padLeft(2, '0'),
+      ).join();
+      final candidate = File('${target.path}.$tag$kPartialSuffix');
+      if (FileSystemEntity.typeSync(candidate.path, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        continue; // occupied — never adopt it
+      }
+      try {
+        return (
+          file: candidate,
+          sink: await candidate.open(mode: FileMode.writeOnly),
+        );
+      } catch (_) {
+        continue;
+      }
+    }
+    return null;
   }
 
   @override
@@ -323,7 +399,13 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
 
   @override
   Future<LocalFile?> stat(String root, String path) async {
-    final file = File('$root/$path');
+    // SAME RESOLVER as write and remove (audit XV-12). This built the path by
+    // concatenation, so a name the writer would refuse still had its metadata
+    // read — `..` segments and absolute paths included. One resolver for every
+    // operation, or the refusal is only as good as the least careful caller.
+    final resolved = mirrorPathWithin(root, path);
+    if (resolved == null) return null;
+    final file = File(resolved);
     if (!file.existsSync()) return null;
     final stat = file.statSync();
     return LocalFile(
