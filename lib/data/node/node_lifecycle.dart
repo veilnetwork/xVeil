@@ -103,8 +103,11 @@ String buildNodeSoftwareUpdateScript(List<NodeReleaseArtifact> artifacts) {
     throw ArgumentError('invalid or duplicate release artifacts');
   }
 
-  String temp(NodeReleaseArtifact a) =>
-      '/tmp/xveil-update-${a.component.binaryName}';
+  // Staged inside a root-owned 0700 directory created at run time — see the
+  // script below. The old `/tmp/xveil-update-<binary>` was predictable and
+  // world-reachable, so a process running as the same SSH user could swap the
+  // file between `sha256sum -c` and the `sudo install` that trusted it.
+  String temp(NodeReleaseArtifact a) => '"\$stage/${a.component.binaryName}"';
   String unit(NodeReleaseArtifact a) => switch (a.component) {
     NodeComponent.veilCli => 'veil.service',
     NodeComponent.ogate => 'ogate.service',
@@ -115,8 +118,11 @@ String buildNodeSoftwareUpdateScript(List<NodeReleaseArtifact> artifacts) {
   final downloads = artifacts
       .map((a) {
         final t = temp(a);
-        return '''curl -fsSL '${a.releaseUrl.trim()}' -o '$t'
-echo '${a.expectedSha256.trim().toLowerCase()}  $t' | sha256sum -c -''';
+        // Digest checked against the staged file by PATH, and the install below
+        // reads that same path out of the same root-only directory — nothing
+        // unprivileged can substitute the bytes in between.
+        return '''sudo curl -fsSL '${a.releaseUrl.trim()}' -o $t
+echo '${a.expectedSha256.trim().toLowerCase()}  '"$t" | sudo sha256sum -c -''';
       })
       .join('\n');
   final snapshots = artifacts
@@ -128,7 +134,7 @@ echo '${a.expectedSha256.trim().toLowerCase()}  $t' | sha256sum -c -''';
   final installs = artifacts
       .map((a) {
         final binary = a.component.binaryName;
-        return "sudo install -o root -g root -m 0755 '${temp(a)}' '/usr/local/bin/$binary'";
+        return "sudo install -o root -g root -m 0755 ${temp(a)} '/usr/local/bin/$binary'";
       })
       .join('\n');
   final restarts = artifacts
@@ -137,11 +143,10 @@ echo '${a.expectedSha256.trim().toLowerCase()}  $t' | sha256sum -c -''';
         return "if [ \"\$active_$key\" = 1 ]; then sudo systemctl restart '${unit(a)}'; fi";
       })
       .join('\n');
-  final cleanup = artifacts.map(temp).join(' ');
-
   return '''#!/usr/bin/env bash
 set -euo pipefail
-trap 'rm -f $cleanup' EXIT
+stage="\$(sudo mktemp -d)"
+trap 'sudo rm -rf "\$stage"' EXIT
 $downloads
 $snapshots
 $installs
@@ -189,30 +194,48 @@ String buildWriteNodeConfigScript(NodeConfigTarget target, String contents) {
   final payload = base64Encode(utf8.encode(contents));
   final path = target.path;
   final unit = target.service.unit;
-  final temp = '/tmp/xveil-${target.name}.toml';
-  final backup = '$path.xveil-backup';
   final validate = switch (target) {
     NodeConfigTarget.veil =>
-      "sudo -u veil /usr/local/bin/veil-cli -c '$temp' config validate",
+      'sudo -u veil /usr/local/bin/veil-cli -c "\$temp" config validate',
     NodeConfigTarget.ogate =>
-      "sudo -u veil /usr/local/bin/ogate show --config '$temp' >/dev/null",
+      'sudo -u veil /usr/local/bin/ogate show --config "\$temp" >/dev/null',
     NodeConfigTarget.oproxyClient || NodeConfigTarget.oproxyServer =>
       '# oproxy validates its complete config during service activation',
   };
 
   return '''#!/usr/bin/env bash
 set -euo pipefail
-temp='$temp'
+# Staging lives in a ROOT-OWNED, 0700, unpredictably-named directory.
+#
+# It used to be a fixed `/tmp/xveil-<name>.toml` plus a backup at
+# `<path>.xveil-backup` — a fixed sibling in a directory the `veil` service
+# user can write. A compromised `veil` could pre-place a symlink under either
+# name pointing at any root-owned file; the next administrative save then had
+# root follow it (`cp --preserve` writes THROUGH a destination symlink) and
+# overwrite the target. `mktemp -d` run as root creates the directory
+# atomically with 0700 and a name nobody can predict, so there is nothing to
+# pre-place and nobody but root can reach it.
+stage="\$(sudo mktemp -d)"
+trap 'sudo rm -rf "\$stage"' EXIT
+# Traversable, not listable: the validators below run as `veil` and must be
+# able to READ the staged file. They must not be able to WRITE it — the file
+# stays root-owned until `install` sets the final owner, so `veil` cannot
+# rewrite validated bytes before root copies them into place.
+sudo chmod 711 "\$stage"
+temp="\$stage/config.toml"
+backup="\$stage/config.backup"
 path='$path'
-backup='$backup'
 was_enabled=0
 was_active=0
 sudo systemctl is-enabled --quiet '$unit' && was_enabled=1 || true
 sudo systemctl is-active --quiet '$unit' && was_active=1 || true
-sudo rm -f "\$temp"
-printf '%s' '$payload' | base64 -d > "\$temp"
-chmod ${target.mode} "\$temp"
-sudo chown ${target.owner}:${target.group} "\$temp"
+# Written THROUGH sudo: the staging dir is root-only, so the unprivileged
+# shell cannot create the file itself.
+printf '%s' '$payload' | base64 -d | sudo tee "\$temp" >/dev/null
+# 0644 root-owned: readable by the validator, writable by nobody but root.
+# `install` below sets the real owner and mode on the destination, so staging
+# never has to hand the file to the service user.
+sudo chmod 0644 "\$temp"
 $validate
 had_config=0
 if sudo test -f "\$path"; then
@@ -232,12 +255,9 @@ if [ "\$activation_ok" = 0 ]; then
   fi
   if [ "\$was_enabled" = 0 ]; then sudo systemctl disable '$unit' >/dev/null 2>&1 || true; fi
   if [ "\$was_active" = 1 ]; then sudo systemctl restart '$unit' >/dev/null 2>&1 || true; fi
-  sudo rm -f "\$temp"
   echo 'CONFIG_ROLLED_BACK'
   exit 1
 fi
-sudo rm -f "\$backup"
-sudo rm -f "\$temp"
 echo "CONFIG_APPLIED: $path"
 echo "ACTIVE: \$(sudo systemctl is-active '$unit' 2>/dev/null || true)"
 ''';
