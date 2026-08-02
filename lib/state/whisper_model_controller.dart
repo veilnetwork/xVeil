@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/whisper_model_store.dart';
+import 'identity_scoped_prefs.dart';
+import 'providers.dart';
 import 'whisper_ffi.dart';
 
 /// Injectable so tests drive the controller without a network.
@@ -97,9 +101,39 @@ class WhisperModelController extends Notifier<WhisperModelState> {
     );
   }
 
+  /// Record that this profile is willing to have the model fetched on its own.
+  ///
+  /// Tapping Download IS the agreement — nobody should be asked twice for the
+  /// same thing — so the deliberate path sets it and the automatic path reads
+  /// it.
+  Future<void> _rememberAutoFetchConsent() async {
+    try {
+      final prefs = await ref.read(prefsProvider.future);
+      await prefs.setBool(identityScopedPrefKey(kWhisperAutoFetchPrefKey), true);
+    } catch (_) {
+      // Best-effort: failing to remember the answer costs one extra tap next
+      // time, and is not a reason to fail the download the person asked for.
+    }
+  }
+
+  Future<bool> _hasAutoFetchConsent() async {
+    try {
+      final prefs = await ref.read(prefsProvider.future);
+      return prefs.getBool(identityScopedPrefKey(kWhisperAutoFetchPrefKey)) ??
+          false;
+    } catch (_) {
+      // Unreadable preferences mean we do not know the answer, and "we do not
+      // know" is not consent.
+      return false;
+    }
+  }
+
   Future<bool> download() async {
     // Pressing twice must not start two 57 MiB transfers.
     if (state.isBusy) return false;
+    // Reaching here means a person chose it, on purpose, from Settings or from
+    // under a voice message. That is the consent the automatic path waits for.
+    unawaited(_rememberAutoFetchConsent());
     _cancelRequested = false;
     state = const WhisperModelState(phase: WhisperModelPhase.downloading);
     final result = await _store.download(
@@ -154,6 +188,14 @@ class WhisperModelController extends Notifier<WhisperModelState> {
   Future<void> ensureDownloadedInBackground() async {
     if (_autoAttempted || state.isBusy) return;
     _autoAttempted = true;
+    // Nobody asked for this, and it is not free of consequence: ~57 MiB from a
+    // public CDN tells that CDN this device runs xVeil, from this IP, at this
+    // minute, with a traffic shape distinctive enough to recognise again
+    // (audit XV-05). The deliberate offer in Settings and under a voice
+    // message is unchanged — tapping it is the agreement, and from then on
+    // this path may run without asking again.
+    if (!await _hasAutoFetchConsent()) return;
+    if (!ref.mounted) return;
     if (!await ref.read(whisperNativeProbeProvider)()) return;
     if (await _store.isInstalled()) {
       if (ref.mounted) {
