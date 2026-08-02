@@ -82,6 +82,18 @@ class SubprocessNodeController implements NodeController {
     }
     _process = process;
 
+    // DRAIN BOTH PIPES (audit XV-20). Nothing read them, so once the OS pipe
+    // buffer filled — 64 KiB on Linux, less elsewhere — the node BLOCKED on its
+    // next write and stopped doing anything, with no error anywhere: a node
+    // that talks too much wedged itself, and the amount it talks depends on log
+    // level and traffic. A bounded tail is kept so the reason a node died is
+    // still visible; the rest is discarded rather than accumulated.
+    _tail.clear();
+    _drains = [
+      process.stdoutLines.listen(_recordLine, onError: (_) {}),
+      process.stderrLines.listen(_recordLine, onError: (_) {}),
+    ];
+
     var exited = false;
     _exitWatch = process.exitCode.asStream().listen((code) {
       exited = true;
@@ -102,12 +114,58 @@ class SubprocessNodeController implements NodeController {
       await Future<void>.delayed(pollInterval);
     }
     if (!exited && _current.phase != NodePhase.connected) {
+      // KILL IT (audit XV-20). Giving up on the WAIT used to leave the child
+      // RUNNING and unowned: it kept the admin socket and the listen port, and
+      // the next `start()` — seeing no readiness — spawned a second one beside
+      // it. Same shape as the stranded all-online node in XV-05: we stopped
+      // watching and called that stopping.
+      await _terminate();
       _emit(const NodeStatus(
         phase: NodePhase.error,
         message: 'node did not become ready before timeout',
       ));
     }
   }
+
+  /// Longest we wait for a killed child to actually go away before giving up on
+  /// a clean reap. Short: the process was already told to die, and a caller
+  /// blocked here is a UI that appears frozen.
+  static const _exitGrace = Duration(seconds: 5);
+
+  /// Stop the child and WAIT for it, so the caller's next `start()` cannot race
+  /// a process that still holds the port.
+  Future<void> _terminate() async {
+    final process = _process;
+    _process = null;
+    for (final d in _drains) {
+      unawaited(d.cancel());
+    }
+    _drains = const [];
+    await _exitWatch?.cancel();
+    _exitWatch = null;
+    if (process == null) return;
+    process.kill();
+    try {
+      await process.exitCode.timeout(_exitGrace);
+    } catch (_) {
+      // Did not die in time (or already reaped). Nothing further to do from
+      // here — the handle is released either way, and holding the caller
+      // longer would not change the outcome.
+    }
+  }
+
+  /// Bounded tail of the child's output, newest last.
+  final List<String> _tail = <String>[];
+  static const _tailLines = 200;
+  List<StreamSubscription<String>> _drains = const [];
+
+  void _recordLine(String line) {
+    _tail.add(line);
+    if (_tail.length > _tailLines) _tail.removeAt(0);
+  }
+
+  /// What the node last said before it stopped — for diagnostics.
+  List<String> get outputTail => List.unmodifiable(_tail);
 
   @override
   Future<void> setEconomyMode(bool economy) async {
@@ -121,10 +179,11 @@ class SubprocessNodeController implements NodeController {
 
   @override
   Future<void> stop() async {
-    await _exitWatch?.cancel();
-    _exitWatch = null;
-    _process?.kill();
-    _process = null;
+    // Awaits the exit (audit XV-20): this used to `kill()` and return
+    // immediately, so a `start()` right after could spawn while the old process
+    // still held the admin socket and the listen port — and the old handle was
+    // already dropped, so nobody could stop it either.
+    await _terminate();
     _emit(NodeStatus.stopped);
   }
 
