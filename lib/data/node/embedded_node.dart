@@ -921,6 +921,39 @@ class EmbeddedNode {
   }
 }
 
+/// Create a resource, then finish setting it up — releasing it if the second
+/// step throws.
+///
+/// The deniable boot is two FFI calls: `startDeferred` binds the admin socket
+/// and starts the node thread, then `applyConfig` promotes the real identity.
+/// Between them the node EXISTS and nothing else holds a reference to it, so a
+/// throw from the second step stranded a running node — holding its admin
+/// socket, its IPC socket and its listen port, with no handle left to stop it.
+/// The next boot then failed on a taken port for a reason unrelated to why the
+/// first one had not started (audit XV-03).
+///
+/// Ownership therefore never sits in the gap: whoever creates is responsible
+/// until the value is returned, and [abandon] runs before the failure
+/// propagates. Generic so it can be exercised without an FFI node.
+T createThenPromote<T>({
+  required T Function() create,
+  required void Function(T) promote,
+  required void Function(T) abandon,
+}) {
+  final resource = create();
+  try {
+    promote(resource);
+  } catch (_) {
+    // Best-effort: the promotion failure is what the caller needs to see, and
+    // a throw from the cleanup would replace it with a less useful one.
+    try {
+      abandon(resource);
+    } catch (_) {}
+    rethrow;
+  }
+  return resource;
+}
+
 /// [NodeController] backed by the embedded in-process node — the production
 /// path for sandboxed desktop and iOS (no `veil-cli` subprocess). Same
 /// readiness contract as the subprocess controller (probe the app socket).
