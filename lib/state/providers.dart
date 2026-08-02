@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kProfileMode, kReleaseMode;
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -19,6 +20,7 @@ import '../data/storage/on_disk_blob_store.dart';
 import '../data/storage/kv_log_store.dart';
 import '../data/storage/storage.dart';
 import '../data/storage/worker_multi_space.dart';
+import '../data/transport/fail_closed_transport.dart';
 import '../data/transport/loopback_transport.dart';
 import '../data/transport/veil_transport.dart';
 import '../data/veil_stack.dart';
@@ -221,7 +223,21 @@ final nodeControllerProvider = Provider<NodeController>((ref) {
 final veilTransportProvider = Provider<VeilTransport>((ref) {
   final stack = ref.watch(realStackProvider);
   if (stack != null) return stack.transport; // owned/disposed by the stack
-  final transport = LoopbackTransport();
+  // NO REAL STACK. What stands in depends on the build (audit XV-01).
+  //
+  // `LoopbackTransport` echoes every send back as an inbound message FROM the
+  // addressee — right for developing the UI on one machine, and a fabricated
+  // conversation anywhere else. It was reachable in a packaged desktop build:
+  // a veil dylib that failed to load left the boot state null, and this
+  // provider handed out a loopback, so a message appeared delivered and
+  // answered while nothing had left the machine.
+  //
+  // A shipped build gets a transport that refuses instead.
+  final VeilTransport transport = kReleaseMode || kProfileMode
+      ? FailClosedTransport(
+          reason: const TransportUnavailable('no veil node is running'),
+        )
+      : LoopbackTransport();
   ref.onDispose(transport.dispose);
   return transport;
 });
