@@ -216,7 +216,20 @@ class AppController extends Notifier<AppState> {
     }
 
     final storage = ref.read(storageProvider);
-    await storage.open(password: password, createIfMissing: true);
+    // `open` ANSWERS whether it unlocked anything (audit X-15). The result was
+    // dropped and `saveIdentity` ran anyway, against a storage that was not
+    // open — so a failure here surfaced later, somewhere else, as a confusing
+    // error against half-written onboarding state. Roll the phase back and say
+    // what happened while the cause is still on the stack.
+    final opened = await storage.open(password: password, createIfMissing: true);
+    if (!opened) {
+      state = state.copyWith(phase: AppPhase.onboarding, preparingReason: null);
+      ref.read(pendingDeviceLinkProvider.notifier).state = false;
+      takePendingIdentityPhrase();
+      throw StateError(
+        'storage.open refused the onboarding password; nothing was written',
+      );
+    }
     await storage.saveIdentity(identity);
 
     final prefs = await ref.read(prefsProvider.future);
@@ -1626,6 +1639,19 @@ class AppController extends Notifier<AppState> {
   Future<void> _cleanRuntimeBase() async {
     final base = ref.read(deniableBootProvider)?.runtimeDir;
     if (base == null) return;
+    // Only a directory WE marked (audit X-12). The path can come from
+    // `XVEIL_RUNTIME_DIR`, and this is a recursive delete — a wrong launcher
+    // entry, or the variable set by anything else in the session, otherwise
+    // made lock/wipe erase whatever it pointed at. Leaving a few sockets
+    // behind is a rounding error next to that.
+    if (!runtimeDirIsOurs(base)) {
+      devLog(
+        () =>
+            'xVeil[deniable]: refusing to remove $base — no $kRuntimeDirMarker '
+            'marker, so this directory is not one we created',
+      );
+      return;
+    }
     try {
       final d = Directory(base);
       if (d.existsSync()) await d.delete(recursive: true);
