@@ -149,6 +149,32 @@ void main() {
     },
   );
 
+  test('bootAll scrubs every space it opened, after the boots', () async {
+    // The constant-time open no longer vacuums inline — doing so made a real
+    // space measurably slower to open than a decoy and undid the equalized
+    // scan (audit HV-02). The erase still has to happen: without this call,
+    // values a previous session deleted stay decryptable to anyone who later
+    // obtains the password and an old snapshot of the file.
+    final fake = FakeMultiSpaceBacking();
+    final session = MultiIdentitySession(
+      SyncWrappedAsyncMultiSpaceBacking(fake),
+      runtimeDirBase: '/run',
+      listenPortBase: 9000,
+      // Every boot fails on purpose: the identity's storage stays hosted, so
+      // its unlinked data is just as readable and must be scrubbed anyway.
+      boot: (spec, storage) async => throw StateError('no node in test'),
+    );
+
+    await session.bootAll([_e('alice', 1), _e('bob', 2)]);
+
+    expect(fake.opened, hasLength(2));
+    expect(
+      fake.vacuumed.toSet(),
+      fake.opened.toSet(),
+      reason: 'a space that opened but was never scrubbed keeps deleted data',
+    );
+  });
+
   test(
     'each identity receives into its OWN storage (concurrent pipelines)',
     () async {

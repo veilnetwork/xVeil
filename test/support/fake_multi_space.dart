@@ -10,6 +10,11 @@ import 'package:xveil/data/storage/multi_space_store.dart';
 /// first open), so two distinct keys give two isolated, concurrently-usable
 /// stores.
 class FakeMultiSpaceBacking implements MultiSpaceBacking {
+  /// Space ids handed out by [openSpace], in call order. Paired with
+  /// [vacuumed] so a test can assert every space that OPENED also got its
+  /// post-unlock scrub, without hardcoding how ids are assigned.
+  final List<int> opened = [];
+
   final _byKeyHex = <String, FakeKvLogStore>{};
   final _hosted = <FakeKvLogStore>[];
 
@@ -23,7 +28,9 @@ class FakeMultiSpaceBacking implements MultiSpaceBacking {
     final store =
         _byKeyHex.putIfAbsent(_hex(keys), () => FakeKvLogStore(keys: keys));
     _hosted.add(store);
-    return _hosted.length - 1;
+    final id = _hosted.length - 1;
+    opened.add(id);
+    return id;
   }
 
   @override
@@ -59,6 +66,20 @@ class FakeMultiSpaceBacking implements MultiSpaceBacking {
 
   @override
   void scrub(int id) => _s(id).scrub();
+
+  /// Space ids the host asked to vacuum, in call order.
+  ///
+  /// Recorded rather than ignored so a test can prove the post-unlock scrub
+  /// actually reaches the backing — the constant-time open no longer does it
+  /// inline, so if nobody calls this the erase silently stops happening
+  /// (audit HV-02).
+  final List<int> vacuumed = [];
+
+  @override
+  void vacuumOrphans(int id) {
+    _s(id); // same "unknown space" failure as any other per-space call
+    vacuumed.add(id);
+  }
 
   @override
   void close() {}
