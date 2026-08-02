@@ -4042,6 +4042,26 @@ class ApiHandler {
   /// the parser, never a replacement for the one that guards the work.
   bool authHeaderOk(String? header) => _matchHeader(header) != null;
 
+  /// The status to answer with WITHOUT reading a body, or null to proceed.
+  ///
+  /// Authentication moved in front of the body reader earlier; SCOPE did not,
+  /// and that half was still open. A read-only token — the one handed out for
+  /// monitoring, on the understanding that it cannot change anything — passed
+  /// the auth gate, and its `POST` was then read in full, up to the 4 MiB cap,
+  /// before [handle] returned 403. The refusal was already decided at the first
+  /// byte; reading the rest was work the token holder was never entitled to ask
+  /// for. Deciding here costs one map lookup and makes the read-only token cost
+  /// what it claims to.
+  ///
+  /// Returns 401 for no/unknown token, 403 for a token whose scope excludes
+  /// [method], null when the request may be read.
+  int? preBodyRefusal(String? header, String method) {
+    final auth = _matchHeader(header);
+    if (auth == null) return 401;
+    if (auth.readOnly && method != 'GET') return 403;
+    return null;
+  }
+
   Future<ApiResponse> handle(
     String method,
     Uri uri,
@@ -6231,14 +6251,61 @@ class ApiHandler {
 /// Binds [ApiHandler] to a loopback HTTP socket. [_events] is a broadcast
 /// stream of JSON-able events pushed to every authenticated `/v1/events`
 /// WebSocket subscriber (the bot event feed).
+/// Outcome of reading a request body: the text, or the status to answer with.
+///
+/// Kept apart rather than collapsed into a nullable string, because 413 and 408
+/// mean different things to the caller — the old `null` could only say "too
+/// large", which would be a lie for a body that simply never finished arriving.
+class _BodyOutcome {
+  const _BodyOutcome._(this.text, this.status);
+
+  const _BodyOutcome.text(String value) : this._(value, null);
+
+  /// The caller sent more than the cap.
+  static const tooLarge = _BodyOutcome._(null, 413);
+
+  /// The caller did not finish inside the deadline.
+  static const timedOut = _BodyOutcome._(null, 408);
+
+  final String? text;
+
+  /// Null when the body was read; the HTTP status to refuse with otherwise.
+  final int? status;
+}
+
 class ApiServer {
-  ApiServer(this._handler, this._events);
+  /// [bodyDeadline] and [maxInFlight] are overridable for tests only.
+  ///
+  /// Both defend against a caller who is patient rather than large, and both
+  /// are unreachable in a test at their production values — a 30-second wait
+  /// per assertion, or 33 sockets held open at once. Injecting them keeps the
+  /// two limits covered instead of merely described.
+  ApiServer(
+    this._handler,
+    this._events, {
+    Duration? bodyDeadline,
+    int? maxInFlight,
+  })  : _bodyDeadline = bodyDeadline ?? _defaultBodyDeadline,
+        _maxInFlight = maxInFlight ?? _defaultMaxInFlight;
+
   final ApiHandler _handler;
   final Stream<Map<String, dynamic>> _events;
   HttpServer? _server;
 
   bool get running => _server != null;
   int? get port => _server?.port;
+
+  /// Requests being read or served at once.
+  ///
+  /// A cap on body SIZE bounds one request; nothing bounded how many a caller
+  /// could have in flight, so the real ceiling was `_maxBodyBytes` × however
+  /// many sockets they cared to open. Loopback callers are this app's own
+  /// tooling and bots; a handful of concurrent calls is generous, and past it
+  /// the honest answer is 503 rather than accepting work we will queue behind
+  /// everything else.
+  static const _defaultMaxInFlight = 32;
+  final int _maxInFlight;
+  int _inFlight = 0;
 
   Future<int?> start(int port) async {
     if (_server != null) return _server!.port;
@@ -6275,23 +6342,80 @@ class ApiServer {
   /// Abandoning the stream instead would be cheaper still and unusable: the
   /// unread remainder makes Dart tear the connection down, and the caller sees
   /// "connection closed before full header" rather than the refusal.
-  Future<String?> _readBoundedBody(HttpRequest req) async {
+  /// How long an AUTHENTICATED caller gets to finish sending a body.
+  ///
+  /// The cap bounded memory; nothing bounded TIME. A token holder could open a
+  /// chunked request, send a byte a minute, and hold a socket, a file
+  /// descriptor and a pending future for as long as they liked — under the
+  /// size cap the whole way, so no limit ever fired. Loopback JSON of at most
+  /// 4 MiB does not need thirty seconds; anything slower is not a client.
+  static const _defaultBodyDeadline = Duration(seconds: 30);
+  final Duration _bodyDeadline;
+
+  /// The body as text, or a refusal.
+  ///
+  /// Counted as it arrives rather than trusted from `Content-Length`: a chunked
+  /// request declares no length, and a declared one is the caller's claim, not
+  /// a limit on what they then send.
+  ///
+  /// Past the cap it keeps consuming but stops KEEPING, which is the part that
+  /// mattered — memory stays flat while the sender wastes their own bandwidth.
+  /// Abandoning the stream instead would be cheaper still and unusable: the
+  /// unread remainder makes Dart tear the connection down, and the caller sees
+  /// "connection closed before full header" rather than the refusal. That drain
+  /// is now bounded by [_bodyDeadline], so the concession costs at most one
+  /// deadline per request instead of being open-ended.
+  Future<_BodyOutcome> _readBoundedBody(HttpRequest req) async {
     var chunks = <List<int>>[];
     var total = 0;
     var overflowed = false;
-    await for (final chunk in req) {
-      total += chunk.length;
-      if (!overflowed && total > _maxBodyBytes) {
-        overflowed = true;
-        chunks = <List<int>>[]; // release what was already held
-      }
-      if (!overflowed) chunks.add(chunk);
+    final done = Completer<_BodyOutcome>();
+
+    _BodyOutcome finish() {
+      if (overflowed) return _BodyOutcome.tooLarge;
+      return _BodyOutcome.text(
+        utf8.decode(
+          chunks.expand((chunk) => chunk).toList(growable: false),
+          allowMalformed: true,
+        ),
+      );
     }
-    if (overflowed) return null;
-    return utf8.decode(
-      chunks.expand((chunk) => chunk).toList(growable: false),
-      allowMalformed: true,
+
+    // Driven by an explicit subscription rather than `await for` + `.timeout`,
+    // because a timeout on the FUTURE leaves the subscription running: the
+    // stream is still being consumed while the refusal is written, and the
+    // response fails mid-flight (observed as a 500 in place of the 408).
+    // Cancelling is what makes the deadline mean "stop reading" rather than
+    // just "stop waiting".
+    late StreamSubscription<List<int>> sub;
+    final timer = Timer(_bodyDeadline, () {
+      if (done.isCompleted) return;
+      unawaited(sub.cancel());
+      done.complete(_BodyOutcome.timedOut);
+    });
+    sub = req.listen(
+      (chunk) {
+        total += chunk.length;
+        if (!overflowed && total > _maxBodyBytes) {
+          overflowed = true;
+          chunks = <List<int>>[]; // release what was already held
+        }
+        if (!overflowed) chunks.add(chunk);
+      },
+      onDone: () {
+        if (!done.isCompleted) done.complete(finish());
+      },
+      onError: (Object _) {
+        // The caller hung up mid-send. Same class of failure as running out of
+        // time: there is no body to parse either way.
+        if (!done.isCompleted) done.complete(_BodyOutcome.timedOut);
+      },
+      cancelOnError: true,
     );
+
+    final outcome = await done.future;
+    timer.cancel();
+    return outcome;
   }
 
   /// How long an unauthenticated caller gets to finish a body we are only
@@ -6344,35 +6468,69 @@ class ApiServer {
       }
       return;
     }
+    if (_inFlight >= _maxInFlight) {
+      req.response.persistentConnection = false;
+      req.response.statusCode = 503;
+      req.response.headers.contentType = ContentType.json;
+      req.response.write(jsonEncode({'error': 'too many concurrent requests'}));
+      await req.response.close();
+      return;
+    }
+    _inFlight++;
     try {
       final auth = req.headers.value(HttpHeaders.authorizationHeader);
       Map<String, dynamic>? body;
       if (const {'POST', 'PATCH', 'DELETE'}.contains(req.method)) {
-        // AUTH BEFORE BODY. The token check used to live inside handle(), which
-        // runs after the body has been fully joined into one string — so an
-        // unauthenticated local process could hold the request open and stream
-        // until the app ran out of memory. Nothing here is reachable without a
-        // token any more, and what is reachable is bounded.
-        if (!_handler.authHeaderOk(auth)) {
+        // AUTH AND SCOPE BEFORE BODY. The token check used to live inside
+        // handle(), which runs after the body has been fully joined into one
+        // string — so an unauthenticated local process could hold the request
+        // open and stream until the app ran out of memory. Auth moved out
+        // first; SCOPE followed, because a read-only token passed the auth gate
+        // and had its write body read in full before handle() refused it.
+        final refusal = _handler.preBodyRefusal(auth, req.method);
+        if (refusal != null) {
           await _discardBody(req);
-          // Do not keep the socket alive for a caller that has not
-          // authenticated: one that is collecting connections should have to
-          // pay for a new one every time.
+          // Do not keep the socket alive for a caller we just refused: one
+          // that is collecting connections should have to pay for a new one
+          // every time.
           req.response.persistentConnection = false;
-          req.response.statusCode = 401;
+          req.response.statusCode = refusal;
           req.response.headers.contentType = ContentType.json;
-          req.response.write(jsonEncode({'error': 'unauthorized'}));
+          req.response.write(jsonEncode({
+            'error': refusal == 403 ? 'read-only token' : 'unauthorized',
+          }));
           await req.response.close();
           return;
         }
-        final raw = await _readBoundedBody(req);
-        if (raw == null) {
-          req.response.statusCode = 413;
+        final read = await _readBoundedBody(req);
+        final refusedStatus = read.status;
+        if (refusedStatus == 408) {
+          // No status goes out here, and that is not a shortcut. A request
+          // whose body was abandoned mid-stream cannot carry a response:
+          // `HttpServer` drops the bytes and closes the connection instead of
+          // sending them (measured — the client receives nothing either way).
+          // So the honest action is the one that frees the resource. Dropping
+          // the socket IS the answer to a caller that would not finish.
+          try {
+            (await req.response.detachSocket(writeHeaders: false)).destroy();
+          } catch (_) {
+            /* already gone */
+          }
+          return;
+        }
+        if (refusedStatus != null) {
+          // Over the cap. This stream WAS consumed to the end — that is what
+          // the drain-but-do-not-keep loop buys — so a real refusal can go
+          // out. Not on a reusable connection though: a caller collecting
+          // connections should pay for a new one every time.
+          req.response.persistentConnection = false;
+          req.response.statusCode = refusedStatus;
           req.response.headers.contentType = ContentType.json;
           req.response.write(jsonEncode({'error': 'body too large'}));
           await req.response.close();
           return;
         }
+        final raw = read.text ?? '';
         if (raw.isNotEmpty) {
           final decoded = jsonDecode(raw);
           if (decoded is Map<String, dynamic>) body = decoded;
@@ -6401,6 +6559,7 @@ class ApiServer {
         req.response.statusCode = 500;
       } catch (_) {}
     } finally {
+      _inFlight--;
       // A blob cut short leaves fewer bytes than the promised Content-Length,
       // so close() throws by design. The connection still tears down, which is
       // the signal the client needs.

@@ -4471,4 +4471,184 @@ void main() {
       );
     });
   });
+
+  // Audit X-10. Authentication moved in front of the body reader; SCOPE and
+  // TIME did not, and both were still open.
+  group('the API socket refuses out-of-scope and slow writes early', () {
+    late ApiServer server;
+    late int port;
+
+    setUp(() async {
+      // A read-only token — the one handed out for monitoring on the
+      // understanding that it cannot change anything.
+      server = ApiServer(make(readOnly: true), const Stream.empty());
+      port = (await server.start(0))!;
+    });
+    tearDown(() => server.stop());
+
+    test('a read-only token is refused BEFORE its write body is read', () async {
+      // 403 rather than 413 is the whole assertion, exactly as above. The
+      // refusal was already decided at the first byte — reading the other
+      // 5 MiB was work the token holder was never entitled to ask for.
+      final client = HttpClient();
+      try {
+        final req = await client.post('127.0.0.1', port, '/v1/messages');
+        req.headers
+            .set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
+        req.headers.chunkedTransferEncoding = true;
+        req.add(utf8.encode('{"filler":"${'x' * (5 * 1024 * 1024)}"}'));
+        final res = await req.close();
+        await res.drain<void>();
+        expect(
+          res.statusCode,
+          403,
+          reason: '413 here means the server buffered a body it had already '
+              'decided to refuse on scope',
+        );
+      } finally {
+        client.close(force: true);
+      }
+    });
+
+    test('a body that never finishes is cut off, not held', () async {
+      // The size cap bounded memory; nothing bounded TIME. A token holder
+      // could open a chunked request, send a byte, and hold a socket, an fd
+      // and a pending future indefinitely — under the cap the whole way, so no
+      // limit ever fired.
+      final slow = ApiServer(
+        make(),
+        const Stream.empty(),
+        bodyDeadline: const Duration(milliseconds: 300),
+      );
+      final slowPort = (await slow.start(0))!;
+      addTearDown(slow.stop);
+
+      // Raw socket, not HttpClient: `HttpClientRequest.close()` is what emits
+      // the terminating chunk, so there is no way through the client API to
+      // send a body and then simply stop. Speaking HTTP directly is the only
+      // way to be the caller this defends against.
+      final sock = await Socket.connect(InternetAddress.loopbackIPv4, slowPort);
+      addTearDown(sock.destroy);
+      sock.write(
+        'POST /v1/messages HTTP/1.1\r\n'
+        'Host: 127.0.0.1\r\n'
+        'Authorization: Bearer secret-token\r\n'
+        'Content-Type: application/json\r\n'
+        'Transfer-Encoding: chunked\r\n\r\n'
+        'b\r\n{"partial":\r\n', // one chunk, and never the terminating 0-chunk
+      );
+      await sock.flush();
+
+      // The observable is the connection being DROPPED. A response cannot be
+      // delivered over a request the server abandoned mid-body — Dart discards
+      // it — so "the socket closes promptly" is the whole signal, and it is
+      // the one that matters: the socket, the descriptor and the pending
+      // future are what a slow caller was accumulating.
+      final closed = Completer<void>();
+      sock.listen(
+        (_) {},
+        onDone: () {
+          if (!closed.isCompleted) closed.complete();
+        },
+        onError: (Object _) {
+          if (!closed.isCompleted) closed.complete();
+        },
+      );
+      await closed.future.timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => fail(
+          'the server carried a request that would not finish — without the '
+          'deadline this socket is held open indefinitely',
+        ),
+      );
+    });
+
+    test('concurrent requests past the cap are refused with 503', () async {
+      // One request was bounded; the NUMBER of them was not, so the real
+      // ceiling was the per-request cap times however many sockets a caller
+      // cared to open.
+      final capped = ApiServer(
+        make(),
+        const Stream.empty(),
+        bodyDeadline: const Duration(seconds: 5),
+        maxInFlight: 2,
+      );
+      final cappedPort = (await capped.start(0))!;
+      addTearDown(capped.stop);
+
+      final clients = <HttpClient>[];
+      addTearDown(() {
+        for (final c in clients) {
+          c.close(force: true);
+        }
+      });
+
+      // Two requests parked mid-body occupy both slots.
+      for (var i = 0; i < 2; i++) {
+        final c = HttpClient();
+        clients.add(c);
+        final req = await c.post('127.0.0.1', cappedPort, '/v1/messages');
+        req.headers
+            .set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
+        req.headers.chunkedTransferEncoding = true;
+        req.add(utf8.encode('{"held":'));
+        // flush, NOT close: close() ends the chunked body, which is exactly
+        // what these requests must not do — they have to sit in the server's
+        // body reader occupying a slot.
+        await req.flush();
+      }
+      // Let the server pick both up before the third arrives.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      final third = HttpClient();
+      clients.add(third);
+      final req = await third.get('127.0.0.1', cappedPort, '/v1/health');
+      req.headers.set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
+      final res = await req.close();
+      await res.drain<void>();
+      expect(res.statusCode, 503);
+    });
+
+    test('the in-flight slot is released after every request', () async {
+      // A cap that only counts up is worse than no cap: after enough requests
+      // the server answers 503 forever and never recovers. Sequential calls
+      // past the limit are the cheapest way to see it — a leaked counter
+      // wedges on the third here, and the version with the decrement deleted
+      // passed every other test in this group.
+      final capped = ApiServer(
+        make(),
+        const Stream.empty(),
+        maxInFlight: 2,
+      );
+      final cappedPort = (await capped.start(0))!;
+      addTearDown(capped.stop);
+
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      for (var i = 0; i < 5; i++) {
+        final req = await client.get('127.0.0.1', cappedPort, '/v1/health');
+        req.headers
+            .set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
+        final res = await req.close();
+        await res.drain<void>();
+        expect(res.statusCode, 200, reason: 'request ${i + 1} was refused');
+      }
+    });
+
+    test('a read-only token still reads', () async {
+      // The gate must refuse writes, not the token. A version that refused
+      // everything would pass the test above while breaking monitoring.
+      final client = HttpClient();
+      try {
+        final req = await client.get('127.0.0.1', port, '/v1/health');
+        req.headers
+            .set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
+        final res = await req.close();
+        await res.drain<void>();
+        expect(res.statusCode, 200);
+      } finally {
+        client.close(force: true);
+      }
+    });
+  });
 }

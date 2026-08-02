@@ -14,40 +14,117 @@ import 'transport/veil_flutter_transport.dart';
 import 'transport/veil_transport.dart';
 import 'package:xveil/core/log.dart';
 
-/// Make the node's runtime directory readable by its owner only.
+/// Thrown when the runtime directory cannot be made owner-only.
+///
+/// Carried as its own type so the boot path can report it as a refusal rather
+/// than as a generic I/O failure — the distinction the operator needs is
+/// "we declined to start" versus "the disk is broken".
+class RuntimeDirNotPrivate implements Exception {
+  RuntimeDirNotPrivate(this.dir, this.reason);
+
+  final String dir;
+  final String reason;
+
+  @override
+  String toString() =>
+      'runtime directory $dir cannot be made owner-only ($reason); refusing to '
+      'put the node control socket there';
+}
+
+/// Whether a failure to secure the runtime directory must stop the boot.
+///
+/// On macOS and Linux the path can sit on a filesystem other local users
+/// share, so an unprotected directory is a real exposure and we refuse. On
+/// Android and iOS the directory is inside the app sandbox — the OS is already
+/// the boundary — and on Windows access is governed by the profile ACL, which
+/// a POSIX mode cannot describe and this code does not attempt to set. Failing
+/// the boot on those platforms would trade a guarantee they already have for
+/// an outage.
+bool runtimeDirMustBePrivate() => Platform.isMacOS || Platform.isLinux;
+
+Future<ProcessResult> _chmod700(String dir) => Process.run('chmod', ['700', dir]);
+
+/// Create the node's runtime directory owner-only, or refuse to use it.
 ///
 /// It holds `admin.sock` — the node's CONTROL socket — next to `app.sock` and
-/// the obfs4 PSK. `Directory.create` leaves it at the process umask, which on a
-/// typical desktop is world-readable, so on a shared machine another local user
-/// could reach the admin endpoint of someone else's node. On mobile the path is
-/// already inside the app's private data dir and this is redundant; on Windows
-/// the permission model is different and the POSIX mode is meaningless, so both
-/// are skipped rather than faked.
+/// the obfs4 PSK. `Directory.create` leaves the mode at the process umask,
+/// which on a typical desktop is world-readable, so on a shared machine
+/// another local user could reach the admin endpoint of someone else's node.
 ///
-/// Best-effort by design: a filesystem that cannot express the mode (a mounted
-/// share, some Android vendor mounts) must not stop the node from booting —
-/// the directory is ephemeral and identity-free, and refusing to start would
-/// trade a hardening measure for an outage.
-Future<void> restrictRuntimeDir(String dir) async {
+/// Three things this does that the old best-effort `chmod` did not:
+///
+///   * **refuses a symlink.** `Directory.create` follows one, so a link
+///     planted at the runtime path redirected the control socket into a
+///     directory the attacker owns. Checked with `followLinks: false` before
+///     anything is created.
+///   * **verifies the result** by reading the mode back, instead of trusting
+///     that `chmod` exiting zero means the filesystem honoured it. Mounted
+///     shares and some vendor mounts accept the call and keep the old mode.
+///   * **fails closed** where it matters ([runtimeDirMustBePrivate]) instead
+///     of logging and carrying on. A hardening step that only logs is a
+///     comment claiming something untrue.
+///
+/// Residual window, stated plainly: between `create` and `chmod` the directory
+/// exists at the umask. It is empty for that instant — the sockets and the PSK
+/// are written afterwards, by the caller, only once this returns — so the
+/// window exposes an empty directory, not a secret. Closing it entirely needs
+/// `mkdir(2)` with a mode, which Dart does not expose.
+Future<void> createRestrictedRuntimeDir(String dir) async {
+  if (FileSystemEntity.typeSync(dir, followLinks: false) ==
+      FileSystemEntityType.link) {
+    throw RuntimeDirNotPrivate(dir, 'path is a symlink');
+  }
+  await Directory(dir).create(recursive: true);
+  await restrictRuntimeDir(dir);
+}
+
+/// Apply and VERIFY the owner-only mode on an existing directory.
+///
+/// Split from [createRestrictedRuntimeDir] so the check is reachable on a
+/// directory the caller made itself, and so tests can hand it a deliberately
+/// permissive one.
+/// [chmod] exists for tests only. A filesystem that accepts the call and keeps
+/// the old mode is the case the read-back guards against, and there is no way
+/// to produce one on demand — so it is injected rather than described, and the
+/// verification stays covered.
+Future<void> restrictRuntimeDir(
+  String dir, {
+  Future<ProcessResult> Function(String dir)? chmod,
+}) async {
   if (Platform.isWindows) return;
+  String? failure;
   try {
-    // The exit code is the whole point of running it. `Process.run` completing
-    // means chmod RAN, not that it WORKED — on a mounted share or a filesystem
-    // without POSIX modes it exits non-zero and the directory keeps whatever
-    // the umask gave it. Swallowing that silently is how a hardening step
-    // becomes a comment that claims something untrue.
-    final result = await Process.run('chmod', ['700', dir]);
+    final result = await (chmod ?? _chmod700)(dir);
     if (result.exitCode != 0) {
-      devLog(
-        () =>
-            'xVeil[deniable]: chmod 700 $dir failed (exit '
-            '${result.exitCode}): ${result.stderr} — admin.sock and the PSK '
-            'may be readable by other local users on this filesystem',
-      );
+      failure = 'chmod exited ${result.exitCode}: ${result.stderr}';
     }
   } catch (e) {
-    devLog(() => 'xVeil[deniable]: could not restrict $dir: $e');
+    failure = 'chmod could not be run: $e';
   }
+
+  // Read the mode back rather than believing the exit code. This is the check
+  // that catches a filesystem which accepts chmod and ignores it.
+  if (failure == null) {
+    try {
+      final mode = Directory(dir).statSync().mode;
+      if (mode & 0x3F != 0) {
+        failure =
+            'mode is ${(mode & 0x1FF).toRadixString(8)} after chmod, not 700';
+      }
+    } catch (e) {
+      failure = 'could not stat the directory back: $e';
+    }
+  }
+
+  if (failure == null) return;
+  if (runtimeDirMustBePrivate()) {
+    throw RuntimeDirNotPrivate(dir, failure);
+  }
+  devLog(
+    () =>
+        'xVeil[deniable]: $dir is not owner-only ($failure) — the OS sandbox '
+        'is the boundary on this platform, continuing',
+  );
 }
 
 /// Register every application-supplied seed on the already-running node.
@@ -274,8 +351,7 @@ class RealVeilStack {
     );
 
     // 2. Ephemeral, identity-free runtime endpoints.
-    await Directory(runtimeDir).create(recursive: true);
-    await restrictRuntimeDir(runtimeDir);
+    await createRestrictedRuntimeDir(runtimeDir);
     // iOS application-container paths exceed sockaddr_un's SUN_LEN on both
     // physical devices and Simulator. Keep discovery sidecars in the sandbox,
     // but carry local admin + IPC over authenticated loopback TCP there.
