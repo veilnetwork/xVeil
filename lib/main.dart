@@ -343,6 +343,10 @@ Future<BootstrapResult> _bootstrapOverrides() async {
     // the marker, so the claim has to happen here rather than lazily — a base
     // that was never claimed simply survives lock, which is the safe outcome.
     await markRuntimeDirOwned(runtimeDir);
+    // The soak hook is default-OFF now; say so once, or a stand polling a port
+    // that answers nothing reads as a node that failed to bootstrap.
+    final hookNote = debugHookDisabledExplanation();
+    if (hookNote != null) devLog(() => hookNote);
     // Reap what non-graceful exits leaked (force-stop / OOM-kill / crash skip
     // the graceful teardown that would remove these): one xveil-rt-<pid> dir
     // per launch, each holding the node's veil-deferred working dir with a

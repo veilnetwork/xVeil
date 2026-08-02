@@ -40,7 +40,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 350
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
@@ -61,10 +61,14 @@ jobs:
           }
           Get-PSDrive C | Select-Object Used, Free
 
+      # PINNED (audit X-08) — see the note in webrtc-linux.yml.
       - name: depot_tools
         shell: pwsh
         run: |
-          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git C:\depot_tools
+          git clone --filter=blob:none https://chromium.googlesource.com/chromium/tools/depot_tools.git C:\depot_tools
+          git -C C:\depot_tools checkout --detach e154c8eda5e63cbe85a765ae9d06e2b7af05139e
+          # Without this depot_tools self-updates on first use and undoes the pin.
+          "DEPOT_TOOLS_UPDATE=0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "C:\depot_tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: WebRTC at the pinned commit
@@ -194,7 +198,7 @@ jobs:
             exit 1
           }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: libveil_media-win-x64
           path: engine-out/veil_media.dll

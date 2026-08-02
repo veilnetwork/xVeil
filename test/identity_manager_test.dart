@@ -122,4 +122,80 @@ void main() {
     expect(b.isOpen, isTrue);
     await b.close();
   });
+
+  group('a password that already opens a space', () {
+    test('re-using a child password is refused before anything is written',
+        () async {
+      // Audit X-01, the copy that lived here. A space is DERIVED from its
+      // password, so `open(createIfMissing: true)` with one already in use
+      // opens the EXISTING space. `setup` then wrote into somebody else's
+      // storage, and only afterwards were the keys read back and recorded —
+      // leaving two roster rows pointing at one space.
+      await mgr.addIdentity(
+        masterPassword: 'master',
+        label: 'alice',
+        childPassword: 'pw-alice',
+        setup: (child) async => child.putSetting('who', 'alice'),
+      );
+
+      var setupRan = false;
+      await expectLater(
+        mgr.addIdentity(
+          masterPassword: 'master',
+          label: 'bob',
+          childPassword: 'pw-alice', // the same space
+          setup: (child) async {
+            setupRan = true;
+            await child.putSetting('who', 'bob');
+          },
+        ),
+        throwsA(isA<IdentitySpaceCollision>()),
+      );
+      expect(setupRan, isFalse, reason: 'nothing may be written on collision');
+
+      // Alice is untouched, and no second row was recorded.
+      expect((await mgr.roster('master')).map((e) => e.label), ['alice']);
+      final active = await mgr.openIdentity('master', 'alice');
+      expect(await active.getSetting('who'), 'alice');
+      await active.close();
+    });
+
+    test('re-using the MASTER password is refused', () async {
+      // The worse case: the master's roster gets replaced by child data, and
+      // removing that "child" then takes the master's storage with it.
+      await mgr.addIdentity(
+        masterPassword: 'master',
+        label: 'alice',
+        childPassword: 'pw-alice',
+      );
+
+      await expectLater(
+        mgr.addIdentity(
+          masterPassword: 'master',
+          label: 'self',
+          childPassword: 'master',
+        ),
+        throwsA(isA<IdentitySpaceCollision>()),
+      );
+      expect((await mgr.roster('master')).map((e) => e.label), ['alice']);
+    });
+
+    test('a fresh password still works', () async {
+      // The guard must refuse collisions, not additions.
+      await mgr.addIdentity(
+        masterPassword: 'master',
+        label: 'alice',
+        childPassword: 'pw-alice',
+      );
+      await mgr.addIdentity(
+        masterPassword: 'master',
+        label: 'bob',
+        childPassword: 'pw-bob',
+      );
+      expect(
+        (await mgr.roster('master')).map((e) => e.label).toList()..sort(),
+        ['alice', 'bob'],
+      );
+    });
+  });
 }
