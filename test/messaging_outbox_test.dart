@@ -256,6 +256,49 @@ void main() {
     },
   );
 
+  test('two senders using the same frameId are BOTH processed', () async {
+    // The dedup seen-set was keyed by frameId alone. Two peers can easily use
+    // the same one — `reconnect:`/`accept:` ids are derived from the peer, and
+    // a `gcr:` id is shared across every holder asked — so whoever got there
+    // first made the other's frame look already-processed and it was dropped
+    // without a trace (audit XV-02).
+    final c = _id(3);
+    final tC = _FakeTransport(c)..peer = tB;
+    final sC = HiddenVolumeStorage(_memOpener());
+    await sC.open(password: 'c', createIfMissing: true);
+    final mC = MessagingService(tC, sC)..start();
+    addTearDown(mC.dispose);
+
+    // B must accept C too, or the consent gate drops C's frame before the
+    // seen-set is ever consulted and the test would prove nothing.
+    await mC.sendRequest(b, 'hi');
+    await _pump();
+    await mB.acceptContact(c);
+    await _pump();
+
+    const shared = 'reconnect:shared-id';
+    await tA.send(
+      b,
+      WireEnvelope.message('from-a', id: 'ma').withFrameId(shared).encode(),
+    );
+    await _pump();
+    await tC.send(
+      b,
+      WireEnvelope.message('from-c', id: 'mc').withFrameId(shared).encode(),
+    );
+    await _pump();
+
+    expect(
+      (await sB.loadMessages(a.hex)).map((m) => m.body),
+      contains('from-a'),
+    );
+    expect(
+      (await sB.loadMessages(c.hex)).map((m) => m.body),
+      contains('from-c'),
+      reason: "the first sender's frameId must not suppress the second's",
+    );
+  });
+
   test('a duplicate fileMeta does not reset an in-progress transfer', () async {
     const tid = 'transfer-1';
     Uint8List meta() => fileMetaEnvelope(

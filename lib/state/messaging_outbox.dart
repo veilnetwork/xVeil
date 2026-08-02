@@ -21,6 +21,16 @@ class _MessagingOutbox {
   final Map<String, Timer> _fastCallRetryTimers = {};
 
   static const _seenFramesCap = 4096;
+
+  /// Frame state is per (peer, frameId) — never per frameId alone.
+  ///
+  /// A frameId is not unique by itself. A `gcr:` content request reuses one id
+  /// across every holder it asks, and `reconnect:`/`accept:` ids are derived
+  /// from the peer in a way any contact can predict. Keyed by frameId alone,
+  /// one peer's entry overwrote another's live backoff, and a contact who knew
+  /// the id could ACK it first and retire somebody else's pending frame
+  /// (audit XV-02).
+  static String _key(String peerHex, String frameId) => '$peerHex|$frameId';
   static const _nudgeGrace = Duration(seconds: 10);
   static const _liveResend = Duration(seconds: 20);
   static const _callSignalLiveResend = Duration(milliseconds: 250);
@@ -30,7 +40,7 @@ class _MessagingOutbox {
 
   void recordQueued(String frameId, String peerHex, {bool callSignal = false}) {
     final now = _owner._now();
-    _liveBackoff[frameId] = (
+    _liveBackoff[_key(peerHex, frameId)] = (
       count: 1,
       nextAt: now.add(callSignal ? _callSignalLiveResend : _liveResend),
       peer: peerHex,
@@ -38,11 +48,14 @@ class _MessagingOutbox {
     );
   }
 
-  bool hasLiveEntry(String frameId) => _liveBackoff.containsKey(frameId);
+  bool hasLiveEntry(String peerHex, String frameId) =>
+      _liveBackoff.containsKey(_key(peerHex, frameId));
 
-  bool hasSeen(String frameId) => _seenFrames.contains(frameId);
+  bool hasSeen(String peerHex, String frameId) =>
+      _seenFrames.contains(_key(peerHex, frameId));
 
-  bool remember(String frameId) => _seenFrames.add(frameId);
+  bool remember(String peerHex, String frameId) =>
+      _seenFrames.add(_key(peerHex, frameId));
 
   /// Rewind pending control frames when authenticated inbound proves the peer
   /// is reachable, while leaving just-sent frames alone so their ACK can land.
@@ -73,7 +86,7 @@ class _MessagingOutbox {
       await _owner._ackTo(
         message,
         frameId,
-        repeat: _seenFrames.contains(frameId),
+        repeat: _seenFrames.contains(_key(message.src.hex, frameId)),
       );
     } catch (error) {
       // Best-effort — a re-drive will prompt another ACK. But say so: a
@@ -162,7 +175,7 @@ class _MessagingOutbox {
     void schedule(Duration delay, int attemptsLeft) {
       _fastCallRetryTimers[frameId] = Timer(delay, () async {
         _fastCallRetryTimers.remove(frameId);
-        final previous = _liveBackoff[frameId];
+        final previous = _liveBackoff[_key(peer.hex, frameId)];
         if (_owner._disposed || previous == null) return;
 
         final now = _owner._now();
@@ -173,7 +186,7 @@ class _MessagingOutbox {
                       (1 << (count - 1).clamp(0, 10)))
                   .clamp(0, _liveResendCap.inMilliseconds),
         );
-        _liveBackoff[frameId] = (
+        _liveBackoff[_key(peer.hex, frameId)] = (
           count: count,
           nextAt: now.add(nextDelay),
           peer: previous.peer,
@@ -191,7 +204,8 @@ class _MessagingOutbox {
           // mailbox copy remains authoritative.
         }
         _owner._stashInBackground(peer, frameId, wire);
-        if (attemptsLeft > 1 && _liveBackoff.containsKey(frameId)) {
+        if (attemptsLeft > 1 &&
+            _liveBackoff.containsKey(_key(peer.hex, frameId))) {
           schedule(nextDelay, attemptsLeft - 1);
         }
       });
@@ -244,7 +258,7 @@ class _MessagingOutbox {
       if (contact == null &&
           !groupMemberCarrier &&
           !externalSpaceProposalCarrier) {
-        retire(frame.frameId);
+        retire(frame.peerHex, frame.frameId);
         continue;
       }
       if (contact?.status == ContactStatus.blocked && !groupMemberCarrier) {
@@ -255,7 +269,7 @@ class _MessagingOutbox {
       }
       _owner._stashInBackground(peer, frame.frameId, frame.wire);
       final now = _owner._now();
-      final backoff = _liveBackoff[frame.frameId];
+      final backoff = _liveBackoff[_key(frame.peerHex, frame.frameId)];
       if (backoff != null && now.isBefore(backoff.nextAt)) continue;
       final count = (backoff?.count ?? 0) + 1;
       // Call control is useful only inside the ring window and therefore uses
@@ -268,7 +282,7 @@ class _MessagingOutbox {
         0,
         _liveResendCap.inMilliseconds,
       );
-      _liveBackoff[frame.frameId] = (
+      _liveBackoff[_key(frame.peerHex, frame.frameId)] = (
         count: count,
         nextAt: now.add(Duration(milliseconds: delayMs)),
         peer: frame.peerHex,
@@ -308,7 +322,7 @@ class _MessagingOutbox {
               'xVeil[durable]: retire stale group content request '
               'fid=${frame.frameId} age=${age.inSeconds}s',
         );
-        retire(frame.frameId);
+        retire(frame.peerHex, frame.frameId);
         return true;
       }
       if (direct && envelope.kind != WireKind.callSignal) return false;
@@ -326,7 +340,7 @@ class _MessagingOutbox {
             'xVeil[durable]: retire stale call frame '
             'fid=${frame.frameId} age=${age.inSeconds}s',
       );
-      retire(frame.frameId);
+      retire(frame.peerHex, frame.frameId);
       return true;
     } catch (_) {
       return false;
@@ -373,11 +387,16 @@ class _MessagingOutbox {
     }
   }
 
-  void retire(String frameId) {
+  /// Retire a frame the given peer confirmed.
+  ///
+  /// [peerHex] is not decoration: without it, an accepted contact who knew or
+  /// guessed the frameId could ACK it and retire a frame addressed to someone
+  /// else, suppressing that delivery entirely (audit XV-02).
+  void retire(String peerHex, String frameId) {
     _fastCallRetryTimers.remove(frameId)?.cancel();
     _owner._mailboxDelivery.removeStashed(frameId);
-    _liveBackoff.remove(frameId);
-    unawaited(_owner._storage.ackOutboxFrame(frameId));
+    _liveBackoff.remove(_key(peerHex, frameId));
+    unawaited(_owner._storage.ackOutboxFrame(frameId, fromPeerHex: peerHex));
   }
 
   void dispose() {

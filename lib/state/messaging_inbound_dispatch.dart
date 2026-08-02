@@ -38,7 +38,7 @@ extension _MessagingInboundDispatch on MessagingService {
         env.kind == WireKind.spacePublicFeedRequest ||
         env.kind == WireKind.spacePublicFeedChunk ||
         env.kind == WireKind.spacePublicMediaGrantRequest;
-    if (fid != null && deferredGroupCallAck && _outbox.hasSeen(fid)) {
+    if (fid != null && deferredGroupCallAck && _outbox.hasSeen(m.src.hex, fid)) {
       // This exact frame passed membership+AEAD+signature once already. A
       // re-drive means our prior ACK was lost; re-ACK without reprocessing.
       await _ackFrame(m, fid);
@@ -51,13 +51,13 @@ extension _MessagingInboundDispatch on MessagingService {
         // Authorization is the group frame itself, not ContactStatus. The
         // groupCallSignal switch arm ACKs only after the group layer accepts.
       } else if (deferredPersistenceAck) {
-        if (_outbox.hasSeen(fid)) {
+        if (_outbox.hasSeen(m.src.hex, fid)) {
           await _ackFrame(m, fid);
           return;
         }
       } else {
         await _ackFrame(m, fid);
-        if (!_outbox.remember(fid)) {
+        if (!_outbox.remember(m.src.hex, fid)) {
           return; // already processed — re-acked above
         }
       }
@@ -76,7 +76,7 @@ extension _MessagingInboundDispatch on MessagingService {
           // its outbox. (A later duplicate finds us accepted and takes the
           // generic gate: re-acked + deduped there.)
           if (fid != null) {
-            _outbox.remember(fid);
+            _outbox.remember(m.src.hex, fid);
             await _ackFrame(m, fid);
           }
         } else {
@@ -181,7 +181,7 @@ extension _MessagingInboundDispatch on MessagingService {
           // Retire a durable control frame the peer just confirmed (sign, edit,
           // del, clear, accept, reconnect): stop re-driving + re-stashing it.
           // A no-op when ackId is an ordinary message id (not in the outbox).
-          _retireOutboxFrame(ackId);
+          _retireOutboxFrame(m.src.hex, ackId);
           // Idempotent: the peer's drain re-acks every cycle until its relay
           // blob ages out, so duplicate acks arrive in a storm. Mark delivered +
           // log + write storage only ONCE per id — re-doing it on every dup was
@@ -425,7 +425,7 @@ extension _MessagingInboundDispatch on MessagingService {
         await inviteHandler(m.src, env.body);
         if (fid != null) {
           await _ackFrame(m, fid);
-          _outbox.remember(fid);
+          _outbox.remember(m.src.hex, fid);
         }
         return;
       case WireKind.spaceInviteDecision:
@@ -438,14 +438,14 @@ extension _MessagingInboundDispatch on MessagingService {
         await decisionHandler(m.src, env.body);
         if (fid != null) {
           await _ackFrame(m, fid);
-          _outbox.remember(fid);
+          _outbox.remember(m.src.hex, fid);
         }
         return;
       case WireKind.spaceJoinRequest:
         // The opaque ticket capability replaces contact consent for this one
         // narrow frame. Persist+policy validation happens before ACK; invalid,
         // revoked, rate-limited and blocked requests receive no response.
-        if (fid != null && _outbox.hasSeen(fid)) {
+        if (fid != null && _outbox.hasSeen(m.src.hex, fid)) {
           await _ackFrame(m, fid);
           return;
         }
@@ -455,7 +455,7 @@ extension _MessagingInboundDispatch on MessagingService {
           return;
         }
         if (fid != null) {
-          _outbox.remember(fid);
+          _outbox.remember(m.src.hex, fid);
           await _ackFrame(m, fid);
         }
         return;
@@ -463,7 +463,7 @@ extension _MessagingInboundDispatch on MessagingService {
         // The requester already holds the exact outgoing request+ticket. The
         // decision is status only; a signed addMember snapshot remains the
         // sole authority for materialization.
-        if (fid != null && _outbox.hasSeen(fid)) {
+        if (fid != null && _outbox.hasSeen(m.src.hex, fid)) {
           await _ackFrame(m, fid);
           return;
         }
@@ -473,7 +473,7 @@ extension _MessagingInboundDispatch on MessagingService {
           return;
         }
         if (fid != null) {
-          _outbox.remember(fid);
+          _outbox.remember(m.src.hex, fid);
           await _ackFrame(m, fid);
         }
         return;
@@ -481,7 +481,7 @@ extension _MessagingInboundDispatch on MessagingService {
         // Like a public join request, this narrow external proposal carries
         // its own node-id-bound authorization. Persist only after the Space
         // owner validates the exact action and one-per-action admission rule.
-        if (fid != null && _outbox.hasSeen(fid)) {
+        if (fid != null && _outbox.hasSeen(m.src.hex, fid)) {
           await _ackFrame(m, fid);
           return;
         }
@@ -490,12 +490,12 @@ extension _MessagingInboundDispatch on MessagingService {
           return;
         }
         if (fid != null) {
-          _outbox.remember(fid);
+          _outbox.remember(m.src.hex, fid);
           await _ackFrame(m, fid);
         }
         return;
       case WireKind.spaceModerationAppealDecision:
-        if (fid != null && _outbox.hasSeen(fid)) {
+        if (fid != null && _outbox.hasSeen(m.src.hex, fid)) {
           await _ackFrame(m, fid);
           return;
         }
@@ -505,7 +505,7 @@ extension _MessagingInboundDispatch on MessagingService {
           return;
         }
         if (fid != null) {
-          _outbox.remember(fid);
+          _outbox.remember(m.src.hex, fid);
           await _ackFrame(m, fid);
         }
         return;
@@ -513,7 +513,7 @@ extension _MessagingInboundDispatch on MessagingService {
         // This external proposal is deliberately not contact-gated. The
         // Space layer binds it to the authenticated reporter, exact retained
         // content, current owner route and per-reporter quota before ACK.
-        if (fid != null && _outbox.hasSeen(fid)) {
+        if (fid != null && _outbox.hasSeen(m.src.hex, fid)) {
           await _ackFrame(m, fid);
           return;
         }
@@ -523,12 +523,12 @@ extension _MessagingInboundDispatch on MessagingService {
           return;
         }
         if (fid != null) {
-          _outbox.remember(fid);
+          _outbox.remember(m.src.hex, fid);
           await _ackFrame(m, fid);
         }
         return;
       case WireKind.spaceAbuseReportDecision:
-        if (fid != null && _outbox.hasSeen(fid)) {
+        if (fid != null && _outbox.hasSeen(m.src.hex, fid)) {
           await _ackFrame(m, fid);
           return;
         }
@@ -538,7 +538,7 @@ extension _MessagingInboundDispatch on MessagingService {
           return;
         }
         if (fid != null) {
-          _outbox.remember(fid);
+          _outbox.remember(m.src.hex, fid);
           await _ackFrame(m, fid);
         }
         return;
@@ -678,7 +678,7 @@ extension _MessagingInboundDispatch on MessagingService {
             await onGroupCallSignal?.call(m.src, env.body) ?? false;
         if (accepted && fid != null) {
           await _ackFrame(m, fid);
-          _outbox.remember(fid);
+          _outbox.remember(m.src.hex, fid);
         }
         return;
       case WireKind.chatDeleted:

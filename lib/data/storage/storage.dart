@@ -188,7 +188,9 @@ abstract interface class Storage {
   );
 
   /// Mark [frameId] delivered (recipient acked) so the flush stops re-driving it.
-  Future<void> ackOutboxFrame(String frameId);
+  /// Retire the durable frame [frameId], but only if it was addressed to
+  /// [fromPeerHex]. See `HiddenVolumeStorage.ackOutboxFrame` (audit XV-02).
+  Future<void> ackOutboxFrame(String frameId, {required String fromPeerHex});
 
   /// The frames still awaiting delivery (enqueued and not yet acked).
   Future<List<OutboxFrame>> pendingOutboxFrames();

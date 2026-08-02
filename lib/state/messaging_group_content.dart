@@ -50,8 +50,13 @@ class _MessagingGroupContent {
     // the delayed group pull starts. The holder still verifies membership,
     // the group reference and freshness independently.
     allowGroupPullSources(request.contentId, [dst]);
+    // The destination belongs in the id: the same request goes to every holder
+    // we ask, and the durable outbox is keyed by frameId — `enqueueOutboxFrame`
+    // returns early on a key it already has, so the second holder's frame was
+    // silently dropped and never sent (audit XV-02).
     final frameId =
-        'gcr:${request.groupId.hex}:${request.contentId}:${request.nonce}';
+        'gcr:${request.groupId.hex}:${request.contentId}:${request.nonce}'
+        ':${dst.hex}';
     final wire = WireEnvelope.groupContentRequest(
       requestJson,
     ).withFrameId(frameId).encode();
