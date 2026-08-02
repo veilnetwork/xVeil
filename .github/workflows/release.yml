@@ -32,8 +32,13 @@ on:
         type: boolean
         default: false
 
+# LEAST PRIVILEGE, per job (audit X-08). This used to be a workflow-wide
+# `contents: write`, so every job held a token that can push to the repository
+# and create releases — including the three build jobs, which run gradle,
+# flutter pub and depot_tools, i.e. thousands of lines of third-party build
+# script. Only `publish` attaches anything, so only `publish` gets the write.
 permissions:
-  contents: write  # to attach the artifacts to a draft Release
+  contents: read
 
 env:
   FLUTTER_VERSION: '3.44.0'
@@ -503,6 +508,9 @@ jobs:
     needs: scan
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    # The ONE job that needs to write: it attaches the artifacts to the draft.
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
