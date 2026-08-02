@@ -129,7 +129,41 @@ String _next(List<String> args, int index, String option) {
   return args[index];
 }
 
+/// Read a secret from a file, refusing one anybody else can read.
+///
+/// This used to be a bare `readAsString` (audit XV-16). A container password,
+/// a recovery phrase or an API token sitting at mode 0644 — the default under
+/// most umasks — is readable by every account on the box, and a headless
+/// deployment is exactly where nobody is watching. Worse, the path could be a
+/// SYMLINK: point `--password-file` at one and the daemon reads wherever it
+/// leads, which turns a config knob into a file-disclosure primitive for
+/// anyone who can write the config.
+///
+/// Checked, not assumed, and fail-closed: a secret the process cannot verify
+/// is private is one it should not use. The remedy is one `chmod` away and the
+/// error says so.
 Future<String> _readSecretFile(String path, String label) async {
+  final type = FileSystemEntity.typeSync(path, followLinks: false);
+  if (type == FileSystemEntityType.link) {
+    throw StateError(
+      '$label file $path is a symlink — refusing to follow it. Point the '
+      'option at the real file.',
+    );
+  }
+  if (type != FileSystemEntityType.file) {
+    throw StateError('$label file $path is not a regular file');
+  }
+  if (!Platform.isWindows) {
+    // Windows has no POSIX mode; its ACL story is a different check and this
+    // does not pretend to make it.
+    final mode = File(path).statSync().mode;
+    if (mode & 0x3F != 0) {
+      throw StateError(
+        '$label file $path is mode ${(mode & 0x1FF).toRadixString(8)} — '
+        'readable beyond its owner. Run: chmod 600 $path',
+      );
+    }
+  }
   final value = (await File(path).readAsString()).trim();
   if (value.isEmpty) throw StateError('$label file is empty');
   return value;
