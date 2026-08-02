@@ -62,7 +62,17 @@ Future<void> main([List<String> args = const []]) async {
 
       // Desktop: arm window_manager so the close button can hide to tray
       // (DesktopTrayHost decides) instead of quitting. No-op on mobile.
-      await initDesktopWindow();
+      //
+      // Guarded because this runs BEFORE `runApp` (audit X-16). The zone
+      // handler below catches the error and logs it, but there is no UI yet to
+      // log it to: the user gets a window that never appears, over an optional
+      // piece of window chrome. Losing the tray behaviour is a far smaller
+      // failure than losing the app, so carry on without it.
+      try {
+        await initDesktopWindow();
+      } catch (e, st) {
+        debugPrint('xVeil: desktop window setup failed, continuing: $e\n$st');
+      }
 
       // Content hashing on the native digest (~30-50x the pure-Dart rate):
       // with package:crypto a 64 MiB attachment spent ~1.8 s hashing before
@@ -328,6 +338,11 @@ Future<BootstrapResult> _bootstrapOverrides() async {
     final runtimeDir =
         Platform.environment['XVEIL_RUNTIME_DIR'] ??
         '$runtimeBase/xveil-rt-$pid';
+    // Claim it now, while we still know we are the ones setting it up. Teardown
+    // removes this directory RECURSIVELY and refuses to touch anything without
+    // the marker, so the claim has to happen here rather than lazily — a base
+    // that was never claimed simply survives lock, which is the safe outcome.
+    await markRuntimeDirOwned(runtimeDir);
     // Reap what non-graceful exits leaked (force-stop / OOM-kill / crash skip
     // the graceful teardown that would remove these): one xveil-rt-<pid> dir
     // per launch, each holding the node's veil-deferred working dir with a

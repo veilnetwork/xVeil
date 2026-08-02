@@ -388,11 +388,18 @@ Future<void> showAddContactSheet(BuildContext context, WidgetRef ref) async {
         // chat. Failures (already known) must not block the rest.
         final stack = ref.read(realStackProvider);
         var added = 0;
-        for (final p in peers) {
-          try {
-            await stack?.addContact(p);
-            added++;
-          } catch (_) {}
+        // Counted only when the call actually happened (audit X-17). With
+        // `stack?.addContact` the null case did nothing and still incremented,
+        // so a user with no running stack was told "N peers imported" and
+        // nothing had been. The loop is skipped entirely when there is no
+        // stack, and the same "0 imported" message tells the truth.
+        if (stack != null) {
+          for (final p in peers) {
+            try {
+              await stack.addContact(p);
+              added++;
+            } catch (_) {}
+          }
         }
         if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
         if (context.mounted) {

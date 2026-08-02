@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/error_journal.dart';
+import 'package:xveil/data/storage/storage.dart';
+import 'package:xveil/data/veil_stack.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/p2p_policy.dart';
@@ -26,6 +28,8 @@ Future<void> _settle(ProviderContainer c) async {
 
 void main() {
   _p2pPolicyTests();
+  _onboardingOpenFailureTests();
+  _runtimeBaseTeardownTests();
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     errorJournal.clear();
@@ -1150,5 +1154,133 @@ void _p2pPolicyTests() {
         isFalse,
       );
     });
+  });
+}
+
+/// A storage whose `open` refuses, and which records ANY other use.
+///
+/// Every member other than `open` throws through `noSuchMethod`, which is the
+/// assertion: reaching one at all means onboarding carried on against a
+/// storage that never unlocked.
+class _OpenRefusingStorage implements Storage {
+  bool usedAfterRefusal = false;
+
+  @override
+  Future<bool> open({required String password, bool createIfMissing = false}) async =>
+      false;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    usedAfterRefusal = true;
+    throw StateError(
+      'storage used after open() refused: ${invocation.memberName}',
+    );
+  }
+}
+
+void _onboardingOpenFailureTests() {
+  test('onboarding stops when storage refuses the password', () async {
+    // Audit X-15. `open` ANSWERS whether it unlocked anything; the result was
+    // dropped and `saveIdentity` ran regardless, against a storage that was
+    // not open. The failure then surfaced later, somewhere else, on top of
+    // half-written onboarding state.
+    SharedPreferences.setMockInitialValues({});
+    final storage = _OpenRefusingStorage();
+    final c = ProviderContainer(
+      overrides: [storageProvider.overrideWith((ref) => storage)],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+
+    await expectLater(
+      ctrl.completeOnboarding(
+        password: 'pw',
+        identity: AppController.generateIdentity(displayName: 'Me'),
+        mode: StorageMode.hiddenSpace,
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(
+      storage.usedAfterRefusal,
+      isFalse,
+      reason: 'nothing may be written to a storage that did not open',
+    );
+    // And the user is back where they can try again, not stranded in a
+    // half-prepared phase.
+    expect(c.read(appControllerProvider).phase, AppPhase.onboarding);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getBool('onboarded'),
+      isNot(true),
+      reason: 'a refused open must not leave the app marked as onboarded',
+    );
+  });
+}
+
+void _runtimeBaseTeardownTests() {
+  /// Drive a real `lock()` with `runtimeDir` pointed at [dir].
+  Future<void> lockWithRuntimeDir(String dir) async {
+    SharedPreferences.setMockInitialValues({});
+    final c = ProviderContainer(
+      overrides: [
+        deniableBootProvider.overrideWithValue(
+          DeniableBootConfig(
+            runtimeDir: dir,
+            listenPort: 9000,
+            storePath: '${dir}_store',
+          ),
+        ),
+      ],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.completeOnboarding(
+      identity: AppController.generateIdentity(displayName: 'Me'),
+      password: 'pw',
+      mode: StorageMode.hiddenSpace,
+    );
+    await ctrl.lock();
+  }
+
+  test('lock does not delete a runtime dir that is not ours', () async {
+    // Audit X-12. `runtimeDir` can come from `XVEIL_RUNTIME_DIR`, and teardown
+    // removes it RECURSIVELY. Pointed at the wrong path by a bad launcher entry
+    // — or by the variable set for something else in the session — lock erased
+    // whatever was there.
+    //
+    // Driven through `lock()` rather than through the predicate: a version with
+    // the guard deleted still passed every test of `runtimeDirIsOurs`, because
+    // the predicate was never the thing that was wrong.
+    final dir = Directory.systemTemp.createTempSync('xveil_rt_notours');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final precious = File('${dir.path}/important.txt')
+      ..writeAsStringSync('do not delete me');
+
+    await lockWithRuntimeDir(dir.path);
+
+    expect(dir.existsSync(), isTrue, reason: 'the directory must survive');
+    expect(precious.existsSync(), isTrue);
+    expect(precious.readAsStringSync(), 'do not delete me');
+  });
+
+  test('lock still removes a runtime dir we marked as ours', () async {
+    // The guard must not turn teardown into a no-op: sockets and the obfs4 PSK
+    // are supposed to be gone after lock, and leaving them is the trace the
+    // recursive delete exists to remove.
+    final dir = Directory.systemTemp.createTempSync('xveil_rt_ours');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    await markRuntimeDirOwned(dir.path);
+    File('${dir.path}/app.sock').writeAsStringSync('');
+
+    await lockWithRuntimeDir(dir.path);
+
+    expect(dir.existsSync(), isFalse, reason: 'our own runtime dir is reaped');
   });
 }

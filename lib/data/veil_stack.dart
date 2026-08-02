@@ -44,6 +44,36 @@ bool runtimeDirMustBePrivate() => Platform.isMacOS || Platform.isLinux;
 
 Future<ProcessResult> _chmod700(String dir) => Process.run('chmod', ['700', dir]);
 
+/// Name of the file that marks a directory as one xVeil created and may delete.
+///
+/// The runtime base comes from `XVEIL_RUNTIME_DIR` when set, and teardown
+/// removes it RECURSIVELY. Nothing checked that the path was ours, so a wrong
+/// launcher entry — or an env var set by anything else in the session — turned
+/// lock/wipe into a recursive delete of whatever it pointed at (audit X-12).
+///
+/// A marker file is the cheap version of ownership: we write it when we set the
+/// directory up, and refuse to recursively delete a directory that does not
+/// carry it. It does not defend against an attacker who can write inside the
+/// directory — nothing at this layer could — but that is not the failure mode.
+/// The one that actually happens is a path that was never ours.
+const kRuntimeDirMarker = '.xveil-runtime';
+
+/// Mark [dir] as ours, creating it if needed. Safe to call repeatedly.
+Future<void> markRuntimeDirOwned(String dir) async {
+  await Directory(dir).create(recursive: true);
+  await File('$dir/$kRuntimeDirMarker').writeAsString(
+    'Created by xVeil. Deleting this file makes xVeil leave the directory '
+    'alone on teardown instead of removing it.\n',
+  );
+}
+
+/// Whether [dir] carries our marker — i.e. may be removed recursively.
+///
+/// A missing directory answers false: there is nothing to delete, and saying
+/// "yes" would make the caller's guard look like it passed.
+bool runtimeDirIsOurs(String dir) =>
+    File('$dir/$kRuntimeDirMarker').existsSync();
+
 /// Create the node's runtime directory owner-only, or refuse to use it.
 ///
 /// It holds `admin.sock` — the node's CONTROL socket — next to `app.sock` and
