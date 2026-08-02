@@ -71,7 +71,7 @@ class _MessagingRealtimeControl {
       }
       final frameId = envelope.frameId;
       if (frameId != null) {
-        final fresh = _owner._outbox.remember(frameId);
+        final fresh = _owner._outbox.remember(message.src.hex, frameId);
         unawaited(_owner._ackFrame(message, frameId));
         if (!fresh) return;
       }
@@ -108,7 +108,7 @@ class _MessagingRealtimeControl {
     }
     final frameId = envelope.frameId;
     if (frameId != null) {
-      final fresh = _owner._outbox.remember(frameId);
+      final fresh = _owner._outbox.remember(message.src.hex, frameId);
       // Delivery into the call FSM is latency-critical; ACK storage/mailbox
       // work runs independently after dedup state is recorded.
       unawaited(_owner._ackFrame(message, frameId));

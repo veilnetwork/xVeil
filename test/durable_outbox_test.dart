@@ -49,7 +49,7 @@ void main() {
     expect(pending.single.peerHex, 'peerA');
     expect(pending.single.wire, wire('hello'));
 
-    await storage.ackOutboxFrame('sigreq:m1');
+    await storage.ackOutboxFrame('sigreq:m1', fromPeerHex: 'peerA');
     expect(await storage.pendingOutboxFrames(), isEmpty);
   });
 
@@ -61,10 +61,30 @@ void main() {
 
   test('acking an unknown id is a harmless no-op', () async {
     await storage.enqueueOutboxFrame('keep', 'peer', wire('x'));
-    await storage.ackOutboxFrame('never-enqueued'); // must not touch 'keep'
+    await storage.ackOutboxFrame('never-enqueued', fromPeerHex: 'peer');
     final pending = await storage.pendingOutboxFrames();
     expect(pending.length, 1);
     expect(pending.single.frameId, 'keep');
+  });
+
+  test('an ack from the wrong peer does not retire the frame', () async {
+    // `reconnect:`/`accept:` ids are derived from the peer and `gcr:` ids are
+    // shared across holders, so an accepted contact can know an id addressed to
+    // someone else. Retiring on the id alone let them ACK it first and suppress
+    // that delivery outright (audit XV-02).
+    await storage.enqueueOutboxFrame('reconnect:victim', 'victim', wire('x'));
+
+    await storage.ackOutboxFrame('reconnect:victim', fromPeerHex: 'attacker');
+    expect(
+      (await storage.pendingOutboxFrames()).map((f) => f.frameId).toSet(),
+      {'reconnect:victim'},
+      reason: 'a stranger\'s ack must not retire it',
+    );
+
+    // Control: the addressee's own ack still works, so the check is rejecting
+    // the wrong sender and not acks in general.
+    await storage.ackOutboxFrame('reconnect:victim', fromPeerHex: 'victim');
+    expect(await storage.pendingOutboxFrames(), isEmpty);
   });
 
   test('multiple frames fold independently', () async {
@@ -76,7 +96,7 @@ void main() {
       {'a', 'b', 'c'},
     );
 
-    await storage.ackOutboxFrame('b');
+    await storage.ackOutboxFrame('b', fromPeerHex: 'p2');
     expect(
       (await storage.pendingOutboxFrames()).map((f) => f.frameId).toSet(),
       {'a', 'c'},
@@ -85,7 +105,7 @@ void main() {
 
   test('re-enqueue after ack works (self-heal path)', () async {
     await storage.enqueueOutboxFrame('f', 'peer', wire('v1'));
-    await storage.ackOutboxFrame('f');
+    await storage.ackOutboxFrame('f', fromPeerHex: 'peer');
     expect(await storage.pendingOutboxFrames(), isEmpty);
     // A later distinct frame with the same id (e.g. a fresh request) re-appears.
     await storage.enqueueOutboxFrame('f', 'peer', wire('v2'));

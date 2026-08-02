@@ -2672,10 +2672,29 @@ class HiddenVolumeStorage implements Storage {
   });
 
   @override
-  Future<void> ackOutboxFrame(String frameId) => _outboxSerialized(() async {
+  /// Retire a durable frame the peer at [fromPeerHex] confirmed.
+  ///
+  /// The frame is stored with the destination it was addressed to, and the ACK
+  /// must come from THAT peer. Retiring on frameId alone let an accepted
+  /// contact who knew the id — `reconnect:`/`accept:` ids are derived from the
+  /// peer, and `gcr:` ids are shared across holders — ACK a frame addressed to
+  /// someone else and stop its delivery (audit XV-02).
+  Future<void> ackOutboxFrame(
+    String frameId, {
+    required String fromPeerHex,
+  }) => _outboxSerialized(() async {
     if (!await _ensureOutboxLoadedCritical()) return;
     final item = _outboxById[frameId];
     if (item == null) return;
+    if (item.frame.peerHex != fromPeerHex) {
+      devLog(
+        () =>
+            'xVeil[durable]: ignoring ack for fid=$frameId from '
+            '${fromPeerHex.substring(0, fromPeerHex.length.clamp(0, 8))} — '
+            'frame is addressed elsewhere',
+      );
+      return;
+    }
     await _as.commit([
       DeleteLogOp(Ns.outbox, item.logId),
       DeleteOp(Ns.outboxIndex, _outboxIndexKey(frameId)),
