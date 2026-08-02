@@ -248,5 +248,8 @@ class HvMultiSpaceBacking implements MultiSpaceBacking {
   void scrub(int id) => _multi.vacuumDataBatches(id);
 
   @override
+  void vacuumOrphans(int id) => _multi.vacuumSpace(id);
+
+  @override
   void close() => _multi.close();
 }
