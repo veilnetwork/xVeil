@@ -15,6 +15,7 @@ import '../data/node/node_controller.dart';
 import '../data/node/proxy_routing.dart';
 import '../data/storage/fake_kv_log_store.dart';
 import '../data/storage/hidden_volume_storage.dart';
+import '../data/storage/on_disk_blob_store.dart';
 import '../data/storage/kv_log_store.dart';
 import '../data/storage/storage.dart';
 import '../data/storage/worker_multi_space.dart';
@@ -85,6 +86,9 @@ MultiIdentitySession _realSessionBuilder({
   WorkerMultiSpaceBacking(storePath, paddingPreset: paddingPreset),
   runtimeDirBase: runtimeDir,
   listenPortBase: listenPort,
+  // The SAME large-file tier the single-identity boot opens — one directory
+  // beside the container, shared by every space (XV-02).
+  blobRoot: blobRootFor(storePath),
   bootstrapPeers: bootstrapPeers,
   // Lockstep with the single-identity boot so always-online nodes join the
   // same (obfs4-protected) network and honour the same mining/routing config.

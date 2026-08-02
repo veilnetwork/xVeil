@@ -1,3 +1,6 @@
+import 'package:xveil/data/storage/file_store.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'dart:io';
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -190,4 +193,81 @@ void main() {
       await session.disposeAll();
     },
   );
+
+  test('a node that boots AFTER the timeout is stopped, not stranded', () async {
+    // Audit XV-05. `Future.timeout` abandons the WAIT, not the WORK: the boot
+    // kept running, and a node that finished late landed nowhere — not in
+    // `_nodes`, so `disposeAll` never stopped it. It kept its port, its sockets
+    // and its network presence for the life of the process, invisible to the
+    // only code that could shut it down.
+    var disposed = 0;
+    final session = MultiIdentitySession(
+      SyncWrappedAsyncMultiSpaceBacking(FakeMultiSpaceBacking()),
+      runtimeDirBase: '/run',
+      listenPortBase: 9000,
+      bootTimeout: const Duration(milliseconds: 50),
+      boot: (spec, storage) async {
+        // Finishes well after the session gave up on it.
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        final t = _FakeTransport(_nid(spec.spaceId + 100));
+        return IdentityNode(transport: t, dispose: () async => disposed++);
+      },
+    );
+
+    await session.bootAll([_e('alice', 1)]);
+    // Gave up: no live node is registered for it.
+    expect(session.labels, ['alice'], reason: 'storage view is still hosted');
+
+    // Let the late boot land.
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    expect(
+      disposed,
+      1,
+      reason: 'the late node must be stopped — nobody else can reach it',
+    );
+  });
+
+  test('all-online storages get the large-file tier', () async {
+    // Audit XV-02. Only the single-space boot ever called `useOnDiskTier`, so
+    // in all-online mode a large file already on disk read back as MISSING and
+    // a new one fell into the volume index — whose ceiling the code itself
+    // warns about. Switching modes silently changed what the same identity
+    // could see.
+    final blobs = await Directory.systemTemp.createTemp('xveil-mis-tier');
+    addTearDown(() async {
+      if (await blobs.exists()) await blobs.delete(recursive: true);
+    });
+
+    final session = MultiIdentitySession(
+      SyncWrappedAsyncMultiSpaceBacking(FakeMultiSpaceBacking()),
+      runtimeDirBase: '/run',
+      listenPortBase: 9000,
+      blobRoot: blobs,
+      boot: (spec, storage) async => throw StateError('no node in test'),
+    );
+    await session.bootAll([_e('alice', 1)]);
+
+    // A file above the tier threshold must land on disk, not in the volume —
+    // observable as ciphertext appearing under the shared blob root.
+    final alice = session.storageFor('alice')! as HiddenVolumeStorage;
+    // Above `kMaxStoredFileBytes` (3.8 MB) so the routing picks the tier — the
+    // real threshold, not one lowered for the test.
+    final bytes = Uint8List(kMaxStoredFileBytes + 1024);
+    await alice.storeFilePiece(
+      'big',
+      0,
+      1,
+      bytes.length,
+      bytes.length,
+      bytes,
+      name: 'big.bin',
+    );
+
+    expect(
+      blobs.listSync(recursive: true).whereType<File>(),
+      isNotEmpty,
+      reason: 'without the tier this would have gone into the volume index',
+    );
+    expect(await alice.loadFile('big'), isNotNull);
+  });
 }

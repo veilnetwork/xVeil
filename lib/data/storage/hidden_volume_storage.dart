@@ -603,9 +603,18 @@ class HiddenVolumeStorage implements Storage {
   int _onDiskMinBytes = _kOnDiskTierMinBytes;
   final Random _blobRand = Random.secure();
 
-  /// Enable the on-disk LARGE-FILE tier, rooted at [dir] (one per identity).
+  /// Enable the on-disk LARGE-FILE tier, rooted at [dir].
+  ///
+  /// ONE directory per CONTAINER, shared by every space in it — not one per
+  /// identity, as this used to say. A directory per space would publish how
+  /// many hidden spaces the container holds, right beside it, which is the
+  /// fingerprint class hidden-volume removed from its cleartext header in v3.
+  /// Ownership is resolved inside each space instead: `eraseSpace` deletes only
+  /// the blob names its own volume names (audit XV-01).
+  ///
   /// Until set, large files fall back to the in-volume store (and would hit its
-  /// index ceiling). Production wiring points this at an app-private dir.
+  /// index ceiling) — which is what all-online mode did for every identity
+  /// until XV-02. Production wiring points this at an app-private dir.
   /// [minBytes] overrides the routing threshold (tests use a tiny one).
   void useOnDiskTier(Directory dir, {int? minBytes}) {
     _blobs = OnDiskBlobStore(dir);
@@ -645,6 +654,32 @@ class HiddenVolumeStorage implements Storage {
     final fn = meta['fn'];
     if (fn is String) blobNamesOut.add(fn);
     return [DeleteOp(Ns.settings, _sk('ondisk:$fileId'))];
+  }
+
+  /// Every blob name THIS space owns, read from its `ondisk:` settings rows.
+  ///
+  /// The blob directory is shared by every space of the container — the names
+  /// are opaque and the keys live in each space's own volume — so "which of
+  /// these are mine" is answerable only from inside an open space, and only
+  /// before its metadata is erased.
+  ///
+  /// A read failure yields the empty list: leaving unreadable ciphertext behind
+  /// is a space leak, while guessing would delete another identity's files,
+  /// and only one of those is recoverable.
+  Future<List<String>> _ownBlobNames() async {
+    if (_blobs == null) return const [];
+    try {
+      final names = <String>[];
+      for (final key in await settingsKeys()) {
+        if (!key.startsWith('ondisk:')) continue;
+        final meta = await _odMeta(key.substring('ondisk:'.length));
+        final fn = meta?['fn'];
+        if (fn is String && fn.isNotEmpty) names.add(fn);
+      }
+      return names;
+    } catch (_) {
+      return const [];
+    }
   }
 
   /// Best-effort ciphertext removal AFTER the key scrub committed. Failures are
@@ -1872,6 +1907,18 @@ class HiddenVolumeStorage implements Storage {
 
   @override
   Future<void> eraseSpace() async {
+    // FIRST, while the volume can still be read: which blobs are OURS.
+    //
+    // Every space of a container shares one blob directory, and this used to
+    // finish with `deleteAll()` — so erasing identity A destroyed the
+    // large-file ciphertext of identities B and C, whose own metadata still
+    // pointed at files that no longer existed (audit XV-01). Irreversible, and
+    // silent until someone opened an old attachment.
+    //
+    // The names live in this space's `ondisk:` settings rows, which the erase
+    // below is about to destroy, so they have to be collected up front.
+    final ownBlobs = await _ownBlobNames();
+
     // Erase EVERY namespace this app uses, then scrub orphaned chunks — the
     // identity's data (its keypair, contacts, message log, file blobs) is gone
     // forensically, not merely unlinked. Irreversible.
@@ -1900,10 +1947,10 @@ class HiddenVolumeStorage implements Storage {
     // The on-disk LARGE-FILE tier: every per-blob key just went with the
     // settings namespace (the ciphertext is already unreadable), so remove the
     // ciphertext files too — an erased identity must not leave a directory of
-    // its blob sizes behind. Best-effort: an FS error can't un-erase the keys.
-    try {
-      await _blobs?.deleteAll();
-    } catch (_) {}
+    // its blob sizes behind. ONLY OURS: the directory is shared with every
+    // other space of this container. Best-effort: an FS error can't un-erase
+    // the keys, and a blob left behind is unreadable garbage.
+    await _deleteBlobFiles(ownBlobs);
     // The message log is gone — drop the in-memory fold or a later loadMessages
     // would resurrect the erased conversation from cache.
     await _invalidateScanCache();
