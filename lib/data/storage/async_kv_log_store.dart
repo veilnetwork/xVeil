@@ -290,11 +290,63 @@ void _workerEntry(_OpenConfig cfg) {
 /// Off-UI-isolate [AsyncKvLogStore] backed by a dedicated worker isolate that
 /// owns the real [HvKvLogStore]. One instance == one worker == one container
 /// handle. Drop with [close].
+/// Watches a worker isolate and turns its death into a failed future.
+///
+/// `onExit` fires for any termination; `onError` fires first when the isolate
+/// died from an uncaught error and carries the message. Both are wired so a
+/// silent exit — an OOM kill, an FFI abort — is reported too, not only the
+/// errors Dart could describe.
+class _WorkerDeath {
+  _WorkerDeath() {
+    errorPort.listen((message) {
+      final detail = message is List && message.isNotEmpty
+          ? '${message.first}'
+          : '$message';
+      _die('storage worker isolate error: $detail');
+    });
+    exitPort.listen((_) => _die('storage worker isolate exited'));
+  }
+
+  final exitPort = ReceivePort();
+  final errorPort = ReceivePort();
+  final _completer = Completer<Never>();
+
+  Future<Never> get future => _completer.future;
+
+  void _die(String why) {
+    if (_completer.isCompleted) return;
+    _completer.completeError(hv.HvException('Internal', why), StackTrace.current);
+  }
+
+  /// Stop watching. The future is left as it is: a caller already holding it
+  /// must still see the death, and completing it here would invent one.
+  void dispose() {
+    exitPort.close();
+    errorPort.close();
+    // An uncompleted error future with no listener is an unhandled-error
+    // report at GC time; give it a handler that does nothing.
+    _completer.future.ignore();
+  }
+}
+
 class WorkerKvLogStore implements AsyncKvLogStore {
-  WorkerKvLogStore._(this._isolate, this._toWorker);
+  WorkerKvLogStore._(this._isolate, this._toWorker, this._watch);
 
   final Isolate _isolate;
   final SendPort _toWorker;
+
+  /// Completes with an error when the worker isolate dies (audit XV-07).
+  ///
+  /// Every RPC used to `await reply.first` with nothing watching the isolate,
+  /// so a worker that crashed — an FFI fault, an uncaught error, an OOM kill —
+  /// left that future pending FOREVER. The UI showed a spinner that no timeout
+  /// would ever end, and every later call joined it. `errorsAreFatal: true`
+  /// made the isolate die quietly; nothing was listening for the death.
+  ///
+  /// Racing each wait against this turns an invisible hang into an error the
+  /// caller can report and recover from.
+  final _WorkerDeath _watch;
+  Future<Never> get _death => _watch.future;
   bool _closed = false;
 
   /// Spawn a worker that opens (or, with [create], opens-or-adds) the space at
@@ -308,6 +360,11 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     required hv.PaddingPreset paddingPreset,
   }) async {
     final boot = ReceivePort();
+    // Watch the isolate BEFORE it can die (audit XV-07). Wired at spawn time
+    // rather than after, because a worker that fails while opening the
+    // container fails FAST — most often on the very first FFI call — and a
+    // watcher attached afterwards would miss exactly that case.
+    final death = _WorkerDeath();
     final isolate = await Isolate.spawn<_OpenConfig>(
       _workerEntry,
       _OpenConfig(
@@ -318,20 +375,35 @@ class WorkerKvLogStore implements AsyncKvLogStore {
         reply: boot.sendPort,
       ),
       errorsAreFatal: true,
+      onExit: death.exitPort.sendPort,
+      onError: death.errorPort.sendPort,
     );
-    final first = await boot.first;
+    Object? first;
+    try {
+      first = await Future.any<Object?>([boot.first, death.future]);
+    } catch (e) {
+      boot.close();
+      death.dispose();
+      isolate.kill(priority: Isolate.immediate);
+      throw hv.HvException('Internal', 'storage worker died during open: $e');
+    }
     boot.close();
+    void abandon() {
+      death.dispose();
+      isolate.kill(priority: Isolate.immediate);
+    }
+
     switch (first) {
       case _Null():
-        isolate.kill(priority: Isolate.immediate);
+        abandon();
         return null;
       case _Err(:final kind, :final message):
-        isolate.kill(priority: Isolate.immediate);
+        abandon();
         throw hv.HvException(kind, message);
       case _Ok(:final value):
-        return WorkerKvLogStore._(isolate, value as SendPort);
+        return WorkerKvLogStore._(isolate, value as SendPort, death);
       default:
-        isolate.kill(priority: Isolate.immediate);
+        abandon();
         throw StateError('worker sent an unexpected bootstrap reply');
     }
   }
@@ -339,11 +411,16 @@ class WorkerKvLogStore implements AsyncKvLogStore {
   Future<T> _call<T>(_Req Function(SendPort reply) build) async {
     if (_closed) throw StateError('WorkerKvLogStore is closed');
     final reply = ReceivePort();
-    _toWorker.send(build(reply.sendPort));
-    final r = await reply.first;
-    reply.close();
-    if (r is _Err) throw hv.HvException(r.kind, r.message);
-    return (r as _Ok).value as T;
+    try {
+      _toWorker.send(build(reply.sendPort));
+      // Raced against the worker's death (audit XV-07): without it a crashed
+      // worker leaves this pending forever, and every later call joins it.
+      final r = await Future.any<Object?>([reply.first, _death]);
+      if (r is _Err) throw hv.HvException(r.kind, r.message);
+      return (r as _Ok).value as T;
+    } finally {
+      reply.close();
+    }
   }
 
   @override
@@ -395,6 +472,10 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     );
     if (r != null) {
       reply.close();
+      // Stop watching BEFORE the kill: an expected shutdown is not a death to
+      // report, and leaving the watcher armed turns every clean close into an
+      // error future with nobody listening (audit XV-07).
+      _watch.dispose();
       _isolate.kill(priority: Isolate.immediate);
       return;
     }
@@ -424,7 +505,13 @@ class WorkerKvLogStore implements AsyncKvLogStore {
           .catchError((Object e) {
             devLog(() => 'xVeil[storage]: late worker close failed: $e');
           })
-          .whenComplete(reply.close),
+          .whenComplete(() {
+            reply.close();
+            // The worker is finally gone, on its own terms. Stop watching now
+            // rather than at the timeout: until this lands the isolate is still
+            // live and a real crash in the meantime is still worth reporting.
+            _watch.dispose();
+          }),
     );
   }
 }
