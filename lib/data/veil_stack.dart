@@ -588,6 +588,12 @@ class RealVeilStack {
           ' msg=${controller.current.message} [+${lap()}ms boot+connect]',
     );
     if (controller.current.phase != NodePhase.connected) {
+      // STOP IT (audit XV-04). Failing the readiness check used to throw and
+      // leave the node RUNNING: it kept the admin socket, the IPC socket and
+      // the listen port, with no reference left to shut it down. The next boot
+      // then found the port taken and failed for a reason that had nothing to
+      // do with why the first one had not connected.
+      await controller.stop();
       throw StateError(
         'deniable node did not connect: ${controller.current.phase}'
         ' (${controller.current.message})',
@@ -602,6 +608,40 @@ class RealVeilStack {
       await controller.stop();
       rethrow;
     }
+    // Everything past here owns TWO resources — the node and the transport —
+    // and every step can throw (audit XV-04). Unwound in reverse order on the
+    // way out, so a failure here cannot leave a live node behind the way the
+    // readiness check used to.
+    try {
+      return await _finishDeniableBoot(
+        controller: controller,
+        transport: transport,
+        runtimeBootstrapPeers: runtimeBootstrapPeers,
+        bootstrapPeers: bootstrapPeers,
+        runtimeDir: runtimeDir,
+        listenPort: listenPort,
+        lanListen: lanListen,
+        listenScheme: listenScheme,
+      );
+    } catch (_) {
+      await transport.dispose();
+      await controller.stop();
+      rethrow;
+    }
+  }
+
+  /// The tail of [startDeniable]: register seeds, mint the invite, assemble the
+  /// stack. Split out so ONE `try` can own the unwind for all of it.
+  static Future<RealVeilStack> _finishDeniableBoot({
+    required NodeController controller,
+    required VeilFlutterTransport transport,
+    required List<BootstrapPeerCfg>? runtimeBootstrapPeers,
+    required List<BootstrapPeerCfg> bootstrapPeers,
+    required String runtimeDir,
+    required int listenPort,
+    required bool lanListen,
+    required String listenScheme,
+  }) async {
     final seedsToRegister = runtimeBootstrapPeers ?? bootstrapPeers;
     final registeredSeeds = await registerRuntimeBootstrapPeers(
       seedsToRegister,
