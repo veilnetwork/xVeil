@@ -80,6 +80,23 @@ bool _sameCustomEmoji(
   return true;
 }
 
+/// `<dir>/<name>`, or `<dir>/<stem> (n)<ext>` when that is taken.
+///
+/// Bounded: past a small number of collisions something is wrong with the
+/// caller, and returning the plain name lets the existing overwrite happen
+/// rather than looping.
+String _uncontestedPath(String dir, String name) {
+  if (!File('$dir/$name').existsSync()) return '$dir/$name';
+  final dot = name.lastIndexOf('.');
+  final stem = dot > 0 ? name.substring(0, dot) : name;
+  final ext = dot > 0 ? name.substring(dot) : '';
+  for (var n = 1; n <= 999; n++) {
+    final candidate = '$dir/$stem ($n)$ext';
+    if (!File(candidate).existsSync()) return candidate;
+  }
+  return '$dir/$name';
+}
+
 String _safeDownloadName(String? value) {
   final sanitized = (value ?? 'file').trim().replaceAll(
     RegExp(r'[/\\\x00]'),
@@ -1047,7 +1064,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (!Platform.isAndroid && !Platform.isIOS) {
       dest = await FilePicker.saveFile(fileName: name);
     } else {
-      dest = '${(await getApplicationDocumentsDirectory()).path}/$name';
+      // NO PICKER on mobile, so nothing asked before overwriting (audit
+      // XV-17): the desktop branch goes through a save panel that confirms a
+      // collision, but here the name comes straight off the message and
+      // `FileMode.write` TRUNCATES whatever is already there. Two files sharing
+      // a name — common enough for `photo.jpg` — silently destroyed the first.
+      // Pick a free name instead; the desktop path keeps its user-confirmed
+      // overwrite, and the direct-to-destination write the macOS sandbox
+      // requires is untouched.
+      dest = _uncontestedPath(
+        (await getApplicationDocumentsDirectory()).path,
+        name,
+      );
     }
     if (dest == null) return; // cancelled
     // Write STRAIGHT to the chosen path — no `.part-` sibling. On a sandboxed
