@@ -525,7 +525,10 @@ void main() {
       expect(received, isNull);
       expect(
         (await sA.pendingOutboxFrames()).single.frameId,
-        'gcr:${gid.hex}:c0ffee:00112233445566778899aabb',
+        'gcr:${gid.hex}:c0ffee:00112233445566778899aabb:${b.hex}',
+        reason: 'the destination belongs in the id — the durable outbox is '
+            'keyed by frameId, so one id shared across holders meant only the '
+            'first holder\'s request was ever persisted (audit XV-02)',
       );
 
       tA.online = true;
