@@ -28,9 +28,19 @@ import 'folder_sync_engine.dart';
 ///    relative to anything, let alone to this root;
 ///  * `.` and `..` in any position, and an empty component (`a//b`);
 ///  * a separator INSIDE a component, which is how a name smuggles depth;
-///  * anything that, once joined, does not resolve back inside the root —
-///    the belt to the component check's braces, and the only part that also
-///    catches a symlinked directory pointing outward.
+///  * anything that, once joined, does not resolve back inside the root;
+///  * any EXISTING component that is a symlink.
+///
+/// The last one used to be claimed by the containment check and was not
+/// delivered by it: `.absolute` makes a path absolute, it does not resolve
+/// links, so a directory inside the root pointing outward passed as contained.
+/// A compromised linked device cannot create that symlink itself — the scanner
+/// skips links — but given one, it chose where a write landed.
+///
+/// A residual TOCTOU remains: a component checked here can become a symlink
+/// before the write. Closing that needs descriptor-relative `openat` with
+/// `O_NOFOLLOW`, which `dart:io` does not expose; rejecting known links is the
+/// part reachable from here, and it is stated rather than implied.
 String? mirrorPathWithin(String root, String path) {
   if (path.isEmpty) return null;
   // Windows accepts both separators; normalise before splitting so a
@@ -43,13 +53,27 @@ String? mirrorPathWithin(String root, String path) {
     if (part.isEmpty || part == '.' || part == '..') return null;
   }
   final joined = '$root/${parts.join('/')}';
-  // Canonical containment. `..` is already gone, so this exists to catch what
-  // the string check cannot see: a component that is a symlink out of the
-  // tree. Compared with a trailing separator so `/roots` does not pass as a
-  // child of `/root`.
+  // Containment on the STRING. `..` is already gone, so this mostly guards
+  // against a root that is not a prefix of itself after normalisation.
+  // Compared with a trailing separator so `/roots` does not pass as a child of
+  // `/root`.
   final rootReal = Directory(root).absolute.path;
   final prefix = rootReal.endsWith('/') ? rootReal : '$rootReal/';
   if (!File(joined).absolute.path.startsWith(prefix)) return null;
+  // Containment on the FILESYSTEM: no component that already exists may be a
+  // symlink. Checked with `followLinks: false` — the point is to see the link
+  // itself, not what it points at. Non-existent components are fine: they will
+  // be created as real directories by the writer.
+  var probe = rootReal.endsWith('/')
+      ? rootReal.substring(0, rootReal.length - 1)
+      : rootReal;
+  for (final part in parts) {
+    probe = '$probe/$part';
+    if (FileSystemEntity.typeSync(probe, followLinks: false) ==
+        FileSystemEntityType.link) {
+      return null;
+    }
+  }
   return joined;
 }
 
