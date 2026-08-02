@@ -125,6 +125,22 @@ String? _soakKey;
 /// readable only, replaced every start.
 String soakKeyPath(String runtimeDir) => '$runtimeDir/soak.key';
 
+/// Render [uri] for a log line with the soak key removed.
+///
+/// Whole-value replacement, not a prefix trim: a partial key in a log is still
+/// a partial key, and `?k=` is accepted from the query precisely because a
+/// stand driver cannot always set a header.
+@visibleForTesting
+String redactSoakKey(Uri uri) {
+  if (!uri.queryParameters.containsKey('k')) return uri.toString();
+  return uri.replace(
+    queryParameters: {
+      for (final e in uri.queryParameters.entries)
+        e.key: e.key == 'k' ? 'REDACTED' : e.value,
+    },
+  ).toString();
+}
+
 /// Constant-time compare. One guess per request is not a practical oracle, but
 /// this is the kind of check that acquires a retry path later.
 ///
@@ -264,7 +280,15 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         32,
         (_) => rnd.nextInt(256).toRadixString(16).padLeft(2, '0'),
       ).join();
-      await _publishSoakKey();
+      if (!await _publishSoakKey()) {
+        _soakKey = null;
+        devLog(
+          () =>
+              'xVeil[debug-hook]: NOT listening — the per-run key could not be '
+              'written owner-only, and an ungated hook drives the whole app',
+        );
+        return;
+      }
 
       final server = await HttpServer.bind(
         InternetAddress.loopbackIPv4,
@@ -289,20 +313,44 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   String? _soakKeyFile;
 
   /// Write the per-run key where the stand can read it, owner-only.
-  Future<void> _publishSoakKey() async {
+  ///
+  /// False means the key is NOT safely on disk and the hook must not start.
+  Future<bool> _publishSoakKey() async {
     final runtimeDir = ref.read(deniableBootProvider)?.runtimeDir;
-    if (runtimeDir == null) return;
+    // No runtime dir (loopback/test boot): there is nowhere to hand the key to
+    // a stand, so there is no point arming a listener nobody can talk to.
+    if (runtimeDir == null) return false;
     try {
       final path = soakKeyPath(runtimeDir);
       await Directory(runtimeDir).create(recursive: true);
       final f = File(path);
       await f.writeAsString(_soakKey!, flush: true);
       if (!Platform.isWindows) {
+        // VERIFIED, not attempted (audit XV-15). `chmod` exiting zero is not
+        // evidence the mode took — the same lesson as the runtime dir. A key
+        // file every local user can read is the hole this file exists to close,
+        // so if it cannot be made owner-only the hook does not start: a stand
+        // that fails loudly beats one that runs with an open control plane.
         await Process.run('chmod', ['600', path]);
+        final mode = f.statSync().mode;
+        if (mode & 0x3F != 0) {
+          throw StateError(
+            'soak key at $path is mode ${(mode & 0x1FF).toRadixString(8)}, '
+            'not 600 — refusing to arm the debug hook',
+          );
+        }
       }
       _soakKeyFile = path;
+      return true;
     } catch (e) {
+      // Leave nothing readable behind: a key file that could not be locked down
+      // is worse than no hook at all.
+      try {
+        final leftover = File(soakKeyPath(runtimeDir));
+        if (leftover.existsSync()) leftover.deleteSync();
+      } catch (_) {}
       devLog(() => 'xVeil[debug-hook]: could not publish the key: $e');
+      return false;
     }
   }
 
@@ -326,7 +374,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
 
   Future<void> _handle(HttpRequest req) async {
     final sw = Stopwatch()..start();
-    devLog(() => 'xVeil[debug-hook]: ${req.method} ${req.uri}');
+    // REDACTED, and logged in this order on purpose (audit XV-15). This line
+    // ran BEFORE the gate below and printed the whole URI — including the `?k=`
+    // the gate accepts — so the per-run key landed in the dev-log ring, which
+    // this same hook serves over `/dev_log`. The secret leaked through the
+    // diagnostic channel it was meant to protect.
+    devLog(() => 'xVeil[debug-hook]: ${req.method} ${redactSoakKey(req.uri)}');
     // ONE choke point for the per-run key (audit X-06). Every route below is a
     // privileged command — unlock, send, hand over the automation API token —
     // so the gate belongs here rather than route by route, where the next
