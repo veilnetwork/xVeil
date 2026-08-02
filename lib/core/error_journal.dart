@@ -159,6 +159,12 @@ class ErrorJournal {
         // Anything base64-ish. 20 chars, not 40: a 16-byte token is 22
         // characters before its padding, so the old floor let every one of
         // them through — and 16 bytes is the usual size of an API token here.
+        //
+        // Both alphabets. The pattern used to be standard-base64 only
+        // (`+` and `/`), and base64URL — which swaps those for `-` and `_` —
+        // went through untouched (audit XV-18). That is the alphabet used
+        // wherever a token has to survive a URL or a filename, which is
+        // exactly where the tokens in this app live.
         .replaceAll(_base64Blob, '<blob>');
     if (text.length > maxLength) {
       text = '${text.substring(0, maxLength)}…';
@@ -169,7 +175,7 @@ class ErrorJournal {
   static final _hexId = RegExp(r'\b[0-9a-fA-F]{16,}\b');
   static final _absPath = RegExp(r'/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+');
   static final _winPath = RegExp(r'[A-Za-z]:\\[^\s"\)]+');
-  static final _base64Blob = RegExp(r'\b[A-Za-z0-9+/]{20,}={0,2}');
+  static final _base64Blob = RegExp(r'\b[A-Za-z0-9+/_-]{20,}={0,2}');
   static final _ipv4 = RegExp(r'\b\d{1,3}(?:\.\d{1,3}){3}\b');
   static final _ipv6 = RegExp(r'\b(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}\b');
   static final _email = RegExp(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\b');

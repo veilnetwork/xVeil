@@ -293,6 +293,19 @@ void _redactionVectors() {
         r('token YWJjZGVmZ2hpamtsbW5vcA=='),
         isNot(contains('YWJjZGVmZ2hpamtsbW5vcA')),
       );
+      // base64URL swaps `+/` for `-_` so a token can ride in a URL or a
+      // filename — which is where the tokens in this app actually live, and
+      // the pattern used to cover the standard alphabet only (audit XV-18).
+      expect(
+        r('capability cM9-xK_2vQ4tR8sL1nZ7wB3yD6fH0jA5'),
+        isNot(contains('cM9-xK_2vQ4tR8sL1nZ7wB3yD6fH0jA5')),
+        reason: 'a base64url token went through the deny-list intact',
+      );
+      // Padded, and with both substituted characters adjacent.
+      expect(
+        r('invite aGVsbG8td29ybGQ_dGVzdC1kYXRhLXg9='),
+        isNot(contains('aGVsbG8td29ybGQ')),
+      );
     });
 
     test('it still says what broke', () {

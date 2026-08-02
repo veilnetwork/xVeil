@@ -164,7 +164,32 @@ Future<String> _readSecretFile(String path, String label) async {
       );
     }
   }
+  // The checks above are path-based, and so is the read: three separate
+  // syscalls against a name, not one descriptor. Dart exposes neither
+  // `openat`/`O_NOFOLLOW` nor `fstat`, so the file checked cannot be PROVEN to
+  // be the file read without dropping to FFI (audit XV-16).
+  //
+  // What is reachable is detection. Capture the state, read, and compare: a
+  // swap between the check and the read changes the type, the mode, the size
+  // or the modification time, and any of those differing means we no longer
+  // know what we just read. Refuse rather than return it — a secret that might
+  // be someone else's planted file is worse than no secret.
+  //
+  // ⚠️ Ownership is NOT checked, because `FileStat` carries no uid. A file
+  // owned by another account but mode 0600 passes here; the mode check is what
+  // stands between that and a disclosure.
+  final before = await File(path).stat();
   final value = (await File(path).readAsString()).trim();
+  final after = await File(path).stat();
+  if (before.type != after.type ||
+      before.mode != after.mode ||
+      before.size != after.size ||
+      before.modified != after.modified) {
+    throw StateError(
+      '$label file $path changed while it was being read — refusing to use '
+      'its contents.',
+    );
+  }
   if (value.isEmpty) throw StateError('$label file is empty');
   return value;
 }

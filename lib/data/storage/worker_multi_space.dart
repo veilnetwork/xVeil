@@ -8,6 +8,7 @@ import 'hv_kv_log_store.dart';
 import 'hv_native.dart';
 import 'kv_log_store.dart';
 import 'multi_space_store.dart';
+import 'worker_death.dart';
 
 /// Off-UI-isolate [AsyncMultiSpaceBacking] backed by a dedicated WORKER ISOLATE
 /// that owns the real synchronous [HvMultiSpaceBacking] (one native
@@ -28,6 +29,9 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
   final hv.PaddingPreset paddingPreset;
   Isolate? _isolate;
   SendPort? _toWorker;
+
+  /// Completes with an error when the worker isolate dies. Every RPC races it.
+  WorkerDeath? _watch;
   Future<SendPort>? _ready;
   bool _closed = false;
 
@@ -35,6 +39,13 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
 
   Future<SendPort> _spawn() async {
     final boot = ReceivePort();
+    // Watch the isolate BEFORE it can die (audit XV-07). This is the
+    // all-online path: N identities share one worker, so a worker that dies
+    // takes every one of their stores with it. Wired at spawn time rather than
+    // after, because a worker that fails while opening the container fails
+    // FAST — most often on the very first FFI call — and a watcher attached
+    // afterwards would miss exactly that case.
+    final death = WorkerDeath();
     final isolate = await Isolate.spawn<_MOpenConfig>(
       _multiWorkerEntry,
       _MOpenConfig(
@@ -43,19 +54,35 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
         reply: boot.sendPort,
       ),
       errorsAreFatal: true,
+      onExit: death.exitPort.sendPort,
+      onError: death.errorPort.sendPort,
     );
-    final first = await boot.first;
+    Object? first;
+    try {
+      first = await Future.any<Object?>([boot.first, death.future]);
+    } catch (e) {
+      boot.close();
+      death.dispose();
+      isolate.kill(priority: Isolate.immediate);
+      throw hv.HvException('Internal', 'multi-space worker died during open: $e');
+    }
     boot.close();
+    void abandon() {
+      death.dispose();
+      isolate.kill(priority: Isolate.immediate);
+    }
+
     switch (first) {
       case _MErr(:final kind, :final message):
-        isolate.kill(priority: Isolate.immediate);
+        abandon();
         throw hv.HvException(kind, message);
       case _MOk(:final value):
         _isolate = isolate;
+        _watch = death;
         _toWorker = value as SendPort;
         return _toWorker!;
       default:
-        isolate.kill(priority: Isolate.immediate);
+        abandon();
         throw StateError(
           'multi-space worker sent an unexpected bootstrap reply',
         );
@@ -67,8 +94,16 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
     final port = await _ensure();
     final reply = ReceivePort();
     port.send(build(reply.sendPort));
-    final r = await reply.first;
-    reply.close();
+    // Raced against the worker's death, not awaited alone. `errorsAreFatal`
+    // makes a crashed worker die QUIETLY, so `reply.first` on its own stayed
+    // pending forever — the all-online unlock showed a spinner no timeout
+    // would end, and every later call joined it (audit XV-07).
+    final Object? r;
+    try {
+      r = await Future.any<Object?>([reply.first, _watch!.future]);
+    } finally {
+      reply.close();
+    }
     if (r is _MErr) throw hv.HvException(r.kind, r.message);
     return (r as _MOk).value as T;
   }
@@ -116,6 +151,7 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
     _closed = true;
     final port = _toWorker;
     if (port == null) {
+      _watch?.dispose();
       _isolate?.kill(priority: Isolate.immediate); // never finished spawning
       return;
     }
@@ -128,6 +164,9 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
       );
     } finally {
       reply.close();
+      // Stop watching BEFORE the kill, or our own teardown reports the worker
+      // as having died on us.
+      _watch?.dispose();
       _isolate?.kill(priority: Isolate.immediate);
     }
   }

@@ -8,6 +8,8 @@ import '../api/api_server.dart';
 import '../api/blob_sources.dart';
 import '../api/group_api_adapter.dart';
 import '../core/ids.dart';
+
+import '../core/cleanup_legs.dart';
 import '../core/log.dart';
 import '../data/node/embedded_node.dart';
 import '../data/node/node_controller.dart';
@@ -61,7 +63,7 @@ class HeadlessRuntime {
 
   final MailboxService? _mailbox;
   final StreamSubscription<NodeStatus>? _nodeStatus;
-  final _WebhookPump _webhook;
+  final WebhookPump _webhook;
   bool _closed = false;
 
   static Future<HeadlessRuntime> start({
@@ -86,7 +88,7 @@ class HeadlessRuntime {
     ApiServer? api;
     MailboxService? mailbox;
     StreamSubscription<NodeStatus>? nodeStatus;
-    _WebhookPump? webhookPump;
+    WebhookPump? webhookPump;
     try {
       final opened = await storage.open(
         password: password,
@@ -265,7 +267,7 @@ class HeadlessRuntime {
       var webhookUrl = await storage.getSetting(_webhookKey);
       if (webhookUrl?.isEmpty ?? false) webhookUrl = null;
       final events = _events(messaging, groups);
-      webhookPump = _WebhookPump(events);
+      webhookPump = WebhookPump(events);
       final groupApi = GroupApiAdapter(
         groups,
         registerContentSource: messaging.registerGroupContentStreaming,
@@ -440,14 +442,20 @@ class HeadlessRuntime {
         webhook: webhookPump,
       );
     } catch (_) {
-      await api?.stop();
-      await webhookPump?.close();
-      await nodeStatus?.cancel();
-      await mailbox?.dispose();
-      await messaging?.dispose();
-      await groups?.dispose();
-      await stack?.dispose();
-      await storage.close();
+      // Independent legs, same reason as `close()`: this unwinds a boot that
+      // already failed, and a second failure here must not leave the rest of
+      // the half-built runtime running. The original error is what the caller
+      // needs, so every cleanup error is swallowed in favour of it.
+      await runCleanupLegs('headless-boot', [
+        ('api', () async => api?.stop()),
+        ('webhook', () async => webhookPump?.close()),
+        ('node-status', () async => nodeStatus?.cancel()),
+        ('mailbox', () async => mailbox?.dispose()),
+        ('messaging', () async => messaging?.dispose()),
+        ('groups', () async => groups?.dispose()),
+        ('stack', () async => stack?.dispose()),
+        ('storage', storage.close),
+      ]);
       rethrow;
     }
   }
@@ -706,37 +714,143 @@ class HeadlessRuntime {
     return processLibFor('veilclient_ffi');
   }
 
+  /// Shut everything down, one leg at a time, none of them able to skip the
+  /// rest.
+  ///
+  /// This used to be a straight `await` chain behind a `_closed` flag set on
+  /// entry. One throwing leg — an FFI stop on an already-freed handle, a
+  /// socket that will not close — abandoned every leg after it, and `_closed`
+  /// was already true so a retry returned immediately. The node kept its
+  /// ports, the container kept its lock, and nothing would ever come back for
+  /// them (audit XV-16).
+  ///
+  /// Order still matters, so this is sequential rather than parallel: the API
+  /// stops accepting before the services it calls go away, and storage closes
+  /// last because everything above it writes. What changed is that a failure
+  /// no longer cancels the remainder.
+  ///
+  /// The first error is rethrown once the last leg has run, so a caller still
+  /// learns that teardown was not clean — just not at the cost of the teardown.
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
-    await api.stop();
-    await _webhook.close();
-    await _nodeStatus?.cancel();
-    await _mailbox?.dispose();
-    await messaging.dispose();
-    await groups.dispose();
-    await stack.dispose();
-    await storage.close();
+    final failure = await runCleanupLegs('headless', [
+      ('api', api.stop),
+      ('webhook', _webhook.close),
+      ('node-status', () async => _nodeStatus?.cancel()),
+      ('mailbox', () async => _mailbox?.dispose()),
+      ('messaging', messaging.dispose),
+      ('groups', groups.dispose),
+      ('stack', stack.dispose),
+      // Last, and the one that must run: it releases the container's exclusive
+      // lock. A skipped `storage.close()` wedges the next unlock.
+      ('storage', storage.close),
+    ]);
+    if (failure != null) {
+      Error.throwWithStackTrace(failure.error, failure.stack);
+    }
   }
 }
 
-class _WebhookPump {
-  _WebhookPump(this._events);
+/// Delivers API events to the operator's webhook URL, one at a time, from a
+/// bounded queue.
+///
+/// Public so its bounds can be tested: an unbounded pump is indistinguishable
+/// from a bounded one until the target stops answering (audit XV-09).
+class WebhookPump {
+  WebhookPump(this._events);
+
+  /// How many undelivered events the pump will hold.
+  ///
+  /// Every event used to spawn its own unawaited retry task — two attempts
+  /// with a two-second wait between them. A webhook target that hangs, plus an
+  /// event stream that does not stop, meant futures and sockets accumulating
+  /// with nothing bounding either (audit XV-09).
+  static const queueCap = 256;
 
   final Stream<Map<String, dynamic>> _events;
   StreamSubscription<Map<String, dynamic>>? _subscription;
 
+  /// Stands in for the network. TESTS ONLY — null in production.
+  ///
+  /// Not annotated `@visibleForTesting`: that lives in `package:meta` via
+  /// `package:flutter/foundation.dart`, and the headless daemon is
+  /// deliberately Flutter-free — there is a test that fails if anything it
+  /// imports reaches into the framework. A comment does the same job without
+  /// dragging Flutter into a daemon that must run without it.
+  Future<void> Function(String target, Map<String, dynamic> event)? deliver;
+
+  /// Pending events, oldest first. One worker drains it, so at most one
+  /// delivery is ever in flight and the order the daemon observed is the order
+  /// the target sees.
+  final List<Map<String, dynamic>> _queue = [];
+  String? _target;
+  bool _draining = false;
+  bool _closed = false;
+  int _dropped = 0;
+
   Future<void> setTarget(String? target) async {
     await _subscription?.cancel();
     _subscription = null;
+    _target = target;
+    // A retarget abandons what was queued for the old destination: those
+    // events were addressed somewhere else, and delivering them to a new URL
+    // would be a leak, not a catch-up.
+    _queue.clear();
     if (target == null) return;
-    _subscription = _events.listen((event) {
-      unawaited(HeadlessRuntime._pushWebhookWithRetry(target, event));
-    });
+    _subscription = _events.listen(_enqueue);
+  }
+
+  /// Feed the pump directly, without a stream. Tests only.
+  void enqueueForTest(Map<String, dynamic> event) => _enqueue(event);
+
+  /// How many events are waiting. Tests only.
+  int get queueLengthForTest => _queue.length;
+
+  void _enqueue(Map<String, dynamic> event) {
+    if (_closed) return;
+    if (_queue.length >= queueCap) {
+      // Oldest out. A monitoring target that has fallen behind wants the
+      // CURRENT state of the node, not the state it had when it stopped
+      // answering.
+      _queue.removeAt(0);
+      _dropped++;
+      if (_dropped == 1 || _dropped % 100 == 0) {
+        devLog(
+          () =>
+              'xVeil[headless]: webhook queue full, dropped $_dropped '
+              'event(s) — target is not keeping up',
+        );
+      }
+    }
+    _queue.add(event);
+    unawaited(_drain());
+  }
+
+  /// One worker, re-entrancy guarded. Deliveries are sequential, so a slow
+  /// target costs latency rather than an unbounded pile of sockets.
+  Future<void> _drain() async {
+    if (_draining) return;
+    _draining = true;
+    try {
+      while (!_closed && _queue.isNotEmpty) {
+        final target = _target;
+        if (target == null) {
+          _queue.clear();
+          return;
+        }
+        final event = _queue.removeAt(0);
+        await (deliver ?? HeadlessRuntime._pushWebhookWithRetry)(target, event);
+      }
+    } finally {
+      _draining = false;
+    }
   }
 
   Future<void> close() async {
+    _closed = true;
     await _subscription?.cancel();
     _subscription = null;
+    _queue.clear();
   }
 }
