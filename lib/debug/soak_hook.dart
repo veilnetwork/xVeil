@@ -83,17 +83,69 @@ import '../state/whisper_ffi.dart';
 import '../state/voice_play_controller.dart';
 import 'ui_driver.dart';
 
-// Default-ON so a `flutter build macos` that forgets the --dart-define can no
-// longer silently compile the hook out (a stand launched from such a build
-// looks exactly like "the node won't bootstrap": health polling burns its
-// full window, unlock never happens). Safe because the hook is additionally
-// gated on [kDebugMode] at every use site — release/profile builds dead-code
-// eliminate it regardless of this value. Explicit opt-out stays available
-// via --dart-define=XVEIL_DEBUG_HOOK=false.
-const _debugHookEnabled = bool.fromEnvironment(
-  'XVEIL_DEBUG_HOOK',
-  defaultValue: true,
-);
+// Default-OFF (audit X-06). This hook answers commands that drive the whole
+// app — unlock, send, and handing out the automation API token — over loopback
+// HTTP. Release builds never contain it (`_hookBuildAllowed` excludes
+// kReleaseMode and every use site is gated), so this is not a release-surface
+// question. It is a STAND question: the debug builds that carry it run against
+// real containers and real identities, on machines where any other local
+// process could reach the port.
+//
+// It used to default ON, so that a `flutter build macos` which forgot the
+// define could not silently compile the hook out — a stand launched from such
+// a build looks exactly like "the node won't bootstrap". That failure mode is
+// real, and it is addressed by [debugHookDisabledExplanation] rather than by
+// leaving a full control plane on for everyone who builds in debug.
+const _debugHookEnabled = bool.fromEnvironment('XVEIL_DEBUG_HOOK');
+
+/// What to tell someone whose stand cannot reach the hook, or null when the
+/// hook is on (or could never be present).
+///
+/// The silent-compile-out trap is what default-ON was protecting against, so
+/// turning it off has to come with the diagnosis attached. `main` logs this
+/// once at startup.
+String? debugHookDisabledExplanation() {
+  if (!_hookBuildAllowed || _debugHookEnabled) return null;
+  return 'xVeil[debug-hook]: NOT listening — build with '
+      '--dart-define=XVEIL_DEBUG_HOOK=true to enable it. (If a soak stand is '
+      'polling /health and seeing nothing, this is why, not a node that '
+      'failed to bootstrap.)';
+}
+
+/// Per-run secret every hook request must present as `?k=` or `X-Soak-Key`.
+///
+/// Regenerated on each start and never persisted anywhere but the key file
+/// below, so a stale value from a previous run is useless and there is nothing
+/// to leak between runs. Without it, ANY local process could drive the app and
+/// ask for the automation API token — the hook's own commands are the
+/// privilege, so a bearer secret is the whole gate.
+String? _soakKey;
+
+/// Where the stand reads the per-run key from. Beside the runtime dir, owner
+/// readable only, replaced every start.
+String soakKeyPath(String runtimeDir) => '$runtimeDir/soak.key';
+
+/// Constant-time compare. One guess per request is not a practical oracle, but
+/// this is the kind of check that acquires a retry path later.
+///
+/// Exposed (not private) because the choke point that calls it lives inside a
+/// widget the test build compiles out — `_debugHookEnabled` is a const `false`
+/// there, so the server never starts and no test can drive a request through
+/// it. The comparison is at least covered on its own; the wiring is
+/// compile-checked and reasoned.
+@visibleForTesting
+bool soakKeyMatches(String? expected, String? presented) {
+  if (expected == null || presented == null) return false;
+  if (expected.isEmpty) return false;
+  if (expected.length != presented.length) return false;
+  var diff = 0;
+  for (var i = 0; i < expected.length; i++) {
+    diff |= expected.codeUnitAt(i) ^ presented.codeUnitAt(i);
+  }
+  return diff == 0;
+}
+
+bool _soakKeyMatches(String? presented) => soakKeyMatches(_soakKey, presented);
 // Profile-build opt-in (default OFF): an AOT profile build behaves like
 // production Dart, which debug builds cannot represent — the RTT-stall
 // campaign needed /call_state measurements on AOT to separate app-runtime
@@ -205,13 +257,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
 
   Future<void> _start() async {
     try {
+      // Mint the per-run key BEFORE the socket exists, so there is no instant
+      // where the port answers and the gate is not armed.
+      final rnd = Random.secure();
+      _soakKey = List.generate(
+        32,
+        (_) => rnd.nextInt(256).toRadixString(16).padLeft(2, '0'),
+      ).join();
+      await _publishSoakKey();
+
       final server = await HttpServer.bind(
         InternetAddress.loopbackIPv4,
         _debugHookPort,
         // Exclusive, for the same reason the API server is: SO_REUSEPORT hands
         // a share of the connections to any other process of this user that
-        // binds the port, and this hook answers powerful commands without a
-        // token. Debug-only, but a debug build runs against real data.
+        // binds the port. Debug-only, but a debug build runs against real data.
         shared: false,
       );
       _server = server;
@@ -219,10 +279,30 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       devLog(
         () =>
             'xVeil[debug-hook]: listening on '
-            '127.0.0.1:${server.port}',
+            '127.0.0.1:${server.port} (key at ${_soakKeyFile ?? "<unwritable>"})',
       );
     } catch (e) {
       devLog(() => 'xVeil[debug-hook]: start failed: $e');
+    }
+  }
+
+  String? _soakKeyFile;
+
+  /// Write the per-run key where the stand can read it, owner-only.
+  Future<void> _publishSoakKey() async {
+    final runtimeDir = ref.read(deniableBootProvider)?.runtimeDir;
+    if (runtimeDir == null) return;
+    try {
+      final path = soakKeyPath(runtimeDir);
+      await Directory(runtimeDir).create(recursive: true);
+      final f = File(path);
+      await f.writeAsString(_soakKey!, flush: true);
+      if (!Platform.isWindows) {
+        await Process.run('chmod', ['600', path]);
+      }
+      _soakKeyFile = path;
+    } catch (e) {
+      devLog(() => 'xVeil[debug-hook]: could not publish the key: $e');
     }
   }
 
@@ -247,6 +327,25 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   Future<void> _handle(HttpRequest req) async {
     final sw = Stopwatch()..start();
     devLog(() => 'xVeil[debug-hook]: ${req.method} ${req.uri}');
+    // ONE choke point for the per-run key (audit X-06). Every route below is a
+    // privileged command — unlock, send, hand over the automation API token —
+    // so the gate belongs here rather than route by route, where the next
+    // route added would be the one that forgets it.
+    final presented =
+        req.uri.queryParameters['k'] ?? req.headers.value('x-soak-key');
+    if (!_soakKeyMatches(presented)) {
+      req.response.statusCode = 401;
+      req.response.headers.contentType = ContentType.json;
+      req.response.write(
+        jsonEncode({
+          'error': 'soak key required',
+          'hint': 'read it from ${_soakKeyFile ?? "<key file unavailable>"} '
+              'and pass ?k=<key> or X-Soak-Key',
+        }),
+      );
+      await req.response.close();
+      return;
+    }
     try {
       switch (req.uri.path) {
         case '/health':
