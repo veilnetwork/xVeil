@@ -77,4 +77,46 @@ void main() {
       reason: 'the mirror overwrote a file outside the folder the user chose',
     );
   });
+
+  test('a symlinked directory inside the root is refused', () {
+    // Audit X-03. The containment check claimed to catch this and did not:
+    // `.absolute` makes a path absolute, it never resolves links, so a
+    // directory inside the root pointing outward compared as contained.
+    //
+    // A remote peer cannot create the link — the scanner skips links — but
+    // given one (made locally, or by a local race), it chose where a write
+    // from a compromised linked device landed.
+    final tmp = Directory.systemTemp.createTempSync('xveil_symlink');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final rootDir = Directory('${tmp.path}/root')..createSync();
+    final outsideDir = Directory('${tmp.path}/outside')..createSync();
+    Link('${rootDir.path}/escape').createSync(outsideDir.path);
+
+    expect(
+      mirrorPathWithin(rootDir.path, 'escape/loot.txt'),
+      isNull,
+      reason: 'a path through a symlinked component leaves the sync root',
+    );
+    // The link itself, named directly, is refused too.
+    expect(mirrorPathWithin(rootDir.path, 'escape'), isNull);
+  });
+
+  test('an ordinary nested path under the root is still allowed', () {
+    // The symlink check must reject links, not depth — a mirror that refused
+    // subdirectories would be broken rather than safe.
+    final tmp = Directory.systemTemp.createTempSync('xveil_nested');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final rootDir = Directory('${tmp.path}/root')..createSync();
+    Directory('${rootDir.path}/real').createSync();
+
+    expect(
+      mirrorPathWithin(rootDir.path, 'real/file.txt'),
+      '${rootDir.path}/real/file.txt',
+    );
+    // Components that do not exist yet are fine — the writer creates them.
+    expect(
+      mirrorPathWithin(rootDir.path, 'brand/new/file.txt'),
+      '${rootDir.path}/brand/new/file.txt',
+    );
+  });
 }

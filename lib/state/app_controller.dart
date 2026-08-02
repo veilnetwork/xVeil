@@ -1460,14 +1460,40 @@ class AppController extends Notifier<AppState> {
   /// is open at `_ensureRealStack` time, so the policy setting is readable.
   Future<bool> _p2pLanListenAllowed() async {
     if (_activeAnonymous()) return false;
+    String? raw;
     try {
-      final raw = await ref
+      raw = await ref
           .read(storageProvider)
           .getSetting(kP2PGlobalPolicySettingKey);
-      return p2pGlobalPolicyFromName(raw) != P2PGlobalPolicy.denied;
     } catch (_) {
+      return lanListenAllowed(storedPolicy: null, readFailed: true);
+    }
+    return lanListenAllowed(storedPolicy: raw, readFailed: false);
+  }
+
+  /// Whether the node's listener may bind beyond loopback, given what the
+  /// stored global P2P policy says.
+  ///
+  /// Separates the two ways the setting can be missing, which the old code
+  /// collapsed:
+  ///
+  ///  * ABSENT (`storedPolicy == null`, `readFailed == false`) — never set, so
+  ///    the default applies. Denying here would break every fresh install.
+  ///  * UNREADABLE (`readFailed == true`) — a transient storage error. The old
+  ///    `catch` fell back to the same default, which is permissive, so a failed
+  ///    read bound a LAN listener for a user who had explicitly denied P2P.
+  ///    The setting exists precisely to stop that; an open LAN port is not
+  ///    something to grant on a guess.
+  @visibleForTesting
+  static bool lanListenAllowed({
+    required String? storedPolicy,
+    required bool readFailed,
+  }) {
+    if (readFailed) return false;
+    if (storedPolicy == null) {
       return kDefaultP2PGlobalPolicy != P2PGlobalPolicy.denied;
     }
+    return p2pGlobalPolicyFromName(storedPolicy) != P2PGlobalPolicy.denied;
   }
 
   /// Build the in-process deniable stack post-unlock (storage is open) when the
