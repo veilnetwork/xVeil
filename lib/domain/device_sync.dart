@@ -176,6 +176,10 @@ bool deviceSyncEffectiveAt(DeviceSyncEvent event, int nowMs) =>
 ///   progress first and validates second lets a refused event leave a
 ///   watermark behind, and every honest event ranked below that watermark is
 ///   then dropped without ever being looked at.
+/// * One slot applies serially; slots apply in parallel. Deciding an order and
+///   then starting the work concurrently decides nothing — the applies are
+///   read-modify-write against storage, so whichever finishes last is what the
+///   user gets, which is not the same thing as whichever event is newest.
 class DeviceSyncApplyGate {
   /// [nowMs] is the reading device's wall clock — injected so tests can hold
   /// it still rather than race it.
@@ -186,6 +190,12 @@ class DeviceSyncApplyGate {
 
   /// Slot -> the newest event actually applied to it.
   final Map<String, DeviceSyncEvent> _applied = {};
+
+  /// Slot -> the tail of that slot's apply chain, present only while work for
+  /// it is outstanding. Deliberately per slot and not one chain for everything:
+  /// a single chain would make a slow contact write hold up an unrelated
+  /// setting, and a catch-up burst arrives as hundreds of unrelated slots.
+  final Map<String, Future<void>> _chains = {};
 
   /// The convergence identity an event competes for: its (kind, key) pair, the
   /// same one [foldDeviceSync] folds on.
@@ -199,6 +209,10 @@ class DeviceSyncApplyGate {
   /// to REFUSE it — a refused event changes nothing at all, so the honest event
   /// behind it is still judged against the last thing that really landed.
   ///
+  /// The work runs after everything already queued for the SAME slot and
+  /// alongside every other slot, so two events that both beat the guard land in
+  /// the order the guard admitted them.
+  ///
   /// Returns whether the work was accepted.
   bool offer(DeviceSyncEvent event, Future<void> Function()? Function() plan) {
     if (!deviceSyncEffectiveAt(event, _now())) return false;
@@ -208,7 +222,24 @@ class DeviceSyncApplyGate {
     final run = plan();
     if (run == null) return false;
     _applied[slot] = event;
-    unawaited(run());
+    final queued = (_chains[slot] ?? Future<void>.value())
+        .then((_) => run())
+        // A failed apply must not poison the slot for everything behind it;
+        // the log still holds the row and a later re-fold retries the state.
+        .catchError((Object _) {});
+    _chains[slot] = queued;
+    unawaited(
+      queued.whenComplete(() {
+        // Only the slot's CURRENT tail may clear it — anything queued behind
+        // this one has already replaced the entry and is still to run.
+        if (identical(_chains[slot], queued)) _chains.remove(slot);
+      }),
+    );
     return true;
   }
+
+  /// Test seam: slots with work still outstanding. A drained gate must report
+  /// zero — the chains are per key, so leaving them behind would grow a map
+  /// entry per conversation, setting and journal row for the bridge's lifetime.
+  int get pendingSlots => _chains.length;
 }

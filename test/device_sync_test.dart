@@ -1,8 +1,19 @@
 // Multi-device brick 1 (doc/MULTIDEVICE-DESIGN.md): the sync-event codec and
 // its deterministic last-write-wins fold.
 
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/domain/device_sync.dart';
+
+/// Drain the microtask queue: the gate's per-key chain hands work to the event
+/// loop, so a synchronous assertion right after [DeviceSyncApplyGate.offer]
+/// would be reading the state before the applier has had a turn.
+Future<void> _pump() async {
+  for (var i = 0; i < 4; i++) {
+    await Future<void>.delayed(Duration.zero);
+  }
+}
 
 void main() {
   DeviceSyncEvent ev(DeviceSyncKind k, String key, int ts,
@@ -96,25 +107,87 @@ void main() {
     // as far ahead as the skew bound still believes.
     const poison = now + 200000;
     expect(offer(setting(42, poison)), isFalse);
+    await _pump();
     expect(applied, isEmpty);
 
     // Every honest edit after it is ranked OLDER than that stamp. All of them
     // must still land: the refused event left nothing behind.
     expect(offer(setting('dark', now)), isTrue);
     expect(offer(setting('light', now + 1)), isTrue);
+    await _pump();
     expect(applied, ['dark', 'light']);
 
     // The newest-wins rule still bites for events that DID apply.
     expect(offer(setting('stale', now)), isFalse,
         reason: 'older than what landed');
+    await _pump();
     expect(applied, ['dark', 'light']);
 
     // And an event past the clock bound is refused before the applier is even
     // consulted — it cannot take a slot by being asked about.
     planned.clear();
     expect(offer(setting('year-ahead', now + 31536000000)), isFalse);
+    await _pump();
     expect(planned, isEmpty, reason: 'not effective yet — never planned');
     expect(applied, ['dark', 'light']);
+  });
+
+  test('one key applies serially, different keys apply in parallel — deciding '
+      'an order and then starting the work concurrently decides nothing '
+      '(XV-12)', () async {
+    const now = 1700000000000;
+    final gate = DeviceSyncApplyGate(nowMs: () => now);
+    final started = <String>[];
+    final finished = <String>[];
+    // An explicit valve per apply. The window a same-key race needs must be
+    // HELD open by the test, never hoped for from the scheduler.
+    final release = {
+      for (final tag in ['a1', 'a2', 'b1']) tag: Completer<void>(),
+    };
+
+    bool offer(String key, String tag, int ts) => gate.offer(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: key,
+            tsMs: ts,
+            payload: {'v': tag},
+          ),
+          () => () async {
+            started.add(tag);
+            await release[tag]!.future;
+            finished.add(tag);
+          },
+        );
+
+    // Two events on the SAME slot back to back — how a catch-up burst or a
+    // re-drive arrives on the incoming stream. Both beat the newest-wins
+    // guard, so both are admitted; only one may be in flight.
+    expect(offer('theme', 'a1', now), isTrue);
+    expect(offer('theme', 'a2', now + 1), isTrue);
+    await _pump();
+    expect(started, ['a1'],
+        reason: 'the second apply of a key waits for the first to finish');
+
+    // A DIFFERENT key must not wait behind it: the queue is keyed, not a
+    // global serializer that would stall a whole catch-up on one slow write.
+    expect(offer('locale', 'b1', now), isTrue);
+    await _pump();
+    expect(started, ['a1', 'b1']);
+    expect(finished, isEmpty);
+
+    // Releasing the first lets the second in — in the order they were admitted,
+    // which is the order the newest-wins guard ranked them.
+    release['a1']!.complete();
+    await _pump();
+    expect(started, ['a1', 'b1', 'a2']);
+    expect(finished, ['a1']);
+
+    release['a2']!.complete();
+    release['b1']!.complete();
+    await _pump();
+    expect(finished, containsAll(<String>['a1', 'a2', 'b1']));
+    expect(gate.pendingSlots, 0,
+        reason: 'a drained slot must not stay in the chain map');
   });
 
   test('equal timestamps break ties deterministically on payload', () {
