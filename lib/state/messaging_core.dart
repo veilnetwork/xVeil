@@ -1460,6 +1460,20 @@ class MessagingService {
     _contentServing.sourceOpener = value;
   }
 
+  /// May the durable source at `path`, authorized when it was sent by `roots`,
+  /// still be opened?
+  ///
+  /// Set by whoever owns the grants — the API layer, which is the only place
+  /// that knows which folders a live token allows. Consulted ONLY for records
+  /// that carry roots, so a file a person picked in this app is unaffected.
+  /// Null with a rooted record means refuse: see [_openVerifiedServedSource].
+  ///
+  /// Never cached. A durable offer used to outlive both the folder leaving the
+  /// token and the token being revoked, and kept serving out of the former
+  /// root for as long as a peer kept asking.
+  Future<bool> Function(String path, List<String> roots)?
+  servedSourceAuthorizer;
+
   /// Test seam: how many files are currently cached for serving / being fetched
   /// (so a test can assert the RAM caches stay bounded by the eviction logic).
   int get servingCount => _contentServing.count;
@@ -1661,6 +1675,7 @@ class MessagingService {
     Future<Uint8List> Function(int offset, int length) read, {
     required Future<void> Function() close,
     String? sourcePath,
+    List<String> sourceRoots = const [],
   }) => _sendFileStreamingContent(
     dst,
     name,
@@ -1668,6 +1683,7 @@ class MessagingService {
     read,
     close: close,
     sourcePath: sourcePath,
+    sourceRoots: sourceRoots,
   );
 
   /// The user opted to download an OFFERED file into local STORAGE (the encrypted

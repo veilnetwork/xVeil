@@ -346,6 +346,99 @@ void main() {
     );
   }, timeout: const Timeout(Duration(seconds: 60)));
 
+  test('a durable offer stops serving when the grant that authorized it goes '
+      'away, and keeps serving while it holds', () async {
+    // Found while validating X-02 rather than in the report. A `served:`
+    // record used to be its own authorization: written once at send time and
+    // reopened by name forever after, it survived the folder being withdrawn
+    // from the token AND the token being revoked outright. Old offers went on
+    // reading out of a folder nobody had granted, for as long as a peer kept
+    // asking.
+    final bytes = _rnd(120000, 55);
+    final file = File('${workdir.path}/delegated.bin');
+    await file.writeAsBytes(bytes);
+    Future<Uint8List> read(int offset, int length) async =>
+        Uint8List.sublistView(bytes, offset, offset + length);
+
+    // Settle the file past the stamp window FIRST, so the CONTENT verdict is
+    // cached by the time the grant is withdrawn. Without that the file is too
+    // fresh to cache and this test cannot tell a re-asked authorization from
+    // one that is riding along on the content cache — which is exactly the
+    // shape this is here to forbid.
+    await Future<void>.delayed(const Duration(milliseconds: 2200));
+
+    var granted = true;
+    final asked = <(String, List<String>)>[];
+    mA.servedSourceAuthorizer = (path, roots) async {
+      asked.add((path, roots));
+      return granted;
+    };
+
+    final cid = await mA.sendFileStreaming(
+      b,
+      'delegated.bin',
+      bytes.length,
+      read,
+      close: () async {},
+      sourcePath: file.path,
+      sourceRoots: [workdir.path],
+    );
+    expect(cid, isNotNull);
+    expect(
+      await sA.getSetting('served:$cid'),
+      contains(workdir.path),
+      reason: 'the grant has to be recorded, or there is nothing to re-check',
+    );
+
+    // THE CONTROL: while the grant holds, the offer serves.
+    expect(await mA.verifiedGroupContentSourcePath(cid!), file.path);
+    expect(asked, hasLength(1));
+    expect(asked.single.$1, file.path);
+    expect(
+      asked.single.$2,
+      [workdir.path],
+      reason: 'the authorizer was handed the path and the recorded grant',
+    );
+
+    // …and the moment it does not, it stops. No restart, no cache expiry.
+    granted = false;
+    expect(
+      await mA.verifiedGroupContentSourcePath(cid),
+      isNull,
+      reason:
+          'the offer kept serving out of a folder that is no longer granted — '
+          'the record was acting as its own authorization',
+    );
+    expect(asked, hasLength(2), reason: 'the answer must not be cached');
+  });
+
+  test('a file the user picked here is not gated by anyone\'s grant', () async {
+    // A record with no roots came from a person choosing a file in this app.
+    // Fail-closed for delegated offers must not become fail-closed for those.
+    final bytes = _rnd(90000, 56);
+    final file = File('${workdir.path}/mine.bin');
+    await file.writeAsBytes(bytes);
+    Future<Uint8List> read(int offset, int length) async =>
+        Uint8List.sublistView(bytes, offset, offset + length);
+
+    var asked = 0;
+    mA.servedSourceAuthorizer = (path, roots) async {
+      asked++;
+      return false; // would refuse everything, if it were consulted
+    };
+
+    final cid = await mA.sendFileStreaming(
+      b,
+      'mine.bin',
+      bytes.length,
+      read,
+      close: () async {},
+      sourcePath: file.path,
+    );
+    expect(await mA.verifiedGroupContentSourcePath(cid!), file.path);
+    expect(asked, 0, reason: 'nothing delegated this, so nothing gates it');
+  });
+
   test('an unstattable source name is re-checked every time, never cached',
       () async {
     // The in-memory sources this project's tests and any non-filesystem opener

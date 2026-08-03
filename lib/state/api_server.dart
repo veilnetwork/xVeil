@@ -334,7 +334,12 @@ class ApiServerController extends Notifier<ApiConfig> {
   /// stamp comparison across the read is DETECTION, and only that: by the time
   /// it fires the offer has been made. It is worth having because the
   /// alternative is that nobody ever finds out.
-  Future<String?> _sendFile(String toHex, String path, String? name) async {
+  Future<String?> _sendFile(
+    String toHex,
+    String path,
+    String? name,
+    List<String> roots,
+  ) async {
     final NodeId peer;
     try {
       peer = NodeId.fromHex(toHex);
@@ -360,6 +365,7 @@ class ApiServerController extends Notifier<ApiConfig> {
             source.read,
             close: source.close,
             sourcePath: path,
+            sourceRoots: roots,
           );
       if (cid == null) return 'peer not accepted';
       final after = await veilSourceStamp(path);
@@ -376,6 +382,26 @@ class ApiServerController extends Notifier<ApiConfig> {
     } catch (e) {
       return '$e';
     }
+  }
+
+  /// May a durable offer made under [roots] still be opened from [path]?
+  ///
+  /// Two questions, both of them live: is the file still inside the folders
+  /// that authorized the send, and is any of that still granted to a token
+  /// that exists right now. The first catches a folder withdrawn from the
+  /// token or moved out from under it; the second catches the token being
+  /// revoked outright. Either used to leave the `served:` record happily
+  /// serving out of a folder nobody had granted.
+  ///
+  /// Deliberately re-run on every reopen. A revoke that takes effect when a
+  /// cache expires is not a revoke.
+  Future<bool> _authorizeServedSource(String path, List<String> roots) async {
+    if (await resolveSendableFile(path, roots) == null) return false;
+    for (final token in state.tokens) {
+      if (token.fileRoots.isEmpty) continue;
+      if (await resolveSendableFile(path, token.fileRoots) != null) return true;
+    }
+    return false;
   }
 
   Future<ApiBlobSource?> _loadFile(String fileId) =>
@@ -673,8 +699,14 @@ class ApiServerController extends Notifier<ApiConfig> {
     if (identityAtStart != _identityHex ||
         !state.enabled ||
         state.tokens.isEmpty) {
+      // No live grants left to ask about, so the durable offers made under
+      // them stop answering. `_openVerifiedServedSource` fails closed on a
+      // rooted record with no authorizer, which is the point.
+      ref.read(messagingServiceProvider).servedSourceAuthorizer = null;
       return;
     }
+    ref.read(messagingServiceProvider).servedSourceAuthorizer =
+        _authorizeServedSource;
     final groupService = ref.read(groupServiceProvider);
     final groupApi = groupService == null
         ? null
