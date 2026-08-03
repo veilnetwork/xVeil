@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../core/log.dart';
 import 'android_camera_capture.dart' show I420FrameSink;
 
 /// Injectable boundary around Android's user-consented MediaProjection source.
@@ -72,9 +73,10 @@ class AndroidScreenCapture implements AndroidScreenCaptureSource {
         if (frame == null || sink == null || _stopping) return;
         if (!_firstFrameLogged) {
           _firstFrameLogged = true;
-          debugPrint(
-            'veil-screen: first I420 frame '
-            '${frame.width}x${frame.height}',
+          devLog(
+            () =>
+                'veil-screen: first I420 frame '
+                '${frame.width}x${frame.height}',
           );
         }
         sink(frame.y, frame.u, frame.v, frame.width, frame.height);
