@@ -69,6 +69,54 @@ void main() {
     expect(deviceSyncEffectiveAt(ahead, now + 600000), isTrue);
   });
 
+  test('the apply gate moves a slot only for events it actually applied — a '
+      'refused event must not eat the honest one behind it (XV-12)', () async {
+    const now = 1700000000000;
+    final gate = DeviceSyncApplyGate(nowMs: () => now);
+    final applied = <String>[];
+    final planned = <int>[];
+
+    // The shape the bridge sees: a settingSet body is well-formed enough to
+    // parse, but its value can still be unappliable, and the applier is the
+    // only thing that can tell.
+    DeviceSyncEvent setting(Object? value, int ts) => DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: 'theme',
+          tsMs: ts,
+          payload: {'v': value},
+        );
+    bool offer(DeviceSyncEvent e) => gate.offer(e, () {
+          planned.add(e.tsMs);
+          final v = e.payload['v'];
+          if (v is! String) return null; // refused — cannot be applied
+          return () async => applied.add(v);
+        });
+
+    // A compromised device posts a well-formed but unappliable event, stamped
+    // as far ahead as the skew bound still believes.
+    const poison = now + 200000;
+    expect(offer(setting(42, poison)), isFalse);
+    expect(applied, isEmpty);
+
+    // Every honest edit after it is ranked OLDER than that stamp. All of them
+    // must still land: the refused event left nothing behind.
+    expect(offer(setting('dark', now)), isTrue);
+    expect(offer(setting('light', now + 1)), isTrue);
+    expect(applied, ['dark', 'light']);
+
+    // The newest-wins rule still bites for events that DID apply.
+    expect(offer(setting('stale', now)), isFalse,
+        reason: 'older than what landed');
+    expect(applied, ['dark', 'light']);
+
+    // And an event past the clock bound is refused before the applier is even
+    // consulted — it cannot take a slot by being asked about.
+    planned.clear();
+    expect(offer(setting('year-ahead', now + 31536000000)), isFalse);
+    expect(planned, isEmpty, reason: 'not effective yet — never planned');
+    expect(applied, ['dark', 'light']);
+  });
+
   test('equal timestamps break ties deterministically on payload', () {
     final x = ev(DeviceSyncKind.settingSet, 'k', 7, {'v': 'aaa'});
     final y = ev(DeviceSyncKind.settingSet, 'k', 7, {'v': 'zzz'});
