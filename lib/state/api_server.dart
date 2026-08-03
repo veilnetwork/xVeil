@@ -312,8 +312,28 @@ class ApiServerController extends Notifier<ApiConfig> {
     ];
   }
 
+  /// Opens the file a `POST /v1/files` send streams from. TESTS ONLY — the
+  /// production value is [veilOpenSourceForSend] and nothing else sets it.
+  @visibleForTesting
+  static Future<VeilOpenedSource?> Function(String path) debugSourceOpener =
+      veilOpenSourceForSend;
+
   /// Send the file at local [path] to [toHex] (streamed off disk, any size).
   /// Returns null on success or an error string.
+  ///
+  /// ONE open, not three. This used to call `exists()`, then `length()`, then
+  /// open the name again — and a name pointed somewhere else between the second
+  /// and the third produced an offer describing one file's SIZE while hashing
+  /// and serving another file's BYTES. That combination is what a receiver
+  /// cannot tell from an honest send: the manifest is internally consistent, so
+  /// it accepts. Size and bytes now come from the same descriptor
+  /// ([veilOpenSourceForSend]), so there is nothing left to disagree.
+  ///
+  /// What remains is the gap between the API edge's authorization check and
+  /// this open, and Dart cannot close it — no `openat`, no `O_NOFOLLOW`. The
+  /// stamp comparison across the read is DETECTION, and only that: by the time
+  /// it fires the offer has been made. It is worth having because the
+  /// alternative is that nobody ever finds out.
   Future<String?> _sendFile(String toHex, String path, String? name) async {
     final NodeId peer;
     try {
@@ -321,29 +341,38 @@ class ApiServerController extends Notifier<ApiConfig> {
     } catch (_) {
       return 'invalid peer';
     }
-    final file = File(path);
-    if (!await file.exists()) return 'source not found';
-    final size = await file.length();
-    final source = await veilSourceOpener(path);
-    if (source == null) return 'source open failed';
+    final source = await debugSourceOpener(path);
+    if (source == null) return 'source not found';
     // [path] arrives resolved and absolute from the API edge, so derive the
     // display name through the URI rather than by splitting on '/' — on
     // Windows that split would hand the peer the whole `C:\…` path as a name.
     final n = (name != null && name.isNotEmpty)
         ? name
-        : file.uri.pathSegments.last;
+        : File(path).uri.pathSegments.last;
+    final before = await veilSourceStamp(path);
     try {
       final cid = await ref
           .read(messagingServiceProvider)
           .sendFileStreaming(
             peer,
             n,
-            size,
+            source.size,
             source.read,
             close: source.close,
             sourcePath: path,
           );
-      return cid == null ? 'peer not accepted' : null;
+      if (cid == null) return 'peer not accepted';
+      final after = await veilSourceStamp(path);
+      if (before != null && after != null && before != after) {
+        devLog(
+          () =>
+              'xVeil[api]: source at $path changed while it was being read — '
+              'the offer for ${cid.substring(0, 12)} was built from it anyway',
+        );
+        return 'source changed while it was being read; the offer may not '
+            'describe the file you named';
+      }
+      return null;
     } catch (e) {
       return '$e';
     }
