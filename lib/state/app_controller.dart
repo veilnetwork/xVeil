@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 import '../data/storage/app_profile.dart';
 import '../core/error_journal.dart';
 import '../main.dart' show activeProfile;
@@ -12,7 +11,6 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import '../data/native_libs.dart';
 
-import '../core/ids.dart';
 import '../data/node/node_controller.dart';
 import '../data/node/proxy_routing.dart';
 import '../data/storage/on_disk_blob_store.dart';
@@ -199,16 +197,23 @@ class AppController extends Notifier<AppState> {
     return phrase;
   }
 
+  /// Finish first-launch setup.
+  ///
+  /// Takes what the person actually chose, not a fabricated identity. It used
+  /// to take an [Identity] whose node id the caller had just minted at RANDOM,
+  /// which is where audit XV-06 starts: that id went into the space, the node
+  /// then derived or mined its own, and nothing ever reconciled them. There is
+  /// nothing to reconcile now — the node id is never authored here.
   Future<void> completeOnboarding({
-    required Identity identity,
     required String password,
     required StorageMode mode,
+    String? displayName,
     // The REAL master phrase shown on the recovery step (null on the
     // loopback/test path where the native generator is unavailable).
     String? identityPhrase,
-    // The user picked "link to a device you already use": [identity] is a
-    // temporary one that only has to reach the network, and the session this
-    // opens should land on the device-link screen instead of chats.
+    // The user picked "link to a device you already use": this device only has
+    // to reach the network so an existing one can approve it, and the session
+    // this opens should land on the device-link screen instead of chats.
     bool joinExisting = false,
   }) async {
     _pendingIdentityPhrase = identityPhrase;
@@ -231,7 +236,7 @@ class AppController extends Notifier<AppState> {
 
     final storage = ref.read(storageProvider);
     // `open` ANSWERS whether it unlocked anything (audit X-15). The result was
-    // dropped and `saveIdentity` ran anyway, against a storage that was not
+    // dropped and the profile write ran anyway, against a storage that was not
     // open — so a failure here surfaced later, somewhere else, as a confusing
     // error against half-written onboarding state. Roll the phase back and say
     // what happened while the cause is still on the stack.
@@ -244,13 +249,14 @@ class AppController extends Notifier<AppState> {
         'storage.open refused the onboarding password; nothing was written',
       );
     }
-    await storage.saveIdentity(identity);
+    final profile = UserProfile(displayName: displayName);
+    await storage.saveProfile(profile);
 
     final prefs = await ref.read(prefsProvider.future);
     await prefs.setBool(_onboardedKey(), true);
     await prefs.setString(_kStorageModeKey, mode.name);
 
-    await _enterSession(identity);
+    await _enterSession(profile);
   }
 
   /// Guards [unlock] against overlapping runs (UI double-submit racing the
@@ -373,9 +379,9 @@ class AppController extends Notifier<AppState> {
       }
       // Single identity space — unchanged path.
       await _maybeAutoCompactBeforeSession(password);
-      final identity = await _loadIdentityOrHalt(storage);
-      if (identity == null) return; // damaged record — parked, nothing written
-      await _enterSession(identity);
+      final profile = await _loadProfileOrHalt(storage);
+      if (profile == null) return; // damaged record — parked, nothing written
+      await _enterSession(profile);
       devLog(
         () => 'xVeil[unlock]: done, phase=${state.phase.name} (+${ms()}ms)',
       );
@@ -632,28 +638,27 @@ class AppController extends Notifier<AppState> {
     final st = session.storageFor(label);
     // Same damaged-vs-absent split as the one-active path (audit XV-13), with
     // one honest difference: all-online has ALREADY booted every node by the
-    // time we get here, so — unlike [_loadIdentityOrHalt] on unlock — this
+    // time we get here, so — unlike [_loadProfileOrHalt] on unlock — this
     // cannot promise the space was never written to. It promises the smaller
-    // thing that still matters: no session opens on top of a damaged record,
-    // and no random identity is presented as if it were the user's.
-    final Identity? loaded;
+    // thing that still matters: no session opens on top of a damaged record.
+    final UserProfile? loaded;
     try {
-      loaded = st != null ? await st.loadIdentity() : null;
+      loaded = st != null ? await st.loadProfile() : null;
     } on CorruptIdentityRecord catch (e, stk) {
       await _haltOnDamagedIdentity(e, stk);
       return;
     }
-    final identity = loaded ?? _placeholderIdentity();
-    final effective = stack != null
-        ? Identity(
-            nodeId: stack.myInvite.nodeId,
-            displayName: identity.displayName,
-            username: identity.username,
-          )
-        : identity;
+    final profile = loaded ?? _profileOfSpaceWithNoRecord();
+    final nodeId = stack != null
+        ? stack.myInvite.nodeId
+        : await ref.read(veilTransportProvider).nodeId();
     state = AppState(
       AppPhase.ready,
-      identity: effective,
+      identity: Identity(
+        nodeId: nodeId,
+        displayName: profile.displayName,
+        username: profile.username,
+      ),
       identities: identities,
       activeIdentity: label,
     );
@@ -683,9 +688,9 @@ class AppController extends Notifier<AppState> {
       return;
     }
     _activeLabel = label;
-    final identity = await _loadIdentityOrHalt(storage);
-    if (identity == null) return; // damaged record — parked, nothing written
-    await _enterSession(identity);
+    final profile = await _loadProfileOrHalt(storage);
+    if (profile == null) return; // damaged record — parked, nothing written
+    await _enterSession(profile);
   }
 
   /// Switch to another identity in the same master session: stop the current
@@ -741,9 +746,9 @@ class AppController extends Notifier<AppState> {
       }
       final tOpen = lap();
       _activeLabel = label;
-      final identity = await _loadIdentityOrHalt(storage);
-      if (identity == null) return; // damaged record — parked, nothing written
-      await _enterSession(identity);
+      final profile = await _loadProfileOrHalt(storage);
+      if (profile == null) return; // damaged record — parked, nothing written
+      await _enterSession(profile);
       devLog(
         () =>
             'xVeil[identity]: switch done in ${sw.elapsedMilliseconds}ms '
@@ -824,9 +829,9 @@ class AppController extends Notifier<AppState> {
     // (teardown only stops the node); _enterSession re-reads the setting and
     // boots with the new anonymity, then refreshes the home state + node id.
     await _teardownRealStack();
-    final identity = await _loadIdentityOrHalt(storage);
-    if (identity == null) return false; // damaged record — parked
-    await _enterSession(identity);
+    final profile = await _loadProfileOrHalt(storage);
+    if (profile == null) return false; // damaged record — parked
+    await _enterSession(profile);
     return true;
   }
 
@@ -867,9 +872,9 @@ class AppController extends Notifier<AppState> {
       await _teardownRealStack();
       final storage = ref.read(storageProvider);
       if (!storage.isOpen) return false;
-      final identity = await _loadIdentityOrHalt(storage);
-      if (identity == null) return false; // damaged record — parked
-      await _enterSession(identity);
+      final profile = await _loadProfileOrHalt(storage);
+      if (profile == null) return false; // damaged record — parked
+      await _enterSession(profile);
       return true;
     } catch (e, st) {
       devLog(() => 'xVeil[proxy]: apply/reboot failed: $e\n$st');
@@ -898,9 +903,9 @@ class AppController extends Notifier<AppState> {
     // Reboot so the [Identity].lazy_mining change takes effect (_enterSession
     // re-reads the setting and composes the boot config with it).
     await _teardownRealStack();
-    final identity = await _loadIdentityOrHalt(storage);
-    if (identity == null) return false; // damaged record — parked
-    await _enterSession(identity);
+    final profile = await _loadProfileOrHalt(storage);
+    if (profile == null) return false; // damaged record — parked
+    await _enterSession(profile);
     return true;
   }
 
@@ -1160,7 +1165,7 @@ class AppController extends Notifier<AppState> {
       // read as `null`, i.e. "not an identity space", and binding proceeded on a
       // space nobody could read.
       final isPlainIdentity =
-          await storage.loadIdentity() != null &&
+          await storage.loadProfile() != null &&
           await storage.loadRoster() == null;
       final keys = isPlainIdentity ? await storage.exportSpaceKeys() : null;
       await storage.close();
@@ -1265,7 +1270,7 @@ class AppController extends Notifier<AppState> {
       // before, it answered `false`, the clash check at [masterHasIdentity]
       // below never fired, and `saveRoster` went straight over the damaged
       // identity — turning "unreadable" into "gone".
-      final masterHasIdentity = await storage.loadIdentity() != null;
+      final masterHasIdentity = await storage.loadProfile() != null;
       // Capture the master's own derived keys while it is open — the collision
       // check below needs them, and re-opening just to read them would be a
       // second password derivation for nothing.
@@ -1349,7 +1354,7 @@ class AppController extends Notifier<AppState> {
         return false;
       }
 
-      await storage.saveIdentity(generateIdentity(displayName: label));
+      await storage.saveProfile(UserProfile(displayName: label));
       final roster = <RosterEntry>[
         ...base,
         RosterEntry(label: label, spaceKeys: candidateKeys, anonymous: anonymous),
@@ -1428,7 +1433,7 @@ class AppController extends Notifier<AppState> {
         // decoy roster was written over a damaged but possibly recoverable
         // identity space.
         final clash =
-            await storage.loadIdentity() != null ||
+            await storage.loadProfile() != null ||
             await storage.loadRoster() != null;
         if (!clash) {
           await storage.saveRoster(decoy);
@@ -1480,7 +1485,7 @@ class AppController extends Notifier<AppState> {
     }
   }
 
-  Future<void> _enterSession(Identity identity) async {
+  Future<void> _enterSession(UserProfile profile) async {
     // Single-identity mode: load this space's persisted anonymity preference
     // BEFORE booting the node, since anonymity is fixed at boot. Master mode
     // reads the roster flag instead, so skip (the roster is authoritative).
@@ -1520,20 +1525,24 @@ class AppController extends Notifier<AppState> {
       // Loopback / legacy: kick the placeholder controller without blocking.
       ref.read(nodeControllerProvider).start();
     }
-    // In real mode the user's identity IS the node's identity — show the real
-    // node id (and invite) rather than the local placeholder.
-    final effective = stack != null
-        ? Identity(
-            nodeId: stack.myInvite.nodeId,
-            displayName: identity.displayName,
-            username: identity.username,
-          )
-        : identity;
+    // ONE source for the node id, always the transport's (audit XV-06): the
+    // running node's when a real stack came up, and the stand-in transport's
+    // otherwise — loopback's 0xA0 in dev, fail-closed's 0xFF in a shipped build
+    // with no node. Both of those are visibly not real ids, which is the point:
+    // a session with no node should look like one, not wear a leftover id read
+    // out of storage.
+    final nodeId = stack != null
+        ? stack.myInvite.nodeId
+        : await ref.read(veilTransportProvider).nodeId();
     // Carry the master roster + active identity through the session so the UI
     // can offer a switcher (empty/null in single-identity mode).
     state = AppState(
       AppPhase.ready,
-      identity: effective,
+      identity: Identity(
+        nodeId: nodeId,
+        displayName: profile.displayName,
+        username: profile.username,
+      ),
       identities: [for (final e in _pendingRoster ?? const []) e.label],
       activeIdentity: _activeLabel,
     );
@@ -1905,67 +1914,54 @@ class AppController extends Notifier<AppState> {
     state = const AppState(AppPhase.onboarding);
   }
 
-  /// Generates a fresh sovereign identity. The real implementation derives a
-  /// 24-word BIP-39 phrase + node id via veil_flutter; here we mint a random
-  /// node id so the rest of the flow is exercisable.
-  static Identity generateIdentity({String? displayName}) {
-    final rnd = Random.secure();
-    final bytes = Uint8List(32);
-    for (var i = 0; i < 32; i++) {
-      bytes[i] = rnd.nextInt(256);
-    }
-    return Identity(nodeId: NodeId(bytes), displayName: displayName);
-  }
-
-  /// A stand-in shown when a space opened but holds NO identity record.
+  /// What to show for a space that opened but holds NO profile record.
   ///
-  /// This is an anomaly, not a normal state: the space unlocked, so the keys
-  /// were right, but there is nothing where the identity should be. It used to
-  /// be minted silently (audit XV-18), so the UI presented a plausible-looking
-  /// identity — a DIFFERENT one on every call, since the id is random — and the
-  /// anomaly left no trace anywhere. Someone reporting "my node id keeps
-  /// changing" was describing this, and nothing in the logs would have said why.
+  /// An anomaly, not a normal state: the space unlocked, so the keys were
+  /// right, and every space this app creates gets a record written at creation.
+  /// So an absent one means something removed it, and the clash guards — which
+  /// read this record's presence to decide whether a space is free to write a
+  /// roster into — will read that space as empty.
   ///
-  /// Recorded now, every time. The random id is kept deliberately: an all-zero
-  /// or fixed id would flow into maps, comparisons and the wire as a REAL id
-  /// shared by every affected install, which trades a display bug for a
-  /// correctness one.
+  /// It is now an EMPTY profile, not a minted identity. This used to hand back
+  /// a fresh random node id (audit XV-18), so the UI presented a
+  /// plausible-looking identity, a DIFFERENT one on every call — "my node id
+  /// keeps changing" was people describing exactly this. There is no id to
+  /// invent any more: the session takes it from the transport either way, and
+  /// all that is missing here is a display name.
   ///
-  /// ⛔ ONLY for an ABSENT record. A record that exists but will not parse no
-  /// longer reaches here at all — [_loadIdentityOrHalt] takes that branch to
-  /// [AppPhase.identityDamaged] instead (audit XV-13). A placeholder over
-  /// damaged data is what made a lost identity look like a working app.
-  Identity _placeholderIdentity() {
+  /// Recorded every time, because the guards' reading of it is the part that
+  /// can still cost data.
+  UserProfile _profileOfSpaceWithNoRecord() {
     devLog(
       () =>
-          'xVeil[identity]: space opened but holds NO identity record — '
-          'showing a placeholder. The container unlocked, so this is a missing '
-          'identity record, not a wrong password.',
+          'xVeil[identity]: space opened but holds NO profile record. The '
+          'container unlocked, so this is a missing record, not a wrong '
+          'password.',
     );
     errorJournal.record(
       kind: 'identity',
-      error: StateError('space has no identity record; placeholder shown'),
+      error: StateError('space has no profile record'),
       stack: StackTrace.current,
       atMs: DateTime.now().millisecondsSinceEpoch,
     );
-    return generateIdentity();
+    return const UserProfile();
   }
 
-  /// Read the identity of an OPEN space for a session about to start.
+  /// Read the profile of an OPEN space for a session about to start.
   ///
   /// Returns null when the record is damaged — the caller must then return
   /// immediately, because this has already parked the app on
   /// [AppPhase.identityDamaged] and closed the space. Absent (the fresh/erased
-  /// case) still yields a placeholder, which is a display concern only.
+  /// case) yields an empty profile, which costs a display name.
   ///
   /// The split exists because the two states want opposite handling and the old
   /// `loadIdentity() ?? _placeholderIdentity()` gave them the same one: a
   /// damaged record produced a random ready identity, the user saw a normal
   /// empty app, and the session then went on to write into the very space whose
   /// contents could not be read (audit XV-13).
-  Future<Identity?> _loadIdentityOrHalt(Storage storage) async {
+  Future<UserProfile?> _loadProfileOrHalt(Storage storage) async {
     try {
-      return await storage.loadIdentity() ?? _placeholderIdentity();
+      return await storage.loadProfile() ?? _profileOfSpaceWithNoRecord();
     } on CorruptIdentityRecord catch (e, st) {
       await _haltOnDamagedIdentity(e, st);
       return null;

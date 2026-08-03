@@ -40,9 +40,7 @@ void main() {
         );
 
         final nodeId = NodeId(Uint8List.fromList(List.filled(32, 9)));
-        await storage.saveIdentity(
-          Identity(nodeId: nodeId, displayName: 'Nat'),
-        );
+        await storage.saveProfile(UserProfile(displayName: 'Nat'));
         await storage.appendMessage(
           Message(
             id: 'm1',
@@ -57,7 +55,7 @@ void main() {
         // Reopen with the correct password — data is durable.
         final reopened = HiddenVolumeStorage(opener());
         expect(await reopened.open(password: 'sw0rdfish'), isTrue);
-        expect((await reopened.loadIdentity())?.displayName, 'Nat');
+        expect((await reopened.loadProfile())?.displayName, 'Nat');
         final msgs = await reopened.loadMessages(nodeId.hex);
         expect(msgs.single.body, 'hello over real storage');
         await reopened.close();
@@ -370,12 +368,7 @@ void main() {
             await storage.open(password: 'pw', createIfMissing: true),
             isTrue,
           );
-          await storage.saveIdentity(
-            Identity(
-              nodeId: NodeId(Uint8List.fromList(List.filled(32, 6))),
-              displayName: 'Padding',
-            ),
-          );
+          await storage.saveProfile(const UserProfile(displayName: 'Padding'));
           final before = File(path).lengthSync();
           for (var i = 0; i < 12; i++) {
             await storage.putSetting('hot-counter', '$i');

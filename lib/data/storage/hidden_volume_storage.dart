@@ -202,11 +202,13 @@ class HiddenVolumeStorage implements Storage {
   // --- Identity ----------------------------------------------------------
 
   @override
-  Future<void> saveIdentity(Identity identity) async {
+  Future<void> saveProfile(UserProfile profile) async {
+    // No node id (audit XV-06). It is derivable from the node config in this
+    // same space and nowhere else; a copy here was a cache that went stale on
+    // the very first launch and stayed stale.
     final json = jsonEncode({
-      'n': identity.nodeId.hex,
-      'dn': identity.displayName,
-      'u': identity.username,
+      'dn': profile.displayName,
+      'u': profile.username,
     });
     final bytes = _sk(json);
     final existing = await _as.get(Ns.settings, _sk('identity'));
@@ -215,18 +217,17 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
-  Future<Identity?> loadIdentity() async {
+  Future<UserProfile?> loadProfile() async {
     final raw = await _as.get(Ns.settings, _sk('identity'));
     if (raw == null) return null; // genuinely absent — a fresh or erased space
-    // A truncated / corrupt blob (jsonDecode, the cast, or NodeId.fromHex
-    // throwing) is reported AS ITSELF. It used to return null — the same answer
-    // as "no record" — which sent the app down the fresh-space path: a random
-    // placeholder identity on screen, and every "is this space empty?" guard
-    // answering yes over a record that is still there (audit XV-13).
+    // A truncated / corrupt blob (jsonDecode or the casts throwing) is reported
+    // AS ITSELF. It used to return null — the same answer as "no record" —
+    // which sent the app down the fresh-space path: a random placeholder
+    // identity on screen, and every "is this space empty?" guard answering yes
+    // over a record that is still there (audit XV-13).
     try {
       final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
-      return Identity(
-        nodeId: NodeId.fromHex(m['n'] as String),
+      return UserProfile(
         displayName: m['dn'] as String?,
         username: m['u'] as String?,
       );

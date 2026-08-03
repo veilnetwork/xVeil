@@ -114,21 +114,16 @@ void main() {
   });
 
   group('hot metadata writes', () {
-    test('re-saving an identical identity does not commit', () async {
-      final identity = Identity(
-        nodeId: NodeId(_bytes(32, 11)),
-        displayName: 'Me',
-      );
-      await storage.saveIdentity(identity);
+    test('re-saving an identical profile does not commit', () async {
+      const profile = UserProfile(displayName: 'Me');
+      await storage.saveProfile(profile);
       final after = counting.commits;
-      await storage.saveIdentity(identity);
+      await storage.saveProfile(profile);
       expect(counting.commits, after);
 
-      await storage.saveIdentity(
-        Identity(nodeId: identity.nodeId, displayName: 'Other'),
-      );
+      await storage.saveProfile(UserProfile(displayName: 'Other'));
       expect(counting.commits, after + 1);
-      expect((await storage.loadIdentity())!.displayName, 'Other');
+      expect((await storage.loadProfile())!.displayName, 'Other');
     });
 
     test('re-saving an identical roster does not commit', () async {

@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
-import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
@@ -18,7 +17,6 @@ import 'package:xveil/domain/roster.dart';
 /// active master session — e.g. after all-online or a relaunch), entries vanish.
 void main() {
   final skip = ensureHiddenVolumeLoaded() ? null : 'no dylib';
-  NodeId nid(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
 
   HiddenVolumeStorage single(String path) => HiddenVolumeStorage(
         hvSpaceOpener(path, argon: hv.ArgonPreset.min),
@@ -31,7 +29,7 @@ void main() {
     // Onboarding: first identity by 111111.
     final s0 = single(path);
     await s0.open(password: '111111', createIfMissing: true);
-    await s0.saveIdentity(Identity(nodeId: nid(1), displayName: 'Personal'));
+    await s0.saveProfile(UserProfile(displayName: 'Personal'));
     final kPersonal = await s0.exportSpaceKeys();
     await s0.close();
 
@@ -43,7 +41,7 @@ void main() {
     await st.open(password: '000000', createIfMissing: true); // create master
     await st.close();
     await st.open(password: '222222', createIfMissing: true); // create Work
-    await st.saveIdentity(Identity(nodeId: nid(2), displayName: 'Work'));
+    await st.saveProfile(UserProfile(displayName: 'Work'));
     roster.add(RosterEntry(label: 'Work', spaceKeys: await st.exportSpaceKeys()));
     await st.close();
     await st.open(password: '000000'); // master
@@ -68,7 +66,7 @@ void main() {
       await st.open(password: '000000', createIfMissing: true);
       await st.close();
       await st.open(password: '333333', createIfMissing: true);
-      await st.saveIdentity(Identity(nodeId: nid(3), displayName: 'Anon'));
+      await st.saveProfile(UserProfile(displayName: 'Anon'));
       staleBase
           .add(RosterEntry(label: 'Anon', spaceKeys: await st.exportSpaceKeys()));
       await st.close();
@@ -102,7 +100,7 @@ void main() {
       final base = await st.loadRoster() ?? const <RosterEntry>[];
       await st.close();
       await st.open(password: '333333', createIfMissing: true);
-      await st.saveIdentity(Identity(nodeId: nid(3), displayName: 'Anon'));
+      await st.saveProfile(UserProfile(displayName: 'Anon'));
       final withAnon = [
         ...base,
         RosterEntry(label: 'Anon', spaceKeys: await st.exportSpaceKeys()),
@@ -123,7 +121,7 @@ void main() {
         final p = single(path);
         expect(await p.open(password: pw.key), isTrue,
             reason: '${pw.value} must still open by its own password');
-        expect((await p.loadIdentity())?.displayName, pw.value);
+        expect((await p.loadProfile())?.displayName, pw.value);
         await p.close();
       }
     } finally {

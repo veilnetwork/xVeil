@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
-import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
@@ -24,7 +23,6 @@ import 'package:xveil/domain/roster.dart';
 /// checking before it is both necessary and sufficient.
 void main() {
   final skip = ensureHiddenVolumeLoaded() ? null : 'no dylib';
-  NodeId nid(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
 
   Directory scratch() => Directory('/tmp').createTempSync('xveil_collide_');
 
@@ -38,7 +36,7 @@ void main() {
     try {
       final a = single();
       expect(await a.open(password: '222222', createIfMissing: true), isTrue);
-      await a.saveIdentity(Identity(nodeId: nid(2), displayName: 'Work'));
+      await a.saveProfile(UserProfile(displayName: 'Work'));
       final childKeys = await a.exportSpaceKeys();
       await a.close();
 

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/data/node/node_controller.dart';
+import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/features/identity/manage_identities_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
@@ -33,7 +34,7 @@ void main() {
     for (final (label, pw) in [('alice', 'pw-a'), ('bob', 'pw-b')]) {
       final ch = container.storage();
       await ch.open(password: pw, createIfMissing: true);
-      await ch.saveIdentity(AppController.generateIdentity(displayName: label));
+      await ch.saveProfile(UserProfile(displayName: label));
       roster.add(RosterEntry(label: label, spaceKeys: await ch.exportSpaceKeys()));
       await ch.close();
     }

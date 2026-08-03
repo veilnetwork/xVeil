@@ -1,9 +1,7 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
-import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
@@ -14,7 +12,6 @@ import 'package:xveil/domain/roster.dart';
 /// ALL THREE spaces survive (first identity, master, new child).
 void main() {
   final skip = ensureHiddenVolumeLoaded() ? null : 'no dylib';
-  NodeId nid(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
 
   test('addIdentity keeps the first identity + master openable', () async {
     // Use /tmp (a symlink on macOS) deliberately — the path shape the live app
@@ -29,7 +26,7 @@ void main() {
       // --- Onboarding: first identity by 111111 + a node-config write. ---
       final s0 = single();
       await s0.open(password: '111111', createIfMissing: true);
-      await s0.saveIdentity(Identity(nodeId: nid(1), displayName: 'Personal'));
+      await s0.saveProfile(UserProfile(displayName: 'Personal'));
       await s0.saveNodeConfig('[Identity]\nfake = "config"\n');
       final kPersonal = await s0.exportSpaceKeys();
       await s0.close();
@@ -42,13 +39,13 @@ void main() {
       ];
       // validate master FIRST
       expect(await storage.open(password: '000000', createIfMissing: true), isTrue);
-      final clash = await storage.loadIdentity() != null &&
+      final clash = await storage.loadProfile() != null &&
           await storage.loadRoster() == null;
       expect(clash, isFalse);
       await storage.close();
       // create the new child
       expect(await storage.open(password: '222222', createIfMissing: true), isTrue);
-      await storage.saveIdentity(Identity(nodeId: nid(2), displayName: 'Work'));
+      await storage.saveProfile(UserProfile(displayName: 'Work'));
       roster.add(RosterEntry(label: 'Work', spaceKeys: await storage.exportSpaceKeys()));
       await storage.close();
       // persist the roster into the master
@@ -60,7 +57,7 @@ void main() {
       final p = single();
       expect(await p.open(password: '111111'), isTrue,
           reason: 'first identity must survive addIdentity');
-      expect((await p.loadIdentity())?.displayName, 'Personal');
+      expect((await p.loadProfile())?.displayName, 'Personal');
       await p.close();
 
       final m = single();
@@ -71,7 +68,7 @@ void main() {
 
       final w = single();
       expect(await w.open(password: '222222'), isTrue);
-      expect((await w.loadIdentity())?.displayName, 'Work');
+      expect((await w.loadProfile())?.displayName, 'Work');
       await w.close();
     } finally {
       dir.deleteSync(recursive: true);

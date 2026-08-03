@@ -6,10 +6,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/error_journal.dart';
+import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/storage/on_disk_blob_store.dart';
 import 'package:xveil/data/storage/storage.dart';
+import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/data/veil_stack.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/identity.dart';
@@ -37,6 +39,7 @@ Future<void> _settle(ProviderContainer c) async {
 
 void main() {
   _p2pPolicyTests();
+  _nodeIdSourceOfTruthTests();
   _damagedIdentityTests();
   _onboardingOpenFailureTests();
   _runtimeBaseTeardownTests();
@@ -73,17 +76,22 @@ void main() {
       await _settle(c);
       expect(c.read(appControllerProvider).phase, AppPhase.onboarding);
 
-      final id = AppController.generateIdentity(displayName: 'Me');
       await ctrl.completeOnboarding(
-        identity: id,
+        displayName: 'Me',
         password: 'pw',
         mode: StorageMode.hiddenSpace,
       );
       final s = c.read(appControllerProvider);
       expect(s.phase, AppPhase.ready);
-      // Loopback (no real stack): the onboarding identity is preserved.
-      expect(s.identity!.nodeId, id.nodeId);
+      // The name the person typed is theirs; the node id is the TRANSPORT's
+      // (audit XV-06). Onboarding no longer invents one, so with no real stack
+      // this is the loopback stand-in's obviously-fake id — not a random value
+      // that would then disagree with the node forever.
       expect(s.identity!.displayName, 'Me');
+      expect(
+        s.identity!.nodeId,
+        await c.read(veilTransportProvider).nodeId(),
+      );
     },
   );
 
@@ -102,7 +110,7 @@ void main() {
     await _settle(c);
 
     await ctrl.completeOnboarding(
-      identity: AppController.generateIdentity(displayName: 'Me'),
+      displayName: 'Me',
       password: 'pw',
       mode: StorageMode.hiddenSpace,
       identityPhrase: 'correct horse battery staple',
@@ -125,7 +133,7 @@ void main() {
     await _settle(c);
 
     await ctrl.completeOnboarding(
-      identity: AppController.generateIdentity(displayName: 'Me'),
+      displayName: 'Me',
       password: 'pw',
       mode: StorageMode.hiddenSpace,
       identityPhrase: 'correct horse battery staple',
@@ -143,9 +151,7 @@ void main() {
       final ctrl = c.read(appControllerProvider.notifier);
       await _settle(c);
 
-      final id = AppController.generateIdentity();
       await ctrl.completeOnboarding(
-        identity: id,
         password: 'pw',
         mode: StorageMode.hiddenSpace,
       );
@@ -166,7 +172,6 @@ void main() {
       await _settle(c);
 
       await ctrl.completeOnboarding(
-        identity: AppController.generateIdentity(),
         password: 'pw',
         mode: StorageMode.hiddenSpace,
       );
@@ -212,7 +217,6 @@ void main() {
     final ctrl = c.read(appControllerProvider.notifier);
     await _settle(c);
     await ctrl.completeOnboarding(
-      identity: AppController.generateIdentity(),
       password: 'pw',
       mode: StorageMode.hiddenSpace,
     );
@@ -235,7 +239,6 @@ void main() {
     final ctrl = c.read(appControllerProvider.notifier);
     await _settle(c);
     await ctrl.completeOnboarding(
-      identity: AppController.generateIdentity(),
       password: 'pw',
       mode: StorageMode.hiddenSpace,
     );
@@ -307,10 +310,10 @@ void main() {
       final container = FakeHvContainer();
 
       // Seed a child identity space, then a master whose roster points at it.
-      final aliceId = AppController.generateIdentity(displayName: 'Alice');
+      const aliceProfile = UserProfile(displayName: 'Alice');
       final child = container.storage();
       await child.open(password: 'childpw', createIfMissing: true);
-      await child.saveIdentity(aliceId);
+      await child.saveProfile(aliceProfile);
       final aliceKeys = await child.exportSpaceKeys();
       await child.close();
 
@@ -355,7 +358,7 @@ void main() {
 
     // Onboard the first identity (Personal / 111111).
     await ctrl.completeOnboarding(
-      identity: AppController.generateIdentity(displayName: 'Personal'),
+      displayName: 'Personal',
       password: '111111',
       mode: StorageMode.hiddenSpace,
     );
@@ -410,9 +413,7 @@ void main() {
       ]) {
         final child = container.storage();
         await child.open(password: pw, createIfMissing: true);
-        await child.saveIdentity(
-          AppController.generateIdentity(displayName: name),
-        );
+        await child.saveProfile(UserProfile(displayName: name));
         roster.add(
           RosterEntry(label: label, spaceKeys: await child.exportSpaceKeys()),
         );
@@ -451,9 +452,7 @@ void main() {
       final container = FakeHvContainer();
       final solo = container.storage();
       await solo.open(password: 'solopw', createIfMissing: true);
-      await solo.saveIdentity(
-        AppController.generateIdentity(displayName: 'Solo'),
-      );
+      await solo.saveProfile(UserProfile(displayName: 'Solo'));
       await solo.close();
 
       final app = container.storage();
@@ -491,9 +490,7 @@ void main() {
     final container = FakeHvContainer();
     final alice = container.storage();
     await alice.open(password: 'pw-alice', createIfMissing: true);
-    await alice.saveIdentity(
-      AppController.generateIdentity(displayName: 'Alice'),
-    );
+    await alice.saveProfile(UserProfile(displayName: 'Alice'));
     final aliceKeys = await alice.exportSpaceKeys();
     await alice.close();
     final master = container.storage();
@@ -531,9 +528,7 @@ void main() {
       final container = FakeHvContainer();
       final alice = container.storage();
       await alice.open(password: 'pw-alice', createIfMissing: true);
-      await alice.saveIdentity(
-        AppController.generateIdentity(displayName: 'Alice'),
-      );
+      await alice.saveProfile(UserProfile(displayName: 'Alice'));
       final aliceKeys = await alice.exportSpaceKeys();
       await alice.close();
       final master = container.storage();
@@ -585,16 +580,12 @@ void main() {
       final container = FakeHvContainer();
       final alice = container.storage();
       await alice.open(password: 'pw-alice', createIfMissing: true);
-      await alice.saveIdentity(
-        AppController.generateIdentity(displayName: 'Alice'),
-      );
+      await alice.saveProfile(UserProfile(displayName: 'Alice'));
       final aliceKeys = await alice.exportSpaceKeys();
       await alice.close();
       final bob = container.storage();
       await bob.open(password: 'pw-bob', createIfMissing: true);
-      await bob.saveIdentity(
-        AppController.generateIdentity(displayName: 'Bob'),
-      );
+      await bob.saveProfile(UserProfile(displayName: 'Bob'));
       final bobKeys = await bob.exportSpaceKeys();
       await bob.close();
       final master = container.storage();
@@ -627,7 +618,7 @@ void main() {
       // ...but bob's SPACE is untouched: still opens by its own password.
       final bobAgain = container.storage();
       expect(await bobAgain.open(password: 'pw-bob'), isTrue);
-      expect((await bobAgain.loadIdentity())?.displayName, 'Bob');
+      expect((await bobAgain.loadProfile())?.displayName, 'Bob');
       await bobAgain.close();
     },
   );
@@ -637,14 +628,12 @@ void main() {
     final container = FakeHvContainer();
     final alice = container.storage();
     await alice.open(password: 'pw-alice', createIfMissing: true);
-    await alice.saveIdentity(
-      AppController.generateIdentity(displayName: 'Alice'),
-    );
+    await alice.saveProfile(UserProfile(displayName: 'Alice'));
     final aliceKeys = await alice.exportSpaceKeys();
     await alice.close();
     final bob = container.storage();
     await bob.open(password: 'pw-bob', createIfMissing: true);
-    await bob.saveIdentity(AppController.generateIdentity(displayName: 'Bob'));
+    await bob.saveProfile(UserProfile(displayName: 'Bob'));
     final bobKeys = await bob.exportSpaceKeys();
     await bob.close();
     final master = container.storage();
@@ -677,7 +666,7 @@ void main() {
     final bobGone = container.storage();
     await bobGone.open(password: 'pw-bob');
     expect(
-      await bobGone.loadIdentity(),
+      await bobGone.loadProfile(),
       isNull,
       reason: 'delete must forensically erase the identity, not just unlink',
     );
@@ -691,17 +680,13 @@ void main() {
       final container = FakeHvContainer();
       final alice = container.storage();
       await alice.open(password: 'pw-alice', createIfMissing: true);
-      await alice.saveIdentity(
-        AppController.generateIdentity(displayName: 'Alice'),
-      );
+      await alice.saveProfile(UserProfile(displayName: 'Alice'));
       final aliceKeys = await alice.exportSpaceKeys();
       await alice.close();
       // Carol exists as a standalone identity, not yet in any master.
       final carol = container.storage();
       await carol.open(password: 'pw-carol', createIfMissing: true);
-      await carol.saveIdentity(
-        AppController.generateIdentity(displayName: 'Carol'),
-      );
+      await carol.saveProfile(UserProfile(displayName: 'Carol'));
       await carol.close();
       final master = container.storage();
       await master.open(password: 'masterpw', createIfMissing: true);
@@ -760,7 +745,7 @@ void main() {
       // Carol's own space is untouched (shared, not moved).
       final carolAgain = container.storage();
       expect(await carolAgain.open(password: 'pw-carol'), isTrue);
-      expect((await carolAgain.loadIdentity())?.displayName, 'Carol');
+      expect((await carolAgain.loadProfile())?.displayName, 'Carol');
       await carolAgain.close();
     },
   );
@@ -770,9 +755,7 @@ void main() {
     final container = FakeHvContainer();
     final alice = container.storage();
     await alice.open(password: 'pw-alice', createIfMissing: true);
-    await alice.saveIdentity(
-      AppController.generateIdentity(displayName: 'Alice'),
-    );
+    await alice.saveProfile(UserProfile(displayName: 'Alice'));
     final aliceKeys = await alice.exportSpaceKeys();
     await alice.close();
     final master = container.storage();
@@ -802,9 +785,7 @@ void main() {
       final container = FakeHvContainer();
       final alice = container.storage();
       await alice.open(password: 'pw-alice', createIfMissing: true);
-      await alice.saveIdentity(
-        AppController.generateIdentity(displayName: 'Alice'),
-      );
+      await alice.saveProfile(UserProfile(displayName: 'Alice'));
       final aliceKeys = await alice.exportSpaceKeys();
       await alice.close();
       final master = container.storage();
@@ -849,14 +830,12 @@ void main() {
     // Two identities already under the master, on disk.
     final alice = container.storage();
     await alice.open(password: 'pw-alice', createIfMissing: true);
-    await alice.saveIdentity(
-      AppController.generateIdentity(displayName: 'Alice'),
-    );
+    await alice.saveProfile(UserProfile(displayName: 'Alice'));
     final aliceKeys = await alice.exportSpaceKeys();
     await alice.close();
     final bob = container.storage();
     await bob.open(password: 'pw-bob', createIfMissing: true);
-    await bob.saveIdentity(AppController.generateIdentity(displayName: 'Bob'));
+    await bob.saveProfile(UserProfile(displayName: 'Bob'));
     final bobKeys = await bob.exportSpaceKeys();
     await bob.close();
     final master = container.storage();
@@ -907,9 +886,7 @@ void main() {
     final container = FakeHvContainer();
     final solo = container.storage();
     await solo.open(password: 'solopw', createIfMissing: true);
-    await solo.saveIdentity(
-      AppController.generateIdentity(displayName: 'Solo'),
-    );
+    await solo.saveProfile(UserProfile(displayName: 'Solo'));
     await solo.close();
 
     final app = container.storage();
@@ -945,9 +922,7 @@ void main() {
       for (final (label, pw) in [('alice', 'pw-a'), ('bob', 'pw-b')]) {
         final ch = container.storage();
         await ch.open(password: pw, createIfMissing: true);
-        await ch.saveIdentity(
-          AppController.generateIdentity(displayName: label),
-        );
+        await ch.saveProfile(UserProfile(displayName: label));
         roster.add(
           RosterEntry(label: label, spaceKeys: await ch.exportSpaceKeys()),
         );
@@ -1006,9 +981,7 @@ void main() {
       for (final (label, pw) in [('alice', 'pw-a'), ('bob', 'pw-b')]) {
         final ch = container.storage();
         await ch.open(password: pw, createIfMissing: true);
-        await ch.saveIdentity(
-          AppController.generateIdentity(displayName: label),
-        );
+        await ch.saveProfile(UserProfile(displayName: label));
         roster.add(
           RosterEntry(label: label, spaceKeys: await ch.exportSpaceKeys()),
         );
@@ -1050,10 +1023,10 @@ void main() {
       SharedPreferences.setMockInitialValues({'onboarded': true});
       final container = FakeHvContainer();
 
-      final soloId = AppController.generateIdentity(displayName: 'Solo');
+      const soloProfile = UserProfile(displayName: 'Solo');
       final seed = container.storage();
       await seed.open(password: 'pw', createIfMissing: true);
-      await seed.saveIdentity(soloId);
+      await seed.saveProfile(soloProfile);
       await seed.close();
 
       final app = container.storage();
@@ -1139,7 +1112,7 @@ void main() {
 Uint8List _damageIdentityRecord(FakeHvContainer container, String password) {
   final store = container.rawStoreFor(password)!;
   final key = Uint8List.fromList(utf8.encode('identity'));
-  final damaged = Uint8List.fromList(utf8.encode('{"n":"not-hex-at-all"}'));
+  final damaged = Uint8List.fromList(utf8.encode('{"dn":{"not":"a name"}}'));
   store.commit([PutOp(Ns.settings, key, damaged)]);
   return damaged;
 }
@@ -1148,6 +1121,127 @@ Uint8List? _rawIdentityRecord(FakeHvContainer container, String password) =>
     container
         .rawStoreFor(password)!
         .get(Ns.settings, Uint8List.fromList(utf8.encode('identity')));
+
+void _nodeIdSourceOfTruthTests() {
+  group('the node id has ONE source: the node (audit XV-06)', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      errorJournal.clear();
+    });
+
+    test('a space cannot pin one — two runtimes each get their own', () async {
+      // The finding, end to end. Onboarding used to mint a RANDOM node id and
+      // write it into the space before any node existed; the node then derived
+      // or mined its own and the two never agreed. The app hid it (it displayed
+      // the node's id and never wrote it back) while headless compared them and
+      // refused to start — one profile, two answers, and only one of them could
+      // open it.
+      //
+      // Nothing is stored to disagree with now. The same space, opened by two
+      // runtimes whose transports report different ids, gives each of them ITS
+      // OWN id and the same human details.
+      final first = NodeId(Uint8List.fromList(List.filled(32, 0x5c)));
+      final second = NodeId(Uint8List.fromList(List.filled(32, 0x3e)));
+      final container = FakeHvContainer();
+
+      final c1 = ProviderContainer(
+        overrides: [
+          storageProvider.overrideWith((ref) => container.storage()),
+          veilTransportProvider.overrideWith(
+            (ref) => LoopbackTransport(localNodeId: first),
+          ),
+        ],
+      );
+      addTearDown(c1.dispose);
+      final ctrl1 = c1.read(appControllerProvider.notifier);
+      await _settle(c1);
+      await ctrl1.completeOnboarding(
+        displayName: 'Me',
+        password: 'pw',
+        mode: StorageMode.hiddenSpace,
+      );
+      expect(c1.read(appControllerProvider).identity!.nodeId, first);
+      await ctrl1.lock();
+
+      final c2 = ProviderContainer(
+        overrides: [
+          storageProvider.overrideWith((ref) => container.storage()),
+          veilTransportProvider.overrideWith(
+            (ref) => LoopbackTransport(localNodeId: second),
+          ),
+        ],
+      );
+      addTearDown(c2.dispose);
+      final ctrl2 = c2.read(appControllerProvider.notifier);
+      await _settle(c2);
+      await ctrl2.unlock('pw');
+
+      final s = c2.read(appControllerProvider);
+      expect(s.phase, AppPhase.ready);
+      expect(
+        s.identity!.nodeId,
+        second,
+        reason: 'a node id read out of the space is a stale one',
+      );
+      expect(
+        s.identity!.nodeId,
+        isNot(first),
+        reason: 'the FIRST runtime\'s id must not have been persisted',
+      );
+      expect(
+        s.identity!.displayName,
+        'Me',
+        reason: 'what the person chose IS the space\'s to keep',
+      );
+    });
+
+    test('addIdentity writes a space with no node id in it either', () async {
+      // The other place that minted one. A child space created here is opened
+      // later by whatever node boots for it; a random id written at creation
+      // would be the same stale copy, one per identity.
+      SharedPreferences.setMockInitialValues({'onboarded': true});
+      final marker = NodeId(Uint8List.fromList(List.filled(32, 0x77)));
+      final container = FakeHvContainer();
+      final seed = container.storage();
+      await seed.open(password: 'pw', createIfMissing: true);
+      await seed.saveProfile(const UserProfile(displayName: 'Solo'));
+      await seed.close();
+
+      final c = ProviderContainer(
+        overrides: [
+          storageProvider.overrideWith((ref) => container.storage()),
+          veilTransportProvider.overrideWith(
+            (ref) => LoopbackTransport(localNodeId: marker),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
+      await ctrl.unlock('pw');
+      expect(
+        await ctrl.addIdentity(
+          label: 'work',
+          password: 'pw-work',
+          masterPassword: 'masterpw',
+        ),
+        isTrue,
+      );
+
+      expect(c.read(appControllerProvider).identity!.nodeId, marker);
+      final raw = container
+          .rawStoreFor('pw-work')!
+          .get(Ns.settings, Uint8List.fromList(utf8.encode('identity')))!;
+      final decoded = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+      expect(decoded['dn'], 'work');
+      expect(
+        decoded.containsKey('n'),
+        isFalse,
+        reason: 'no node id may be written where no node has spoken',
+      );
+    });
+  });
+}
 
 void _damagedIdentityTests() {
   group('a DAMAGED identity is not an ABSENT one (audit XV-13)', () {
@@ -1165,9 +1259,7 @@ void _damagedIdentityTests() {
       final container = FakeHvContainer();
       final seeded = container.storage();
       await seeded.open(password: 'right', createIfMissing: true);
-      await seeded.saveIdentity(
-        AppController.generateIdentity(displayName: 'Real'),
-      );
+      await seeded.saveProfile(UserProfile(displayName: 'Real'));
       await seeded.close();
       final damaged = _damageIdentityRecord(container, 'right');
 
@@ -1217,9 +1309,7 @@ void _damagedIdentityTests() {
       for (final (label, pw) in [('alice', 'pw-a'), ('bob', 'pw-b')]) {
         final ch = container.storage();
         await ch.open(password: pw, createIfMissing: true);
-        await ch.saveIdentity(
-          AppController.generateIdentity(displayName: label),
-        );
+        await ch.saveProfile(UserProfile(displayName: label));
         roster.add(
           RosterEntry(label: label, spaceKeys: await ch.exportSpaceKeys()),
         );
@@ -1228,9 +1318,7 @@ void _damagedIdentityTests() {
       // A third space, outside the roster, whose identity record is damaged.
       final hurt = container.storage();
       await hurt.open(password: 'pw-hurt', createIfMissing: true);
-      await hurt.saveIdentity(
-        AppController.generateIdentity(displayName: 'Hurt'),
-      );
+      await hurt.saveProfile(UserProfile(displayName: 'Hurt'));
       await hurt.close();
       final damaged = _damageIdentityRecord(container, 'pw-hurt');
 
@@ -1373,7 +1461,7 @@ void _onboardingOpenFailureTests() {
     await expectLater(
       ctrl.completeOnboarding(
         password: 'pw',
-        identity: AppController.generateIdentity(displayName: 'Me'),
+        displayName: 'Me',
         mode: StorageMode.hiddenSpace,
       ),
       throwsA(isA<StateError>()),
@@ -1415,7 +1503,7 @@ void _runtimeBaseTeardownTests() {
     final ctrl = c.read(appControllerProvider.notifier);
     await _settle(c);
     await ctrl.completeOnboarding(
-      identity: AppController.generateIdentity(displayName: 'Me'),
+      displayName: 'Me',
       password: 'pw',
       mode: StorageMode.hiddenSpace,
     );
@@ -1558,7 +1646,7 @@ void _lockAlwaysCompletesTests() {
     final ctrl = c.read(appControllerProvider.notifier);
     await _settle(c);
     await ctrl.completeOnboarding(
-      identity: AppController.generateIdentity(displayName: 'Me'),
+      displayName: 'Me',
       password: 'pw',
       mode: StorageMode.hiddenSpace,
     );
