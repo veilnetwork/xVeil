@@ -11,6 +11,11 @@ import 'package:xveil/core/ids.dart';
 /// This asks the question the feature exists for: hand this blob to whoever
 /// wrote the code — can they act on it? A report that survives redaction but
 /// says nothing useful is worse than none, because it looks like diagnostics.
+///
+/// Since audit X-06 the exported record carries no exception TEXT, so the
+/// question is sharper: with only the exception class and a stack location, is
+/// a real failure still recognisable? These are the four shapes this app
+/// actually throws.
 void main() {
   setUp(errorJournal.clear);
 
@@ -23,7 +28,7 @@ void main() {
     }
   }
 
-  test('real failures survive redaction with their cause intact', () {
+  test('real failures are still nameable from what is exported', () {
     capture('platform', () => NodeId.fromHex('not-a-node-id'));
     capture('zone', () => File('/no/such/path/xveil.store').readAsBytesSync());
     capture('zone', () => jsonDecode('{"truncated":'));
@@ -40,16 +45,15 @@ void main() {
     expect(entries, hasLength(4));
 
     for (final entry in entries.cast<Map<String, Object?>>()) {
-      final message = entry['message']! as String;
       expect(
-        message.trim(),
+        (entry['type']! as String).trim(),
         isNotEmpty,
         reason: 'an entry that says nothing is a lie about having diagnostics',
       );
       expect(
-        message,
-        isNot('<id>'),
-        reason: 'redaction must not swallow the whole message',
+        entry.containsKey('message'),
+        isFalse,
+        reason: 'free text does not leave the device (audit X-06)',
       );
       expect(
         entry['frames'],
@@ -58,18 +62,30 @@ void main() {
       );
     }
 
-    // Each cause is still nameable after redaction — this is the whole point.
-    final messages = [
-      for (final e in entries.cast<Map<String, Object?>>())
-        e['message']! as String,
+    // Each cause is distinguishable from its class alone — the whole point of
+    // dropping the text without dropping the diagnostic.
+    final types = [
+      for (final e in entries.cast<Map<String, Object?>>()) e['type']! as String,
     ];
-    expect(messages[0], contains('hex'), reason: 'a malformed id says so');
+    expect(types[0], 'ArgumentError', reason: 'a malformed id');
+    expect(types[1], 'PathNotFoundException', reason: 'a missing store');
+    expect(types[2], 'FormatException', reason: 'truncated JSON');
+    expect(types[3], contains('TypeError'), reason: 'a null check');
+    expect(
+      types.toSet(),
+      hasLength(4),
+      reason: 'four different bugs must not export as one indistinguishable row',
+    );
+
+    // The sentence is not lost — it is just kept where the person is.
+    final messages = errorJournal.entries.map((e) => e.message).toList();
+    expect(messages[0], contains('hex'));
     expect(messages[1], contains('No such file'));
     expect(messages[2], contains('FormatException'));
     expect(messages[3], contains('Null check'));
   });
 
-  test('a path in a real exception is redacted but the failure survives', () {
+  test('a path in a real exception never reaches the report', () {
     // The most common shape in this app: an OS error quoting a store path.
     capture(
       'zone',
@@ -79,6 +95,7 @@ void main() {
     );
     final message = errorJournal.entries.single.message;
 
+    // In memory the path is redacted — this string can reach a screen.
     expect(message, contains('<path>'), reason: 'the home directory is gone');
     expect(message, isNot(contains('/Users/')));
     expect(
@@ -86,5 +103,18 @@ void main() {
       contains('No such file'),
       reason: 'and yet the reader still learns what failed',
     );
+
+    // In the export the quoted path is not redacted, it is absent: the whole
+    // sentence stays home and the class name carries the diagnostic.
+    final report = errorJournal.toJson(
+      platform: 'macos',
+      osVersion: '26.0',
+      appVersion: '1.0.0+1',
+      defaultProfile: true,
+      phase: 'ready',
+    );
+    expect(report, isNot(contains('Application Support')));
+    expect(report, isNot(contains('<path>')));
+    expect(report, contains('PathNotFoundException'));
   });
 }

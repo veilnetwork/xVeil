@@ -10311,7 +10311,7 @@ abstract class AppL10n {
   /// No description provided for @settingsCopyErrorsHint.
   ///
   /// In en, this message translates to:
-  /// **'A JSON summary of recent failures. Contains no messages, contacts or identity.'**
+  /// **'A JSON summary of recent failures: error types and code locations only — no error text, contacts or identity.'**
   String get settingsCopyErrorsHint;
 
   /// No description provided for @settingsCopyErrorsDone.

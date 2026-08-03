@@ -91,8 +91,13 @@ void main() {
     expect(copied, isNot(contains('7084a345')));
     expect(copied, isNot(contains('/Users/')));
     expect(copied, isNot(contains('alice')));
+    // The exception's own words are not on the clipboard either — the deny-list
+    // is a second line, not the promise (audit X-06).
+    expect(copied, isNot(contains('failed opening')));
+    expect(copied, isNot(contains('send to')));
     // ...while still saying enough to be worth sending.
     expect(copied, contains('package:xveil/state/a.dart'));
-    expect(copied, contains('failed opening'));
+    expect(copied, contains('"kind": "platform"'));
+    expect(copied, contains('"type": "String"'));
   });
 }
