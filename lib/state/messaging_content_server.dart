@@ -275,7 +275,7 @@ extension _MessagingContentServer on MessagingService {
             await _storage.getSetting('served:$cid'),
           );
           if (rec != null) {
-            source = durable = await sourceOpener!(rec.path);
+            source = durable = await _openVerifiedServedSource(cid, rec);
           }
         }
         source ??= live.source;
@@ -293,7 +293,7 @@ extension _MessagingContentServer on MessagingService {
           await _storage.getSetting('served:$cid'),
         );
         if (rec != null) {
-          source = durable = await sourceOpener!(rec.path);
+          source = durable = await _openVerifiedServedSource(cid, rec);
         }
       }
       // No mf: blob (its persist is the first casualty of a bloated store —

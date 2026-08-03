@@ -343,13 +343,17 @@ class _MessagingGroupContent {
   /// Returns the original user-selected source path only after re-hashing it
   /// against [cid]. A moved or modified plaintext source is never opened under
   /// an old signed media reference.
+  ///
+  /// Shares the serve path's check and its verdict cache, so the two cannot
+  /// drift into disagreeing about the same file (audit X-02).
   Future<String?> verifiedSourcePath(String cid) async {
     final record = _owner._parseServedRecord(
       await _owner._storage.getSetting('served:$cid'),
     );
     if (record == null) return null;
-    final manifest = await _owner._rebuildManifestFromServedRecord(cid, record);
-    return manifest?.contentId == cid ? record.path : null;
+    return await _owner._servedSourceStillMatches(cid, record)
+        ? record.path
+        : null;
   }
 
   /// The active (unexpired) grants, for the debug hook / tests.
