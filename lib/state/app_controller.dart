@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import '../data/storage/app_profile.dart';
 import '../core/error_journal.dart';
+import '../core/secret_wipe.dart';
 import '../main.dart' show activeProfile;
 
 import 'package:flutter/foundation.dart';
@@ -1744,11 +1745,39 @@ class AppController extends Notifier<AppState> {
     }
   }
 
+  /// Drop the cached SpaceKeys — after overwriting them (audit XV-22).
+  ///
+  /// These are the real thing: each one opens a space without a password. They
+  /// used to be dropped by reference alone, which hands the bytes to the
+  /// collector intact and leaves them readable in the heap until something
+  /// happens to reuse that memory. On a LOCK — which is a person saying "I am
+  /// done, protect this" — that is the wrong default.
+  ///
+  /// This is best-effort and the honest bound is in lib/core/secret_wipe.dart:
+  /// a moving collector may already have copied these buffers, and this cannot
+  /// reach the copies. It removes the copy we hold, which is the one we can.
+  ///
+  /// Safe here because every caller has already torn the session down, so
+  /// nothing is still reading through these buffers.
   void _clearMasterSession() {
+    for (final e in _pendingRoster ?? const <RosterEntry>[]) {
+      wipeSecretBytes(e.spaceKeys);
+    }
     _pendingRoster = null; // drop cached child keys
+    wipeSecretBytes(_masterKeys);
     _masterKeys = null; // drop cached master keys
     _activeLabel = null;
   }
+
+  /// The cached master SpaceKeys, for tests that check they are ZEROED — not
+  /// merely dropped — by [lock] and the wipe paths. Hands back the live buffer
+  /// on purpose: a copy would prove nothing about the original.
+  @visibleForTesting
+  Uint8List? get debugMasterKeys => _masterKeys;
+
+  /// The cached child SpaceKeys, same purpose as [debugMasterKeys].
+  @visibleForTesting
+  List<RosterEntry>? get debugRoster => _pendingRoster;
 
   /// Tear down an all-online session (all nodes + messaging + the shared lock)
   /// and clear its providers. No-op when there is no session.

@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import '../../core/secret_wipe.dart';
 import '../native_libs.dart' show processLibFor;
 import 'node_controller.dart';
 import 'proxy_routing.dart';
@@ -208,6 +209,15 @@ class EmbeddedNode {
   ///
   /// [difficulty] is the PoW difficulty in leading zero bits (0 = canonical
   /// default). Mining can take a while — run it off the UI isolate.
+  ///
+  /// ⚠️ The returned TOML contains the node's PRIVATE KEY and it is a `String`,
+  /// which Dart cannot overwrite (audit XV-22 — see lib/core/secret_wipe.dart).
+  /// Every buffer this key is COPIED into on its way to the native side is
+  /// wiped; the string itself lives until the collector reclaims it, and
+  /// closing that would mean changing this signature to hand back bytes and
+  /// teaching every caller to release them. Not done: the same key is in the
+  /// space on disk and in the node's own memory for the life of the process, so
+  /// the string is not the exposure that decides anything.
   static String mineConfig(int difficulty, {DynamicLibrary? lib}) {
     final dl = lib ?? _veilLib();
     final initFn = dl.lookupFunction<_ConfigInitNative, _ConfigInitDart>(
@@ -282,7 +292,12 @@ class EmbeddedNode {
       freeStr(out);
       return toml;
     } finally {
-      calloc.free(phraseC); // native already zeroized the bytes in place
+      // The native side zeroizes the phrase in place — but only once it has
+      // read it. An argument that is rejected before that (a bad length, a
+      // failed allocation) returns with the words still in the buffer, so wipe
+      // it here too rather than trusting the happy path (audit XV-22).
+      wipeNativeSecret(phraseC.cast<Uint8>(), phraseC.length);
+      calloc.free(phraseC);
       calloc.free(errOut);
     }
   }
@@ -645,6 +660,10 @@ class EmbeddedNode {
       'veil_free_string',
     );
 
+    // args[0] is the identity TOML — it carries the Ed25519 PRIVATE KEY. Both
+    // the Dart copy below and the native buffer it is written into are wiped in
+    // the finally (audit XV-22); see lib/core/secret_wipe.dart for exactly how
+    // much that is worth on each side.
     final args = [
       identityToml,
       listenTransport,
@@ -698,8 +717,15 @@ class EmbeddedNode {
         ),
       );
     } finally {
-      for (final p in ptrs) {
-        calloc.free(p);
+      // Only ptrs[0]/args[0] hold a secret; the rest are socket paths. Wiping
+      // all of them anyway costs nothing and removes the chance that a later
+      // edit reorders the list and silently drops the key out of the wipe.
+      for (var i = 0; i < ptrs.length; i++) {
+        wipeNativeSecret(ptrs[i], args[i].length);
+        calloc.free(ptrs[i]);
+      }
+      for (final a in args) {
+        wipeSecretBytes(a);
       }
       calloc.free(errOut);
     }
@@ -783,6 +809,11 @@ class EmbeddedNode {
         publicKey: Uint8List.fromList(pkOut.asTypedList(32)),
       );
     } finally {
+      // [identityToml] carries the Ed25519 private key, so the native copy of
+      // it and the Dart bytes we built it from are zeroed before release
+      // (audit XV-22). The signature and public key are public values.
+      wipeNativeSecret(tomlPtr, tomlBytes.length);
+      wipeSecretBytes(tomlBytes);
       calloc.free(tomlPtr);
       calloc.free(msgPtr);
       calloc.free(sigOut);
@@ -908,6 +939,11 @@ class EmbeddedNode {
         throw StateError('veil_node_apply_config failed: $msg');
       }
     } finally {
+      // The composed config embeds the identity section, private key and all —
+      // this is the largest and longest-lived plaintext copy of it in the
+      // process. Zero it before the allocator can hand the block on (XV-22).
+      wipeNativeSecret(tomlPtr, bytes.length);
+      wipeSecretBytes(bytes);
       calloc.free(tomlPtr);
       calloc.free(errOut);
     }
