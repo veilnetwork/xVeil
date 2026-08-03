@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/secure_screen.dart';
 import 'features/calls/call_overlay.dart';
 import 'features/calls/group_call_overlay.dart';
 import 'features/calls/call_lifecycle_bridge.dart';
@@ -34,21 +35,27 @@ class XVeilApp extends ConsumerWidget {
       localizationsDelegates: AppL10n.localizationsDelegates,
       supportedLocales: AppL10n.supportedLocales,
       routerConfig: router,
-      // Float the call UI (incoming ring / in-call) above every route.
-      builder: (context, child) => Stack(
-        children: [
-          ?child,
-          const CallLifecycleBridge(),
-          const CallOverlay(),
-          const GroupCallOverlay(),
-          // Eagerly build the group service once the identity is ready, so its
-          // inbound-snapshot bridge is attached BEFORE any group frame arrives
-          // (a member added on another device pushes a snapshot immediately).
-          const _GroupBridge(),
-          // Keep the automation-API controller alive so a persisted "enabled"
-          // flag re-opens the loopback server on boot (off by default).
-          const _ApiBridge(),
-        ],
+      // Float the call UI (incoming ring / in-call) above every route, and put
+      // the task-switcher cover above THAT: the snapshot the platform takes on
+      // the way out would otherwise show whatever was last on screen, call UI
+      // included (audit X-11).
+      builder: (context, child) => TaskSwitcherShield(
+        child: Stack(
+          children: [
+            ?child,
+            const CallLifecycleBridge(),
+            const CallOverlay(),
+            const GroupCallOverlay(),
+            // Eagerly build the group service once the identity is ready, so
+            // its inbound-snapshot bridge is attached BEFORE any group frame
+            // arrives (a member added on another device pushes a snapshot
+            // immediately).
+            const _GroupBridge(),
+            // Keep the automation-API controller alive so a persisted "enabled"
+            // flag re-opens the loopback server on boot (off by default).
+            const _ApiBridge(),
+          ],
+        ),
       ),
     );
   }

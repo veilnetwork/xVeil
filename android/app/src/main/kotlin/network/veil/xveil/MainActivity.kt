@@ -15,6 +15,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.util.Log
 import android.util.Rational
+import android.view.WindowManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -42,6 +43,7 @@ class MainActivity : FlutterActivity() {
     private val callNetworkChannelName = "xveil/call_network"
     private val callForegroundChannelName = "xveil/call_foreground"
     private val whisperModelChannelName = "xveil/whisper_model"
+    private val secureScreenChannelName = "xveil/secure_screen"
     private val micRequestCode = 0x4D49 // 'MI'
     private val screenCaptureRequestCode = 0x5343 // 'SC'
     private var pending: MethodChannel.Result? = null
@@ -60,6 +62,30 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         nativeCallCamera = NativeCallCamera(this, flutterEngine.renderer)
         nativeCallVideoRenderer = NativeCallVideoRenderer(flutterEngine.renderer)
+        // FLAG_SECURE, driven PER ROUTE from Dart (core/secure_screen.dart).
+        //
+        // Never set once at startup: the flag blacks the window out inside this
+        // app's OWN MediaProjection too, so a global FLAG_SECURE would ship a
+        // screen-sharing feature (ScreenCaptureService) that shares a black
+        // rectangle. Dart holds it only while a route that shows the recovery
+        // phrase is mounted, and gives it back on the way out.
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            secureScreenChannelName,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "setSecure" -> {
+                    val secure = call.argument<Boolean>("secure") ?: false
+                    if (secure) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    }
+                    result.success(secure)
+                }
+                else -> result.notImplemented()
+            }
+        }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             whisperModelChannelName,
