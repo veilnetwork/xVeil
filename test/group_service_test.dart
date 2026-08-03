@@ -12626,6 +12626,362 @@ void main() {
     },
   );
 
+  test(
+    'one member dating a post, a public comment or a public reaction into the '
+    'future used to take the whole Space off public discovery — the owner must '
+    'still publish, in full, without overstating its own freshness',
+    () async {
+      final t0 = DateTime.utc(2026, 8, 3, 12).millisecondsSinceEpoch;
+      final hostileTs = t0 + const Duration(days: 365).inMilliseconds;
+
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final signer = _FakeSigner(owner);
+      var wall = t0 - const Duration(hours: 1).inMilliseconds;
+      final ownerSvc = GroupService(
+        ownerStorage,
+        signer,
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      )..debugWallClockMs = () => wall;
+      addTearDown(ownerSvc.dispose);
+      final spaceId = await ownerSvc.createSpace(
+        'Public updates',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      var bobWall = t0 - const Duration(hours: 1).inMilliseconds;
+      final bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      )..debugWallClockMs = () => bobWall;
+      addTearDown(bobSvc.dispose);
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+
+      // Honest and in the past.
+      bobWall = t0 - 60000;
+      final past = await bobSvc.publishSpacePost(
+        spaceId,
+        body: 'a minute ago',
+        broadcast: false,
+      );
+      expect(past, isNotNull);
+      // Honest and genuinely AHEAD of the owner's clock, but inside the
+      // tolerance this surface already grants a stranger. Nothing may drop it,
+      // and nothing may round it down to the receiver's clock either: this is
+      // what tells "excluded the impossible" apart from "clamped everything".
+      bobWall = t0 + const Duration(minutes: 2).inMilliseconds;
+      expect(
+        await bobSvc.publishSpacePost(
+          spaceId,
+          body: 'honestly a little fast',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      // 2027 — on a post, on a public comment and on a public reaction. Each
+      // one alone used to be enough: all three land in the same `updatedAt`
+      // fold, which becomes the descriptor's `issuedAt`, which the wire format
+      // refuses more than five minutes ahead.
+      bobWall = hostileTs;
+      expect(
+        await bobSvc.publishSpacePost(
+          spaceId,
+          body: 'from the future',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      expect(
+        await bobSvc.commentOnSpacePost(
+          spaceId,
+          past!.postId,
+          'commented from the future',
+          publiclyVisible: true,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await bobSvc.reactToSpacePost(
+          spaceId,
+          past.postId,
+          '🔥',
+          publiclyVisible: true,
+          broadcast: false,
+        ),
+        isTrue,
+      );
+
+      wall = t0;
+      expect(
+        await ownerSvc.ingestSnapshot(
+          bobSvc.snapshotJson((await bobSvc.load(spaceId))!, recipient: owner),
+        ),
+        isTrue,
+      );
+      final stored = (await ownerSvc.load(spaceId))!;
+      expect(stored.publicComments, hasLength(1));
+      expect(stored.publicReactions, hasLength(1));
+      expect(
+        stored.publicComments.single.createdAtMs,
+        greaterThanOrEqualTo(hostileTs),
+      );
+      expect(
+        stored.publicReactions.single.createdAtMs,
+        greaterThanOrEqualTo(hostileTs),
+      );
+
+      final publication = await ownerSvc.buildSpacePublicDiscoveryPublication(
+        spaceId,
+      );
+      expect(
+        publication,
+        isNotNull,
+        reason: 'one member signing itself into 2027 must not be able to take '
+            'the whole Space off public discovery — that is a member denying '
+            'service to the owner, and to everyone who could have found it',
+      );
+      final descriptor = publication!.discovery.descriptor;
+      expect(descriptor.verifyAt(wall, signer.verifyDetached), isTrue);
+      expect(
+        publication.feed.verifyAt(
+          nowMs: wall,
+          expectedManifestHash: descriptor.publicFeedManifestHash,
+          expectedSpaceId: spaceId,
+          expectedPublisher: owner,
+          publisherPublicKey: descriptor.genesisManifest.genesisPubKey,
+          expectedControlHeadHash: descriptor.controlHeadHash,
+          verifySignature: signer.verifyDetached,
+          verifyPost: signer.verifyPost,
+        ),
+        isTrue,
+      );
+
+      // And it does not lie about what it carries. The hostile rows are not
+      // what was dropped: only their claim to be the Space's freshest
+      // metadata is, so there is nothing here a member could want to opt
+      // out of.
+      expect(descriptor.publicPostCount, 3);
+      expect(
+        publication.feed.posts.map((post) => post.body),
+        containsAll(<String>[
+          'a minute ago',
+          'honestly a little fast',
+          'from the future',
+        ]),
+      );
+      expect(publication.feed.manifest.discussionItemCount, 2);
+      expect(
+        publication.feed
+            .commentsFor(past.postId, signer.verifyDetached)
+            .single
+            .createdAtMs,
+        stored.publicComments.single.createdAtMs,
+        reason: 'the comment is published with the stamp its author signed',
+      );
+      expect(
+        publication.feed.reactionsFor(past.postId, signer.verifyDetached)['🔥'],
+        [bob],
+      );
+      final futureRow = publication.feed.posts.firstWhere(
+        (post) => post.body == 'from the future',
+      );
+      final storedFutureRow = stored.posts.firstWhere(
+        (post) => post.publishedAtMs >= hostileTs,
+      );
+      expect(
+        futureRow.root.canonicalBytes(),
+        storedFutureRow.canonicalBytes(),
+        reason: 'not one signed byte moves; 0a27cb2 stays exactly as it is',
+      );
+      expect(futureRow.publishedAtMs, greaterThanOrEqualTo(hostileTs));
+      expect(
+        (await ownerSvc.postsOf(spaceId))
+            .firstWhere((post) => post.body == 'from the future')
+            .orderedAtMs,
+        lessThan(hostileTs),
+        reason: 'and 0a27cb2 still holds: it is RANKED where it arrived',
+      );
+
+      // The number the owner signs is the newest stamp a clock here could have
+      // produced: not 2027, and not the receiver's own clock either.
+      final aheadCreated = publication.feed.posts
+          .firstWhere((post) => post.body == 'honestly a little fast')
+          .createdAtMs;
+      expect(
+        aheadCreated,
+        greaterThan(wall),
+        reason: 'this honest post really is ahead of the owner clock',
+      );
+      expect(
+        publication.feed.manifest.updatedAtMs,
+        aheadCreated,
+        reason: 'an honest stamp inside the tolerance is kept exactly as its '
+            'author wrote it, so this is exclusion of the impossible and not a '
+            'clamp of everything ahead',
+      );
+      expect(descriptor.updatedAtMs, lessThan(hostileTs));
+      expect(
+        descriptor.issuedAtMs,
+        lessThanOrEqualTo(wall + kSpacePublicClockSkew.inMilliseconds),
+        reason: 'exactly what the wire format demands of `issuedAt`, and what '
+            'a folded 2027 stamp used to make impossible',
+      );
+
+      // Excluded rather than clamped to now, and this is why: the owner
+      // descriptor is deliberately stable across periodic refreshes so
+      // independent holders attest one hash. A value taken from a live clock
+      // would let one hostile row churn that hash forever — the same denial,
+      // quieter.
+      wall = t0 + const Duration(minutes: 10).inMilliseconds;
+      final rebuilt = await ownerSvc.buildSpacePublicDiscoveryPublication(
+        spaceId,
+      );
+      expect(rebuilt, isNotNull);
+      expect(
+        rebuilt!.discovery.descriptor.descriptorHash,
+        descriptor.descriptorHash,
+      );
+      expect(rebuilt.feed.manifest.updatedAtMs, aheadCreated);
+    },
+  );
+
+  test(
+    'a member leaving on a control entry dated in the future must not take the '
+    'Space off public discovery either, and the entry still counts',
+    () async {
+      Future<void> drain() async {
+        for (var i = 0; i < 6; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+      }
+
+      final t0 = DateTime.utc(2026, 8, 3, 12).millisecondsSinceEpoch;
+      final hostileTs = t0 + const Duration(days: 365).inMilliseconds;
+
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final signer = _FakeSigner(owner);
+      var wall = t0 - const Duration(hours: 1).inMilliseconds;
+      final ownerSvc = GroupService(ownerStorage, signer)
+        ..debugWallClockMs = () => wall;
+      addTearDown(ownerSvc.dispose);
+      final spaceId = await ownerSvc.createSpace(
+        'Public updates',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      var bobWall = t0 - const Duration(hours: 1).inMilliseconds;
+      final fromBob = <String>[];
+      final bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        send: (peer, group, json) async => fromBob.add(json),
+      )..debugWallClockMs = () => bobWall;
+      addTearDown(bobSvc.dispose);
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+
+      wall = t0;
+      final before = await ownerSvc.buildSpacePublicDiscoveryPublication(
+        spaceId,
+      );
+      expect(before, isNotNull);
+
+      // `leave` needs no permission from anybody — a member writes it about
+      // itself — and `ControlEntry.isStructurallyValid` bounds `created` only
+      // by `>= 0`. So this is a stranger's number in the owner's own control
+      // fold, exactly like a post's.
+      bobWall = hostileTs;
+      expect(await bobSvc.leaveGroup(spaceId), isTrue);
+      await drain();
+      expect(fromBob, isNotEmpty);
+      for (final delta in fromBob) {
+        await ownerSvc.ingestSnapshot(delta);
+      }
+      await drain();
+      final leaveEntry = (await ownerSvc.load(spaceId))!.control.singleWhere(
+        (entry) => entry.op == ControlOp.leave,
+      );
+      expect(leaveEntry.author, bob);
+      expect(leaveEntry.createdAtMs, greaterThanOrEqualTo(hostileTs));
+
+      final after = await ownerSvc.buildSpacePublicDiscoveryPublication(
+        spaceId,
+      );
+      expect(
+        after,
+        isNotNull,
+        reason: 'a member walking out with a 2027 stamp must not end the '
+            "Space's public presence",
+      );
+      expect(
+        after!.discovery.descriptor.revision,
+        before!.discovery.descriptor.revision + 1,
+        reason: 'the leave is accepted, counted and hashed into the control '
+            'head — only its claim about the clock is ignored',
+      );
+      expect(
+        after.discovery.descriptor.controlHeadHash,
+        isNot(before.discovery.descriptor.controlHeadHash),
+      );
+      expect(
+        after.discovery.descriptor.updatedAtMs,
+        before.discovery.descriptor.updatedAtMs,
+        reason: 'and it cannot make the Space claim it was updated in 2027',
+      );
+      expect(after.discovery.descriptor.updatedAtMs, lessThan(hostileTs));
+      expect(
+        after.discovery.descriptor.verifyAt(wall, signer.verifyDetached),
+        isTrue,
+      );
+    },
+  );
+
   test('private Space posts stay epoch-encrypted on disk and wire', () async {
     final ownerStorage = FakeHvContainer().storage();
     await ownerStorage.open(password: 'pw', createIfMissing: true);
