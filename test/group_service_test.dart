@@ -14605,6 +14605,205 @@ void main() {
   );
 
   test(
+    'a retention revision signed with the wrong year used to freeze the whole '
+    'timeline: no later revision, from any device, could change the policy '
+    'again until that year arrived',
+    () async {
+      const day = 24 * 60 * 60 * 1000;
+      // The read path evaluates retention against the real clock, so the
+      // signed history has to sit genuinely in the past; only the WRITE stamps
+      // are driven.
+      final realNow = DateTime.now().millisecondsSinceEpoch;
+      final t0 = realNow - 100 * day;
+      final hostileTs = realNow + 365 * day;
+
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      var wall = t0;
+      final svc = GroupService(
+        storage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      )..debugWallClockMs = () => wall;
+      addTearDown(svc.dispose);
+      final spaceId = await svc.createSpace(
+        'Shredder',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      Future<List<String>> bodies() async =>
+          (await svc.messagesOf(spaceId)).map((m) => m.body).toList();
+      // Publications go through the OTHER builder — the synchronous clear-only
+      // subset that snapshot assembly and the Feed read — so both are pinned.
+      Future<List<String>> postBodies() async =>
+          (await svc.postsOf(spaceId)).map((post) => post.body).toList();
+
+      // A destructive policy, honestly dated, doing exactly what was asked.
+      expect(await svc.postMessage(spaceId, 'first'), isTrue);
+      expect(
+        await svc.publishSpacePost(spaceId, body: 'post one', broadcast: false),
+        isNotNull,
+      );
+      wall = t0 + day;
+      expect(
+        await svc.setSpaceRetentionPolicy(
+          spaceId,
+          SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.deleteAfter,
+            retentionMs: day,
+          ),
+        ),
+        isTrue,
+      );
+      expect(await bodies(), isNot(contains('first')));
+      expect(await postBodies(), isNot(contains('post one')));
+
+      // The owner tries to STOP the shredding from a device whose clock reads
+      // 2027, and the revision is signed with that year inside it.
+      final wrongClock = GroupService(storage, _FakeSigner(owner))
+        ..debugWallClockMs = () => hostileTs;
+      expect(
+        await wrongClock.setSpaceRetentionPolicy(
+          spaceId,
+          const SpaceRetentionPolicy(mode: SpaceRetentionMode.keepForever),
+        ),
+        isTrue,
+      );
+      wrongClock.dispose();
+      expect(
+        await svc.spaceRetentionHistoryOf(spaceId),
+        hasLength(1),
+        reason: 'the 2027 revision is signed and accepted and simply has not '
+            'happened yet as far as this clock is concerned — deferring it is '
+            'right, and the destructive policy is still the one in force',
+      );
+
+      wall = t0 + 2 * day;
+      expect(await svc.postMessage(spaceId, 'second'), isTrue);
+      expect(await bodies(), isNot(contains('second')));
+
+      // The correction, from a device whose clock is right. Under the old rule
+      // the monotone activation clamp lifted THIS revision to 2027 as well —
+      // and would lift every revision after it, forever — so the owner could
+      // not stop their own Space from deleting its history by any signed
+      // operation at all. Not by re-issuing the policy, not from another
+      // device, not by removing whoever wrote the bad row.
+      wall = t0 + 3 * day;
+      expect(
+        await svc.setSpaceRetentionPolicy(
+          spaceId,
+          const SpaceRetentionPolicy(mode: SpaceRetentionMode.keepForever),
+        ),
+        isTrue,
+      );
+      wall = t0 + 4 * day;
+      expect(await svc.postMessage(spaceId, 'third'), isTrue);
+      expect(
+        await svc.publishSpacePost(
+          spaceId,
+          body: 'post three',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+
+      final history = await svc.spaceRetentionHistoryOf(spaceId);
+      expect(history, hasLength(2));
+      expect(history.last.policy.mode, SpaceRetentionMode.keepForever);
+      expect(
+        history.last.activatedAtMs,
+        lessThan(hostileTs),
+        reason: 'the correction keeps its own stamp instead of being dragged '
+            'up to the floor an unbelievable row would have set',
+      );
+      expect(
+        await bodies(),
+        contains('third'),
+        reason: 'and it takes effect NOW: an unbelievable stamp is left out of '
+            'the timeline instead of raising the floor under every honest '
+            'revision behind it',
+      );
+      expect(
+        await postBodies(),
+        contains('post three'),
+        reason: 'and the same on the publication side, which reads the OTHER '
+            'builder — a fix in one of the two is half a fix',
+      );
+      expect(
+        await bodies(),
+        isNot(contains('first')),
+        reason: 'relaxing later still does not resurrect what was retired',
+      );
+      expect(await bodies(), isNot(contains('second')));
+      expect(await postBodies(), isNot(contains('post one')));
+
+      await storage.close();
+    },
+  );
+
+  test(
+    'a retention revision dated ahead is DEFERRED, not discarded: it joins the '
+    'timeline when the clock reaches it',
+    () async {
+      const day = 24 * 60 * 60 * 1000;
+      final realNow = DateTime.now().millisecondsSinceEpoch;
+      final t0 = realNow - 100 * day;
+      final hostileTs = realNow + 365 * day;
+
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      var wall = t0;
+      final svc = GroupService(storage, _FakeSigner(owner))
+        ..debugWallClockMs = () => wall;
+      addTearDown(svc.dispose);
+      final spaceId = await svc.createSpace('Deferred');
+      expect(await svc.postMessage(spaceId, 'old row'), isTrue);
+
+      final wrongClock = GroupService(storage, _FakeSigner(owner))
+        ..debugWallClockMs = () => hostileTs;
+      expect(
+        await wrongClock.setSpaceRetentionPolicy(
+          spaceId,
+          SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.deleteAfter,
+            retentionMs: day,
+          ),
+        ),
+        isTrue,
+      );
+      wrongClock.dispose();
+
+      wall = t0 + 3 * day;
+      expect(
+        await svc.spaceRetentionHistoryOf(spaceId),
+        isEmpty,
+        reason: 'a stamp no clock here could have produced is not in the '
+            'timeline at all, so it cannot carry anything with it',
+      );
+      expect(
+        (await svc.messagesOf(spaceId)).map((m) => m.body),
+        contains('old row'),
+        reason: 'and a policy that has not activated retires nothing',
+      );
+
+      wall = hostileTs + 3 * day;
+      final later = await svc.spaceRetentionHistoryOf(spaceId);
+      expect(later, hasLength(1));
+      expect(later.single.policy.mode, SpaceRetentionMode.deleteAfter);
+      expect(
+        later.single.activatedAtMs,
+        greaterThanOrEqualTo(hostileTs),
+        reason: 'when its own time arrives it applies exactly as its author '
+            'wrote it — excluded means postponed, never dropped',
+      );
+
+      await storage.close();
+    },
+  );
+
+  test(
     'media-only retention keeps signed text and irreversibly retires grants',
     () async {
       final signer = _FakeSigner(owner);

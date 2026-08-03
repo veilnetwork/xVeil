@@ -211,27 +211,15 @@ class GroupState {
     return channel ?? space;
   }
 
-  bool isRetentionExpired({
-    required int createdAtMs,
-    required int atMs,
-    NodeId? channelId,
-  }) => spaceRetentionRemoves(
-    revisions: retentionHistory,
-    createdAtMs: createdAtMs,
-    atMs: atMs,
-    channelId: channelId,
-  );
-
-  bool isRetentionMediaExpired({
-    required int createdAtMs,
-    required int atMs,
-    NodeId? channelId,
-  }) => spaceRetentionRemovesMedia(
-    revisions: retentionHistory,
-    createdAtMs: createdAtMs,
-    atMs: atMs,
-    channelId: channelId,
-  );
+  // No `isRetentionExpired` here. [retentionHistory] is folded by a pure
+  // domain function with no clock, so it still contains a revision an author
+  // dated into the future — and the monotone activation clamp then lifts every
+  // honest revision behind it to that year, which stops the whole line. Every
+  // expiry decision therefore goes through `GroupService`'s builders, which
+  // have a clock and drop what it cannot believe
+  // (see [spaceRetentionRevisionBelievable]). What is left here is
+  // [effectiveRetentionPolicy], which asks only WHICH policy is current and
+  // never when one activated.
 
   GroupMember? memberOf(NodeId id) => members[id.hex];
   bool isMember(NodeId id) => members.containsKey(id.hex);
