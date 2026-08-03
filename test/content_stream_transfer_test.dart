@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/data/serve_source.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
@@ -22,6 +23,34 @@ NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
 Uint8List _rnd(int n, int seed) {
   final r = Random(seed);
   return Uint8List.fromList(List.generate(n, (_) => r.nextInt(256)));
+}
+
+/// Whether any run of at least 512 bytes of [needle] appears in [haystack] —
+/// "did any of that file's bytes go out on this wire". Anchored on four bytes
+/// so the scan stays linear; [needle] is random, so a false anchor is a
+/// one-in-four-billion event per offset.
+bool _containsSlice(Uint8List haystack, Uint8List needle) {
+  const run = 512;
+  if (needle.length < run || haystack.length < run) return false;
+  for (var at = 0; at + run <= needle.length; at += run) {
+    for (var start = 0; start + run <= haystack.length; start++) {
+      if (haystack[start] != needle[at] ||
+          haystack[start + 1] != needle[at + 1] ||
+          haystack[start + 2] != needle[at + 2] ||
+          haystack[start + 3] != needle[at + 3]) {
+        continue;
+      }
+      var same = true;
+      for (var i = 4; i < run; i++) {
+        if (haystack[start + i] != needle[at + i]) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return true;
+    }
+  }
+  return false;
 }
 
 /// In-memory byte channel (one direction of a pipe): writes append, reads drain
@@ -153,6 +182,34 @@ class _CloseOnWriteStream implements ReliableStream {
     _closed = true;
     await _inner.abort();
   }
+}
+
+/// Records every byte this endpoint WRITES.
+///
+/// For the stream serve, "what did the sender put on the wire" is the only
+/// assertion that means anything: a receiver checks incoming pieces against
+/// the manifest it holds and would drop a swapped file's bytes by itself.
+/// That protects the receiver. It does nothing for the person whose file was
+/// read off disk, and a peer that simply keeps what it is sent drops nothing.
+class _RecordingStream implements ReliableStream {
+  _RecordingStream(this._inner, this._written);
+
+  final ReliableStream _inner;
+  final BytesBuilder _written;
+
+  @override
+  Future<void> write(Uint8List data) {
+    _written.add(Uint8List.fromList(data));
+    return _inner.write(data);
+  }
+
+  @override
+  Future<Uint8List> read({int maxBytes = 65536}) =>
+      _inner.read(maxBytes: maxBytes);
+  @override
+  Future<void> close() => _inner.close();
+  @override
+  Future<void> abort() => _inner.abort();
 }
 
 class _OnCloseStream implements ReliableStream {
@@ -437,6 +494,106 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 80));
     return cid;
   }
+
+  test(
+    'STREAM serve: a durable source swapped after the send streams nothing, '
+    'while an untouched one still streams',
+    () async {
+      // Audit X-02. `_serveStream` reopens `served:$cid`'s PATH on every pull
+      // and takes the manifest from `mf:$cid` — two different moments, never
+      // compared. No race is needed: replace the file after the send and every
+      // later pull reads the replacement off disk and writes it to the peer.
+      final workdir = await Directory.systemTemp.createTemp('xveil-stream-src');
+      addTearDown(() => workdir.delete(recursive: true));
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      mA.sourceOpener = veilSourceOpener;
+
+      Future<String> offer(String name, Uint8List bytes) async {
+        await File('${workdir.path}/$name').writeAsBytes(bytes);
+        await mA.sendFileStreaming(
+          b,
+          name,
+          bytes.length,
+          (o, l) async => Uint8List.sublistView(bytes, o, o + l),
+          close: () async {},
+          sourcePath: '${workdir.path}/$name',
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+        return ContentManifest.fromBytes(name, bytes).contentId;
+      }
+
+      final honestBytes = _rnd(300000, 61);
+      final honestCid = await offer('honest.bin', honestBytes);
+      final swappedCid = await offer('swapped.bin', _rnd(300000, 62));
+
+      // SAME LENGTH, different bytes — the manifest stays internally
+      // consistent about size, so only hashing the bytes notices.
+      final secret = _rnd(300000, 63);
+      await File('${workdir.path}/swapped.bin').writeAsBytes(secret);
+
+      // Restart the sender: serve state gone, storage kept. The durable record
+      // is now the only thing pointing at the file.
+      await mA.dispose();
+      final mA2 =
+          MessagingService(
+              tA,
+              sA,
+              contentPacing: Duration.zero,
+              plainFileStream: true,
+            )
+            ..sourceOpener = veilSourceOpener
+            ..start();
+      addTearDown(mA2.dispose);
+
+      final servedBytes = BytesBuilder(copy: false);
+      for (var i = 0; i < 16; i++) {
+        tA.acceptStreamWrappers.add((s) => _RecordingStream(s, servedBytes));
+      }
+
+      // THE CONTROL, first: an untouched durable offer still streams. A fix
+      // that refused everything would "close" this and break the feature.
+      await mB.downloadContent(a, honestCid);
+      for (var i = 0; i < 200; i++) {
+        if (await sB.loadFile(honestCid) != null) break;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      expect(
+        await sB.loadFile(honestCid),
+        honestBytes,
+        reason: 'an untouched durable offer must still stream after a restart',
+      );
+      expect(
+        servedBytes.length,
+        greaterThan(0),
+        reason: 'the control has to show bytes actually leaving the sender',
+      );
+
+      // THE FINDING: the swapped one must put nothing on the wire.
+      servedBytes.clear();
+      await mB.downloadContent(a, swappedCid);
+      await Future<void>.delayed(const Duration(seconds: 3));
+
+      final onTheWire = servedBytes.toBytes();
+      expect(
+        _containsSlice(onTheWire, secret),
+        isFalse,
+        reason:
+            'bytes of the replacement file were streamed to the peer under the '
+            'content id of the file it replaced',
+      );
+      expect(
+        onTheWire,
+        isEmpty,
+        reason:
+            'the sender wrote ${onTheWire.length} bytes for a content id whose '
+            'file had been replaced — it must refuse the offer, not serve it',
+      );
+      expect(await sB.loadFile(swappedCid), isNull);
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
 
   test('a swarm pull never opens a stream to ourselves', () async {
     // A node listed among the sources for content it does not hold used to be

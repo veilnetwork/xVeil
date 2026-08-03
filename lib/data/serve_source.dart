@@ -12,6 +12,29 @@ typedef VeilServeSource = ({
   Future<void> Function() close,
 });
 
+/// What a serve source's file looked like when it was last checked.
+typedef VeilSourceStamp = ({int size, int mtimeMs});
+
+/// Size + last-modified of [path], or null when it cannot be stat'ed.
+///
+/// A cache key for "is this still the file we verified", nothing more. Null is
+/// not a failure — an in-memory or otherwise non-filesystem source name simply
+/// has nothing to stamp, and a caller must then re-check rather than trust a
+/// key that can never change.
+///
+/// Both fields are writable by anyone who can write the file (`utimes`), so a
+/// matching stamp is evidence and not proof. Dart has no `fstat` on an open
+/// handle to do better with.
+Future<VeilSourceStamp?> veilSourceStamp(String path) async {
+  try {
+    final stat = await File(path).stat();
+    if (stat.type == FileSystemEntityType.notFound) return null;
+    return (size: stat.size, mtimeMs: stat.modified.millisecondsSinceEpoch);
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Open [path] as a serialized serve source, or null if it can't be opened (the
 /// file was moved/deleted, or a mobile cache/SAF path expired) — in which case
 /// the offer can't be re-served and the sender must re-send.

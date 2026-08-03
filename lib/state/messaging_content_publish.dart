@@ -280,6 +280,102 @@ extension _MessagingContentPublish on MessagingService {
     }
   }
 
+  /// Whether the file behind the durable record still holds the bytes [cid]
+  /// names — re-hashed, not assumed.
+  ///
+  /// A `served:$cid` record is a PATH. `sourceOpener` takes a path. Between
+  /// the send that wrote the record and the pull that reopens it there is no
+  /// check at all: the manifest came from `mf:$cid` and the bytes came from
+  /// whatever the name pointed at by then. Replace the file after the send and
+  /// every later fetch handed out the new one under the old content id, with a
+  /// manifest that described the old (audit X-02). No race was required —
+  /// which is what made it worse than the racy half.
+  ///
+  /// The check is one RAM-bounded hashing pass (what
+  /// [_rebuildManifestFromServedRecord] already did for a different reason),
+  /// so the verdict is cached against the file's size and mtime and re-taken
+  /// as soon as either moves.
+  ///
+  /// DETECTION, NOT PREVENTION, and the cache key is where that shows: size
+  /// and mtime are writable by whoever can write the file. Dart offers no
+  /// `openat`, no `O_NOFOLLOW` and no `fstat`, so there is no way from here to
+  /// bind the check and the open to the same inode; this project has hit that
+  /// wall before and chose detection deliberately. What this does close is the
+  /// case that needed no timing at all.
+  Future<bool> _servedSourceStillMatches(
+    String cid,
+    ({String path, int? size, int? pieceSize, String? name}) rec,
+  ) async {
+    final stamp = await veilSourceStamp(rec.path);
+    if (stamp != null) {
+      final cached = _contentServing.servedVerdicts[cid];
+      if (cached != null &&
+          cached.size == stamp.size &&
+          cached.mtimeMs == stamp.mtimeMs) {
+        return cached.ok;
+      }
+    }
+    final pending = _contentServing.servedVerifications[cid];
+    if (pending != null) return pending;
+    final run = _verifyServedSource(cid, rec, stamp);
+    _contentServing.servedVerifications[cid] = run;
+    try {
+      return await run;
+    } finally {
+      _contentServing.servedVerifications.remove(cid);
+    }
+  }
+
+  Future<bool> _verifyServedSource(
+    String cid,
+    ({String path, int? size, int? pieceSize, String? name}) rec,
+    VeilSourceStamp? before,
+  ) async {
+    // A rebuild that returns non-null has already compared contentIds. It also
+    // re-persists `mf:$cid`, so the pass costs at most one extra read even on
+    // the missing-manifest path that would otherwise hash again right after.
+    final ok = (await _rebuildManifestFromServedRecord(cid, rec)) != null;
+
+    // Only cache a verdict this file can be held to. Two ways it cannot be:
+    //
+    //  * the file moved under the hashing pass — the stamp then describes
+    //    something other than what was read (and the pass itself is already
+    //    suspect, which is why the answer stands but is not remembered);
+    //  * its mtime is younger than the coarsest filesystem tick, so a LATER
+    //    write could still land under the SAME stamp and the verdict would
+    //    never be re-taken.
+    //
+    // Skipping the cache costs a re-hash. Caching a stamp that cannot change
+    // costs correctness, which is the whole point of the check.
+    final after = await veilSourceStamp(rec.path);
+    if (before == null || after == null || before != after) return ok;
+    final settledFor = DateTime.now().millisecondsSinceEpoch - after.mtimeMs;
+    if (settledFor < _MessagingContentServing.stampSettleMs) return ok;
+    _contentServing.noteServedVerdict(cid, after, ok);
+    return ok;
+  }
+
+  /// Open the durable source of [cid] — and only if it still IS [cid].
+  ///
+  /// Every reopen-by-name on the serve path goes through here. See
+  /// [_servedSourceStillMatches] for what the check is worth.
+  Future<ServeSource?> _openVerifiedServedSource(
+    String cid,
+    ({String path, int? size, int? pieceSize, String? name}) rec,
+  ) async {
+    final opener = sourceOpener;
+    if (opener == null) return null;
+    if (!await _servedSourceStillMatches(cid, rec)) {
+      devLog(
+        () =>
+            'xVeil[content]: durable source ${rec.path} no longer holds '
+            '${cid.substring(0, 12)} — refusing to serve it',
+      );
+      return null;
+    }
+    return opener(rec.path);
+  }
+
   Future<void> _persistServeManifest(ContentManifest manifest) async {
     try {
       await _storage.storeFile(
