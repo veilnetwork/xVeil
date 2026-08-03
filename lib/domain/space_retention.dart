@@ -1,5 +1,6 @@
 import '../core/ids.dart';
 import 'group_payload.dart';
+import 'space_discovery.dart' show kSpacePublicClockSkew;
 
 const int kMinSpaceRetentionMs = 24 * 60 * 60 * 1000;
 const int kMaxSpaceRetentionMs = 100 * 365 * 24 * 60 * 60 * 1000;
@@ -112,9 +113,46 @@ class SpaceRetentionPolicy {
   }
 }
 
+/// Whether a signed retention revision claiming to have been authored at
+/// [claimedMs] may join this device's retention timeline while its clock reads
+/// [nowMs].
+///
+/// `setRetention` carries the author's own `createdAtMs`, bounded by the wire
+/// format only by `>= 0`, and the builders clamp each revision's activation
+/// monotonically up to the newest one seen so far. That clamp is what turns one
+/// unbelievable stamp into a standstill: it lifts EVERY later revision to the
+/// same year, so the replay in [_spaceRetentionExpires] stops at the first one
+/// and never reaches the rest — and no later revision can undo it, because a
+/// corrective policy is lifted to that year too. The whole line stops deleting,
+/// at every holder, until the year arrives, with nothing to notice.
+///
+/// It is not an owner-only lever either: `setRetention` is authorized by
+/// `manageStorage`, which a custom role can carry, so the one permission meant
+/// to manage retention can permanently disable it — including for the owner,
+/// and including after the delegate is stripped of the role.
+///
+/// A revision that fails this test is EXCLUDED from the timeline rather than
+/// clamped into it, and the difference is the whole fix. Clamping the claim to
+/// `now` would move the activation on every evaluation, so a `deleteAfter`
+/// boundary would slide forward with the clock and still never retire anything
+/// — the same standstill, quieter. Exclusion is also its own deferral: the
+/// timeline is rebuilt from the signed log on every call, so a revision genuinely
+/// dated ahead joins it the moment its time arrives, exactly as its author asked.
+/// What exclusion adds over the old behaviour is that the excluded row no longer
+/// raises the monotone floor, so the honest revisions AFTER it keep their own
+/// stamps and take effect now — which is what makes the mistake recoverable.
+///
+/// One-sided, on the existing tolerance, like the rest of this series. A stamp
+/// in the past is honoured: it can only move a boundary earlier, which expires
+/// less, and a device back from a week offline must keep last Tuesday's policy.
+bool spaceRetentionRevisionBelievable(int claimedMs, int nowMs) =>
+    claimedMs <= nowMs + kSpacePublicClockSkew.inMilliseconds;
+
 /// One immutable accepted policy revision. [activatedAtMs] is monotonically
 /// clamped during the deterministic fold so a backward wall-clock step cannot
-/// reorder or resurrect history on another device.
+/// reorder or resurrect history on another device. Revisions the local clock
+/// cannot believe are left out of the fold entirely, so the value here is never
+/// one no clock could have produced (see [spaceRetentionRevisionBelievable]).
 class SpaceRetentionRevision {
   const SpaceRetentionRevision({
     required this.policy,
@@ -315,6 +353,12 @@ bool _spaceRetentionExpires({
   }
 
   for (final revision in revisions) {
+    // Still a `break` and not a `continue`: activations are non-decreasing by
+    // construction, so a revision that has not activated yet is followed only
+    // by revisions that have not activated yet. What changed is which rows are
+    // in this list at all — a stamp no clock here could have produced is not
+    // one of them, so it can no longer carry the honest revisions behind it
+    // past this line (see [spaceRetentionRevisionBelievable]).
     if (revision.activatedAtMs > atMs) break;
     if (expiredAt(revision.activatedAtMs)) return true;
     final policy = revision.policy;
