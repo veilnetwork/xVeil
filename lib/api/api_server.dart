@@ -6947,8 +6947,27 @@ class ApiServer {
         }
         final raw = read.text ?? '';
         if (raw.isNotEmpty) {
-          final decoded = jsonDecode(raw);
-          if (decoded is Map<String, dynamic>) body = decoded;
+          // A BAD BODY IS THE CALLER'S FAULT, AND IT IS TOLD SO (audit X-16).
+          // `jsonDecode` sat bare inside the try below, so a stray comma came
+          // back as 500 — a status that says "this server broke", sending a
+          // bot to retry, alert or open an issue about a request only it can
+          // fix. And a body that parsed but was not an object (`[1,2]`, `"x"`,
+          // `5`, `null`) fell through the `is Map` test in SILENCE: the
+          // request went on to the handler as though nothing had been sent,
+          // which is the worst of the three outcomes, because the caller gets
+          // a plausible answer to a question it did not ask.
+          final Object? decoded;
+          try {
+            decoded = jsonDecode(raw);
+          } on FormatException {
+            await _refuse(req, 400, 'malformed JSON body');
+            return;
+          }
+          if (decoded is! Map<String, dynamic>) {
+            await _refuse(req, 400, 'body must be a JSON object');
+            return;
+          }
+          body = decoded;
         }
       }
       final res = await _handler.handle(req.method, req.uri, auth, body: body);
@@ -7050,6 +7069,18 @@ class ApiServer {
     live.queue = null;
     live.pump = null;
     await q?.close();
+  }
+
+  /// Refuse [req] with [status] and a JSON `{"error": …}` body.
+  ///
+  /// Not on a reusable connection: a caller sending us rubbish should pay for
+  /// a new socket each time, the same rule the size and auth refusals follow.
+  Future<void> _refuse(HttpRequest req, int status, String error) async {
+    req.response.persistentConnection = false;
+    req.response.statusCode = status;
+    req.response.headers.contentType = ContentType.json;
+    req.response.write(jsonEncode({'error': error}));
+    await req.response.close();
   }
 
   /// Disconnect live event subscribers — all of them, or only the ones a
