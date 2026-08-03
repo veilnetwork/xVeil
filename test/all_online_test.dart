@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/domain/identity.dart';
 import 'package:xveil/data/storage/multi_space_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/domain/roster.dart';
@@ -71,7 +72,7 @@ void main() {
       final s = HiddenVolumeStorage.fromStore(
         MultiSpaceKvLogStore(backing, backing.openSpace(keys)),
       );
-      await s.saveIdentity(AppController.generateIdentity(displayName: name));
+      await s.saveProfile(UserProfile(displayName: name));
     }
 
     await seed(_keys(1), 'Alice');
@@ -139,7 +140,7 @@ void main() {
     expect(c.read(sessionProvider), isNotNull);
     // storageProvider now resolves to the ACTIVE identity's storage.
     expect(
-      (await c.read(storageProvider).loadIdentity())!.displayName,
+      (await c.read(storageProvider).loadProfile())!.displayName,
       'Alice',
     );
 
@@ -147,7 +148,7 @@ void main() {
     await ctrl.switchIdentity('bob');
     expect(c.read(appControllerProvider).identity!.displayName, 'Bob');
     expect(c.read(activeIdentityProvider), 'bob');
-    expect((await c.read(storageProvider).loadIdentity())!.displayName, 'Bob');
+    expect((await c.read(storageProvider).loadProfile())!.displayName, 'Bob');
 
     // Lock disposes the session.
     await ctrl.lock();
@@ -205,7 +206,7 @@ void main() {
         final s = HiddenVolumeStorage.fromStore(
           MultiSpaceKvLogStore(backing, backing.openSpace(keys)),
         );
-        await s.saveIdentity(AppController.generateIdentity(displayName: name));
+        await s.saveProfile(UserProfile(displayName: name));
       }
 
       await seed(_keys(1), 'Alice');

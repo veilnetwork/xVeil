@@ -1,9 +1,7 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
-import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
@@ -23,7 +21,6 @@ void main() {
       ? null
       : 'libhidden_volume_ffi not built — run scripts/build-native.sh';
 
-  NodeId nid(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
 
   test('master roster opens ALL children at once over one MultiSpace', () async {
     final dir = Directory.systemTemp.createTempSync('xveil_ao_');
@@ -36,14 +33,14 @@ void main() {
       // 1. The first identity (onboarding-style): create, save id, grab keys.
       final personal = single();
       expect(await personal.open(password: 'one', createIfMissing: true), isTrue);
-      await personal.saveIdentity(Identity(nodeId: nid(1), displayName: 'Personal'));
+      await personal.saveProfile(UserProfile(displayName: 'Personal'));
       final kPersonal = await personal.exportSpaceKeys();
       await personal.close();
 
       // 2. The second identity (addIdentity creates it under its own password).
       final work = single();
       expect(await work.open(password: 'two', createIfMissing: true), isTrue);
-      await work.saveIdentity(Identity(nodeId: nid(2), displayName: 'Work'));
+      await work.saveProfile(UserProfile(displayName: 'Work'));
       final kWork = await work.exportSpaceKeys();
       await work.close();
 
@@ -75,8 +72,8 @@ void main() {
       }
 
       // Both identities are open AT ONCE and read their own data.
-      expect((await views['Personal']!.loadIdentity())!.displayName, 'Personal');
-      expect((await views['Work']!.loadIdentity())!.displayName, 'Work');
+      expect((await views['Personal']!.loadProfile())!.displayName, 'Personal');
+      expect((await views['Work']!.loadProfile())!.displayName, 'Work');
       // Independent writes to both, concurrently — the all-online property.
       await views['Personal']!.putSetting('k', 'p');
       await views['Work']!.putSetting('k', 'w');
