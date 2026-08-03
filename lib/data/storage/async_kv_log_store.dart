@@ -44,9 +44,10 @@ abstract interface class AsyncKvLogStore {
 /// Adapts a SYNCHRONOUS [KvLogStore] to [AsyncKvLogStore] WITHOUT moving it off
 /// the calling isolate — every call still runs the blocking FFI inline, just
 /// wrapped in a resolved `Future`. Used for the in-memory fake (no FFI, nothing
-/// to offload) and as the not-yet-off-isolated fallback for the master /
-/// all-online multi-space + keys paths (a follow-up will give those their own
-/// worker). Keeps those paths compiling against the async interface.
+/// to offload) and as the guarded INLINE fallback both container openers fall
+/// back to when their worker proves defective. Both real openers — password and
+/// keys — are worker-backed now (audit XV-14); this is the degraded path, not
+/// the default one.
 class SyncWrappedAsyncKvLogStore implements AsyncKvLogStore {
   SyncWrappedAsyncKvLogStore(this._inner);
 
