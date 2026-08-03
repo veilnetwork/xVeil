@@ -22,7 +22,6 @@ import 'data/node/node_controller.dart';
 import 'data/storage/app_profile.dart';
 import 'data/storage/async_kv_log_store.dart';
 import 'data/storage/hidden_volume_storage.dart';
-import 'data/storage/hv_kv_log_store.dart';
 import 'data/storage/hv_native.dart';
 import 'data/storage/on_disk_blob_store.dart';
 import 'data/transport/veil_native.dart';
@@ -235,17 +234,23 @@ Future<BootstrapResult> _bootstrapOverrides() async {
       storePath = path;
       overrides.add(
         singleSpaceStorageProvider.overrideWith((ref) {
-          // Open + serve the password-backed space on a dedicated worker
-          // isolate on EVERY platform. Android ANR traces proved that the old
-          // mobile-inline exception could park the Flutter main thread inside
-          // SpaceHandle.open for >5s. The worker resolves the packaged Android
-          // soname in its own isolate and workerSpaceOpener retains its guarded
-          // inline fallback for a genuine worker bootstrap failure. The master
-          // openWithKeys path remains separately sync-wrapped for now.
+          // Open + serve the space on a dedicated worker isolate on EVERY
+          // platform. Android ANR traces proved that the old mobile-inline
+          // exception could park the Flutter main thread inside SpaceHandle.open
+          // for >5s. The worker resolves the packaged Android soname in its own
+          // isolate and both openers retain a guarded inline fallback for a
+          // genuine worker bootstrap failure.
+          //
+          // BOTH openers, now. The master `openWithKeys` path was still lifted
+          // inline here — so entering an identity, switching identity or editing
+          // the roster still opened and scanned the container ON THE UI
+          // ISOLATE, which is the same >5s ANR with a different entry point
+          // (audit XV-14).
           final storage = HiddenVolumeStorage.async(
             workerSpaceOpener(path, paddingPreset: paddingPreset),
-            keysOpener: syncWrappedKeysOpener(
-              hvKeysSpaceOpener(path, paddingPreset: paddingPreset),
+            keysOpener: workerKeysSpaceOpener(
+              path,
+              paddingPreset: paddingPreset,
             ),
           );
           // Large-file tier (Phase B): blobs too big for the hidden-volume index
