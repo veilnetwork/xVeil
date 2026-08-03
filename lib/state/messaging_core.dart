@@ -962,21 +962,33 @@ class MessagingService {
   /// The sender's send time off the wire as a DateTime, or null (older sender
   /// without `sentAtMs` → caller falls back to receive time).
   ///
-  /// Stored VERBATIM (no receiver-side clamp) so it is byte-identical on both
-  /// devices — the basis for the convergent (effective_ts, author, seq) display
-  /// order. The old future-clamp made the value receiver-dependent (it used the
-  /// receiver's local now), which silently diverged the cross-author interleave
-  /// across devices. It also never addressed the real skew concern (R9: a peer
-  /// stamping ts=0 to float ABOVE my messages) — that is handled deterministically
-  /// by the author-monotone effective_ts FLOOR in loadMessages. A future-stamped
-  /// message now simply sorts to the bottom (convergently) on both devices — and
-  /// since the floor carries that author's later messages down with it, a fast
-  /// clock only buries the SENDER's own stream, never floats it above others.
+  /// Stored as the sender said, up to [kMessageClockSkew] ahead of this
+  /// device's clock, so it is byte-identical on every device the owner has —
+  /// the basis for the convergent (effective_ts, author, seq) display order.
+  /// Past-skew (R9: a peer stamping ts=0 to float ABOVE my messages) is not
+  /// this function's business at all; the author-monotone effective_ts FLOOR in
+  /// loadMessages handles it deterministically, from the converged event set.
+  ///
+  /// Beyond the skew the sender's number is not a time, and [messageTsOnReceipt]
+  /// replaces it with the moment of receipt. This is deliberately NOT the
+  /// zero-tolerance clamp that was removed here in June: THAT one rewrote every
+  /// honestly-skewed message, which made the stored ts receiver-dependent for
+  /// ordinary traffic and diverged the cross-author interleave across devices.
+  /// With five minutes of tolerance an honest clock is never touched, so the
+  /// order two devices show for honest traffic is what it is today; what is
+  /// rewritten is only a stamp already outside any plausible drift, and only
+  /// once, on arrival.
   DateTime? _wireSentAt(WireEnvelope env) => _wireSentAtMs(env.sentAtMs);
 
-  /// [DateTime] for a wire send-time in ms (the file-meta path has no envelope).
-  DateTime? _wireSentAtMs(int? ms) =>
-      ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  /// [DateTime] for a wire send-time in ms (the file-meta and content-manifest
+  /// paths have no envelope). The one place a REMOTE millisecond becomes a
+  /// stored [Message.timestamp] on the wire side — the bound lives here so the
+  /// six call sites cannot each grow their own opinion of it.
+  DateTime? _wireSentAtMs(int? ms) => ms == null
+      ? null
+      : DateTime.fromMillisecondsSinceEpoch(
+          messageTsOnReceipt(ms, _now().millisecondsSinceEpoch),
+        );
 
   Future<bool> _hasMessage(NodeId peer, String id) =>
       _mutations.hasMessage(peer, id);

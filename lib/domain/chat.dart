@@ -166,6 +166,49 @@ enum MessageSignature { none, requested, verified, refused, failed }
 /// author-side choice — it never affects our ability to REQUEST signatures.
 enum SignaturePolicy { ask, auto, refuse }
 
+/// How far ahead of the RECEIVING device's own clock a message may claim to
+/// have been sent and still be stored at its own word.
+///
+/// Five minutes is the tolerance the rest of the project already applies to a
+/// stranger's stamp (`kSpacePublicClockSkew`, and `kDeviceSyncClockSkew` after
+/// it) — one skew convention here, not a third one.
+const Duration kMessageClockSkew = Duration(minutes: 5);
+
+/// The timestamp a message claiming [claimedMs] is STORED under when it is
+/// received at [nowMs]: its own word, unless that word is further ahead than
+/// [kMessageClockSkew], in which case the moment of receipt.
+///
+/// A message's display time is the sender's send time, because that is what
+/// makes the conversation read in send order on every device the owner has.
+/// Nothing authenticates that number — no signature makes a clock honest, and
+/// there is no time authority in this network — so a sender (or a compromised
+/// linked device re-mirroring one) can stamp itself years ahead. Such a row
+/// then owns the bottom of the chat, the conversation-list preview, and the
+/// top of the chat list for as long as that stamp lasts. Worse, `markRead`
+/// takes the conversation's newest timestamp as the read watermark and
+/// `setReadMarker` only ever moves forward, so ONE such row silently retires
+/// the unread badge for that conversation until the future arrives.
+///
+/// The rule is deliberately NOT the deferral used for device-sync events
+/// (`deviceSyncEffectiveAt`). That one exists to keep a fold CONVERGENT: a
+/// deferred row must be able to win its key later, so it may not be rewritten.
+/// A message wins nothing — it is deduplicated by id and suppresses no other
+/// row — so there is no convergence to protect, only an order to display, and
+/// the simplest honest answer for an unusable number is the one fact the
+/// receiver actually knows: when it arrived.
+///
+/// Applied ONCE, where the value enters storage, and the result is what is
+/// persisted. Computing it on every read would move the row every time the
+/// chat is opened; stamped once, it never moves again.
+///
+/// One-sided on purpose: a stamp in the PAST is left alone. A device offline
+/// for a week receives a mirror of last Tuesday's message and must keep last
+/// Tuesday. A past stamp cannot float above anything either — the
+/// author-monotone effective-ts floor in `loadMessages` already raises it back
+/// into its own author's causal place.
+int messageTsOnReceipt(int claimedMs, int nowMs) =>
+    claimedMs > nowMs + kMessageClockSkew.inMilliseconds ? nowMs : claimedMs;
+
 class Message {
   const Message({
     required this.id,

@@ -21,6 +21,18 @@ class _MessagingDeviceMirror {
   void Function(Contact updated)? onContactPrefsChanged;
 
   /// Apply a message projected from another device without re-mirroring it.
+  ///
+  /// [tsMs] is bounded by [messageTsOnReceipt] like any other stamp that
+  /// arrives from someone else, and this path needs it MORE than the wire path
+  /// does: a mirrored row is stored without an author or a seq, so it is off
+  /// the event streams the author-monotone effective-ts floor is computed over
+  /// and falls back to its raw timestamp for display. Nothing else here reads
+  /// the clock — a future stamp that lands keeps the conversation pinned to the
+  /// top of the chat list, and poisons its read watermark, until it arrives.
+  ///
+  /// The value the emit tap mirrors on is the STORED row's timestamp, so a
+  /// stamp bounded on the device that received it from the wire travels to the
+  /// siblings already bounded and is a no-op here.
   Future<bool> applyMessage({
     required NodeId peer,
     required String msgId,
@@ -41,7 +53,9 @@ class _MessagingDeviceMirror {
         conversationId: peer.hex,
         direction: direction,
         body: body,
-        timestamp: DateTime.fromMillisecondsSinceEpoch(tsMs),
+        timestamp: DateTime.fromMillisecondsSinceEpoch(
+          messageTsOnReceipt(tsMs, _owner._now().millisecondsSinceEpoch),
+        ),
         status: direction == MessageDirection.outgoing
             ? MessageStatus.sent
             : MessageStatus.delivered,

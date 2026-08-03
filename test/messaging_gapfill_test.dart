@@ -326,23 +326,107 @@ void main() {
         reason: 'resumable: only the missing chunk re-sent, not all 3');
   });
 
-  test('an incoming message stores the SENDER send-time verbatim — no '
-      'receiver-clock clamp (convergent display order)', () async {
-    // Craft a message from A stamped FAR in the future; the receiver must store
-    // that exact time (the old code clamped it to the receiver now → divergence).
-    const future = 4102444800000; // 2100-01-01
-    final wire = const WireEnvelope.message(
-      'from the future',
-      id: 'fut-1',
-      sentAtMs: future,
-      seq: 1,
-    ).encode();
-    tB.inject(a, wire); // arrives at B (mB listens on tB) as if A sent it
+  test('the receive-time bound on a message stamp is ONE-SIDED and tolerates '
+      'honest drift', () {
+    const now = 1700000000000;
+    const week = Duration(days: 7);
+
+    // The past is never touched. A device a week offline receives a mirror of
+    // last Tuesday's message and must keep last Tuesday; and a stamp in the
+    // past cannot float ABOVE anything anyway — the author-monotone effective
+    // ts floor in loadMessages puts it back into its author's causal place.
+    expect(messageTsOnReceipt(now - week.inMilliseconds, now),
+        now - week.inMilliseconds);
+    expect(messageTsOnReceipt(0, now), 0);
+    expect(messageTsOnReceipt(now, now), now);
+
+    // Honest drift is believed to the millisecond, all the way to the bound.
+    // This is the whole reason the bound is a TOLERANCE and not "anything ahead
+    // of my clock": ordinary traffic is stored byte-identically on every device
+    // the owner has, so the convergent display order is untouched by this rule.
+    expect(messageTsOnReceipt(now + kMessageClockSkew.inMilliseconds, now),
+        now + kMessageClockSkew.inMilliseconds,
+        reason: 'a sender exactly at the tolerated skew is still believed');
+
+    // One millisecond past it is not a clock reading any more, and the only
+    // time the receiver actually knows is when the thing arrived.
+    expect(messageTsOnReceipt(now + kMessageClockSkew.inMilliseconds + 1, now),
+        now);
+    expect(
+        messageTsOnReceipt(now + const Duration(days: 365).inMilliseconds, now),
+        now);
+  });
+
+  test('a wire message stamped past the tolerated skew is stored at the moment '
+      'it ARRIVED — once, and a re-delivery never restamps it', () async {
+    // A private receiver with a held clock: this asserts an exact stored value,
+    // so it must not race DateTime.now.
+    var wall = DateTime.utc(2026, 8, 3, 12);
+    final arrivedAt = wall.millisecondsSinceEpoch;
+    final tC = _LossyTransport(b);
+    final sC = HiddenVolumeStorage(_memOpener());
+    await sC.open(password: 'c', createIfMissing: true);
+    final mC = MessagingService(tC, sC, now: () => wall)..start();
+    addTearDown(mC.dispose);
+    await sC.upsertContact(
+      Contact(nodeId: a, status: ContactStatus.accepted),
+    );
+    Future<int> tsOf(String id) async => (await sC.loadMessages(a.hex))
+        .firstWhere((m) => m.id == id)
+        .timestamp
+        .millisecondsSinceEpoch;
+
+    // A sender whose clock is honestly a few minutes fast is stored VERBATIM:
+    // the (effective_ts, author, seq) order stays identical across devices for
+    // every message a real clock can produce.
+    final honest = arrivedAt + kMessageClockSkew.inMilliseconds - 1000;
+    tC.inject(
+      a,
+      WireEnvelope.message('nearly now', id: 'skew-1', sentAtMs: honest, seq: 1)
+          .encode(),
+    );
     await _settle();
-    final m =
-        (await sB.loadMessages(a.hex)).firstWhere((x) => x.id == 'fut-1');
-    expect(m.timestamp.millisecondsSinceEpoch, future,
-        reason: 'stored verbatim, not clamped to the receiver clock');
+    expect(await tsOf('skew-1'), honest,
+        reason: 'inside the tolerance the sender is believed exactly');
+
+    // A stamp no clock produces is replaced by the receive time. Left alone it
+    // would own the bottom of this chat, the conversation-list preview and the
+    // top of the chat list until 2100.
+    const year2100 = 4102444800000;
+    tC.inject(
+      a,
+      WireEnvelope.message('from the future',
+              id: 'fut-1', sentAtMs: year2100, seq: 2)
+          .encode(),
+    );
+    await _settle();
+    expect(await tsOf('fut-1'), arrivedAt,
+        reason: 'not a time — stored as the moment of receipt');
+
+    // The second-order harm is gone with it: markRead takes the conversation's
+    // NEWEST timestamp as the read watermark and setReadMarker only ever moves
+    // forward, so one 2100-stamped row used to retire this conversation's
+    // unread badge permanently.
+    await sC.markRead(a.hex);
+    expect(await sC.readMarker(a.hex),
+        lessThanOrEqualTo(arrivedAt + kMessageClockSkew.inMilliseconds));
+
+    // ONCE, at receipt. The sender's outbox re-sends un-acked frames and the
+    // gap-fill beacon re-ships whole ranges, so this exact frame comes back —
+    // hours later, against a clock that has moved. The stored stamp must not
+    // follow it, or the row climbs back to the top every time it is re-offered.
+    wall = wall.add(const Duration(hours: 3));
+    tC.inject(
+      a,
+      WireEnvelope.message('from the future',
+              id: 'fut-1', sentAtMs: year2100, seq: 2)
+          .encode(),
+    );
+    await _settle();
+    expect(await tsOf('fut-1'), arrivedAt,
+        reason: 'stamped once on arrival; a re-delivery must not restamp it');
+    // ...and re-reading the log is a pure re-fold, never a re-stamp.
+    expect(await tsOf('fut-1'), arrivedAt);
   });
 
   test('a peer that LOST its message data re-syncs from zero on reconnect '
