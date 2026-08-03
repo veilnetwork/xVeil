@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -552,5 +553,126 @@ void main() {
     // Had the forged floor been applied, A's own hw would have jumped to 99.
     expect(syncA.highWater[a.hex] ?? 0, lessThan(99),
         reason: "a peer must not be able to void another author's stream");
+  });
+
+  // A sequence number is a SLOT — which position in whose stream — and every
+  // door that admits one from the wire takes the same bound, in one place. Out
+  // of range the frame goes; the value is never pulled into range, because two
+  // different events folded onto one slot lose one of them and make the
+  // already-applied checks answer yes for something never seen.
+  group('a sequence number off the wire is bounded, and out of range the frame '
+      'is dropped rather than clamped', () {
+    test('a void slot naming a seq past the maximum records nothing', () async {
+      await mA.sendText(b, 'one');
+      await _settle();
+      expect((await sB.conversationSync(a.hex)).highWater[a.hex], 1,
+          reason: 'sanity: the honest slot 1 is held');
+
+      // ~60 bytes from the ACCEPTED contact, and no visible message at all.
+      tB.inject(a, const WireEnvelope.voidSeq(kMaxWireSeq + 1).encode());
+      await _settle();
+
+      final sync = await sB.conversationSync(a.hex);
+      expect(sync.highWater[a.hex], 1, reason: 'the slot was never recorded');
+      expect(sync.holes[a.hex], isNull,
+          reason: 'and no span was opened up to the number it named');
+
+      // The bound is on the value, not on the sender: A is still a contact in
+      // good standing and its next honest message lands as usual.
+      await mA.sendText(b, 'two');
+      await _settle();
+      expect((await sB.loadMessages(a.hex)).map((m) => m.body), contains('two'));
+    });
+
+    // The pair with the test above: that one names one PAST the maximum and
+    // must record nothing, this one names the maximum ITSELF and must record
+    // it. Deliberately separate fixtures — asserting both in one conversation
+    // proves nothing, because a slot at the maximum and a slot just above it
+    // are adjacent, so the hole shape is identical whether the second lands or
+    // not.
+    test('the bound is inclusive: the maximum itself is a usable slot',
+        () async {
+      await mA.sendText(b, 'one');
+      await _settle();
+
+      tB.inject(a, const WireEnvelope.voidSeq(kMaxWireSeq).encode());
+      await _settle();
+      expect((await sB.conversationSync(a.hex)).holes[a.hex],
+          [(2, kMaxWireSeq - 1)],
+          reason: 'the maximum is a real slot, not one past the end');
+    });
+
+    test('a message carrying an out-of-range seq does not arrive at some other '
+        'slot instead — it does not arrive at all', () async {
+      await mA.sendText(b, 'one');
+      await _settle();
+
+      tB.inject(
+        a,
+        const WireEnvelope.message('poison', id: 'p1', seq: kMaxWireSeq + 1)
+            .encode(),
+      );
+      await _settle();
+
+      // Clamping would have stored this at the largest accepted slot, where it
+      // would sit in the chat and occupy a slot its author never used.
+      expect((await sB.loadMessages(a.hex)).map((m) => m.body),
+          isNot(contains('poison')));
+      expect((await sB.conversationSync(a.hex)).highWater[a.hex], 1,
+          reason: 'no slot of the peer stream moved');
+    });
+
+    test('a clear whose watermark names a seq past the maximum is dropped, and '
+        'the history it aimed at stays', () async {
+      await mA.sendText(b, 'keep me');
+      await _settle();
+      expect((await sB.loadMessages(a.hex)).length, 1);
+
+      tB.inject(
+        a,
+        WireEnvelope.clear(jsonEncode({a.hex: kMaxWireSeq + 1}), seq: 5)
+            .encode(),
+      );
+      await _settle();
+
+      expect((await sB.loadMessages(a.hex)).map((m) => m.body),
+          contains('keep me'));
+    });
+
+    // The paired floor tests: the first proves an injected beacon really is
+    // acted on here (the handler throttles, so without it the second could
+    // pass while doing nothing at all).
+    test('an in-range beacon floor is applied', () async {
+      await mA.sendText(b, 'a-1');
+      await _settle();
+
+      tB.inject(a,
+          WireEnvelope.sync('{"hw":{},"fl":{"${a.hex}":3},"ep":1}').encode());
+      await _settle();
+
+      expect((await sB.conversationSync(a.hex)).highWater[a.hex], 3,
+          reason: "the peer's declared prefix closed over its own stream");
+    });
+
+    test('a beacon floor past the maximum is ignored, so gap-fill for that '
+        'peer survives', () async {
+      await mA.sendText(b, 'a-1');
+      await _settle();
+
+      tB.inject(
+        a,
+        WireEnvelope.sync(
+                '{"hw":{},"fl":{"${a.hex}":${kMaxWireSeq + 1}},"ep":1}')
+            .encode(),
+      );
+      await _settle();
+
+      // A floor is monotonic and permanent: applied once, every later message
+      // from this peer sits below a mark claiming it no longer exists at the
+      // source, and nothing can ever be re-requested in this chat again.
+      expect((await sB.conversationSync(a.hex)).highWater[a.hex], 1,
+          reason: 'a prefix nobody could have reached must not retire the '
+              'stream');
+    });
   });
 }

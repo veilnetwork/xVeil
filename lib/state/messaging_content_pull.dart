@@ -2277,6 +2277,10 @@ extension _MessagingContentPull on MessagingService {
     int? ts,
     String? thumb,
   }) async {
+    // The manifest's seq is a peer's number like any other — the single funnel
+    // for both the full manifest and the compact ref, so neither route can
+    // land an out-of-range slot.
+    if (!isAcceptableWireSeq(seq)) return;
     final msgIdOrContent = msgId ?? contentId; // legacy sender → hash id
     if (await _hasMessage(peer, msgIdOrContent)) {
       devLog(

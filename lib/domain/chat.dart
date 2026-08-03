@@ -209,6 +209,35 @@ const Duration kMessageClockSkew = Duration(minutes: 5);
 int messageTsOnReceipt(int claimedMs, int nowMs) =>
     claimedMs > nowMs + kMessageClockSkew.inMilliseconds ? nowMs : claimedMs;
 
+/// The largest per-(conversation, author) event sequence this build accepts
+/// from a peer.
+///
+/// A sequence is a slot in one author's stream inside one conversation, handed
+/// out one at a time — every post, edit, void and tombstone takes exactly one.
+/// Four billion of them is a message a second, without a pause, for over a
+/// century, in a single conversation; no honest client comes near it, and
+/// nothing in the format needs the room above.
+const int kMaxWireSeq = 1 << 32;
+
+/// Whether a sequence number that arrived from a peer may be used at all.
+///
+/// Null is "the sender did not say" (an older build) and stays allowed —
+/// storage then allocates locally. Anything else must be a real slot within
+/// [kMaxWireSeq]; watermarks may also be zero, meaning "nothing of this
+/// author's".
+///
+/// Out of range the FRAME IS DROPPED, never clamped, and this is the whole
+/// point of the function. A timestamp is a quantity we show, so pulling an
+/// absurd one back to the moment of receipt loses nothing. A sequence is an
+/// IDENTITY — which slot in whose stream — so folding two different numbers
+/// onto one slot would merge two unrelated events, silently discard whichever
+/// arrived second, and make the "have I already applied this?" checks in
+/// `applyRemoteVoid` / `applyRemoteClear` answer yes for something they never
+/// saw. Dropping costs nothing instead: the wire is best-effort by design, and
+/// anything genuinely missing comes back through gap-fill.
+bool isAcceptableWireSeq(int? seq) =>
+    seq == null || (seq >= 0 && seq <= kMaxWireSeq);
+
 class Message {
   const Message({
     required this.id,
