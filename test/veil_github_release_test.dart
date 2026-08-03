@@ -9,26 +9,31 @@ void main() {
   const armSha =
       '5406a992a4d81777c8bcdd5534a72f40fd9bc6d7863f5eed5751701c6c3249df';
 
-  Map<String, Object?> releaseJson({String? digest = 'sha256:$x64Sha'}) => {
-    'tag_name': 'v0.3.1',
+  // The tag rides in every asset URL, because the resolver refuses a download
+  // URL that is not under `releases/download/<tag>/`.
+  Map<String, Object?> releaseJson({
+    String? digest = 'sha256:$x64Sha',
+    String tag = kMinimumVeilReleaseTag,
+  }) => {
+    'tag_name': tag,
     'assets': [
       {
         'name': 'veil-cli-x86_64-unknown-linux-musl',
         'browser_download_url':
-            'https://github.com/veilnetwork/veil/releases/download/v0.3.1/'
+            'https://github.com/veilnetwork/veil/releases/download/$tag/'
             'veil-cli-x86_64-unknown-linux-musl',
         'digest': ?digest,
       },
       {
         'name': 'sha256-x86_64-unknown-linux-musl.txt',
         'browser_download_url':
-            'https://github.com/veilnetwork/veil/releases/download/v0.3.1/'
+            'https://github.com/veilnetwork/veil/releases/download/$tag/'
             'sha256-x86_64-unknown-linux-musl.txt',
       },
       {
         'name': 'ogate-x86_64-unknown-linux-musl',
         'browser_download_url':
-            'https://github.com/veilnetwork/veil/releases/download/v0.3.1/'
+            'https://github.com/veilnetwork/veil/releases/download/$tag/'
             'ogate-x86_64-unknown-linux-musl',
         'digest': 'sha256:$armSha',
       },
@@ -42,7 +47,7 @@ void main() {
 
     final result = await resolver.resolve(VeilLinuxReleaseTarget.x86_64Musl);
 
-    expect(result.tag, 'v0.3.1');
+    expect(result.tag, kMinimumVeilReleaseTag);
     expect(result.sha256, x64Sha);
     expect(result.downloadUrl, endsWith('x86_64-unknown-linux-musl'));
   });
@@ -96,5 +101,119 @@ void main() {
       () => resolver.resolve(VeilLinuxReleaseTarget.x86_64Musl),
       throwsA(isA<VeilReleaseException>()),
     );
+  });
+
+  group('which release "latest" is allowed to be', () {
+    // Everything else here authenticates the bytes: the URL is pinned to the
+    // tag, the digest is checked before the binary is installed with sudo. None
+    // of it says which release was named. An answer of "latest = v0.1.0" hands
+    // over genuine, correctly-digested assets of a version whose bugs are
+    // public — a rollback that passes every existing check (audit X-05).
+
+    Future<VeilCliRelease> resolveTag(String tag, {String? minimum}) {
+      final resolver = VeilGithubReleaseResolver(
+        fetcher: (uri) async => jsonEncode(releaseJson(tag: tag)),
+        minimumTag: minimum ?? kMinimumVeilReleaseTag,
+      );
+      return resolver.resolve(VeilLinuxReleaseTarget.x86_64Musl);
+    }
+
+    test('an older release is refused, and the error says why', () async {
+      await expectLater(
+        resolveTag('v0.3.1'),
+        throwsA(
+          isA<VeilReleaseException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('v0.3.1'),
+              contains(kMinimumVeilReleaseTag),
+              contains('downgrade'),
+            ),
+          ),
+        ),
+        reason: 'a stale or rewritten "latest" must not install an old binary',
+      );
+    });
+
+    test('the floor itself and anything above it are accepted', () async {
+      expect(
+        (await resolveTag(kMinimumVeilReleaseTag)).tag,
+        kMinimumVeilReleaseTag,
+      );
+      expect((await resolveTag('v9.9.9')).tag, 'v9.9.9');
+      // Across a component boundary, not just the patch digit.
+      expect((await resolveTag('v0.5.0', minimum: 'v0.4.2')).tag, 'v0.5.0');
+      // And the pair that a string comparison gets backwards: '10' sorts
+      // before '9' as text, so a lexical check would call the NEWER release a
+      // downgrade and refuse every upgrade past x.9.
+      expect((await resolveTag('v0.10.0', minimum: 'v0.9.0')).tag, 'v0.10.0');
+      await expectLater(
+        resolveTag('v0.4.9', minimum: 'v0.5.0'),
+        throwsA(isA<VeilReleaseException>()),
+      );
+    });
+
+    test('a pre-release cannot stand in for the release it precedes', () async {
+      // `v0.4.2-rc1` is not `v0.4.2`, and semver puts it below.
+      await expectLater(
+        resolveTag('v0.4.2-rc1', minimum: 'v0.4.2'),
+        throwsA(isA<VeilReleaseException>()),
+      );
+      expect((await resolveTag('v0.4.3-rc1', minimum: 'v0.4.2')).tag,
+          'v0.4.3-rc1');
+    });
+
+    test('a tag that cannot be ordered is refused, not waved through', () async {
+      // "nightly" is not older than the floor and not newer either — it is
+      // unknown, and an unknown age is exactly what the check exists to stop.
+      for (final tag in ['nightly', 'latest', 'v0.4', 'release-2026-08-01']) {
+        await expectLater(
+          resolveTag(tag),
+          throwsA(
+            isA<VeilReleaseException>().having(
+              (e) => e.message,
+              'message',
+              contains('not a version'),
+            ),
+          ),
+          reason: '"$tag" was accepted',
+        );
+      }
+    });
+
+    test('a floor that is not a version fails closed', () async {
+      await expectLater(
+        resolveTag('v9.9.9', minimum: 'not-a-tag'),
+        throwsA(isA<VeilReleaseException>()),
+        reason: 'a misconfigured floor must not quietly mean "no floor"',
+      );
+    });
+
+    test('the shipped floor is a real, parseable version', () {
+      expect(
+        VeilReleaseVersion.tryParse(kMinimumVeilReleaseTag),
+        isNotNull,
+        reason: 'the default would fail closed on every lookup otherwise',
+      );
+    });
+  });
+
+  group('version ordering', () {
+    VeilReleaseVersion v(String tag) => VeilReleaseVersion.tryParse(tag)!;
+
+    test('orders by component, not lexically', () {
+      // '10' < '9' as text. This is why the tag is parsed rather than compared.
+      expect(v('v0.10.0').compareTo(v('v0.9.0')), greaterThan(0));
+      expect(v('v1.0.0').compareTo(v('v0.99.99')), greaterThan(0));
+      expect(v('v0.4.2').compareTo(v('v0.4.2')), 0);
+      expect(v('0.4.2').compareTo(v('v0.4.2')), 0, reason: 'the v is optional');
+    });
+
+    test('a pre-release sorts below its own release', () {
+      expect(v('v0.4.2-rc1').compareTo(v('v0.4.2')), lessThan(0));
+      expect(v('v0.4.2').compareTo(v('v0.4.2-rc1')), greaterThan(0));
+      expect(v('v0.4.2-rc1').compareTo(v('v0.4.1')), greaterThan(0));
+    });
   });
 }
