@@ -118,8 +118,13 @@ class FakeKvLogStore implements KvLogStore {
     // reclaim — replaced/tombstoned entries are already gone from [_log].
   }
 
+  // A COPY, like every real backend: the native store returns fresh bytes and
+  // the worker variant crosses an isolate port, so a caller owns what it gets
+  // and may zero it when done (audit XV-22). Handing out `_keys` itself made
+  // this fake the only place where wiping an exported key would have reached
+  // back into the store and emptied the space.
   @override
-  Uint8List exportKeys() => _keys;
+  Uint8List exportKeys() => Uint8List.fromList(_keys);
 
   @override
   void close() {

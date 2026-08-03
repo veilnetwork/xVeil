@@ -39,6 +39,7 @@ Future<void> _settle(ProviderContainer c) async {
 
 void main() {
   _p2pPolicyTests();
+  _keyWipeOnLockTests();
   _nodeIdSourceOfTruthTests();
   _damagedIdentityTests();
   _onboardingOpenFailureTests();
@@ -1121,6 +1122,69 @@ Uint8List? _rawIdentityRecord(FakeHvContainer container, String password) =>
     container
         .rawStoreFor(password)!
         .get(Ns.settings, Uint8List.fromList(utf8.encode('identity')));
+
+void _keyWipeOnLockTests() {
+  test('locking ZEROES the cached space keys, not just the reference', () async {
+    // Audit XV-22. A SpaceKeys blob opens a space with no password; the master
+    // session caches its own and one per child. They used to be dropped by
+    // reference alone, which hands them to the collector intact and leaves them
+    // readable in the heap until something happens to reuse that memory. Lock
+    // is the one moment a person has explicitly said "I am done, protect this".
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    errorJournal.clear();
+    final container = FakeHvContainer();
+    final roster = <RosterEntry>[];
+    for (final (label, pw) in [('alice', 'pw-a'), ('bob', 'pw-b')]) {
+      final ch = container.storage();
+      await ch.open(password: pw, createIfMissing: true);
+      await ch.saveProfile(UserProfile(displayName: label));
+      roster.add(
+        RosterEntry(label: label, spaceKeys: await ch.exportSpaceKeys()),
+      );
+      await ch.close();
+    }
+    final m = container.storage();
+    await m.open(password: 'masterpw', createIfMissing: true);
+    await m.saveRoster(roster);
+    await m.close();
+
+    final c = ProviderContainer(
+      overrides: [storageProvider.overrideWith((ref) => container.storage())],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.unlock('masterpw');
+
+    // Hold the LIVE buffers — a copy would prove nothing about the originals.
+    final master = ctrl.debugMasterKeys!;
+    final children = [for (final e in ctrl.debugRoster!) e.spaceKeys];
+    expect(children, hasLength(2));
+    expect(
+      master.any((b) => b != 0),
+      isTrue,
+      reason: 'sanity: this must be real key material before the lock',
+    );
+    expect(children.every((k) => k.any((b) => b != 0)), isTrue);
+
+    await ctrl.lock();
+
+    expect(ctrl.debugMasterKeys, isNull);
+    expect(ctrl.debugRoster, isNull);
+    expect(
+      master.every((b) => b == 0),
+      isTrue,
+      reason: 'the master key bytes must be gone, not merely unreferenced',
+    );
+    for (final k in children) {
+      expect(
+        k.every((b) => b == 0),
+        isTrue,
+        reason: 'every child key too — each one opens a space on its own',
+      );
+    }
+  });
+}
 
 void _nodeIdSourceOfTruthTests() {
   group('the node id has ONE source: the node (audit XV-06)', () {
