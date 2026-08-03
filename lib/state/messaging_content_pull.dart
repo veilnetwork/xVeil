@@ -2305,7 +2305,11 @@ extension _MessagingContentPull on MessagingService {
       thumb: thumb,
       id: msgIdOrContent,
       seq: seq,
-      timestamp: ts != null ? DateTime.fromMillisecondsSinceEpoch(ts) : _now(),
+      // The manifest's `mts` is UNBOUND — deliberately absent from the contentId
+      // (see ContentManifest), so a manifest that hashes correctly still carries
+      // a completely unauthenticated send-time. Through the same receive-time
+      // bound as every other wire stamp, not a bare fromMillisecondsSinceEpoch.
+      timestamp: _wireSentAtMs(ts) ?? _now(),
     );
     _emitIncoming(peer, '📎 $name', isFile: true, fileName: name, sidecar: thumb);
     _signal();
