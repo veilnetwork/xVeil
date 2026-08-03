@@ -1442,7 +1442,7 @@ class VeilCallMediaController implements CallMediaController {
         final pushed = engine.pushVideoFrame(y, u, v, w, h);
         if (!_androidScreenPushLogged) {
           _androidScreenPushLogged = true;
-          debugPrint('veil-screen: first direct engine push=$pushed');
+          devLog(() => 'veil-screen: first direct engine push=$pushed');
         }
       } catch (_) {}
     });
