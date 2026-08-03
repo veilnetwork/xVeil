@@ -10,6 +10,7 @@ import '../api/api_server.dart';
 import '../api/blob_sources.dart';
 import '../api/cloud_api_adapter.dart';
 import '../api/group_api_adapter.dart';
+import '../api/webhook_pump.dart';
 import '../core/ids.dart';
 import '../core/log.dart';
 import 'cloud_service.dart';
@@ -45,17 +46,38 @@ class ApiServerController extends Notifier<ApiConfig> {
   static int debugBindPort = kApiPort;
 
   ApiServer? _server;
-  StreamSubscription<Map<String, dynamic>>? _webhookSub;
   int _identityGeneration = 0;
   String? _identityHex;
   Future<void> _reconcileTail = Future<void>.value();
+
+  /// The services the webhook feed is built from, captured SYNCHRONOUSLY at
+  /// rewire time. [WebhookPump.setTarget] subscribes after an await, and a
+  /// provider read that late can outlive the container that owns it.
+  GroupService? _webhookGroups;
+  GroupCallService? _webhookGroupCalls;
+
+  /// The webhook feed, bounded and one-at-a-time, and — the reason it replaced
+  /// a bare `listen` — able to be silenced. A plain subscription cancel stops
+  /// new events and leaves the retries already scheduled for the old URL to
+  /// run: about twelve seconds of a previous identity's messages arriving at a
+  /// previous identity's webhook (audit X-07). Same pump the headless daemon
+  /// uses; the GUI was simply never moved onto it.
+  late final WebhookPump _webhookPump = WebhookPump(
+    () => _events(_webhookGroups, _webhookGroupCalls),
+  );
 
   @override
   ApiConfig build() {
     ref.onDispose(() {
       _identityGeneration++;
       unawaited(_server?.stop());
-      unawaited(_webhookSub?.cancel());
+      // Retarget, NOT `close()`. A dispose callback registered inside a
+      // notifier's `build` runs on every REBUILD — an identity switch is one —
+      // while the notifier itself (and this pump) survives. A close here would
+      // stick, and the webhook would be silent for the rest of the session
+      // after the first switch. Retargeting to null releases exactly what a
+      // close would (subscription, queue, client) and stays reusable.
+      unawaited(_webhookPump.setTarget(null));
     });
     // The config lives in the (per-identity) deniable store, so it can only be
     // read once the store is UNLOCKED. Gate on the identity being ready — before
@@ -83,8 +105,7 @@ class ApiServerController extends Notifier<ApiConfig> {
   Future<void> _loadIdentity(String? identityHex, int generation) async {
     await _server?.stop();
     _server = null;
-    await _webhookSub?.cancel();
-    _webhookSub = null;
+    await _webhookPump.setTarget(null);
     if (identityHex == null || generation != _identityGeneration) return;
     final st = ref.read(storageProvider);
     try {
@@ -619,8 +640,7 @@ class ApiServerController extends Notifier<ApiConfig> {
     if (identityAtStart == null || identityAtStart != _identityHex) return;
     await _server?.stop();
     _server = null;
-    await _webhookSub?.cancel();
-    _webhookSub = null;
+    await _webhookPump.setTarget(null);
     if (identityAtStart != _identityHex ||
         !state.enabled ||
         state.tokens.isEmpty) {
@@ -822,36 +842,22 @@ class ApiServerController extends Notifier<ApiConfig> {
     _rewireWebhook(groupService);
   }
 
-  /// (Re)subscribe the webhook push to the incoming-event feed. Separate from
+  /// (Re)point the webhook push at the current URL. Separate from
   /// [_reconcile] so changing the URL mid-request does NOT restart the socket —
   /// tearing the server down while it is serving the very POST /v1/webhook that
   /// changed the URL kills that connection before the response is written.
+  ///
+  /// Webhook push: the same events the WS feed carries, POSTed to a loopback
+  /// URL, for bots that would rather run a plain HTTP server than hold a
+  /// WebSocket open. Retargeting to null is what an identity switch, a
+  /// shutdown, or turning the API off all come down to — and the pump treats
+  /// that as "nothing more goes there", retries included.
   void _rewireWebhook([GroupService? groupService]) {
-    unawaited(_webhookSub?.cancel());
-    _webhookSub = null;
+    _webhookGroups = groupService ?? ref.read(groupServiceProvider);
+    _webhookGroupCalls = ref.read(groupCallServiceProvider);
     final hook = state.webhookUrl;
-    if (!state.enabled || _server == null || hook == null) return;
-    // Webhook push: the same events the WS feed carries, POSTed to a loopback
-    // URL, for bots that would rather run a plain HTTP server than hold a
-    // WebSocket open.
-    _webhookSub = _events(
-      groupService ?? ref.read(groupServiceProvider),
-      ref.read(groupCallServiceProvider),
-    ).listen((event) => unawaited(_pushWebhook(hook, event)));
-  }
-
-  /// POST one event to the webhook [url]: short timeout, one retry. Failures
-  /// are logged and dropped — the webhook is a convenience feed; the durable
-  /// record stays in the store (a bot can reconcile via GET /v1/messages).
-  Future<void> _pushWebhook(String url, Map<String, dynamic> event) async {
-    for (var attempt = 0; attempt < 2; attempt++) {
-      if (await pushWebhookEvent(url, event)) return;
-      if (attempt == 0) {
-        await Future<void>.delayed(const Duration(seconds: 2));
-      } else {
-        devLog(() => 'xVeil[api]: webhook push failed twice, dropped');
-      }
-    }
+    final live = (!state.enabled || _server == null) ? null : hook;
+    unawaited(_webhookPump.setTarget(live));
   }
 
   /// Persist + apply the webhook URL (null clears). The URL is validated at
