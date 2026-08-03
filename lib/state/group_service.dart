@@ -206,6 +206,7 @@ class GroupBundle {
     this.retentionCuts = const {},
     this.messageReceipts = const {},
     this.postReceipts = const {},
+    this.channelEpochReceipts = const {},
   });
   final SpaceManifest manifest;
   final List<ControlEntry> control;
@@ -258,6 +259,27 @@ class GroupBundle {
   /// honest Space and [_postsOfBundle] then skips the whole pass.
   final Map<String, int> postReceipts;
 
+  /// `_channelKeyId(channelId, epoch)` -> the local moment this device first
+  /// observed that epoch serving as the channel's current key. The same local
+  /// fold state as [messageReceipts], written and read only by
+  /// [GroupService.rotateStaleChannelKeys].
+  ///
+  /// Age-based key rotation cannot ask the control entry that introduced the
+  /// epoch when it was introduced, because that `createdAtMs` is a number the
+  /// entry's author chose and this one is worse than a ranking input: a stamp
+  /// in the FUTURE makes `now - started` negative, so the key never grows old
+  /// and never rotates — the only place in this series where a lie makes a
+  /// protection quietly stop instead of making something visibly fail. A stamp
+  /// in the far PAST is the mirror: the key is born stale and every maintenance
+  /// pass rekeys the whole channel again.
+  ///
+  /// So the age is measured from a number nobody else can write. Unlike
+  /// [messageReceipts] this map has an entry for EVERY protected-channel epoch
+  /// this device has swept, not only a suspicious one: there is no honest
+  /// reading of the claimed stamp to fall back to, in either direction, so it
+  /// is not consulted at all.
+  final Map<String, int> channelEpochReceipts;
+
   GroupBundle copyWith({
     SpaceManifest? manifest,
     List<ControlEntry>? control,
@@ -274,6 +296,7 @@ class GroupBundle {
     Map<String, SpaceRetentionCut>? retentionCuts,
     Map<String, int>? messageReceipts,
     Map<String, int>? postReceipts,
+    Map<String, int>? channelEpochReceipts,
   }) => GroupBundle(
     manifest: manifest ?? this.manifest,
     control: control ?? this.control,
@@ -290,6 +313,7 @@ class GroupBundle {
     retentionCuts: retentionCuts ?? this.retentionCuts,
     messageReceipts: messageReceipts ?? this.messageReceipts,
     postReceipts: postReceipts ?? this.postReceipts,
+    channelEpochReceipts: channelEpochReceipts ?? this.channelEpochReceipts,
   );
 }
 
@@ -5359,6 +5383,17 @@ class GroupService {
           if (at is int && at >= 0) postReceipts['${entry.key}'] = at;
         }
       }
+      // And on the protected-channel key side. This one is bounded by the
+      // number of channel epochs this device has swept rather than by hostile
+      // rows, because the age of a key has no honest claimed source at all.
+      final channelEpochReceipts = <String, int>{};
+      final rawChannelReceipts = d['cex'];
+      if (rawChannelReceipts is Map) {
+        for (final entry in rawChannelReceipts.entries) {
+          final at = entry.value;
+          if (at is int && at >= 0) channelEpochReceipts['${entry.key}'] = at;
+        }
+      }
       final material = await _mergeEpochMaterial(
         manifest: manifest,
         control: control,
@@ -5389,6 +5424,7 @@ class GroupService {
         retentionCuts: retentionCuts,
         messageReceipts: messageReceipts,
         postReceipts: postReceipts,
+        channelEpochReceipts: channelEpochReceipts,
       );
     } catch (error) {
       // A throw here is indistinguishable from "no such group" to every
@@ -5436,6 +5472,7 @@ class GroupService {
       // builder, which assemble their own maps from `toJson` rows.
       if (b.messageReceipts.isNotEmpty) 'mrx': b.messageReceipts,
       if (b.postReceipts.isNotEmpty) 'prx': b.postReceipts,
+      if (b.channelEpochReceipts.isNotEmpty) 'cex': b.channelEpochReceipts,
     });
     // Published while the two writes below are in flight so a concurrent read
     // waits for the new bytes instead of reading the half-replaced blob as a
@@ -7167,10 +7204,13 @@ class GroupService {
   /// [protectedChannelKeyMaxAgeMs] or carried more than
   /// [protectedChannelKeyMaxMessages] messages. Returns how many rotated.
   ///
-  /// Both bounds are read from state that is already signed and already here:
-  /// the epoch's age from the control entry that introduced it, its volume
-  /// from the messages that name it. Nothing new is persisted and no clock is
-  /// trusted beyond the one already trusted for control ordering.
+  /// The volume bound is read from state that is already signed and already
+  /// here — the messages that name the epoch. The age bound is NOT: it is
+  /// measured from the moment this device first observed the epoch in service
+  /// ([GroupBundle.channelEpochReceipts]), because the alternative is the
+  /// `createdAtMs` of the control entry that introduced it, and a key whose
+  /// owner may date its own birth is a key that need never grow old. See
+  /// [_ChannelKeyRotation.isStale].
   ///
   /// Best-effort and idempotent. Only a device that may manage the channel can
   /// do it — for everyone else this is a no-op, and the rotation happens the
@@ -15468,6 +15508,12 @@ class GroupService {
       retentionCuts: mergedRetentionCuts,
       messageReceipts: messageReceipts,
       postReceipts: postReceipts,
+      // Carried, never recomputed here. If ingest dropped these, a peer that
+      // keeps re-shipping snapshots would reset every channel key's age on
+      // every sync and the age bound would never fire again — the same
+      // fail-open the claimed stamp used to give, from the other side.
+      channelEpochReceipts:
+          existing?.channelEpochReceipts ?? const <String, int>{},
     );
     final feedAccessChanged = hadFeedAccess != hasFeedAccess;
     await _save(saved, notify: !feedAccessChanged);
