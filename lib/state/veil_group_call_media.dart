@@ -663,7 +663,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         final pushed = engine.pushVideoFrame(y, u, v, width, height);
         if (!_androidScreenPushLogged) {
           _androidScreenPushLogged = true;
-          debugPrint('veil-screen: first group engine push=$pushed');
+          devLog(() => 'veil-screen: first group engine push=$pushed');
         }
       } catch (_) {}
     });

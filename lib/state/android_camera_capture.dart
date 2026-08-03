@@ -5,6 +5,8 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../core/log.dart';
+
 /// Receives one captured frame as tightly-packed I420 (y=w*h, u=v=cw*ch).
 typedef I420FrameSink =
     void Function(Uint8List y, Uint8List u, Uint8List v, int width, int height);
@@ -109,9 +111,10 @@ class AndroidCameraCapture {
       // the front sensor here reports 90 -> a 90° CW rotation lands upright; the
       // earlier 360-sensor form produced 270° = upside-down.)
       _rotCw = cam.sensorOrientation % 360;
-      debugPrint(
-        'veil-cam: lens=${cam.lensDirection} '
-        'sensor=${cam.sensorOrientation} rotCw=$_rotCw',
+      devLog(
+        () =>
+            'veil-cam: lens=${cam.lensDirection} '
+            'sensor=${cam.sensorOrientation} rotCw=$_rotCw',
       );
       final ctrl = await _openController(cam);
       _ctrl = ctrl;
@@ -183,15 +186,17 @@ class AndroidCameraCapture {
         final exactRates = await _cameraCapabilitiesChannel
             .invokeListMethod<int>('exactFps', {'cameraId': cam.name});
         directFps = preferredExactCameraFps(exactRates ?? const <int>[]);
-        debugPrint(
-          'veil-cam: camera=${cam.name} exactFps=$exactRates selected=$directFps',
+        devLog(
+          () =>
+              'veil-cam: camera=${cam.name} exactFps=$exactRates '
+              'selected=$directFps',
         );
       } catch (error) {
         // Stable 30 is a safer compatibility fallback than an unsupported 60:
         // A compatibility layer may accept the latter but silently turn it
         // into variable 10-30. The channel is app-owned and can be absent in
         // older test hosts.
-        debugPrint('veil-cam: exact FPS query failed, using 30: $error');
+        devLog(() => 'veil-cam: exact FPS query failed, using 30: $error');
       }
     }
     final requestedRates = highQuality
@@ -209,9 +214,10 @@ class AndroidCameraCapture {
       try {
         await ctrl.initialize();
         _requestedFps = fps;
-        debugPrint(
-          'veil-cam: requestedFps=${fps ?? 'default'} '
-          'preview=${ctrl.value.previewSize}',
+        devLog(
+          () =>
+              'veil-cam: requestedFps=${fps ?? 'default'} '
+              'preview=${ctrl.value.previewSize}',
         );
         return ctrl;
       } catch (error) {

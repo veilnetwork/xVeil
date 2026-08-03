@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../core/log.dart';
+
 /// Geometry and texture identity returned by the app-owned Camera2 call path.
 @immutable
 class AndroidNativeCameraPreview {
@@ -152,10 +154,12 @@ class AndroidNativeCallCamera {
       unawaited(refreshStats());
       return true;
     } on PlatformException catch (error) {
-      debugPrint('veil-camera2: start failed ${error.code}: ${error.message}');
+      devLog(
+        () => 'veil-camera2: start failed ${error.code}: ${error.message}',
+      );
       return false;
     } catch (error) {
-      debugPrint('veil-camera2: start failed: $error');
+      devLog(() => 'veil-camera2: start failed: $error');
       return false;
     }
   }

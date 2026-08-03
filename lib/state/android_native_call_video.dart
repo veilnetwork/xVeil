@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../core/log.dart';
+
 @immutable
 class AndroidNativeCallVideoTexture {
   const AndroidNativeCallVideoTexture({
@@ -70,12 +72,13 @@ class AndroidNativeCallVideoRenderer {
       unawaited(refreshStats());
       return true;
     } on PlatformException catch (error) {
-      debugPrint(
-        'veil-video-texture: start failed ${error.code}: ${error.message}',
+      devLog(
+        () =>
+            'veil-video-texture: start failed ${error.code}: ${error.message}',
       );
       return false;
     } catch (error) {
-      debugPrint('veil-video-texture: start failed: $error');
+      devLog(() => 'veil-video-texture: start failed: $error');
       return false;
     }
   }
