@@ -16,6 +16,10 @@ void main() {
   test('nothing the headless daemon imports reaches into Flutter', () {
     final resolved = <String>{};
     final queue = <String>[
+      // The real entry point, not just the pieces it happens to use: a file
+      // reached only from `bin/xveil.dart` (the secret-file reader, for one)
+      // breaks the AOT build exactly the same way and was outside this walk.
+      'bin/xveil.dart',
       'lib/headless/headless_runtime.dart',
       'lib/headless/headless_config.dart',
     ];
