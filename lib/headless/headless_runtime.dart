@@ -72,6 +72,7 @@ class HeadlessRuntime {
     bool createIfMissing = false,
     String? identityPhrase,
     String? apiToken,
+    List<String> apiFileRoots = const <String>[],
     int? debugMetricsPort,
     VeilMailboxCrypto? groupEpochCryptoOverride,
   }) async {
@@ -246,18 +247,34 @@ class HeadlessRuntime {
       });
 
       final loadedTokens = await _loadTokens(storage);
+      final roots = List<String>.unmodifiable(apiFileRoots);
       if (apiToken != null && apiToken.isNotEmpty) {
-        if (!loadedTokens.any((t) => _constantTimeEqual(t.token, apiToken))) {
+        // DECLARATIVE, like the rest of the daemon's flags: the provisioned
+        // token's allowed folders are exactly what this start was told, so an
+        // operator withdraws one by restarting without it (audit XV-08).
+        final index = loadedTokens.indexWhere(
+          (t) => _constantTimeEqual(t.token, apiToken),
+        );
+        if (index < 0) {
           loadedTokens.add(
             ApiToken(
               id: _mintId(),
               name: 'headless',
               token: apiToken,
               readOnly: false,
+              fileRoots: roots,
             ),
           );
           await _persistTokens(storage, loadedTokens);
+        } else if (!_sameRoots(loadedTokens[index].fileRoots, roots)) {
+          loadedTokens[index] = loadedTokens[index].withFileRoots(roots);
+          await _persistTokens(storage, loadedTokens);
         }
+      } else if (roots.isNotEmpty) {
+        throw StateError(
+          '--api-file-root names folders for the token supplied by '
+          '--api-token-file; pass that too, or drop the roots',
+        );
       } else if (loadedTokens.isEmpty) {
         throw StateError(
           'no API token is provisioned; supply --api-token-file',
@@ -680,6 +697,17 @@ class HeadlessRuntime {
   }
 
   static String _mintId() => mintShortId();
+
+  /// Order-sensitive list equality. Hand-rolled because `listEquals` lives in
+  /// `package:flutter/foundation.dart`, and this file must stay importable
+  /// from the Flutter-free headless entrypoint.
+  static bool _sameRoots(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 
   static bool _constantTimeEqual(String a, String b) {
     if (a.length != b.length) return false;

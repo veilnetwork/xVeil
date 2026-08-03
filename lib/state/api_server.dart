@@ -296,7 +296,12 @@ class ApiServerController extends Notifier<ApiConfig> {
     final size = await file.length();
     final source = await veilSourceOpener(path);
     if (source == null) return 'source open failed';
-    final n = (name != null && name.isNotEmpty) ? name : path.split('/').last;
+    // [path] arrives resolved and absolute from the API edge, so derive the
+    // display name through the URI rather than by splitting on '/' — on
+    // Windows that split would hand the peer the whole `C:\…` path as a name.
+    final n = (name != null && name.isNotEmpty)
+        ? name
+        : file.uri.pathSegments.last;
     try {
       final cid = await ref
           .read(messagingServiceProvider)
@@ -886,17 +891,49 @@ class ApiServerController extends Notifier<ApiConfig> {
   }
 
   /// Issue a new token ([readOnly] = least-privilege); returns its secret.
-  Future<String> addToken(String name, {bool readOnly = false}) async {
+  ///
+  /// [fileRoots] defaults to none: a fresh token cannot send local files until
+  /// somebody points it at a folder ([setTokenFileRoots]). See
+  /// [ApiToken.fileRoots].
+  Future<String> addToken(
+    String name, {
+    bool readOnly = false,
+    List<String> fileRoots = const <String>[],
+  }) async {
     final tok = ApiToken(
       id: _mintId(),
       name: name.trim().isEmpty ? 'token' : name.trim(),
       token: _mintToken(),
       readOnly: readOnly,
+      fileRoots: List<String>.unmodifiable(fileRoots),
     );
     state = state.copyWith(tokens: [...state.tokens, tok]);
     await _persistTokens();
     if (state.enabled) await _reconcile();
     return tok.token;
+  }
+
+  /// Grant (or clear) the folders the token with [id] may send local files
+  /// from — the out-of-band half of [ApiToken.fileRoots].
+  ///
+  /// Deliberately NOT reachable through the API itself: a stolen token that
+  /// could widen its own folders would leave the capability exactly as broad
+  /// as it was. It also means an integration that predates the field is fixed
+  /// by granting a folder rather than by re-minting a secret the bot already
+  /// has deployed.
+  Future<void> setTokenFileRoots(String id, List<String> roots) async {
+    final cleaned = <String>[
+      for (final root in roots)
+        if (root.trim().isNotEmpty) root.trim(),
+    ];
+    state = state.copyWith(
+      tokens: [
+        for (final t in state.tokens)
+          if (t.id == id) t.withFileRoots(cleaned) else t,
+      ],
+    );
+    await _persistTokens();
+    if (state.enabled) await _reconcile();
   }
 
   /// Revoke the token with [id] (that client immediately stops working).

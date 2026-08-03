@@ -5208,6 +5208,30 @@ abstract class AppL10n {
   /// **'Token name (e.g. bot)'**
   String get settingsApiTokenName;
 
+  /// No description provided for @settingsApiFileFolders.
+  ///
+  /// In en, this message translates to:
+  /// **'Allowed folders'**
+  String get settingsApiFileFolders;
+
+  /// No description provided for @settingsApiFileFoldersHint.
+  ///
+  /// In en, this message translates to:
+  /// **'This token can send files only from these folders. With none, sending a local file is refused.'**
+  String get settingsApiFileFoldersHint;
+
+  /// No description provided for @settingsApiFileFoldersNone.
+  ///
+  /// In en, this message translates to:
+  /// **'No folders — local file sending is off'**
+  String get settingsApiFileFoldersNone;
+
+  /// No description provided for @settingsApiAddFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a folder'**
+  String get settingsApiAddFolder;
+
   /// No description provided for @settingsApiRevoke.
   ///
   /// In en, this message translates to:

@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,7 +23,10 @@ String p2pPolicyLabel(AppL10n l, P2PGlobalPolicy p) => switch (p) {
 /// Settings → Privacy: cross-cutting policies about what leaves this device —
 /// direct-P2P consent and authorship-signature requests.
 class PrivacySettingsScreen extends ConsumerWidget {
-  const PrivacySettingsScreen({super.key});
+  const PrivacySettingsScreen({super.key, this.pickDirectory});
+
+  /// Injected by tests, which have no native folder picker to show.
+  final Future<String?> Function()? pickDirectory;
 
   String _signaturePolicyLabel(AppL10n l, SignaturePolicy p) => switch (p) {
     SignaturePolicy.ask => l.signaturePolicyAsk,
@@ -168,12 +172,21 @@ class PrivacySettingsScreen extends ConsumerWidget {
               title: Text(t.name),
               subtitle: Text(
                 '${t.token.substring(0, 8)}…'
-                '${t.readOnly ? ' · ${l.settingsApiReadOnly}' : ''}',
+                '${t.readOnly ? ' · ${l.settingsApiReadOnly}' : ''}'
+                '${t.fileRoots.isEmpty ? '' : ' · 📁${t.fileRoots.length}'}',
                 style: const TextStyle(fontFamily: 'monospace'),
               ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Read-only tokens cannot POST at all, so there is no local
+                  // file send for them to be granted.
+                  if (!t.readOnly)
+                    IconButton(
+                      icon: const Icon(Icons.folder_outlined),
+                      tooltip: l.settingsApiFileFolders,
+                      onPressed: () => _editFileRoots(context, ref, l, t.id),
+                    ),
                   IconButton(
                     icon: const Icon(Icons.copy_outlined),
                     tooltip: l.settingsApiCopyToken,
@@ -245,6 +258,82 @@ class PrivacySettingsScreen extends ConsumerWidget {
     await ref
         .read(apiServerControllerProvider.notifier)
         .addToken(nameCtrl.text, readOnly: readOnly);
+  }
+
+  /// Grant/withdraw the folders one token may send local files from (audit
+  /// XV-08). Lives OUTSIDE the API on purpose: a token that could widen its
+  /// own reach would not be narrower than the one this replaces.
+  Future<void> _editFileRoots(
+    BuildContext context,
+    WidgetRef ref,
+    AppL10n l,
+    String tokenId,
+  ) async {
+    final ctrl = ref.read(apiServerControllerProvider.notifier);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => Consumer(
+        builder: (ctx, dialogRef, _) {
+          final token = dialogRef
+              .watch(apiServerControllerProvider)
+              .tokens
+              .where((t) => t.id == tokenId)
+              .firstOrNull;
+          if (token == null) return const SizedBox.shrink();
+          return AlertDialog(
+            title: Text(l.settingsApiFileFolders),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l.settingsApiFileFoldersHint,
+                  style: Theme.of(ctx).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 8),
+                if (token.fileRoots.isEmpty)
+                  Text(
+                    l.settingsApiFileFoldersNone,
+                    style: Theme.of(ctx).textTheme.bodySmall,
+                  ),
+                for (final root in token.fileRoots)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: Text(root, style: const TextStyle(fontSize: 12)),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.remove_circle_outline),
+                      onPressed: () => ctrl.setTokenFileRoots(tokenId, [
+                        for (final other in token.fileRoots)
+                          if (other != root) other,
+                      ]),
+                    ),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () async {
+                  final picked =
+                      await (pickDirectory ?? FilePicker.getDirectoryPath)();
+                  if (picked == null || picked.isEmpty) return;
+                  if (token.fileRoots.contains(picked)) return;
+                  await ctrl.setTokenFileRoots(tokenId, [
+                    ...token.fileRoots,
+                    picked,
+                  ]);
+                },
+                child: Text(l.settingsApiAddFolder),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: Text(l.actionDone),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 }
 
