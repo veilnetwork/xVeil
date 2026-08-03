@@ -11,13 +11,17 @@ class _PublicSubscriptions {
 
   final GroupService _owner;
 
+  /// The one place a stored subscription becomes something the app reads, so
+  /// the one place the device-local publication order is attached. Everything
+  /// that ranks, pages, counts or notifies on a followed public Space reaches
+  /// its posts through `view.feed.posts`, and therefore through this.
   SpacePublicSubscriptionView _publicSubscriptionView(
     SpacePublicSubscriptionSnapshot snapshot,
     SpaceSubscription subscription,
   ) => SpacePublicSubscriptionView(
     subscription: subscription,
     descriptor: snapshot.package.descriptor,
-    feed: snapshot.package.projection,
+    feed: snapshot.package.projection.withPostReceipts(snapshot.postReceipts),
     verifiedAtMs: snapshot.verifiedAtMs,
     stale: snapshot.isStaleAt(_owner._now()),
   );
@@ -223,9 +227,30 @@ class _PublicSubscriptions {
             : SpaceSubscription.publicDefault(descriptor.spaceId),
       );
     }
+    // A stranger's Space is where a hostile `published` costs least, and the
+    // publisher signs the whole page, so nothing in the package can contradict
+    // it. The stamp is left exactly as signed — the page hashes and the
+    // manifest cover it — and the one time this device actually knows is
+    // recorded beside it instead.
+    //
+    // Carried forward from the prior snapshot and putIfAbsent: a subscription
+    // is re-fetched on every refresh and re-verified against a clock that has
+    // moved on, so only the first sighting may set the value, or the post
+    // would walk down the Feed on each refresh — and the Feed pages on exactly
+    // this order. Recorded for publication ROOTS only, which is all a Feed
+    // cursor ever names.
+    final postReceipts = <String, int>{...?prior?.postReceipts};
+    for (final view in feed.posts) {
+      final root = view.root;
+      if (root.operation == SpacePostOperation.publish &&
+          spacePostOrderAt(root.publishedAtMs, nowMs) != root.publishedAtMs) {
+        postReceipts.putIfAbsent(spacePostReceiptKey(root), () => nowMs);
+      }
+    }
     final snapshot = SpacePublicSubscriptionSnapshot(
       verifiedAtMs: nowMs,
       package: package,
+      postReceipts: postReceipts,
     );
     final snapshotBytes = snapshot.toBytes();
     if (snapshotBytes.length > kSpacePublicSubscriptionSnapshotMaxBytes) {

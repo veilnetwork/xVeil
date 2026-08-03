@@ -567,14 +567,37 @@ class SpacePublicFeedProjection {
     required this.manifest,
     required Iterable<SpacePublicFeedPage> pages,
     Iterable<SpacePublicDiscussionPage> discussionPages = const [],
+    Map<String, int> postReceipts = const {},
   }) : pages = List<SpacePublicFeedPage>.unmodifiable(pages),
        discussionPages = List<SpacePublicDiscussionPage>.unmodifiable(
          discussionPages,
-       );
+       ),
+       postReceipts = Map<String, int>.unmodifiable(postReceipts);
 
   final SpacePublicFeedManifest manifest;
   final List<SpacePublicFeedPage> pages;
   final List<SpacePublicDiscussionPage> discussionPages;
+
+  /// `spacePostReceiptKey(root)` -> the local moment that exact publication
+  /// was first accepted here. Device-local fold state: it is not part of any
+  /// page, not covered by [manifest]'s hashes, not in [verifyAt], and not in
+  /// the [SpacePublicFeedPackage] that goes on the wire — it is attached by
+  /// the subscription reader from its own stored snapshot.
+  ///
+  /// Written only for roots whose signed `published` this device could not
+  /// believe when they arrived (see [spacePostOrderAt]), so it is empty for
+  /// every honest Space and [posts] then does no work at all.
+  final Map<String, int> postReceipts;
+
+  /// Attach device-local arrival moments. The signed pages are shared, not
+  /// copied: only the projection wrapper is new.
+  SpacePublicFeedProjection withPostReceipts(Map<String, int> receipts) =>
+      SpacePublicFeedProjection(
+        manifest: manifest,
+        pages: pages,
+        discussionPages: discussionPages,
+        postReceipts: receipts,
+      );
 
   bool verifyAt({
     required int nowMs,
@@ -648,10 +671,24 @@ class SpacePublicFeedProjection {
     return discussionItemCount == manifest.discussionItemCount;
   }
 
+  /// The subscriber-visible fold, each publication carrying the local order it
+  /// was frozen at on arrival. A stranger's Space is exactly where a hostile
+  /// `published` is cheapest to produce, so this is the funnel every reader of
+  /// a public subscription goes through.
   List<SpacePostView> get posts => List<SpacePostView>.unmodifiable([
     for (final page in pages)
-      for (final post in page.posts) post.toView(),
+      for (final post in page.posts) _ordered(post.toView()),
   ]);
+
+  SpacePostView _ordered(SpacePostView view) {
+    if (postReceipts.isEmpty) return view;
+    final receivedAtMs = postReceipts[spacePostReceiptKey(view.root)];
+    return receivedAtMs == null
+        ? view
+        : view.withOrderedAt(
+            spacePostOrderAt(view.root.publishedAtMs, receivedAtMs),
+          );
+  }
 
   List<SpacePublicCommentView> commentsFor(
     String postId,
@@ -838,13 +875,25 @@ class SpacePublicFeedPackage {
 /// validation instant; refresh/discovery still uses the current clock and a
 /// fresh holder quorum.
 class SpacePublicSubscriptionSnapshot {
-  const SpacePublicSubscriptionSnapshot({
+  SpacePublicSubscriptionSnapshot({
     required this.verifiedAtMs,
     required this.package,
-  });
+    Map<String, int> postReceipts = const {},
+  }) : postReceipts = Map<String, int>.unmodifiable(postReceipts);
 
   final int verifiedAtMs;
   final SpacePublicFeedPackage package;
+
+  /// Device-local arrival moments for publications whose signed `published`
+  /// this device could not believe, carried beside the verified package the
+  /// way a group's receipts sit beside its signed log.
+  ///
+  /// This object is the STORED form; [SpacePublicFeedPackage] is the wire
+  /// form and has no such field, so nothing here can be re-served to a peer as
+  /// if a stranger had signed it. It is deliberately outside
+  /// [verifyStored]/[package] verification: it is our own observation, not
+  /// anybody's claim, and it must never be able to fail a signature check.
+  final Map<String, int> postReceipts;
 
   bool verifyStored({
     required SpacePublicSignatureVerifier verifySignature,
@@ -873,13 +922,22 @@ class SpacePublicSubscriptionSnapshot {
     'kind': 'xveil.space.public-subscription-snapshot',
     'verifiedAt': verifiedAtMs,
     'package': package.toJson(),
+    // Local-only, and absent unless this device has actually been handed a
+    // publication it could not date.
+    if (postReceipts.isNotEmpty) 'prx': postReceipts,
   };
 
   Uint8List toBytes() => Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
 
   static SpacePublicSubscriptionSnapshot? fromJson(Object? value) {
     if (value is! Map ||
-        !_hasOnlyKeys(value, const {'v', 'kind', 'verifiedAt', 'package'}) ||
+        !_hasOnlyKeys(value, const {
+          'v',
+          'kind',
+          'verifiedAt',
+          'package',
+          'prx',
+        }) ||
         value['v'] != 1 ||
         value['kind'] != 'xveil.space.public-subscription-snapshot' ||
         value['verifiedAt'] is! int) {
@@ -887,9 +945,21 @@ class SpacePublicSubscriptionSnapshot {
     }
     final package = SpacePublicFeedPackage.fromJson(value['package']);
     if (package == null) return null;
+    // A corrupt local receipt must never make a verified snapshot unreadable:
+    // the worst it can cost is one publication's bound, so bad entries are
+    // dropped rather than failing the whole subscription closed.
+    final postReceipts = <String, int>{};
+    final rawReceipts = value['prx'];
+    if (rawReceipts is Map) {
+      for (final entry in rawReceipts.entries) {
+        final at = entry.value;
+        if (at is int && at >= 0) postReceipts['${entry.key}'] = at;
+      }
+    }
     return SpacePublicSubscriptionSnapshot(
       verifiedAtMs: value['verifiedAt'] as int,
       package: package,
+      postReceipts: postReceipts,
     );
   }
 

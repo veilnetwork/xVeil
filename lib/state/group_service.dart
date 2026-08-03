@@ -205,6 +205,7 @@ class GroupBundle {
     this.sovereignBundle,
     this.retentionCuts = const {},
     this.messageReceipts = const {},
+    this.postReceipts = const {},
   });
   final SpaceManifest manifest;
   final List<ControlEntry> control;
@@ -246,6 +247,17 @@ class GroupBundle {
   /// group that has never been handed one, and the read path skips it whole.
   final Map<String, int> messageReceipts;
 
+  /// `spacePostReceiptKey(root)` -> the local moment that exact publication
+  /// was first accepted here. The same local fold state as [messageReceipts]
+  /// and for the same reason, on the other signed object: `'published'` is
+  /// inside [SpacePost.canonicalBytes], so the stamp a Feed ranks, pages and
+  /// counts unread on cannot be rewritten, only bounded beside.
+  ///
+  /// Written only for publication roots whose stamp this device could not
+  /// believe on arrival (see [spacePostOrderAt]), so it is empty for every
+  /// honest Space and [_postsOfBundle] then skips the whole pass.
+  final Map<String, int> postReceipts;
+
   GroupBundle copyWith({
     SpaceManifest? manifest,
     List<ControlEntry>? control,
@@ -261,6 +273,7 @@ class GroupBundle {
     Uint8List? sovereignBundle,
     Map<String, SpaceRetentionCut>? retentionCuts,
     Map<String, int>? messageReceipts,
+    Map<String, int>? postReceipts,
   }) => GroupBundle(
     manifest: manifest ?? this.manifest,
     control: control ?? this.control,
@@ -276,6 +289,7 @@ class GroupBundle {
     sovereignBundle: sovereignBundle ?? this.sovereignBundle,
     retentionCuts: retentionCuts ?? this.retentionCuts,
     messageReceipts: messageReceipts ?? this.messageReceipts,
+    postReceipts: postReceipts ?? this.postReceipts,
   );
 }
 
@@ -5279,6 +5293,15 @@ class GroupService {
           if (at is int && at >= 0) messageReceipts['${entry.key}'] = at;
         }
       }
+      // Same shape, same reasoning, on the publication side.
+      final postReceipts = <String, int>{};
+      final rawPostReceipts = d['prx'];
+      if (rawPostReceipts is Map) {
+        for (final entry in rawPostReceipts.entries) {
+          final at = entry.value;
+          if (at is int && at >= 0) postReceipts['${entry.key}'] = at;
+        }
+      }
       final material = await _mergeEpochMaterial(
         manifest: manifest,
         control: control,
@@ -5308,6 +5331,7 @@ class GroupService {
         sovereignBundle: sovereignBundle,
         retentionCuts: retentionCuts,
         messageReceipts: messageReceipts,
+        postReceipts: postReceipts,
       );
     } catch (error) {
       // A throw here is indistinguishable from "no such group" to every
@@ -5354,6 +5378,7 @@ class GroupService {
       // stamp this device could not believe. Absent from every snapshot
       // builder, which assemble their own maps from `toJson` rows.
       if (b.messageReceipts.isNotEmpty) 'mrx': b.messageReceipts,
+      if (b.postReceipts.isNotEmpty) 'prx': b.postReceipts,
     });
     // Published while the two writes below are in flight so a concurrent read
     // waits for the new bytes instead of reading the half-replaced blob as a
@@ -6327,9 +6352,12 @@ class GroupService {
             ? await postsOf(gid)
             : const <SpacePostView>[];
         final lastPost = spacePosts.isEmpty ? null : spacePosts.last;
+        // Both sides derived: a publisher in 2027 must not be able to float
+        // this Space to the top of Chats, and must not be able to beat the
+        // group log's last message into the preview either.
         final postIsLatest =
             lastPost != null &&
-            (last == null || lastPost.publishedAtMs >= last.orderedAtMs);
+            (last == null || lastPost.orderedAtMs >= last.orderedAtMs);
         final notificationPolicy = await groupNotificationPolicy(gid);
         final notificationMode = notificationPolicy.effectiveAt(DateTime.now());
         out.add((
@@ -6363,7 +6391,7 @@ class GroupService {
           // it below every established direct/group conversation, which made
           // successful creation look as if the chat had disappeared.
           lastTs: postIsLatest
-              ? lastPost.publishedAtMs
+              ? lastPost.orderedAtMs
               : last?.orderedAtMs ?? b.manifest.createdAtMs,
         ));
       } catch (_) {}
@@ -11394,8 +11422,31 @@ class GroupService {
         );
       }
     }
+    // Rank on the DERIVED stamp, not the signed one. `published` is the
+    // author's own word and the signature over it proves only who said it, so
+    // one publisher stamping itself years ahead would otherwise hold the top
+    // of this Space, its row in Chats, and the watermark `markSpaceFeedSeen`
+    // writes. Rewriting it is not available here (it is inside
+    // `canonicalBytes`), so a root whose stamp could not be believed on
+    // arrival is ordered by the moment it arrived instead.
+    //
+    // Applied from a value frozen at ingest, not from a live clock, so the
+    // post lands once and stays there — the Feed pages on this exact order,
+    // and a row that moved between two pages would be lost or repeated. The
+    // map is empty unless this Space has actually been handed such a row, and
+    // then this whole pass is skipped.
+    if (bundle.postReceipts.isNotEmpty) {
+      for (var i = 0; i < visiblePosts.length; i++) {
+        final receivedAtMs =
+            bundle.postReceipts[spacePostReceiptKey(visiblePosts[i].root)];
+        if (receivedAtMs == null) continue;
+        visiblePosts[i] = visiblePosts[i].withOrderedAt(
+          spacePostOrderAt(visiblePosts[i].root.publishedAtMs, receivedAtMs),
+        );
+      }
+    }
     visiblePosts.sort((left, right) {
-      final time = left.publishedAtMs.compareTo(right.publishedAtMs);
+      final time = left.orderedAtMs.compareTo(right.orderedAtMs);
       if (time != 0) return time;
       final author = left.author.hex.compareTo(right.author.hex);
       if (author != 0) return author;
@@ -14768,6 +14819,7 @@ class GroupService {
     final control = [...(existing?.control ?? const <ControlEntry>[])];
     final messages = [...(existing?.messages ?? const <GroupMessage>[])];
     final messageReceipts = <String, int>{...?existing?.messageReceipts};
+    final postReceipts = <String, int>{...?existing?.postReceipts};
     final acceptedMessageHashesBefore = existing == null
         ? <String>{}
         : {
@@ -14847,6 +14899,7 @@ class GroupService {
       localChannelEpochKeys: channelMaterial.keys,
       sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
       messageReceipts: messageReceipts,
+      postReceipts: postReceipts,
     );
     final protectedChannels = man.isSpace
         ? await _protectedChannelsOf(materialBundle, mergedState)
@@ -15101,6 +15154,29 @@ class GroupService {
           continue;
         }
       }
+      // A signed `published` no clock could have produced. The stamp itself
+      // is left exactly as signed — it has to be, `canonicalBytes` covers it
+      // and every public-feed page hashes over it — so what is recorded
+      // instead is the one time this device actually knows: now.
+      // [_postsOfBundle] orders on that; nothing else here changes.
+      //
+      // Only publication ROOTS: an edit or delete row carries its own
+      // `published` but is never what a Feed cursor names, so binding one
+      // would be an entry nothing ever looks up.
+      //
+      // putIfAbsent, and OUTSIDE the dedup below on purpose. Peers re-ship
+      // whole snapshots continuously, so this exact row arrives again and
+      // again against a clock that has moved on; the first arrival is the
+      // only one that may set the value, or the post would walk down the Feed
+      // on every sync — and, since the Feed pages on that order, would be
+      // skipped or repeated across an open page boundary. Outside the dedup
+      // so a row already on disk from before this rule existed is bounded the
+      // next time it is offered, instead of keeping its 2027 forever.
+      if (post.operation == SpacePostOperation.publish &&
+          spacePostOrderAt(post.publishedAtMs, ingestAtMs) !=
+              post.publishedAtMs) {
+        postReceipts.putIfAbsent(spacePostReceiptKey(post), () => ingestAtMs);
+      }
       final existingIndex = posts.indexWhere(
         (stored) =>
             _validPostFor(man.groupId, stored) &&
@@ -15124,6 +15200,7 @@ class GroupService {
       localChannelEpochKeys: channelMaterial.keys,
       retentionCuts: mergedRetentionCuts,
       messageReceipts: messageReceipts,
+      postReceipts: postReceipts,
     );
     final visiblePostIds = man.isSpace
         ? {for (final post in await _postsOfBundle(targetBundle)) post.postId}
@@ -15333,6 +15410,7 @@ class GroupService {
       sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
       retentionCuts: mergedRetentionCuts,
       messageReceipts: messageReceipts,
+      postReceipts: postReceipts,
     );
     final feedAccessChanged = hadFeedAccess != hasFeedAccess;
     await _save(saved, notify: !feedAccessChanged);

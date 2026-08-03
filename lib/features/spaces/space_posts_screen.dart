@@ -428,8 +428,11 @@ class _SpacePostsScreenState extends ConsumerState<SpacePostsScreen> {
           final displayPosts = [
             ...posts.where((post) => !post.pinned),
             ...posts.where((post) => post.pinned).toList()..sort(
-              (left, right) => (left.pinnedAtMs ?? left.publishedAtMs)
-                  .compareTo(right.pinnedAtMs ?? right.publishedAtMs),
+              // `pinnedAtMs` is a local control-log reading; the fallback
+              // takes the derived stamp so an unpinned publication claiming
+              // 2027 cannot outrank every pin in the Space.
+              (left, right) => (left.pinnedAtMs ?? left.orderedAtMs)
+                  .compareTo(right.pinnedAtMs ?? right.orderedAtMs),
             ),
           ];
           WidgetsBinding.instance.addPostFrameCallback((_) {
