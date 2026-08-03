@@ -12,6 +12,9 @@ import 'package:xveil/state/api_server.dart';
 
 void main() {
   final sent = <(String, String)>[];
+  // Paths that actually reached a send — proves the RESOLVED path is what the
+  // handler hands downstream, not the one the caller typed (audit XV-08).
+  final pathsSent = <String>[];
   final groupPosts = <(String, String, String?)>[];
   final groupActions = <(String, String, String, String?)>[];
   final channelPosts = <(String, String, String, String?)>[];
@@ -75,6 +78,22 @@ void main() {
   final authoredUploads = <Map<String, Object?>>[];
   final cloudNotes = <Map<String, Object?>>[];
 
+  // Both send routes now require the path to resolve inside a folder the
+  // token was granted (audit XV-08), so tests exercising anything ELSE about
+  // them need a real file in a real granted folder.
+  late Directory sandbox;
+  setUpAll(() async {
+    sandbox = await Directory.systemTemp.createTemp('xv-api-sandbox-');
+    for (final name in const ['x', 'a.png', 'v.vop1', 'a.bin']) {
+      await File(
+        '${sandbox.path}${Platform.pathSeparator}$name',
+      ).writeAsString('sandbox');
+    }
+  });
+  tearDownAll(() => sandbox.delete(recursive: true));
+  String inSandbox(String name) =>
+      '${sandbox.path}${Platform.pathSeparator}$name';
+
   ApiHandler make({
     String token = 'secret-token',
     bool readOnly = false,
@@ -84,6 +103,7 @@ void main() {
     bool accountAvailable = true,
     bool cloudAvailable = true,
     bool inviteAvailable = true,
+    List<String> fileRoots = const <String>[],
   }) {
     accountLocked = false;
     activeIdentity = 'personal';
@@ -91,6 +111,7 @@ void main() {
     cloudNotes.clear();
     authoredUploads.clear();
     sent.clear();
+    pathsSent.clear();
     groupPosts.clear();
     groupActions.clear();
     channelPosts.clear();
@@ -217,6 +238,7 @@ void main() {
                 name: 'test',
                 token: token,
                 readOnly: readOnly,
+                fileRoots: fileRoots,
               ),
             ],
       status: () => {'ok': true, 'nodeId': 'abcd'},
@@ -241,7 +263,10 @@ void main() {
       messages: (peer, limit) async => [
         {'id': 'm1', 'body': 'hi', 'direction': 'incoming'},
       ],
-      sendFile: (to, path, name) async => to == 'bad' ? 'invalid peer' : null,
+      sendFile: (to, path, name) async {
+        pathsSent.add(path);
+        return to == 'bad' ? 'invalid peer' : null;
+      },
       loadFile: (fileId) async => fileId == 'known'
           ? inMemoryBlobSource(Uint8List.fromList(const [1, 2, 3]))
           : null,
@@ -312,6 +337,7 @@ void main() {
               'height': height,
               'durationMs': durationMs,
             });
+            pathsSent.add(path);
             if (group == 'missing') {
               return (error: 'group not found', contentId: null);
             }
@@ -1022,7 +1048,7 @@ void main() {
   Uri u(String p) => Uri.parse(p);
 
   test('an upload can say what it is, and bad metadata is refused', () async {
-    final h = make();
+    final h = make(fileRoots: [sandbox.path]);
 
     final image = await h.handle(
       'POST',
@@ -1030,7 +1056,7 @@ void main() {
       'Bearer secret-token',
       body: {
         'group': 'g1',
-        'path': '/tmp/a.png',
+        'path': inSandbox('a.png'),
         'kind': 'image',
         'width': 800,
         'height': 600,
@@ -1046,7 +1072,7 @@ void main() {
       'Bearer secret-token',
       body: {
         'group': 'g1',
-        'path': '/tmp/v.vop1',
+        'path': inSandbox('v.vop1'),
         'kind': 'voice',
         'durationMs': 4200,
       },
@@ -1058,7 +1084,7 @@ void main() {
       'POST',
       Uri.parse('/v1/groups/files'),
       'Bearer secret-token',
-      body: {'group': 'g1', 'path': '/tmp/a.bin'},
+      body: {'group': 'g1', 'path': inSandbox('a.bin')},
     );
     expect(plain.status, 200);
     expect(
@@ -1073,7 +1099,7 @@ void main() {
       'Bearer secret-token',
       body: {
         'group': 'g1',
-        'path': '/tmp/a.png',
+        'path': inSandbox('a.png'),
         'kind': 'image',
         'width': '800',
       },
@@ -3274,7 +3300,7 @@ void main() {
   test(
     'group files send, explicit fetch and scoped download validate/dispatch',
     () async {
-      final h = make();
+      final h = make(fileRoots: [sandbox.path]);
       final message = '${'ab' * 32}:1';
 
       expect(
@@ -3291,7 +3317,7 @@ void main() {
           'POST',
           u('/v1/groups/files'),
           'Bearer secret-token',
-          body: {'group': 'aa', 'path': '/tmp/x', 'replyTo': 'bad'},
+          body: {'group': 'aa', 'path': inSandbox('x'), 'replyTo': 'bad'},
         )).status,
         400,
       );
@@ -3302,7 +3328,7 @@ void main() {
           'Bearer secret-token',
           body: {
             'group': 'aa',
-            'path': '/tmp/x',
+            'path': inSandbox('x'),
             'caption': 'я' * (300 * 1024),
           },
         )).status,
@@ -3314,7 +3340,7 @@ void main() {
         'Bearer secret-token',
         body: {
           'group': 'aa',
-          'path': '/tmp/x',
+          'path': inSandbox('x'),
           'name': 'clip.mp4',
           'caption': 'watch',
           'replyTo': message,
@@ -3327,7 +3353,7 @@ void main() {
           'POST',
           u('/v1/groups/files'),
           'Bearer secret-token',
-          body: {'group': 'large', 'path': '/tmp/x'},
+          body: {'group': 'large', 'path': inSandbox('x')},
         )).status,
         413,
       );
@@ -3404,7 +3430,7 @@ void main() {
           'POST',
           u('/v1/groups/files'),
           'Bearer secret-token',
-          body: {'group': 'aa', 'path': '/tmp/x'},
+          body: {'group': 'aa', 'path': inSandbox('x')},
         )).status,
         501,
       );
@@ -3836,7 +3862,11 @@ void main() {
   );
 
   test('POST /v1/files validates to+path; reports send errors', () async {
-    final h = make();
+    final root = await Directory.systemTemp.createTemp('xv-files-');
+    addTearDown(() => root.delete(recursive: true));
+    final allowed = File('${root.path}${Platform.pathSeparator}ok.txt');
+    await allowed.writeAsString('x');
+    final h = make(fileRoots: [root.path]);
     expect(
       (await h.handle(
         'POST',
@@ -3851,7 +3881,7 @@ void main() {
         'POST',
         u('/v1/files'),
         'Bearer secret-token',
-        body: {'to': 'peer', 'path': '/tmp/x'},
+        body: {'to': 'peer', 'path': allowed.path},
       )).status,
       200,
     );
@@ -3859,7 +3889,7 @@ void main() {
       'POST',
       u('/v1/files'),
       'Bearer secret-token',
-      body: {'to': 'bad', 'path': '/tmp/x'},
+      body: {'to': 'bad', 'path': allowed.path},
     );
     expect(err.status, 400);
     expect((err.body as Map)['error'], 'invalid peer');
@@ -3868,10 +3898,186 @@ void main() {
         'POST',
         u('/v1/files'),
         null,
-        body: {'to': 'peer', 'path': '/tmp/x'},
+        body: {'to': 'peer', 'path': allowed.path},
       )).status,
       401,
     );
+  });
+
+  group('a token may only send files out of the folders it was granted', () {
+    // Audit XV-08. Authentication was never the hole: the write scope was one
+    // boolean, and both send routes take a PATH, so any token that could post
+    // a message could also hand `~/.ssh/id_ed25519` — or the deniable
+    // container — to any peer. The capability now stops at named folders.
+    late Directory root;
+    late Directory outside;
+    late File allowed;
+    late File secret;
+
+    setUp(() async {
+      root = await Directory.systemTemp.createTemp('xv-root-');
+      outside = await Directory.systemTemp.createTemp('xv-outside-');
+      allowed = File('${root.path}${Platform.pathSeparator}note.txt');
+      await allowed.writeAsString('shareable');
+      secret = File('${outside.path}${Platform.pathSeparator}id_ed25519');
+      await secret.writeAsString('PRIVATE KEY');
+    });
+
+    tearDown(() async {
+      await root.delete(recursive: true);
+      await outside.delete(recursive: true);
+    });
+
+    Future<ApiResponse> post(
+      ApiHandler h,
+      String route,
+      String path,
+    ) => h.handle(
+      'POST',
+      u(route),
+      'Bearer secret-token',
+      body: route == '/v1/files'
+          ? {'to': 'peer', 'path': path}
+          : {'group': 'gid', 'path': path},
+    );
+
+    for (final route in ['/v1/files', '/v1/groups/files']) {
+      test('$route refuses a token with no granted folders', () async {
+        final h = make(); // the shape every pre-existing token loads as
+        final res = await post(h, route, allowed.path);
+        expect(res.status, 403);
+        expect(
+          (res.body as Map)['error'],
+          'this token may not send local files',
+          reason: 'the refusal has to name the fix, or a working integration '
+              'that stops working is undiagnosable',
+        );
+        expect(pathsSent, isEmpty, reason: 'nothing may be opened');
+      });
+
+      test('$route refuses a path outside the granted folder', () async {
+        final h = make(fileRoots: [root.path]);
+        final res = await post(h, route, secret.path);
+        expect(res.status, 403);
+        expect(
+          (res.body as Map)['error'],
+          'path is outside the folders allowed for this token',
+        );
+        expect(pathsSent, isEmpty);
+      });
+
+      test('$route still sends what the folder does cover', () async {
+        // The gate must narrow the capability, not delete it: a version that
+        // refused everything would pass both tests above while breaking the
+        // bots this endpoint exists for.
+        final h = make(fileRoots: [root.path]);
+        final res = await post(h, route, allowed.path);
+        expect(res.status, 200);
+        expect(pathsSent, hasLength(1));
+      });
+
+      test('$route refuses a symlink that aims out of the folder', () async {
+        // The check resolves BEFORE comparing, so a link parked inside an
+        // allowed folder cannot borrow that folder's permission. A string
+        // prefix test on the requested path would let this through.
+        final link = Link('${root.path}${Platform.pathSeparator}escape');
+        await link.create(secret.path);
+        final h = make(fileRoots: [root.path]);
+        final res = await post(h, route, link.path);
+        expect(res.status, 403);
+        expect(pathsSent, isEmpty);
+      });
+
+      test('$route refuses a sibling folder with the same prefix', () async {
+        // `/tmp/xv-root-abc` is not inside `/tmp/xv-root-ab`, however much
+        // one string starts with the other.
+        final sibling = Directory('${root.path}-neighbour');
+        await sibling.create();
+        addTearDown(() => sibling.delete(recursive: true));
+        final near = File('${sibling.path}${Platform.pathSeparator}n.txt');
+        await near.writeAsString('x');
+        final h = make(fileRoots: [root.path]);
+        expect((await post(h, route, near.path)).status, 403);
+        expect(pathsSent, isEmpty);
+      });
+
+      test('$route answers a missing path the same as a forbidden one',
+          () async {
+        // Otherwise a stolen token keeps the filesystem-probe capability,
+        // metered at one bit per request instead of whole files.
+        final h = make(fileRoots: [root.path]);
+        final missing = await post(
+          h,
+          route,
+          '${outside.path}${Platform.pathSeparator}not-here',
+        );
+        final forbidden = await post(h, route, secret.path);
+        expect(missing.status, forbidden.status);
+        expect((missing.body as Map)['error'],
+            (forbidden.body as Map)['error']);
+      });
+    }
+
+    test('the RESOLVED path is what reaches the send', () async {
+      // The send must open the bytes that were checked. Re-walking the
+      // caller's name downstream would give a swapped component a second
+      // chance between the check and the open.
+      final real = File('${root.path}${Platform.pathSeparator}real.txt');
+      await real.writeAsString('x');
+      final link = Link('${root.path}${Platform.pathSeparator}alias');
+      await link.create(real.path);
+      final h = make(fileRoots: [root.path]);
+      expect((await post(h, '/v1/files', link.path)).status, 200);
+      expect(pathsSent.single, await real.resolveSymbolicLinks());
+      expect(pathsSent.single, isNot(link.path));
+    });
+
+    test('a directory or a device node is not a sendable file', () async {
+      final h = make(fileRoots: [root.path]);
+      final sub = Directory('${root.path}${Platform.pathSeparator}sub');
+      await sub.create();
+      expect((await post(h, '/v1/files', sub.path)).status, 403);
+      expect(pathsSent, isEmpty);
+    });
+
+    test('a granted folder that no longer exists grants nothing', () async {
+      final gone = await Directory.systemTemp.createTemp('xv-gone-');
+      await gone.delete();
+      final h = make(fileRoots: [gone.path]);
+      expect((await post(h, '/v1/files', allowed.path)).status, 403);
+    });
+
+    test('several folders are all honoured', () async {
+      // One root working is not proof the list is consulted past its head.
+      final second = await Directory.systemTemp.createTemp('xv-second-');
+      addTearDown(() => second.delete(recursive: true));
+      final other = File('${second.path}${Platform.pathSeparator}b.txt');
+      await other.writeAsString('x');
+      final h = make(fileRoots: [root.path, second.path]);
+      expect((await post(h, '/v1/files', allowed.path)).status, 200);
+      expect((await post(h, '/v1/files', other.path)).status, 200);
+      expect((await post(h, '/v1/files', secret.path)).status, 403);
+    });
+
+    test('a token issued before the field existed loads as no-folders', () {
+      // FAIL CLOSED with no migration step that could be skipped: the record
+      // written by every earlier build simply has no `fr` key.
+      final legacy = ApiToken.fromJson({
+        'id': 'i',
+        'name': 'bot',
+        'token': 's',
+        'ro': false,
+      })!;
+      expect(legacy.fileRoots, isEmpty);
+      // …and its record stays byte-identical, so nothing is rewritten.
+      expect(legacy.toJson().containsKey('fr'), isFalse);
+      final granted = legacy.withFileRoots(const ['/srv/outbox']);
+      expect(granted.token, 's', reason: 'the secret is not re-minted');
+      expect(
+        ApiToken.fromJson(granted.toJson())!.fileRoots,
+        ['/srv/outbox'],
+      );
+    });
   });
 
   test(

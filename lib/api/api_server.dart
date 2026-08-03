@@ -2703,6 +2703,9 @@ Map<String, dynamic> openApiSpec() {
       },
       '/groups/files': {
         'post': {
+          'description':
+              '`path` must resolve inside one of the folders granted to this '
+              'token; otherwise the call is refused with 403.',
           'summary':
               'Post an any-size local file through the range-served group '
               'content path',
@@ -3014,7 +3017,10 @@ Map<String, dynamic> openApiSpec() {
       },
       '/files': {
         'post': {
-          'summary': 'Send a local file to a peer (streamed)',
+          'summary':
+              'Send a local file to a peer (streamed). `path` must resolve '
+              'inside one of the folders granted to this token; otherwise the '
+              'call is refused with 403 and nothing is read.',
           'requestBody': {
             'required': true,
             'content': {
@@ -3213,30 +3219,122 @@ class ApiToken {
     required this.name,
     required this.token,
     required this.readOnly,
+    this.fileRoots = const <String>[],
   });
   final String id; // short handle for revocation (not secret)
   final String name; // human label ("bot", "monitor", …)
   final String token; // the secret bearer value
   final bool readOnly;
 
+  /// Directories `POST /v1/files` may send a local file OUT of (audit XV-08).
+  ///
+  /// The write scope was one bit — [readOnly] — and `POST /v1/files` takes a
+  /// PATH, so every token that could write could also hand any OS-readable
+  /// file to any peer: keys, other apps' databases, the deniable container
+  /// itself. Authentication was never the hole; one capability simply carried
+  /// far more than sending a message needs.
+  ///
+  /// Empty is DENY, not "unrestricted" — an unrestricted state is deliberately
+  /// unrepresentable here, so the hole cannot come back as a default. That
+  /// also makes the absent-key case (every token issued before this field
+  /// existed) fail closed on its own, with no migration step that could be
+  /// skipped. See [resolveSendableFile] for what "inside a root" means.
+  final List<String> fileRoots;
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
     'token': token,
     'ro': readOnly,
+    // Absent and empty mean the same thing (no local-file capability), so the
+    // record of a token without roots stays byte-identical to what earlier
+    // builds wrote.
+    if (fileRoots.isNotEmpty) 'fr': fileRoots,
   };
 
   static ApiToken? fromJson(Object? j) {
     if (j is! Map) return null;
     final id = j['id'], name = j['name'], token = j['token'];
     if (id is! String || name is! String || token is! String) return null;
+    final roots = j['fr'];
     return ApiToken(
       id: id,
       name: name,
       token: token,
       readOnly: j['ro'] == true,
+      fileRoots: roots is! List
+          ? const <String>[]
+          : <String>[
+              for (final root in roots)
+                if (root is String && root.isNotEmpty) root,
+            ],
     );
   }
+
+  ApiToken withFileRoots(List<String> roots) => ApiToken(
+    id: id,
+    name: name,
+    token: token,
+    readOnly: readOnly,
+    fileRoots: List<String>.unmodifiable(roots),
+  );
+}
+
+/// The absolute, symlink-free path to send, or null if [path] is not something
+/// a token holding [roots] is allowed to name.
+///
+/// ONE answer for every refusal — outside a root, missing, a directory, a
+/// device node, a component we may not traverse. Distinguishing them would
+/// leave the caller a filesystem-existence oracle: the same capability this is
+/// removing, metered at one bit per request instead of whole files. (The
+/// caller does report "no roots granted" separately, because that answer does
+/// not depend on the path and an operator has to be able to see it.)
+///
+/// Symlinks are resolved BEFORE the comparison, so a link parked inside an
+/// allowed folder cannot aim out of it, and the RESOLVED path is what comes
+/// back: the caller opens the bytes that were checked instead of re-walking
+/// the original name and giving a swapped component a second chance.
+Future<String?> resolveSendableFile(String path, List<String> roots) async {
+  if (roots.isEmpty) return null;
+  final String resolved;
+  try {
+    resolved = await File(path).resolveSymbolicLinks();
+  } catch (_) {
+    return null; // missing, or a directory we may not walk
+  }
+  // A regular file, checked on the resolved path. A FIFO inside an allowed
+  // folder would otherwise park the send forever on a read that never returns,
+  // and a device node would stream without end.
+  if (await FileSystemEntity.type(resolved, followLinks: false) !=
+      FileSystemEntityType.file) {
+    return null;
+  }
+  for (final root in roots) {
+    final String base;
+    try {
+      base = await Directory(root).resolveSymbolicLinks();
+    } catch (_) {
+      continue; // a root that no longer resolves grants nothing
+    }
+    if (_isInsideRoot(resolved, base)) return resolved;
+  }
+  return null;
+}
+
+/// Containment by path COMPONENT, never by string prefix: `/home/bot-data`
+/// starts with `/home/bot` and is a different directory.
+bool _isInsideRoot(String resolved, String root) {
+  final sep = Platform.pathSeparator;
+  var base = root;
+  while (base.length > sep.length && base.endsWith(sep)) {
+    base = base.substring(0, base.length - sep.length);
+  }
+  // Both sides came out of realpath, so the only normalisation left is case:
+  // Windows resolves `C:\Users` and `c:\users` to the same directory.
+  final a = Platform.isWindows ? resolved.toLowerCase() : resolved;
+  final b = Platform.isWindows ? base.toLowerCase() : base;
+  if (a == b) return false; // the root itself is a directory, not a file
+  return a.startsWith(b.endsWith(sep) ? b : '$b$sep');
 }
 
 class ApiConfig {
@@ -4072,6 +4170,43 @@ class ApiHandler {
     if (auth == null) return 401;
     if (auth.readOnly && method != 'GET') return 403;
     return null;
+  }
+
+  /// The resolved path a caller may send, or the refusal to answer with.
+  ///
+  /// CAPABILITY, not traversal defence (audit XV-08). Authentication passed
+  /// here and always did — the hole was that passing it bought the whole
+  /// filesystem, because the only write scope was one boolean and the send
+  /// routes take a PATH. A token now names the folders it may send out of,
+  /// and a path becomes bytes only once it resolves inside one of them.
+  ///
+  /// The two refusals differ ON PURPOSE, and only in the direction that is
+  /// safe: "no folders granted" does not depend on the path, so it leaks
+  /// nothing about the disk while being the one message an operator with a
+  /// pre-existing token needs to see. Everything else — outside, missing,
+  /// not a regular file — collapses to one answer.
+  Future<({String? path, ApiResponse? refusal})> _sendablePath(
+    ApiToken auth,
+    String requested,
+  ) async {
+    if (auth.fileRoots.isEmpty) {
+      return (
+        path: null,
+        refusal: const ApiResponse(403, {
+          'error': 'this token may not send local files',
+        }),
+      );
+    }
+    final resolved = await resolveSendableFile(requested, auth.fileRoots);
+    if (resolved == null) {
+      return (
+        path: null,
+        refusal: const ApiResponse(403, {
+          'error': 'path is outside the folders allowed for this token',
+        }),
+      );
+    }
+    return (path: resolved, refusal: null);
   }
 
   Future<ApiResponse> handle(
@@ -5869,9 +6004,14 @@ class ApiHandler {
           'error': 'kind must be a string; width/height/durationMs ints',
         });
       }
+      // Same capability as the 1:1 send (audit XV-08). The finding named
+      // `/v1/files`, but this route takes a path too and reaches a wider
+      // audience — closing one and leaving the other would be theatre.
+      final sendable = await _sendablePath(auth, filePath);
+      if (sendable.refusal != null) return sendable.refusal!;
       final result = await sendGroupFile(
         group,
-        filePath,
+        sendable.path!,
         name as String?,
         caption,
         replyTo as String?,
@@ -6127,8 +6267,15 @@ class ApiHandler {
           filePath.isEmpty) {
         return const ApiResponse(400, {'error': 'to + path required'});
       }
+      final sendable = await _sendablePath(auth, filePath);
+      if (sendable.refusal != null) return sendable.refusal!;
       final name = body?['name'];
-      final err = await sendFile(to, filePath, name is String ? name : null);
+      // The RESOLVED path goes downstream, so the send opens what was checked.
+      final err = await sendFile(
+        to,
+        sendable.path!,
+        name is String ? name : null,
+      );
       return err == null
           ? const ApiResponse(200, {'ok': true})
           : ApiResponse(400, {'error': err});

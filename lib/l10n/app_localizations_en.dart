@@ -2944,6 +2944,20 @@ class AppL10nEn extends AppL10n {
   String get settingsApiTokenName => 'Token name (e.g. bot)';
 
   @override
+  String get settingsApiFileFolders => 'Allowed folders';
+
+  @override
+  String get settingsApiFileFoldersHint =>
+      'This token can send files only from these folders. With none, sending a local file is refused.';
+
+  @override
+  String get settingsApiFileFoldersNone =>
+      'No folders — local file sending is off';
+
+  @override
+  String get settingsApiAddFolder => 'Add a folder';
+
+  @override
   String get settingsApiRevoke => 'Revoke';
 
   @override
