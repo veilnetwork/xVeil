@@ -288,6 +288,22 @@ class HeadlessRuntime {
         );
       }
 
+      // A durable offer made under a token's `fileRoots` may only be reopened
+      // while that grant still holds — the record is not its own
+      // authorization. Re-asked on every reopen, never cached: the daemon's
+      // token list is reloaded from the store, so a revoked root stops
+      // answering rather than stopping eventually.
+      messaging.servedSourceAuthorizer = (path, roots) async {
+        if (await resolveSendableFile(path, roots) == null) return false;
+        for (final token in loadedTokens) {
+          if (token.fileRoots.isEmpty) continue;
+          if (await resolveSendableFile(path, token.fileRoots) != null) {
+            return true;
+          }
+        }
+        return false;
+      };
+
       var webhookUrl = await storage.getSetting(_webhookKey);
       if (webhookUrl?.isEmpty ?? false) webhookUrl = null;
       final events = _events(messaging, groups);
@@ -336,7 +352,8 @@ class HeadlessRuntime {
             _contactAction(messaging!, peer, action),
         send: (to, body) => _send(messaging!, to, body),
         messages: (peer, limit) => _messages(storage, peer, limit),
-        sendFile: (to, path, name) => _sendFile(messaging!, to, path, name),
+        sendFile: (to, path, name, roots) =>
+            _sendFile(messaging!, to, path, name, roots),
         loadFile: (fileId) => storedBlobSource(storage, fileId),
         placeCall: (_, _) async => 'calls unavailable in headless mode',
         callState: () => null,
@@ -672,11 +689,22 @@ class HeadlessRuntime {
     ];
   }
 
+  /// The daemon's twin of the GUI controller's send, and the one that matters
+  /// most for audit X-02: a headless instance is the case where `fileRoots`
+  /// is a real boundary rather than a formality — a service account or a
+  /// container with a drop folder, where the process is NOT simply the person
+  /// who can already read everything.
+  ///
+  /// ONE open, for the reason spelled out on [veilOpenSourceForSend]: size and
+  /// bytes have to come from the same descriptor or the offer can describe one
+  /// file while serving another. The stamp comparison across the read is
+  /// detection only — the offer is already out by the time it can fire.
   static Future<String?> _sendFile(
     MessagingService messaging,
     String toHex,
     String path,
     String? name,
+    List<String> roots,
   ) async {
     final NodeId peer;
     try {
@@ -684,20 +712,26 @@ class HeadlessRuntime {
     } catch (_) {
       return 'invalid peer';
     }
-    final file = File(path);
-    if (!await file.exists()) return 'source not found';
-    final source = await veilSourceOpener(path);
-    if (source == null) return 'source open failed';
+    final source = await veilOpenSourceForSend(path);
+    if (source == null) return 'source not found';
+    final before = await veilSourceStamp(path);
     try {
       final cid = await messaging.sendFileStreaming(
         peer,
-        name?.isNotEmpty == true ? name! : file.uri.pathSegments.last,
-        await file.length(),
+        name?.isNotEmpty == true ? name! : File(path).uri.pathSegments.last,
+        source.size,
         source.read,
         close: source.close,
-        sourcePath: file.absolute.path,
+        sourcePath: File(path).absolute.path,
+        sourceRoots: roots,
       );
-      return cid == null ? 'peer not accepted' : null;
+      if (cid == null) return 'peer not accepted';
+      final after = await veilSourceStamp(path);
+      if (before != null && after != null && before != after) {
+        return 'source changed while it was being read; the offer may not '
+            'describe the file you named';
+      }
+      return null;
     } catch (e) {
       return '$e';
     }
