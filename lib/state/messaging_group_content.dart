@@ -344,13 +344,16 @@ class _MessagingGroupContent {
   /// against [cid]. A moved or modified plaintext source is never opened under
   /// an old signed media reference.
   ///
-  /// Shares the serve path's check and its verdict cache, so the two cannot
-  /// drift into disagreeing about the same file (audit X-02).
+  /// Shares the serve path's checks and its verdict cache, so the two cannot
+  /// drift into disagreeing about the same file (audit X-02). Handing the
+  /// plaintext path out IS an open, so the grant is re-checked here for the
+  /// same reason it is on the serve path.
   Future<String?> verifiedSourcePath(String cid) async {
     final record = _owner._parseServedRecord(
       await _owner._storage.getSetting('served:$cid'),
     );
     if (record == null) return null;
+    if (!await _owner._servedSourceStillAuthorized(cid, record)) return null;
     return await _owner._servedSourceStillMatches(cid, record)
         ? record.path
         : null;
