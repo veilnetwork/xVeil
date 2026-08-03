@@ -3703,7 +3703,17 @@ class ApiHandler {
   messages;
 
   /// Send the file at local [path] to [toHex]; null on success else an error.
-  final Future<String?> Function(String toHex, String path, String? name)
+  ///
+  /// [roots] are the token's granted folders — the grant this send is made
+  /// under. They travel with the durable offer so that a reopen hours later can
+  /// ask whether the grant still holds, rather than assume the record's
+  /// existence is its own authorization.
+  final Future<String?> Function(
+    String toHex,
+    String path,
+    String? name,
+    List<String> roots,
+  )
   sendFile;
 
   /// Load the bytes of a stored file by [fileId], or null if unknown.
@@ -6306,6 +6316,7 @@ class ApiHandler {
         to,
         sendable.path!,
         name is String ? name : null,
+        auth.fileRoots,
       );
       return err == null
           ? const ApiResponse(200, {'ok': true})

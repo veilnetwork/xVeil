@@ -15,6 +15,7 @@ void main() {
   // Paths that actually reached a send — proves the RESOLVED path is what the
   // handler hands downstream, not the one the caller typed (audit XV-08).
   final pathsSent = <String>[];
+  final rootsSent = <List<String>>[];
   final groupPosts = <(String, String, String?)>[];
   final groupActions = <(String, String, String, String?)>[];
   final channelPosts = <(String, String, String, String?)>[];
@@ -112,6 +113,7 @@ void main() {
     authoredUploads.clear();
     sent.clear();
     pathsSent.clear();
+    rootsSent.clear();
     groupPosts.clear();
     groupActions.clear();
     channelPosts.clear();
@@ -263,8 +265,9 @@ void main() {
       messages: (peer, limit) async => [
         {'id': 'm1', 'body': 'hi', 'direction': 'incoming'},
       ],
-      sendFile: (to, path, name) async {
+      sendFile: (to, path, name, roots) async {
         pathsSent.add(path);
+        rootsSent.add(roots);
         return to == 'bad' ? 'invalid peer' : null;
       },
       loadFile: (fileId) async => fileId == 'known'
@@ -1422,7 +1425,7 @@ void main() {
         contacts: () async => const [],
         send: (to, body) async => null,
         messages: (peer, limit) async => const [],
-        sendFile: (to, path, name) async => null,
+        sendFile: (to, path, name, roots) async => null,
         loadFile: (fileId) async => null,
         placeCall: (to, media) async => null,
         callState: () => null,
@@ -3269,7 +3272,7 @@ void main() {
       contacts: () async => const [],
       send: (to, body) async => null,
       messages: (peer, limit) async => const [],
-      sendFile: (to, path, name) async => null,
+      sendFile: (to, path, name, roots) async => null,
       loadFile: (fileId) async => null,
       placeCall: (to, media) async => null,
       callState: () => null,
@@ -4438,9 +4441,10 @@ void main() {
     }
 
     test('the RESOLVED path is what reaches the send', () async {
-      // The send must open the bytes that were checked. Re-walking the
-      // caller's name downstream would give a swapped component a second
-      // chance between the check and the open.
+      // One fewer name for the send to re-walk, and one fewer chance for a
+      // swapped component downstream. NOT "the send opens the bytes that were
+      // checked" — what travels is a name, and every open of it is a fresh
+      // lookup (audit X-02, see [resolveSendableFile]).
       final real = File('${root.path}${Platform.pathSeparator}real.txt');
       await real.writeAsString('x');
       final link = Link('${root.path}${Platform.pathSeparator}alias');
@@ -4449,6 +4453,22 @@ void main() {
       expect((await post(h, '/v1/files', link.path)).status, 200);
       expect(pathsSent.single, await real.resolveSymbolicLinks());
       expect(pathsSent.single, isNot(link.path));
+    });
+
+    test('the grant the send was made under travels with it', () async {
+      // The durable offer outlives the request by hours. Without the roots
+      // recorded alongside it, a later reopen has nothing to re-check and the
+      // record becomes its own authorization — surviving the folder leaving
+      // the token and the token being revoked (audit X-02).
+      final real = File('${root.path}${Platform.pathSeparator}granted.txt');
+      await real.writeAsString('x');
+      final h = make(fileRoots: [root.path]);
+      expect((await post(h, '/v1/files', real.path)).status, 200);
+      expect(
+        rootsSent.single,
+        [root.path],
+        reason: 'the send was handed no grant to record',
+      );
     });
 
     test('a directory or a device node is not a sendable file', () async {
@@ -4903,7 +4923,7 @@ void main() {
         contacts: () async => const [],
         send: (to, body) async => null,
         messages: (peer, limit) async => const [],
-        sendFile: (to, path, name) async => null,
+        sendFile: (to, path, name, roots) async => null,
         loadFile: (fileId) async => null,
         placeCall: (to, media) async => null,
         callState: () => null,

@@ -6,6 +6,20 @@ typedef _ServedContent = ({
   DateTime servedAt,
 });
 
+/// A parsed `served:$cid` durable-offer record.
+///
+/// [roots] are the folders that authorized the send. Non-empty means the offer
+/// was made on someone else's behalf — an API token with `fileRoots` — and its
+/// right to keep serving expires with that grant. Empty means a person picked
+/// the file in this app, and nothing external gates it.
+typedef _ServedRecord = ({
+  String path,
+  int? size,
+  int? pieceSize,
+  String? name,
+  List<String> roots,
+});
+
 /// Owns sender-side content manifests and every live [ServeSource] handle.
 ///
 /// Wire advertisement and byte serving stay in [MessagingService]; this

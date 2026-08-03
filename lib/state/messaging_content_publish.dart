@@ -201,25 +201,37 @@ extension _MessagingContentPublish on MessagingService {
   }
 
   /// Parsed `served:$cid` record. Legacy records are a bare path string; new
-  /// ones are JSON `{path,size,pieceSize,name}` so the manifest can be
+  /// ones are JSON `{path,size,pieceSize,name,roots}` so the manifest can be
   /// rebuilt from the source file when the mf: blob is missing (its persist
   /// dies first on a bloated store — IndexFull).
-  ({String path, int? size, int? pieceSize, String? name})? _parseServedRecord(
-    String? raw,
-  ) {
+  ///
+  /// `roots` are the folders that AUTHORIZED the send, and their presence is
+  /// what marks a record as delegated rather than user-picked. Empty means a
+  /// person chose this file in this app and no grant gates it.
+  _ServedRecord? _parseServedRecord(String? raw) {
     if (raw == null || raw.isEmpty) return null;
     if (!raw.startsWith('{')) {
-      return (path: raw, size: null, pieceSize: null, name: null);
+      return (
+        path: raw,
+        size: null,
+        pieceSize: null,
+        name: null,
+        roots: const <String>[],
+      );
     }
     try {
       final m = jsonDecode(raw) as Map<String, dynamic>;
       final path = m['path'] as String?;
       if (path == null || path.isEmpty) return null;
+      final roots = m['roots'];
       return (
         path: path,
         size: (m['size'] as num?)?.toInt(),
         pieceSize: (m['pieceSize'] as num?)?.toInt(),
         name: m['name'] as String?,
+        roots: roots is List
+            ? List<String>.unmodifiable(roots.whereType<String>())
+            : const <String>[],
       );
     } catch (_) {
       return null;
@@ -235,7 +247,7 @@ extension _MessagingContentPublish on MessagingService {
   /// path), the file is gone, or its bytes changed (contentId mismatch).
   Future<ContentManifest?> _rebuildManifestFromServedRecord(
     String cid,
-    ({String path, int? size, int? pieceSize, String? name}) rec,
+    _ServedRecord rec,
   ) async {
     final opener = sourceOpener;
     final size = rec.size;
@@ -304,7 +316,7 @@ extension _MessagingContentPublish on MessagingService {
   /// case that needed no timing at all.
   Future<bool> _servedSourceStillMatches(
     String cid,
-    ({String path, int? size, int? pieceSize, String? name}) rec,
+    _ServedRecord rec,
   ) async {
     final stamp = await veilSourceStamp(rec.path);
     if (stamp != null) {
@@ -328,7 +340,7 @@ extension _MessagingContentPublish on MessagingService {
 
   Future<bool> _verifyServedSource(
     String cid,
-    ({String path, int? size, int? pieceSize, String? name}) rec,
+    _ServedRecord rec,
     VeilSourceStamp? before,
   ) async {
     // A rebuild that returns non-null has already compared contentIds. It also
@@ -355,16 +367,52 @@ extension _MessagingContentPublish on MessagingService {
     return ok;
   }
 
-  /// Open the durable source of [cid] — and only if it still IS [cid].
+  /// Whether the grant this durable offer was made under still holds.
+  ///
+  /// A record with no roots was made by a person picking a file in this app;
+  /// nothing external gates it and nothing is asked. A record WITH roots was
+  /// made on someone else's behalf, and its right to keep serving expires with
+  /// their grant — so this is re-asked on every reopen and never cached. A
+  /// revoke that takes effect when a cache happens to expire is not a revoke.
+  ///
+  /// Fails CLOSED: a delegated offer with no authorizer left to ask is a grant
+  /// that cannot be confirmed, and the peer's remedy — ask the sender again —
+  /// is the cheap side of being wrong.
+  Future<bool> _servedSourceStillAuthorized(
+    String cid,
+    _ServedRecord rec,
+  ) async {
+    if (rec.roots.isEmpty) return true;
+    final authorize = servedSourceAuthorizer;
+    if (authorize != null && await authorize(rec.path, rec.roots)) return true;
+    devLog(
+      () =>
+          'xVeil[content]: durable source ${rec.path} is no longer inside a '
+          'granted folder — refusing ${cid.substring(0, 12)}',
+    );
+    return false;
+  }
+
+  /// Open the durable source of [cid] — and only if it still IS [cid], and
+  /// only if we may still open it at all.
   ///
   /// Every reopen-by-name on the serve path goes through here. See
-  /// [_servedSourceStillMatches] for what the check is worth.
+  /// [_servedSourceStillMatches] for what the content check is worth.
+  ///
+  /// The AUTHORIZATION half is separate and outlives nothing: a `served:`
+  /// record used to survive both the folder being withdrawn from the token and
+  /// the token itself being revoked, so an offer made on a bot's behalf kept
+  /// reading out of a folder nobody had granted for as long as the peer asked.
+  /// A record that names the roots that authorized it is re-checked against
+  /// what is granted NOW, every time — never cached, because a revoke that
+  /// takes effect on a timer is not a revoke.
   Future<ServeSource?> _openVerifiedServedSource(
     String cid,
-    ({String path, int? size, int? pieceSize, String? name}) rec,
+    _ServedRecord rec,
   ) async {
     final opener = sourceOpener;
     if (opener == null) return null;
+    if (!await _servedSourceStillAuthorized(cid, rec)) return null;
     if (!await _servedSourceStillMatches(cid, rec)) {
       devLog(
         () =>
@@ -658,6 +706,7 @@ extension _MessagingContentPublish on MessagingService {
     Future<Uint8List> Function(int offset, int length) read, {
     required Future<void> Function() close,
     String? sourcePath,
+    List<String> sourceRoots = const [],
   }) async {
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) {
@@ -791,6 +840,9 @@ extension _MessagingContentPublish on MessagingService {
             'size': size,
             'pieceSize': base.pieceSize,
             'name': name,
+            // The grant this offer was made under. Recorded so a later reopen
+            // can ask whether it still holds instead of assuming it does.
+            if (sourceRoots.isNotEmpty) 'roots': sourceRoots,
           }),
         );
       } catch (e) {
