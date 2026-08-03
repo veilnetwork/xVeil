@@ -214,17 +214,14 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     }
   };
 
-  // ── APPLY: device-group event → local state, newest-wins per (kind, key),
-  // ranked exactly like foldDeviceSync (same-millisecond edits tie-break on
-  // payload — a bare timestamp compare would drop the fold's winner).
-  final lastApplied = <String, DeviceSyncEvent>{};
-  bool newest(DeviceSyncEvent e) {
-    final k = '${e.kind.name}|${e.key}';
-    final prev = lastApplied[k];
-    if (prev != null && !isNewerDeviceSync(e, prev)) return false;
-    lastApplied[k] = e;
-    return true;
-  }
+  // ── APPLY: device-group event → local state. Ordering lives in the gate:
+  // newest-wins per (kind, key) ranked exactly like foldDeviceSync, nothing
+  // effective before its own timestamp, and — because [DeviceSyncApplyGate.offer]
+  // is handed a PLAN rather than a decision — a slot that moves only for events
+  // this bridge actually applied. Every `return null` below is an event we
+  // refuse: it must leave no watermark, or the honest event ranked under it is
+  // dropped without ever being looked at.
+  final gate = DeviceSyncApplyGate();
 
   // Shared by the live pref apply and the post-materialization replay below.
   Future<bool> applyPrefs(NodeId peer, DeviceSyncEvent e) {
@@ -248,28 +245,30 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
 
   final sub = svc.deviceIncoming.listen((gm) {
     final e = DeviceSyncEvent.fromBody(gm.body);
-    if (e == null || !newest(e)) return;
+    if (e == null) return;
     switch (e.kind) {
       case DeviceSyncKind.contactUp:
-        final statusEvent = e.key.startsWith('s:');
-        final NodeId peer;
-        try {
-          peer = NodeId.fromHex(statusEvent ? e.key.substring(2) : e.key);
-        } catch (_) {
-          return; // malformed key from a newer/buggy device — skip silently
-        }
-        if (peer.hex == svc.selfId.hex) return; // never my own record
-        if (statusEvent) {
+        gate.offer(e, () {
+          final statusEvent = e.key.startsWith('s:');
+          final NodeId peer;
+          try {
+            peer = NodeId.fromHex(statusEvent ? e.key.substring(2) : e.key);
+          } catch (_) {
+            return null; // malformed key from a newer/buggy device
+          }
+          if (peer.hex == svc.selfId.hex) return null; // never my own record
+          if (!statusEvent) return () => applyPrefs(peer, e);
           final raw = e.payload['status'];
           ContactStatus? status;
           for (final s in ContactStatus.values) {
             if (s.name == raw) status = s;
           }
-          if (status == null) return; // newer vocabulary — skip, don't guess
-          unawaited(() async {
+          if (status == null) return null; // newer vocabulary — don't guess
+          final resolved = status;
+          return () async {
             final changed = await messaging.applyMirroredContactStatus(
               peer,
-              status!,
+              resolved,
             );
             if (changed) svc.notifyContactAccessChanged(peer);
             // A pref event that arrived while this peer was still unknown was
@@ -279,29 +278,38 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
             final folded = await svc.deviceSyncState();
             final pref = folded[(DeviceSyncKind.contactUp, peer.hex)];
             if (pref != null) await applyPrefs(peer, pref);
-          }());
-          return;
-        }
-        unawaited(applyPrefs(peer, e));
+          };
+        });
       case DeviceSyncKind.settingSet:
-        final v = e.payload['v'];
-        if (v is String) unawaited(hub.applyIncoming(e.key, v));
+        gate.offer(e, () {
+          final v = e.payload['v'];
+          if (v is! String) return null;
+          return () => hub.applyIncoming(e.key, v);
+        });
       case DeviceSyncKind.callLog:
-        final entry = CallLogEntry.fromJson(e.payload);
-        if (entry != null && entry.id == e.key) {
-          unawaited(callLog.addMirrored(entry));
-        }
+        gate.offer(e, () {
+          final entry = CallLogEntry.fromJson(e.payload);
+          if (entry == null || entry.id != e.key) return null;
+          return () => callLog.addMirrored(entry);
+        });
       case DeviceSyncKind.readMark:
-        // Remember the applied mark as "already emitted" so a later local
-        // open of the same conversation does not re-post an identical event.
-        if ((lastReadEmitted[e.key] ?? 0) < e.tsMs) {
-          lastReadEmitted[e.key] = e.tsMs;
-        }
-        if (e.key.startsWith('g:')) {
-          unawaited(svc.applyMirroredGroupSeen(e.key.substring(2), e.tsMs));
-        } else if (e.key != svc.selfId.hex) {
-          unawaited(messaging.applyMirroredReadMark(e.key, e.tsMs));
-        }
+        gate.offer(e, () {
+          final group = e.key.startsWith('g:');
+          if (!group && e.key == svc.selfId.hex) return null;
+          // Remember the applied mark as "already emitted" so a later local
+          // open of the same conversation does not re-post an identical event.
+          // Inside the plan, so a mark we end up refusing cannot silence the
+          // emit tap for a conversation nothing ever applied.
+          if ((lastReadEmitted[e.key] ?? 0) < e.tsMs) {
+            lastReadEmitted[e.key] = e.tsMs;
+          }
+          return () => group
+              ? svc.applyMirroredGroupSeen(e.key.substring(2), e.tsMs)
+              : messaging.applyMirroredReadMark(e.key, e.tsMs);
+        });
+      // Deliberately not offered: this bridge applies none of these, so giving
+      // them a slot would only park a row per mirrored message and per cloud
+      // item in a map that is never read.
       case DeviceSyncKind.msgMirror:
         break; // applied by the group_service bridge (brick 3)
       case DeviceSyncKind.cloudEntry:
