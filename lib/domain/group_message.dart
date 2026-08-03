@@ -11,11 +11,57 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 
 import '../core/ids.dart';
+import 'chat.dart' show kMessageClockSkew;
 import 'group_payload.dart';
 import 'inline_custom_emoji.dart';
 import 'media_object.dart';
 
 export 'media_object.dart' show GroupAttachment, MediaObject;
+
+/// The value a group/Space row claiming [claimedMs] is ORDERED by locally,
+/// given that this device first saw it at [receivedAtMs].
+///
+/// A group message is ranked, previewed and counted on `ts` — a number the
+/// AUTHOR chose. Nothing authenticates it: the signature proves who wrote the
+/// number, never that the clock behind it was honest, and this network issues
+/// no time. One member therefore stamps itself years ahead and owns the bottom
+/// of that chat, its row in the chat list, the mention inbox, and an unread
+/// badge that can no longer be cleared — all of it until that stamp arrives.
+///
+/// The 1:1 answer — rewrite the stored stamp ([messageTsOnReceipt]) — is NOT
+/// available here, and that is the whole reason this rule exists separately:
+/// [GroupMessage.canonicalBytes] includes `'ts'` and is signed, so a receiver
+/// that rewrote it would invalidate every signature in the log and take the
+/// group's admission rules down with them. So the signed number is left exactly
+/// as its author wrote it, keeps being verified, keeps being what retention and
+/// the ACL's `atMs` ask about — and ORDER is taken from this derived value
+/// instead.
+///
+/// Not the deferral device-sync events get (`deviceSyncEffectiveAt`) either. A
+/// deferred sync event is HIDDEN until its own time comes, which is right when
+/// the row would otherwise win a key and delete the honest rows it beat. A
+/// message wins nothing and suppresses nothing, so deferring it would only
+/// hide a legitimate message from a slightly-fast device for some minutes —
+/// and an unread message no one can see is worse than a message shown in the
+/// wrong place.
+///
+/// One-sided, like the 1:1 rule: a stamp in the PAST is left alone. It cannot
+/// float above anything, and a device back from a week offline must keep last
+/// Tuesday.
+///
+/// [receivedAtMs] must be the moment the row was FIRST accepted here, recorded
+/// once and persisted; passing a live clock would re-derive a larger value on
+/// every read and walk the row down the log each time the screen is opened,
+/// which is the failure this exists to prevent.
+///
+/// [kMessageClockSkew] is deliberately the 1:1 message tolerance rather than a
+/// fourth constant: the question is the same one ("how far ahead may a sender
+/// claim to be and still be believed"), and the project keeps one skew
+/// convention (`kSpacePublicClockSkew`, `kDeviceSyncClockSkew`).
+int groupMessageOrderAt(int claimedMs, int receivedAtMs) =>
+    claimedMs > receivedAtMs + kMessageClockSkew.inMilliseconds
+    ? receivedAtMs
+    : claimedMs;
 
 final RegExp _spacePostCommentTargetPattern = RegExp(r'^[0-9a-f]{64}:[0-9]+$');
 
@@ -187,11 +233,16 @@ class GroupMessage {
     this.customEmoji = const [],
     this.lifecycleGeneration,
     this.mediaHiddenByRetention = false,
+    int? orderedAtMs,
     Uint8List? authorPubKey,
   }) : // A public `attachment` parameter intentionally feeds a private raw
        // field; the public getter applies the retention projection.
        // ignore: prefer_initializing_formals
        _attachment = attachment,
+       // Same reason: a named parameter cannot be private, so the projection
+       // is taken under a public name and kept in a private field.
+       // ignore: prefer_initializing_formals
+       _orderedAtMs = orderedAtMs,
        authorPubKey = authorPubKey ?? Uint8List(0);
 
   final NodeId groupId;
@@ -221,6 +272,21 @@ class GroupMessage {
   final bool mediaHiddenByRetention;
 
   MediaObject? get attachment => mediaHiddenByRetention ? null : _attachment;
+
+  /// Projection-only, exactly like [mediaHiddenByRetention]: never signed,
+  /// never serialized, never on the wire. Absent on a raw stored row.
+  final int? _orderedAtMs;
+
+  /// What this row is ORDERED, previewed and counted by locally: its own
+  /// [createdAtMs], unless the receiving device could not believe that stamp
+  /// when the row arrived (see [groupMessageOrderAt]), in which case the moment
+  /// it arrived.
+  ///
+  /// [createdAtMs] stays untouched and stays authoritative for everything the
+  /// AUTHOR's word governs — the signature, retention boundaries, the ACL's
+  /// `atMs`, channel history windows — because those are questions about what
+  /// was signed. This is only the answer to "where does it go on screen".
+  int get orderedAtMs => _orderedAtMs ?? createdAtMs;
   final List<InlineCustomEmoji> customEmoji;
 
   /// The `<authorHex>:<seq>` reference of the message this one replies to, or
@@ -334,7 +400,38 @@ class GroupMessage {
     customEmoji: customEmoji,
     lifecycleGeneration: lifecycleGeneration,
     mediaHiddenByRetention: mediaHiddenByRetention,
+    orderedAtMs: _orderedAtMs,
     authorPubKey: pubKey,
+  );
+
+  /// Attach the local display order derived for this row. Touches nothing the
+  /// author signed: [canonicalBytes] and [toJson] are byte-identical before and
+  /// after, so a signature made before this projection existed still verifies
+  /// and [groupMessageHash] still names the same row.
+  GroupMessage withOrderedAt(int ms) => GroupMessage(
+    groupId: groupId,
+    author: author,
+    seq: seq,
+    prevHash: prevHash,
+    body: body,
+    version: version,
+    membershipEpoch: membershipEpoch,
+    channelEpoch: channelEpoch,
+    encryptedPayload: encryptedPayload,
+    channelId: channelId,
+    spacePostId: spacePostId,
+    policyVersion: policyVersion,
+    createdAtMs: createdAtMs,
+    signature: signature,
+    attachment: _attachment,
+    replyTo: replyTo,
+    editOf: editOf,
+    deleteOf: deleteOf,
+    customEmoji: customEmoji,
+    lifecycleGeneration: lifecycleGeneration,
+    mediaHiddenByRetention: mediaHiddenByRetention,
+    orderedAtMs: ms,
+    authorPubKey: authorPubKey,
   );
 
   GroupMessage withDecryptedContent(GroupMessageCleartext cleartext) =>
@@ -359,6 +456,7 @@ class GroupMessage {
         deleteOf: cleartext.deleteOf,
         customEmoji: cleartext.customEmoji,
         lifecycleGeneration: lifecycleGeneration,
+        orderedAtMs: _orderedAtMs,
         authorPubKey: authorPubKey,
       );
 
@@ -386,6 +484,7 @@ class GroupMessage {
           customEmoji: customEmoji,
           lifecycleGeneration: lifecycleGeneration,
           mediaHiddenByRetention: true,
+          orderedAtMs: _orderedAtMs,
           authorPubKey: authorPubKey,
         );
 
