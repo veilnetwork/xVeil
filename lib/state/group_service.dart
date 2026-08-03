@@ -1172,6 +1172,44 @@ class GroupService {
   Future<bool> receiveSpaceInviteDecision(NodeId peer, String decisionJson) =>
       _spaceInvites.receiveSpaceInviteDecision(peer, decisionJson);
 
+  /// Fold one stamp a STRANGER chose into a "last updated" number this device
+  /// is about to sign and publish as its own.
+  ///
+  /// Every input here — a member's post row, public comment or public reaction,
+  /// and the control entries folded in [buildSpacePublicDiscoveryPublication] —
+  /// carries a `created` its author picked, and no signature over it says the
+  /// clock behind it was honest. That number used to be taken raw, and it ends
+  /// up in `issuedAt`, which the wire format requires to be within
+  /// [kSpacePublicClockSkew] of now, and in `expiresAt`, which must be greater
+  /// than it. So ONE member stamping ONE row into 2027 did not merely rank
+  /// itself wrong — it made the OWNER's `buildSpacePublicDiscoveryPublication`
+  /// return null and took the whole Space off public discovery, for everyone,
+  /// until the year arrived. A member denying service to the owner.
+  ///
+  /// EXCLUDED, not clamped to now, and the difference matters twice. The owner
+  /// descriptor is deliberately stable across periodic DHT refreshes so
+  /// independent holders can attest the same hash; a value clamped to a live
+  /// clock would move on every rebuild, and one hostile row would keep the
+  /// descriptor hash churning forever — the same denial in a quieter form.
+  /// And "the newest thing here a clock could have produced" is simply the
+  /// honest answer to what this field asks, where "now, because someone lied"
+  /// is not.
+  ///
+  /// Excluding costs the author nothing it could want: the row is still
+  /// published in full, still hashed into its page, still counted by `revision`
+  /// and `publicPostCount`, and still ordered by [spacePostOrderAt] at every
+  /// reader. Only its claim to be the Space's freshest metadata is dropped, so
+  /// there is nothing here for a member to opt out OF.
+  ///
+  /// One-sided and on the existing tolerance, like the rest of this series: a
+  /// stamp in the past is honoured as written, and the bound is
+  /// [spacePostOrderAt]'s own — the same rule, the same five minutes, no fifth
+  /// constant.
+  int _foldPublicUpdatedAt(int latest, int claimedMs, int nowMs) =>
+      claimedMs > latest && spacePostOrderAt(claimedMs, nowMs) == claimedMs
+      ? claimedMs
+      : latest;
+
   Future<
     ({
       List<SpacePostView> posts,
@@ -1306,6 +1344,7 @@ class GroupService {
       return byAuthor != 0 ? byAuthor : left.seq.compareTo(right.seq);
     });
 
+    final nowMs = _now();
     var updatedAtMs = bundle.manifest.createdAtMs;
     final retainedPublicRows = [
       for (final post in _retainedPostRows(
@@ -1315,13 +1354,21 @@ class GroupService {
         if (post.visibility == SpacePostVisibility.public) post,
     ];
     for (final post in retainedPublicRows) {
-      updatedAtMs = max(updatedAtMs, post.createdAtMs);
+      updatedAtMs = _foldPublicUpdatedAt(updatedAtMs, post.createdAtMs, nowMs);
     }
     for (final comment in publicComments) {
-      updatedAtMs = max(updatedAtMs, comment.createdAtMs);
+      updatedAtMs = _foldPublicUpdatedAt(
+        updatedAtMs,
+        comment.createdAtMs,
+        nowMs,
+      );
     }
     for (final reaction in publicReactions) {
-      updatedAtMs = max(updatedAtMs, reaction.createdAtMs);
+      updatedAtMs = _foldPublicUpdatedAt(
+        updatedAtMs,
+        reaction.createdAtMs,
+        nowMs,
+      );
     }
     return (
       posts: List<SpacePostView>.unmodifiable(visible),
@@ -1767,11 +1814,21 @@ class GroupService {
     if (joinCode == null) return null;
     final ticket = SpaceJoinCode.parse(joinCode);
     final wallNow = _now();
+    // A member writes its OWN control entries — `leave` needs no permission at
+    // all, `acceptRules` none either — so `created` here is a stranger's number
+    // exactly like a post's. See [_foldPublicUpdatedAt]: a row a clock could
+    // not have produced does not get to be this Space's "last updated".
     final updatedAt = folded.accepted.fold<int>(
       bundle.manifest.createdAtMs,
       (latest, entry) =>
-          entry.createdAtMs > latest ? entry.createdAtMs : latest,
+          _foldPublicUpdatedAt(latest, entry.createdAtMs, wallNow),
     );
+    // What is left of this gate is the GENESIS stamp above, which the fold
+    // seeds and cannot drop: the wire format ties the descriptor's `created`
+    // to it (`createdAtMs != genesisManifest.createdAtMs` is refused, as is
+    // `updatedAtMs < createdAtMs`), so a Space whose creator dated it into the
+    // future has no valid public descriptor at all and refusing is the only
+    // honest answer. Nobody else's number can reach this line any more.
     if (updatedAt > wallNow + kSpacePublicClockSkew.inMilliseconds) {
       return null;
     }
