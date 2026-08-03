@@ -44,12 +44,19 @@ abstract interface class Storage {
   /// boundary.
   Future<Uint8List> exportSpaceKeys();
 
-  Future<void> saveIdentity(Identity identity);
+  /// Persist the parts of the owner a person chose. NOT the node id — that
+  /// belongs to this space's node config and is derived from it (audit XV-06).
+  /// Writing it here as well gave the container two answers to "who am I".
+  ///
+  /// Also the marker that says "this space belongs to an identity", which the
+  /// clash guards read before writing a roster over it. Written when the space
+  /// is created, even if the person named nothing yet.
+  Future<void> saveProfile(UserProfile profile);
 
-  /// This space's identity record.
+  /// This space's profile record.
   ///
   /// Three outcomes, and callers MUST keep them apart (audit XV-13):
-  ///  * an [Identity] — the record is there and readable;
+  ///  * a [UserProfile] — the record is there and readable;
   ///  * `null` — there is NO record. A fresh or erased space.
   ///  * throws [CorruptIdentityRecord] — a record EXISTS but will not parse.
   ///
@@ -59,7 +66,7 @@ abstract interface class Storage {
   /// master) read the same `null` as "nothing here" and would have overwritten
   /// the damaged record. Whatever a caller does on `null`, it must not do on a
   /// throw.
-  Future<Identity?> loadIdentity();
+  Future<UserProfile?> loadProfile();
 
   Future<void> putSetting(String key, String value);
   Future<String?> getSetting(String key);

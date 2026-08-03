@@ -43,7 +43,7 @@ void main() {
   test(
     'eraseSpace forensically clears the identity, messages, and contacts',
     () async {
-      await storage.saveIdentity(Identity(nodeId: _id(1), displayName: 'Gone'));
+      await storage.saveProfile(UserProfile(displayName: 'Gone'));
       await storage.upsertContact(Contact(nodeId: _id(2)));
       await storage.appendMessage(
         _msg(
@@ -53,12 +53,12 @@ void main() {
           ts: DateTime(2026, 5, 1),
         ),
       );
-      expect(await storage.loadIdentity(), isNotNull);
+      expect(await storage.loadProfile(), isNotNull);
       expect((await storage.loadMessages(_id(2).hex)).isNotEmpty, isTrue);
 
       await storage.eraseSpace();
 
-      expect(await storage.loadIdentity(), isNull);
+      expect(await storage.loadProfile(), isNull);
       expect(await storage.loadMessages(_id(2).hex), isEmpty);
       expect(await storage.getContact(_id(2)), isNull);
       expect(await storage.loadConversations(), isEmpty);
@@ -484,15 +484,28 @@ void main() {
     expect(await reopened.loadNodeConfig(), toml);
   });
 
-  test('identity round-trips through the SETTINGS namespace', () async {
-    final id = Identity(nodeId: _id(7), displayName: 'Alice', username: 'al');
-    await storage.saveIdentity(id);
+  test('the profile round-trips through the SETTINGS namespace', () async {
+    await storage.saveProfile(
+      const UserProfile(displayName: 'Alice', username: 'al'),
+    );
 
-    final loaded = await storage.loadIdentity();
+    final loaded = await storage.loadProfile();
     expect(loaded, isNotNull);
-    expect(loaded!.nodeId, _id(7));
-    expect(loaded.displayName, 'Alice');
+    expect(loaded!.displayName, 'Alice');
     expect(loaded.username, 'al');
+  });
+
+  test('the stored record carries NO node id', () async {
+    // Audit XV-06: a copy of the node id here was a second answer to "who am I"
+    // that went stale on the first launch and stayed stale. The node config in
+    // this same space is the only thing that can produce one.
+    await storage.saveProfile(const UserProfile(displayName: 'Alice'));
+    final raw = store.get(
+      Ns.settings,
+      Uint8List.fromList(utf8.encode('identity')),
+    )!;
+    final decoded = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    expect(decoded.keys, unorderedEquals(<String>['dn', 'u']));
   });
 
   test(
@@ -505,15 +518,15 @@ void main() {
       final key = Uint8List.fromList(utf8.encode('identity'));
       for (final bad in <List<int>>[
         [0xff, 0xfe, 0xfd], // not UTF-8
-        utf8.encode('{"n":'), // truncated JSON
+        utf8.encode('{"dn":'), // truncated JSON
         utf8.encode('["not","a","map"]'), // JSON, wrong shape
-        utf8.encode('{"dn":"Alice"}'), // no node id at all
-        utf8.encode('{"n":123}'), // node id is not a string
-        utf8.encode('{"n":"zzzz"}'), // node id is not hex
+        utf8.encode('42'), // JSON, not an object at all
+        utf8.encode('{"dn":123}'), // display name is not a string
+        utf8.encode('{"u":["al"]}'), // username is not a string
       ]) {
         store.commit([PutOp(Ns.settings, key, Uint8List.fromList(bad))]);
         await expectLater(
-          storage.loadIdentity(),
+          storage.loadProfile(),
           throwsA(isA<CorruptIdentityRecord>()),
           reason: 'blob ${utf8.decode(bad, allowMalformed: true)}',
         );
@@ -521,7 +534,7 @@ void main() {
 
       // ...and the distinction survives: with the record gone it IS missing.
       store.commit([DeleteOp(Ns.settings, key)]);
-      expect(await storage.loadIdentity(), isNull);
+      expect(await storage.loadProfile(), isNull);
     },
   );
 

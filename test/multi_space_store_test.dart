@@ -52,13 +52,13 @@ void main() {
     final conv = _nid(9).hex;
 
     // Both identities active simultaneously — each writes its OWN data.
-    await alice.saveIdentity(Identity(nodeId: _nid(1), displayName: 'Alice'));
-    await bob.saveIdentity(Identity(nodeId: _nid(2), displayName: 'Bob'));
+    await alice.saveProfile(UserProfile(displayName: 'Alice'));
+    await bob.saveProfile(UserProfile(displayName: 'Bob'));
     await alice.appendMessage(_msg(conv, 'hi from alice'));
     await bob.appendMessage(_msg(conv, 'hi from bob'));
 
-    expect((await alice.loadIdentity())!.displayName, 'Alice');
-    expect((await bob.loadIdentity())!.displayName, 'Bob');
+    expect((await alice.loadProfile())!.displayName, 'Alice');
+    expect((await bob.loadProfile())!.displayName, 'Bob');
     expect((await alice.loadMessages(conv)).single.body, 'hi from alice');
     expect((await bob.loadMessages(conv)).single.body, 'hi from bob');
   });

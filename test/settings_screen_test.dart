@@ -43,9 +43,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Enter a ready session with a known identity.
-    final id = AppController.generateIdentity(displayName: 'Nat');
     await container.read(appControllerProvider.notifier).completeOnboarding(
-          identity: id,
+          displayName: 'Nat',
           password: 'pw',
           mode: StorageMode.hiddenSpace,
         );
@@ -53,7 +52,10 @@ void main() {
     await tester.pump();
 
     expect(find.text('Nat'), findsOneWidget);
-    expect(find.text(id.nodeId.short), findsWidgets);
+    // The node id on screen is the transport's, not one onboarding invented
+    // (audit XV-06).
+    final nodeId = await container.read(veilTransportProvider).nodeId();
+    expect(find.text(nodeId.short), findsWidgets);
 
     // "Lock now" moved to the navigation drawer (see folder_panel_test) — the
     // settings screen must NOT offer it anymore.

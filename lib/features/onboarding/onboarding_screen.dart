@@ -109,12 +109,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _busy = true;
       _finishError = null;
     });
-    final identity = AppController.generateIdentity();
     try {
       await ref
           .read(appControllerProvider.notifier)
           .completeOnboarding(
-            identity: identity,
+            // No identity is minted here any more. This screen used to hand
+            // `completeOnboarding` an Identity carrying a RANDOM node id, which
+            // went into the space before any node existed and disagreed with
+            // the real one forever after (audit XV-06). The node id is the
+            // node's to produce.
             password: _passwordCtrl.text,
             mode: _mode,
             // The REAL phrase drives the deterministic identity derivation on

@@ -117,11 +117,18 @@ class HeadlessRuntime {
         lib: _veilNativeHandle(),
       );
       final nodeId = await stack.transport.nodeId();
-      final storedIdentity = await storage.loadIdentity();
-      if (storedIdentity == null) {
-        await storage.saveIdentity(Identity(nodeId: nodeId));
-      } else if (storedIdentity.nodeId != nodeId) {
-        throw StateError('stored identity does not match running veil node');
+      // The node id comes from the node, full stop (audit XV-06). This used to
+      // compare it against a copy kept in the profile record and REFUSE TO
+      // START on a mismatch — which every GUI-onboarded profile had, because
+      // onboarding wrote a random id there before the node existed. A daemon
+      // that will not run on a profile the app happily uses is one profile with
+      // two answers; there is only one now, and nothing to compare.
+      //
+      // The record is still written when absent: its presence is what tells the
+      // app's clash guards that this space belongs to an identity and must not
+      // have a roster written over it.
+      if (await storage.loadProfile() == null) {
+        await storage.saveProfile(const UserProfile());
       }
 
       messaging = MessagingService(

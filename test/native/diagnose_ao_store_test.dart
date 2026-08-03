@@ -37,7 +37,7 @@ void main() {
           continue;
         }
         final roster = await s.loadRoster();
-        final id = await s.loadIdentity();
+        final id = await s.loadProfile();
         print('DIAG pw=$pw -> OPENED  roster=${roster?.map((e) => e.label).toList()}'
             '  identity=${id?.displayName ?? '(none)'}');
         // The CRUX: master/all-online opens children by their STORED spaceKeys,
@@ -51,7 +51,7 @@ void main() {
               keysOpener: hvKeysSpaceOpener(path),
             );
             final kok = await ks.openWithKeys(e.spaceKeys);
-            final kid = kok ? await ks.loadIdentity() : null;
+            final kid = kok ? await ks.loadProfile() : null;
             print('  roster["${e.label}"] openWithKeys -> '
                 '${kok ? "OK identity=${kid?.displayName ?? "(none)"}" : "FAILED (stale keys)"}'
                 '  keys=${e.spaceKeys.length}B head=${e.spaceKeys.take(8).toList()}');
