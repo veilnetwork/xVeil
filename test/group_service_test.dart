@@ -15364,6 +15364,227 @@ void main() {
   );
 
   test(
+    'a moderator dating its action into the future used to retire its '
+    "target's right of appeal at every reviewer at once",
+    () async {
+      final t0 = DateTime.utc(2026, 8, 3, 12).millisecondsSinceEpoch;
+      final hostileTs = t0 + const Duration(days: 365).inMilliseconds;
+
+      final ownerStorage = FakeHvContainer().storage();
+      final modStorage = FakeHvContainer().storage();
+      final bobStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      await modStorage.open(password: 'pw', createIfMissing: true);
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+
+      // The reviewer is the Space owner and its clock is honest; the harm is
+      // not something the moderator does to its own copy.
+      var ownerWall = t0;
+      final decisions = <String>[];
+      final ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        sendSpaceModerationAppealDecision:
+            (peer, appealId, decisionJson) async =>
+                decisions.add(decisionJson),
+      )..debugWallClockMs = () => ownerWall;
+      // The moderator reads 2027.
+      final modSvc = GroupService(modStorage, _FakeSigner(carol))
+        ..debugWallClockMs = () => hostileTs;
+      final captured = <String>[];
+      var bobWall = t0;
+      final bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        sendSpaceModerationAppeal: (peer, appealId, appealJson) async =>
+            captured.add(appealJson),
+      )..debugWallClockMs = () => bobWall;
+      addTearDown(ownerSvc.dispose);
+      addTearDown(modSvc.dispose);
+      addTearDown(bobSvc.dispose);
+
+      final spaceId = await ownerSvc.createSpace('Appeal denial');
+      for (final member in [bob, carol]) {
+        expect(
+          await ownerSvc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: member,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+      }
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.setRole,
+          target: carol,
+          role: GroupRole.admin,
+        ),
+        isTrue,
+      );
+      Future<void> handTo(GroupService target, NodeId recipient) async {
+        expect(
+          await target.ingestSnapshot(
+            ownerSvc.snapshotJson(
+              (await ownerSvc.load(spaceId))!,
+              recipient: recipient,
+            ),
+          ),
+          isTrue,
+        );
+      }
+
+      await handTo(modSvc, carol);
+      final actionId = await modSvc.moderateSpace(
+        spaceId,
+        kind: SpaceModerationKind.restrictMessages,
+        target: bob,
+        scope: SpaceModerationScope.space,
+        reason: 'dated a year out',
+      );
+      expect(actionId, isNotNull);
+      expect(
+        await ownerSvc.ingestSnapshot(
+          modSvc.snapshotJson((await modSvc.load(spaceId))!, recipient: owner),
+        ),
+        isTrue,
+      );
+      await handTo(bobSvc, bob);
+
+      final candidate =
+          (await bobSvc.appealableSpaceModerationActions()).single;
+      expect(candidate.record.actionId, actionId);
+      expect(
+        candidate.record.action.createdAtMs,
+        greaterThanOrEqualTo(hostileTs),
+        reason: 'the action really does claim to have been taken in 2027, and '
+            "nothing about the moderator's signature says otherwise",
+      );
+
+      expect(
+        await bobSvc.appealSpaceModeration(
+          spaceId,
+          actionId!,
+          text: 'This was a mistake.',
+        ),
+        isTrue,
+      );
+      expect(captured, hasLength(1));
+      final sent = SpaceModerationAppeal.fromJson(jsonDecode(captured.single))!;
+      expect(
+        sent.createdAtMs,
+        lessThanOrEqualTo(bobWall + kSpacePublicClockSkew.inMilliseconds),
+        reason: "the appellant signs its OWN clock; the moderator's number is "
+            'not folded into it',
+      );
+      expect(sent.createdAtMs, lessThan(hostileTs));
+
+      // Delivery takes a moment, and the reviewer's clock has moved on by the
+      // time it lands. This is what tells "the action's stamp is excluded from
+      // the comparison" apart from "the action's stamp is clamped to now",
+      // which reads as equivalent and rejects every appeal that took any time
+      // at all to arrive.
+      ownerWall = t0 + const Duration(seconds: 30).inMilliseconds;
+      expect(
+        await ownerSvc.receiveSpaceModerationAppeal(bob, captured.single),
+        isTrue,
+        reason: 'one number, chosen by the person being appealed against, must '
+            'not be able to make the appeal unacceptable to its reviewer',
+      );
+      final incoming = await ownerSvc.incomingSpaceModerationAppeals(
+        spaceId: spaceId,
+        pendingOnly: true,
+      );
+      expect(incoming, hasLength(1));
+      expect(incoming.single.appeal.appellant, bob);
+      expect(
+        incoming.single.receivedAtMs,
+        lessThan(hostileTs),
+        reason: "and the reviewer's inbox is not sorted by 2027 either",
+      );
+
+      // The decision has to be able to come back, which is the second place an
+      // appeal's own stamp is weighed against a number from somewhere else:
+      // the appellant refuses a decision dated before its appeal.
+      expect(
+        await ownerSvc.decideSpaceModerationAppeal(
+          incoming.single.appeal.appealId,
+          outcome: SpaceModerationAppealOutcome.rejected,
+          reason: 'reviewed and upheld',
+        ),
+        isTrue,
+      );
+      expect(decisions, hasLength(1));
+      bobWall = ownerWall + 5000;
+      expect(
+        await bobSvc.receiveSpaceModerationAppealDecision(
+          owner,
+          decisions.single,
+        ),
+        isTrue,
+      );
+      expect(
+        (await bobSvc.outgoingSpaceModerationAppeals()).single.decision?.outcome,
+        SpaceModerationAppealOutcome.rejected,
+      );
+
+      // One-sided, like the rest of this series: an honest moderator a few
+      // minutes fast is believed, and appealing its action still works.
+      final honestModSvc = GroupService(modStorage, _FakeSigner(carol))
+        ..debugWallClockMs = () =>
+            t0 + const Duration(minutes: 3).inMilliseconds;
+      addTearDown(honestModSvc.dispose);
+      expect(
+        await honestModSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: carol,
+          ),
+        ),
+        isTrue,
+      );
+      final honestAction = await honestModSvc.moderateSpace(
+        spaceId,
+        kind: SpaceModerationKind.mute,
+        target: bob,
+        scope: SpaceModerationScope.space,
+        reason: 'honestly a little fast',
+      );
+      expect(honestAction, isNotNull);
+      expect(
+        await ownerSvc.ingestSnapshot(
+          honestModSvc.snapshotJson(
+            (await honestModSvc.load(spaceId))!,
+            recipient: owner,
+          ),
+        ),
+        isTrue,
+      );
+      await handTo(bobSvc, bob);
+      captured.clear();
+      expect(
+        await bobSvc.appealSpaceModeration(
+          spaceId,
+          honestAction!,
+          text: 'And this one too.',
+        ),
+        isTrue,
+      );
+      ownerWall += 1000;
+      expect(
+        await ownerSvc.receiveSpaceModerationAppeal(bob, captured.single),
+        isTrue,
+      );
+
+      await bobStorage.close();
+      await modStorage.close();
+      await ownerStorage.close();
+    },
+  );
+
+  test(
     'moderation appeal routes to the current owner after transfer',
     () async {
       final storage = FakeHvContainer().storage();

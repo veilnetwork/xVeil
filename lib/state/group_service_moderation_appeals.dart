@@ -244,9 +244,18 @@ class _ModerationAppeals {
         appellant: _owner.selfId,
         reviewer: reviewer,
         text: normalized,
-        createdAtMs: now < record.action.createdAtMs
-            ? record.action.createdAtMs
-            : now,
+        // This device's own assertion about when IT appealed, and nothing
+        // else's. It used to be lifted to the moderator's
+        // `action.createdAtMs` whenever that was ahead, to satisfy the
+        // reviewer's "an appeal cannot predate its action" comparison — which
+        // handed the moderator a switch: an action dated a year out made the
+        // only appeal this code would sign a year out too, and every reviewer
+        // refuses an appeal more than [kSpacePublicClockSkew] ahead of its own
+        // clock. One number, chosen by the person being appealed against, and
+        // the target loses the right to appeal at all, everywhere at once,
+        // with nothing they can do about it. See [receiveSpaceModerationAppeal]
+        // for the other half.
+        createdAtMs: now,
         signature: Uint8List(0),
         authorPubKey: Uint8List(0),
       );
@@ -292,7 +301,8 @@ class _ModerationAppeals {
     if (appeal == null ||
         appeal.appellant != peer ||
         appeal.reviewer != _owner.selfId ||
-        appeal.createdAtMs > now + const Duration(minutes: 5).inMilliseconds ||
+        appeal.createdAtMs >
+            now + kSpacePublicClockSkew.inMilliseconds ||
         !_owner._signer.verifyModerationAppeal(appeal) ||
         (await _owner._storage.getContact(peer))?.status ==
             ContactStatus.blocked) {
@@ -316,9 +326,22 @@ class _ModerationAppeals {
       state,
       acceptedAppeal.actionId,
     );
-    if (record == null ||
-        record.action.target != peer ||
-        acceptedAppeal.createdAtMs < record.action.createdAtMs) {
+    // Deliberately no "the appeal must not predate its action" comparison. It
+    // weighed two numbers from two different unauthenticated clocks — the
+    // appellant's and the MODERATOR's — so between honest participants it
+    // already misfired whenever the moderator's clock led the appellant's, and
+    // the only way to satisfy it was for the appellant to copy the moderator's
+    // number into its own signed appeal, which is what let one future-dated
+    // action retire its target's right of appeal at every reviewer at once.
+    //
+    // Causality is proved here without a clock and always was: the appeal
+    // names an exact action by (actionAuthor, actionSeq), `_moderationRecord`
+    // must find that action accepted in the signed control log, and the action
+    // must target this very peer. You cannot appeal something that has not
+    // happened. The appeal's own stamp is still bounded above by the
+    // [kSpacePublicClockSkew] gate on the way in, which is the one thing this
+    // device can actually judge.
+    if (record == null || record.action.target != peer) {
       return false;
     }
     return _serializeSpaceModerationAppeals(() async {
@@ -495,8 +518,7 @@ class _ModerationAppeals {
     if (decision == null ||
         decision.reviewer != peer ||
         decision.appellant != _owner.selfId ||
-        decision.decidedAtMs >
-            now + const Duration(minutes: 5).inMilliseconds ||
+        decision.decidedAtMs > now + kSpacePublicClockSkew.inMilliseconds ||
         !_owner._signer.verifyModerationAppealDecision(decision) ||
         (await _owner._storage.getContact(peer))?.status ==
             ContactStatus.blocked) {
