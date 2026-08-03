@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/group_payload.dart';
+import 'package:xveil/domain/space_discovery.dart'
+    show kSpacePublicClockSkew;
 import 'package:xveil/domain/space_post.dart';
 
 NodeId _id(int value) =>
@@ -525,7 +527,7 @@ void main() {
 
   test('feed cursor round-trips every deterministic tie-breaker', () {
     final cursor = SpaceFeedCursor(
-      publishedAtMs: 123,
+      orderAtMs: 123,
       spaceId: _id(7),
       author: _id(8),
       seq: 9,
@@ -534,6 +536,211 @@ void main() {
     expect(decoded, isNotNull);
     expect(decoded!.compareTo(cursor), 0);
     expect(SpaceFeedCursor.decode('not a cursor'), isNull);
+  });
+
+  test('the local order bound on a publication stamp is ONE-SIDED and '
+      'tolerates honest drift', () {
+    const now = 1700000000000;
+
+    // The past is never touched: a backdated import cannot float above
+    // anything, and a device back from a nap must keep its own publish time.
+    expect(spacePostOrderAt(now - 60000, now), now - 60000);
+    expect(spacePostOrderAt(0, now), 0);
+    expect(spacePostOrderAt(now, now), now);
+
+    // Honest drift is believed to the millisecond, all the way to the bound.
+    // This is why it is a TOLERANCE and not "anything ahead of my clock":
+    // ordinary publishing keeps the author's own order on every device.
+    expect(
+      spacePostOrderAt(now + kSpacePublicClockSkew.inMilliseconds, now),
+      now + kSpacePublicClockSkew.inMilliseconds,
+      reason: 'a publisher exactly at the tolerated skew is still believed',
+    );
+
+    // One millisecond past it is not a clock reading any more, and the only
+    // time the receiver actually knows is when the row arrived.
+    expect(
+      spacePostOrderAt(now + kSpacePublicClockSkew.inMilliseconds + 1, now),
+      now,
+    );
+    // The whole span `isStructurallyValid` lets a signed row claim.
+    expect(
+      spacePostOrderAt(now + const Duration(days: 365).inMilliseconds, now),
+      now,
+    );
+  });
+
+  test(
+    'the +365d structural bound is author-relative and stops no hostile clock',
+    () {
+      // Both numbers are the same author's and both are inside the signature,
+      // so a publisher that wants to live in 2100 simply signs BOTH there and
+      // sails through. This pins that the check is exactly a self-consistency
+      // bound — it is not, and never was, a defence against a stranger's
+      // clock, which is why the order rule above has to exist.
+      SpacePost hostile({required int created, required int published}) =>
+          SpacePost(
+            spaceId: _id(1),
+            author: _id(2),
+            seq: 0,
+            prevHash: '',
+            type: SpacePostType.post,
+            visibility: SpacePostVisibility.public,
+            title: 'from the future',
+            body: 'b',
+            policyVersion: 0,
+            createdAtMs: created,
+            publishedAtMs: published,
+            signature: Uint8List(64),
+          );
+
+      const year2100 = 4102444800000;
+      expect(
+        hostile(created: year2100, published: year2100).isStructurallyValid,
+        isTrue,
+        reason: 'a row wholly in 2100 is structurally perfect',
+      );
+      // ...and the derived order refuses it anyway, which is the point.
+      const now = 1700000000000;
+      expect(spacePostOrderAt(year2100, now), now);
+
+      // What the bound does catch: a row that contradicts its own two fields.
+      expect(
+        hostile(created: 2000, published: 1999).isStructurallyValid,
+        isFalse,
+        reason: 'published before created is malformed on any clock',
+      );
+      expect(
+        hostile(
+          created: 0,
+          published: const Duration(days: 365).inMilliseconds + 1,
+        ).isStructurallyValid,
+        isFalse,
+      );
+      expect(
+        hostile(
+          created: 0,
+          published: const Duration(days: 365).inMilliseconds,
+        ).isStructurallyValid,
+        isTrue,
+      );
+    },
+  );
+
+  test('the display-order projection is invisible to everything the author '
+      'signed', () {
+    final root = SpacePost(
+      spaceId: _id(9),
+      author: _id(8),
+      seq: 3,
+      prevHash: '',
+      type: SpacePostType.post,
+      visibility: SpacePostVisibility.public,
+      title: 'from the future',
+      body: 'b',
+      policyVersion: 0,
+      createdAtMs: 4102444800000, // 2100-01-01
+      publishedAtMs: 4102444800000,
+      signature: Uint8List(64),
+    );
+    // Pinned literally: `published` is INSIDE these bytes, which is the whole
+    // reason this surface gets a derived order instead of the 1:1 receipt
+    // clamp. If a later change ever rewrites the stored stamp, this fails.
+    expect(
+      utf8.decode(root.canonicalBytes()),
+      '{"v":1,"sid":"${_id(9).hex}","author":"${_id(8).hex}","seq":3,'
+      '"prev":"","type":"post","visibility":"public","title":"from the future",'
+      '"body":"b","pv":0,"created":4102444800000,"published":4102444800000}',
+    );
+
+    final view = SpacePostView(root: root, effective: root);
+    expect(view.orderedAtMs, root.publishedAtMs,
+        reason: 'a post with no receipt is ordered by its own claim');
+
+    final projected = view.withOrderedAt(1700000000000);
+    expect(projected.orderedAtMs, 1700000000000);
+    expect(projected.publishedAtMs, root.publishedAtMs,
+        reason: "the author's signed word is left exactly as written");
+    expect(projected.root.canonicalBytes(), root.canonicalBytes(),
+        reason: 'byte-identical: a signature made before this still verifies');
+    expect(jsonEncode(projected.root.toJson()), jsonEncode(root.toJson()),
+        reason: 'nothing new reaches disk or the wire');
+    expect(jsonEncode(projected.effective.toJson()), jsonEncode(root.toJson()));
+
+    // The projection survives the copies the read path makes on the way out.
+    expect(projected.withMediaHiddenByRetention().orderedAtMs, 1700000000000);
+    expect(
+      projected.withPin(pinned: true, pinnedAtMs: 5).orderedAtMs,
+      1700000000000,
+    );
+    expect(
+      projected.withPin(pinned: false).withMediaHiddenByRetention().orderedAtMs,
+      1700000000000,
+    );
+
+    // And the cursor — the thing that actually ranks and pages — follows the
+    // derived value, while a bare signed row still has only its own claim.
+    expect(SpaceFeedCursor.fromView(projected).orderAtMs, 1700000000000);
+    expect(SpaceFeedCursor.fromPost(root).orderAtMs, 4102444800000);
+  });
+
+  test('the feed cursor is a STRICT total order and rejects the older '
+      'published-stamp token', () {
+    SpaceFeedCursor cursor(int at, int author, int seq) =>
+        SpaceFeedCursor(orderAtMs: at, spaceId: _id(1), author: _id(author),
+            seq: seq);
+
+    // Two publications bounded to the very same arrival millisecond still
+    // compare, or a page that ends between them would drop or repeat one.
+    expect(cursor(5, 2, 0).compareTo(cursor(5, 3, 0)), lessThan(0));
+    expect(cursor(5, 2, 1).compareTo(cursor(5, 2, 0)), greaterThan(0));
+    expect(cursor(5, 2, 0).compareTo(cursor(5, 2, 0)), 0);
+    expect(
+      SpaceFeedCursor(orderAtMs: 5, spaceId: _id(1), author: _id(2), seq: 0)
+          .compareTo(
+            SpaceFeedCursor(
+              orderAtMs: 5,
+              spaceId: _id(2),
+              author: _id(2),
+              seq: 0,
+            ),
+          ),
+      lessThan(0),
+      reason: 'the merged Feed spans Spaces, so spaceId must break ties too',
+    );
+
+    // A token minted when `ts` meant the SIGNED publication stamp must not be
+    // read as if it meant the local order — comparing the two kinds is exactly
+    // what skips rows. It is refused outright instead.
+    final legacy = base64Url.encode(
+      utf8.encode(
+        jsonEncode({
+          'v': 1,
+          'ts': 123,
+          'sid': _id(7).hex,
+          'author': _id(8).hex,
+          'seq': 9,
+        }),
+      ),
+    );
+    expect(SpaceFeedCursor.decode(legacy), isNull);
+    // Structural rejections still hold on the current shape.
+    expect(
+      SpaceFeedCursor.decode(
+        base64Url.encode(
+          utf8.encode(
+            jsonEncode({
+              'v': 2,
+              'ord': -1,
+              'sid': _id(7).hex,
+              'author': _id(8).hex,
+              'seq': 9,
+            }),
+          ),
+        ),
+      ),
+      isNull,
+    );
   });
 
   test('local SpaceSubscription is separate from membership authority', () {

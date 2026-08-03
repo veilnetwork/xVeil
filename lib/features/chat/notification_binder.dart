@@ -746,7 +746,10 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
                     gsvc.selfId,
                   ),
             ),
-            (post) => post.publishedAtMs,
+            // Ranked on the derived stamp: a publisher in 2027 would
+            // otherwise always be "the newest unread post" and own every
+            // notification this Space ever raises.
+            (post) => post.orderedAtMs,
           );
           if (latestPost == null) continue;
           final isMention = messageMentionsNode(
@@ -764,7 +767,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             preview: latestPost.title.trim().isNotEmpty
                 ? latestPost.title
                 : latestPost.body,
-            timestampMs: latestPost.publishedAtMs,
+            timestampMs: latestPost.orderedAtMs,
             allowReply: false,
             isMention: isMention,
           ));
@@ -790,7 +793,10 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
                     gsvc.selfId,
                   ),
             ),
-            (post) => post.publishedAtMs,
+            // Ranked on the derived stamp: a publisher in 2027 would
+            // otherwise always be "the newest unread post" and own every
+            // notification this Space ever raises.
+            (post) => post.orderedAtMs,
           );
           if (latestPost == null) continue;
           final isMention = messageMentionsNode(
@@ -808,7 +814,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
             preview: latestPost.title.trim().isNotEmpty
                 ? latestPost.title
                 : latestPost.body,
-            timestampMs: latestPost.publishedAtMs,
+            timestampMs: latestPost.orderedAtMs,
             allowReply: false,
             isMention: isMention,
           ));
