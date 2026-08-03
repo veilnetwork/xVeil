@@ -122,9 +122,16 @@ def _pubspec_version() -> str:
 def _check_android_signing() -> None:
     """Refuse to call a debug-signed APK a release.
 
-    Without android/key.properties gradle falls back to the debug key. It does
-    warn, but a warning in the middle of a two-minute build is not one anyone
-    reads — this is checked at the END, where it cannot scroll past.
+    Gradle now refuses this itself (audit X-13): a release build without
+    android/key.properties fails outright unless -PxveilAllowDebugSigning=true
+    was passed on purpose. This check stays as the backstop for exactly that
+    case — the escape hatch can be left behind in android/gradle.properties,
+    and then gradle is doing what it was told while the result is still not
+    distributable.
+
+    Without android/key.properties gradle used to fall back to the debug key.
+    It did warn, but a warning in the middle of a two-minute build is not one
+    anyone reads — this is checked at the END, where it cannot scroll past.
 
     Two consequences, both permanent: an update can never be shipped over it
     (Android treats a different signing key as a different app, so testers
