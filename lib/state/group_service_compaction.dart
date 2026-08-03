@@ -60,6 +60,13 @@ class _LogCompaction {
     // resolving by wall clock the very conflict the note DAG preserves. Ask
     // the domain which revisions are still unresolved heads and keep those too.
     final branches = <String>{};
+    // Rows stamped further ahead than [kDeviceSyncClockSkew]. They are the one
+    // thing this pass must not resolve: a device that claims to live in the
+    // future would otherwise win every key it touches and the honest rows it
+    // beat would be deleted from disk here, permanently. Deferred rows are
+    // kept and are barred from winning until their own time arrives.
+    final deferred = <String>{};
+    final nowMs = _owner._now();
     final valid = [
       for (final m in input)
         if (_owner._validMessageFor(groupId, m)) m,
@@ -69,12 +76,25 @@ class _LogCompaction {
         if (DeviceSyncEvent.fromBody(m.body) case final e?)
           if (e.kind == DeviceSyncKind.cloudEntry) e,
     ];
-    final noteBranches = unresolvedCloudNoteRevisions(entries);
+    final effective = [
+      for (final e in entries)
+        if (deviceSyncEffectiveAt(e, nowMs)) e,
+    ];
+    // Both reachability questions below decide what to DELETE, and a deferred
+    // revision changes the answer in both directions: present, it can orphan an
+    // honest claim; absent, it can orphan its own. So each is asked under both
+    // views and a row survives if either view keeps it. With no deferred row
+    // the two views are the same list and the outcome is unchanged.
+    final noteBranches = {
+      ...unresolvedCloudNoteRevisions(entries),
+      ...unresolvedCloudNoteRevisions(effective),
+    };
     // Claims key on the cid, so a new revision of an object mints a NEW key
     // and the old claim wins its own key forever — this is what actually grew
     // the device log to thousands of rows. A claim whose cid no longer belongs
     // to any answerable revision is unreachable: nothing can ask for it.
     final answerable = answerableCloudContentIds(entries);
+    final answerableNow = answerableCloudContentIds(effective);
     for (final m in valid) {
       final head = heads[m.author.hex];
       if (head == null || m.seq > head.seq) heads[m.author.hex] = m;
@@ -90,8 +110,13 @@ class _LogCompaction {
           )) {
         branches.add(m.ref);
       }
+      if (!deviceSyncEffectiveAt(event, nowMs)) {
+        deferred.add(m.ref);
+        continue;
+      }
       if (event.kind == DeviceSyncKind.cloudReplica &&
-          _unreachableClaim(event, answerable)) {
+          _unreachableClaim(event, answerable) &&
+          _unreachableClaim(event, answerableNow)) {
         // Deliberately not entered into `latest`: it must not survive as the
         // winner of its own key. The author high-water above still holds it if
         // it happens to be that author's newest row, so seq allocation and
@@ -110,6 +135,7 @@ class _LogCompaction {
     final keep = <String>{
       ...unknown,
       ...branches,
+      ...deferred,
       for (final v in latest.values) v.message.ref,
       for (final m in heads.values) m.ref,
     };

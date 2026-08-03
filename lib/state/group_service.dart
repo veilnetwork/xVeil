@@ -16317,13 +16317,20 @@ class GroupService {
 
   /// The folded device-sync state: newest event per (kind, key), from the
   /// VALIDATED device-group log. Empty before adoption.
+  ///
+  /// Rows stamped past [kDeviceSyncClockSkew] ahead of this device's clock are
+  /// left out — a linked device must not be able to win a key by claiming to
+  /// live in the future. They stay in the log and fold in on a later read.
   Future<Map<(DeviceSyncKind, String), DeviceSyncEvent>>
   deviceSyncState() async {
     final hex = await deviceGroupIdHex();
     if (hex == null) return const {};
     final msgs = await messagesOf(NodeId.fromHex(hex));
+    final nowMs = _now();
     return foldDeviceSync([
-      for (final m in msgs) ?DeviceSyncEvent.fromBody(m.body),
+      for (final m in msgs)
+        if (DeviceSyncEvent.fromBody(m.body) case final e?)
+          if (deviceSyncEffectiveAt(e, nowMs)) e,
     ]);
   }
 
@@ -16331,14 +16338,20 @@ class GroupService {
   /// Most LWW kinds need only [deviceSyncState]; cloud replica claims must also
   /// prove `claimed device == author`, so discarding the author would turn the
   /// group into a replica-count spoofing oracle.
+  ///
+  /// Same clock bound as [deviceSyncState]: this is what the personal-cloud and
+  /// capability-registry folds read, so a future-stamped tombstone must not be
+  /// able to retire an item until its own timestamp actually arrives.
   Future<List<DeviceSyncRecord>> deviceSyncRecords() async {
     final hex = await deviceGroupIdHex();
     if (hex == null) return const [];
     final messages = await messagesOf(NodeId.fromHex(hex));
+    final nowMs = _now();
     return [
       for (final message in messages)
         if (DeviceSyncEvent.fromBody(message.body) case final event?)
-          (event: event, author: message.author),
+          if (deviceSyncEffectiveAt(event, nowMs))
+            (event: event, author: message.author),
     ];
   }
 
