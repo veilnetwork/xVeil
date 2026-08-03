@@ -55,6 +55,61 @@ Future<VeilServeSource?> veilSourceOpener(String path) async {
   return (read: read, close: raf.close);
 }
 
+/// A serve source that also carries the size it was opened with.
+typedef VeilOpenedSource = ({
+  int size,
+  Future<Uint8List> Function(int offset, int length) read,
+  Future<void> Function() close,
+});
+
+/// Open [path] ONCE for a send: the size and every byte come from the SAME
+/// descriptor.
+///
+/// The send used to look the name up three times — `exists()`, then `length()`,
+/// then `open()`. Between the second and the third, the name could be pointed
+/// at another file, and the offer went out describing one file's SIZE while
+/// hashing and serving another file's BYTES. That inconsistency is what made
+/// the manifest look coherent to an honest receiver, which would then accept
+/// the substituted bytes (audit X-02).
+///
+/// One `open` removes it: `length()` on the handle reads the inode this
+/// descriptor holds, not whatever the name means by then, and every later read
+/// goes through the same handle. A rename or a relink under the path no longer
+/// changes what is being sent.
+///
+/// It does NOT close the remaining window, and there is no way from Dart to
+/// close it: between the caller's authorization check and this open the name is
+/// still just a name — no `openat`, no `O_NOFOLLOW`. Detection, by comparing
+/// [veilSourceStamp] across the read, is what is on offer there.
+///
+/// Null when the file cannot be opened (moved, deleted, an expired mobile
+/// cache/SAF path) — the caller reports that as a missing source.
+Future<VeilOpenedSource?> veilOpenSourceForSend(String path) async {
+  final RandomAccessFile raf;
+  try {
+    raf = await File(path).open();
+  } catch (_) {
+    return null;
+  }
+  final int size;
+  try {
+    size = await raf.length();
+  } catch (_) {
+    try {
+      await raf.close();
+    } catch (_) {}
+    return null;
+  }
+  Future<void> gate = Future<void>.value();
+  Future<Uint8List> read(int offset, int length) {
+    final r = gate.then((_) => _readFully(raf, offset, length));
+    gate = r.then((_) {}, onError: (_) {});
+    return r;
+  }
+
+  return (size: size, read: read, close: raf.close);
+}
+
 /// A plaintext WRITE sink over a destination file — offset writes + close,
 /// plus an optional [read] for RESUME verification (read a piece back and
 /// hash-check it so a restart skips already-written pieces). [read] is null on
