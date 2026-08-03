@@ -48,6 +48,7 @@ Future<void> _run(List<String> args) async {
   String? passwordFile;
   String? phraseFile;
   String? tokenFile;
+  final fileRoots = <String>[];
   var create = false;
   for (var i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -59,6 +60,11 @@ Future<void> _run(List<String> args) async {
         phraseFile = _next(args, ++i, '--identity-phrase-file');
       case '--api-token-file':
         tokenFile = _next(args, ++i, '--api-token-file');
+      // Repeatable. Without at least one, `POST /v1/files` is refused: the
+      // provisioned token authenticates a bot, it does not hand it the disk
+      // (audit XV-08).
+      case '--api-file-root':
+        fileRoots.add(_next(args, ++i, '--api-file-root'));
       case '--create':
         create = true;
       default:
@@ -69,6 +75,14 @@ Future<void> _run(List<String> args) async {
   passwordFile ??= Platform.environment['XVEIL_PASSWORD_FILE'];
   phraseFile ??= Platform.environment['XVEIL_IDENTITY_PHRASE_FILE'];
   tokenFile ??= Platform.environment['XVEIL_API_TOKEN_FILE'];
+  if (fileRoots.isEmpty) {
+    final fromEnv = Platform.environment['XVEIL_API_FILE_ROOTS'];
+    if (fromEnv != null && fromEnv.isNotEmpty) {
+      fileRoots.addAll(
+        fromEnv.split(Platform.isWindows ? ';' : ':').where((r) => r.isNotEmpty),
+      );
+    }
+  }
   if (configPath == null || configPath.isEmpty) {
     throw const FormatException('--config or XVEIL_CONFIG is required');
   }
@@ -89,6 +103,7 @@ Future<void> _run(List<String> args) async {
     createIfMissing: create,
     identityPhrase: phrase,
     apiToken: token,
+    apiFileRoots: fileRoots,
   );
   stdout.writeln(
     jsonEncode({
@@ -229,10 +244,15 @@ xVeil headless daemon
   xveil print-openapi
   xveil run --config PATH [--create]
             [--password-file PATH] [--identity-phrase-file PATH]
-            [--api-token-file PATH]
+            [--api-token-file PATH] [--api-file-root DIR]...
 
 Secrets are never accepted in the JSON config or as literal command-line
 arguments. For unattended services use protected credential files. Native
 libraries may be selected with VEIL_FFI_DYLIB and XVEIL_HV_DYLIB.
+
+--api-file-root is repeatable (or XVEIL_API_FILE_ROOTS, path-separated) and
+names the only folders POST /v1/files may send a local file out of. With none,
+that endpoint is refused: the API token authenticates a bot, it does not grant
+it the filesystem.
 ''');
 }
