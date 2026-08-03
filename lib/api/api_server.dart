@@ -4145,6 +4145,14 @@ class ApiHandler {
   /// True if [raw] matches any token — the WS path's query-token check.
   bool tokenOk(String? raw) => _matchRaw(raw) != null;
 
+  /// The token behind a WS query parameter, or null.
+  ///
+  /// [tokenOk] answered only "yes", which is why an upgraded socket could not
+  /// be attributed to anything afterwards (audit XV-10). The subscriber needs
+  /// the identity of its token, not just the verdict, so it can be closed when
+  /// that token goes away.
+  ApiToken? tokenFor(String? raw) => _matchRaw(raw);
+
   /// True if an `Authorization:` header carries a token this server accepts.
   ///
   /// Exists so the transport can refuse an unauthenticated request BEFORE it
@@ -6432,20 +6440,73 @@ class _BodyOutcome {
   final int? status;
 }
 
-class ApiServer {
-  /// [bodyDeadline] and [maxInFlight] are overridable for tests only.
+/// One `/v1/events` subscriber, and the token that authorised it.
+///
+/// The socket used to be anonymous once upgraded (audit XV-10): nothing tied
+/// it back to a token, so revoking that token, switching off the API or moving
+/// to another identity left it connected and being fed. Binding it to the
+/// token id is what makes "close what this token opened" expressible at all.
+class _LiveSocket {
+  _LiveSocket(this.socket, this.tokenId);
+
+  final WebSocket socket;
+  final String tokenId;
+  StreamSubscription<Map<String, dynamic>>? events;
+  StreamController<String>? queue;
+
+  /// The `addStream` that pumps [queue] into [socket]. Held because a
+  /// `WebSocket` still bound to an `addStream` REFUSES to close — measured:
+  /// `close()` throws `StateError: StreamSink is bound to a stream`, and
+  /// closing the queue is not enough on its own, the pump has to have noticed.
+  Future<void>? pump;
+
+  /// Stop feeding this subscriber, then close it.
   ///
-  /// Both defend against a caller who is patient rather than large, and both
-  /// are unreachable in a test at their production values — a 30-second wait
-  /// per assertion, or 33 sockets held open at once. Injecting them keeps the
-  /// two limits covered instead of merely described.
+  /// CANCEL FIRST, close second. The close handshake needs the peer to play
+  /// along; cancelling the event subscription does not. On revoke the property
+  /// that matters is that no further event reaches this socket, so it must not
+  /// depend on the other end being cooperative.
+  Future<void> shutdown(int code, String reason) async {
+    final sub = events;
+    events = null;
+    await sub?.cancel();
+    final q = queue;
+    queue = null;
+    await q?.close();
+    final inFlight = pump;
+    pump = null;
+    try {
+      await inFlight?.timeout(const Duration(seconds: 2));
+    } catch (_) {
+      /* the pump already failed; the sink is free either way */
+    }
+    try {
+      await socket.close(code, reason).timeout(const Duration(seconds: 2));
+    } catch (_) {
+      // A peer that will not complete the handshake still stops receiving,
+      // which is the half that carries the guarantee.
+    }
+  }
+}
+
+class ApiServer {
+  /// [bodyDeadline], [maxInFlight] and [maxLiveSockets] are overridable for
+  /// tests only.
+  ///
+  /// All three defend against a caller who is patient rather than large, and
+  /// all three are unreachable in a test at their production values — a
+  /// 30-second wait per assertion, 33 sockets held open at once, or 17 event
+  /// feeds. Injecting them keeps the limits covered instead of merely
+  /// described.
   ApiServer(
     this._handler,
     this._events, {
     Duration? bodyDeadline,
     int? maxInFlight,
+    int? maxLiveSockets,
   })  : _bodyDeadline = bodyDeadline ?? _defaultBodyDeadline,
-        _maxInFlight = maxInFlight ?? _defaultMaxInFlight;
+        _maxInFlight = maxInFlight ?? _defaultMaxInFlight,
+        _maxLiveSockets = maxLiveSockets ?? _defaultMaxLiveSockets;
 
   final ApiHandler _handler;
   final Stream<Map<String, dynamic>> _events;
@@ -6472,8 +6533,24 @@ class ApiServer {
   /// counting them together would let a few idle feeds starve ordinary calls,
   /// and not counting them at all is what let a token holder exhaust
   /// descriptors.
-  static const _maxLiveSockets = 16;
+  static const _defaultMaxLiveSockets = 16;
+  final int _maxLiveSockets;
   int _liveSockets = 0;
+
+  /// The subscribers currently connected, each bound to the token that opened
+  /// it (audit XV-10). Small by construction — [_maxLiveSockets] bounds it.
+  final _live = <_LiveSocket>[];
+
+  /// Awaited between the subscription check and the upgrade. Null in
+  /// production; a test uses it to hold that window open.
+  ///
+  /// The window is the whole finding, and it is INVISIBLE to an ordinary test:
+  /// on loopback a handshake finishes before the next request is dispatched,
+  /// so the interleaving that broke the cap in production never occurs in a
+  /// suite, and a race test written without this passes against the bug. The
+  /// seam makes "the upgrade takes time" something the test states rather than
+  /// something it hopes the scheduler provides.
+  Future<void> Function()? debugUpgradeGate;
 
   /// Events one subscriber may leave un-taken before it is disconnected.
   /// `WebSocket.add` buffers without bound, so a client that stops reading is
@@ -6621,7 +6698,8 @@ class ApiServer {
     // set an Authorization header on the upgrade handshake.
     if (WebSocketTransformer.isUpgradeRequest(req) &&
         req.uri.path == '/v1/events') {
-      if (!_handler.tokenOk(req.uri.queryParameters['token'])) {
+      final auth = _handler.tokenFor(req.uri.queryParameters['token']);
+      if (auth == null) {
         req.response.statusCode = 401;
         await req.response.close();
         return;
@@ -6644,58 +6722,79 @@ class ApiServer {
         await req.response.close();
         return;
       }
-      try {
-        final ws = await WebSocketTransformer.upgrade(req);
-        _liveSockets++;
-        var released = false;
-        void release() {
-          if (released) return;
-          released = true;
-          _liveSockets--;
-        }
-
-        // BOUNDED QUEUE with real backpressure (audit XV-14). `WebSocket.add`
-        // buffers without limit when the peer stops reading, so a slow client
-        // turned the event feed into a heap allocation driven by OTHER
-        // people's traffic, with nothing watching it grow.
-        //
-        // `addStream` pulls from this queue only as the socket accepts data,
-        // so `queued` is a true count of events the client has not taken.
-        // Past the ceiling the subscriber is the problem, so the subscriber is
-        // what gets dropped — dropping events instead would leave a bot
-        // silently missing messages, which is worse than a reconnect.
-        final queue = StreamController<String>();
-        var queued = 0;
-        final sub = _events.listen((e) {
-          try {
-            if (queued >= _maxQueuedEvents) {
-              unawaited(ws.close(1013, 'client too slow'));
-              return;
-            }
-            queued++;
-            queue.add(jsonEncode(e));
-          } catch (_) {
-            /* client gone mid-encode */
-          }
-        });
-        unawaited(
-          ws
-              .addStream(queue.stream.map((line) {
-                queued--;
-                return line;
-              }))
-              .catchError((Object _) {/* socket died mid-send */}),
-        );
-        unawaited(
-          ws.done.whenComplete(() async {
-            release();
-            await sub.cancel();
-            await queue.close();
-          }),
-        );
-      } catch (_) {
-        /* upgrade failed */
+      // RESERVED, not merely checked (audit XV-10). The count used to rise
+      // AFTER the awaited upgrade, so every subscription that arrived while
+      // the first one was still shaking hands read the same pre-upgrade total
+      // and passed — the cap held only for callers polite enough to connect
+      // one at a time. Taking the slot before the await makes the check and
+      // the claim one step, so the ceiling is the ceiling.
+      _liveSockets++;
+      var released = false;
+      void release() {
+        if (released) return;
+        released = true;
+        _liveSockets--;
       }
+
+      final WebSocket ws;
+      try {
+        await debugUpgradeGate?.call();
+        ws = await WebSocketTransformer.upgrade(req);
+      } catch (_) {
+        release(); // an upgrade that failed must not hold a slot forever
+        return;
+      }
+      final live = _LiveSocket(ws, auth.id);
+      _live.add(live);
+
+      // BOUNDED QUEUE with real backpressure (audit XV-14). `WebSocket.add`
+      // buffers without limit when the peer stops reading, so a slow client
+      // turned the event feed into a heap allocation driven by OTHER
+      // people's traffic, with nothing watching it grow.
+      //
+      // `addStream` pulls from this queue only as the socket accepts data,
+      // so `queued` is a true count of events the client has not taken.
+      // Past the ceiling the subscriber is the problem, so the subscriber is
+      // what gets dropped — dropping events instead would leave a bot
+      // silently missing messages, which is worse than a reconnect.
+      final queue = StreamController<String>();
+      var queued = 0;
+      live.queue = queue;
+      live.events = _events.listen((e) {
+        try {
+          if (queued >= _maxQueuedEvents) {
+            unawaited(ws.close(1013, 'client too slow'));
+            return;
+          }
+          queued++;
+          queue.add(jsonEncode(e));
+        } catch (_) {
+          /* client gone mid-encode */
+        }
+      });
+      live.pump = ws
+          .addStream(queue.stream.map((line) {
+            queued--;
+            return line;
+          }))
+          .catchError((Object _) {/* socket died mid-send */});
+      // A subscriber that hangs up is noticed through the INBOUND stream.
+      //
+      // The release used to hang off `ws.done`, which on a server-side socket
+      // does NOT complete when the peer disconnects — measured: only the
+      // inbound stream reports it, and nothing was listening to that. So the
+      // cap only ever counted UP: sixteen ordinary bot reconnects and the feed
+      // answered 503 until the app was restarted. A cap that never gives a
+      // slot back is worse than no cap, because it fails the honest client and
+      // not the abusive one.
+      ws.listen(
+        (_) {}, // the feed is one-way; whatever a client sends is ignored
+        onDone: () => unawaited(_releaseLive(live, release)),
+        onError: (Object _) => unawaited(_releaseLive(live, release)),
+        cancelOnError: true,
+      );
+      // Still wired, for the closes we initiate ourselves. Idempotent.
+      unawaited(ws.done.whenComplete(() => _releaseLive(live, release)));
       return;
     }
     if (_inFlight >= _maxInFlight) {
@@ -6852,9 +6951,55 @@ class ApiServer {
     }
   }
 
+  /// Give back one subscriber's slot and stop its feed. Idempotent: it runs
+  /// from the inbound stream, from `done`, and after an explicit close, and
+  /// whichever gets there first must make the rest harmless.
+  Future<void> _releaseLive(_LiveSocket live, void Function() release) async {
+    release();
+    _live.remove(live);
+    final sub = live.events;
+    live.events = null;
+    await sub?.cancel();
+    final q = live.queue;
+    live.queue = null;
+    live.pump = null;
+    await q?.close();
+  }
+
+  /// Disconnect live event subscribers — all of them, or only the ones a
+  /// given [tokenId] opened (audit XV-10).
+  ///
+  /// Targeted rather than "drop everything" because revoking one token must
+  /// not knock the other bots off their feeds; a revocation is not an outage.
+  Future<void> closeLiveSockets({
+    String? tokenId,
+    int code = 1001,
+    String reason = 'server stopping',
+  }) async {
+    final doomed = <_LiveSocket>[
+      for (final live in _live)
+        if (tokenId == null || live.tokenId == tokenId) live,
+    ];
+    for (final live in doomed) {
+      _live.remove(live);
+      await live.shutdown(code, reason);
+    }
+  }
+
+  /// How many `/v1/events` subscribers are connected right now. Exposed so a
+  /// test can see the registry shrink, not just the socket die.
+  int get liveSocketCount => _live.length;
+
   Future<void> stop() async {
     final s = _server;
     _server = null;
+    // Upgraded WebSockets are NOT part of what `HttpServer.close` tears down —
+    // measured, not assumed: after `close(force: true)` the socket is still
+    // open AND still writable from this side. So a subscriber outlived every
+    // teardown there is, including the one that matters most for deniability,
+    // an identity switch: a feed authorised under one identity stayed attached
+    // while the app moved to another. Disable and revoke run through here too.
+    await closeLiveSockets(code: 1001, reason: 'server stopping');
     if (s != null) await s.close(force: true);
   }
 }
