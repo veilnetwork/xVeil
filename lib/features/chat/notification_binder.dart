@@ -597,14 +597,18 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         ) ??
         0;
     final messages = await service.messagesOf(groupId);
+    // `seen` is a local clock reading (GroupService.markGroupSeen), so this
+    // compares against the derived stamp: a member that stamps itself into the
+    // future is otherwise newer than every watermark this device can write,
+    // and its mention re-alerts as "the newest one" forever.
     return newestByTimestamp(
       messages.where(
         (message) =>
             message.author != service.selfId &&
-            message.createdAtMs > seen &&
+            message.orderedAtMs > seen &&
             messageMentionsNode(message.body, service.selfId),
       ),
-      (message) => message.createdAtMs,
+      (message) => message.orderedAtMs,
     );
   }
 

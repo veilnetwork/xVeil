@@ -3178,6 +3178,327 @@ void main() {
     },
   );
 
+  test('the local order bound on a group stamp is ONE-SIDED and tolerates '
+      'honest drift', () {
+    const now = 1700000000000;
+
+    // The past is never touched: a stamp behind the receiver's clock cannot
+    // float above anything, and a device back from a nap must keep its own
+    // send time.
+    expect(groupMessageOrderAt(now - 60000, now), now - 60000);
+    expect(groupMessageOrderAt(0, now), 0);
+    expect(groupMessageOrderAt(now, now), now);
+
+    // Honest drift is believed to the millisecond, all the way to the bound.
+    // This is why it is a TOLERANCE and not "anything ahead of my clock":
+    // ordinary traffic keeps the author's own send order on every device.
+    expect(
+      groupMessageOrderAt(now + kMessageClockSkew.inMilliseconds, now),
+      now + kMessageClockSkew.inMilliseconds,
+      reason: 'an author exactly at the tolerated skew is still believed',
+    );
+
+    // One millisecond past it is not a clock reading any more, and the only
+    // time the receiver actually knows is when the row arrived.
+    expect(groupMessageOrderAt(now + kMessageClockSkew.inMilliseconds + 1, now),
+        now);
+    expect(
+      groupMessageOrderAt(now + const Duration(days: 365).inMilliseconds, now),
+      now,
+    );
+  });
+
+  test('the display-order projection is invisible to everything the author '
+      'signed', () {
+    final message = GroupMessage(
+      groupId: _id(9),
+      author: bob,
+      seq: 3,
+      prevHash: '',
+      body: 'from the future',
+      policyVersion: 0,
+      createdAtMs: 4102444800000, // 2100-01-01
+      signature: Uint8List(64),
+      authorPubKey: bob.bytes,
+    );
+    // Pinned literally: `ts` is INSIDE these bytes, which is the whole reason
+    // this surface gets a derived order instead of the 1:1 receipt clamp. If a
+    // later change ever moves the stored stamp, this is what fails.
+    expect(
+      utf8.decode(message.canonicalBytes()),
+      '{"gid":"${_id(9).hex}","author":"${bob.hex}","seq":3,"prev":"",'
+      '"body":"from the future","pv":0,"ts":4102444800000}',
+    );
+
+    final projected = message.withOrderedAt(1700000000000);
+    expect(projected.orderedAtMs, 1700000000000);
+    expect(message.orderedAtMs, message.createdAtMs,
+        reason: 'a row with no receipt is ordered by its own claim');
+    expect(projected.createdAtMs, message.createdAtMs,
+        reason: "the author's signed word is left exactly as written");
+    expect(projected.canonicalBytes(), message.canonicalBytes(),
+        reason: 'byte-identical: a signature made before this still verifies');
+    expect(jsonEncode(projected.toJson()), jsonEncode(message.toJson()),
+        reason: 'nothing new reaches disk or the wire');
+    expect(groupMessageHash(projected), groupMessageHash(message),
+        reason: 'dedup, chain prev-hash and fork evidence are untouched');
+    // The projection survives the copies the read path makes on the way out.
+    expect(projected.withMediaHiddenByRetention().orderedAtMs, 1700000000000);
+    expect(
+      projected
+          .withSignature(Uint8List(64), bob.bytes)
+          .withDecryptedContent(
+            const GroupMessageCleartext(body: 'decrypted'),
+          )
+          .orderedAtMs,
+      1700000000000,
+    );
+  });
+
+  test(
+    'a group member stamping itself into the future owns the bottom of the '
+    'log, the chat-list row and the unread badge until that future arrives — '
+    'and the fix must not touch one signed byte',
+    () async {
+      Future<void> drain() async {
+        for (var i = 0; i < 6; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+      }
+
+      final sent = <String>[];
+      final s1 = FakeHvContainer().storage();
+      await s1.open(password: 'pw', createIfMissing: true);
+      // Held clocks on both sides: this asserts an ORDER and an arrival
+      // moment, so it must not race DateTime.now. `_now()` is monotonic per
+      // service instance, so each side's stamps only ever move forward here.
+      final t0 = DateTime.utc(2026, 8, 3, 12).millisecondsSinceEpoch;
+      var wall = t0;
+      final ownerSvc = GroupService(
+        s1,
+        _FakeSigner(owner),
+        send: (p, g, j) async => sent.add(j),
+      )..debugWallClockMs = () => wall;
+      addTearDown(ownerSvc.dispose);
+      final gid = await ownerSvc.createGroup('G');
+      await ownerSvc.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      );
+      await drain();
+      final s2 = FakeHvContainer().storage();
+      await s2.open(password: 'pw', createIfMissing: true);
+      // Bob back from a nap, a minute BEHIND the receiver.
+      var bobWall = t0 - 60000;
+      final bobSvc = GroupService(
+        s2,
+        _FakeSigner(bob),
+        send: (p, g, j) async => sent.add(j),
+      )..debugWallClockMs = () => bobWall;
+      addTearDown(bobSvc.dispose);
+      await bobSvc.ingestSnapshot(sent.last);
+      sent.clear();
+
+      await ownerSvc.postMessage(gid, 'mine');
+      // A stamp in the PAST is never touched: it cannot float above anything,
+      // and a device coming back must keep its own send time.
+      await bobSvc.postMessage(gid, 'a minute ago');
+      // Bob honestly a few minutes fast — exactly at the tolerated bound.
+      bobWall = t0 + kMessageClockSkew.inMilliseconds;
+      await bobSvc.postMessage(gid, 'nearly now');
+      // Bob claims to live in 2027. Nothing in the group can contradict a
+      // clock, and the signature over `ts` proves only who said it.
+      final hostileTs = t0 + const Duration(days: 365).inMilliseconds;
+      bobWall = hostileTs;
+      await bobSvc.postMessage(gid, 'from the future');
+      await drain();
+
+      wall = t0 + 1000;
+      for (final delta in sent) {
+        await ownerSvc.ingestSnapshot(delta);
+      }
+      await drain();
+
+      Future<List<String>> bodies() async =>
+          (await ownerSvc.messagesOf(gid)).map((m) => m.body).toList();
+      Future<GroupMessage> hostileRow() async =>
+          (await ownerSvc.messagesOf(gid))
+              .firstWhere((m) => m.body == 'from the future');
+
+      expect(
+        await bodies(),
+        ['a minute ago', 'mine', 'from the future', 'nearly now'],
+        reason: 'the 2027 row is ranked where it ARRIVED, and the honest rows '
+            'on both sides of the receiver clock keep their own send time',
+      );
+
+      // The stamp itself is untouched, and so is every byte the author signed:
+      // rewriting it (the 1:1 answer) would invalidate the signature over
+      // `canonicalBytes`, which includes `ts`, and take group admission with it.
+      final hostile = await hostileRow();
+      final landedAt = hostile.orderedAtMs;
+      expect(hostile.createdAtMs, hostileTs);
+      expect(landedAt, inInclusiveRange(wall, wall + 1000),
+          reason: 'ordered by the one time the receiver actually knows');
+      final storedRow = (await ownerSvc.load(gid))!.messages.firstWhere(
+        (m) => m.body == 'from the future',
+      );
+      expect(storedRow.createdAtMs, hostileTs,
+          reason: 'what is on disk is what bob signed');
+      expect(hostile.canonicalBytes(), storedRow.canonicalBytes());
+      expect(groupMessageHash(hostile), groupMessageHash(storedRow));
+      // Nothing local rides out on the wire either. The arrival moment is a
+      // number this receiver chose; shipping it would just be the same
+      // unauthenticated stamp under a second name.
+      final served =
+          jsonDecode(ownerSvc.snapshotJson((await ownerSvc.load(gid))!)) as Map;
+      expect(served.containsKey('mrx'), isFalse);
+      expect(
+        (served['g'] as List).firstWhere(
+          (row) => (row as Map)['body'] == 'from the future',
+        ),
+        storedRow.toJson(),
+        reason: 'served exactly as bob signed it, extra keys and all: none',
+      );
+
+      // The chat-list row: preview and recency both come off the last message,
+      // so before this the group sat at the top of Chats showing 'from the
+      // future' until 2027.
+      final listed = (await ownerSvc.listGroups()).single;
+      expect(listed.preview, 'nearly now');
+      expect(listed.lastTs, t0 + kMessageClockSkew.inMilliseconds);
+      expect(listed.lastTs, lessThan(hostileTs));
+
+      // The badge. `group.seen` is a LOCAL clock reading, so a row stamped
+      // into the future is newer than every watermark this device will ever
+      // write and the badge could not be cleared again — the mirror image of
+      // what the same stamp did to the 1:1 badge, which went permanently
+      // silent instead.
+      expect(await ownerSvc.unreadOf(gid), 3);
+      wall = t0 + const Duration(minutes: 10).inMilliseconds;
+      await ownerSvc.markGroupSeen(gid);
+      expect(await ownerSvc.unreadOf(gid), 0,
+          reason: 'a member cannot pin the badge on by claiming to be in 2027');
+      expect((await ownerSvc.listGroups()).single.unread, 0);
+
+      // ONCE, on arrival. Peers re-ship whole snapshots on every reconnect, so
+      // this exact row comes back against a clock that has moved on; if the
+      // bound were re-derived then, the row would walk down the log on every
+      // sync instead of staying where it landed.
+      wall = t0 + const Duration(hours: 5).inMilliseconds;
+      for (final delta in sent) {
+        await ownerSvc.ingestSnapshot(delta);
+      }
+      await drain();
+      expect((await hostileRow()).orderedAtMs, landedAt,
+          reason: 'stamped once on arrival; a re-ship must not restamp it');
+      expect(await bodies(), [
+        'a minute ago',
+        'mine',
+        'from the future',
+        'nearly now',
+      ]);
+      // ...and re-reading is a pure re-fold, never a re-stamp: the clock has
+      // moved another five hours between these two reads.
+      wall = t0 + const Duration(hours: 10).inMilliseconds;
+      expect((await hostileRow()).orderedAtMs, landedAt);
+      expect(await ownerSvc.unreadOf(gid), 0);
+
+      // It survives a reload from disk, so the arrival moment is persisted and
+      // not re-invented per process.
+      final reopened = GroupService(s1, _FakeSigner(owner))
+        ..debugWallClockMs = () => wall;
+      addTearDown(reopened.dispose);
+      expect(
+        (await reopened.messagesOf(gid))
+            .firstWhere((m) => m.body == 'from the future')
+            .orderedAtMs,
+        landedAt,
+      );
+      expect(await reopened.unreadOf(gid), 0);
+
+      // A row already on disk from before this rule existed is bounded the
+      // next time a peer offers it, not left with its 2027 forever — which is
+      // why the arrival moment is recorded OUTSIDE the dedup below it. Stand
+      // in for that log by receiving everything on a device whose own clock
+      // already reads 2027, so nothing is recorded, then restarting it sane.
+      final wire = ownerSvc.snapshotJson((await ownerSvc.load(gid))!);
+      final s3 = FakeHvContainer().storage();
+      await s3.open(password: 'pw', createIfMissing: true);
+      final believed = GroupService(s3, _FakeSigner(owner))
+        ..debugWallClockMs = () => hostileTs;
+      addTearDown(believed.dispose);
+      expect(await believed.ingestSnapshot(wire), isTrue);
+      expect(
+        (await believed.messagesOf(gid))
+            .firstWhere((m) => m.body == 'from the future')
+            .orderedAtMs,
+        hostileTs,
+        reason: 'a device whose own clock says 2027 has no reason to doubt it',
+      );
+      var restartedWall = t0;
+      final restarted = GroupService(s3, _FakeSigner(owner))
+        ..debugWallClockMs = () => restartedWall;
+      addTearDown(restarted.dispose);
+      await restarted.ingestSnapshot(wire);
+      final rescued = (await restarted.messagesOf(gid))
+          .firstWhere((m) => m.body == 'from the future');
+      expect(rescued.createdAtMs, hostileTs);
+      expect(rescued.orderedAtMs, inInclusiveRange(t0, t0 + 1000),
+          reason: 'a duplicate the log already held is still bounded');
+      restartedWall = t0 + const Duration(hours: 5).inMilliseconds;
+      await restarted.ingestSnapshot(wire);
+      expect(
+        (await restarted.messagesOf(gid))
+            .firstWhere((m) => m.body == 'from the future')
+            .orderedAtMs,
+        rescued.orderedAtMs,
+        reason: 'the first observation is the only one that may set it',
+      );
+
+      // The bound at the exact millisecond, against a receiver whose arrival
+      // moment is pinned: a FRESH service instance (so its monotonic `_now`
+      // starts from the held wall clock) taking ONE snapshot. Everything above
+      // sits comfortably inside or outside the tolerance; this is the pair
+      // that straddles it, one millisecond apart.
+      final bobAgain = GroupService(s2, _FakeSigner(bob));
+      addTearDown(bobAgain.dispose);
+      final tB = t0 + const Duration(days: 2).inMilliseconds;
+      var bobAgainWall = tB + kMessageClockSkew.inMilliseconds;
+      bobAgain.debugWallClockMs = () => bobAgainWall;
+      await bobAgain.postMessage(gid, 'at the bound', broadcast: false);
+      bobAgainWall += 1;
+      await bobAgain.postMessage(gid, 'one past it', broadcast: false);
+      final straddling = bobAgain.snapshotJson((await bobAgain.load(gid))!);
+
+      final s4 = FakeHvContainer().storage();
+      await s4.open(password: 'pw', createIfMissing: true);
+      final receiver = GroupService(s4, _FakeSigner(owner))
+        ..debugWallClockMs = () => tB;
+      addTearDown(receiver.dispose);
+      expect(await receiver.ingestSnapshot(straddling), isTrue);
+      final landed = {
+        for (final m in await receiver.messagesOf(gid)) m.body: m,
+      };
+      expect(landed['from the future']!.orderedAtMs, tB,
+          reason: 'the arrival moment of this ingest is exactly tB');
+      expect(
+        landed['at the bound']!.orderedAtMs,
+        tB + kMessageClockSkew.inMilliseconds,
+        reason: 'an author exactly at the tolerated skew is still believed',
+      );
+      expect(landed['one past it']!.orderedAtMs, tB,
+          reason: 'one millisecond further is not a clock reading any more');
+      expect(
+        (await receiver.messagesOf(gid)).map((m) => m.body).toList().sublist(2),
+        ['from the future', 'one past it', 'at the bound'],
+        reason: 'both bounded rows land at tB, below the believed one',
+      );
+    },
+  );
+
   test(
     'mirror loop: msgMirror events fold + apply, deduped, deniability-safe',
     () async {

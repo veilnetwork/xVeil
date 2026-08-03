@@ -170,7 +170,10 @@ final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>
             author: message.author,
             contextName: group.name,
             body: message.body,
-            timestampMs: message.createdAtMs,
+            // The inbox ranks on this, so it takes the derived stamp: one
+            // future-stamped mention would otherwise sit at the top of it
+            // until that future arrived.
+            timestampMs: message.orderedAtMs,
             route:
                 '/group/${group.groupId.hex}?msg=${Uri.encodeQueryComponent(message.ref)}',
           ),
@@ -197,7 +200,7 @@ final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>
             author: message.author,
             contextName: space.name,
             body: message.body,
-            timestampMs: message.createdAtMs,
+            timestampMs: message.orderedAtMs,
             route:
                 '/space/${space.groupId.hex}/channel/${channelId.hex}?msg=${Uri.encodeQueryComponent(message.ref)}',
           ),
