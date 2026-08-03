@@ -230,7 +230,13 @@ class SshBoundedSink {
   void add(List<int> data) {
     if (truncated) return;
     final room = kSshMaxStreamBytes - _buf.length;
-    if (data.length < room) {
+    // `<=`, not `<` (audit X-18). At EQUALITY nothing was being lost —
+    // `sublist(0, room)` takes the whole chunk either way — but the sink still
+    // declared itself truncated and hung the session up. So a command whose
+    // output happened to land exactly on the cap was reported as a server
+    // flooding us, and its complete, untruncated result was labelled partial.
+    // The boundary belongs to the side that fits.
+    if (data.length <= room) {
       _buf.add(data);
       return;
     }
