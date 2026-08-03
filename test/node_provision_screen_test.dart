@@ -17,14 +17,15 @@ const _shaArm =
 
 VeilGithubReleaseResolver _resolver() => VeilGithubReleaseResolver(
   fetcher: (uri) async => jsonEncode({
-    'tag_name': 'v0.3.1',
+    'tag_name': kMinimumVeilReleaseTag,
     'assets': [
       for (final target in VeilLinuxReleaseTarget.values)
         for (final component in NodeComponent.values)
           {
             'name': '${component.binaryName}-${target.triple}',
             'browser_download_url':
-                'https://github.com/veilnetwork/veil/releases/download/v0.3.1/'
+                'https://github.com/veilnetwork/veil/releases/download/'
+                '$kMinimumVeilReleaseTag/'
                 '${component.binaryName}-${target.triple}',
             'digest': target == VeilLinuxReleaseTarget.x86_64Musl
                 ? 'sha256:$_shaX64'
