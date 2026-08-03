@@ -48,6 +48,27 @@ void main() {
     }
   });
 
+  test('an event may not take effect before its own timestamp, give or take '
+      'the tolerated skew (XV-12)', () {
+    const now = 1700000000000;
+    const skew = kDeviceSyncClockSkew;
+    bool effective(int ts) =>
+        deviceSyncEffectiveAt(ev(DeviceSyncKind.settingSet, 'k', ts), now);
+
+    expect(effective(now - 1), isTrue);
+    expect(effective(now), isTrue);
+    expect(effective(now + skew.inMilliseconds), isTrue,
+        reason: 'a device exactly at the tolerated skew is still believed');
+    expect(effective(now + skew.inMilliseconds + 1), isFalse);
+    expect(effective(now + const Duration(days: 365).inMilliseconds), isFalse);
+
+    // Deferral, not rejection: the SAME event becomes effective once the
+    // receiving clock reaches it, so nothing an honest device wrote is lost.
+    final ahead = ev(DeviceSyncKind.settingSet, 'k', now + 600000);
+    expect(deviceSyncEffectiveAt(ahead, now), isFalse);
+    expect(deviceSyncEffectiveAt(ahead, now + 600000), isTrue);
+  });
+
   test('equal timestamps break ties deterministically on payload', () {
     final x = ev(DeviceSyncKind.settingSet, 'k', 7, {'v': 'aaa'});
     final y = ev(DeviceSyncKind.settingSet, 'k', 7, {'v': 'zzz'});

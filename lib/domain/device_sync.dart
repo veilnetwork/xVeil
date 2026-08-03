@@ -129,3 +129,35 @@ bool _newer(DeviceSyncEvent a, DeviceSyncEvent b) {
 /// [foldDeviceSync]? A live guard must use exactly this (not a bare timestamp
 /// compare) or same-millisecond edits diverge from what a later re-fold says.
 bool isNewerDeviceSync(DeviceSyncEvent a, DeviceSyncEvent b) => _newer(a, b);
+
+/// How far ahead of the RECEIVING device's own clock a sync event may claim to
+/// be and still take effect right now.
+///
+/// The fold above ranks by a timestamp the AUTHOR chose, and every author here
+/// is a device the owner linked. A compromised one therefore stamps itself
+/// years ahead, wins every key it touches for as long as that lasts — and the
+/// log compactor then makes it permanent, because a row that lost its key is
+/// deleted from disk on the next pass. Nothing in the group can contradict a
+/// clock: there is no time authority in this network and there is not going to
+/// be one.
+///
+/// So the bound is a DEFERRAL, never a rejection. A row that is not effective
+/// yet stays in the log, loses no key, and starts winning the moment wall clock
+/// reaches it. A device that is honestly a few minutes fast loses nothing, and
+/// what the attacker loses is the word "forever": a future stamp buys at most
+/// [kDeviceSyncClockSkew] of suppression past the moment it is read, not the
+/// rest of the identity's life.
+///
+/// Five minutes is the same tolerance the public-space carriers already apply
+/// to a stranger's `issuedAt` (`kSpacePublicClockSkew`) — one skew convention
+/// in the project, not a second one.
+const Duration kDeviceSyncClockSkew = Duration(minutes: 5);
+
+/// Whether [event] may take effect on a device whose wall clock reads [nowMs].
+///
+/// Deliberately a predicate over a caller-supplied clock rather than a call to
+/// [DateTime.now]: every path that turns log rows into effective state has a
+/// clock already (the group service's `_now`, the applier's injected one), and
+/// a shared predicate is what keeps them from drifting into three rules.
+bool deviceSyncEffectiveAt(DeviceSyncEvent event, int nowMs) =>
+    event.tsMs <= nowMs + kDeviceSyncClockSkew.inMilliseconds;

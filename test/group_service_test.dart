@@ -4611,6 +4611,78 @@ void main() {
     expect(await claimKeys(), {'file_9|${bob.hex}|$orphanCid'});
   });
 
+  test('a linked device stamping itself into the future cannot own a key '
+      'forever, and compaction must not delete the honest row it beat '
+      '(XV-12)', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    var wall = DateTime(2026, 8, 3).millisecondsSinceEpoch;
+    final svc = GroupService(storage, _FakeSigner(owner))
+      ..debugWallClockMs = () => wall;
+    await svc.linkDevice(bob, sovereign: sovereign);
+    final deviceGid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+
+    Future<void> theme(String value, int tsMs) => svc.postDeviceEvent(
+      DeviceSyncEvent(
+        kind: DeviceSyncKind.settingSet,
+        key: 'theme',
+        tsMs: tsMs,
+        payload: {'v': value},
+      ),
+    );
+    Future<String?> folded() async =>
+        (await svc.deviceSyncState())[(DeviceSyncKind.settingSet, 'theme')]
+                ?.payload['v']
+            as String?;
+    Future<Set<String>> stored() async => {
+      for (final m in (await svc.load(deviceGid))!.messages)
+        if (DeviceSyncEvent.fromBody(m.body) case final e?)
+          if (e.kind == DeviceSyncKind.settingSet) e.payload['v'] as String,
+    };
+
+    // A compromised sibling posts one event a year ahead. Under a bare LWW on
+    // the author's own timestamp this owns 'theme' until 2027.
+    final hostileTs = wall + const Duration(days: 365).inMilliseconds;
+    await theme('hostile-a', hostileTs);
+    expect(await folded(), isNull, reason: 'nothing has honestly been set yet');
+
+    // Every honest edit after it still lands.
+    await theme('dark', wall + 1);
+    expect(await folded(), 'dark');
+    wall += 60000;
+    await theme('light', wall);
+    expect(await folded(), 'light');
+
+    // Now the same device posts a second future row, LAST — so it is also this
+    // author's high-water row, the one thing compaction protects unconditially.
+    // If the future row is allowed to win the key, compaction keeps only that
+    // row and the honest edit is deleted from disk, permanently.
+    await theme('hostile-b', hostileTs + 1000);
+    await svc.compactStateLogs(deviceGid);
+    expect(await folded(), 'light');
+    expect(
+      await stored(),
+      containsAll(<String>['light', 'hostile-a', 'hostile-b']),
+      reason: 'the honest winner survives on disk; deferred rows are kept, '
+          'never resolved',
+    );
+
+    // Deferral, not rejection: once wall clock genuinely reaches the stamps the
+    // rows take effect like any other. Nothing was destroyed on the way.
+    wall = hostileTs + 2000;
+    expect(await folded(), 'hostile-b');
+
+    // The bound is the tolerated skew, not zero: a device a minute fast is
+    // believed, so an honestly-skewed sibling loses no edit.
+    await theme('skewed', wall + 60000);
+    expect(await folded(), 'skewed');
+    await theme(
+      'beyond',
+      wall + kDeviceSyncClockSkew.inMilliseconds + 60000,
+    );
+    expect(await folded(), 'skewed', reason: 'past the skew bound, deferred');
+  });
+
   test('nudgeDeviceSync (brick 4e): ships the FULL device-group snapshot to '
       'every other device — the boot catch-up for deltas lost during a total '
       'outage; no-op on a solo install', () async {
