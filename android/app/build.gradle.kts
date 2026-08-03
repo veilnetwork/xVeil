@@ -15,16 +15,41 @@ plugins {
 }
 
 // Release signing material is read from key.properties (gitignored — alongside
-// the keystore it points at), so the signing key never enters the repo. When the
-// file is absent (a dev box doing `flutter run --release`) we fall back to the
-// debug key; a real distributable build MUST provide key.properties so it is NOT
-// debug-signed. See android/.gitignore (key.properties / *.jks / *.keystore).
+// the keystore it points at), so the signing key never enters the repo. A real
+// distributable build MUST provide key.properties so it is NOT debug-signed.
+// See android/.gitignore (key.properties / *.jks / *.keystore).
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
 val hasReleaseSigning = keystorePropertiesFile.exists()
 if (hasReleaseSigning) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
+
+// Whether THIS invocation is building something release-shaped
+// (assembleRelease, bundleRelease, ...). Read once at configuration time
+// rather than from inside a task: `gradle.startParameter` is a configuration
+// -cache violation when touched during execution.
+val releaseRequested = gradle.startParameter.taskNames.any {
+    it.contains("release", ignoreCase = true)
+}
+
+// The single, deliberate way to get a debug-signed release build (audit X-13).
+//
+// Falling back to the debug key with only `logger.warn` meant that a plain
+// `flutter build apk --release` produced an APK that LOOKS like a release and
+// cannot ever be updated over: Android treats a different signing key as a
+// different app, so every tester would have to uninstall and lose their
+// identity and history. Worse, anyone else can build an APK that installs over
+// a debug-signed one, because everybody has that key. builder.py has always
+// caught this at the end of the build; nothing caught it for someone running
+// flutter directly, which is most people most of the time.
+//
+// The escape hatch stays because `flutter run --release` on a dev box is a
+// real need — it just has to be asked for:
+//     flutter build apk --release -PxveilAllowDebugSigning=true
+// or, for a machine that always wants it, a line in android/gradle.properties.
+val allowDebugSigning =
+    (project.findProperty("xveilAllowDebugSigning") as String?) == "true"
 
 // whisper.cpp's quantized model is a generated distribution artifact (~57 MiB),
 // not source. It is NO LONGER BUNDLED BY DEFAULT: it did not compress, so it
@@ -71,9 +96,9 @@ val prepareWhisperModel by tasks.registering {
             val message =
                 "xVeil: ${whisperNativeLibrary.absolutePath} is missing; run " +
                     "native/whisper/build_veil_whisper_android.sh"
-            val releaseRequested = gradle.startParameter.taskNames.any {
-                it.contains("release", ignoreCase = true)
-            }
+            // The shared configuration-time value, not a fresh read: touching
+            // `gradle.startParameter` from inside doLast is a configuration
+            // -cache violation.
             if (releaseRequested || explicitlyRequired) throw GradleException(message)
             logger.warn("$message (debug build will omit transcription)")
         }
@@ -183,12 +208,32 @@ android {
 
     buildTypes {
         release {
-            // Real release: sign with the provided keystore. Dev box without
-            // key.properties: fall back to debug so `flutter run --release` works
-            // (such a build is NOT distributable — it is debug-signed).
+            // Real release: sign with the provided keystore. Without one, a
+            // release-shaped build FAILS rather than quietly becoming
+            // debug-signed — see allowDebugSigning above for the deliberate
+            // way out.
+            //
+            // The check is gated on releaseRequested because this block is
+            // configured on every invocation, including `flutter build apk
+            // --debug`; throwing unconditionally would make a debug build
+            // impossible without a release keystore.
             signingConfig = if (hasReleaseSigning) {
                 signingConfigs.getByName("release")
             } else {
+                if (releaseRequested && !allowDebugSigning) {
+                    throw GradleException(
+                        "xVeil: android/key.properties is missing, so this " +
+                            "release build would be DEBUG-SIGNED. Such an APK " +
+                            "can never be updated over (Android treats a " +
+                            "different key as a different app) and anyone can " +
+                            "build one that installs over it.\n" +
+                            "  * to release: create the keystore once and " +
+                            "write android/key.properties with storeFile, " +
+                            "storePassword, keyPassword and keyAlias;\n" +
+                            "  * to build one locally anyway, on purpose: " +
+                            "-PxveilAllowDebugSigning=true",
+                    )
+                }
                 logger.warn(
                     "xVeil: key.properties not found — release build is " +
                         "DEBUG-SIGNED and must not be distributed.",
