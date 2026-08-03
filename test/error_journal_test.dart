@@ -100,7 +100,21 @@ void main() {
       final errors = decoded['errors']! as List;
       expect(errors, hasLength(1));
       expect((errors.single as Map)['kind'], 'flutter');
-      expect((errors.single as Map)['message'], 'widget blew up');
+      // The exception's own text is NOT one of them. It is kept in memory —
+      // it is what tells two failures apart, and what a person may read on
+      // their own device — but a catch-all handler is handed an arbitrary
+      // object and cannot know what its message quotes (audit X-06).
+      expect(
+        (errors.single as Map).containsKey('message'),
+        isFalse,
+        reason: 'the exported record carries no free text',
+      );
+      expect(
+        journal.entries.single.message,
+        'widget blew up',
+        reason: 'and yet the journal still holds it for the local screen',
+      );
+      expect((errors.single as Map)['type'], 'String');
     });
 
     test('keeps the NEWEST failures when it overflows', () {
@@ -135,6 +149,95 @@ void main() {
         'locked',
         reason: '"nothing crashed but it is stuck" is itself a report',
       );
+    });
+  });
+
+  group('what the EXPORT carries', () {
+    // The interface promises a report with no messages and no identities in
+    // it. Redaction is a deny-list over free text, so it can only promise that
+    // for the shapes somebody thought of — and four of the record sites are
+    // catch-alls handed an arbitrary `Object` (audit X-06). The export
+    // therefore does not carry the exception text at all. These tests aim at
+    // the EXPORT, not at the catch: text that genuinely reached the journal
+    // must not come back out of `toJson`.
+
+    String reportOf(ErrorJournal journal) => journal.toJson(
+      platform: 'macos',
+      osVersion: '26.0',
+      appVersion: '1.0.0+1',
+      defaultProfile: true,
+      phase: 'ready',
+    );
+
+    test('prose no deny-list rule matches still does not leave', () {
+      // Deliberately ordinary words: no id, no path, no base64, no address.
+      // Nothing here for `redact` to bite on, which is the whole point — if
+      // the message rode along, this is the sentence that would ride with it.
+      const secret = 'could not send to my sister about the meeting tonight';
+      final journal = ErrorJournal()
+        ..record(kind: 'zone', error: StateError(secret), atMs: 1);
+
+      final report = reportOf(journal);
+
+      expect(
+        journal.entries.single.message,
+        contains('sister'),
+        reason: 'the text really did reach the journal — otherwise this test '
+            'would pass against a journal that recorded nothing',
+      );
+      for (final word in ['sister', 'meeting', 'tonight', 'could not send']) {
+        expect(
+          report,
+          isNot(contains(word)),
+          reason: '"$word" left the device in the exported report',
+        );
+      }
+      // …and the report still names the failure.
+      expect(report, contains('StateError'));
+      expect(report, contains('"kind": "zone"'));
+    });
+
+    test('an exception that quotes its payload exports only its class', () {
+      final journal = ErrorJournal()
+        ..record(
+          kind: 'screen:chats',
+          error: const FormatException('bad frame: hunter2 correct horse'),
+          stack: StackTrace.fromString(
+            '#0 Foo.bar (package:xveil/state/a.dart:12:3)',
+          ),
+          atMs: 3,
+        );
+
+      final report = reportOf(journal);
+      final entry =
+          ((jsonDecode(report) as Map)['errors']! as List).single
+              as Map<String, Object?>;
+
+      expect(report, isNot(contains('hunter2')));
+      expect(report, isNot(contains('correct horse')));
+      expect(entry.values.join(' '), isNot(contains('hunter2')));
+      // What a reader is left with is enough to act on: which net, which
+      // exception class, and where.
+      expect(entry['type'], 'FormatException');
+      expect(entry['kind'], 'screen:chats');
+      expect(entry['frames'], contains('package:xveil/state/a.dart:12:3'));
+    });
+
+    test('a repeat count is exported, the text it repeated is not', () {
+      final journal = ErrorJournal();
+      for (var i = 0; i < 4; i++) {
+        journal.record(
+          kind: 'unlock',
+          error: 'wrong password for the archive of letters',
+          atMs: i,
+        );
+      }
+
+      final report = reportOf(journal);
+
+      expect(report, isNot(contains('letters')));
+      expect(report, isNot(contains('password')));
+      expect(report, contains('"count": 4'));
     });
   });
 
@@ -217,12 +320,12 @@ void main() {
               as Map<String, Object?>;
       expect(
         ((once['errors']! as List).single as Map).keys,
-        {'kind', 'type', 'at', 'message'},
+        {'kind', 'type', 'at'},
         reason:
             'an allow-list for entries too — a single failure stays lean. '
             '`type` is the exception class, which describes the failure and '
-            'not the data behind it; it is what lets `message` be redacted '
-            'hard without leaving the report useless',
+            'not the data behind it; it is what carries the diagnostic now '
+            'that the message itself never leaves the device',
       );
 
       journal.record(kind: 'zone', error: 'once', atMs: 2);
@@ -243,7 +346,6 @@ void main() {
         'at',
         'count',
         'firstAt',
-        'message',
       });
     });
   });
