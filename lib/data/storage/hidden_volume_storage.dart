@@ -1008,16 +1008,22 @@ class HiddenVolumeStorage implements Storage {
       // highest observed seq, coalesced into ranges. (Nothing above max is a
       // "hole" — those unseen seqs are covered by the high-water "ship me newer"
       // query, not a named re-request.)
-      final max = seqs.reduce((a, b) => a > b ? a : b);
+      //
+      // Derived by WALKING THE SEQS WE HOLD, in order — never by counting up
+      // through the numeric range. A hole is the span between two consecutive
+      // stored seqs, so the work is O(rows·log rows), bounded by what is
+      // actually in the log. Counting from hw+1 to max instead made the cost
+      // track the seq VALUE, which an accepted peer chooses: one ~60-byte frame
+      // naming a large seq (a void slot stores one, and renders nothing at all)
+      // bought minutes of a blocked isolate; at the 64-bit maximum `s++`
+      // overflowed to the minimum negative and `s <= max` was true again, so the
+      // loop never ended — permanently, since the fold re-runs on every start.
+      final above = seqs.where((s) => s > hw).toList()..sort();
       final ranges = <(int, int)>[];
-      int? lo;
-      for (var s = hw + 1; s <= max; s++) {
-        if (!seqs.contains(s)) {
-          lo ??= s;
-        } else if (lo != null) {
-          ranges.add((lo, s - 1));
-          lo = null;
-        }
+      var previous = hw;
+      for (final s in above) {
+        if (s > previous + 1) ranges.add((previous + 1, s - 1));
+        previous = s;
       }
       if (ranges.isNotEmpty) holes[author] = ranges;
     }

@@ -1583,6 +1583,58 @@ void main() {
       },
     );
 
+    // The hole derivation must cost what the LOG holds, not what a seq NAMES.
+    // An accepted peer picks the seq: one ~60-byte void frame (an inert slot —
+    // no visible message, nothing to notice or delete) named a number, and the
+    // derivation used to count every integer up to it on the UI isolate. At the
+    // 64-bit maximum the counter overflowed to the minimum negative and the
+    // condition was true again, so it never returned — and the fold re-runs on
+    // every start, so the app never recovered.
+    test(
+      'holes are derived from the seqs held, so a huge seq costs no more than '
+      'a small one — and a 64-bit one still returns',
+      () async {
+        for (final s in [1, 2, 3]) {
+          await storage.appendMessage(ev(authorA, s));
+        }
+        // Deliberately out of order, and adjacent to each other, so the walk
+        // must SORT and must not invent a range between neighbours.
+        await storage.applyRemoteVoid(conv, authorA, 2000000001);
+        await storage.applyRemoteVoid(conv, authorA, 2000000000);
+
+        final startedAt = DateTime.now();
+        final sync = await storage.conversationSync(conv);
+        final elapsed = DateTime.now().difference(startedAt);
+        expect(sync.highWater[authorA], 3);
+        expect(
+          sync.holes[authorA],
+          [(4, 1999999999)],
+          reason: 'one span between seq 3 and the pair, and none between the '
+              'two adjacent slots',
+        );
+        // A BUDGET, not "it eventually finished": counting hw+1…2e9 for this
+        // exact input took tens of seconds, walking the five stored seqs takes
+        // microseconds. This must fail BEFORE the 64-bit case below, which a
+        // counting form would never return from at all.
+        expect(
+          elapsed.inMilliseconds,
+          lessThan(3000),
+          reason: 'cost must track the 5 stored seqs, not the value 2e9',
+        );
+
+        // The same shape at the 64-bit maximum — the value that used to hang
+        // for good. Reached only once the budget above has held.
+        const intMax = 9223372036854775807;
+        await storage.applyRemoteVoid(conv, authorA, intMax);
+        final poisoned = await storage.conversationSync(conv);
+        expect(poisoned.highWater[authorA], 3);
+        expect(poisoned.holes[authorA], [
+          (4, 1999999999),
+          (2000000002, intMax - 1),
+        ]);
+      },
+    );
+
     test(
       'deleting an EDITED message keeps both the post and edit seq slots',
       () async {
