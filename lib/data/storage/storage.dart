@@ -320,12 +320,19 @@ abstract interface class Storage {
   /// the [watermark], scrub + tombstone every local message at/below it (keep
   /// anything newer), and occupy the clear's own ([author], [seq]) slot so the
   /// per-author stream stays gap-free. Idempotent on (author, seq).
+  ///
+  /// The watermark names BOTH sides on purpose — "clear for everyone" that only
+  /// erased the sender's half of a conversation would leave the other half
+  /// behind. [selfHex] is our own author id, needed because the entry for OUR
+  /// stream is bounded here by what we actually hold: a sender can ask for what
+  /// exists to go, never for what has not happened yet.
   Future<void> applyRemoteClear(
     NodeId peer,
     String author,
     int seq,
-    Map<String, int> watermark,
-  );
+    Map<String, int> watermark, {
+    required String selfHex,
+  });
 
   /// FORENSICALLY erase this whole space — every namespace (identity, contacts,
   /// messages, file blobs) — then scrub orphaned chunks, so the deleted

@@ -1841,23 +1841,60 @@ class HiddenVolumeStorage implements Storage {
     NodeId peer,
     String author,
     int seq,
-    Map<String, int> watermark,
-  ) async {
+    Map<String, int> watermark, {
+    required String selfHex,
+  }) async {
     // Apply a clear received from [author]. Record the watermark, scrub +
     // tombstone every local message AT/BELOW it (keep anything newer), and occupy
     // the clear's own (author, seq) slot so the per-author stream stays gap-free.
     // Idempotent on (author, seq). The caller (messaging) decides WHETHER to apply
     // a peer's clear (policy); this is the apply mechanism.
     final conv = peer.hex;
+    // One pass for two things: whether this slot is already taken, and the
+    // highest sequence OUR OWN stream has reached in this conversation.
+    var ownCeiling = 0;
     final entries = await _messageLogEntries();
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
-      if (m['c'] == conv &&
-          m['au'] == author &&
-          m['sq'] == seq &&
-          m['op'] != 'status' &&
-          m['op'] != 'sig') {
+      if (m['c'] != conv || m['op'] == 'status' || m['op'] == 'sig') continue;
+      if (m['au'] == author && m['sq'] == seq) {
         return; // slot present — already applied
+      }
+      final sq = m['sq'];
+      if (m['au'] == selfHex && sq is int && sq > ownCeiling) ownCeiling = sq;
+    }
+    // Also every slot we have ALLOCATED, whether or not a row survives at it —
+    // a message we sent and then deleted still happened, and the sender is
+    // entitled to clear it.
+    final allocated = await _nextConvSeq(conv, selfHex) - 1;
+    if (allocated > ownCeiling) ownCeiling = allocated;
+
+    // Bound the watermark before anything acts on it.
+    //
+    // Naming both sides is the FEATURE — an honest sender takes the watermark
+    // from the conversation's high-water, which in a 1:1 chat covers both
+    // authors, because "clear for everyone" that erased only the sender's half
+    // would leave the conversation half-standing. What was never bounded is how
+    // FAR it may reach into OUR stream. An honest sender cannot know a sequence
+    // of ours beyond what we actually emitted; anything above that is no longer
+    // "erase what exists" but an instruction to suppress what has not happened
+    // yet. Left unbounded it left the victim with an erased history AND a chat
+    // that stayed mute for good: they write, the peer receives it, and their own
+    // screen shows nothing — no notice, no trace, surviving both a restart and
+    // deleting the contact and adding it back, because the clear row is not a
+    // message and nothing sweeps it away.
+    //
+    // So: keys that are neither the authenticated sender nor ourselves are
+    // dropped (nobody may speak for a third author here); our own entry is
+    // held to what we hold locally; and the sender's OWN entry is left exactly
+    // as sent — a peer is entitled to clear its own stream above what ever
+    // reached us, which is precisely what a born-clear is for.
+    final bounded = <String, int>{};
+    for (final entry in watermark.entries) {
+      if (entry.key == author) {
+        bounded[entry.key] = entry.value;
+      } else if (entry.key == selfHex) {
+        bounded[entry.key] = entry.value > ownCeiling ? ownCeiling : entry.value;
       }
     }
     // Gather scrub+tombstone ops BEFORE the clear row sets the fold watermark, so
@@ -1865,7 +1902,7 @@ class HiddenVolumeStorage implements Storage {
     final blobNames = <String>[];
     final tombstones = await _tombstoneAllOps(
       peer,
-      upTo: watermark,
+      upTo: bounded,
       blobNamesOut: blobNames,
     );
     await _commitAtNextMessageLogId(
@@ -1880,7 +1917,9 @@ class HiddenVolumeStorage implements Storage {
               'au': author,
               'sq': seq,
               't': DateTime.now().millisecondsSinceEpoch,
-              'wm': watermark,
+              // The BOUNDED map is what persists, so every later fold — on this
+              // start and every one after it — reads the same bounded value.
+              'wm': bounded,
             }),
           ),
         ),
