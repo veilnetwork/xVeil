@@ -5,9 +5,22 @@ import 'dart:convert';
 /// The point is a report a tester can hand over that says what broke — and
 /// says nothing else. This is a deniable messenger, so a diagnostics blob is a
 /// disclosure risk before it is a debugging aid: whoever receives it must not
-/// learn who the sender is, whom they talk to, or what they said. Everything
-/// below is therefore an allow-list. Nothing is copied in because it "might be
-/// useful"; a field earns its place by naming a failure, not a person.
+/// learn who the sender is, whom they talk to, or what they said.
+///
+/// The EXPORT is therefore an allow-list in the literal sense: every value that
+/// [toJson] emits is one this app chose — a `kind` label written at the call
+/// site, the exception's class name, `package:`/`dart:` stack locations,
+/// timestamps and counts. Nothing that an error filled in for itself goes out.
+///
+/// The exception's own TEXT does not, and that is the point of the split. Four
+/// of the record sites are catch-alls — `FlutterError.onError`,
+/// `PlatformDispatcher.onError`, the root zone, and the async-error screen —
+/// and they are handed an arbitrary `Object`. There is no typed code to
+/// substitute at a site that does not know what it caught, so the message can
+/// only ever be free text run through a deny-list, and a deny-list only removes
+/// what someone thought of (audit X-06). It stays in memory, where it tells one
+/// failure from another and can be shown to the person on their own device; it
+/// does not ride out on the clipboard.
 class ErrorJournal {
   ErrorJournal({this.capacity = 50});
 
@@ -38,11 +51,13 @@ class ErrorJournal {
     StackTrace? stack,
     required int atMs,
   }) {
+    // Redacted even though it never leaves via [toJson]: it is held in RAM and
+    // may be shown on screen, and a node id on a screenshot is still a node id.
     final message = redact(error.toString());
     // The runtime type is the part of an exception that is reliably about the
-    // FAILURE rather than about the data it happened to touch, and it survives
-    // redaction intact — so the report keeps its diagnostic value while the
-    // message can be stripped hard.
+    // FAILURE rather than about the data it happened to touch. It is the one
+    // thing an arbitrary caught `Object` yields that this app can vouch for,
+    // which is what lets the exported record drop the message entirely.
     final type = error.runtimeType.toString();
     final existing = _entries.indexWhere(
       (entry) => entry.kind == kind && entry.message == message,
@@ -71,7 +86,8 @@ class ErrorJournal {
   ///
   /// [phase] changes what "broken" means and identifies nobody. There is
   /// deliberately no identity, no contact, no message body, no store path and
-  /// no node id anywhere in here.
+  /// no node id anywhere in here — and, since audit X-06, no exception text
+  /// either: see [RecordedError.toJson].
   ///
   /// The profile is reported as default-or-not rather than by NAME. Whether a
   /// non-default profile was active explains a class of failure; which one it
@@ -127,19 +143,15 @@ class ErrorJournal {
 
   /// Strip everything that could name a person, a peer or a place.
   ///
-  /// Conservative on purpose: it is better for a report to read `<id>` where a
-  /// hash was than to carry a node id into a group chat. The length cap exists
-  /// because an exception message can quote a whole payload.
+  /// Conservative on purpose: it is better for a message to read `<id>` where a
+  /// hash was than to keep a node id legible on a screenshot. The length cap
+  /// exists because an exception message can quote a whole payload.
   ///
   /// Honest about what this is: a DENY-list over free text, and a deny-list
-  /// only removes what someone thought of. The class's contract says
-  /// allow-list, and the message body is the one field that never satisfied
-  /// it — an exception carries whatever the thrower put in it. A real
-  /// allow-list means every `record` call site naming a typed code instead of
-  /// handing over `error.toString()`, which is a change at ~every throw site
-  /// rather than here. Until then this covers the classes an audit named, and
-  /// [RecordedError.type] carries the diagnostic that used to justify keeping
-  /// the message generous.
+  /// only removes what someone thought of. That is exactly why the string it
+  /// produces is an IN-MEMORY convenience and not part of the report. This is
+  /// a second line behind [RecordedError.toJson] dropping the message, not the
+  /// thing standing between an exception and someone else's clipboard.
   static String redact(String raw, {int maxLength = 300}) {
     var text = raw
         // A whole URL names a host and often a path and query with it.
@@ -194,12 +206,18 @@ class RecordedError {
   }) : firstAtMs = firstAtMs ?? atMs;
 
   /// Which net caught it: `flutter`, `platform`, `zone`, or a caller's label.
+  /// Always a literal written in this app's source, never anything the error
+  /// supplied — which is what makes it exportable.
   final String kind;
 
-  /// The exception's runtime type. Survives redaction because it describes the
-  /// FAILURE, not the data that tripped it — which is what lets the message be
-  /// stripped hard without leaving the report useless.
+  /// The exception's runtime type: a class name, which describes the FAILURE
+  /// and not the data that tripped it. This is the diagnostic the report is
+  /// built on now that [message] stays home.
   final String type;
+
+  /// The redacted exception text. Held for the screen a person can read on
+  /// their OWN device, and to tell two failures apart when repeats collapse —
+  /// never emitted by [toJson].
   final String message;
   final List<String> frames;
 
@@ -225,13 +243,25 @@ class RecordedError {
     count: count + 1,
   );
 
+  /// What actually leaves the device.
+  ///
+  /// [message] is absent on purpose. Every key below holds a value this app
+  /// wrote — a call-site label, a class name, `package:`/`dart:` locations, a
+  /// clock reading, a count — so the record is an allow-list by construction
+  /// rather than by whatever a deny-list happened to catch. The exception's own
+  /// text is the one thing here that an arbitrary thrower fills in, and a
+  /// catch-all handler cannot know what it is holding (audit X-06).
+  ///
+  /// What a reader loses is the sentence; what they keep is which net caught
+  /// it, which exception class it was, where in the code, how often, and over
+  /// what span. That is enough to find `PathNotFoundException` in the unlock
+  /// path — and it cannot carry a contact, a payload or a path.
   Map<String, Object?> toJson() => {
     'kind': kind,
     'type': type,
     'at': atMs,
     if (count > 1) 'count': count,
     if (count > 1) 'firstAt': firstAtMs,
-    'message': message,
     if (frames.isNotEmpty) 'frames': frames,
   };
 }

@@ -5749,7 +5749,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get settingsCopyErrorsHint =>
-      'A JSON summary of recent failures. Contains no messages, contacts or identity.';
+      'A JSON summary of recent failures: error types and code locations only — no error text, contacts or identity.';
 
   @override
   String settingsCopyErrorsDone(int count) {

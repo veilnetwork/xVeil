@@ -5800,7 +5800,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get settingsCopyErrorsHint =>
-      'Сводка последних сбоев в JSON. Не содержит переписки, контактов и личности.';
+      'Сводка последних сбоев в JSON: только типы ошибок и места в коде — без текста ошибок, контактов и личности.';
 
   @override
   String settingsCopyErrorsDone(int count) {
