@@ -71,7 +71,9 @@ Future<void> main([List<String> args = const []]) async {
       try {
         await initDesktopWindow();
       } catch (e, st) {
-        debugPrint('xVeil: desktop window setup failed, continuing: $e\n$st');
+        devLog(
+          () => 'xVeil: desktop window setup failed, continuing: $e\n$st',
+        );
       }
 
       // Content hashing on the native digest (~30-50x the pure-Dart rate):

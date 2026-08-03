@@ -11,6 +11,7 @@ import '../api/blob_sources.dart';
 import '../api/cloud_api_adapter.dart';
 import '../api/group_api_adapter.dart';
 import '../core/ids.dart';
+import '../core/log.dart';
 import 'cloud_service.dart';
 import '../data/serve_source.dart';
 import '../data/transport/bootstrap_invite.dart';
@@ -127,7 +128,7 @@ class ApiServerController extends Notifier<ApiConfig> {
       }
     } catch (e) {
       // Store not ready yet (e.g. mid-unlock) — a later identity change re-runs.
-      debugPrint('xVeil[api]: config load deferred: $e');
+      devLog(() => 'xVeil[api]: config load deferred: $e');
     }
   }
 
@@ -815,7 +816,7 @@ class ApiServerController extends Notifier<ApiConfig> {
         return;
       }
     } catch (e) {
-      debugPrint('xVeil[api]: bind failed: $e');
+      devLog(() => 'xVeil[api]: bind failed: $e');
       _server = null;
     }
     _rewireWebhook(groupService);
@@ -848,7 +849,7 @@ class ApiServerController extends Notifier<ApiConfig> {
       if (attempt == 0) {
         await Future<void>.delayed(const Duration(seconds: 2));
       } else {
-        debugPrint('xVeil[api]: webhook push failed twice, dropped');
+        devLog(() => 'xVeil[api]: webhook push failed twice, dropped');
       }
     }
   }
