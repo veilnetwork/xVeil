@@ -1860,5 +1860,9 @@
   "voiceModelResume": "Continue downloading",
   "voiceModelResumeAt": "{percent}% already downloaded",
   "@voiceModelResumeAt": { "placeholders": { "percent": { "type": "int" } } },
-  "voiceModelCancel": "Stop"
+  "voiceModelCancel": "Stop",
+  "identityDamagedTitle": "This space opened, but its identity is damaged",
+  "identityDamagedBody": "Your password was right — the container unlocked. What it holds where your identity should be cannot be read. This app will not go on and act as if you were someone new.",
+  "identityDamagedUntouched": "Nothing was changed or overwritten. Your data is still in the container exactly as it was found.",
+  "identityDamagedBack": "Back to the lock screen"
 }
