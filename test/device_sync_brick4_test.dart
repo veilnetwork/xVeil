@@ -364,4 +364,86 @@ void main() {
     expect((await storage.loadMessages(peer.hex))
         .where((x) => x.id == 'fm1').length, 1);
   });
+
+  test('a MIRRORED message stamped past the tolerated skew is stored at the '
+      'moment it arrived, once — a boot re-drive never restamps it', () async {
+    final me = _id(1), peer = _id(2);
+    final storage = await _openStorage();
+    await storage.upsertContact(
+        Contact(nodeId: peer, status: ContactStatus.accepted));
+    var wall = DateTime.utc(2026, 8, 3, 12);
+    final arrivedAt = wall.millisecondsSinceEpoch;
+    final svc = MessagingService(_Noop(me), storage, now: () => wall)..start();
+    addTearDown(svc.dispose);
+
+    Future<int> tsOf(String id) async => (await storage.loadMessages(peer.hex))
+        .firstWhere((m) => m.id == id)
+        .timestamp
+        .millisecondsSinceEpoch;
+
+    // A sibling honestly a few minutes fast is believed to the millisecond, so
+    // ordinary mirrored traffic keeps the send order it was mirrored under.
+    final honest = arrivedAt + kMessageClockSkew.inMilliseconds;
+    expect(
+        await svc.applyMirroredMessage(
+            peer: peer,
+            msgId: 'ok-1',
+            direction: MessageDirection.incoming,
+            body: 'nearly now',
+            tsMs: honest),
+        isTrue);
+    expect(await tsOf('ok-1'), honest);
+
+    // One-sided: a device back from a week offline receives last Tuesday's
+    // mirror and keeps last Tuesday.
+    final lastWeek = arrivedAt - const Duration(days: 7).inMilliseconds;
+    expect(
+        await svc.applyMirroredMessage(
+            peer: peer,
+            msgId: 'old-1',
+            direction: MessageDirection.incoming,
+            body: 'last tuesday',
+            tsMs: lastWeek),
+        isTrue);
+    expect(await tsOf('old-1'), lastWeek);
+
+    // A compromised sibling mirrors a row stamped a year ahead. This path needs
+    // the bound MORE than the wire path does: a mirrored row is stored with no
+    // author and no seq, so loadMessages' author-monotone effective-ts floor
+    // never sees it and its raw stamp is its display time, forever.
+    final hostile = arrivedAt + const Duration(days: 365).inMilliseconds;
+    expect(
+        await svc.applyMirroredMessage(
+            peer: peer,
+            msgId: 'fut-1',
+            direction: MessageDirection.incoming,
+            body: 'from the future',
+            tsMs: hostile),
+        isTrue);
+    expect(await tsOf('fut-1'), arrivedAt,
+        reason: 'not a time — stored as the moment of receipt');
+
+    // ONCE. nudgeDeviceSync re-ships the FULL device-group snapshot on every
+    // boot, so this exact event is offered again and again against a clock that
+    // has moved on. The stamp must not move with it.
+    wall = wall.add(const Duration(hours: 5));
+    expect(
+        await svc.applyMirroredMessage(
+            peer: peer,
+            msgId: 'fut-1',
+            direction: MessageDirection.incoming,
+            body: 'from the future',
+            tsMs: hostile),
+        isFalse,
+        reason: 'already present — idempotent');
+    expect(await tsOf('fut-1'), arrivedAt,
+        reason: 'stamped once on arrival; a re-drive must not restamp it');
+
+    // The visible consequence: the conversation is no longer pinned to the top
+    // of the chat list (loadConversations ranks on the raw stored timestamp).
+    final conv = (await storage.loadConversations())
+        .firstWhere((c) => c.peer.nodeId.hex == peer.hex);
+    expect(conv.lastMessage!.timestamp.millisecondsSinceEpoch,
+        lessThanOrEqualTo(arrivedAt + kMessageClockSkew.inMilliseconds));
+  });
 }
