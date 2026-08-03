@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/log.dart';
+import '../../core/secure_screen.dart';
 import '../../data/identity/veil_identity.dart';
 import '../../domain/identity.dart';
 import '../../l10n/app_localizations.dart';
@@ -353,27 +354,32 @@ class _RestoreStep extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            l.onboardRestoreIdentity,
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            l.onboardRestoreBody,
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 16),
-          RecoveryPhraseInput(
-            validate: validate,
-            onSubmit: onSubmit,
-            submitLabel: l.onboardRestoreSubmit,
-          ),
-        ],
+    // Typing the phrase in puts it on screen exactly as showing it does — the
+    // field is not obscured, deliberately, because a mistyped word here costs
+    // the identity. Guarded for the same reason the display step is.
+    return SecureScreenGuard(
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              l.onboardRestoreIdentity,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              l.onboardRestoreBody,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            RecoveryPhraseInput(
+              validate: validate,
+              onSubmit: onSubmit,
+              submitLabel: l.onboardRestoreSubmit,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -427,64 +433,74 @@ class _Recovery extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(l.recoveryTitle, style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 12),
-        Text(l.recoveryBody, style: Theme.of(context).textTheme.bodyMedium),
-        if (!real) ...[
+    // The one screen in the app that shows, in plain words, everything needed
+    // to become this person. A screenshot of it — taken by the user for
+    // convenience, by a recording app, or by whatever is on the device — is the
+    // identity itself (audit X-11). Scoped to this step so screen sharing keeps
+    // working everywhere else.
+    return SecureScreenGuard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            l.recoveryTitle,
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
           const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.errorContainer,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  Icons.warning_amber_outlined,
-                  color: Theme.of(context).colorScheme.onErrorContainer,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    l.recoveryPlaceholderWarning,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onErrorContainer,
+          Text(l.recoveryBody, style: Theme.of(context).textTheme.bodyMedium),
+          if (!real) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.errorContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.warning_amber_outlined,
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      l.recoveryPlaceholderWarning,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
+          ],
+          const SizedBox(height: 16),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (var i = 0; i < phrase.length; i++)
+                    Chip(label: Text('${i + 1}. ${phrase[i]}')),
+                ],
+              ),
+            ),
+          ),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            value: confirmed,
+            onChanged: (v) => onConfirmedChanged(v ?? false),
+            title: Text(l.recoveryConfirm),
+          ),
+          FilledButton(
+            onPressed: confirmed ? onNext : null,
+            child: Text(l.actionContinue),
           ),
         ],
-        const SizedBox(height: 16),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (var i = 0; i < phrase.length; i++)
-                  Chip(label: Text('${i + 1}. ${phrase[i]}')),
-              ],
-            ),
-          ),
-        ),
-        CheckboxListTile(
-          contentPadding: EdgeInsets.zero,
-          value: confirmed,
-          onChanged: (v) => onConfirmedChanged(v ?? false),
-          title: Text(l.recoveryConfirm),
-        ),
-        FilledButton(
-          onPressed: confirmed ? onNext : null,
-          child: Text(l.actionContinue),
-        ),
-      ],
+      ),
     );
   }
 }

@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/core/secure_screen.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/features/onboarding/onboarding_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
@@ -473,6 +475,104 @@ void main() {
     await tester.tap(find.text(l().onboardRestoreSubmit));
     await tester.pumpAndSettle();
     expect(find.text(l().recoveryPlaceholderWarning), findsNothing);
+  });
+
+  group('the 24 words are kept off any screenshot', () {
+    // The recovery step shows, in plain words, everything needed to become this
+    // person — and nothing in the app had ever asked the platform not to
+    // capture the screen (audit X-11). Asserted on the REAL wizard rather than
+    // on the guard widget alone, because the thing that can silently regress is
+    // the wiring: the guard staying behind while the step moves.
+
+    late List<bool> secureCalls;
+
+    setUp(() {
+      secureCalls = [];
+      secureScreen.debugReset();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel(SecureScreen.channelName),
+            (call) async {
+              if (call.method == 'setSecure') {
+                secureCalls.add((call.arguments as Map)['secure'] as bool);
+              }
+              return null;
+            },
+          );
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel(SecureScreen.channelName),
+            null,
+          );
+      secureScreen.debugReset();
+    });
+
+    Future<void> pump(WidgetTester tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
+          child: MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: OnboardingScreen(validatePhrase: (_) => true),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    AppL10n l(WidgetTester tester) =>
+        AppL10n.of(tester.element(find.byType(OnboardingScreen)));
+
+    testWidgets('the phrase step secures the screen and the next one frees it', (
+      tester,
+    ) async {
+      await pump(tester);
+      await tester.tap(find.text(l(tester).actionContinue));
+      await tester.pumpAndSettle();
+      expect(
+        secureCalls,
+        isEmpty,
+        reason: 'the welcome and path steps carry nothing worth securing — a '
+            'flag held app-wide would black out this app\'s own screen share',
+      );
+
+      await tester.tap(find.text(l(tester).onboardCreateIdentity));
+      await tester.pumpAndSettle();
+      expect(find.text(l(tester).recoveryTitle), findsOneWidget);
+      expect(secureCalls, [true], reason: 'the words are on screen unprotected');
+
+      // Off the step -> the flag goes back, so sharing works again.
+      await tester.tap(find.byType(Checkbox));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l(tester).actionContinue));
+      await tester.pumpAndSettle();
+      expect(find.text(l(tester).storageTitle), findsOneWidget);
+      expect(secureCalls, [true, false]);
+    });
+
+    testWidgets('typing a phrase in is protected too', (tester) async {
+      // Restoring puts the same 24 words on screen, in a field that is
+      // deliberately not obscured.
+      await pump(tester);
+      await tester.tap(find.text(l(tester).actionContinue));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l(tester).onboardRestoreIdentity));
+      await tester.pumpAndSettle();
+      expect(secureCalls, [true]);
+
+      await tester.enterText(
+        find.byType(TextField),
+        List.generate(24, (i) => 'w$i').join(' '),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l(tester).onboardRestoreSubmit));
+      await tester.pumpAndSettle();
+      expect(secureCalls, [true, false]);
+    });
   });
 
   testWidgets('the word count gates on its own, not via the validator', (
