@@ -109,6 +109,27 @@ List<Uint8List> _documentChunkFrames(String frame, String tid) {
   ];
 }
 
+/// Two DIFFERENT snapshot bundles whose Dart `String.hashCode` collides in the
+/// low 31 bits — the exact value the durable frame id used to be built from.
+///
+/// Found by search rather than hard-coded: `String.hashCode` is not a
+/// cross-version constant, and a stale literal pair would quietly stop testing
+/// anything. 31 bits is small enough that this costs milliseconds, which is the
+/// whole point of the finding (audit XV-11).
+({String a, String b}) _hashCodeCollision() {
+  final seen = <int, String>{};
+  for (var i = 0; i < 400000; i++) {
+    final candidate = '{"m":{"n":"$i"}}';
+    final h = candidate.hashCode & 0x7fffffff;
+    final previous = seen[h];
+    if (previous != null && previous != candidate) {
+      return (a: previous, b: candidate);
+    }
+    seen[h] = candidate;
+  }
+  throw StateError('no 31-bit String.hashCode collision in 400k candidates');
+}
+
 void main() {
   late NodeId a, b;
   late _Link tB;
@@ -267,6 +288,189 @@ void main() {
       expect(calls, 1, reason: 'document frames never use stranger admission');
     },
   );
+
+  // ── audit XV-11 ───────────────────────────────────────────────────────────
+
+  /// A sender with nobody on the other end: the live leg goes nowhere, so every
+  /// durable frame it produces stays in its outbox to be counted.
+  Future<({MessagingService messaging, HiddenVolumeStorage storage})> sender(
+    NodeId me,
+    List<NodeId> destinations,
+  ) async {
+    final transport = _Link(me);
+    final storage = HiddenVolumeStorage(_memOpener());
+    await storage.open(password: 'send', createIfMissing: true);
+    // Accepted, or the outbox flush retires frames addressed to a stranger and
+    // the count below would measure the flush rather than the enqueue.
+    for (final peer in destinations) {
+      await storage.upsertContact(
+        Contact(nodeId: peer, status: ContactStatus.accepted),
+      );
+    }
+    final messaging = MessagingService(transport, storage)..start();
+    addTearDown(messaging.dispose);
+    return (messaging: messaging, storage: storage);
+  }
+
+  test(
+    'two snapshots colliding in 31 bits are still two durable frames',
+    () async {
+      // The frame id used to carry `bundleJson.hashCode & 0x7fffffff`, and the
+      // durable outbox is keyed by frame id: `enqueueOutboxFrame` returns early
+      // on an id it already holds. So the SECOND of two colliding snapshots was
+      // never persisted and never re-driven — the newer group state was lost
+      // with no error anywhere (audit XV-11).
+      final collision = _hashCodeCollision();
+      expect(
+        collision.a.hashCode & 0x7fffffff,
+        collision.b.hashCode & 0x7fffffff,
+        reason: 'the fixture itself must be a genuine 31-bit collision',
+      );
+      expect(collision.a, isNot(collision.b));
+
+      final s = await sender(a, [b]);
+      await s.messaging.sendGroupSnapshot(b, 'aa11', collision.a);
+      await s.messaging.sendGroupSnapshot(b, 'aa11', collision.b);
+
+      expect(
+        (await s.storage.pendingOutboxFrames()).map((f) => f.frameId).toSet(),
+        hasLength(2),
+        reason: 'two distinct snapshots are two distinct durable frames',
+      );
+
+      // Control: re-sending the SAME snapshot must still dedup, or the id has
+      // simply stopped being content-addressed.
+      await s.messaging.sendGroupSnapshot(b, 'aa11', collision.a);
+      expect(
+        (await s.storage.pendingOutboxFrames()).map((f) => f.frameId).toSet(),
+        hasLength(2),
+        reason: 'a re-drive of the same snapshot is the same frame',
+      );
+    },
+  );
+
+  test('one snapshot to two members is two durable frames', () async {
+    // A group snapshot fans out to EVERY member through the same call, and the
+    // id named only the group and the content — so the durable outbox held one
+    // row and every member after the first lost its re-drive. Exactly the
+    // defect `gcr:` had (audit XV-02), still live here (audit XV-11).
+    final c = _id(3);
+    final s = await sender(a, [b, c]);
+    const snapshot = '{"m":{"name":"Pics"}}';
+
+    await s.messaging.sendGroupSnapshot(b, 'aa11', snapshot);
+    await s.messaging.sendGroupSnapshot(c, 'aa11', snapshot);
+
+    final pending = await s.storage.pendingOutboxFrames();
+    expect(
+      pending.map((f) => f.peerHex).toSet(),
+      {b.hex, c.hex},
+      reason: 'each member needs its own durable frame',
+    );
+    expect(pending.map((f) => f.frameId).toSet(), hasLength(2));
+  });
+
+  test('two senders cannot share one reassembly slot', () async {
+    // Reassembly was keyed by transferId ALONE. A transferId names a group and
+    // a content digest — anything a member can compute, or simply copy off a
+    // chunk it received. So a second sender landed in the first one's slot:
+    // `parts.containsKey` dropped its slices as duplicates until it supplied
+    // the one index still missing, and the joined bundle was a SPLICE of two
+    // senders' bytes that no signature check accepts. The honest snapshot never
+    // arrives (audit XV-11).
+    //
+    // This lands after the per-(peer, frameId) dedup gate: the two senders use
+    // identical chunk frame ids, and XV-02 already made the seen-set per peer,
+    // so both chunk streams really do reach reassembly.
+    final c = _id(3);
+    await sB.upsertContact(Contact(nodeId: c, status: ContactStatus.accepted));
+    final fromA = bundle;
+    final fromC = bundle.replaceAll('y', 'z'); // same length → same chunk count
+
+    final received = <({NodeId peer, String json})>[];
+    mB.onGroupEntry = (peer, json) => received.add((peer: peer, json: json));
+
+    const sharedTid = 'grp:aa11:same-digest';
+    final chunksA = _chunkFrames(fromA, sharedTid);
+    final chunksC = _chunkFrames(fromC, sharedTid);
+    expect(chunksA.length, chunksC.length);
+    expect(chunksA.length, greaterThan(1), reason: 'must actually split');
+
+    // A gets all the way to its last chunk, then C sends a complete transfer.
+    for (final frame in chunksA.take(chunksA.length - 1)) {
+      tB.inject(a, frame);
+      await _settle();
+    }
+    for (final frame in chunksC) {
+      tB.inject(c, frame);
+      await _settle();
+    }
+    expect(received, hasLength(1));
+    expect(received.single.peer, c);
+    expect(
+      received.single.json,
+      fromC,
+      reason: "C's bundle must be C's bytes only — not a splice with A's",
+    );
+
+    // And A's partial was never consumed by C's transfer: its last chunk still
+    // completes A's own snapshot.
+    tB.inject(a, chunksA.last);
+    await _settle();
+    expect(received, hasLength(2));
+    expect(received.last.peer, a);
+    expect(received.last.json, fromA);
+  });
+
+  test('a partial that keeps advancing outlives idle ones', () async {
+    // The concurrency cap evicted `keys.first` — insertion order, so the
+    // OLDEST-STARTED partial, which is precisely the big slow transfer that is
+    // still making progress. (A wall-clock TTL, which the audit suggested,
+    // would have picked the same victim for the same wrong reason.) Ordering by
+    // last progress instead drops only genuinely stalled partials (audit
+    // XV-11).
+    var calls = 0;
+    String? gotJson;
+    mB.onGroupEntry = (_, json) {
+      gotJson = json;
+      calls++;
+    };
+
+    final live = _chunkFrames(bundle, 'grp:aa11:live');
+    expect(live.length, greaterThanOrEqualTo(3));
+    final idle = [
+      for (var i = 0; i < 7; i++) _chunkFrames(bundle, 'grp:aa11:idle$i'),
+    ];
+
+    tB.inject(a, live.first); // oldest-started
+    await _settle();
+    for (final transfer in idle) {
+      tB.inject(a, transfer.first);
+      await _settle();
+    }
+
+    tB.inject(a, live[1]); // …but the one still moving
+    await _settle();
+
+    // One transfer more than the cap allows: something has to go.
+    tB.inject(a, _chunkFrames(bundle, 'grp:aa11:overflow').first);
+    await _settle();
+
+    for (final frame in live.skip(2)) {
+      tB.inject(a, frame);
+      await _settle();
+    }
+    expect(calls, 1, reason: 'the advancing transfer must survive the squeeze');
+    expect(gotJson, bundle);
+
+    // …and the squeeze was real: the stalest partial IS gone, so finishing it
+    // reassembles nothing.
+    for (final frame in idle.first.skip(1)) {
+      tB.inject(a, frame);
+      await _settle();
+    }
+    expect(calls, 1, reason: 'the idle partial was the one evicted');
+  });
 
   test(
     'document chunks withhold ACK until persistence becomes terminal',
