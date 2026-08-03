@@ -3255,6 +3255,215 @@ void main() {
     },
   );
 
+  group('the event feed is bounded and let go', () {
+    // Audit XV-10. Two halves of the same omission: the subscription cap was
+    // CHECKED before an awaited upgrade instead of claimed, and an upgraded
+    // socket carried no trace of the token that opened it, so nothing could
+    // close it when that token went away.
+    ApiHandler twoTokens() => ApiHandler(
+      tokens: const [
+        ApiToken(id: 'a', name: 'bot-a', token: 'tok-a', readOnly: false),
+        ApiToken(id: 'b', name: 'bot-b', token: 'tok-b', readOnly: false),
+      ],
+      status: () => const {'ok': true},
+      contacts: () async => const [],
+      send: (to, body) async => null,
+      messages: (peer, limit) async => const [],
+      sendFile: (to, path, name) async => null,
+      loadFile: (fileId) async => null,
+      placeCall: (to, media) async => null,
+      callState: () => null,
+      callAction: (action) async {},
+      groups: () async => const [],
+      createGroup: (_) async => 'gid',
+      groupMessages: (_, _) async => const [],
+      sendGroupMessage: (_, _, _) async => null,
+      sendGroupFile: (_, _, _, _, _, {kind, width, height, durationMs}) async =>
+          (error: null, contentId: 'cid'),
+      fetchGroupFile: (_, _) async => null,
+      loadGroupFile: (_, _) async =>
+          (error: null, source: inMemoryBlobSource(Uint8List(0))),
+      groupMembers: (_, _) async => const {},
+      groupMemberAction: (_, _, _, _, _) async => null,
+      renameGroup: (_, _, _) async => null,
+      leaveGroup: (_, _) async => null,
+      startGroupCall: (_, _) async => null,
+      groupCallState: () => null,
+      groupCallAction: (_) async => null,
+      groupCallPosture: (_, _, _) async => null,
+    );
+
+    test('the subscription cap holds against a simultaneous rush', () async {
+      // The cap was CHECKED before an awaited upgrade and claimed after, so
+      // every subscription that arrived while the first was still shaking
+      // hands read the same pre-upgrade total and passed.
+      //
+      // That window is invisible to a test written the obvious way: on
+      // loopback each handshake finishes before the next request is
+      // dispatched, so twelve `WebSocket.connect` calls simply queue up and
+      // the buggy server passes. (Measured — the first version of this test
+      // did exactly that and stayed green against the bug.) The gate below
+      // holds every upgrade open until all twelve requests are accounted for,
+      // which is the production interleaving stated rather than hoped for.
+      //
+      // No sleeps: the wait ends as soon as each attempt has either parked at
+      // the gate or been refused.
+      final events = StreamController<Map<String, dynamic>>.broadcast();
+      final server = ApiServer(
+        twoTokens(),
+        events.stream,
+        maxLiveSockets: 2,
+      );
+      var gated = 0;
+      final open = Completer<void>();
+      server.debugUpgradeGate = () {
+        gated++;
+        return open.future;
+      };
+      final port = await server.start(0);
+      addTearDown(() async {
+        await events.close();
+        await server.stop();
+      });
+
+      var settled = 0;
+      final attempts = <Future<WebSocket?>>[
+        for (var i = 0; i < 12; i++)
+          WebSocket.connect('ws://127.0.0.1:$port/v1/events?token=tok-a').then<
+              WebSocket?>((ws) {
+            settled++;
+            return ws;
+          }, onError: (Object _) {
+            settled++;
+            return null;
+          }),
+      ];
+
+      for (var spin = 0; spin < 2000 && settled + gated < 12; spin++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      expect(
+        settled + gated, 12,
+        reason: 'every attempt should be refused or parked at the gate',
+      );
+      expect(
+        gated, 2,
+        reason: 'a cap that is merely CHECKED lets the whole rush through to '
+            'the upgrade; only a slot claimed before the await stops them',
+      );
+
+      open.complete();
+      final opened =
+          (await Future.wait(attempts)).whereType<WebSocket>().toList();
+      addTearDown(() async {
+        for (final ws in opened) {
+          await ws.close();
+        }
+      });
+      expect(opened, hasLength(2));
+      expect(server.liveSocketCount, 2);
+    });
+
+    test('a subscriber that hangs up gives its slot back', () async {
+      // A cap that only counts UP is worse than no cap: it fails the honest
+      // client and never the abusive one. The release hung off `ws.done`,
+      // which on a SERVER-side socket does not complete when the peer
+      // disconnects — only the inbound stream reports that, and nothing was
+      // listening to it. So sixteen ordinary bot reconnects wedged the feed at
+      // 503 until the app restarted. Reserving the slot before the upgrade
+      // (the race half of XV-10) would have made that worse, not better,
+      // which is why both halves land together.
+      //
+      // A cap of one and four sequential connects is the cheapest way to see
+      // it: a leaked slot wedges on the second.
+      final events = StreamController<Map<String, dynamic>>.broadcast();
+      final server = ApiServer(twoTokens(), events.stream, maxLiveSockets: 1);
+      final port = await server.start(0);
+      addTearDown(() async {
+        await events.close();
+        await server.stop();
+      });
+      for (var i = 0; i < 4; i++) {
+        final ws = await WebSocket.connect(
+          'ws://127.0.0.1:$port/v1/events?token=tok-a',
+        );
+        await ws.close();
+        // `done` on the client does not mean the server has run its cleanup,
+        // and that cleanup waits on IO, not just microtasks.
+        for (var spin = 0; spin < 200 && server.liveSocketCount > 0; spin++) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        expect(
+          server.liveSocketCount, 0,
+          reason: 'subscription ${i + 1} leaked its slot',
+        );
+      }
+    });
+
+    test('stop() disconnects live subscribers', () async {
+      // `HttpServer.close(force: true)` does NOT take upgraded WebSockets with
+      // it — measured: the socket stays open and writable afterwards. This is
+      // the single path behind disable AND an identity switch, so a feed
+      // authorised by one identity stayed attached across the move to
+      // another.
+      final events = StreamController<Map<String, dynamic>>.broadcast();
+      final server = ApiServer(twoTokens(), events.stream);
+      final port = await server.start(0);
+      addTearDown(events.close);
+      final ws = await WebSocket.connect(
+        'ws://127.0.0.1:$port/v1/events?token=tok-a',
+      );
+      final received = <String>[];
+      final gone = Completer<void>();
+      ws.listen((m) => received.add('$m'), onDone: gone.complete);
+      events.add({'id': 'before'});
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(received, hasLength(1), reason: 'the feed was live');
+
+      await server.stop();
+      await gone.future.timeout(const Duration(seconds: 5));
+      expect(server.liveSocketCount, 0);
+
+      // …and nothing more arrives, which is the property the close code is
+      // only a courtesy about.
+      events.add({'id': 'after'});
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(received, hasLength(1));
+    });
+
+    test('revoking one token closes only that token\'s sockets', () async {
+      // A revocation is not an outage: the other bots keep their feeds.
+      final events = StreamController<Map<String, dynamic>>.broadcast();
+      final server = ApiServer(twoTokens(), events.stream);
+      final port = await server.start(0);
+      addTearDown(() async {
+        await events.close();
+        await server.stop();
+      });
+      final base = 'ws://127.0.0.1:$port/v1/events';
+      final a = await WebSocket.connect('$base?token=tok-a');
+      final b = await WebSocket.connect('$base?token=tok-b');
+      final aGone = Completer<void>();
+      var bClosed = false;
+      final bSeen = <String>[];
+      a.listen((_) {}, onDone: aGone.complete);
+      b.listen((m) => bSeen.add('$m'), onDone: () => bClosed = true);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(server.liveSocketCount, 2);
+
+      await server.closeLiveSockets(tokenId: 'a', code: 1008, reason: 'gone');
+      await aGone.future.timeout(const Duration(seconds: 5));
+      expect(a.closeCode, 1008);
+      expect(server.liveSocketCount, 1);
+
+      events.add({'id': 'still-flowing'});
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(bClosed, isFalse, reason: 'bot-b was never revoked');
+      expect(bSeen, hasLength(1));
+      await b.close();
+    });
+  });
+
   test('loopback API parses PATCH JSON for signed Space post edits', () async {
     final server = ApiServer(make(), const Stream.empty());
     final port = await server.start(0);

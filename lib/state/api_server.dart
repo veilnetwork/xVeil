@@ -35,6 +35,14 @@ const String _kReadOnlyKey = 'api.readonly';
 const String _kWebhookKey = 'api.webhook';
 
 class ApiServerController extends Notifier<ApiConfig> {
+  /// The port the loopback API binds.
+  ///
+  /// A knob only so a test can ask for an ephemeral port (0) instead of
+  /// racing whatever else holds [kApiPort] on the machine running the suite.
+  /// Production never touches it.
+  @visibleForTesting
+  static int debugBindPort = kApiPort;
+
   ApiServer? _server;
   StreamSubscription<Map<String, dynamic>>? _webhookSub;
   int _identityGeneration = 0;
@@ -800,7 +808,7 @@ class ApiServerController extends Notifier<ApiConfig> {
     final events = _events(groupService, groupCalls);
     _server = ApiServer(handler, events);
     try {
-      await _server!.start(kApiPort);
+      await _server!.start(debugBindPort);
       if (identityAtStart != _identityHex) {
         await _server!.stop();
         _server = null;
@@ -937,7 +945,19 @@ class ApiServerController extends Notifier<ApiConfig> {
   }
 
   /// Revoke the token with [id] (that client immediately stops working).
+  ///
+  /// The event socket goes with it (audit XV-10). "Revoked" used to mean only
+  /// that the next REQUEST would be refused: an already-upgraded `/v1/events`
+  /// WebSocket carried no trace of which token opened it, and
+  /// `HttpServer.close` does not take upgraded sockets down, so the revoked
+  /// client kept its live feed across the restart below. Closed BY TOKEN, so
+  /// revoking one bot does not disconnect the others.
   Future<void> revokeToken(String id) async {
+    await _server?.closeLiveSockets(
+      tokenId: id,
+      code: 1008, // policy violation: this credential is no longer valid
+      reason: 'token revoked',
+    );
     state = state.copyWith(
       tokens: state.tokens.where((t) => t.id != id).toList(),
     );
@@ -946,6 +966,14 @@ class ApiServerController extends Notifier<ApiConfig> {
   }
 
   bool get running => _server?.running ?? false;
+
+  /// Live `/v1/events` subscribers, or 0 when the server is down. Lets a test
+  /// watch the identity-switch and disable paths let their sockets go.
+  int get liveSocketCount => _server?.liveSocketCount ?? 0;
+
+  /// The bound port, or null when the server is down. Tests use it to reach a
+  /// server that came up on an ephemeral port.
+  int? get boundPort => _server?.port;
 }
 
 final apiServerControllerProvider =
