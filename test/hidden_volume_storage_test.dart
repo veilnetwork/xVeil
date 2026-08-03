@@ -495,6 +495,36 @@ void main() {
     expect(loaded.username, 'al');
   });
 
+  test(
+    'an identity record that will not parse is DAMAGED, not missing',
+    () async {
+      // Audit XV-13. Every unreadable shape used to come back as `null` — the
+      // same answer a fresh space gives — so callers minted a random identity
+      // and every "is this space empty?" guard said yes over a record that was
+      // still sitting there.
+      final key = Uint8List.fromList(utf8.encode('identity'));
+      for (final bad in <List<int>>[
+        [0xff, 0xfe, 0xfd], // not UTF-8
+        utf8.encode('{"n":'), // truncated JSON
+        utf8.encode('["not","a","map"]'), // JSON, wrong shape
+        utf8.encode('{"dn":"Alice"}'), // no node id at all
+        utf8.encode('{"n":123}'), // node id is not a string
+        utf8.encode('{"n":"zzzz"}'), // node id is not hex
+      ]) {
+        store.commit([PutOp(Ns.settings, key, Uint8List.fromList(bad))]);
+        await expectLater(
+          storage.loadIdentity(),
+          throwsA(isA<CorruptIdentityRecord>()),
+          reason: 'blob ${utf8.decode(bad, allowMalformed: true)}',
+        );
+      }
+
+      // ...and the distinction survives: with the record gone it IS missing.
+      store.commit([DeleteOp(Ns.settings, key)]);
+      expect(await storage.loadIdentity(), isNull);
+    },
+  );
+
   test('settings round-trip', () async {
     await storage.putSetting('theme', 'dark');
     expect(await storage.getSetting('theme'), 'dark');

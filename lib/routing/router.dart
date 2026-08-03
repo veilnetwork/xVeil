@@ -10,6 +10,7 @@ import '../features/groups/group_chat_screen.dart';
 import '../features/home/home_shell.dart';
 import '../features/identity/add_identity_screen.dart';
 import '../features/identity/decoy_master_screen.dart';
+import '../features/identity/identity_damaged_screen.dart';
 import '../features/identity/identity_picker_screen.dart';
 import '../features/identity/manage_identities_screen.dart';
 import '../features/lock/lock_screen.dart';
@@ -63,6 +64,12 @@ String? redirectForPhase(AppPhase phase, String location) {
       return location == '/lock' ? null : '/lock';
     case AppPhase.pickingIdentity:
       return location == '/pick-identity' ? null : '/pick-identity';
+    case AppPhase.identityDamaged:
+      // Pinned like every other pre-`ready` phase. No exception for
+      // /manage-identities here (unlike preparingNode): the roster screens
+      // WRITE, and this phase exists precisely because a space was found in a
+      // state nothing should be written over (audit XV-13).
+      return location == '/identity-damaged' ? null : '/identity-damaged';
     case AppPhase.preparingNode:
       // The "manage identities" screen drives roster ops that re-enter the
       // session (passing through preparingNode); let it stay put and show its
@@ -179,6 +186,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/pick-identity',
         builder: (_, _) => const IdentityPickerScreen(),
+      ),
+      GoRoute(
+        path: '/identity-damaged',
+        builder: (_, _) => const IdentityDamagedScreen(),
       ),
       GoRoute(
         path: '/preparing',
