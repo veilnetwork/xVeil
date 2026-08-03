@@ -6587,6 +6587,16 @@ class ApiServer {
   /// good.
   static const kEventFeedTooSlowCloseCode = 4013;
 
+  /// Bytes a subscriber may send US before it is hung up (audit X-08).
+  ///
+  /// The `/v1/events` feed is one-way: a well-behaved client sends nothing at
+  /// all after the handshake, and dart:io answers pings itself without them
+  /// reaching the handler. So this is not a quota anyone has to fit inside —
+  /// it is slack, generous enough that no ordinary client could trip it and
+  /// small enough that nobody can rent the process's memory through a channel
+  /// that has no use for what they send.
+  static const kEventFeedInboundByteBudget = 64 * 1024;
+
   Future<int?> start(int port) async {
     if (_server != null) return _server!.port;
     // EXCLUSIVE bind. `shared: true` maps to SO_REUSEPORT, which load-balances
@@ -6769,7 +6779,21 @@ class ApiServer {
       final WebSocket ws;
       try {
         await debugUpgradeGate?.call();
-        ws = await WebSocketTransformer.upgrade(req);
+        // COMPRESSION OFF (audit X-08). The default is
+        // `compressionDefault`, which negotiates permessage-deflate, and
+        // dart:io then joins a whole message before inflating it with no
+        // ceiling on the output and no limit on the expansion ratio. A few
+        // kilobytes of zeros on the wire become gigabytes in this process —
+        // and the token that buys the right to try is one a local process can
+        // hold while being allowed nothing else.
+        //
+        // It costs nothing to give up. This feed is one-way and its messages
+        // are small JSON notices; deflate was never buying anything here, so
+        // the whole class goes away rather than being bounded.
+        ws = await WebSocketTransformer.upgrade(
+          req,
+          compression: CompressionOptions.compressionOff,
+        );
       } catch (_) {
         release(); // an upgrade that failed must not hold a slot forever
         return;
@@ -6831,8 +6855,26 @@ class ApiServer {
       // answered 503 until the app was restarted. A cap that never gives a
       // slot back is worse than no cap, because it fails the honest client and
       // not the abusive one.
+      var inbound = 0;
       ws.listen(
-        (_) {}, // the feed is one-way; whatever a client sends is ignored
+        // The feed is one-way, so nothing a client sends is read — but it is
+        // COUNTED (audit X-08). Ignoring bytes is not the same as refusing
+        // them: dart:io joins each message in memory before it ever reaches
+        // this callback, so a subscriber that uploads is spending our heap
+        // whatever we do with the result. On a channel that has no use for
+        // inbound traffic at all, any measurable amount of it is already
+        // misuse, and the honest answer is to hang up rather than to keep
+        // reading and discarding.
+        (Object? frame) {
+          inbound += switch (frame) {
+            String s => s.length,
+            List<int> b => b.length,
+            _ => 0,
+          };
+          if (inbound > kEventFeedInboundByteBudget) {
+            unawaited(live.shutdown(1008, 'event feed is not an upload'));
+          }
+        },
         onDone: () => unawaited(_releaseLive(live, release)),
         onError: (Object _) => unawaited(_releaseLive(live, release)),
         cancelOnError: true,

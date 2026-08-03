@@ -3502,6 +3502,114 @@ void main() {
       },
     );
 
+    test('the event socket refuses to negotiate compression', () async {
+      // Audit X-08. `WebSocketTransformer.upgrade` defaults to
+      // `compressionDefault`, which agrees to permessage-deflate; dart:io then
+      // joins each message and inflates it with no ceiling on the output and
+      // no limit on the expansion ratio, so a few kilobytes of zeros become
+      // gigabytes of this process's heap.
+      //
+      // The handshake is done by hand because that is the only place the
+      // answer is visible: `WebSocket` exposes no "was deflate negotiated"
+      // anywhere, so a test driving the normal client could only watch the
+      // memory and hope.
+      final events = StreamController<Map<String, dynamic>>.broadcast();
+      final server = ApiServer(twoTokens(), events.stream);
+      final port = await server.start(0);
+      addTearDown(() async {
+        await events.close();
+        await server.stop();
+      });
+
+      final socket = await Socket.connect('127.0.0.1', port!);
+      addTearDown(socket.destroy);
+      socket.write(
+        'GET /v1/events?token=tok-a HTTP/1.1\r\n'
+        'Host: 127.0.0.1:$port\r\n'
+        'Upgrade: websocket\r\n'
+        'Connection: Upgrade\r\n'
+        'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
+        'Sec-WebSocket-Version: 13\r\n'
+        'Sec-WebSocket-Extensions: permessage-deflate\r\n'
+        '\r\n',
+      );
+      await socket.flush();
+
+      final buffer = StringBuffer();
+      await for (final chunk in socket) {
+        buffer.write(String.fromCharCodes(chunk));
+        if (buffer.toString().contains('\r\n\r\n')) break;
+      }
+      final head = buffer.toString().split('\r\n\r\n').first;
+      expect(
+        head,
+        startsWith('HTTP/1.1 101'),
+        reason: 'the upgrade itself must still succeed, or this test would '
+            'pass for the wrong reason',
+      );
+      expect(
+        head.toLowerCase(),
+        isNot(contains('sec-websocket-extensions')),
+        reason: 'agreeing to permessage-deflate is what hands a caller an '
+            'unbounded inflate',
+      );
+    });
+
+    test(
+      'a subscriber that uploads is hung up, and not one byte sooner',
+      () async {
+        // Audit X-08, the other half. Ignoring what a client sends is not the
+        // same as refusing it: dart:io joins each message in memory before it
+        // reaches the handler, so a subscriber that uploads spends this
+        // process's heap whatever the handler does with the result.
+        final events = StreamController<Map<String, dynamic>>.broadcast();
+        final server = ApiServer(twoTokens(), events.stream);
+        final port = await server.start(0);
+        addTearDown(() async {
+          await events.close();
+          await server.stop();
+        });
+        final base = 'ws://127.0.0.1:$port/v1/events';
+
+        // EXACTLY the budget is still a client in good standing. A ceiling
+        // that fires one byte early is a different rule than the one written
+        // down, and nothing else in this suite would notice.
+        final atLimit = await WebSocket.connect('$base?token=tok-a');
+        addTearDown(atLimit.close);
+        final atLimitSeen = <String>[];
+        var atLimitClosed = false;
+        atLimit.listen(
+          (m) => atLimitSeen.add('$m'),
+          onDone: () => atLimitClosed = true,
+        );
+        atLimit.add(Uint8List(ApiServer.kEventFeedInboundByteBudget));
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        events.add({'id': 'still-fed'});
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        expect(atLimitClosed, isFalse, reason: 'the budget is a ceiling');
+        expect(
+          atLimitSeen,
+          hasLength(1),
+          reason: 'and a client at it keeps its feed, not just its socket',
+        );
+
+        // One byte past it is not.
+        final over = await WebSocket.connect('$base?token=tok-b');
+        final overGone = Completer<void>();
+        over.listen((_) {}, onDone: overGone.complete);
+        over.add(Uint8List(ApiServer.kEventFeedInboundByteBudget + 1));
+        await overGone.future.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () =>
+              fail('an uploading subscriber was read and never hung up'),
+        );
+        expect(over.closeCode, 1008);
+
+        // The one at the limit is untouched by its neighbour's eviction.
+        expect(atLimitClosed, isFalse);
+      },
+    );
+
     test('stop() disconnects live subscribers', () async {
       // `HttpServer.close(force: true)` does NOT take upgraded WebSockets with
       // it — measured: the socket stays open and writable afterwards. This is
