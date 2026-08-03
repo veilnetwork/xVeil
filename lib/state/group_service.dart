@@ -3227,6 +3227,16 @@ class GroupService {
     return _lastTimestampMs;
   }
 
+  /// The wall clock as a plain reading, WITHOUT advancing the monotonic
+  /// mutation counter [_now] maintains.
+  ///
+  /// For predicates that only ask what time it is. Taking [_now] for those
+  /// would shift every stamp written afterwards by one per read, which makes
+  /// the order of this device's own writes depend on how many questions were
+  /// asked along the way.
+  int _clockNowMs() =>
+      debugWallClockMs?.call() ?? DateTime.now().millisecondsSinceEpoch;
+
   /// Test seam: retention expiry spans days, so deterministic tests drive the
   /// wall clock instead of waiting it out. Never set in production code.
   int Function()? debugWallClockMs;
@@ -4243,10 +4253,15 @@ class GroupService {
     final unresolved = <String>{};
     final hiddenThrough = <String, int>{};
     var lastActivationMs = 0;
+    final nowMs = _clockNowMs();
 
     for (var index = 0; index < accepted.length; index++) {
       final entry = accepted[index];
       if (entry.op != ControlOp.setRetention) continue;
+      // Before the monotone clamp, so an unbelievable stamp cannot raise the
+      // floor under the honest revisions that follow it — including the one
+      // that would put the policy back.
+      if (!spaceRetentionRevisionBelievable(entry.createdAtMs, nowMs)) continue;
       final activatedAt = entry.createdAtMs < lastActivationMs
           ? lastActivationMs
           : entry.createdAtMs;
@@ -4384,8 +4399,11 @@ class GroupService {
     if (!bundle.manifest.isSpace) return const [];
     final revisions = <SpaceRetentionRevision>[];
     var lastActivationMs = 0;
+    final nowMs = _clockNowMs();
     for (final entry in _acceptedControl(bundle.manifest, bundle.control)) {
       if (entry.op != ControlOp.setRetention) continue;
+      // Same bound, same reason, on the synchronous subset.
+      if (!spaceRetentionRevisionBelievable(entry.createdAtMs, nowMs)) continue;
       final activatedAt = entry.createdAtMs < lastActivationMs
           ? lastActivationMs
           : entry.createdAtMs;
@@ -11386,6 +11404,13 @@ class GroupService {
     final localCutoff = applyLocalRetention
         ? await _localSpaceRetentionCutoff(spaceId, readAt)
         : -1;
+    // Deliberately NOT `state.retentionHistory`: the fold is a pure domain
+    // function with no clock, so its copy of the timeline still carries a
+    // revision dated into the future — and the monotone clamp then lifts every
+    // honest revision behind it to the same year, which is exactly the
+    // standstill this bound exists to prevent. A post is Space-scoped
+    // (`channelId: null`), so the clear V9 subset is the whole answer here.
+    final retention = _clearRetentionRevisions(bundle);
     final byChain = <String, ({NodeId author, String generation})>{};
     for (final post in _canonicalPostRows(spaceId, bundle.posts)) {
       final generation = _postGeneration(post);
@@ -11489,7 +11514,8 @@ class GroupService {
             pin?.pinned == true && pin!.rootHash == _spacePostHash(view.root);
         final mediaExpired =
             !pinned &&
-            state.isRetentionMediaExpired(
+            spaceRetentionRemovesMedia(
+              revisions: retention,
               // An edit that replaces media starts a new media lifetime while
               // the immutable root keeps the publication's text lifetime.
               createdAtMs: view.effective.createdAtMs,
@@ -11504,7 +11530,8 @@ class GroupService {
               atMs: readAt,
             ) ||
             (!pinned &&
-                state.isRetentionExpired(
+                spaceRetentionRemoves(
+                  revisions: retention,
                   createdAtMs: view.root.createdAtMs,
                   atMs: readAt,
                 )) ||
