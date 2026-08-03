@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 
-import 'native_libs.dart' show processLibFor;
+import 'native_libs.dart' show openEnvLib, processLibFor;
 import 'node/embedded_node.dart';
 import 'node/node_controller.dart';
 import 'node/proxy_routing.dart';
@@ -270,11 +270,16 @@ Future<int> registerRuntimeBootstrapPeers(
 /// that handle, NOT in the global `DynamicLibrary.process()` table, so a
 /// process() lookup of `veil_config_init` fails with "undefined symbol").
 /// Top-level so it is a valid `Isolate.run` entry point.
+///
+/// THROUGH [openEnvLib] (audit X-17). These two isolates read the variable and
+/// called `DynamicLibrary.open` on it themselves, testing only that the file
+/// existed — the single exception to the rule `native_libs.dart` declares and
+/// explains at length, that an operator's override must be ABSOLUTE. A
+/// relative one resolves against whatever directory the app was launched from,
+/// and `dlopen` runs the library's constructors on the spot. Being in an
+/// isolate made it quieter, not safer.
 String _mineConfigInIsolate() {
-  final path = Platform.environment['VEIL_FFI_DYLIB'];
-  final lib = (path != null && path.isNotEmpty && File(path).existsSync())
-      ? DynamicLibrary.open(path)
-      : processLibFor('veilclient_ffi');
+  final lib = openEnvLib('VEIL_FFI_DYLIB') ?? processLibFor('veilclient_ffi');
   return EmbeddedNode.mineConfig(0, lib: lib);
 }
 
@@ -282,10 +287,7 @@ String _mineConfigInIsolate() {
 /// DERIVED from the onboarding master phrase (only the anti-sybil nonce is
 /// mined) — see EmbeddedNode.configFromPhrase.
 String _configFromPhraseInIsolate(String phrase) {
-  final path = Platform.environment['VEIL_FFI_DYLIB'];
-  final lib = (path != null && path.isNotEmpty && File(path).existsSync())
-      ? DynamicLibrary.open(path)
-      : processLibFor('veilclient_ffi');
+  final lib = openEnvLib('VEIL_FFI_DYLIB') ?? processLibFor('veilclient_ffi');
   return EmbeddedNode.configFromPhrase(phrase, lib: lib);
 }
 

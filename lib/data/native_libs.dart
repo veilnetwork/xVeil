@@ -76,6 +76,39 @@ final bool nativeLibDevPathsEnabled = () {
   return debug;
 }();
 
+/// The library path named by [envVar], or null when it is unset, empty,
+/// RELATIVE, or absent from disk.
+///
+/// The one validated door for an env-named library, and it exists because
+/// there was a second, unvalidated one (audit X-17). The worker isolates in
+/// `veil_stack.dart` read `VEIL_FFI_DYLIB` and opened it themselves, checking
+/// only that the file existed — so the ONE rule this file declares, that an
+/// operator override must be absolute, held everywhere except the two places
+/// that bypassed the loader. A relative path resolves against whatever
+/// directory the app was started from, and `dlopen` runs the library's
+/// constructors before a single symbol is looked up.
+///
+/// Rejecting means falling back to the ordinary lookup, not failing: an
+/// override we will not honour is not a reason to refuse to start.
+/// [environment] is for tests, which cannot set a real one.
+String? envLibPath(String envVar, {Map<String, String>? environment}) {
+  final path = (environment ?? Platform.environment)[envVar];
+  if (path == null || path.isEmpty) return null;
+  if (!isAbsoluteLibPath(path)) return null;
+  if (!File(path).existsSync()) return null;
+  return path;
+}
+
+/// [envLibPath] opened, or null when there is nothing valid to open.
+///
+/// Exists so a caller outside this file never has to hold a library path and
+/// decide for itself whether the path is safe — deciding for itself is what
+/// went wrong.
+DynamicLibrary? openEnvLib(String envVar, {Map<String, String>? environment}) {
+  final path = envLibPath(envVar, environment: environment);
+  return path == null ? null : DynamicLibrary.open(path);
+}
+
 /// Whether [path] is absolute on this platform.
 ///
 /// Windows counts a drive prefix (`C:\…`) and a UNC path (`\\host\share`);
