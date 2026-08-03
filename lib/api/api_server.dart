@@ -3175,12 +3175,18 @@ Map<String, dynamic> openApiSpec() {
 /// event type). True = delivered (any non-5xx response); false = try again.
 /// Top-level so the actual HTTP push is testable against a real loopback
 /// server, not just mocked.
+/// [client] lets a caller that delivers many events reuse one connection pool
+/// instead of building one per attempt. It then owns the teardown too: this
+/// function only force-closes a client it created itself. See [WebhookPump],
+/// which holds the client precisely so that a retarget has something to pull
+/// the plug on.
 Future<bool> pushWebhookEvent(
   String url,
   Map<String, dynamic> event, {
   Duration timeout = const Duration(seconds: 5),
+  HttpClient? client,
 }) async {
-  final client = HttpClient()..connectionTimeout = timeout;
+  final http = client ?? (HttpClient()..connectionTimeout = timeout);
   try {
     // ONE deadline over the whole exchange, not just the headers.
     //
@@ -3190,10 +3196,12 @@ Future<bool> pushWebhookEvent(
     // open indefinitely, and the webhook target is a URL the operator
     // configures — not necessarily one that is behaving (audit XV-09).
     //
-    // `client.close(force: true)` in the `finally` is what actually severs it
-    // when the deadline fires; the timeout is what makes the deadline exist.
+    // A forced close is what actually severs the socket when the deadline
+    // fires; the timeout is what makes the deadline exist. For a borrowed
+    // [client] that close is the caller's to make — the pump does it on the
+    // failure path, so a dribbling target still costs one socket at most.
     return await () async {
-      final req = await client.postUrl(Uri.parse(url));
+      final req = await http.postUrl(Uri.parse(url));
       req.headers.contentType = ContentType.json;
       req.headers.set('X-XVeil-Event', event['type']?.toString() ?? 'event');
       req.write(jsonEncode(event));
@@ -3204,7 +3212,7 @@ Future<bool> pushWebhookEvent(
   } catch (_) {
     return false;
   } finally {
-    client.close(force: true);
+    if (client == null) http.close(force: true);
   }
 }
 

@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/api/api_server.dart';
-import 'package:xveil/headless/headless_runtime.dart';
+import 'package:xveil/api/webhook_pump.dart';
 
 /// The webhook target is a URL the operator configures — not necessarily one
 /// that behaves. Two ways that used to cost the daemon unboundedly (audit
@@ -52,7 +52,7 @@ void main() {
     Stream<Map<String, dynamic>> noEvents() => const Stream.empty();
 
     test('a target that hangs cannot pile up deliveries', () async {
-      final pump = WebhookPump(noEvents());
+      final pump = WebhookPump(noEvents);
       var inFlight = 0;
       var maxInFlight = 0;
       final gate = Completer<void>();
@@ -88,7 +88,7 @@ void main() {
     });
 
     test('close stops the pump and drops what is queued', () async {
-      final pump = WebhookPump(noEvents());
+      final pump = WebhookPump(noEvents);
       pump.deliver = (target, event) async {};
       await pump.setTarget('http://example.invalid/hook');
       pump.enqueueForTest({'type': 'a'});
