@@ -3300,8 +3300,20 @@ class ApiToken {
 ///
 /// Symlinks are resolved BEFORE the comparison, so a link parked inside an
 /// allowed folder cannot aim out of it, and the RESOLVED path is what comes
-/// back: the caller opens the bytes that were checked instead of re-walking
-/// the original name and giving a swapped component a second chance.
+/// back — one fewer name to re-walk, and one fewer chance for a swapped
+/// component downstream.
+///
+/// WHAT THIS DOES NOT DO, and the comment here used to claim it did: hand the
+/// caller the bytes it checked. What comes back is a NAME. Every later open of
+/// that name is a fresh lookup, and between the check and the open the name can
+/// be pointed at something else — a `rename` of a directory component defeats
+/// the resolution above without touching anything inside the root. Dart has no
+/// `openat`, no `O_NOFOLLOW` and no `fstat`, so from here a path cannot be
+/// bound to the inode it named a moment ago; the sender detects a substitution
+/// by hashing rather than preventing it (audit X-02).
+///
+/// So this is an AUTHORIZATION check — may this token name this file — and not
+/// a handle. Read it as such.
 Future<String?> resolveSendableFile(String path, List<String> roots) async {
   if (roots.isEmpty) return null;
   final String resolved;
@@ -6286,7 +6298,10 @@ class ApiHandler {
       final sendable = await _sendablePath(auth, filePath);
       if (sendable.refusal != null) return sendable.refusal!;
       final name = body?['name'];
-      // The RESOLVED path goes downstream, so the send opens what was checked.
+      // The RESOLVED path goes downstream — a NAME, not a handle. The send
+      // opens that name again, so what it opens is what the name means THEN,
+      // not what was checked here. See [resolveSendableFile]: this leg
+      // authorizes, the sender detects a substitution by hashing (audit X-02).
       final err = await sendFile(
         to,
         sendable.path!,
