@@ -95,19 +95,42 @@ class SyncWrappedAsyncKvLogStore implements AsyncKvLogStore {
 // per-op requests. All message payloads are plain sendable data (ints, byte
 // lists, the sealed KvLogOp/KvLogEntry value types).
 
-class _OpenConfig {
+/// What the worker opens as its first act. Two ways in, one worker:
+/// a password-derived space, or a child space from its pre-derived `SpaceKeys`
+/// (master mode). Both are the same synchronous FFI and both were blocking
+/// whichever isolate ran them — the keys one was still running on the UI
+/// isolate (audit XV-14).
+sealed class _OpenConfig {
   const _OpenConfig({
     required this.path,
-    required this.password,
-    required this.create,
     required this.paddingPresetTag,
     required this.reply,
   });
   final String path;
-  final Uint8List password;
-  final bool create;
   final int paddingPresetTag;
   final SendPort reply;
+}
+
+class _OpenByPassword extends _OpenConfig {
+  const _OpenByPassword({
+    required super.path,
+    required super.paddingPresetTag,
+    required super.reply,
+    required this.password,
+    required this.create,
+  });
+  final Uint8List password;
+  final bool create;
+}
+
+class _OpenByKeys extends _OpenConfig {
+  const _OpenByKeys({
+    required super.path,
+    required super.paddingPresetTag,
+    required super.reply,
+    required this.keys,
+  });
+  final Uint8List keys;
 }
 
 hv.PaddingPreset _paddingPresetFromTag(int tag) {
@@ -213,10 +236,17 @@ void _workerEntry(_OpenConfig cfg) {
 
   final KvLogStore store;
   try {
-    final opened = hvSpaceOpener(
-      cfg.path,
-      paddingPreset: _paddingPresetFromTag(cfg.paddingPresetTag),
-    )(password: cfg.password, create: cfg.create);
+    final preset = _paddingPresetFromTag(cfg.paddingPresetTag);
+    final opened = switch (cfg) {
+      _OpenByPassword(:final password, :final create) => hvSpaceOpener(
+        cfg.path,
+        paddingPreset: preset,
+      )(password: password, create: create),
+      _OpenByKeys(:final keys) => hvKeysSpaceOpener(
+        cfg.path,
+        paddingPreset: preset,
+      )(keys),
+    };
     if (opened == null) {
       cfg.reply.send(const _Null()); // AuthFailed → no/ wrong space
       return;
@@ -320,7 +350,44 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     required Uint8List password,
     required bool create,
     required hv.PaddingPreset paddingPreset,
-  }) async {
+  }) => _spawn(
+    (reply) => _OpenByPassword(
+      path: path,
+      paddingPresetTag: paddingPreset.tag,
+      reply: reply,
+      password: password,
+      create: create,
+    ),
+  );
+
+  /// Spawn a worker that opens the child space [keys] belongs to (master mode,
+  /// no password). Same null/throw contract as [open].
+  ///
+  /// This path used to run INLINE on the caller — which in production is the
+  /// Flutter UI isolate. `open_with_keys` skips the KDF but still opens the
+  /// container and scans it, and that scan grows with the container: on a large
+  /// one it is jank on desktop and a >5s main-thread block, i.e. a fatal ANR,
+  /// on Android. Every caller (unlock into an identity, identity switch, roster
+  /// edit) already awaited, so nothing above needed to change (audit XV-14).
+  static Future<WorkerKvLogStore?> openWithKeys({
+    required String path,
+    required Uint8List keys,
+    required hv.PaddingPreset paddingPreset,
+  }) => _spawn(
+    (reply) => _OpenByKeys(
+      path: path,
+      paddingPresetTag: paddingPreset.tag,
+      reply: reply,
+      keys: keys,
+    ),
+  );
+
+  /// One supervised spawn for both open flavours. Deliberately shared: the
+  /// death-watch wiring below is exactly the bug XV-07 was, and a second
+  /// hand-rolled copy of it for the keys path is how that bug would come back.
+  static Future<WorkerKvLogStore?> _spawn(
+    _OpenConfig Function(SendPort reply) build,
+  ) async {
     final boot = ReceivePort();
     // Watch the isolate BEFORE it can die (audit XV-07). Wired at spawn time
     // rather than after, because a worker that fails while opening the
@@ -329,13 +396,7 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     final death = WorkerDeath();
     final isolate = await Isolate.spawn<_OpenConfig>(
       _workerEntry,
-      _OpenConfig(
-        path: path,
-        password: password,
-        create: create,
-        paddingPresetTag: paddingPreset.tag,
-        reply: boot.sendPort,
-      ),
+      build(boot.sendPort),
       errorsAreFatal: true,
       onExit: death.exitPort.sendPort,
       onError: death.errorPort.sendPort,
@@ -565,13 +626,71 @@ AsyncSpaceOpener syncWrappedSpaceOpener(SpaceOpener inner) {
   };
 }
 
-/// Lifts a synchronous [KeysSpaceOpener] to an [AsyncKeysSpaceOpener] the same
-/// way (inline + sync-wrapped). The master/keys path is not yet offloaded to a
-/// worker; this keeps it compiling against the async surface with no behaviour
-/// change.
+/// Lifts a synchronous [KeysSpaceOpener] to an [AsyncKeysSpaceOpener] by running
+/// it INLINE on the calling isolate. For the in-memory fake, where there is
+/// nothing to offload.
+///
+/// ⛔ Not for a real container. Inline means the caller is the isolate that
+/// executes `open_with_keys`, and in production that caller is the UI isolate —
+/// see [workerKeysSpaceOpener] (audit XV-14).
 AsyncKeysSpaceOpener syncWrappedKeysOpener(KeysSpaceOpener inner) {
   return (Uint8List keys) async {
     final s = inner(keys);
     return s == null ? null : SyncWrappedAsyncKvLogStore(s);
+  };
+}
+
+/// Builds an [AsyncKeysSpaceOpener] over the container at [path] whose open —
+/// and every operation after it — runs on a worker isolate.
+///
+/// The keys/master path was the last real-container opener still lifted with
+/// [syncWrappedKeysOpener], i.e. still opening on the UI isolate long after the
+/// password path had moved off it. There was no constraint keeping it there:
+/// every caller already awaits, and every flow closes the previous space before
+/// opening the next (`_closeStaleStoreBeforeOpen`, and `IdentityManager` opens
+/// master and child strictly one at a time), so the container's exclusive flock
+/// is never wanted by two isolates at once (audit XV-14).
+///
+/// SELF-HEALING, and deliberately the same rule as [workerSpaceOpener]: a THROW
+/// from the worker (not `null`, which is the "these keys match no space"
+/// answer) is retried INLINE, and only an inline open that SUCCEEDS where the
+/// worker failed proves the worker itself defective — then off-isolate is
+/// forfeited for the rest of the run, for both openers, via the shared
+/// [_workerOpenUsable]. A container-level failure (a still-held flock, a
+/// corrupt file) fails the same way inline and propagates to the caller.
+AsyncKeysSpaceOpener workerKeysSpaceOpener(
+  String path, {
+  hv.PaddingPreset paddingPreset = hv.PaddingPreset.bucket256KiB,
+}) {
+  AsyncKvLogStore? inlineOpen(Uint8List keys) {
+    final inline = hvKeysSpaceOpener(path, paddingPreset: paddingPreset)(keys);
+    return inline == null ? null : SyncWrappedAsyncKvLogStore(inline);
+  }
+
+  return (Uint8List keys) async {
+    if (_workerOpenUsable) {
+      try {
+        return await WorkerKvLogStore.openWithKeys(
+          path: path,
+          keys: keys,
+          paddingPreset: paddingPreset,
+        );
+      } on hv.HvException catch (e) {
+        devLog(
+          () =>
+              'xVeil[storage]: worker keys-open FAILED (${e.kind}: ${e.message})'
+              ' — trying INLINE open',
+        );
+        final inline = inlineOpen(keys);
+        _workerOpenUsable = false;
+        devLog(
+          () =>
+              'xVeil[storage]: INLINE keys-open worked where the worker failed '
+              '— off-isolate storage disabled for the rest of this run',
+        );
+        return inline;
+      }
+    }
+    return inlineOpen(keys);
   };
 }
