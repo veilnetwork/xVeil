@@ -2976,6 +2976,20 @@ class AppL10nRu extends AppL10n {
   String get settingsApiTokenName => 'Имя токена (напр. бот)';
 
   @override
+  String get settingsApiFileFolders => 'Разрешённые папки';
+
+  @override
+  String get settingsApiFileFoldersHint =>
+      'Этот токен может отправлять файлы только из этих папок. Если папок нет, отправка локального файла запрещена.';
+
+  @override
+  String get settingsApiFileFoldersNone =>
+      'Папок нет — отправка локальных файлов выключена';
+
+  @override
+  String get settingsApiAddFolder => 'Добавить папку';
+
+  @override
   String get settingsApiRevoke => 'Отозвать';
 
   @override
