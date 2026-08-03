@@ -6460,13 +6460,23 @@ class _LiveSocket {
   /// closing the queue is not enough on its own, the pump has to have noticed.
   Future<void>? pump;
 
-  /// Stop feeding this subscriber, then close it.
+  /// The one shutdown in flight, so a second caller joins it instead of
+  /// starting another. Two of the three ways in — an overflowing queue and a
+  /// subscriber that will not stop talking — fire from inside a stream
+  /// callback that can be re-entered before the first pass has cancelled
+  /// anything, and a second pass would race the first over the same sink.
+  Future<void>? _closing;
+
+  /// Stop feeding this subscriber, then close it. Idempotent.
   ///
   /// CANCEL FIRST, close second. The close handshake needs the peer to play
   /// along; cancelling the event subscription does not. On revoke the property
   /// that matters is that no further event reaches this socket, so it must not
   /// depend on the other end being cooperative.
-  Future<void> shutdown(int code, String reason) async {
+  Future<void> shutdown(int code, String reason) =>
+      _closing ??= _shutdown(code, reason);
+
+  Future<void> _shutdown(int code, String reason) async {
     final sub = events;
     events = null;
     await sub?.cancel();
@@ -6490,23 +6500,26 @@ class _LiveSocket {
 }
 
 class ApiServer {
-  /// [bodyDeadline], [maxInFlight] and [maxLiveSockets] are overridable for
-  /// tests only.
+  /// [bodyDeadline], [maxInFlight], [maxLiveSockets] and [maxQueuedEvents] are
+  /// overridable for tests only.
   ///
-  /// All three defend against a caller who is patient rather than large, and
-  /// all three are unreachable in a test at their production values — a
-  /// 30-second wait per assertion, 33 sockets held open at once, or 17 event
-  /// feeds. Injecting them keeps the limits covered instead of merely
-  /// described.
+  /// All four defend against a caller who is patient rather than large, and
+  /// all four are unreachable in a test at their production values — a
+  /// 30-second wait per assertion, 33 sockets held open at once, 17 event
+  /// feeds, or half a thousand events stalled behind a reader that has to be
+  /// genuinely back-pressured for them to pile up at all. Injecting them keeps
+  /// the limits covered instead of merely described.
   ApiServer(
     this._handler,
     this._events, {
     Duration? bodyDeadline,
     int? maxInFlight,
     int? maxLiveSockets,
+    int? maxQueuedEvents,
   })  : _bodyDeadline = bodyDeadline ?? _defaultBodyDeadline,
         _maxInFlight = maxInFlight ?? _defaultMaxInFlight,
-        _maxLiveSockets = maxLiveSockets ?? _defaultMaxLiveSockets;
+        _maxLiveSockets = maxLiveSockets ?? _defaultMaxLiveSockets,
+        _maxQueuedEvents = maxQueuedEvents ?? _defaultMaxQueuedEvents;
 
   final ApiHandler _handler;
   final Stream<Map<String, dynamic>> _events;
@@ -6555,7 +6568,24 @@ class ApiServer {
   /// Events one subscriber may leave un-taken before it is disconnected.
   /// `WebSocket.add` buffers without bound, so a client that stops reading is
   /// otherwise a heap leak driven by someone else's traffic.
-  static const _maxQueuedEvents = 512;
+  static const _defaultMaxQueuedEvents = 512;
+  final int _maxQueuedEvents;
+
+  /// Close code for a subscriber dropped for falling behind.
+  ///
+  /// 1013 ("try again later") is the code this means, and dart:io WILL NOT
+  /// SEND IT — measured: `WebSocket.close(1013, …)` fails with
+  /// `WebSocketException: Reserved status code 1013`, because dart:io refuses
+  /// 1012-1014 outright. So the drop had TWO ways of not happening, and fixing
+  /// only the `StateError` half would have left the socket just as connected.
+  ///
+  /// The private range (4000-4999) is the one dart:io will carry, and 4013
+  /// keeps the meaning legible. It must not be folded into the 1008 used for
+  /// a revoked token: those two call for OPPOSITE reactions — a bot that fell
+  /// behind should reconnect, and a bot whose token is gone should not — so a
+  /// shared code would teach the well-behaved bot to give up its feed for
+  /// good.
+  static const kEventFeedTooSlowCloseCode = 4013;
 
   Future<int?> start(int port) async {
     if (_server != null) return _server!.port;
@@ -6763,7 +6793,21 @@ class ApiServer {
       live.events = _events.listen((e) {
         try {
           if (queued >= _maxQueuedEvents) {
-            unawaited(ws.close(1013, 'client too slow'));
+            // THROUGH shutdown, not `ws.close` (audit XV-09). This socket is
+            // bound to the `addStream` below, and `close()` on a bound sink
+            // throws `StateError` instead of closing anything — synchronously,
+            // straight into the `catch` on the next line. So the drop never
+            // happened: the subscriber stayed connected holding one of the
+            // sixteen slots, and simply stopped receiving. That is the outcome
+            // the paragraph above calls worse than a reconnect, arrived at by
+            // the code meant to avoid it.
+            //
+            // `shutdown` frees the sink before closing, which is what makes
+            // the close possible at all; the slot then comes back through the
+            // same `done` wiring that `closeLiveSockets` relies on.
+            unawaited(
+              live.shutdown(kEventFeedTooSlowCloseCode, 'client too slow'),
+            );
             return;
           }
           queued++;

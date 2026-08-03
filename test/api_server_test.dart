@@ -3400,6 +3400,108 @@ void main() {
       }
     });
 
+    test(
+      'a subscriber that stops reading is CLOSED and its slot comes back',
+      () async {
+        // Audit XV-09. Past the queue ceiling the code called
+        // `ws.close(1013, …)` on a socket bound to an `addStream`, which does
+        // not close it: `close()` on a bound sink throws `StateError`,
+        // synchronously, into the `catch` sitting right there. So the intended
+        // drop never happened. The subscriber stayed connected, went on
+        // holding one of the sixteen slots, and simply stopped receiving —
+        // silent event loss, which the comment beside that code names as the
+        // outcome worth disconnecting a client to avoid.
+        //
+        // The proof is POSITIVE on purpose: not "no error was thrown" but the
+        // client observing a 1013 close, and the registry giving the slot
+        // back. Both are false against the old line and true against the new
+        // one.
+        // SYNCHRONOUS source, and that is the whole trick. The backlog has to
+        // be built inside ONE turn: with an async controller the queue drains
+        // a microtask after each add, so `queued` oscillates between 0 and 1
+        // and the ceiling is never reached. Waiting for TCP to push back
+        // instead does not work either — measured: 1.6 MB written to a client
+        // that had stopped reading still left `queued` at 0 on every one of
+        // 200 events, because the socket buffers absorb it. A burst inside a
+        // single turn is also what production looks like when a batch of
+        // messages lands at once.
+        final events = StreamController<Map<String, dynamic>>.broadcast(
+          sync: true,
+        );
+        final server = ApiServer(
+          twoTokens(),
+          events.stream,
+          maxLiveSockets: 1,
+          maxQueuedEvents: 4,
+        );
+        final port = await server.start(0);
+        addTearDown(() async {
+          await events.close();
+          await server.stop();
+        });
+
+        final ws = await WebSocket.connect(
+          'ws://127.0.0.1:$port/v1/events?token=tok-a',
+        );
+        final closed = Completer<void>();
+        final sub = ws.listen((_) {}, onDone: closed.complete);
+        // Not reading, so "un-taken" is literally true of every event below.
+        sub.pause();
+
+        for (var i = 0; i < 20; i++) {
+          events.add({'id': '$i'});
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+
+        // Read again, so the close frame the server sent can be seen. Under
+        // the bug there is nothing to see: the socket was never closed.
+        sub.resume();
+        await closed.future.timeout(
+          const Duration(seconds: 10),
+          onTimeout: () => fail(
+            'the slow subscriber was never disconnected — the drop past the '
+            'queue ceiling threw StateError and was swallowed',
+          ),
+        );
+        expect(
+          ws.closeCode,
+          ApiServer.kEventFeedTooSlowCloseCode,
+          reason: 'the client must learn WHY, and it must not be the 1008 of a '
+              'revoked token — falling behind calls for a reconnect, a dead '
+              'token calls for the opposite',
+        );
+        expect(
+          ws.closeCode,
+          isNot(1013),
+          reason: 'dart:io refuses to SEND 1013, so asking it to is the same '
+              'as not closing at all',
+        );
+
+        for (var spin = 0; spin < 400 && server.liveSocketCount > 0; spin++) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        expect(
+          server.liveSocketCount,
+          0,
+          reason: 'a subscriber we hung up on must not go on being counted '
+              'against the ceiling',
+        );
+
+        // And the freed slot is really usable: a cap of one means the next
+        // connect only succeeds if the wedged one truly let go.
+        final next = await WebSocket.connect(
+          'ws://127.0.0.1:$port/v1/events?token=tok-a',
+        );
+        addTearDown(next.close);
+        final seen = next.first;
+        events.add({'id': 'after'});
+        expect(
+          jsonDecode(await seen.timeout(const Duration(seconds: 5)) as String),
+          containsPair('id', 'after'),
+        );
+      },
+    );
+
     test('stop() disconnects live subscribers', () async {
       // `HttpServer.close(force: true)` does NOT take upgraded WebSockets with
       // it — measured: the socket stays open and writable afterwards. This is
