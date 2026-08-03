@@ -6296,6 +6296,261 @@ void main() {
   });
 
   test(
+    'a FOLLOWED public Space cannot stamp itself into the future either: the '
+    'bound is recorded once beside the verified package, never inside it',
+    () async {
+      Future<void> pump() async {
+        for (var i = 0; i < 6; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+      }
+
+      final ownerStorage = FakeHvContainer().storage();
+      final memberStorage = FakeHvContainer().storage();
+      final readerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'owner', createIfMissing: true);
+      await memberStorage.open(password: 'member', createIfMissing: true);
+      await readerStorage.open(password: 'reader', createIfMissing: true);
+      final t0 = DateTime.utc(2026, 8, 3, 12).millisecondsSinceEpoch;
+      final hostileTs = t0 + const Duration(days: 365).inMilliseconds;
+
+      var ownerWall = t0 - const Duration(hours: 1).inMilliseconds;
+      var readerWall = t0 + 2000;
+      late GroupService readerService;
+      final ownerService = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        sendPublicFeedChunk: (requester, chunkJson) async {
+          readerService.handlePublicFeedObjectChunk(owner, chunkJson);
+        },
+      )..debugWallClockMs = () => ownerWall;
+      readerService = GroupService(
+        readerStorage,
+        _FakeSigner(bob),
+        sendPublicFeedRequest: (holder, requestJson) async {
+          await ownerService.handlePublicFeedObjectRequest(bob, requestJson);
+        },
+      )..debugWallClockMs = () => readerWall;
+      addTearDown(ownerService.dispose);
+      addTearDown(readerService.dispose);
+
+      // The Space, and carol's membership in it, predate the window under
+      // test: a member cannot publish dated before its own admission.
+      final spaceId = await ownerService.createSpace(
+        'Followed public Space',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      expect(
+        await ownerService.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: carol,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      ownerWall = t0;
+      expect(
+        await ownerService.publishSpacePost(
+          spaceId,
+          body: 'an honest one',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+
+      // The reachable attack, and it is sharper than a wrong clock. A member
+      // publishes at an ordinary `created` and simply signs `published` a year
+      // ahead of it. `isStructurallyValid` permits exactly that, and every
+      // freshness gate in the public pipeline — the descriptor's `issuedAt`,
+      // the feed manifest's `updatedAt`, their expiry windows — is computed
+      // from `created`, so this row sails through all of them untouched and
+      // lands on a follower's Feed with a 2027 rank.
+      final memberSvc = GroupService(memberStorage, _FakeSigner(carol))
+        ..debugWallClockMs = () => t0;
+      addTearDown(memberSvc.dispose);
+      expect(
+        await memberSvc.ingestSnapshot(
+          ownerService.snapshotJson((await ownerService.load(spaceId))!),
+        ),
+        isTrue,
+      );
+      expect(
+        await memberSvc.publishSpacePost(
+          spaceId,
+          body: 'from the future',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      final crafted =
+          jsonDecode(
+                memberSvc.snapshotJson((await memberSvc.load(spaceId))!),
+              )
+              as Map<String, dynamic>;
+      var rewrote = 0;
+      for (final row in crafted['p'] as List) {
+        if ((row as Map)['body'] == 'from the future') {
+          row['published'] = hostileTs;
+          rewrote++;
+        }
+      }
+      expect(rewrote, 1);
+      ownerWall = t0 + 1000;
+      expect(await ownerService.ingestSnapshot(jsonEncode(crafted)), isTrue);
+      expect(
+        (await ownerService.load(spaceId))!.posts
+            .map((post) => post.publishedAtMs),
+        contains(hostileTs),
+        reason: 'a `published` a year past `created` is structurally valid and '
+            'is stored exactly as signed',
+      );
+
+      // The follower's own clock has to stay within the public skew of the
+      // publisher's for the fetch itself to be served at all, so both move
+      // together below.
+      Future<void> follow() async {
+        final publication = await ownerService
+            .buildSpacePublicDiscoveryPublication(spaceId);
+        expect(publication, isNotNull);
+        expect(
+          await readerService.subscribeToPublicSpace(
+            publication!.discovery.descriptor,
+            [publication.discovery.holder],
+          ),
+          isNotNull,
+        );
+        await pump();
+      }
+
+      Future<SpacePostView> followedPost(String body) async =>
+          (await readerService.publicSpaceSubscription(
+            spaceId,
+          ))!.feed.posts.firstWhere((post) => post.body == body);
+
+      await follow();
+      expect(await readerService.load(spaceId), isNull,
+          reason: 'a follower holds no membership authority, only a snapshot');
+
+      final hostile = await followedPost('from the future');
+      expect(hostile.publishedAtMs, hostileTs,
+          reason: 'the publisher signed this and it is served as signed');
+      final landedAt = hostile.orderedAtMs;
+      expect(landedAt, inInclusiveRange(readerWall, readerWall + 1000),
+          reason: 'ordered by the one time the follower actually knows');
+      final honest = await followedPost('an honest one');
+      expect(honest.orderedAtMs, honest.publishedAtMs,
+          reason: 'an ordinary publication keeps its own word, untouched');
+      expect(honest.publishedAtMs, inInclusiveRange(t0, t0 + 1000));
+
+      // The badge. `markSpaceFeedSeen` takes the MAX cursor over the posts
+      // themselves, so a 2027 publication used to write a 2027 watermark and
+      // silently retire this Space's badge until that future arrived.
+      expect(await readerService.unreadSpacePosts(spaceId), 2);
+      await readerService.markSpaceFeedSeen(spaceId);
+      expect(await readerService.unreadSpacePosts(spaceId), 0);
+
+      ownerWall = t0 + 3000;
+      expect(
+        await ownerService.publishSpacePost(
+          spaceId,
+          body: 'a later honest one',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      readerWall = t0 + 4000;
+      await follow();
+      expect(await readerService.unreadSpacePosts(spaceId), 1,
+          reason: 'a publisher cannot retire a follower\'s badge by claiming '
+              'to be in 2027');
+      expect(
+        (await readerService.unreadSpacePostViews(spaceId)).single.body,
+        'a later honest one',
+      );
+      expect(
+        (await readerService.spaceFeed()).map((item) => item.post.body).toList(),
+        ['a later honest one', 'from the future', 'an honest one'],
+        reason: 'newest first, with the 2027 publication at the moment it was '
+            'actually handed over — not at the top forever',
+      );
+
+      // ONCE. A subscription is re-fetched and re-verified on every refresh
+      // against a clock that has moved on; only the first sighting may set the
+      // bound, or the post would walk down the Feed on each refresh — and the
+      // Feed pages on exactly this order.
+      ownerWall = t0 + const Duration(minutes: 15).inMilliseconds;
+      expect(
+        await ownerService.publishSpacePost(
+          spaceId,
+          body: 'and another',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      // A quarter of an hour on: far enough that a re-derived bound would be
+      // unmistakable, and still close enough to the publisher that the fetch
+      // is served.
+      readerWall = t0 + const Duration(minutes: 16).inMilliseconds;
+      await follow();
+      expect((await followedPost('from the future')).orderedAtMs, landedAt,
+          reason: 'bound on first sight; a refresh must not re-stamp it');
+      expect(
+        (await readerService.spaceFeed()).map((item) => item.post.body).toList(),
+        [
+          'and another',
+          'a later honest one',
+          'from the future',
+          'an honest one',
+        ],
+      );
+
+      // Where the bound lives: beside the verified package in the follower's
+      // OWN stored snapshot, never inside the signed bytes it verifies.
+      final snapshotBytes = await readerStorage.loadFile(
+        'space-public-subscription:${spaceId.hex}',
+      );
+      expect(snapshotBytes, isNotNull);
+      final stored = jsonDecode(utf8.decode(snapshotBytes!)) as Map;
+      expect(stored['prx'], hasLength(1),
+          reason: 'one entry, for the one publication that needed bounding');
+      expect((stored['prx'] as Map).values.single, landedAt);
+      expect(jsonEncode(stored['package']), isNot(contains('prx')),
+          reason: 'nothing local is inside the bytes the publisher signed');
+      final snapshot = SpacePublicSubscriptionSnapshot.fromBytes(
+        Uint8List.fromList(snapshotBytes),
+      );
+      expect(snapshot, isNotNull);
+      expect(
+        snapshot!.package.projection.pages
+            .expand((page) => page.posts)
+            .map((post) => post.root.publishedAtMs),
+        contains(hostileTs),
+        reason: 'what is on disk is what the publisher signed',
+      );
+      expect(snapshot.postReceipts, {
+        for (final entry in (stored['prx'] as Map).entries)
+          '${entry.key}': entry.value,
+      }, reason: 'the bound round-trips through the local file');
+      expect(stored.keys.toSet(), {'v', 'kind', 'verifiedAt', 'package', 'prx'},
+          reason: 'exactly one new local key, outside the verified package');
+      // ...and it survives a restart, so it is persisted, not re-invented —
+      // and is still accepted, so a local observation can never fail the
+      // signature check the stored snapshot has to pass to be read back.
+      final reopened = GroupService(readerStorage, _FakeSigner(bob))
+        ..debugWallClockMs = () => t0 + const Duration(days: 2).inMilliseconds;
+      addTearDown(reopened.dispose);
+      expect(
+        (await reopened.publicSpaceSubscription(spaceId))!.feed.posts
+            .firstWhere((post) => post.body == 'from the future')
+            .orderedAtMs,
+        landedAt,
+      );
+    },
+  );
+
+  test(
     'public-only subscription persists verified feed without membership authority',
     () async {
       final ownerStorage = FakeHvContainer().storage();
@@ -11933,6 +12188,441 @@ void main() {
             entry.author == checkpoint.author && entry.seq == checkpoint.seq,
       );
       expect(retained, hasLength(2));
+    },
+  );
+
+  test(
+    'a Space publisher stamping itself into the future owns the Feed, the row '
+    'in Chats and an unread badge nobody can clear — the fix must not touch '
+    'one signed byte, and paging must still enumerate every post exactly once',
+    () async {
+      Future<void> drain() async {
+        for (var i = 0; i < 6; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+      }
+
+      final sent = <String>[];
+      final s1 = FakeHvContainer().storage();
+      await s1.open(password: 'pw', createIfMissing: true);
+      // Held clocks on both sides: this asserts an ORDER and an arrival
+      // moment, so it must not race DateTime.now. `_now()` is monotonic per
+      // service instance, so each side's stamps only ever move forward here.
+      final t0 = DateTime.utc(2026, 8, 3, 12).millisecondsSinceEpoch;
+      // The Space exists, and bob joins it, an hour before the window this
+      // test reasons about: a member cannot publish dated before its own
+      // admission, and that is a separate rule from the one under test.
+      var wall = t0 - const Duration(hours: 1).inMilliseconds;
+      final ownerSvc = GroupService(
+        s1,
+        _FakeSigner(owner),
+        send: (p, g, j) async => sent.add(j),
+      )..debugWallClockMs = () => wall;
+      addTearDown(ownerSvc.dispose);
+      final spaceId = await ownerSvc.createSpace(
+        'Public updates',
+        visibility: SpaceVisibility.public,
+      );
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      await drain();
+      final s2 = FakeHvContainer().storage();
+      await s2.open(password: 'pw', createIfMissing: true);
+      // Bob back from a nap, a minute BEHIND the receiver.
+      var bobWall = t0 - 60000;
+      final bobSvc = GroupService(
+        s2,
+        _FakeSigner(bob),
+        send: (p, g, j) async => sent.add(j),
+      )..debugWallClockMs = () => bobWall;
+      addTearDown(bobSvc.dispose);
+      expect(await bobSvc.ingestSnapshot(sent.last), isTrue);
+      sent.clear();
+
+      // A stamp in the PAST is never touched: a backdated publication cannot
+      // float above anything, and a device coming back must keep its own time.
+      expect(
+        await bobSvc.publishSpacePost(spaceId, body: 'a minute ago'),
+        isNotNull,
+      );
+      // Bob honestly a few minutes fast — exactly at the tolerated bound.
+      bobWall = t0 + kSpacePublicClockSkew.inMilliseconds;
+      expect(
+        await bobSvc.publishSpacePost(spaceId, body: 'nearly now'),
+        isNotNull,
+      );
+      // Bob claims to publish from 2027. Nothing in the Space can contradict a
+      // clock: the signature over `published` proves only who said it, and
+      // `isStructurallyValid` bounds it against bob's own `created`, which bob
+      // also chose.
+      final hostileTs = t0 + const Duration(days: 365).inMilliseconds;
+      bobWall = hostileTs;
+      expect(
+        await bobSvc.publishSpacePost(spaceId, body: 'from the future'),
+        isNotNull,
+      );
+      await drain();
+
+      wall = t0;
+      expect(
+        await ownerSvc.publishSpacePost(
+          spaceId,
+          body: 'mine',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      wall = t0 + 1000;
+      for (final delta in sent) {
+        await ownerSvc.ingestSnapshot(delta);
+      }
+      await drain();
+
+      Future<List<String>> bodies() async =>
+          (await ownerSvc.postsOf(spaceId)).map((p) => p.body).toList();
+      Future<SpacePostView> hostileRow() async => (await ownerSvc.postsOf(
+        spaceId,
+      )).firstWhere((p) => p.body == 'from the future');
+
+      expect(
+        await bodies(),
+        ['a minute ago', 'mine', 'from the future', 'nearly now'],
+        reason: 'the 2027 publication is ranked where it ARRIVED, and the '
+            'honest posts on both sides of the receiver clock keep their own '
+            'publication time',
+      );
+
+      // The stamp itself is untouched, and so is every byte the author signed:
+      // rewriting it (the 1:1 answer) would invalidate the signature over
+      // `canonicalBytes`, which includes `published`, and with it this post's
+      // place in bob's prev-hash chain and every public-feed page over it.
+      final hostile = await hostileRow();
+      final landedAt = hostile.orderedAtMs;
+      expect(hostile.publishedAtMs, hostileTs);
+      expect(hostile.createdAtMs, hostileTs);
+      expect(landedAt, inInclusiveRange(wall, wall + 1000),
+          reason: 'ordered by the one time the receiver actually knows');
+      final storedRow = (await ownerSvc.load(spaceId))!.posts.firstWhere(
+        (p) => p.publishedAtMs == hostileTs,
+      );
+      expect(storedRow.publishedAtMs, hostileTs,
+          reason: 'what is on disk is what bob signed');
+      expect(hostile.root.canonicalBytes(), storedRow.canonicalBytes());
+      expect(jsonEncode(hostile.root.toJson()), jsonEncode(storedRow.toJson()),
+          reason: 'dedup and the chain prev-hash still name the same row');
+      // Nothing local rides out on the wire either. The arrival moment is a
+      // number this receiver chose; shipping it would just be the same
+      // unauthenticated stamp under a second name.
+      final served =
+          jsonDecode(ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!))
+              as Map;
+      expect(served.containsKey('prx'), isFalse);
+      expect(
+        (served['p'] as List).firstWhere(
+          (row) => (row as Map)['published'] == hostileTs,
+        ),
+        storedRow.toJson(),
+        reason: 'served exactly as bob signed it, extra keys and all: none',
+      );
+
+      // The Space's row in Chats reads the LAST post, so with the log now
+      // ordered correctly the newest row is the honest one — which is already
+      // the whole point. The case where `lastTs` itself has to be derived is
+      // asserted at the end, once the 2027 row IS the newest thing received.
+      final listed = (await ownerSvc.listSpaces()).single;
+      expect(listed.lastTs, t0 + kSpacePublicClockSkew.inMilliseconds);
+      expect(listed.lastTs, lessThan(hostileTs));
+
+      // The badge, and this is the OPPOSITE failure from the group one.
+      // `markSpaceFeedSeen` takes the MAX cursor over the posts THEMSELVES as
+      // the watermark and only ever moves forward, so a 2027 post used to
+      // write a 2027 watermark and silently retire this Space's post badge
+      // until that future arrived — the 1:1 `markRead` amplification exactly.
+      // In groups the watermark is a local clock reading, so there the same
+      // stamp pinned the badge permanently ON instead.
+      expect(await ownerSvc.unreadSpacePosts(spaceId), 3,
+          reason: "own posts are read-neutral, bob's three are not");
+      wall = t0 + const Duration(minutes: 10).inMilliseconds;
+      await ownerSvc.markSpaceFeedSeen(spaceId);
+      expect(await ownerSvc.unreadSpacePosts(spaceId), 0);
+      // A FRESH bob instance, because `_now()` is monotonic per service and
+      // the 2027 publish left this one's last stamp in 2027 — a genuinely
+      // honest follow-up has to come from a service that never claimed it.
+      sent.clear();
+      final bobHonest = GroupService(
+        s2,
+        _FakeSigner(bob),
+        send: (p, g, j) async => sent.add(j),
+      )..debugWallClockMs =
+          () => t0 + const Duration(minutes: 20).inMilliseconds;
+      addTearDown(bobHonest.dispose);
+      expect(
+        await bobHonest.publishSpacePost(spaceId, body: 'an honest new post'),
+        isNotNull,
+      );
+      await drain();
+      wall = t0 + const Duration(minutes: 21).inMilliseconds;
+      for (final delta in sent) {
+        await ownerSvc.ingestSnapshot(delta);
+      }
+      await drain();
+      expect(await ownerSvc.unreadSpacePosts(spaceId), 1,
+          reason: 'a publisher cannot retire the badge by claiming to be in '
+              '2027: the watermark it wrote is bounded to its arrival');
+      expect(
+        (await ownerSvc.unreadSpacePostViews(spaceId)).single.body,
+        'an honest new post',
+      );
+
+      // Paging. The Feed both SORTS and PAGES on this order, so a value that
+      // moved between two pages would drop a post or repeat one. Walk the
+      // whole Feed one item at a time, straight across the boundary the
+      // bounded post sits on.
+      Future<List<String>> pageThroughOn(GroupService svc, int limit) async {
+        final seen = <String>[];
+        SpaceFeedCursor? before;
+        while (true) {
+          final page = await svc.spaceFeed(before: before, limit: limit);
+          if (page.isEmpty) break;
+          seen.addAll(page.map((item) => item.post.body));
+          before = SpaceFeedCursor.fromView(page.last.post);
+        }
+        return seen;
+      }
+
+      Future<List<String>> pageThrough(int limit) =>
+          pageThroughOn(ownerSvc, limit);
+
+      final whole = (await ownerSvc.spaceFeed(limit: 200))
+          .map((item) => item.post.body)
+          .toList();
+      expect(
+        whole,
+        [
+          'an honest new post',
+          'nearly now',
+          'from the future',
+          'mine',
+          'a minute ago',
+        ],
+        reason: 'newest first, and the 2027 publication sits at its arrival '
+            'moment — below every honest post published after it landed, and '
+            'above the two that predate it',
+      );
+      expect(whole.toSet(), hasLength(5), reason: 'no post is listed twice');
+      for (final limit in [1, 2, 3, 4, 5, 6]) {
+        expect(await pageThrough(limit), whole,
+            reason: 'paging at $limit must reproduce the single-shot Feed '
+                'exactly — no post skipped, none repeated');
+      }
+
+      // ONCE, on arrival. Peers re-ship whole snapshots on every reconnect, so
+      // this exact row comes back against a clock that has moved on; if the
+      // bound were re-derived then, the post would walk down the Feed on every
+      // sync — and a reader holding a page cursor across that move would lose
+      // or repeat it.
+      wall = t0 + const Duration(hours: 5).inMilliseconds;
+      final reship = bobSvc.snapshotJson((await bobSvc.load(spaceId))!);
+      await ownerSvc.ingestSnapshot(reship);
+      await drain();
+      expect((await hostileRow()).orderedAtMs, landedAt,
+          reason: 'stamped once on arrival; a re-ship must not restamp it');
+      // ...and re-reading is a pure re-fold, never a re-stamp: the clock has
+      // moved another five hours between these two reads.
+      wall = t0 + const Duration(hours: 10).inMilliseconds;
+      expect((await hostileRow()).orderedAtMs, landedAt);
+      expect(await pageThrough(1), whole);
+
+      // It survives a reload from disk, so the arrival moment is persisted and
+      // not re-invented per process.
+      final reopened = GroupService(s1, _FakeSigner(owner))
+        ..debugWallClockMs = () => wall;
+      addTearDown(reopened.dispose);
+      expect(
+        (await reopened.postsOf(spaceId))
+            .firstWhere((p) => p.body == 'from the future')
+            .orderedAtMs,
+        landedAt,
+      );
+      expect(await reopened.unreadSpacePosts(spaceId), 1);
+
+      // A post already on disk from before this rule existed is bounded the
+      // next time a peer offers it, not left with its 2027 forever — which is
+      // why the arrival moment is recorded OUTSIDE the dedup below it. Stand
+      // in for that log by receiving everything on a device whose own clock
+      // already reads 2027, so nothing is recorded, then restarting it sane.
+      final wire = ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!);
+      final s3 = FakeHvContainer().storage();
+      await s3.open(password: 'pw', createIfMissing: true);
+      final believed = GroupService(s3, _FakeSigner(owner))
+        ..debugWallClockMs = () => hostileTs;
+      addTearDown(believed.dispose);
+      expect(await believed.ingestSnapshot(wire), isTrue);
+      expect(
+        (await believed.postsOf(spaceId))
+            .firstWhere((p) => p.body == 'from the future')
+            .orderedAtMs,
+        hostileTs,
+        reason: 'a device whose own clock says 2027 has no reason to doubt it',
+      );
+      var restartedWall = t0;
+      final restarted = GroupService(s3, _FakeSigner(owner))
+        ..debugWallClockMs = () => restartedWall;
+      addTearDown(restarted.dispose);
+      await restarted.ingestSnapshot(wire);
+      final rescued = (await restarted.postsOf(
+        spaceId,
+      )).firstWhere((p) => p.body == 'from the future');
+      expect(rescued.publishedAtMs, hostileTs);
+      expect(rescued.orderedAtMs, inInclusiveRange(t0, t0 + 1000),
+          reason: 'a duplicate the log already held is still bounded');
+      restartedWall = t0 + const Duration(hours: 5).inMilliseconds;
+      await restarted.ingestSnapshot(wire);
+      expect(
+        (await restarted.postsOf(spaceId))
+            .firstWhere((p) => p.body == 'from the future')
+            .orderedAtMs,
+        rescued.orderedAtMs,
+        reason: 'the first observation is the only one that may set it',
+      );
+
+      // The bound at the exact millisecond, against a receiver whose arrival
+      // moment is pinned: a FRESH service instance (so its monotonic `_now`
+      // starts from the held wall clock) taking ONE snapshot. Everything above
+      // sits comfortably inside or outside the tolerance; this is the pair
+      // that straddles it, one millisecond apart.
+      final bobAgain = GroupService(s2, _FakeSigner(bob));
+      addTearDown(bobAgain.dispose);
+      final tB = t0 + const Duration(days: 2).inMilliseconds;
+      var bobAgainWall = tB + kSpacePublicClockSkew.inMilliseconds;
+      bobAgain.debugWallClockMs = () => bobAgainWall;
+      expect(
+        await bobAgain.publishSpacePost(
+          spaceId,
+          body: 'at the bound',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      bobAgainWall += 1;
+      expect(
+        await bobAgain.publishSpacePost(
+          spaceId,
+          body: 'one past it',
+          broadcast: false,
+        ),
+        isNotNull,
+      );
+      final straddling = bobAgain.snapshotJson((await bobAgain.load(spaceId))!);
+
+      final s4 = FakeHvContainer().storage();
+      await s4.open(password: 'pw', createIfMissing: true);
+      final receiver = GroupService(s4, _FakeSigner(owner))
+        ..debugWallClockMs = () => tB;
+      addTearDown(receiver.dispose);
+      expect(await receiver.ingestSnapshot(straddling), isTrue);
+      final landed = {
+        for (final p in await receiver.postsOf(spaceId)) p.body: p,
+      };
+      expect(landed['from the future']!.orderedAtMs, tB,
+          reason: 'the arrival moment of this ingest is exactly tB');
+      expect(
+        landed['at the bound']!.orderedAtMs,
+        tB + kSpacePublicClockSkew.inMilliseconds,
+        reason: 'a publisher exactly at the tolerated skew is still believed',
+      );
+      expect(landed['one past it']!.orderedAtMs, tB,
+          reason: 'one millisecond further is not a clock reading any more');
+      expect(
+        (await receiver.postsOf(spaceId)).map((p) => p.body).toList(),
+        [
+          'a minute ago',
+          'nearly now',
+          'an honest new post',
+          'from the future',
+          'one past it',
+          'at the bound',
+        ],
+        reason: 'both bounded posts land on the SAME millisecond tB and still '
+            'order deterministically below the believed one — two rows that '
+            'compared equal would be dropped or repeated by paging',
+      );
+
+      // The Chats row, now with the 2027 publication as the NEWEST thing this
+      // device has received — which is when `lastPost` is that row and its
+      // stamp is what the list would show. This is the line a publisher used
+      // to own outright: one post, and the Space sits at the top of Chats
+      // claiming activity in 2027 until the year arrives.
+      sent.clear();
+      final bobLate = GroupService(
+        s2,
+        _FakeSigner(bob),
+        send: (p, g, j) async => sent.add(j),
+      )..debugWallClockMs = () => hostileTs + 1000;
+      addTearDown(bobLate.dispose);
+      expect(
+        await bobLate.publishSpacePost(spaceId, body: 'newest and from 2027'),
+        isNotNull,
+      );
+      await drain();
+      // Bob's whole log, because the straddling pair above never left his
+      // device and this row chains onto it.
+      wall = t0 + const Duration(hours: 11).inMilliseconds;
+      expect(
+        await ownerSvc.ingestSnapshot(
+          bobLate.snapshotJson((await bobLate.load(spaceId))!),
+        ),
+        isTrue,
+      );
+      await drain();
+      final newestIsHostile = (await ownerSvc.postsOf(spaceId)).last;
+      expect(newestIsHostile.body, 'newest and from 2027');
+      expect(newestIsHostile.publishedAtMs, hostileTs + 1000,
+          reason: 'still exactly what bob signed');
+      final chatsRow = (await ownerSvc.listSpaces()).single;
+      expect(chatsRow.lastTs, newestIsHostile.orderedAtMs);
+      expect(chatsRow.lastTs, inInclusiveRange(wall, wall + 1000),
+          reason: 'Chats shows when the row ARRIVED, not the year it claims');
+      expect(chatsRow.lastTs, lessThan(hostileTs));
+
+      // And the OTHER half of that row: which source wins it. A Space carries
+      // both a publication log and a channel log, and the list picks whichever
+      // is newer. That comparison has to be derived on both sides, or the 2027
+      // stamp simply outbids every message the Space will ever carry.
+      wall = t0 + const Duration(hours: 12).inMilliseconds;
+      expect(
+        await ownerSvc.postMessage(
+          spaceId,
+          'newer than any publication',
+          broadcast: false,
+        ),
+        isTrue,
+      );
+      final withMessage = (await ownerSvc.listSpaces()).single;
+      expect(withMessage.preview, 'newer than any publication');
+      expect(withMessage.lastTs, inInclusiveRange(wall, wall + 1000),
+          reason: 'a message newer than every publication wins the row, and a '
+              'publisher must not be able to outbid it with a claimed year');
+      // Same thing said as the Feed says it: a strict total order, so one
+      // item per page walks all six exactly once.
+      expect(
+        await pageThroughOn(receiver, 1),
+        [
+          'at the bound',
+          'one past it',
+          'from the future',
+          'an honest new post',
+          'nearly now',
+          'a minute ago',
+        ],
+      );
     },
   );
 

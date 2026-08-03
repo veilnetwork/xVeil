@@ -7,8 +7,67 @@ import '../core/ids.dart';
 import 'group_payload.dart';
 import 'media_object.dart';
 import 'message_mention.dart';
+import 'space_discovery.dart' show kSpacePublicClockSkew;
 
 export 'media_object.dart' show MediaObject;
+
+/// The value a Space publication claiming [claimedMs] is ORDERED by locally,
+/// given that this device first accepted it at [receivedAtMs].
+///
+/// A post is ranked, floated in Chats and counted as unread on `published` — a
+/// number the AUTHOR chose. Nothing authenticates it: the signature proves who
+/// wrote the number, never that the clock behind it was honest, and this
+/// network issues no time. [SpacePost.isStructurallyValid] bounds `published`
+/// only against the post's own `created`, which is the same author's other
+/// number, so it rules out nothing here. One publisher therefore stamps itself
+/// years ahead and owns the top of the Feed, the Space's row in Chats, the
+/// mention inbox — and the post-unread badge, which [SpaceFeedCursor] retires
+/// permanently, because `markSpaceFeedSeen` takes the MAX cursor over the
+/// posts themselves as the watermark and only ever moves it forward.
+///
+/// The 1:1 answer — rewrite the stored stamp ([messageTsOnReceipt]) — is NOT
+/// available: `'published'` is inside [SpacePost.canonicalBytes] and is signed,
+/// so a receiver that rewrote it would invalidate the publication, its
+/// prev-hash chain and every public-feed page hash over it. So the signed
+/// number is left exactly as its author wrote it, keeps being verified, keeps
+/// being what retention windows, scheduling and the ACL's `atMs` ask about —
+/// and ORDER is taken from this derived value instead.
+///
+/// Not the deferral device-sync events get (`deviceSyncEffectiveAt`) either. A
+/// deferred sync event is HIDDEN until its own time comes, which is right when
+/// the row would otherwise win a key and delete the honest rows it beat. A
+/// publication wins nothing and suppresses nothing, so deferring it would only
+/// hide a real post from a slightly-fast device for some minutes — and an
+/// unread post nobody can see is worse than a post shown in the wrong place.
+///
+/// One-sided, like the other three rules: a stamp in the PAST is left alone. A
+/// backdated import cannot float above anything, and a device back from a week
+/// offline must keep last Tuesday.
+///
+/// [receivedAtMs] must be the moment the row was FIRST accepted here, recorded
+/// once and persisted; passing a live clock would re-derive a larger value on
+/// every read and walk the post down the Feed each time it is opened — and,
+/// because the Feed pages on this exact value, would skip or duplicate rows
+/// between one page and the next.
+///
+/// [kSpacePublicClockSkew] rather than a fourth constant: it is this very
+/// surface's existing tolerance for a stranger's claimed time (the public
+/// descriptor's and feed manifest's `issuedAt`, and the public transport
+/// records), it is already five minutes, and the project keeps one skew
+/// convention (`kMessageClockSkew`, `kDeviceSyncClockSkew`).
+int spacePostOrderAt(int claimedMs, int receivedAtMs) =>
+    claimedMs > receivedAtMs + kSpacePublicClockSkew.inMilliseconds
+    ? receivedAtMs
+    : claimedMs;
+
+/// Identity of one publication root inside a receipt map.
+///
+/// `(author, seq)` alone would be enough for an honest log, but two roots may
+/// legitimately share it as fork evidence; including the claimed stamp keeps a
+/// bound recorded for one of them from silently moving the other, and makes
+/// the entry self-describing enough to be ignored if the row it names is gone.
+String spacePostReceiptKey(SpacePost root) =>
+    '${root.author.hex}:${root.seq}:${root.publishedAtMs}';
 
 const int kSpacePostTitleMax = 300;
 const int kSpacePostBodyMax = 256 * 1024;
@@ -688,6 +747,20 @@ class SpacePost {
   bool get isLifecycleScoped => version == 9 || version == 10;
   bool get isMutation => operation != SpacePostOperation.publish;
 
+  /// Structural well-formedness of ONE row, judged against itself.
+  ///
+  /// The `published` bounds below are exactly that and nothing more: they
+  /// reject `published` before `created`, and cap the publication delay at the
+  /// same year the composer caps it at when it signs one. Both numbers are the
+  /// same author's, both are inside [canonicalBytes], and a publisher that
+  /// wants to live in 2027 simply signs BOTH numbers there — so this pair says
+  /// nothing whatever about the receiving device's clock and never defended
+  /// anything from a hostile one. That is [spacePostOrderAt]'s job, and it is
+  /// deliberately not done here: this predicate decides whether a row may be
+  /// STORED and replicated, and rejecting a stranger's post because our own
+  /// clock disagrees would lose real content and make acceptance depend on
+  /// when a device happened to sync. The bound stays because a row that
+  /// contradicts its own two fields is malformed regardless of any clock.
   bool get isStructurallyValid {
     if (seq < 0 ||
         prevHash.length > 128 ||
@@ -1022,7 +1095,11 @@ class SpacePostView {
     this.pinned = false,
     this.pinnedAtMs,
     this.mediaHiddenByRetention = false,
-  });
+    int? orderedAtMs,
+  }) : // A named parameter cannot be private, so the projection is taken
+       // under a public name and kept in a private field.
+       // ignore: prefer_initializing_formals
+       _orderedAtMs = orderedAtMs;
 
   final SpacePost root;
   final SpacePost effective;
@@ -1032,6 +1109,36 @@ class SpacePostView {
   /// Projection-only state; [root] and [effective] remain the exact immutable
   /// signed rows used for verification and replication.
   final bool mediaHiddenByRetention;
+
+  /// Projection-only, exactly like [mediaHiddenByRetention]: never signed,
+  /// never serialized, never on the wire. Absent until a receiving device
+  /// records that it could not believe this root's stamp — a receiver-chosen
+  /// number that travelled would just be the same unauthenticated stamp under
+  /// a second name.
+  final int? _orderedAtMs;
+
+  /// What this publication is ORDERED, paged, floated and counted by locally:
+  /// its own [publishedAtMs], unless the receiving device could not believe
+  /// that stamp when the root arrived (see [spacePostOrderAt]), in which case
+  /// the moment it arrived.
+  ///
+  /// [publishedAtMs] stays untouched and stays authoritative for everything
+  /// the AUTHOR's word governs — the signature, the rendered publication date,
+  /// retention windows, scheduling — because those are questions about what
+  /// was signed. This is only the answer to "where does it go on screen".
+  int get orderedAtMs => _orderedAtMs ?? root.publishedAtMs;
+
+  /// Attach the local display order derived for this publication. Touches
+  /// nothing the author signed: [root] and [effective] come through unchanged,
+  /// so every signature, page hash and prev-hash link still verifies.
+  SpacePostView withOrderedAt(int ms) => SpacePostView(
+    root: root,
+    effective: effective,
+    pinned: pinned,
+    pinnedAtMs: pinnedAtMs,
+    mediaHiddenByRetention: mediaHiddenByRetention,
+    orderedAtMs: ms,
+  );
 
   String get postId => root.postId;
   String get revisionId => effective.postId;
@@ -1059,6 +1166,7 @@ class SpacePostView {
         pinned: pinned,
         pinnedAtMs: pinned ? pinnedAtMs : null,
         mediaHiddenByRetention: mediaHiddenByRetention,
+        orderedAtMs: _orderedAtMs,
       );
 
   SpacePostView withMediaHiddenByRetention() => mediaHiddenByRetention
@@ -1069,41 +1177,57 @@ class SpacePostView {
           pinned: pinned,
           pinnedAtMs: pinnedAtMs,
           mediaHiddenByRetention: true,
+          orderedAtMs: _orderedAtMs,
         );
 }
 
-/// Stable chronological cursor. Every tie-breaker is signed by the post, so
-/// pagination cannot duplicate or skip rows merely because two clocks share a
-/// millisecond.
+/// Stable chronological cursor, and the total order the Feed both sorts and
+/// pages on.
+///
+/// The time component is [SpacePostView.orderedAtMs], not the signed
+/// `published` stamp: the Feed is ranked by it, so a publisher that stamped
+/// itself into 2027 would otherwise hold the top of the Feed — and the top is
+/// exactly what `markSpaceFeedSeen` writes as the read watermark, retiring
+/// that Space's post badge until the future arrived. The tie-breakers stay
+/// signed and identify the publication uniquely, so no two distinct posts can
+/// compare equal and pagination cannot duplicate or skip rows merely because
+/// two clocks share a millisecond.
+///
+/// Because the order value is frozen once at arrival and persisted (see
+/// [spacePostOrderAt]), a post keeps the same cursor between one page and the
+/// next; deriving it from a live clock would move rows across an open page
+/// boundary and lose or repeat them.
 class SpaceFeedCursor {
   const SpaceFeedCursor({
-    required this.publishedAtMs,
+    required this.orderAtMs,
     required this.spaceId,
     required this.author,
     required this.seq,
   });
 
+  /// A bare signed row carries no local receipt, so it is ordered by its own
+  /// claim. Use [fromView] for anything the Feed actually ranks.
   factory SpaceFeedCursor.fromPost(SpacePost post) => SpaceFeedCursor(
-    publishedAtMs: post.publishedAtMs,
+    orderAtMs: post.publishedAtMs,
     spaceId: post.spaceId,
     author: post.author,
     seq: post.seq,
   );
 
   factory SpaceFeedCursor.fromView(SpacePostView post) => SpaceFeedCursor(
-    publishedAtMs: post.publishedAtMs,
+    orderAtMs: post.orderedAtMs,
     spaceId: post.spaceId,
     author: post.author,
     seq: post.seq,
   );
 
-  final int publishedAtMs;
+  final int orderAtMs;
   final NodeId spaceId;
   final NodeId author;
   final int seq;
 
   int compareTo(SpaceFeedCursor other) {
-    final time = publishedAtMs.compareTo(other.publishedAtMs);
+    final time = orderAtMs.compareTo(other.orderAtMs);
     if (time != 0) return time;
     final space = spaceId.hex.compareTo(other.spaceId.hex);
     if (space != 0) return space;
@@ -1112,11 +1236,18 @@ class SpaceFeedCursor {
     return seq.compareTo(other.seq);
   }
 
+  /// `v: 2` under a renamed key on purpose. A `v: 1` cursor's `ts` meant the
+  /// signed publication stamp; this one means the local order value, and
+  /// silently reading one as the other is precisely the mixed-key comparison
+  /// that skips rows. An older token therefore fails [decode] outright — the
+  /// REST caller gets its `before` rejected instead of a wrong page, and a
+  /// stale seen-watermark reads as "nothing seen", which re-shows a badge once
+  /// rather than hiding posts.
   String encode() => base64Url.encode(
     utf8.encode(
       jsonEncode({
-        'v': 1,
-        'ts': publishedAtMs,
+        'v': 2,
+        'ord': orderAtMs,
         'sid': spaceId.hex,
         'author': author.hex,
         'seq': seq,
@@ -1131,17 +1262,17 @@ class SpaceFeedCursor {
         utf8.decode(base64Url.decode(base64Url.normalize(value))),
       );
       if (decoded is! Map ||
-          decoded['v'] != 1 ||
-          decoded['ts'] is! int ||
+          decoded['v'] != 2 ||
+          decoded['ord'] is! int ||
           decoded['sid'] is! String ||
           decoded['author'] is! String ||
           decoded['seq'] is! int ||
-          decoded['ts'] as int < 0 ||
+          decoded['ord'] as int < 0 ||
           decoded['seq'] as int < 0) {
         return null;
       }
       return SpaceFeedCursor(
-        publishedAtMs: decoded['ts'] as int,
+        orderAtMs: decoded['ord'] as int,
         spaceId: NodeId.fromHex(decoded['sid'] as String),
         author: NodeId.fromHex(decoded['author'] as String),
         seq: decoded['seq'] as int,

@@ -93,7 +93,10 @@ MentionInboxEntry? publicSpacePostMentionInboxEntry({
     author: post.author,
     contextName: spaceName,
     body: postText,
-    timestampMs: post.publishedAtMs,
+    // The inbox ranks on this, so it takes the derived stamp: one
+    // future-stamped publication would otherwise sit at the top of it until
+    // that future arrived.
+    timestampMs: post.orderedAtMs,
     route:
         '/space/${spaceId.hex}/public-posts?post=${Uri.encodeQueryComponent(post.postId)}',
   );
@@ -223,7 +226,7 @@ final mentionInboxProvider = FutureProvider.autoDispose<List<MentionInboxEntry>>
               author: post.author,
               contextName: space.name,
               body: postText,
-              timestampMs: post.publishedAtMs,
+              timestampMs: post.orderedAtMs,
               route:
                   '/space/${space.groupId.hex}/comments?post=${Uri.encodeQueryComponent(post.postId)}',
             ),
