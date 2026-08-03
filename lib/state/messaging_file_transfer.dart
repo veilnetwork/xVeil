@@ -95,6 +95,9 @@ class _MessagingFileTransfer {
 
   Future<void> handleMeta(InboundMessage message, FileMetaFrame meta) async {
     if (meta.size != null && meta.size! > kMaxIncomingFileBytes) return;
+    // A file message rides the same event stream as a text one, so its seq
+    // arrives from the peer and takes the same bound as any other.
+    if (!isAcceptableWireSeq(meta.seq)) return;
     if (_inFlight.containsKey(meta.transferId)) return;
     if (!_makeRoom()) return;
     _inFlight[meta.transferId] = _IncomingFile(
@@ -193,6 +196,7 @@ class _MessagingFileTransfer {
 
   /// Answer a gap-fill probe with only the missing chunk indices.
   Future<void> handleQuery(InboundMessage message, FileMetaFrame meta) async {
+    if (!isAcceptableWireSeq(meta.seq)) return;
     final transferId = meta.transferId;
     if (await _owner._hasMessage(message.src, transferId) ||
         await _owner._storage.isMessageDeleted(message.src.hex, transferId)) {
