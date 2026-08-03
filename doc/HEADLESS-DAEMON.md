@@ -49,6 +49,33 @@ Environment overrides for public configuration are `XVEIL_CONFIG`,
 may be supplied as `XVEIL_PASSWORD_FILE`, `XVEIL_IDENTITY_PHRASE_FILE`, and
 `XVEIL_API_TOKEN_FILE`; secret values themselves have no environment option.
 
+### Secret files, and what they are checked for
+
+Omitting `--password-file` prompts for the password on the terminal with echo
+off. That is the preferred path: nothing is written down, so there is no file
+for another account to read.
+
+A secret file is the unattended fallback and is refused unless the daemon can
+show it is private — not a symlink, a regular file, and on POSIX no permission
+bit set beyond the owner's (`chmod 600`). It is also stat-ed before and after
+the read and refused if it changed in between; `dart:io` has no
+`openat`/`O_NOFOLLOW`, so a swap can be detected but not prevented.
+
+**On Windows none of that can be checked.** Access there is an ACL, and Dart
+exposes neither the ACL nor the file's owner, so a secret file used to be read
+with nothing examined at all (audit X-10). It is now REFUSED on Windows unless
+you restrict it yourself and say so:
+
+```powershell
+icacls C:\ProgramData\xveil\store-password /inheritance:r /grant:r "%USERNAME%":R
+xveil run --config ... --password-file ... --accept-unchecked-secret-files
+```
+
+`XVEIL_ACCEPT_UNCHECKED_SECRET_FILES=1` is the equivalent for a service manager
+with no editable command line. Either way the daemon prints a warning naming the
+file: the flag records your assertion that it is private, it does not verify it.
+On POSIX the flag has no effect and says so — the permission check still runs.
+
 ## Running a bot
 
 A bot is not a mode: it is a daemon on its own store. It mints its own identity
