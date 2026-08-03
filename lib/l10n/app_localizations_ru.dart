@@ -5858,4 +5858,19 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get voiceModelCancel => 'Остановить';
+
+  @override
+  String get identityDamagedTitle =>
+      'Пространство открылось, но личность в нём повреждена';
+
+  @override
+  String get identityDamagedBody =>
+      'Пароль верный — контейнер разблокировался. Но то, что лежит на месте вашей личности, прочитать не удаётся. Приложение не станет продолжать так, будто вы новый человек.';
+
+  @override
+  String get identityDamagedUntouched =>
+      'Ничего не изменено и не перезаписано. Ваши данные лежат в контейнере ровно так, как их нашли.';
+
+  @override
+  String get identityDamagedBack => 'Вернуться к экрану блокировки';
 }

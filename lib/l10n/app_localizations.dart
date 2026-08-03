@@ -10397,6 +10397,30 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Stop'**
   String get voiceModelCancel;
+
+  /// No description provided for @identityDamagedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This space opened, but its identity is damaged'**
+  String get identityDamagedTitle;
+
+  /// No description provided for @identityDamagedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your password was right — the container unlocked. What it holds where your identity should be cannot be read. This app will not go on and act as if you were someone new.'**
+  String get identityDamagedBody;
+
+  /// No description provided for @identityDamagedUntouched.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing was changed or overwritten. Your data is still in the container exactly as it was found.'**
+  String get identityDamagedUntouched;
+
+  /// No description provided for @identityDamagedBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to the lock screen'**
+  String get identityDamagedBack;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

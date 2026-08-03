@@ -1,10 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/storage/on_disk_blob_store.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/veil_stack.dart';
@@ -34,6 +37,7 @@ Future<void> _settle(ProviderContainer c) async {
 
 void main() {
   _p2pPolicyTests();
+  _damagedIdentityTests();
   _onboardingOpenFailureTests();
   _runtimeBaseTeardownTests();
   _wipeRemovesBlobsTests();
@@ -1124,6 +1128,170 @@ void main() {
         contains('busy'),
         reason: 'the report must name the cause, not just say it failed',
       );
+    });
+  });
+}
+
+/// Plant an identity record that no writer would ever produce: present, but
+/// unparseable. Reaches under the storage API on purpose — `saveIdentity` only
+/// ever writes well-formed records, so there is no other way to stand up the
+/// state the field reports describe.
+Uint8List _damageIdentityRecord(FakeHvContainer container, String password) {
+  final store = container.rawStoreFor(password)!;
+  final key = Uint8List.fromList(utf8.encode('identity'));
+  final damaged = Uint8List.fromList(utf8.encode('{"n":"not-hex-at-all"}'));
+  store.commit([PutOp(Ns.settings, key, damaged)]);
+  return damaged;
+}
+
+Uint8List? _rawIdentityRecord(FakeHvContainer container, String password) =>
+    container
+        .rawStoreFor(password)!
+        .get(Ns.settings, Uint8List.fromList(utf8.encode('identity')));
+
+void _damagedIdentityTests() {
+  group('a DAMAGED identity is not an ABSENT one (audit XV-13)', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      errorJournal.clear();
+    });
+
+    test('unlocking one parks the app instead of minting a new identity', () async {
+      // The whole finding in one flow: the container opens (right password),
+      // the identity record inside it is unreadable, and the app used to hand
+      // the user a fresh random identity and a normal, working, EMPTY session.
+      // Someone whose identity had actually been lost saw no sign of it.
+      SharedPreferences.setMockInitialValues({'onboarded': true});
+      final container = FakeHvContainer();
+      final seeded = container.storage();
+      await seeded.open(password: 'right', createIfMissing: true);
+      await seeded.saveIdentity(
+        AppController.generateIdentity(displayName: 'Real'),
+      );
+      await seeded.close();
+      final damaged = _damageIdentityRecord(container, 'right');
+
+      final app = container.storage();
+      final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
+
+      await ctrl.unlock('right');
+
+      final s = c.read(appControllerProvider);
+      expect(
+        s.phase,
+        AppPhase.identityDamaged,
+        reason: 'a damaged record must not open a session',
+      );
+      expect(
+        s.identity,
+        isNull,
+        reason: 'no placeholder identity may be presented as the user',
+      );
+      expect(
+        s.unlockError,
+        isFalse,
+        reason: 'the password was right; saying otherwise sends people to '
+            'retype it forever',
+      );
+      // The record is EXACTLY as it was found — the session that would have
+      // written over it never started.
+      expect(_rawIdentityRecord(container, 'right'), damaged);
+      expect(app.isOpen, isFalse, reason: 'the space is released, not held');
+      // ...and it is diagnosable, which is the other half of the finding.
+      expect(errorJournal.entries.map((e) => e.kind), contains('identity'));
+    });
+
+    test('a decoy master refuses to write over one', () async {
+      // The destructive edge. `createDecoyMaster` asks "is anything already
+      // here?" via loadIdentity, and an unreadable record answered `null` —
+      // no clash — so the decoy roster went straight over a damaged but
+      // possibly recoverable identity space.
+      SharedPreferences.setMockInitialValues({'onboarded': true});
+      final container = FakeHvContainer();
+      final roster = <RosterEntry>[];
+      for (final (label, pw) in [('alice', 'pw-a'), ('bob', 'pw-b')]) {
+        final ch = container.storage();
+        await ch.open(password: pw, createIfMissing: true);
+        await ch.saveIdentity(
+          AppController.generateIdentity(displayName: label),
+        );
+        roster.add(
+          RosterEntry(label: label, spaceKeys: await ch.exportSpaceKeys()),
+        );
+        await ch.close();
+      }
+      // A third space, outside the roster, whose identity record is damaged.
+      final hurt = container.storage();
+      await hurt.open(password: 'pw-hurt', createIfMissing: true);
+      await hurt.saveIdentity(
+        AppController.generateIdentity(displayName: 'Hurt'),
+      );
+      await hurt.close();
+      final damaged = _damageIdentityRecord(container, 'pw-hurt');
+
+      final m = container.storage();
+      await m.open(password: 'masterpw', createIfMissing: true);
+      await m.saveRoster(roster);
+      await m.close();
+
+      final app = container.storage();
+      final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
+      await ctrl.unlock('masterpw');
+      await ctrl.pickIdentity('alice');
+
+      final ok = await ctrl.createDecoyMaster(
+        duressPassword: 'pw-hurt',
+        includeLabels: ['bob'],
+      );
+      expect(ok, isFalse, reason: 'something IS there — it just cannot be read');
+      expect(
+        _rawIdentityRecord(container, 'pw-hurt'),
+        damaged,
+        reason: 'the damaged record must survive untouched',
+      );
+
+      await ctrl.lock();
+      final hurtAgain = container.storage();
+      expect(await hurtAgain.open(password: 'pw-hurt'), isTrue);
+      expect(
+        await hurtAgain.loadRoster(),
+        isNull,
+        reason: 'no decoy roster may have been written into it',
+      );
+      await hurtAgain.close();
+    });
+
+    test('an ABSENT record still opens a session — the two are not merged', () async {
+      // The control. If "damaged" were implemented by refusing on anything
+      // unusual, a fresh/erased space would stop opening too and every
+      // legitimate empty-identity install would be bricked.
+      SharedPreferences.setMockInitialValues({'onboarded': true});
+      final container = FakeHvContainer();
+      final seeded = container.storage();
+      await seeded.open(password: 'right', createIfMissing: true);
+      await seeded.close(); // created, never given an identity
+
+      final app = container.storage();
+      final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
+
+      await ctrl.unlock('right');
+      expect(c.read(appControllerProvider).phase, AppPhase.ready);
+      expect(c.read(appControllerProvider).identity, isNotNull);
     });
   });
 }

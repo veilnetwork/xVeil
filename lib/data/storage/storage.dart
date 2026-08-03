@@ -45,6 +45,20 @@ abstract interface class Storage {
   Future<Uint8List> exportSpaceKeys();
 
   Future<void> saveIdentity(Identity identity);
+
+  /// This space's identity record.
+  ///
+  /// Three outcomes, and callers MUST keep them apart (audit XV-13):
+  ///  * an [Identity] — the record is there and readable;
+  ///  * `null` — there is NO record. A fresh or erased space.
+  ///  * throws [CorruptIdentityRecord] — a record EXISTS but will not parse.
+  ///
+  /// The last one used to come back as `null` too, so "damaged" was handled as
+  /// "empty": the app minted a random identity and looked healthy, and the
+  /// "is this space free to write into?" checks (roster conversion, decoy
+  /// master) read the same `null` as "nothing here" and would have overwritten
+  /// the damaged record. Whatever a caller does on `null`, it must not do on a
+  /// throw.
   Future<Identity?> loadIdentity();
 
   Future<void> putSetting(String key, String value);

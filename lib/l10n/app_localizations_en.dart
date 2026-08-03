@@ -5805,4 +5805,19 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get voiceModelCancel => 'Stop';
+
+  @override
+  String get identityDamagedTitle =>
+      'This space opened, but its identity is damaged';
+
+  @override
+  String get identityDamagedBody =>
+      'Your password was right — the container unlocked. What it holds where your identity should be cannot be read. This app will not go on and act as if you were someone new.';
+
+  @override
+  String get identityDamagedUntouched =>
+      'Nothing was changed or overwritten. Your data is still in the container exactly as it was found.';
+
+  @override
+  String get identityDamagedBack => 'Back to the lock screen';
 }
