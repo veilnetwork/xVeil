@@ -1859,5 +1859,9 @@
   "voiceModelResume": "Продолжить скачивание",
   "voiceModelResumeAt": "{percent}% уже скачано",
   "@voiceModelResumeAt": { "placeholders": { "percent": { "type": "int" } } },
-  "voiceModelCancel": "Остановить"
+  "voiceModelCancel": "Остановить",
+  "identityDamagedTitle": "Пространство открылось, но личность в нём повреждена",
+  "identityDamagedBody": "Пароль верный — контейнер разблокировался. Но то, что лежит на месте вашей личности, прочитать не удаётся. Приложение не станет продолжать так, будто вы новый человек.",
+  "identityDamagedUntouched": "Ничего не изменено и не перезаписано. Ваши данные лежат в контейнере ровно так, как их нашли.",
+  "identityDamagedBack": "Вернуться к экрану блокировки"
 }

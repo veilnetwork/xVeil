@@ -57,4 +57,13 @@ class FakeHvContainer {
   /// A fresh storage handle wired to this container's password + keys openers.
   HiddenVolumeStorage storage() =>
       HiddenVolumeStorage(passwordOpener, keysOpener: keysOpener);
+
+  /// The raw store behind the space [password] opens, or null if that password
+  /// has never created one. Lets a test reach UNDER the storage API to plant a
+  /// blob no writer would ever produce — e.g. a damaged identity record, which
+  /// is otherwise unreachable because `saveIdentity` only ever writes good ones.
+  FakeKvLogStore? rawStoreFor(String password) {
+    final hex = _pwToKeyHex[password];
+    return hex == null ? null : _byKeys[hex];
+  }
 }

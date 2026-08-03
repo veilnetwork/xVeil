@@ -217,10 +217,12 @@ class HiddenVolumeStorage implements Storage {
   @override
   Future<Identity?> loadIdentity() async {
     final raw = await _as.get(Ns.settings, _sk('identity'));
-    if (raw == null) return null;
-    // A truncated / corrupt blob must not crash the open path (jsonDecode,
-    // the cast, or NodeId.fromHex would throw) — treat it as "no identity"
-    // and let the caller fall back to a placeholder.
+    if (raw == null) return null; // genuinely absent — a fresh or erased space
+    // A truncated / corrupt blob (jsonDecode, the cast, or NodeId.fromHex
+    // throwing) is reported AS ITSELF. It used to return null — the same answer
+    // as "no record" — which sent the app down the fresh-space path: a random
+    // placeholder identity on screen, and every "is this space empty?" guard
+    // answering yes over a record that is still there (audit XV-13).
     try {
       final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
       return Identity(
@@ -228,8 +230,8 @@ class HiddenVolumeStorage implements Storage {
         displayName: m['dn'] as String?,
         username: m['u'] as String?,
       );
-    } catch (_) {
-      return null;
+    } catch (e) {
+      throw CorruptIdentityRecord(raw.length, e);
     }
   }
 
