@@ -154,6 +154,49 @@ void main() {
     expect((await sB.loadFile(done.fileId!))?.length, 10);
   });
 
+  // A file message rides the same per-author sequence stream as a text one, so
+  // its slot arrives from the peer — in the meta BODY, not the envelope — and
+  // takes the same bound as any other sequence off the wire.
+  test('a file meta naming a seq past the accepted maximum is refused, while '
+      'an in-range one still lands', () async {
+    await accept();
+    final data = _bytes(10);
+
+    // In range first, so a silent refusal of BOTH could not pass this test.
+    await tA.send(
+        b,
+        fileMetaEnvelope(
+                transferId: 'ok', name: 'a.bin', size: 10, count: 1, seq: 4)
+            .encode());
+    await tA.send(
+        b,
+        fileChunkEnvelope(transferId: 'ok', index: 0, total: 1, data: data)
+            .encode());
+    await _pump();
+    final landed =
+        (await sB.loadMessages(a.hex)).firstWhere((m) => m.id == 'ok');
+    expect(landed.seq, 4, reason: 'the sender slot is kept verbatim');
+
+    // Past the maximum: the meta is refused, so its chunk has nowhere to land
+    // and no file message is ever built.
+    await tA.send(
+        b,
+        fileMetaEnvelope(
+                transferId: 'bad',
+                name: 'b.bin',
+                size: 10,
+                count: 1,
+                seq: kMaxWireSeq + 1)
+            .encode());
+    await tA.send(
+        b,
+        fileChunkEnvelope(transferId: 'bad', index: 0, total: 1, data: data)
+            .encode());
+    await _pump();
+    expect((await sB.loadMessages(a.hex)).where((m) => m.id == 'bad'), isEmpty,
+        reason: 'refused whole, not stored at some pulled-in-range slot');
+  });
+
   test('a malformed file envelope is dropped without breaking delivery',
       () async {
     await accept();

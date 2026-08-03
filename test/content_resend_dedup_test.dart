@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -23,6 +24,11 @@ class _Link implements VeilTransport {
   final _in = StreamController<InboundMessage>.broadcast();
   _Link? peer;
   int pieceRequests = 0;
+
+  /// Deliver a hand-built frame as if [from] had sent it (for shapes the real
+  /// send path will not produce).
+  void inject(NodeId from, Uint8List payload) =>
+      _in.add(InboundMessage(src: from, payload: payload));
 
   @override
   Future<NodeId> nodeId() async => _me;
@@ -109,6 +115,43 @@ void main() {
     }
     return (await s.loadMessages(peer.hex)).where((m) => m.isFile).toList();
   }
+
+  // A content offer carries the sender's event slot in the manifest, so that
+  // number reaches storage by a route of its own — and takes the same bound as
+  // every other sequence off the wire.
+  test('a content offer naming a seq past the accepted maximum never surfaces, '
+      'while an in-range one does', () async {
+    String offer(String id, String msgId, int seq) => jsonEncode({
+          'ref': 1,
+          'id': id,
+          'name': '$msgId.bin',
+          'size': 1024,
+          'mid': msgId,
+          'au': a.hex,
+          'sq': seq,
+        });
+
+    tB.inject(
+      a,
+      contentManifestEnvelope(offer('a' * 64, 'offer-in-range', 4)).encode(),
+    );
+    final good = await waitFiles(sB, a, 1);
+    expect(good, hasLength(1), reason: 'sanity: an in-range offer surfaces');
+    expect(good.single.id, 'offer-in-range');
+    expect(good.single.seq, 4);
+
+    tB.inject(
+      a,
+      contentManifestEnvelope(
+        offer('b' * 64, 'offer-past-max', kMaxWireSeq + 1),
+      ).encode(),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(
+        (await sB.loadMessages(a.hex)).where((m) => m.id == 'offer-past-max'),
+        isEmpty,
+        reason: 'the offer is dropped, not surfaced at a pulled-in-range slot');
+  });
 
   test('A re-send of a CLEARED file surfaces AGAIN as a NEW message — the '
       'per-send msgId is not tombstoned by the old delete (A semantics)',

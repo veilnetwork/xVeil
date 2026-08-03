@@ -171,10 +171,15 @@ class _MessagingPeerSync {
     final selfHex = await _owner._selfHex();
 
     // A peer may void only a prefix of its own authenticated author stream.
+    // The prefix takes the same bound as any other sequence off the wire: a
+    // floor is monotonic and permanent, so one absurd number would retire
+    // gap-fill for that author in this conversation for good — the peer's
+    // later messages would all sit below a floor claiming they no longer exist
+    // at the source, and nothing could ever be re-requested again.
     final floors = json['fl'];
     if (floors is Map) {
       final declared = floors[peer.hex];
-      if (declared is int && declared > 0) {
+      if (declared is int && declared > 0 && isAcceptableWireSeq(declared)) {
         await _owner._storage.applyAuthorSyncFloor(
           peer.hex,
           peer.hex,
