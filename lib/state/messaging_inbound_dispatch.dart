@@ -8,6 +8,13 @@ part of 'messaging_core.dart';
 extension _MessagingInboundDispatch on MessagingService {
   Future<void> _dispatch(InboundMessage m) async {
     final env = WireEnvelope.decode(m.payload);
+    // ONE bound on a remote sequence number, ahead of every arm that could
+    // store one (message, edit, void, clear, recommendation). Out of range the
+    // whole frame goes, rather than being pulled into range — see
+    // [isAcceptableWireSeq] for why a sequence may not be clamped the way a
+    // send-time is. Placed before the durable ack/dedup gate so an unusable
+    // frame never occupies a dedup slot either.
+    if (!isAcceptableWireSeq(env.seq)) return;
     final existing = await _storage.getContact(m.src);
     if (existing?.status == ContactStatus.blocked) return; // drop blocked
     if (existing?.status == ContactStatus.accepted) {
@@ -261,6 +268,9 @@ extension _MessagingInboundDispatch on MessagingService {
           } catch (_) {
             return; // malformed watermark → drop
           }
+          // The watermark's VALUES are sequence numbers too, and take the same
+          // bound as the frame's own — one opinion for both, not two.
+          if (wm.values.any((hw) => !isAcceptableWireSeq(hw))) return;
           await _storage.applyRemoteClear(m.src, m.src.hex, cseq, wm);
           _signal();
         }
