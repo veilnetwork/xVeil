@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:xveil/api/api_server.dart' show openApiSpec;
 import 'package:xveil/headless/headless_config.dart';
 import 'package:xveil/headless/headless_runtime.dart';
+import 'package:xveil/headless/secret_file.dart';
 
 Future<void> main(List<String> args) async {
   try {
@@ -50,8 +51,13 @@ Future<void> _run(List<String> args) async {
   String? tokenFile;
   final fileRoots = <String>[];
   var create = false;
+  var acceptUnchecked = false;
   for (var i = 0; i < args.length; i++) {
     switch (args[i]) {
+      // The operator asserting what this process could not check. Only
+      // meaningful where a secret file cannot be verified at all — Windows.
+      case kAcceptUncheckedSecretFilesFlag:
+        acceptUnchecked = true;
       case '--config':
         configPath = _next(args, ++i, '--config');
       case '--password-file':
@@ -86,16 +92,29 @@ Future<void> _run(List<String> args) async {
   if (configPath == null || configPath.isEmpty) {
     throw const FormatException('--config or XVEIL_CONFIG is required');
   }
+  acceptUnchecked =
+      acceptUnchecked ||
+      Platform.environment[kAcceptUncheckedSecretFilesEnv] == '1';
 
+  Future<String> readSecret(String path, String label) => readSecretFile(
+    path,
+    label,
+    acceptUnchecked: acceptUnchecked,
+    warn: stderr.writeln,
+  );
+
+  // No file option ⇒ the terminal prompt, which is the path this daemon
+  // prefers: nothing is written down, so there is nothing for another account
+  // to read and nothing for this process to have to vouch for.
   final password = passwordFile == null
       ? _readSecretFromTerminal('Store password: ')
-      : await _readSecretFile(passwordFile, 'password');
+      : await readSecret(passwordFile, 'password');
   final phrase = phraseFile == null
       ? null
-      : await _readSecretFile(phraseFile, 'identity phrase');
+      : await readSecret(phraseFile, 'identity phrase');
   final token = tokenFile == null
       ? null
-      : await _readSecretFile(tokenFile, 'API token');
+      : await readSecret(tokenFile, 'API token');
   final config = await HeadlessConfig.load(configPath);
   final runtime = await HeadlessRuntime.start(
     config: config,
@@ -144,71 +163,7 @@ String _next(List<String> args, int index, String option) {
   return args[index];
 }
 
-/// Read a secret from a file, refusing one anybody else can read.
-///
-/// This used to be a bare `readAsString` (audit XV-16). A container password,
-/// a recovery phrase or an API token sitting at mode 0644 — the default under
-/// most umasks — is readable by every account on the box, and a headless
-/// deployment is exactly where nobody is watching. Worse, the path could be a
-/// SYMLINK: point `--password-file` at one and the daemon reads wherever it
-/// leads, which turns a config knob into a file-disclosure primitive for
-/// anyone who can write the config.
-///
-/// Checked, not assumed, and fail-closed: a secret the process cannot verify
-/// is private is one it should not use. The remedy is one `chmod` away and the
-/// error says so.
-Future<String> _readSecretFile(String path, String label) async {
-  final type = FileSystemEntity.typeSync(path, followLinks: false);
-  if (type == FileSystemEntityType.link) {
-    throw StateError(
-      '$label file $path is a symlink — refusing to follow it. Point the '
-      'option at the real file.',
-    );
-  }
-  if (type != FileSystemEntityType.file) {
-    throw StateError('$label file $path is not a regular file');
-  }
-  if (!Platform.isWindows) {
-    // Windows has no POSIX mode; its ACL story is a different check and this
-    // does not pretend to make it.
-    final mode = File(path).statSync().mode;
-    if (mode & 0x3F != 0) {
-      throw StateError(
-        '$label file $path is mode ${(mode & 0x1FF).toRadixString(8)} — '
-        'readable beyond its owner. Run: chmod 600 $path',
-      );
-    }
-  }
-  // The checks above are path-based, and so is the read: three separate
-  // syscalls against a name, not one descriptor. Dart exposes neither
-  // `openat`/`O_NOFOLLOW` nor `fstat`, so the file checked cannot be PROVEN to
-  // be the file read without dropping to FFI (audit XV-16).
-  //
-  // What is reachable is detection. Capture the state, read, and compare: a
-  // swap between the check and the read changes the type, the mode, the size
-  // or the modification time, and any of those differing means we no longer
-  // know what we just read. Refuse rather than return it — a secret that might
-  // be someone else's planted file is worse than no secret.
-  //
-  // ⚠️ Ownership is NOT checked, because `FileStat` carries no uid. A file
-  // owned by another account but mode 0600 passes here; the mode check is what
-  // stands between that and a disclosure.
-  final before = await File(path).stat();
-  final value = (await File(path).readAsString()).trim();
-  final after = await File(path).stat();
-  if (before.type != after.type ||
-      before.mode != after.mode ||
-      before.size != after.size ||
-      before.modified != after.modified) {
-    throw StateError(
-      '$label file $path changed while it was being read — refusing to use '
-      'its contents.',
-    );
-  }
-  if (value.isEmpty) throw StateError('$label file is empty');
-  return value;
-}
-
+/// The preferred way in: typed, echo off, never written anywhere.
 String _readSecretFromTerminal(String prompt) {
   if (!stdin.hasTerminal) {
     throw StateError(
@@ -245,10 +200,22 @@ xVeil headless daemon
   xveil run --config PATH [--create]
             [--password-file PATH] [--identity-phrase-file PATH]
             [--api-token-file PATH] [--api-file-root DIR]...
+            [--accept-unchecked-secret-files]
 
 Secrets are never accepted in the JSON config or as literal command-line
-arguments. For unattended services use protected credential files. Native
-libraries may be selected with VEIL_FFI_DYLIB and XVEIL_HV_DYLIB.
+arguments. Preferred: run from a terminal with no --password-file and type the
+store password at the prompt — nothing is written down, so there is no file for
+another account to read.
+
+A credential file is the unattended fallback, and it is refused unless this
+process can show it is private: not a symlink, a regular file, and on POSIX no
+permission bit beyond the owner's. On WINDOWS none of that can be checked from
+Dart (no ACL, no owner), so a secret file is REFUSED there until you restrict it
+yourself and pass --accept-unchecked-secret-files (or set
+XVEIL_ACCEPT_UNCHECKED_SECRET_FILES=1). That flag records your assertion; it
+verifies nothing.
+
+Native libraries may be selected with VEIL_FFI_DYLIB and XVEIL_HV_DYLIB.
 
 --api-file-root is repeatable (or XVEIL_API_FILE_ROOTS, path-separated) and
 names the only folders POST /v1/files may send a local file out of. With none,
