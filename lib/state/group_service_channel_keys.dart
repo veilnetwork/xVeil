@@ -47,7 +47,6 @@ class _ChannelKeyRotation {
   }
 
   Future<int> rotateStaleLocked(NodeId spaceId) async {
-
         final bundle = await _owner.load(spaceId);
         if (bundle == null ||
             !bundle.manifest.isSpace ||
@@ -60,6 +59,25 @@ class _ChannelKeyRotation {
           verify: (entry) => _owner._validControlFor(bundle.manifest, entry),
           initialName: bundle.manifest.name,
         ).state;
+        final nowMs = _owner._now();
+        // Note the epochs BEFORE the permission check, so that gaining or
+        // losing `manageChannels` — which someone else decides — cannot
+        // restart a key's clock.
+        final seen = <String, int>{...bundle.channelEpochReceipts};
+        for (final opaque in state.protectedChannels.values) {
+          seen.putIfAbsent(
+            _channelKeyId(opaque.channelId, opaque.channelEpoch),
+            () => nowMs,
+          );
+        }
+        if (seen.length != bundle.channelEpochReceipts.length) {
+          // Persisted before anything is rotated, and never revised
+          // afterwards: the whole point is a number that does not move.
+          await _owner._save(
+            bundle.copyWith(channelEpochReceipts: seen),
+            notify: false,
+          );
+        }
         final acl = SpaceAcl(state);
         final stale = <NodeId>[];
         for (final opaque in state.protectedChannels.values) {
@@ -70,7 +88,13 @@ class _ChannelKeyRotation {
           )) {
             continue;
           }
-          if (await isStale(bundle, opaque)) {
+          if (await isStale(
+            bundle,
+            opaque,
+            firstSeenAtMs:
+                seen[_channelKeyId(opaque.channelId, opaque.channelEpoch)]!,
+            nowMs: nowMs,
+          )) {
             stale.add(opaque.channelId);
           }
         }
@@ -83,13 +107,35 @@ class _ChannelKeyRotation {
         return rotated;
   }
 
+  /// Whether this channel's current key has served long enough, or carried
+  /// enough, to be replaced.
+  ///
+  /// [firstSeenAtMs] is when THIS device first observed the epoch in service
+  /// (see [GroupBundle.channelEpochReceipts]), and the age bound is measured
+  /// from it rather than from the `createdAtMs` of the control entry that
+  /// introduced the epoch. That stamp is chosen by whoever holds
+  /// `manageChannels` — and, since the entry is only looked up by
+  /// (channelId, epoch) and never re-authorized, by anyone who can get a
+  /// signature-valid entry into the log at all. Dated forward it made
+  /// `now - started` negative, so the key never aged and never rotated: the
+  /// one defect in this series where the lie makes a protection stop quietly
+  /// rather than make something visibly fail. Dated backward it made every key
+  /// born stale, so one cheap entry bought a Space-wide ML-KEM rekey, again on
+  /// every sweep. A local arrival moment closes both without needing a
+  /// tolerance, because there is no honest claim here to tolerate.
+  ///
+  /// The cost is that a key already in service when this device first sweeps
+  /// starts its thirty days over. That is the existing contract of this pass —
+  /// "rotating late is a weaker guarantee, not a broken one" — and it is the
+  /// only honest answer available: a device with no arrival moment of its own
+  /// knows nothing about this key's age that its author could not have made up.
   Future<bool> isStale(
     GroupBundle bundle,
-    SpaceChannelControlEnvelope opaque,
-  ) async {
-    final startedAtMs = epochStartedAtMs(bundle, opaque);
-    if (startedAtMs != null &&
-        _owner._now() - startedAtMs >= GroupService.protectedChannelKeyMaxAgeMs) {
+    SpaceChannelControlEnvelope opaque, {
+    required int firstSeenAtMs,
+    required int nowMs,
+  }) async {
+    if (nowMs - firstSeenAtMs >= GroupService.protectedChannelKeyMaxAgeMs) {
       return true;
     }
     var carried = 0;
@@ -102,25 +148,5 @@ class _ChannelKeyRotation {
       if (++carried >= GroupService.protectedChannelKeyMaxMessages) return true;
     }
     return false;
-  }
-
-  /// When the channel's current epoch was introduced, per the signed control
-  /// entry that carried it. Null when that entry is no longer in the log —
-  /// after a checkpoint compaction, say — in which case age says nothing and
-  /// only the volume bound applies.
-  int? epochStartedAtMs(
-    GroupBundle bundle,
-    SpaceChannelControlEnvelope opaque,
-  ) {
-    for (final entry in bundle.control.reversed) {
-      final control = entry.channelControl;
-      if (control == null ||
-          control.channelId != opaque.channelId ||
-          control.channelEpoch != opaque.channelEpoch) {
-        continue;
-      }
-      return entry.createdAtMs;
-    }
-    return null;
   }
 }

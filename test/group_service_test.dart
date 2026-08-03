@@ -6516,7 +6516,15 @@ void main() {
       expect(stored['prx'], hasLength(1),
           reason: 'one entry, for the one publication that needed bounding');
       expect((stored['prx'] as Map).values.single, landedAt);
-      expect(jsonEncode(stored['package']), isNot(contains('prx')),
+      // Asked of the decoded KEYS, not of the serialized text: a signature is
+      // base64 of random-looking bytes, so a substring search for a three-
+      // character field name fires on roughly one run in a thousand for
+      // reasons that have nothing to do with this rule.
+      bool carriesKey(Object? node, String key) => node is Map
+          ? node.containsKey(key) ||
+                node.values.any((value) => carriesKey(value, key))
+          : node is List && node.any((value) => carriesKey(value, key));
+      expect(carriesKey(stored['package'], 'prx'), isFalse,
           reason: 'nothing local is inside the bytes the publisher signed');
       final snapshot = SpacePublicSubscriptionSnapshot.fromBytes(
         Uint8List.fromList(snapshotBytes),
@@ -9461,6 +9469,288 @@ void main() {
 
     await storage.close();
   });
+
+  test(
+    'a channel epoch dated into the future used to mean the key never rotated '
+    'by age at all — and it must still rotate, on this device, on time',
+    () async {
+      final t0 = DateTime.utc(2026, 8, 3, 12).millisecondsSinceEpoch;
+      final hostileTs = t0 + const Duration(days: 365).inMilliseconds;
+      String keyIdOf(NodeId channelId, int epoch) =>
+          '${channelId.hex}:$epoch';
+
+      // The device that mints the epoch reads 2027 while it does so. Whether
+      // that is a broken clock or a chosen number is exactly what nobody can
+      // tell afterwards, and the signature over the control entry says nothing
+      // about it — it proves who wrote the number, never that a clock produced
+      // it.
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final wrongClock = GroupService(
+        storage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      )..debugWallClockMs = () => hostileTs;
+      final spaceId = await wrongClock.createSpace('Aging key');
+      final channelId = await wrongClock.createChannel(
+        spaceId,
+        name: 'private',
+        kind: SpaceChannelKind.text,
+        access: SpaceChannelAccess.restricted,
+      );
+      expect(channelId, isNotNull);
+      wrongClock.dispose();
+
+      // Same device, same volume, same signing identity — restarted with the
+      // clock corrected. Nothing in the log records that anything was ever
+      // wrong; the 2027 stamp is simply what the epoch says about itself now.
+      var wall = t0;
+      final svc = GroupService(
+        storage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      )..debugWallClockMs = () => wall;
+      addTearDown(svc.dispose);
+      final hostileEpoch = (await svc.stateOf(
+        spaceId,
+      ))!.protectedChannels[channelId!.hex]!.channelEpoch;
+      expect(
+        (await svc.load(spaceId))!.control
+            .lastWhere(
+              (entry) =>
+                  entry.channelControl?.channelId == channelId &&
+                  entry.channelControl?.channelEpoch == hostileEpoch,
+            )
+            .createdAtMs,
+        greaterThanOrEqualTo(hostileTs),
+        reason: 'the epoch in service really does claim to have started in 2027',
+      );
+      final hostileKey = (await svc.load(
+        spaceId,
+      ))!.localChannelEpochKeys[keyIdOf(channelId, hostileEpoch)];
+      expect(hostileKey, isNotNull);
+
+      expect(
+        await svc.sweepStaleChannelKeys(),
+        0,
+        reason: 'the key has only just entered service as far as this device '
+            'can tell',
+      );
+
+      // Thirty days and a minute of REAL service. Read off the entry's own
+      // stamp the age is minus eleven months, so `now - started` never reached
+      // the bound and this key was going to serve until 2027 — with no error,
+      // no refusal and nothing at all to notice.
+      wall = t0 + GroupService.protectedChannelKeyMaxAgeMs + 60000;
+      expect(
+        await svc.sweepStaleChannelKeys(),
+        1,
+        reason: 'a key that has served its thirty days must be replaced, and '
+            'this is the only assertion that can show a fail-OPEN closed: the '
+            'absence of an error proves nothing here',
+      );
+      final rotatedEpoch = (await svc.stateOf(
+        spaceId,
+      ))!.protectedChannels[channelId.hex]!.channelEpoch;
+      expect(rotatedEpoch, hostileEpoch + 1);
+      final rotatedKey = (await svc.load(
+        spaceId,
+      ))!.localChannelEpochKeys[keyIdOf(channelId, rotatedEpoch)];
+      expect(rotatedKey, isNotNull);
+      expect(
+        rotatedKey,
+        isNot(hostileKey),
+        reason: 'a rotation is new key MATERIAL, not a counter going up',
+      );
+
+      expect(
+        await svc.sweepStaleChannelKeys(),
+        0,
+        reason: 'and the fresh key restarts the clock — this must not loop',
+      );
+
+      // Not once, by luck. The replacement ages at the same real rate and is
+      // itself replaced thirty days later, which is what tells a clock that is
+      // running apart from one that happened to fire.
+      wall += GroupService.protectedChannelKeyMaxAgeMs + 60000;
+      expect(await svc.sweepStaleChannelKeys(), 1);
+      expect(
+        (await svc.stateOf(
+          spaceId,
+        ))!.protectedChannels[channelId.hex]!.channelEpoch,
+        rotatedEpoch + 1,
+      );
+
+      await storage.close();
+    },
+  );
+
+  test(
+    'a channel epoch dated into the past must not make a key born stale — one '
+    'cheap entry per rekey of the whole channel is the other half of the same '
+    'defect',
+    () async {
+      final t0 = DateTime.utc(2026, 8, 3, 12).millisecondsSinceEpoch;
+      final ancient = t0 - const Duration(days: 3650).inMilliseconds;
+      String keyIdOf(NodeId channelId, int epoch) =>
+          '${channelId.hex}:$epoch';
+
+      // This device's whole life reads 2016. Nothing in the Space can
+      // contradict it, and every epoch it introduces carries that number.
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      )..debugWallClockMs = () => ancient;
+      addTearDown(ownerSvc.dispose);
+      final spaceId = await ownerSvc.createSpace('Churned key');
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.setRole,
+          target: bob,
+          role: GroupRole.admin,
+        ),
+        isTrue,
+      );
+      final channelId = await ownerSvc.createChannel(
+        spaceId,
+        name: 'private',
+        kind: SpaceChannelKind.text,
+        access: SpaceChannelAccess.restricted,
+      );
+      expect(channelId, isNotNull);
+      expect(
+        await ownerSvc.setChannelMembers(spaceId, channelId!, [bob]),
+        isTrue,
+      );
+
+      // Bob's clock is honest, and bob is the device that runs maintenance.
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      var wall = t0;
+      final bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      )..debugWallClockMs = () => wall;
+      addTearDown(bobSvc.dispose);
+
+      // Twice, because one rekey could be a legitimate replacement. Every
+      // entry the wrong-clocked device writes used to cost the whole channel
+      // another ML-KEM rekey per recipient on the very next maintenance pass,
+      // for as long as it kept writing them.
+      for (var round = 0; round < 2; round++) {
+        if (round > 0) {
+          expect(await ownerSvc.rotateChannelKey(spaceId, channelId), isTrue);
+        }
+        expect(
+          await bobSvc.ingestSnapshot(
+            ownerSvc.snapshotJson(
+              (await ownerSvc.load(spaceId))!,
+              recipient: bob,
+            ),
+          ),
+          isTrue,
+        );
+        final servedEpoch = (await bobSvc.stateOf(
+          spaceId,
+        ))!.protectedChannels[channelId.hex]!.channelEpoch;
+        final servedKey = (await bobSvc.load(
+          spaceId,
+        ))!.localChannelEpochKeys[keyIdOf(channelId, servedEpoch)];
+        expect(servedKey, isNotNull);
+        expect(
+          (await bobSvc.load(spaceId))!.control
+              .lastWhere(
+                (entry) =>
+                    entry.channelControl?.channelId == channelId &&
+                    entry.channelControl?.channelEpoch == servedEpoch,
+              )
+              .createdAtMs,
+          lessThan(t0),
+          reason: 'round $round: the epoch really is stamped a decade ago',
+        );
+
+        expect(
+          await bobSvc.sweepStaleChannelKeys(),
+          0,
+          reason: 'round $round: a key that entered service here a moment ago '
+              'is not thirty days old because its author says so',
+        );
+        expect(
+          (await bobSvc.stateOf(
+            spaceId,
+          ))!.protectedChannels[channelId.hex]!.channelEpoch,
+          servedEpoch,
+          reason: 'round $round: and no epoch of this device\'s own was minted',
+        );
+        expect(
+          (await bobSvc.load(
+            spaceId,
+          ))!.localChannelEpochKeys[keyIdOf(channelId, servedEpoch)],
+          servedKey,
+          reason: 'round $round: the key in service is untouched',
+        );
+      }
+
+      // Peers re-ship whole snapshots on every reconnect, and each one rewrites
+      // this bundle. If ingest rebuilt the arrival moments instead of carrying
+      // them, the age would restart on every sync and the bound would never
+      // fire again — the same fail-open, reached from the other side.
+      final servingEpoch = (await bobSvc.stateOf(
+        spaceId,
+      ))!.protectedChannels[channelId.hex]!.channelEpoch;
+      expect(await ownerSvc.postMessage(spaceId, 'unrelated traffic'), isTrue);
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!, recipient: bob),
+        ),
+        isTrue,
+      );
+      expect(
+        (await bobSvc.stateOf(
+          spaceId,
+        ))!.protectedChannels[channelId.hex]!.channelEpoch,
+        servingEpoch,
+        reason: 'that sync changed no key — only the log around it',
+      );
+
+      // The bound is not disabled, only re-anchored — and this device really
+      // can rotate this channel, so the zeroes above are a decision and not an
+      // inability.
+      wall = t0 + GroupService.protectedChannelKeyMaxAgeMs + 60000;
+      expect(await bobSvc.sweepStaleChannelKeys(), 1);
+      expect(
+        (await bobSvc.stateOf(
+          spaceId,
+        ))!.protectedChannels[channelId.hex]!.channelEpoch,
+        servingEpoch + 1,
+      );
+
+      await bobStorage.close();
+      await ownerStorage.close();
+    },
+  );
 
   test(
     'failed membership transaction preserves member and protected channel epoch',
