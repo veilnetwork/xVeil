@@ -271,7 +271,13 @@ extension _MessagingInboundDispatch on MessagingService {
           // The watermark's VALUES are sequence numbers too, and take the same
           // bound as the frame's own — one opinion for both, not two.
           if (wm.values.any((hw) => !isAcceptableWireSeq(hw))) return;
-          await _storage.applyRemoteClear(m.src, m.src.hex, cseq, wm);
+          await _storage.applyRemoteClear(
+            m.src,
+            m.src.hex,
+            cseq,
+            wm,
+            selfHex: await _selfHex(),
+          );
           _signal();
         }
         return;
