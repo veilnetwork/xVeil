@@ -204,6 +204,7 @@ class GroupBundle {
     this.localChannelEpochKeys = const {},
     this.sovereignBundle,
     this.retentionCuts = const {},
+    this.messageReceipts = const {},
   });
   final SpaceManifest manifest;
   final List<ControlEntry> control;
@@ -234,6 +235,17 @@ class GroupBundle {
   /// Local fold state, never a signed wire object (see [SpaceRetentionCut]).
   final Map<String, SpaceRetentionCut> retentionCuts;
 
+  /// `groupMessageReceiptKey(m)` -> the local moment that exact row was first
+  /// accepted here. Local fold state like [retentionCuts]: never signed, never
+  /// put in a snapshot, and deliberately NOT a field of [GroupMessage] — a
+  /// receiver-chosen number that travelled on the wire would just be the same
+  /// unauthenticated stamp under a second name.
+  ///
+  /// Written only for rows whose signed `ts` this device could not believe
+  /// when they arrived (see [groupMessageOrderAt]), so it is empty for every
+  /// group that has never been handed one, and the read path skips it whole.
+  final Map<String, int> messageReceipts;
+
   GroupBundle copyWith({
     SpaceManifest? manifest,
     List<ControlEntry>? control,
@@ -248,6 +260,7 @@ class GroupBundle {
     Map<String, Uint8List>? localChannelEpochKeys,
     Uint8List? sovereignBundle,
     Map<String, SpaceRetentionCut>? retentionCuts,
+    Map<String, int>? messageReceipts,
   }) => GroupBundle(
     manifest: manifest ?? this.manifest,
     control: control ?? this.control,
@@ -262,8 +275,18 @@ class GroupBundle {
     localChannelEpochKeys: localChannelEpochKeys ?? this.localChannelEpochKeys,
     sovereignBundle: sovereignBundle ?? this.sovereignBundle,
     retentionCuts: retentionCuts ?? this.retentionCuts,
+    messageReceipts: messageReceipts ?? this.messageReceipts,
   );
 }
+
+/// Identity of one signed row inside [GroupBundle.messageReceipts].
+///
+/// `(author, seq)` alone would be enough for an honest log, but two rows may
+/// legitimately share it as fork evidence; including the claimed stamp keeps a
+/// bound recorded for one of them from silently moving the other, and makes the
+/// entry self-describing enough to be ignored if the row it names is gone.
+String groupMessageReceiptKey(GroupMessage message) =>
+    '${message.author.hex}:${message.seq}:${message.createdAtMs}';
 
 class GroupService {
   GroupService(
@@ -5242,6 +5265,20 @@ class GroupService {
           retentionCuts[key] = cut;
         }
       }
+      // An entry exists only for a row this device accepted and stored, so the
+      // map is bounded by the rows a peer stamped into the future — empty in
+      // every honest log. Entries whose row is later swept by retention are
+      // left behind on purpose: they match nothing and cost bytes, and no test
+      // this project can write at a proportionate cost would cover pruning
+      // them, so the branch that would do it is not here to rot.
+      final messageReceipts = <String, int>{};
+      final rawReceipts = d['mrx'];
+      if (rawReceipts is Map) {
+        for (final entry in rawReceipts.entries) {
+          final at = entry.value;
+          if (at is int && at >= 0) messageReceipts['${entry.key}'] = at;
+        }
+      }
       final material = await _mergeEpochMaterial(
         manifest: manifest,
         control: control,
@@ -5270,6 +5307,7 @@ class GroupService {
         localChannelEpochKeys: channelMaterial.keys,
         sovereignBundle: sovereignBundle,
         retentionCuts: retentionCuts,
+        messageReceipts: messageReceipts,
       );
     } catch (error) {
       // A throw here is indistinguishable from "no such group" to every
@@ -5312,6 +5350,10 @@ class GroupService {
       if (b.sovereignBundle != null) 's': base64Encode(b.sovereignBundle!),
       if (b.retentionCuts.isNotEmpty)
         'rcut': [for (final cut in b.retentionCuts.values) cut.toJson()],
+      // Local-only, like 'rcut': the arrival moments of rows whose signed
+      // stamp this device could not believe. Absent from every snapshot
+      // builder, which assemble their own maps from `toJson` rows.
+      if (b.messageReceipts.isNotEmpty) 'mrx': b.messageReceipts,
     });
     // Published while the two writes below are in flight so a concurrent read
     // waits for the new bytes instead of reading the half-replaced blob as a
@@ -6287,7 +6329,7 @@ class GroupService {
         final lastPost = spacePosts.isEmpty ? null : spacePosts.last;
         final postIsLatest =
             lastPost != null &&
-            (last == null || lastPost.publishedAtMs >= last.createdAtMs);
+            (last == null || lastPost.publishedAtMs >= last.orderedAtMs);
         final notificationPolicy = await groupNotificationPolicy(gid);
         final notificationMode = notificationPolicy.effectiveAt(DateTime.now());
         out.add((
@@ -6297,8 +6339,11 @@ class GroupService {
           visibility: b.manifest.visibility,
           lifecycleState: state.lifecycleState,
           discoverable: b.manifest.discoverable ?? false,
+          // Same derived stamp as [unreadOf] and for the same reason: `wm` is
+          // a local clock reading, so a future-stamped row would sit above
+          // every watermark this device can write and pin the badge on.
           unread: msgs
-              .where((m) => m.createdAtMs > wm && m.author != _signer.selfId)
+              .where((m) => m.orderedAtMs > wm && m.author != _signer.selfId)
               .length,
           postUnread: await unreadSpacePosts(gid),
           muted: notificationMode != NotificationMuteMode.all,
@@ -6319,7 +6364,7 @@ class GroupService {
           // successful creation look as if the chat had disappeared.
           lastTs: postIsLatest
               ? lastPost.publishedAtMs
-              : last?.createdAtMs ?? b.manifest.createdAtMs,
+              : last?.orderedAtMs ?? b.manifest.createdAtMs,
         ));
       } catch (_) {}
     }
@@ -13258,8 +13303,27 @@ class GroupService {
         );
       }
     }
+    // Rank on the DERIVED stamp, not the signed one. `ts` is the author's own
+    // word and the signature over it proves only who said it, so one member
+    // stamping itself years ahead would otherwise own the bottom of this log
+    // for as long as the stamp lasts. Rewriting it is not available here (it is
+    // inside `canonicalBytes`), so a row whose stamp could not be believed on
+    // arrival is ordered by the moment it arrived instead.
+    //
+    // Applied from a value frozen at ingest, not from a live clock, so the row
+    // lands once and stays there. The map is empty unless this group has
+    // actually been handed such a row, and then this whole pass is skipped.
+    if (b.messageReceipts.isNotEmpty) {
+      for (var i = 0; i < out.length; i++) {
+        final receivedAtMs = b.messageReceipts[groupMessageReceiptKey(out[i])];
+        if (receivedAtMs == null) continue;
+        out[i] = out[i].withOrderedAt(
+          groupMessageOrderAt(out[i].createdAtMs, receivedAtMs),
+        );
+      }
+    }
     out.sort((a, b) {
-      final t = a.createdAtMs.compareTo(b.createdAtMs);
+      final t = a.orderedAtMs.compareTo(b.orderedAtMs);
       if (t != 0) return t;
       final h = a.author.hex.compareTo(b.author.hex);
       if (h != 0) return h;
@@ -14703,6 +14767,7 @@ class GroupService {
         : {for (final post in await _postsOfBundle(existing)) post.postId};
     final control = [...(existing?.control ?? const <ControlEntry>[])];
     final messages = [...(existing?.messages ?? const <GroupMessage>[])];
+    final messageReceipts = <String, int>{...?existing?.messageReceipts};
     final acceptedMessageHashesBefore = existing == null
         ? <String>{}
         : {
@@ -14781,6 +14846,7 @@ class GroupService {
       channelEpochEnvelopes: channelMaterial.envelopes,
       localChannelEpochKeys: channelMaterial.keys,
       sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
+      messageReceipts: messageReceipts,
     );
     final protectedChannels = man.isSpace
         ? await _protectedChannelsOf(materialBundle, mergedState)
@@ -14907,6 +14973,24 @@ class GroupService {
         // downgrade attempt. Historical local v1 rows remain readable but are
         // never newly imported into an encrypted group.
         continue;
+      }
+      // A signed `ts` no clock could have produced. The stamp itself is left
+      // exactly as signed — it has to be, `canonicalBytes` covers it — so what
+      // is recorded instead is the one time this device actually knows: now.
+      // [_messagesOfBundle] orders on that; nothing else here changes.
+      //
+      // putIfAbsent, and OUTSIDE the dedup below on purpose. Peers re-ship
+      // whole snapshots continuously, so this exact row arrives again and
+      // again against a clock that has moved on; the first arrival is the only
+      // one that may set the value, or the row would walk down the log on
+      // every sync. Outside the dedup so a row already on disk from before
+      // this rule existed is bounded the next time it is offered, instead of
+      // keeping its 2100 forever.
+      if (groupMessageOrderAt(m.createdAtMs, ingestAtMs) != m.createdAtMs) {
+        messageReceipts.putIfAbsent(
+          groupMessageReceiptKey(m),
+          () => ingestAtMs,
+        );
       }
       final incomingHash = groupMessageHash(m);
       if (!messages.any(
@@ -15039,6 +15123,7 @@ class GroupService {
       channelEpochEnvelopes: channelMaterial.envelopes,
       localChannelEpochKeys: channelMaterial.keys,
       retentionCuts: mergedRetentionCuts,
+      messageReceipts: messageReceipts,
     );
     final visiblePostIds = man.isSpace
         ? {for (final post in await _postsOfBundle(targetBundle)) post.postId}
@@ -15247,6 +15332,7 @@ class GroupService {
       localChannelEpochKeys: channelMaterial.keys,
       sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
       retentionCuts: mergedRetentionCuts,
+      messageReceipts: messageReceipts,
     );
     final feedAccessChanged = hadFeedAccess != hasFeedAccess;
     await _save(saved, notify: !feedAccessChanged);
@@ -15402,6 +15488,14 @@ class GroupService {
 
   /// How many VALIDATED messages of [groupId] are newer than the seen
   /// watermark and not self-authored.
+  ///
+  /// Against the DERIVED stamp, because this watermark is a local wall-clock
+  /// reading ([markGroupSeen]) while `createdAtMs` is whatever the author
+  /// claimed. One member stamping itself into the future is otherwise newer
+  /// than every watermark this device will ever write, and the badge on that
+  /// group can never be cleared again — the mirror image of what a future
+  /// stamp did to the 1:1 badge, where the watermark is taken FROM the
+  /// messages and the badge went permanently silent instead.
   Future<int> unreadOf(NodeId groupId) async {
     final wm =
         int.tryParse(
@@ -15409,7 +15503,7 @@ class GroupService {
         ) ??
         0;
     final msgs = await messagesOf(groupId);
-    return msgs.where((m) => m.createdAtMs > wm && m.author != selfId).length;
+    return msgs.where((m) => m.orderedAtMs > wm && m.author != selfId).length;
   }
 
   String _groupNotificationPolicyKey(NodeId groupId) =>
