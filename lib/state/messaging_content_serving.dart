@@ -21,12 +21,49 @@ class _MessagingContentServing {
   static const _sourceRetireGrace = Duration(minutes: 15);
   static const _maxEntries = 256;
 
+  /// How many durable-source content checks keep their verdict.
+  static const _verdictCap = 256;
+
+  /// How old a file's mtime has to be before a verdict may be cached against
+  /// it.
+  ///
+  /// Timestamp resolution is a filesystem property, not a guarantee: APFS and
+  /// ext4 give milliseconds, ext3 and HFS+ give one second, FAT gives two. On
+  /// a coarse one, a write that lands in the same tick as the check produces
+  /// an IDENTICAL stamp for DIFFERENT bytes — a cached verdict that can never
+  /// be invalidated. Waiting out the coarsest tick before trusting a stamp
+  /// costs a re-hash on a freshly written file and nothing after that.
+  static const stampSettleMs = 2000;
+
   final Map<String, _ServedContent> entries = {};
   final Map<String, int> activeStreams = {};
   final Map<String, List<ServeSource>> retiredAfterStream = {};
   final Map<Timer, ServeSource> _scheduledRetirements = {};
 
   Future<ServeSource?> Function(String path)? sourceOpener;
+
+  /// The last content check of a durable source, by contentId, stamped with
+  /// the identity of the file that was checked. See
+  /// `MessagingService._servedSourceStillMatches`, which owns the meaning;
+  /// this only holds the answer. Insertion order is drop order.
+  final Map<String, ({int size, int mtimeMs, bool ok})> servedVerdicts = {};
+
+  /// Checks in progress, so a range-parallel pull that opens several serve
+  /// streams for one contentId shares ONE hashing pass.
+  final Map<String, Future<bool>> servedVerifications = {};
+
+  void noteServedVerdict(String contentId, VeilSourceStamp stamp, bool ok) {
+    // Re-insert so the freshest verdict is also the youngest entry.
+    servedVerdicts.remove(contentId);
+    servedVerdicts[contentId] = (
+      size: stamp.size,
+      mtimeMs: stamp.mtimeMs,
+      ok: ok,
+    );
+    while (servedVerdicts.length > _verdictCap) {
+      servedVerdicts.remove(servedVerdicts.keys.first);
+    }
+  }
 
   int get count => entries.length;
 

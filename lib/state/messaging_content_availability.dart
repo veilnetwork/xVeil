@@ -291,12 +291,13 @@ class _MessagingContentAvailability {
         unawaited(replyContentGone(peer, contentId));
         return;
       }
-      final source = await _owner.sourceOpener!(record.path);
+      final source = await _owner._openVerifiedServedSource(contentId, record);
       if (source == null) {
         devLog(
           () =>
               'xVeil[content]: reoffer ${contentId.substring(0, 12)} — '
-              'source GONE (${record.path}) <- ${peer.short} (re-send)',
+              'source GONE or CHANGED (${record.path}) <- ${peer.short} '
+              '(re-send)',
         );
         unawaited(replyContentGone(peer, contentId));
         return;
