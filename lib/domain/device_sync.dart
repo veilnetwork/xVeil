@@ -3,6 +3,7 @@
 // travel as group-message BODIES (signed per device like any group message),
 // so the wire/persistence/admission machinery is the groups foundation as-is.
 
+import 'dart:async';
 import 'dart:convert';
 
 import '../core/ids.dart';
@@ -161,3 +162,53 @@ const Duration kDeviceSyncClockSkew = Duration(minutes: 5);
 /// a shared predicate is what keeps them from drifting into three rules.
 bool deviceSyncEffectiveAt(DeviceSyncEvent event, int nowMs) =>
     event.tsMs <= nowMs + kDeviceSyncClockSkew.inMilliseconds;
+
+/// The rules a LIVE applier needs, which a re-fold of the whole log gets for
+/// free — held in one place because a streaming applier has to reproduce them
+/// by hand and got them wrong in three different ways.
+///
+/// * Newest-wins per (kind, key), ranked by exactly [isNewerDeviceSync]. A bare
+///   timestamp compare disagrees with [foldDeviceSync] on same-millisecond
+///   ties, so the live view and a later re-fold would drift apart.
+/// * Nothing takes effect before its own timestamp ([deviceSyncEffectiveAt]).
+/// * A slot moves only for events that were actually APPLIED. This is why
+///   [offer] takes a plan rather than a decision: an applier that marks its
+///   progress first and validates second lets a refused event leave a
+///   watermark behind, and every honest event ranked below that watermark is
+///   then dropped without ever being looked at.
+class DeviceSyncApplyGate {
+  /// [nowMs] is the reading device's wall clock — injected so tests can hold
+  /// it still rather than race it.
+  DeviceSyncApplyGate({int Function()? nowMs})
+    : _now = nowMs ?? (() => DateTime.now().millisecondsSinceEpoch);
+
+  final int Function() _now;
+
+  /// Slot -> the newest event actually applied to it.
+  final Map<String, DeviceSyncEvent> _applied = {};
+
+  /// The convergence identity an event competes for: its (kind, key) pair, the
+  /// same one [foldDeviceSync] folds on.
+  static String slotOf(DeviceSyncEvent event) =>
+      '${event.kind.name}|${event.key}';
+
+  /// Offer [event] to the applier.
+  ///
+  /// [plan] is called only if the event is effective and beats what this slot
+  /// last applied. It validates the event and returns the work to do, or null
+  /// to REFUSE it — a refused event changes nothing at all, so the honest event
+  /// behind it is still judged against the last thing that really landed.
+  ///
+  /// Returns whether the work was accepted.
+  bool offer(DeviceSyncEvent event, Future<void> Function()? Function() plan) {
+    if (!deviceSyncEffectiveAt(event, _now())) return false;
+    final slot = slotOf(event);
+    final applied = _applied[slot];
+    if (applied != null && !isNewerDeviceSync(event, applied)) return false;
+    final run = plan();
+    if (run == null) return false;
+    _applied[slot] = event;
+    unawaited(run());
+    return true;
+  }
+}
