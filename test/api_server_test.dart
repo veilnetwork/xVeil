@@ -5083,6 +5083,76 @@ void main() {
       );
     });
 
+    /// POST [raw] verbatim with a valid token; returns the status and body.
+    Future<(int, String)> postRaw(String raw) async {
+      final client = HttpClient();
+      try {
+        final req = await client.post('127.0.0.1', port, '/v1/messages');
+        req.headers.set(
+          HttpHeaders.authorizationHeader,
+          'Bearer secret-token',
+        );
+        req.headers.contentType = ContentType.json;
+        req.add(utf8.encode(raw));
+        final res = await req.close();
+        final text = await res.transform(utf8.decoder).join();
+        return (res.statusCode, text);
+      } finally {
+        client.close(force: true);
+      }
+    }
+
+    test('a body that is not JSON is the caller\'s fault, not ours', () async {
+      // Audit X-16. `jsonDecode` sat bare inside the handler's try, whose
+      // catch answers 500 — so a stray comma read as "this server broke", and
+      // a bot's correct response to that is to retry, alert, or open an issue
+      // about a request only it can fix.
+      final (status, text) = await postRaw('{"to": ');
+      expect(status, 400);
+      expect(
+        jsonDecode(text),
+        containsPair('error', 'malformed JSON body'),
+        reason: 'and it must say WHAT was wrong, or 400 is only a shorter 500',
+      );
+    });
+
+    test('a JSON body that is not an object is refused, not ignored', () async {
+      // The `is Map<String, dynamic>` test had no else: a body that parsed
+      // but was not an object was dropped in SILENCE and the request went on
+      // as though nothing had been sent.
+      //
+      // The assertion is on the MESSAGE, not the status, and that is the
+      // whole point of writing it this way: with the body silently discarded
+      // these requests ALSO come back 400 — from the handler, complaining
+      // about missing fields — so a status-only test passes against the bug
+      // and vouches for nothing.
+      for (final raw in ['[1,2]', '"x"', '5', 'null', 'true']) {
+        final (status, text) = await postRaw(raw);
+        expect(status, 400, reason: 'sent $raw');
+        expect(
+          jsonDecode(text),
+          containsPair('error', 'body must be a JSON object'),
+          reason: '$raw quietly became "no body at all"',
+        );
+      }
+    });
+
+    test('an ordinary JSON object still reaches the handler', () async {
+      // The control that keeps the two above from being satisfied by a server
+      // that refuses every body: this one is an object, so it must get PAST
+      // the body checks and be answered by the handler on its own terms.
+      final (_, text) = await postRaw('{"to":"aabb"}');
+      expect(
+        jsonDecode(text),
+        isNot(
+          anyOf(
+            containsPair('error', 'malformed JSON body'),
+            containsPair('error', 'body must be a JSON object'),
+          ),
+        ),
+      );
+    });
+
     test('rejects an unauthenticated caller BEFORE reading its body', () async {
       // 401 rather than 413 is the entire assertion. Both statuses mean the
       // request was refused, but only 401 proves the token was checked while
