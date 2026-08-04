@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import '../data/storage/app_profile.dart';
 import '../core/error_journal.dart';
 import '../core/secret_wipe.dart';
-import '../main.dart' show activeProfile;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -115,10 +113,12 @@ class AppState {
   );
 }
 
-/// Whether this install has been through first-launch setup, scoped to the
-/// ACTIVE PROFILE — see [AppProfiles.scopedPrefKey] for why a global flag made
-/// a new profile unopenable.
-String _onboardedKey() => AppProfiles.scopedPrefKey('onboarded', activeProfile);
+/// Whether this install has been through first-launch setup — a fact about ONE
+/// profile, not the installation. It used to be global, so a brand-new profile
+/// started at the lock screen with no container to unlock and could never be
+/// opened at all. Separation now comes from the per-profile preference file
+/// rather than from the key name (audit XV-16); see [identityScopedPrefKey].
+String _onboardedKey() => identityScopedPrefKey('onboarded');
 const _kStorageModeKey = 'storage_mode';
 
 class AppController extends Notifier<AppState> {

@@ -62,7 +62,13 @@ dependencies:
   cryptography: ^2.7.0
   # Non-sensitive UI prefs ONLY (theme, locale). Never secrets — those live
   # in the hidden-volume container. See doc/SECURITY-NOTES.md.
+  #
+  # BACKED BY A FILE, not by the platform's system store: NSUserDefaults lives
+  # in a directory iOS owns and copies into iCloud backups, and no
+  # exclude-from-backup flag reaches it (audit XV-16). The platform interface is
+  # a direct dependency because `ProfilePreferencesStore` implements it.
   shared_preferences: ^2.3.3
+  shared_preferences_platform_interface: ^2.4.0
   # QR rendering for the bootstrap-invite contact-exchange flow.
   qr_flutter: ^4.1.0
   # Camera QR scanning for redeeming a contact's invite. Version 7 uses the

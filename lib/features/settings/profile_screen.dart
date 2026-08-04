@@ -4,9 +4,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/storage/app_profile.dart';
+import '../../data/storage/profile_prefs_store.dart';
 import '../../l10n/app_localizations.dart';
 import '../../main.dart' show activeProfile;
 import '../../routing/back_affordance.dart';
@@ -50,17 +50,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         if (AppProfiles.isValidName(name)) names.add(name);
       }
     }
-    final prefs = await SharedPreferences.getInstance();
+    // NOT a preference (audit XV-16): the choice has to be readable before the
+    // per-profile preference file it would otherwise live in is even located,
+    // and as a preference it sat in the system store that iOS backs up — where
+    // the name of the profile in use is exactly the fact worth hiding.
+    final remembered = await readRememberedProfile(support.path);
     if (!mounted) return;
     setState(() {
       _profiles = names.toList()..sort();
-      _selected = prefs.getString(AppProfiles.activePref) ?? activeProfile;
+      _selected = remembered ?? activeProfile;
     });
   }
 
   Future<void> _choose(String name) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(AppProfiles.activePref, name);
+    final support = await getApplicationSupportDirectory();
+    await writeRememberedProfile(support.path, name);
     if (!mounted) return;
     setState(() => _selected = name);
     final l = AppL10n.of(context);
