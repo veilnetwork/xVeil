@@ -44,11 +44,22 @@ class _Link implements VeilTransport {
     sent.add(Uint8List.fromList(payload));
     final p = peer;
     if (p == null || p._me != dst) return;
-    p._inbound.add(InboundMessage(src: _me, payload: payload));
+    p._inbound.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
   }
 
-  void inject(NodeId from, Uint8List payload) =>
-      _inbound.add(InboundMessage(src: from, payload: payload));
+  void inject(NodeId from, Uint8List payload) => _inbound.add(
+    InboundMessage(
+      src: from,
+      payload: payload,
+      provenance: SenderProvenance.sessionPeer,
+    ),
+  );
 
   @override
   Stream<int> sessionCount() => Stream.value(0);

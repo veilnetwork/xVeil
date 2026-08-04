@@ -31,14 +31,28 @@ class _Link implements VeilTransport {
   @override
   Future<void> sendReply(int replyId, Uint8List payload) async {}
   @override
-  Future<void> send(NodeId dst, Uint8List payload,
-      {bool anonymous = false}) async {
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async {
     if (drop) return;
-    peer?._inbound.add(InboundMessage(src: _me, payload: payload));
+    peer?._inbound.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
   }
 
-  void inject(NodeId from, Uint8List payload) =>
-      _inbound.add(InboundMessage(src: from, payload: payload));
+  void inject(NodeId from, Uint8List payload) => _inbound.add(
+    InboundMessage(
+      src: from,
+      payload: payload,
+      provenance: SenderProvenance.sessionPeer,
+    ),
+  );
 
   @override
   Stream<int> sessionCount() => Stream.value(0);
@@ -77,26 +91,31 @@ void main() {
 
     final contact = await sB.getContact(a);
     expect(contact, isNotNull, reason: 'reconnect created a contact');
-    expect(contact!.status, ContactStatus.pendingIncoming,
-        reason: 'surfaced as a pending re-intro the user can accept');
+    expect(
+      contact!.status,
+      ContactStatus.pendingIncoming,
+      reason: 'surfaced as a pending re-intro the user can accept',
+    );
   });
 
-  test('a reconnect from a BLOCKED peer is dropped silently (no oracle)',
-      () async {
-    final a = _id(1), b = _id(2);
-    final tB = _Link(b);
-    final sB = HiddenVolumeStorage(_memOpener());
-    await sB.open(password: 'b', createIfMissing: true);
-    await sB.upsertContact(Contact(nodeId: a, status: ContactStatus.blocked));
-    final mB = MessagingService(tB, sB)..start();
-    addTearDown(mB.dispose);
+  test(
+    'a reconnect from a BLOCKED peer is dropped silently (no oracle)',
+    () async {
+      final a = _id(1), b = _id(2);
+      final tB = _Link(b);
+      final sB = HiddenVolumeStorage(_memOpener());
+      await sB.open(password: 'b', createIfMissing: true);
+      await sB.upsertContact(Contact(nodeId: a, status: ContactStatus.blocked));
+      final mB = MessagingService(tB, sB)..start();
+      addTearDown(mB.dispose);
 
-    tB.inject(a, const WireEnvelope.reconnect('').encode());
-    await _settle();
+      tB.inject(a, const WireEnvelope.reconnect('').encode());
+      await _settle();
 
-    // Stays blocked — no pending intro, no state change (no "you're blocked" leak).
-    expect((await sB.getContact(a))!.status, ContactStatus.blocked);
-  });
+      // Stays blocked — no pending intro, no state change (no "you're blocked" leak).
+      expect((await sB.getContact(a))!.status, ContactStatus.blocked);
+    },
+  );
 
   test('a message un-acked past the bound flips to "not delivered" (failed) '
       'and stops retrying', () async {
@@ -125,8 +144,11 @@ void main() {
       await _settle();
     }
 
-    expect((await sA.loadMessages(b.hex)).single.status, MessageStatus.failed,
-        reason: 'gave up after the per-message bound → not delivered');
+    expect(
+      (await sA.loadMessages(b.hex)).single.status,
+      MessageStatus.failed,
+      reason: 'gave up after the per-message bound → not delivered',
+    );
   });
 
   test('a steady drip of NEW sends to a dead peer does NOT keep an old '
@@ -156,48 +178,62 @@ void main() {
 
     final msgs = await sA.loadMessages(b.hex);
     final first = msgs.firstWhere((m) => m.id == firstId);
-    expect(first.status, MessageStatus.failed,
-        reason: 'the old message gave up on its OWN age despite newer sends');
+    expect(
+      first.status,
+      MessageStatus.failed,
+      reason: 'the old message gave up on its OWN age despite newer sends',
+    );
     // A just-sent message is still within its own window → not falsely failed.
-    expect(msgs.last.status, MessageStatus.sent,
-        reason: 'a fresh send is not dragged down by the old failure');
+    expect(
+      msgs.last.status,
+      MessageStatus.sent,
+      reason: 'a fresh send is not dragged down by the old failure',
+    );
   });
 
-  test('an ack before the bound resets the reconnect cycle (no false failure)',
-      () async {
-    final a = _id(1), b = _id(2);
-    var clock = DateTime(2026, 1, 1, 12);
-    final tA = _Link(a);
-    final sA = HiddenVolumeStorage(_memOpener());
-    await sA.open(password: 'a', createIfMissing: true);
-    await sA.upsertContact(Contact(nodeId: b, status: ContactStatus.accepted));
-    final mA = MessagingService(tA, sA, now: () => clock)..start();
-    addTearDown(mA.dispose);
-    tA.drop = true;
+  test(
+    'an ack before the bound resets the reconnect cycle (no false failure)',
+    () async {
+      final a = _id(1), b = _id(2);
+      var clock = DateTime(2026, 1, 1, 12);
+      final tA = _Link(a);
+      final sA = HiddenVolumeStorage(_memOpener());
+      await sA.open(password: 'a', createIfMissing: true);
+      await sA.upsertContact(
+        Contact(nodeId: b, status: ContactStatus.accepted),
+      );
+      final mA = MessagingService(tA, sA, now: () => clock)..start();
+      addTearDown(mA.dispose);
+      tA.drop = true;
 
-    await mA.sendText(b, 'hi');
-    await _settle();
-    final id = (await sA.loadMessages(b.hex)).single.id;
-
-    // A few reconnect attempts...
-    for (var i = 0; i < 3; i++) {
-      clock = clock.add(const Duration(minutes: 16));
-      await mA.flushOutbox();
+      await mA.sendText(b, 'hi');
       await _settle();
-    }
-    // ...then the peer acks (reachable again): inject the ack from B.
-    tA.inject(b, WireEnvelope.ack(id).encode());
-    await _settle();
-    expect((await sA.loadMessages(b.hex)).single.status,
-        MessageStatus.delivered);
+      final id = (await sA.loadMessages(b.hex)).single.id;
 
-    // Even far past where the old cycle would have failed, it stays delivered.
-    for (var i = 0; i < 8; i++) {
-      clock = clock.add(const Duration(minutes: 16));
-      await mA.flushOutbox();
+      // A few reconnect attempts...
+      for (var i = 0; i < 3; i++) {
+        clock = clock.add(const Duration(minutes: 16));
+        await mA.flushOutbox();
+        await _settle();
+      }
+      // ...then the peer acks (reachable again): inject the ack from B.
+      tA.inject(b, WireEnvelope.ack(id).encode());
       await _settle();
-    }
-    expect((await sA.loadMessages(b.hex)).single.status,
-        MessageStatus.delivered);
-  });
+      expect(
+        (await sA.loadMessages(b.hex)).single.status,
+        MessageStatus.delivered,
+      );
+
+      // Even far past where the old cycle would have failed, it stays delivered.
+      for (var i = 0; i < 8; i++) {
+        clock = clock.add(const Duration(minutes: 16));
+        await mA.flushOutbox();
+        await _settle();
+      }
+      expect(
+        (await sA.loadMessages(b.hex)).single.status,
+        MessageStatus.delivered,
+      );
+    },
+  );
 }

@@ -27,12 +27,22 @@ class _RecordingTransport implements VeilTransport {
       send(dst, payload, anonymous: true);
   @override
   Future<void> sendReply(int replyId, Uint8List payload) async {}
-  void inject(NodeId src, Uint8List payload) =>
-      _inbound.add(InboundMessage(src: src, payload: payload));
+  void inject(NodeId src, Uint8List payload) => _inbound.add(
+    InboundMessage(
+      src: src,
+      payload: payload,
+      provenance: SenderProvenance.sessionPeer,
+    ),
+  );
   @override
-  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async {
     sent.add((dst, WireEnvelope.decode(payload)));
   }
+
   @override
   Stream<int> sessionCount() => Stream.value(0);
   @override
@@ -61,43 +71,60 @@ void main() {
     mA = MessagingService(tA, sA)..start();
   });
 
-  test('resendRequest re-sends the same greeting + id while pendingOutgoing',
-      () async {
-    await mA.sendRequest(b, 'hi there');
-    final firstReq = tA.sent.where((s) => s.$2.kind == WireKind.request).toList();
-    expect(firstReq, hasLength(1));
-    final id = firstReq.single.$2.id;
+  test(
+    'resendRequest re-sends the same greeting + id while pendingOutgoing',
+    () async {
+      await mA.sendRequest(b, 'hi there');
+      final firstReq = tA.sent
+          .where((s) => s.$2.kind == WireKind.request)
+          .toList();
+      expect(firstReq, hasLength(1));
+      final id = firstReq.single.$2.id;
 
-    tA.sent.clear();
-    await mA.resendRequest(b);
-    final resent = tA.sent.where((s) => s.$2.kind == WireKind.request).toList();
-    expect(resent, hasLength(1));
-    expect(resent.single.$1, b);
-    expect(resent.single.$2.body, 'hi there');
-    expect(resent.single.$2.id, id); // same id so the peer dedups
-  });
+      tA.sent.clear();
+      await mA.resendRequest(b);
+      final resent = tA.sent
+          .where((s) => s.$2.kind == WireKind.request)
+          .toList();
+      expect(resent, hasLength(1));
+      expect(resent.single.$1, b);
+      expect(resent.single.$2.body, 'hi there');
+      expect(resent.single.$2.id, id); // same id so the peer dedups
+    },
+  );
 
-  test('an already-accepted peer re-requesting gets the accept re-sent', () async {
-    // b requests us, we accept.
-    tA.inject(b, const WireEnvelope.request('hi', id: 'r1').encode());
-    await Future<void>.delayed(const Duration(milliseconds: 20));
-    await mA.acceptContact(b);
-    tA.sent.clear();
-    // b re-requests (they never saw our accept). We must re-send it.
-    tA.inject(b, const WireEnvelope.request('hi', id: 'r1').encode());
-    await Future<void>.delayed(const Duration(milliseconds: 20));
-    expect(tA.sent.any((s) => s.$1 == b && s.$2.kind == WireKind.accept), isTrue);
-  });
+  test(
+    'an already-accepted peer re-requesting gets the accept re-sent',
+    () async {
+      // b requests us, we accept.
+      tA.inject(b, const WireEnvelope.request('hi', id: 'r1').encode());
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await mA.acceptContact(b);
+      tA.sent.clear();
+      // b re-requests (they never saw our accept). We must re-send it.
+      tA.inject(b, const WireEnvelope.request('hi', id: 'r1').encode());
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        tA.sent.any((s) => s.$1 == b && s.$2.kind == WireKind.accept),
+        isTrue,
+      );
+    },
+  );
 
   test('cancelRequest removes the contact + conversation', () async {
     await mA.sendRequest(b, 'hi');
     expect(await sA.getContact(b), isNotNull);
-    expect((await sA.loadConversations()).any((c) => c.peer.nodeId == b), isTrue);
+    expect(
+      (await sA.loadConversations()).any((c) => c.peer.nodeId == b),
+      isTrue,
+    );
 
     await mA.cancelRequest(b);
     expect(await sA.getContact(b), isNull); // peer is unknown again
-    expect((await sA.loadConversations()).any((c) => c.peer.nodeId == b),
-        isFalse);
+    expect(
+      (await sA.loadConversations()).any((c) => c.peer.nodeId == b),
+      isFalse,
+    );
 
     // A fresh request can be sent again after cancelling.
     await mA.resendRequest(b); // no-op (not pending) — must not throw

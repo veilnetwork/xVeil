@@ -35,8 +35,17 @@ class _FakeTransport implements VeilTransport {
   @override
   Future<void> sendReply(int replyId, Uint8List payload) async {}
   @override
-  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async =>
-      peer?._inbound.add(InboundMessage(src: _me, payload: payload));
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async => peer?._inbound.add(
+    InboundMessage(
+      src: _me,
+      payload: payload,
+      provenance: SenderProvenance.sessionPeer,
+    ),
+  );
   @override
   Stream<int> sessionCount() => Stream.value(0);
   @override
@@ -80,38 +89,53 @@ void main() {
     await _pump();
   }
 
-  test('multi-chunk file send reassembles and stores on the receiver',
-      () async {
-    await accept();
-    final data = _bytes(20000); // > wire chunk -> several chunks
-    await mA.sendFile(b, data, 'pic.png');
-    await _pump();
-    await _pump();
+  test(
+    'multi-chunk file send reassembles and stores on the receiver',
+    () async {
+      await accept();
+      final data = _bytes(20000); // > wire chunk -> several chunks
+      await mA.sendFile(b, data, 'pic.png');
+      await _pump();
+      await _pump();
 
-    final msgs = await sB.loadMessages(a.hex);
-    final fileMsg = msgs.firstWhere((m) => m.isFile);
-    expect(fileMsg.fileName, 'pic.png');
-    expect(fileMsg.direction, MessageDirection.incoming);
-    expect(await sB.loadFile(fileMsg.fileId!), data);
+      final msgs = await sB.loadMessages(a.hex);
+      final fileMsg = msgs.firstWhere((m) => m.isFile);
+      expect(fileMsg.fileName, 'pic.png');
+      expect(fileMsg.direction, MessageDirection.incoming);
+      expect(await sB.loadFile(fileMsg.fileId!), data);
 
-    // Sender keeps a local copy too.
-    final sent = (await sA.loadMessages(b.hex)).firstWhere((m) => m.isFile);
-    expect(await sA.loadFile(sent.fileId!), data);
-  });
+      // Sender keeps a local copy too.
+      final sent = (await sA.loadMessages(b.hex)).firstWhere((m) => m.isFile);
+      expect(await sA.loadFile(sent.fileId!), data);
+    },
+  );
 
   test('file from a non-accepted peer is dropped (consent gate)', () async {
     // No accept handshake. Bypass A's own gate by injecting raw file envelopes
     // (built with the real encoder) — B must still drop them.
     final data = _bytes(9000);
-    final meta = WireEnvelope(WireKind.fileMeta,
-            jsonEncode({'tid': 't1', 'name': 'x', 'size': data.length, 'count': 2}))
-        .encode();
-    final c0 = WireEnvelope(WireKind.fileChunk,
-            jsonEncode({'tid': 't1', 'i': 0, 'total': 2, 'd': base64Encode(data.sublist(0, 6000))}))
-        .encode();
-    final c1 = WireEnvelope(WireKind.fileChunk,
-            jsonEncode({'tid': 't1', 'i': 1, 'total': 2, 'd': base64Encode(data.sublist(6000))}))
-        .encode();
+    final meta = WireEnvelope(
+      WireKind.fileMeta,
+      jsonEncode({'tid': 't1', 'name': 'x', 'size': data.length, 'count': 2}),
+    ).encode();
+    final c0 = WireEnvelope(
+      WireKind.fileChunk,
+      jsonEncode({
+        'tid': 't1',
+        'i': 0,
+        'total': 2,
+        'd': base64Encode(data.sublist(0, 6000)),
+      }),
+    ).encode();
+    final c1 = WireEnvelope(
+      WireKind.fileChunk,
+      jsonEncode({
+        'tid': 't1',
+        'i': 1,
+        'total': 2,
+        'd': base64Encode(data.sublist(6000)),
+      }),
+    ).encode();
     await tA.send(b, meta);
     await tA.send(b, c0);
     await tA.send(b, c1);
@@ -119,38 +143,63 @@ void main() {
     expect((await sB.loadMessages(a.hex)).where((m) => m.isFile), isEmpty);
   });
 
-  test('concurrent inbound transfers are bounded; extras are rejected',
-      () async {
+  test('concurrent inbound transfers are bounded; extras are rejected', () async {
     await accept();
     // Open the maximum number of transfers (meta only, kept incomplete).
     for (var i = 0; i < kMaxConcurrentIncomingFiles; i++) {
       await tA.send(
-          b,
-          fileMetaEnvelope(
-                  transferId: 'open$i', name: 'f$i', size: 10, count: 1)
-              .encode());
+        b,
+        fileMetaEnvelope(
+          transferId: 'open$i',
+          name: 'f$i',
+          size: 10,
+          count: 1,
+        ).encode(),
+      );
     }
     await _pump();
     // One more transfer past the cap must be rejected: its lone chunk can't
     // complete it.
-    await tA.send(b,
-        fileMetaEnvelope(transferId: 'extra', name: 'x', size: 5, count: 1).encode());
     await tA.send(
-        b,
-        fileChunkEnvelope(transferId: 'extra', index: 0, total: 1, data: _bytes(5))
-            .encode());
+      b,
+      fileMetaEnvelope(
+        transferId: 'extra',
+        name: 'x',
+        size: 5,
+        count: 1,
+      ).encode(),
+    );
+    await tA.send(
+      b,
+      fileChunkEnvelope(
+        transferId: 'extra',
+        index: 0,
+        total: 1,
+        data: _bytes(5),
+      ).encode(),
+    );
     await _pump();
-    expect((await sB.loadMessages(a.hex)).where((m) => m.id == 'extra'), isEmpty,
-        reason: 'transfer past the concurrency cap is dropped (no file message)');
+    expect(
+      (await sB.loadMessages(a.hex)).where((m) => m.id == 'extra'),
+      isEmpty,
+      reason: 'transfer past the concurrency cap is dropped (no file message)',
+    );
 
     // An accepted, in-cap transfer still completes (a slot was not stolen). The
     // blob is keyed by a LOCAL id now, so load it via the message's fileId.
     await tA.send(
-        b,
-        fileChunkEnvelope(transferId: 'open0', index: 0, total: 1, data: _bytes(10))
-            .encode());
+      b,
+      fileChunkEnvelope(
+        transferId: 'open0',
+        index: 0,
+        total: 1,
+        data: _bytes(10),
+      ).encode(),
+    );
     await _pump();
-    final done = (await sB.loadMessages(a.hex)).firstWhere((m) => m.id == 'open0');
+    final done = (await sB.loadMessages(
+      a.hex,
+    )).firstWhere((m) => m.id == 'open0');
     expect((await sB.loadFile(done.fileId!))?.length, 10);
   });
 
@@ -164,143 +213,234 @@ void main() {
 
     // In range first, so a silent refusal of BOTH could not pass this test.
     await tA.send(
-        b,
-        fileMetaEnvelope(
-                transferId: 'ok', name: 'a.bin', size: 10, count: 1, seq: 4)
-            .encode());
+      b,
+      fileMetaEnvelope(
+        transferId: 'ok',
+        name: 'a.bin',
+        size: 10,
+        count: 1,
+        seq: 4,
+      ).encode(),
+    );
     await tA.send(
-        b,
-        fileChunkEnvelope(transferId: 'ok', index: 0, total: 1, data: data)
-            .encode());
+      b,
+      fileChunkEnvelope(
+        transferId: 'ok',
+        index: 0,
+        total: 1,
+        data: data,
+      ).encode(),
+    );
     await _pump();
-    final landed =
-        (await sB.loadMessages(a.hex)).firstWhere((m) => m.id == 'ok');
+    final landed = (await sB.loadMessages(
+      a.hex,
+    )).firstWhere((m) => m.id == 'ok');
     expect(landed.seq, 4, reason: 'the sender slot is kept verbatim');
 
     // Past the maximum: the meta is refused, so its chunk has nowhere to land
     // and no file message is ever built.
     await tA.send(
+      b,
+      fileMetaEnvelope(
+        transferId: 'bad',
+        name: 'b.bin',
+        size: 10,
+        count: 1,
+        seq: kMaxWireSeq + 1,
+      ).encode(),
+    );
+    await tA.send(
+      b,
+      fileChunkEnvelope(
+        transferId: 'bad',
+        index: 0,
+        total: 1,
+        data: data,
+      ).encode(),
+    );
+    await _pump();
+    expect(
+      (await sB.loadMessages(a.hex)).where((m) => m.id == 'bad'),
+      isEmpty,
+      reason: 'refused whole, not stored at some pulled-in-range slot',
+    );
+  });
+
+  test(
+    'a malformed file envelope is dropped without breaking delivery',
+    () async {
+      await accept();
+      // Hostile fileMeta with a non-JSON body, then a fileChunk missing fields —
+      // both would throw mid-handler if unguarded.
+      await tA.send(b, WireEnvelope(WireKind.fileMeta, 'not json {{').encode());
+      await tA.send(
+        b,
+        WireEnvelope(WireKind.fileChunk, '{"tid":"z"}').encode(),
+      );
+      await _pump();
+      // The inbound loop survived: a normal message still arrives.
+      await mA.sendText(b, 'still here');
+      await _pump();
+      final msgs = await sB.loadMessages(a.hex);
+      expect(msgs.any((m) => m.body == 'still here'), isTrue);
+      expect(msgs.where((m) => m.isFile), isEmpty);
+    },
+  );
+
+  test(
+    'an over-budget file is refused at meta and its chunks are dropped',
+    () async {
+      await accept();
+      // Declare a size past the memory cap; B must not start the transfer.
+      await tA.send(
+        b,
+        WireEnvelope(
+          WireKind.fileMeta,
+          jsonEncode({
+            'tid': 'big',
+            'name': 'huge.bin',
+            'size': kMaxIncomingFileBytes + 1,
+            'count': 1,
+          }),
+        ).encode(),
+      );
+      await tA.send(
+        b,
+        WireEnvelope(
+          WireKind.fileChunk,
+          jsonEncode({
+            'tid': 'big',
+            'i': 0,
+            'total': 1,
+            'd': base64Encode(_bytes(100)),
+          }),
+        ).encode(),
+      );
+      await _pump();
+      expect(await sB.loadFile('big'), isNull);
+      expect((await sB.loadMessages(a.hex)).where((m) => m.isFile), isEmpty);
+    },
+  );
+
+  test(
+    'a third party cannot inject chunks into another peer\'s transfer',
+    () async {
+      await accept(); // A is accepted by B
+      // A opens a transfer (sends only the meta), then a different accepted peer
+      // C tries to complete it by guessing the transfer id. B must drop C's
+      // chunks: they don't match the meta's sender.
+      final c = _id(3);
+      final tC = _FakeTransport(c)..peer = tB;
+      addTearDown(tC.dispose);
+      await sB.upsertContact(
+        Contact(nodeId: c, status: ContactStatus.accepted),
+      );
+
+      final data = _bytes(9000);
+      await tA.send(
+        b,
+        WireEnvelope(
+          WireKind.fileMeta,
+          jsonEncode({
+            'tid': 'shared',
+            'name': 'x',
+            'size': data.length,
+            'count': 2,
+          }),
+        ).encode(),
+      );
+      await _pump();
+      // C injects both chunks for the same transfer id.
+      final parts = [data.sublist(0, 6000), data.sublist(6000)];
+      for (var i = 0; i < parts.length; i++) {
+        await tC.send(
+          b,
+          WireEnvelope(
+            WireKind.fileChunk,
+            jsonEncode({
+              'tid': 'shared',
+              'i': i,
+              'total': 2,
+              'd': base64Encode(parts[i]),
+            }),
+          ).encode(),
+        );
+      }
+      await _pump();
+      // C couldn't complete A's transfer, so no file message (hence no blob) at
+      // all — asserted on the message, since the blob is no longer keyed by tid.
+      expect(
+        (await sB.loadMessages(a.hex)).where((m) => m.isFile),
+        isEmpty,
+        reason: "C's chunks must not complete A's transfer",
+      );
+    },
+  );
+
+  test(
+    'a colliding transferId in another conversation cannot clobber a blob',
+    () async {
+      await accept(); // a accepted by b
+      final c = _id(7);
+      final tC = _FakeTransport(c)..peer = tB;
+      addTearDown(tC.dispose);
+      await sB.upsertContact(
+        Contact(nodeId: c, status: ContactStatus.accepted),
+      );
+
+      final dataA = _bytes(10);
+      final dataC = Uint8List.fromList(List.filled(10, 0xCC));
+      // A completes a 1-chunk file under tid 'collide'.
+      await tA.send(
         b,
         fileMetaEnvelope(
-                transferId: 'bad',
-                name: 'b.bin',
-                size: 10,
-                count: 1,
-                seq: kMaxWireSeq + 1)
-            .encode());
-    await tA.send(
+          transferId: 'collide',
+          name: 'a.bin',
+          size: 10,
+          count: 1,
+        ).encode(),
+      );
+      await tA.send(
         b,
-        fileChunkEnvelope(transferId: 'bad', index: 0, total: 1, data: data)
-            .encode());
-    await _pump();
-    expect((await sB.loadMessages(a.hex)).where((m) => m.id == 'bad'), isEmpty,
-        reason: 'refused whole, not stored at some pulled-in-range slot');
-  });
-
-  test('a malformed file envelope is dropped without breaking delivery',
-      () async {
-    await accept();
-    // Hostile fileMeta with a non-JSON body, then a fileChunk missing fields —
-    // both would throw mid-handler if unguarded.
-    await tA.send(b, WireEnvelope(WireKind.fileMeta, 'not json {{').encode());
-    await tA.send(b, WireEnvelope(WireKind.fileChunk, '{"tid":"z"}').encode());
-    await _pump();
-    // The inbound loop survived: a normal message still arrives.
-    await mA.sendText(b, 'still here');
-    await _pump();
-    final msgs = await sB.loadMessages(a.hex);
-    expect(msgs.any((m) => m.body == 'still here'), isTrue);
-    expect(msgs.where((m) => m.isFile), isEmpty);
-  });
-
-  test('an over-budget file is refused at meta and its chunks are dropped',
-      () async {
-    await accept();
-    // Declare a size past the memory cap; B must not start the transfer.
-    await tA.send(
-        b,
-        WireEnvelope(WireKind.fileMeta,
-                jsonEncode({'tid': 'big', 'name': 'huge.bin', 'size': kMaxIncomingFileBytes + 1, 'count': 1}))
-            .encode());
-    await tA.send(
-        b,
-        WireEnvelope(WireKind.fileChunk,
-                jsonEncode({'tid': 'big', 'i': 0, 'total': 1, 'd': base64Encode(_bytes(100))}))
-            .encode());
-    await _pump();
-    expect(await sB.loadFile('big'), isNull);
-    expect((await sB.loadMessages(a.hex)).where((m) => m.isFile), isEmpty);
-  });
-
-  test('a third party cannot inject chunks into another peer\'s transfer',
-      () async {
-    await accept(); // A is accepted by B
-    // A opens a transfer (sends only the meta), then a different accepted peer
-    // C tries to complete it by guessing the transfer id. B must drop C's
-    // chunks: they don't match the meta's sender.
-    final c = _id(3);
-    final tC = _FakeTransport(c)..peer = tB;
-    addTearDown(tC.dispose);
-    await sB.upsertContact(Contact(nodeId: c, status: ContactStatus.accepted));
-
-    final data = _bytes(9000);
-    await tA.send(
-        b,
-        WireEnvelope(WireKind.fileMeta,
-                jsonEncode({'tid': 'shared', 'name': 'x', 'size': data.length, 'count': 2}))
-            .encode());
-    await _pump();
-    // C injects both chunks for the same transfer id.
-    final parts = [data.sublist(0, 6000), data.sublist(6000)];
-    for (var i = 0; i < parts.length; i++) {
+        fileChunkEnvelope(
+          transferId: 'collide',
+          index: 0,
+          total: 1,
+          data: dataA,
+        ).encode(),
+      );
+      await _pump();
+      // C completes a DIFFERENT file under the SAME tid in ITS conversation.
       await tC.send(
-          b,
-          WireEnvelope(WireKind.fileChunk,
-                  jsonEncode({'tid': 'shared', 'i': i, 'total': 2, 'd': base64Encode(parts[i])}))
-              .encode());
-    }
-    await _pump();
-    // C couldn't complete A's transfer, so no file message (hence no blob) at
-    // all — asserted on the message, since the blob is no longer keyed by tid.
-    expect((await sB.loadMessages(a.hex)).where((m) => m.isFile), isEmpty,
-        reason: "C's chunks must not complete A's transfer");
-  });
-
-  test('a colliding transferId in another conversation cannot clobber a blob',
-      () async {
-    await accept(); // a accepted by b
-    final c = _id(7);
-    final tC = _FakeTransport(c)..peer = tB;
-    addTearDown(tC.dispose);
-    await sB.upsertContact(Contact(nodeId: c, status: ContactStatus.accepted));
-
-    final dataA = _bytes(10);
-    final dataC = Uint8List.fromList(List.filled(10, 0xCC));
-    // A completes a 1-chunk file under tid 'collide'.
-    await tA.send(b,
-        fileMetaEnvelope(transferId: 'collide', name: 'a.bin', size: 10, count: 1)
-            .encode());
-    await tA.send(
         b,
-        fileChunkEnvelope(transferId: 'collide', index: 0, total: 1, data: dataA)
-            .encode());
-    await _pump();
-    // C completes a DIFFERENT file under the SAME tid in ITS conversation.
-    await tC.send(b,
-        fileMetaEnvelope(transferId: 'collide', name: 'c.bin', size: 10, count: 1)
-            .encode());
-    await tC.send(
+        fileMetaEnvelope(
+          transferId: 'collide',
+          name: 'c.bin',
+          size: 10,
+          count: 1,
+        ).encode(),
+      );
+      await tC.send(
         b,
-        fileChunkEnvelope(transferId: 'collide', index: 0, total: 1, data: dataC)
-            .encode());
-    await _pump();
+        fileChunkEnvelope(
+          transferId: 'collide',
+          index: 0,
+          total: 1,
+          data: dataC,
+        ).encode(),
+      );
+      await _pump();
 
-    final msgA = (await sB.loadMessages(a.hex)).firstWhere((m) => m.isFile);
-    final msgC = (await sB.loadMessages(c.hex)).firstWhere((m) => m.isFile);
-    // Distinct local blob ids — C's transfer did NOT overwrite A's blob.
-    expect(msgA.fileId, isNot(msgC.fileId));
-    expect(await sB.loadFile(msgA.fileId!), dataA,
-        reason: "A's blob must survive a same-tid transfer in another chat");
-    expect(await sB.loadFile(msgC.fileId!), dataC);
-  });
+      final msgA = (await sB.loadMessages(a.hex)).firstWhere((m) => m.isFile);
+      final msgC = (await sB.loadMessages(c.hex)).firstWhere((m) => m.isFile);
+      // Distinct local blob ids — C's transfer did NOT overwrite A's blob.
+      expect(msgA.fileId, isNot(msgC.fileId));
+      expect(
+        await sB.loadFile(msgA.fileId!),
+        dataA,
+        reason: "A's blob must survive a same-tid transfer in another chat",
+      );
+      expect(await sB.loadFile(msgC.fileId!), dataC);
+    },
+  );
 }

@@ -40,7 +40,13 @@ class _FakeTransport implements VeilTransport {
     Uint8List payload, {
     bool anonymous = false,
   }) async {
-    peer?._inbound.add(InboundMessage(src: _me, payload: payload));
+    peer?._inbound.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
   }
 
   @override
@@ -89,8 +95,7 @@ void main() {
     await _pump();
   }
 
-  test('opt-in delete leaves a marker at the peer and wipes locally',
-      () async {
+  test('opt-in delete leaves a marker at the peer and wipes locally', () async {
     await befriend();
     for (final t in ['one', 'two', 'three']) {
       await mA.sendText(b, t);
@@ -100,8 +105,9 @@ void main() {
     // A peer-authored marker would be allocated exactly that gap-free seq and
     // sort into the MIDDLE of the chat (caught twice in device-verify) — the
     // marker must be self-authored to close the chat regardless of gaps.
-    final two =
-        (await sB.loadMessages(a.hex)).firstWhere((m) => m.body == 'two');
+    final two = (await sB.loadMessages(
+      a.hex,
+    )).firstWhere((m) => m.body == 'two');
     await mB.deleteMessageLocally(two.id);
 
     await mA.deleteConversation(b, notifyPeer: true);
@@ -116,12 +122,18 @@ void main() {
     final markers = all.where((m) => isChatDeletedMarker(m.body)).toList();
     expect(markers, hasLength(1));
     expect(markers.single.direction, MessageDirection.incoming);
-    expect(markers.single.author, b.hex,
-        reason: 'a local annotation lives in OUR OWN event stream');
+    expect(
+      markers.single.author,
+      b.hex,
+      reason: 'a local annotation lives in OUR OWN event stream',
+    );
     // Send-time stamp + off the peer's seq stream ⇒ the marker CLOSES the
     // chat (an unstamped/peer-authored one sorted into the middle).
-    expect(isChatDeletedMarker(all.last.body), isTrue,
-        reason: 'the marker must be the final entry of the conversation');
+    expect(
+      isChatDeletedMarker(all.last.body),
+      isTrue,
+      reason: 'the marker must be the final entry of the conversation',
+    );
   });
 
   test('the DEFAULT delete stays silent (no marker, canon intact)', () async {
@@ -140,8 +152,7 @@ void main() {
     );
   });
 
-  test('notify to a not-yet-accepted peer sends NOTHING (no oracle)',
-      () async {
+  test('notify to a not-yet-accepted peer sends NOTHING (no oracle)', () async {
     await mA.sendRequest(b, 'hi');
     await _pump(); // B: pendingIncoming with the intro only
 
@@ -163,22 +174,24 @@ void main() {
     expect(await sB.loadMessages(a.hex), isEmpty);
   });
 
-  test('a re-delivered farewell (same frame id) stores exactly one marker',
-      () async {
-    await befriend();
-    await tA.send(b, _farewell('chatdel:once'));
-    await _pump();
-    await tA.send(b, _farewell('chatdel:once'));
-    await _pump();
+  test(
+    'a re-delivered farewell (same frame id) stores exactly one marker',
+    () async {
+      await befriend();
+      await tA.send(b, _farewell('chatdel:once'));
+      await _pump();
+      await tA.send(b, _farewell('chatdel:once'));
+      await _pump();
 
-    expect(
-      (await sB.loadMessages(a.hex))
-          .where((m) => isChatDeletedMarker(m.body))
-          .length,
-      1,
-      reason: 'the generic durable-frame gate dedups the re-drive',
-    );
-  });
+      expect(
+        (await sB.loadMessages(
+          a.hex,
+        )).where((m) => isChatDeletedMarker(m.body)).length,
+        1,
+        reason: 'the generic durable-frame gate dedups the re-drive',
+      );
+    },
+  );
 
   test('marker helper matches only the exact token', () {
     expect(isChatDeletedMarker(kChatDeletedMarkerBody), isTrue);

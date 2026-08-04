@@ -80,13 +80,15 @@ class _StreamLink implements VeilTransport, StreamTransport {
   final NodeId _me;
   final _in = StreamController<InboundMessage>.broadcast();
   _StreamLink? peer;
-  final _accepts = <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
+  final _accepts =
+      <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
   Completer<void>? _acceptWaiter;
 
   @override
   Future<NodeId> nodeId() async => _me;
   @override
   Stream<InboundMessage> messages() => _in.stream;
+
   /// Frames sent per destination — lets a test count how often a resume tick
   /// actually reached out, which is the thing parking is supposed to stop.
   final sendsTo = <String, int>{};
@@ -98,7 +100,13 @@ class _StreamLink implements VeilTransport, StreamTransport {
     bool anonymous = false,
   }) async {
     sendsTo[dst.hex] = (sendsTo[dst.hex] ?? 0) + 1;
-    peer?._in.add(InboundMessage(src: _me, payload: payload));
+    peer?._in.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
   }
 
   @override
@@ -140,9 +148,7 @@ class _StreamLink implements VeilTransport, StreamTransport {
 
   @override
   Future<({ReliableStream stream, NodeId src, SenderProvenance provenance})?>
-  acceptStream({
-    Duration timeout = const Duration(seconds: 2),
-  }) async {
+  acceptStream({Duration timeout = const Duration(seconds: 2)}) async {
     if (_accepts.isEmpty) {
       try {
         await (_acceptWaiter = Completer<void>()).future.timeout(timeout);
@@ -239,208 +245,188 @@ void main() {
     tB.peer = tA;
   }
 
-  test(
-    'encrypted download interrupted by shutdown auto-resumes on the next '
-    'service start (durable pending registry)',
-    () async {
-      final data = _rnd(500000, 11);
-      final cid = await offerToB(data, 'movie.bin');
+  test('encrypted download interrupted by shutdown auto-resumes on the next '
+      'service start (durable pending registry)', () async {
+    final data = _rnd(500000, 11);
+    final cid = await offerToB(data, 'movie.bin');
 
-      // Network dies, the user taps download anyway: the attempt cannot
-      // complete, but the durable intent must be recorded.
-      cutLink();
-      await mB.downloadContent(a, cid);
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      expect(await mB.pendingAutoResumeContentIds(), contains(cid));
+    // Network dies, the user taps download anyway: the attempt cannot
+    // complete, but the durable intent must be recorded.
+    cutLink();
+    await mB.downloadContent(a, cid);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(await mB.pendingAutoResumeContentIds(), contains(cid));
 
-      // App shutdown mid-intent.
-      await mB.dispose();
+    // App shutdown mid-intent.
+    await mB.dispose();
 
-      // Relaunch on the same storage with the network back: no user action.
-      healLink();
-      final mB2 = _makeService(tB, sB);
-      _shrinkResumeDelays(mB2);
-      final got = mB2.contentReceived.first;
-      mB2.start();
-      try {
-        final ev = await got.timeout(const Duration(seconds: 20));
-        expect(ev.contentId, cid);
-        expect(await sB.loadFile(cid), data);
-        // The registry record is consumed by the completion.
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-        expect(await mB2.pendingAutoResumeContentIds(), isNot(contains(cid)));
-      } finally {
-        await mB2.dispose();
-        mB = _makeService(tB, sB); // give tearDown something to dispose
-      }
-    },
-    timeout: const Timeout(Duration(minutes: 1)),
-  );
-
-  test(
-    'failed swarm download retries with backoff in-session and completes '
-    'once the network heals',
-    () async {
-      final data = _rnd(300000, 13);
-      final cid = await offerToB(data, 'doc.bin');
-      _shrinkResumeDelays(mB);
-
-      cutLink();
-      final got = mB.contentReceived.first;
-      final r = await mB.downloadContentFromAny([a], cid);
-      expect(r, ContentDownloadResult.noOffer);
-
-      healLink();
+    // Relaunch on the same storage with the network back: no user action.
+    healLink();
+    final mB2 = _makeService(tB, sB);
+    _shrinkResumeDelays(mB2);
+    final got = mB2.contentReceived.first;
+    mB2.start();
+    try {
       final ev = await got.timeout(const Duration(seconds: 20));
       expect(ev.contentId, cid);
       expect(await sB.loadFile(cid), data);
-    },
-    timeout: const Timeout(Duration(minutes: 1)),
-  );
+      // The registry record is consumed by the completion.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(await mB2.pendingAutoResumeContentIds(), isNot(contains(cid)));
+    } finally {
+      await mB2.dispose();
+      mB = _makeService(tB, sB); // give tearDown something to dispose
+    }
+  }, timeout: const Timeout(Duration(minutes: 1)));
 
-  test(
-    'a download whose only holder is no longer a source parks, and a '
-    'reconnect does not wake it',
-    () async {
-      final data = _rnd(4096, 71);
-      final cid = await offerToB(data, 'gone.bin');
-      _shrinkResumeDelays(mB);
+  test('failed swarm download retries with backoff in-session and completes '
+      'once the network heals', () async {
+    final data = _rnd(300000, 13);
+    final cid = await offerToB(data, 'doc.bin');
+    _shrinkResumeDelays(mB);
 
-      // Start it while the link is down so a pending record survives.
-      cutLink();
-      await mB.downloadContentFromAny([a], cid);
-      expect(await mB.pendingAutoResumeContentIds(), contains(cid));
+    cutLink();
+    final got = mB.contentReceived.first;
+    final r = await mB.downloadContentFromAny([a], cid);
+    expect(r, ContentDownloadResult.noOffer);
 
-      // The holder stops being someone B may pull from — a contact removed,
-      // a membership gone. The pending download is now impossible, not slow.
-      await sB.upsertContact(Contact(nodeId: a, status: ContactStatus.blocked));
-      // The link stays down on purpose: an offer arriving from a holder is a
-      // legitimate reason to un-park, and this test is about the OTHER path —
-      // a reconnect re-arming a download nothing has changed about.
-      tB.sendsTo.clear();
+    healLink();
+    final ev = await got.timeout(const Duration(seconds: 20));
+    expect(ev.contentId, cid);
+    expect(await sB.loadFile(cid), data);
+  }, timeout: const Timeout(Duration(minutes: 1)));
 
-      await mB.reconcileOnConnect();
-      await Future<void>.delayed(const Duration(seconds: 3));
-      final ticksAfterFirst = mB.autoResumeTicks;
+  test('a download whose only holder is no longer a source parks, and a '
+      'reconnect does not wake it', () async {
+    final data = _rnd(4096, 71);
+    final cid = await offerToB(data, 'gone.bin');
+    _shrinkResumeDelays(mB);
 
-      // A reconnect is not evidence that a holder came back, so it must not
-      // re-arm the download. Before this, every reconnect also cleared the
-      // backoff, and the pair kept an impossible download cycling for as long
-      // as the app ran.
-      await mB.reconcileOnConnect();
-      await Future<void>.delayed(const Duration(seconds: 3));
+    // Start it while the link is down so a pending record survives.
+    cutLink();
+    await mB.downloadContentFromAny([a], cid);
+    expect(await mB.pendingAutoResumeContentIds(), contains(cid));
 
-      // A re-armed tick is invisible from outside — it sends nothing and
-      // opens nothing, it just burns a timer and a log line, forever. The
-      // tick count is the only place the difference shows.
-      expect(
-        mB.autoResumeTicks,
-        ticksAfterFirst,
-        reason: 'the second reconnect did not re-drive a parked download: '
-            'parking waits for a holder to show up, not for a clock',
-      );
-      expect(
-        await mB.pendingAutoResumeContentIds(),
-        contains(cid),
-        reason: 'parked, not forgotten — it resumes when a holder shows up',
-      );
+    // The holder stops being someone B may pull from — a contact removed,
+    // a membership gone. The pending download is now impossible, not slow.
+    await sB.upsertContact(Contact(nodeId: a, status: ContactStatus.blocked));
+    // The link stays down on purpose: an offer arriving from a holder is a
+    // legitimate reason to un-park, and this test is about the OTHER path —
+    // a reconnect re-arming a download nothing has changed about.
+    tB.sendsTo.clear();
 
-    },
-    timeout: const Timeout(Duration(minutes: 1)),
-  );
+    await mB.reconcileOnConnect();
+    await Future<void>.delayed(const Duration(seconds: 3));
+    final ticksAfterFirst = mB.autoResumeTicks;
 
-  test(
-    'auto-resume does not stack a second pull while the original transfer '
-    'is still owned (no duplicate sink, pending record survives)',
-    () async {
-      final data = _rnd(200000, 23);
-      final cid = await offerToB(data, 'park.bin');
-      _shrinkResumeDelays(mB);
-      var opens = 0;
-      mB.plainFileSinkOpener = (path, {bool resume = false}) async {
-        opens++;
-        return null;
-      };
+    // A reconnect is not evidence that a holder came back, so it must not
+    // re-arm the download. Before this, every reconnect also cleared the
+    // backoff, and the pair kept an impossible download cycling for as long
+    // as the app ran.
+    await mB.reconcileOnConnect();
+    await Future<void>.delayed(const Duration(seconds: 3));
 
-      // Network dies AFTER the offer, then the user asks for a plain-file
-      // save: the call keeps ownership of the transfer (a datagram fetch or
-      // a reoffer park) while it waits.
-      cutLink();
-      await mB.downloadContentToFile(
-        a,
-        cid,
-        '/nonexistent/park.bin',
-        write: (o, b) async {},
-        close: () async {},
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      expect(await mB.pendingAutoResumeContentIds(), contains(cid));
+    // A re-armed tick is invisible from outside — it sends nothing and
+    // opens nothing, it just burns a timer and a log line, forever. The
+    // tick count is the only place the difference shows.
+    expect(
+      mB.autoResumeTicks,
+      ticksAfterFirst,
+      reason:
+          'the second reconnect did not re-drive a parked download: '
+          'parking waits for a holder to show up, not for a clock',
+    );
+    expect(
+      await mB.pendingAutoResumeContentIds(),
+      contains(cid),
+      reason: 'parked, not forgotten — it resumes when a holder shows up',
+    );
+  }, timeout: const Timeout(Duration(minutes: 1)));
 
-      // Force resume ticks while the original still owns the transfer.
-      await mB.reconcileOnConnect();
-      await Future<void>.delayed(const Duration(seconds: 4));
+  test('auto-resume does not stack a second pull while the original transfer '
+      'is still owned (no duplicate sink, pending record survives)', () async {
+    final data = _rnd(200000, 23);
+    final cid = await offerToB(data, 'park.bin');
+    _shrinkResumeDelays(mB);
+    var opens = 0;
+    mB.plainFileSinkOpener = (path, {bool resume = false}) async {
+      opens++;
+      return null;
+    };
 
-      // The driver must NOT have re-driven with its own sink, and must not
-      // have dropped the durable record.
-      expect(opens, 0);
-      expect(await mB.pendingAutoResumeContentIds(), contains(cid));
-    },
-    timeout: const Timeout(Duration(minutes: 1)),
-  );
+    // Network dies AFTER the offer, then the user asks for a plain-file
+    // save: the call keeps ownership of the transfer (a datagram fetch or
+    // a reoffer park) while it waits.
+    cutLink();
+    await mB.downloadContentToFile(
+      a,
+      cid,
+      '/nonexistent/park.bin',
+      write: (o, b) async {},
+      close: () async {},
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(await mB.pendingAutoResumeContentIds(), contains(cid));
 
-  test(
-    'plain-file download interrupted by shutdown re-drives to the SAME '
-    'destination path across a service restart',
-    () async {
-      final data = _rnd(400000, 17);
-      final cid = await offerToB(data, 'save.bin');
-      final dir = await Directory.systemTemp.createTemp('xveil-resume-test');
-      final path = '${dir.path}/save.bin';
-      addTearDown(() async {
-        try {
-          await dir.delete(recursive: true);
-        } catch (_) {}
-      });
+    // Force resume ticks while the original still owns the transfer.
+    await mB.reconcileOnConnect();
+    await Future<void>.delayed(const Duration(seconds: 4));
 
-      cutLink();
-      final raf = await File(path).open(mode: FileMode.write);
-      var closed = false;
-      await mB.downloadContentToFile(
-        a,
-        cid,
-        path,
-        write: (o, bytes) async {
-          await raf.setPosition(o);
-          await raf.writeFrom(bytes);
-        },
-        close: () async {
-          if (closed) return;
-          closed = true;
-          await raf.close();
-        },
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      expect(await mB.pendingAutoResumeContentIds(), contains(cid));
-      await mB.dispose();
-      if (!closed) {
+    // The driver must NOT have re-driven with its own sink, and must not
+    // have dropped the durable record.
+    expect(opens, 0);
+    expect(await mB.pendingAutoResumeContentIds(), contains(cid));
+  }, timeout: const Timeout(Duration(minutes: 1)));
+
+  test('plain-file download interrupted by shutdown re-drives to the SAME '
+      'destination path across a service restart', () async {
+    final data = _rnd(400000, 17);
+    final cid = await offerToB(data, 'save.bin');
+    final dir = await Directory.systemTemp.createTemp('xveil-resume-test');
+    final path = '${dir.path}/save.bin';
+    addTearDown(() async {
+      try {
+        await dir.delete(recursive: true);
+      } catch (_) {}
+    });
+
+    cutLink();
+    final raf = await File(path).open(mode: FileMode.write);
+    var closed = false;
+    await mB.downloadContentToFile(
+      a,
+      cid,
+      path,
+      write: (o, bytes) async {
+        await raf.setPosition(o);
+        await raf.writeFrom(bytes);
+      },
+      close: () async {
+        if (closed) return;
         closed = true;
         await raf.close();
-      }
+      },
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(await mB.pendingAutoResumeContentIds(), contains(cid));
+    await mB.dispose();
+    if (!closed) {
+      closed = true;
+      await raf.close();
+    }
 
-      healLink();
-      final mB2 = _makeService(tB, sB);
-      _shrinkResumeDelays(mB2);
-      final got = mB2.contentReceived.firstWhere((e) => e.contentId == cid);
-      mB2.start();
-      try {
-        final ev = await got.timeout(const Duration(seconds: 20));
-        expect(ev.savedToPath, path);
-        expect(await File(path).readAsBytes(), data);
-      } finally {
-        await mB2.dispose();
-        mB = _makeService(tB, sB);
-      }
-    },
-    timeout: const Timeout(Duration(minutes: 1)),
-  );
+    healLink();
+    final mB2 = _makeService(tB, sB);
+    _shrinkResumeDelays(mB2);
+    final got = mB2.contentReceived.firstWhere((e) => e.contentId == cid);
+    mB2.start();
+    try {
+      final ev = await got.timeout(const Duration(seconds: 20));
+      expect(ev.savedToPath, path);
+      expect(await File(path).readAsBytes(), data);
+    } finally {
+      await mB2.dispose();
+      mB = _makeService(tB, sB);
+    }
+  }, timeout: const Timeout(Duration(minutes: 1)));
 }

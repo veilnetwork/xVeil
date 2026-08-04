@@ -182,7 +182,13 @@ void main() {
       id: 'm1',
       sentAtMs: DateTime.now().millisecondsSinceEpoch,
     ).encode();
-    tA.inject(InboundMessage(src: b, payload: wire));
+    tA.inject(
+      InboundMessage(
+        src: b,
+        payload: wire,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
     await pumpEventQueue();
     expect(
       sink.stashed.any((s) {
@@ -232,7 +238,14 @@ void main() {
         id: 'm2',
         sentAtMs: DateTime.now().millisecondsSinceEpoch,
       ).encode();
-      tA.inject(InboundMessage(src: b, payload: wire, replyId: 42));
+      tA.inject(
+        InboundMessage(
+          src: b,
+          payload: wire,
+          replyId: 42,
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
       await pumpEventQueue();
       expect(
         sink.stashed.any((s) => WireEnvelope.decode(s.$2).kind == WireKind.ack),
@@ -254,7 +267,13 @@ void main() {
         id: 'n1',
         sentAtMs: DateTime.now().millisecondsSinceEpoch,
       ).encode();
-      tA.inject(InboundMessage(src: b, payload: wire));
+      tA.inject(
+        InboundMessage(
+          src: b,
+          payload: wire,
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
       await pumpEventQueue();
       await sub.cancel();
       expect(got.length, 1);
@@ -271,12 +290,24 @@ void main() {
       id: 'n2',
       sentAtMs: DateTime.now().millisecondsSinceEpoch,
     ).encode();
-    tA.inject(InboundMessage(src: b, payload: wire));
+    tA.inject(
+      InboundMessage(
+        src: b,
+        payload: wire,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
     await pumpEventQueue();
     // Now subscribe and re-inject the SAME id — dedup must suppress the emit.
     final got = <IncomingNotice>[];
     final sub = mA.incoming.listen(got.add);
-    tA.inject(InboundMessage(src: b, payload: wire));
+    tA.inject(
+      InboundMessage(
+        src: b,
+        payload: wire,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
     await pumpEventQueue();
     await sub.cancel();
     expect(got, isEmpty, reason: 'a re-delivery must not re-notify');
@@ -297,7 +328,13 @@ void main() {
       // gate must drop it — otherwise any peer could forge a delivered mark.
       final c = _id(9);
       final ack = WireEnvelope.ack(sent.id).encode();
-      tA.inject(InboundMessage(src: c, payload: ack));
+      tA.inject(
+        InboundMessage(
+          src: c,
+          payload: ack,
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
       await pumpEventQueue();
       expect(
         (await sA.loadMessages(
@@ -308,7 +345,13 @@ void main() {
       );
 
       // The real (accepted) peer b CAN ack it.
-      tA.inject(InboundMessage(src: b, payload: ack));
+      tA.inject(
+        InboundMessage(
+          src: b,
+          payload: ack,
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
       await pumpEventQueue();
       expect(
         (await sA.loadMessages(
@@ -326,7 +369,13 @@ void main() {
     // Without buffering, the edit would be dropped (its target isn't stored yet)
     // and the offline edit would silently never land.
     final edit = WireEnvelope.edit('x1', 'corrected text').encode();
-    tA.inject(InboundMessage(src: b, payload: edit));
+    tA.inject(
+      InboundMessage(
+        src: b,
+        payload: edit,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
     await pumpEventQueue();
     // Nothing to edit yet — the op is buffered, not applied, and no ghost shows.
     expect((await sA.loadMessages(b.hex)).where((m) => m.id == 'x1'), isEmpty);
@@ -337,7 +386,13 @@ void main() {
       id: 'x1',
       sentAtMs: DateTime.now().millisecondsSinceEpoch,
     ).encode();
-    tA.inject(InboundMessage(src: b, payload: msg));
+    tA.inject(
+      InboundMessage(
+        src: b,
+        payload: msg,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
     await pumpEventQueue();
     final stored = (await sA.loadMessages(
       b.hex,
@@ -356,7 +411,13 @@ void main() {
       // The peer unsent a message while we were offline; its DEL blob drains
       // first. The message must end up unsent — order-independent deniable erase.
       final del = WireEnvelope.del('x2').encode();
-      tA.inject(InboundMessage(src: b, payload: del));
+      tA.inject(
+        InboundMessage(
+          src: b,
+          payload: del,
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
       await pumpEventQueue();
 
       // The original arrives after the unsend — it must NOT surface.
@@ -365,7 +426,13 @@ void main() {
         id: 'x2',
         sentAtMs: DateTime.now().millisecondsSinceEpoch,
       ).encode();
-      tA.inject(InboundMessage(src: b, payload: msg));
+      tA.inject(
+        InboundMessage(
+          src: b,
+          payload: msg,
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
       await pumpEventQueue();
       expect(
         await sA.isMessageDeleted(b.hex, 'x2'),
@@ -379,7 +446,13 @@ void main() {
       );
 
       // A re-delivery must stay refused (deleted stays deleted).
-      tA.inject(InboundMessage(src: b, payload: msg));
+      tA.inject(
+        InboundMessage(
+          src: b,
+          payload: msg,
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
       await pumpEventQueue();
       expect(
         (await sA.loadMessages(b.hex)).where((m) => m.body == 'secret'),
@@ -393,11 +466,18 @@ void main() {
     await mA.acceptContact(b);
     // Both a delete and a later edit drain before the message. The delete is
     // terminal: the message must stay unsent, not reappear with the edited text.
-    tA.inject(InboundMessage(src: b, payload: WireEnvelope.del('x3').encode()));
+    tA.inject(
+      InboundMessage(
+        src: b,
+        payload: WireEnvelope.del('x3').encode(),
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
     tA.inject(
       InboundMessage(
         src: b,
         payload: WireEnvelope.edit('x3', 'revived?').encode(),
+        provenance: SenderProvenance.sessionPeer,
       ),
     );
     await pumpEventQueue();
@@ -406,7 +486,13 @@ void main() {
       id: 'x3',
       sentAtMs: DateTime.now().millisecondsSinceEpoch,
     ).encode();
-    tA.inject(InboundMessage(src: b, payload: msg));
+    tA.inject(
+      InboundMessage(
+        src: b,
+        payload: msg,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
     await pumpEventQueue();
     expect(await sA.isMessageDeleted(b.hex, 'x3'), isTrue);
     expect(
@@ -430,7 +516,15 @@ void main() {
     final futures = <Future<void>>[];
     for (var i = 0; i < burst; i++) {
       final wire = WireEnvelope.request('greeting #$i', id: 'req-$i').encode();
-      futures.add(mA.deliverInbound(InboundMessage(src: b, payload: wire)));
+      futures.add(
+        mA.deliverInbound(
+          InboundMessage(
+            src: b,
+            payload: wire,
+            provenance: SenderProvenance.signed,
+          ),
+        ),
+      );
     }
     await Future.wait(futures);
     await pumpEventQueue();
@@ -458,7 +552,13 @@ void main() {
         id: 'live1',
         sentAtMs: DateTime.now().millisecondsSinceEpoch,
       ).encode();
-      tA.inject(InboundMessage(src: b, payload: wire));
+      tA.inject(
+        InboundMessage(
+          src: b,
+          payload: wire,
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
       await pumpEventQueue();
       expect(
         sink.nudges,
@@ -467,7 +567,13 @@ void main() {
       );
 
       final before = sink.nudges;
-      await mA.deliverInbound(InboundMessage(src: b, payload: wire));
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: wire,
+          provenance: SenderProvenance.signed,
+        ),
+      );
       await pumpEventQueue();
       expect(
         sink.nudges,

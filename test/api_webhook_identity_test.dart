@@ -145,221 +145,231 @@ void main() {
   setUp(() => ApiServerController.debugBindPort = 0);
   tearDown(() => ApiServerController.debugBindPort = kApiPort);
 
-  test(
-    'switching identity delivers nothing further to the previous webhook — '
-    'the retry included',
-    () async {
-      final target = await _RecordingTarget.bind();
-      final successor = await _RecordingTarget.bind();
-      addTearDown(target.close);
-      addTearDown(successor.close);
+  test('switching identity delivers nothing further to the previous webhook — '
+      'the retry included', () async {
+    final target = await _RecordingTarget.bind();
+    final successor = await _RecordingTarget.bind();
+    addTearDown(target.close);
+    addTearDown(successor.close);
 
-      final first = await _storageWith(token: 'tok-a', webhook: target.url);
-      final second = await _storageWith(token: 'tok-b', webhook: successor.url);
-      addTearDown(first.close);
-      addTearDown(second.close);
+    final first = await _storageWith(token: 'tok-a', webhook: target.url);
+    final second = await _storageWith(token: 'tok-b', webhook: successor.url);
+    addTearDown(first.close);
+    addTearDown(second.close);
 
-      // One messaging pipeline, deliberately: the leak is that the PREVIOUS
-      // identity's feed keeps feeding the PREVIOUS identity's webhook.
-      final transport = _BlackholeTransport(_id(1));
-      final messaging = MessagingService(transport, first)..start();
-      addTearDown(messaging.dispose);
-      final peer = _id(2);
-      await messaging.acceptContact(peer);
+    // One messaging pipeline, deliberately: the leak is that the PREVIOUS
+    // identity's feed keeps feeding the PREVIOUS identity's webhook.
+    final transport = _BlackholeTransport(_id(1));
+    final messaging = MessagingService(transport, first)..start();
+    addTearDown(messaging.dispose);
+    final peer = _id(2);
+    await messaging.acceptContact(peer);
 
-      _activeStorage = first;
-      _initialIdentity = Identity(
-        nodeId: NodeId.fromHex('11' * 32),
-        displayName: 'A',
-      );
-      final container = ProviderContainer(
-        overrides: [
-          appControllerProvider.overrideWith(_SwitchingAppController.new),
-          storageProvider.overrideWith((ref) => _activeStorage),
-          groupServiceProvider.overrideWithValue(null),
-          messagingServiceProvider.overrideWithValue(messaging),
-        ],
-      );
-      addTearDown(container.dispose);
-      container.read(apiServerControllerProvider);
-      final controller = container.read(apiServerControllerProvider.notifier);
-      for (var i = 0; i < 400 && controller.boundPort == null; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 5));
+    _activeStorage = first;
+    _initialIdentity = Identity(
+      nodeId: NodeId.fromHex('11' * 32),
+      displayName: 'A',
+    );
+    final container = ProviderContainer(
+      overrides: [
+        appControllerProvider.overrideWith(_SwitchingAppController.new),
+        storageProvider.overrideWith((ref) => _activeStorage),
+        groupServiceProvider.overrideWithValue(null),
+        messagingServiceProvider.overrideWithValue(messaging),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(apiServerControllerProvider);
+    final controller = container.read(apiServerControllerProvider.notifier);
+    for (var i = 0; i < 400 && controller.boundPort == null; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    expect(controller.boundPort, isNotNull, reason: 'the API never came up');
+
+    // CONTROL, and it has to come first: an event under identity A really
+    // does reach A's webhook. Without this the rest of the test would pass
+    // just as well against a webhook that never worked at all.
+    transport.inject(
+      InboundMessage(
+        src: peer,
+        payload: WireEnvelope.message(
+          'sent while A was active',
+          id: 'm1',
+          sentAtMs: DateTime.now().millisecondsSinceEpoch,
+        ).encode(),
+        // An honest contact on an authenticated session (audit X/V-01).
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
+    await target.waitFor(1);
+    expect(
+      target.events,
+      hasLength(1),
+      reason: 'the webhook push must work before its silence proves anything',
+    );
+    expect(target.events.single['preview'], 'sent while A was active');
+    expect(target.events.single['from'], peer.hex);
+
+    // …and now the app moves to identity B, INSIDE the two-second wait that
+    // separates the failed first attempt from its retry.
+    (container.read(appControllerProvider.notifier) as _SwitchingAppController)
+        .expose(
+          Identity(nodeId: NodeId.fromHex('22' * 32), displayName: 'B'),
+          second,
+        );
+    for (var i = 0; i < 400; i++) {
+      if (container
+          .read(apiServerControllerProvider)
+          .tokens
+          .any((t) => t.token == 'tok-b')) {
+        break;
       }
-      expect(controller.boundPort, isNotNull, reason: 'the API never came up');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    expect(
+      container.read(apiServerControllerProvider).webhookUrl,
+      successor.url,
+      reason: 'identity B has a webhook of its own now',
+    );
+    expect(
+      target.events,
+      hasLength(1),
+      reason:
+          'the switch has to land INSIDE the retry window or this test is '
+          'measuring nothing — if this fires, the harness raced, not the code',
+    );
 
-      // CONTROL, and it has to come first: an event under identity A really
-      // does reach A's webhook. Without this the rest of the test would pass
-      // just as well against a webhook that never worked at all.
-      transport.inject(
-        InboundMessage(
-          src: peer,
-          payload: WireEnvelope.message(
-            'sent while A was active',
-            id: 'm1',
-            sentAtMs: DateTime.now().millisecondsSinceEpoch,
-          ).encode(),
-        ),
+    // An event under identity B. Two things have to be true of it at once,
+    // and getting only one of them is how this is normally broken: it must
+    // reach B's webhook (the feed is silenced per identity, not for good),
+    // and it must not reach A's.
+    transport.inject(
+      InboundMessage(
+        src: peer,
+        payload: WireEnvelope.message(
+          'sent after the switch',
+          id: 'm2',
+          sentAtMs: DateTime.now().millisecondsSinceEpoch,
+        ).encode(),
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
+    await successor.waitFor(1);
+    expect(
+      successor.events.map((e) => e['preview']),
+      ['sent after the switch'],
+      reason:
+          'identity B never got its webhook — silencing A must be a handover, '
+          'not a shutdown',
+    );
+
+    // Past the two-second retry of the first event, with room to spare.
+    await Future<void>.delayed(const Duration(milliseconds: 3500));
+
+    expect(
+      target.events.map((e) => e['preview']),
+      ['sent while A was active'],
+      reason:
+          'identity A\'s webhook received ${target.events.length} deliveries '
+          'across the switch to B — it must have received exactly the one '
+          'that predates it',
+    );
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
+  test(
+    'a retarget bars the retry the old address still had coming',
+    () async {
+      // The same guarantee at the pump, without the app around it: the barrier
+      // is inside the retry loop because the WAIT between attempts is the window
+      // a retarget lands in.
+      final target = await _RecordingTarget.bind();
+      addTearDown(target.close);
+
+      final pump = WebhookPump(
+        () => const Stream<Map<String, dynamic>>.empty(),
       );
+      addTearDown(pump.close);
+      await pump.setTarget(target.url);
+      pump.enqueueForTest({
+        'type': 'message',
+        'from': 'aa' * 32,
+        'preview': 'addressed to the old identity',
+      });
+
       await target.waitFor(1);
       expect(
         target.events,
         hasLength(1),
-        reason: 'the webhook push must work before its silence proves anything',
+        reason: 'the first attempt must land, or there is no retry to bar',
       );
-      expect(target.events.single['preview'], 'sent while A was active');
-      expect(target.events.single['from'], peer.hex);
+      expect(target.events.single['preview'], 'addressed to the old identity');
 
-      // …and now the app moves to identity B, INSIDE the two-second wait that
-      // separates the failed first attempt from its retry.
-      (container.read(appControllerProvider.notifier)
-              as _SwitchingAppController)
-          .expose(
-            Identity(nodeId: NodeId.fromHex('22' * 32), displayName: 'B'),
-            second,
-          );
-      for (var i = 0; i < 400; i++) {
-        if (container.read(apiServerControllerProvider).tokens.any(
-          (t) => t.token == 'tok-b',
-        )) {
-          break;
-        }
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
-      expect(
-        container.read(apiServerControllerProvider).webhookUrl,
-        successor.url,
-        reason: 'identity B has a webhook of its own now',
-      );
+      await pump.setTarget(null);
+      await Future<void>.delayed(const Duration(milliseconds: 3500));
+
       expect(
         target.events,
         hasLength(1),
         reason:
-            'the switch has to land INSIDE the retry window or this test is '
-            'measuring nothing — if this fires, the harness raced, not the code',
-      );
-
-      // An event under identity B. Two things have to be true of it at once,
-      // and getting only one of them is how this is normally broken: it must
-      // reach B's webhook (the feed is silenced per identity, not for good),
-      // and it must not reach A's.
-      transport.inject(
-        InboundMessage(
-          src: peer,
-          payload: WireEnvelope.message(
-            'sent after the switch',
-            id: 'm2',
-            sentAtMs: DateTime.now().millisecondsSinceEpoch,
-          ).encode(),
-        ),
-      );
-      await successor.waitFor(1);
-      expect(
-        successor.events.map((e) => e['preview']),
-        ['sent after the switch'],
-        reason:
-            'identity B never got its webhook — silencing A must be a handover, '
-            'not a shutdown',
-      );
-
-      // Past the two-second retry of the first event, with room to spare.
-      await Future<void>.delayed(const Duration(milliseconds: 3500));
-
-      expect(
-        target.events.map((e) => e['preview']),
-        ['sent while A was active'],
-        reason:
-            'identity A\'s webhook received ${target.events.length} deliveries '
-            'across the switch to B — it must have received exactly the one '
-            'that predates it',
+            'the retry fired at an address the pump had already been taken off',
       );
     },
     timeout: const Timeout(Duration(seconds: 60)),
   );
 
-  test('a retarget bars the retry the old address still had coming', () async {
-    // The same guarantee at the pump, without the app around it: the barrier
-    // is inside the retry loop because the WAIT between attempts is the window
-    // a retarget lands in.
-    final target = await _RecordingTarget.bind();
-    addTearDown(target.close);
+  test(
+    'a retarget cuts the exchange in flight, not just the ones after it',
+    () async {
+      // The weaker half of the promise, and the reason the client is a FIELD
+      // rather than one per attempt: there is something left to pull the plug
+      // on. This does not un-send what is already on the wire — nothing does —
+      // but the old target stops receiving the rest of it, immediately, instead
+      // of when a five-second deadline gets around to it.
+      // A raw socket, not an HttpServer: the question is what happens to the
+      // CONNECTION, and `HttpResponse.done` does not report a peer that walks
+      // away from a response the server has not started writing.
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(server.close);
+      final arrived = Completer<void>();
+      final severed = Completer<void>();
+      server.listen((socket) {
+        socket.listen(
+          (_) {
+            // Request bytes are in; answer nothing and hold the exchange open.
+            if (!arrived.isCompleted) arrived.complete();
+          },
+          onDone: () {
+            if (!severed.isCompleted) severed.complete();
+          },
+          onError: (Object _) {
+            if (!severed.isCompleted) severed.complete();
+          },
+          cancelOnError: true,
+        );
+      });
 
-    final pump = WebhookPump(() => const Stream<Map<String, dynamic>>.empty());
-    addTearDown(pump.close);
-    await pump.setTarget(target.url);
-    pump.enqueueForTest({
-      'type': 'message',
-      'from': 'aa' * 32,
-      'preview': 'addressed to the old identity',
-    });
-
-    await target.waitFor(1);
-    expect(
-      target.events,
-      hasLength(1),
-      reason: 'the first attempt must land, or there is no retry to bar',
-    );
-    expect(target.events.single['preview'], 'addressed to the old identity');
-
-    await pump.setTarget(null);
-    await Future<void>.delayed(const Duration(milliseconds: 3500));
-
-    expect(
-      target.events,
-      hasLength(1),
-      reason:
-          'the retry fired at an address the pump had already been taken off',
-    );
-  }, timeout: const Timeout(Duration(seconds: 60)));
-
-  test('a retarget cuts the exchange in flight, not just the ones after it',
-      () async {
-    // The weaker half of the promise, and the reason the client is a FIELD
-    // rather than one per attempt: there is something left to pull the plug
-    // on. This does not un-send what is already on the wire — nothing does —
-    // but the old target stops receiving the rest of it, immediately, instead
-    // of when a five-second deadline gets around to it.
-    // A raw socket, not an HttpServer: the question is what happens to the
-    // CONNECTION, and `HttpResponse.done` does not report a peer that walks
-    // away from a response the server has not started writing.
-    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    addTearDown(server.close);
-    final arrived = Completer<void>();
-    final severed = Completer<void>();
-    server.listen((socket) {
-      socket.listen(
-        (_) {
-          // Request bytes are in; answer nothing and hold the exchange open.
-          if (!arrived.isCompleted) arrived.complete();
-        },
-        onDone: () {
-          if (!severed.isCompleted) severed.complete();
-        },
-        onError: (Object _) {
-          if (!severed.isCompleted) severed.complete();
-        },
-        cancelOnError: true,
+      final pump = WebhookPump(
+        () => const Stream<Map<String, dynamic>>.empty(),
       );
-    });
+      addTearDown(pump.close);
+      await pump.setTarget('http://127.0.0.1:${server.port}/hook');
+      pump.enqueueForTest({'type': 'message', 'preview': 'mid-flight'});
+      await arrived.future.timeout(const Duration(seconds: 10));
 
-    final pump = WebhookPump(() => const Stream<Map<String, dynamic>>.empty());
-    addTearDown(pump.close);
-    await pump.setTarget('http://127.0.0.1:${server.port}/hook');
-    pump.enqueueForTest({'type': 'message', 'preview': 'mid-flight'});
-    await arrived.future.timeout(const Duration(seconds: 10));
+      await pump.setTarget(null);
 
-    await pump.setTarget(null);
-
-    await severed.future.timeout(
-      // Comfortably inside the 5 s attempt deadline: waiting THAT out is the
-      // behaviour being ruled out.
-      const Duration(seconds: 2),
-      onTimeout: () => fail(
-        'the retarget left the previous target holding a live exchange — it '
-        'was only barred from being given a NEW one',
-      ),
-    );
-  }, timeout: const Timeout(Duration(seconds: 60)));
+      await severed.future.timeout(
+        // Comfortably inside the 5 s attempt deadline: waiting THAT out is the
+        // behaviour being ruled out.
+        const Duration(seconds: 2),
+        onTimeout: () => fail(
+          'the retarget left the previous target holding a live exchange — it '
+          'was only barred from being given a NEW one',
+        ),
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
 
   test('a retarget does not hand the old queue to the new address', () async {
     // The other direction of the same rule: events addressed to A are not a

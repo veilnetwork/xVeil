@@ -29,8 +29,13 @@ class _FakeTransport implements VeilTransport {
   final NodeId _me;
   final _inbound = StreamController<InboundMessage>.broadcast();
 
-  void deliver(NodeId src, Uint8List payload) =>
-      _inbound.add(InboundMessage(src: src, payload: payload));
+  void deliver(NodeId src, Uint8List payload) => _inbound.add(
+    InboundMessage(
+      src: src,
+      payload: payload,
+      provenance: SenderProvenance.sessionPeer,
+    ),
+  );
 
   @override
   Future<NodeId> nodeId() async => _me;
