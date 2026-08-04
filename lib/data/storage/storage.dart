@@ -443,8 +443,95 @@ abstract interface class Storage {
   /// which is exactly what streaming exists to avoid.
   Future<int?> fileSize(String fileId);
 
+  // --- Ratchet sessions ---------------------------------------------------
+  //
+  // veil agrees the keys and advances the chains; it keeps none of it. Its one
+  // database belongs to the mailbox and is reachable from neither the send path
+  // nor the frame dispatcher, so the durable half of forward secrecy is the
+  // host's, and in this app the host's durable store is the deniable container.
+  //
+  // The unit is one CONVERSATION, named by the 64-byte key veil hands out
+  // (`our device ‖ their node ‖ their device`), and its value is an opaque blob
+  // in which EVERY BYTE IS KEY MATERIAL: never parsed, never logged, never
+  // diffed, never put in an error report.
+
+  /// Every conversation key with state stored in this space.
+  ///
+  /// Read once at startup: each one has to be handed back to veil BEFORE
+  /// traffic flows, because a frame for a conversation that was not restored
+  /// cannot be opened and — unlike a dropped packet — the sender has already
+  /// advanced its chain, so nothing will ever re-send it in a readable form.
+  Future<List<Uint8List>> ratchetConversationKeys();
+
+  /// The stored state of one conversation, or null when nothing complete is
+  /// held under [conversationKey]. Never returns a partial blob: half a session
+  /// is a session with the wrong keys.
+  Future<Uint8List?> loadRatchetState(Uint8List conversationKey);
+
+  /// Persist [entries] — the conversations veil has just named as changed.
+  ///
+  /// Called after every send and every receive, before the operation counts as
+  /// finished. A write that is skipped is a message key that exists nowhere,
+  /// and the message that needed it never opens and never says why.
+  ///
+  /// Each conversation lands atomically: a torn write would restore a session
+  /// whose halves came from different points in the chain.
+  Future<void> saveRatchetStates(List<RatchetStateEntry> entries);
+
+  /// Drop the stored state of [conversationKeys]. Returns how many were held.
+  ///
+  /// Irreversible by nature — nothing public can rebuild a chain — so this is
+  /// for a deleted chat, a forgotten contact or a device that is no longer
+  /// ours, never for eviction.
+  Future<int> forgetRatchetStates(Iterable<Uint8List> conversationKeys);
+
   /// Lock the space and zeroize in-memory key material.
   Future<void> close();
+}
+
+/// Byte length of a conversation key: `our device (16) ‖ their node (32) ‖
+/// their device (16)`. Mirrors `VEIL_RATCHET_KEY_LEN`.
+///
+/// Flat and reversible rather than a digest, deliberately: a host dropping a
+/// removed device or a forgotten contact decides what to drop by READING the
+/// key, instead of keeping a side table back to peers. Nothing in it is secret
+/// — all three identifiers already travel on the wire.
+const int kRatchetKeyLen = 64;
+
+/// Offset of the peer's 32-byte node id inside a conversation key.
+const int kRatchetKeyPeerNodeOffset = 16;
+
+/// Upper bound on one conversation's exported state. Mirrors
+/// `VEIL_RATCHET_MAX_STATE_LEN`.
+///
+/// An established session is about 1.4 kB. The rest is the skipped-message-key
+/// cache — 68 bytes per key banked for a frame that has not arrived yet — and
+/// the ratchet caps that, so a store sized to this never sees a short write.
+const int kRatchetMaxStateLen = 256 * 1024;
+
+/// One conversation's persisted ratchet state.
+///
+/// [blob] is opaque and wholly secret. It is produced by `veil_ratchet_export`
+/// and consumed by `veil_ratchet_import`, and nothing between the two may look
+/// inside it.
+final class RatchetStateEntry {
+  const RatchetStateEntry(this.conversationKey, this.blob);
+
+  /// 64 bytes; see [kRatchetKeyLen].
+  final Uint8List conversationKey;
+
+  /// The exported session. EVERY BYTE IS KEY MATERIAL.
+  final Uint8List blob;
+
+  /// The peer's node id — the 32 bytes in the middle of the key.
+  ///
+  /// The one field a host is meant to read: it is what makes "forget everything
+  /// belonging to this contact" answerable without a side table.
+  Uint8List get peerNodeId => Uint8List.sublistView(
+    conversationKey,
+    kRatchetKeyPeerNodeOffset,
+    kRatchetKeyPeerNodeOffset + 32,
+  );
 }
 
 /// Storage-owned half of a global MediaObject reachability scan.

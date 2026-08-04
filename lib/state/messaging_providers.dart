@@ -20,6 +20,7 @@ import 'mailbox_service.dart';
 import 'messaging_core.dart';
 import 'p2p_policy_controller.dart';
 import 'providers.dart';
+import 'ratchet_persistence.dart';
 import 'signature_policy_controller.dart';
 import 'thumbnail.dart';
 import 'video_thumb.dart';
@@ -66,6 +67,11 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     imageThumbMaker: makeMessageThumbB64,
   );
   service.sourceOpener = veilSourceOpener; // DURABLE offers: re-open by path
+  // The durable half of the ratchet, over the SAME storage this service writes
+  // messages to — so an identity's chain keys can only ever land in that
+  // identity's own container. Null on the loopback fake and on builds without
+  // the embedded-node FFI, which have no ratchet to keep.
+  service.ratchet = ratchetPersistenceFor(ref.watch(realStackProvider), storage);
   // Author-side answer to incoming signature requests, read live from settings.
   service.signaturePolicyResolver = () => ref.read(signaturePolicyProvider);
   service.start();

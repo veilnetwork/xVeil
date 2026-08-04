@@ -2,6 +2,7 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:xveil/core/cleanup_legs.dart';
 import 'package:xveil/core/posix_file_facts.dart';
@@ -10,6 +11,12 @@ import 'native_libs.dart' show openEnvLib, processLibFor;
 import 'node/embedded_node.dart';
 import 'node/node_controller.dart';
 import 'node/proxy_routing.dart';
+import 'node/ratchet_ffi.dart'
+    show
+        RatchetStateHandle,
+        dropRejectedRatchetStates,
+        importRatchetStates,
+        loadStoredRatchetStates;
 import 'node/veil_node.dart';
 import 'storage/storage.dart';
 import 'transport/bootstrap_invite.dart';
@@ -548,6 +555,7 @@ class RealVeilStack {
     this.listenPort = 0,
     this.lanListen = false,
     this.listenScheme = 'tcp',
+    this.ratchetState,
   }) : _cli = veilCliPath,
        _config = configPath,
        _flutterTransport = nodeIpc;
@@ -588,6 +596,14 @@ class RealVeilStack {
   /// it: advertising `tcp://` for a QUIC socket silently falls back to the
   /// ordered stream path and reintroduces video head-of-line stalls.
   final String listenScheme;
+
+  /// The node's ratchet-state door, when it has one.
+  ///
+  /// Null on the subprocess/dev paths (no in-process handle) and on a dylib
+  /// built without `node-embedded`. The stored conversations were already
+  /// handed back to veil by the time this stack exists — see [startDeniable];
+  /// what remains for the messaging layer is the write after every operation.
+  final RatchetStateHandle? ratchetState;
 
   // The config-file dev path uses veil-cli + a config file for invite/join.
   final String? _cli;
@@ -716,11 +732,19 @@ class RealVeilStack {
 
     // 2. Ephemeral, identity-free runtime endpoints, in a directory this boot
     // CREATES under the configured base and owns outright (audit C-02).
+    // 2b. Read the stored ratchet sessions NOW, while the only thing that can
+    // fail is a container read. They have to be back inside veil before the
+    // node can be handed a frame, and the import itself is a synchronous FFI
+    // call in the middle of the boot — so the async half is done first, here.
+    final storedRatchet = await loadStoredRatchetStates(storage);
+
     final lease = await RuntimeDirLease.acquire(runtimeDirBase);
     try {
       return await _startDeniableIn(
         lease,
         identityToml: identityToml,
+        storage: storage,
+        storedRatchet: storedRatchet,
         lap: lap,
         lib: lib,
         listenPort: listenPort,
@@ -757,6 +781,8 @@ class RealVeilStack {
   static Future<RealVeilStack> _startDeniableIn(
     RuntimeDirLease lease, {
     required String identityToml,
+    required Storage storage,
+    required List<RatchetStateEntry> storedRatchet,
     required int Function() lap,
     required DynamicLibrary? lib,
     required int listenPort,
@@ -874,6 +900,8 @@ class RealVeilStack {
 
     // 4. Boot deferred (anonymity armed in the stub when requested), then apply
     // the real config IN MEMORY (no file) to promote the real identity.
+    RatchetStateHandle? ratchetState;
+    var ratchetRejected = const <Uint8List>[];
     final controller = EmbeddedNodeController(
       appSocketPath: ipcSock,
       starter: () {
@@ -903,6 +931,15 @@ class RealVeilStack {
               'xVeil[deniable]: startDeferred +${tDeferred}ms, '
               'applyConfig +${ssw.elapsedMilliseconds - tDeferred}ms',
         );
+        // HERE, and not one line later. This is the last point at which the
+        // node exists and nothing outside this process can hand it a frame: the
+        // controller has not finished starting, the transport is not connected
+        // and no seed has been dialled. A frame that arrives for a conversation
+        // we have not restored cannot be opened, and — unlike a lost packet —
+        // the sender has already advanced its chain, so nothing will re-send it
+        // in a form this node can read. There is no second chance at it.
+        ratchetState = node.ratchetState();
+        ratchetRejected = importRatchetStates(ratchetState, storedRatchet);
         return node;
       },
     );
@@ -932,6 +969,12 @@ class RealVeilStack {
       );
     }
 
+    // Whatever veil would not take can never open a frame again, so the records
+    // go. After the node is up, not inside the starter: the drop is a container
+    // WRITE, and the import window exists precisely because nothing async may
+    // happen in it.
+    await dropRejectedRatchetStates(storage, ratchetRejected);
+
     // 5. Connect the transport, then ask the running node for its own invite.
     final VeilFlutterTransport transport;
     try {
@@ -954,6 +997,7 @@ class RealVeilStack {
         listenPort: listenPort,
         lanListen: lanListen,
         listenScheme: listenScheme,
+        ratchetState: ratchetState,
       );
     } catch (_) {
       // INDEPENDENT legs. Chained, a throw from `transport.dispose()` skipped
@@ -981,6 +1025,7 @@ class RealVeilStack {
     required int listenPort,
     required bool lanListen,
     required String listenScheme,
+    required RatchetStateHandle? ratchetState,
   }) async {
     final seedsToRegister = runtimeBootstrapPeers ?? bootstrapPeers;
     final registeredSeeds = await registerRuntimeBootstrapPeers(
@@ -1019,6 +1064,7 @@ class RealVeilStack {
       listenPort: listenPort,
       lanListen: lanListen,
       listenScheme: listenScheme,
+      ratchetState: ratchetState,
     );
   }
 

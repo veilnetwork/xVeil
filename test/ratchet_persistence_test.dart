@@ -1,0 +1,832 @@
+import 'dart:async';
+import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/node/ratchet_ffi.dart';
+import 'package:xveil/data/storage/fake_kv_log_store.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/data/storage/storage.dart';
+import 'package:xveil/data/transport/veil_transport.dart';
+import 'package:xveil/domain/chat.dart' show Message;
+import 'package:xveil/state/messaging.dart';
+import 'package:xveil/state/ratchet_persistence.dart';
+
+/// A conversation key: `our device (16) ‖ their node (32) ‖ their device (16)`.
+Uint8List _convKey({
+  required int local,
+  required int peerNode,
+  int peerInstance = 1,
+}) {
+  final out = Uint8List(kRatchetKeyLen);
+  out.fillRange(0, 16, local);
+  out.fillRange(16, 48, peerNode);
+  out.fillRange(48, 64, peerInstance);
+  return out;
+}
+
+NodeId _node(int fill) => NodeId(Uint8List(32)..fillRange(0, 32, fill));
+
+/// A one-way chain, which is the only property of a Double Ratchet these tests
+/// need to be able to break.
+///
+/// A conversation is a send counter and a receive counter. Sealing burns the
+/// next send index; opening accepts ONLY the index it is expecting and then
+/// advances. Nothing here can be rebuilt: a node that lost the state cannot
+/// open a frame, exactly like the real thing, and — unlike a dropped packet —
+/// the sender has already moved on, so a retransmit does not help either.
+class _FakeRatchetNode implements RatchetStateHandle {
+  final Map<String, _FakeConversation> _held = {};
+  final Set<String> _dirty = <String>{};
+  int _version = 0;
+
+  /// Frames refused because the receiving state was not there.
+  int refusedForMissingState = 0;
+
+  static String _hex(Uint8List k) =>
+      [for (final b in k) b.toRadixString(16).padLeft(2, '0')].join();
+
+  /// Seal one frame to [key]. Returns the wire index it burned.
+  int seal(Uint8List key) {
+    final c = _held.putIfAbsent(_hex(key), () => _FakeConversation());
+    final index = c.sent++;
+    _dirty.add(_hex(key));
+    _version++;
+    return index;
+  }
+
+  /// Open the frame that carries [index]. False when this node cannot.
+  ///
+  /// Only work that COMMITTED moves the version and marks the conversation:
+  /// a frame this node cannot open changes nothing, which is the property that
+  /// lets a host tell "nothing happened" from "something happened twice".
+  bool open(Uint8List key, int index) {
+    final c = _held[_hex(key)];
+    if (c == null) {
+      refusedForMissingState++;
+      return false;
+    }
+    if (index != c.received) return false;
+    c.received++;
+    _dirty.add(_hex(key));
+    _version++;
+    return true;
+  }
+
+  @override
+  int stateVersion() => _version;
+
+  @override
+  ({List<Uint8List> keys, int remaining}) takeDirty(int maxKeys) {
+    final ordered = _dirty.toList()..sort();
+    final taken = ordered.take(maxKeys).toList();
+    for (final k in taken) {
+      _dirty.remove(k);
+    }
+    // Whatever did not fit STAYS MARKED — the contract the drain loop exists
+    // for. Dropping it would lose the only notice those conversations get.
+    return (keys: [for (final k in taken) _unhex(k)], remaining: _dirty.length);
+  }
+
+  @override
+  List<Uint8List> list() =>
+      [for (final k in (_held.keys.toList()..sort())) _unhex(k)];
+
+  @override
+  Uint8List? export(Uint8List conversationKey) {
+    final c = _held[_hex(conversationKey)];
+    if (c == null) return null;
+    return c.encode();
+  }
+
+  @override
+  bool import(Uint8List conversationKey, Uint8List blob) {
+    final c = _FakeConversation.decode(blob);
+    if (c == null) return false;
+    _held[_hex(conversationKey)] = c;
+    return true;
+  }
+
+  @override
+  bool forget(Uint8List conversationKey) {
+    _dirty.remove(_hex(conversationKey));
+    return _held.remove(_hex(conversationKey)) != null;
+  }
+
+  static Uint8List _unhex(String hex) => Uint8List.fromList([
+    for (var i = 0; i < hex.length; i += 2)
+      int.parse(hex.substring(i, i + 2), radix: 16),
+  ]);
+}
+
+class _FakeConversation {
+  int sent = 0;
+  int received = 0;
+
+  /// Padded to something session-shaped so the storage layer is exercised at a
+  /// realistic size rather than at eight bytes.
+  Uint8List encode() {
+    final out = Uint8List(1400);
+    out[0] = sent & 0xff;
+    out[1] = (sent >> 8) & 0xff;
+    out[2] = received & 0xff;
+    out[3] = (received >> 8) & 0xff;
+    return out;
+  }
+
+  static _FakeConversation? decode(Uint8List blob) {
+    if (blob.length < 4) return null;
+    return _FakeConversation()
+      ..sent = blob[0] | (blob[1] << 8)
+      ..received = blob[2] | (blob[3] << 8);
+  }
+}
+
+/// A direct 1:1 link. [onSend] stands in for veil sealing the frame on the way
+/// out; [onDeliver] for it opening the frame on the way in — both happen before
+/// the app layer is told anything, which is what makes the write-before-finish
+/// contract checkable here.
+class _FakeTransport implements VeilTransport {
+  _FakeTransport(this._me, {this.onSend});
+
+  final NodeId _me;
+  final void Function(NodeId dst)? onSend;
+  void Function()? onDeliver;
+  final _inbound = StreamController<InboundMessage>.broadcast();
+  _FakeTransport? peer;
+
+  @override
+  Future<NodeId> nodeId() async => _me;
+  @override
+  Stream<InboundMessage> messages() => _inbound.stream;
+
+  @override
+  Future<void> sendWithReply(NodeId dst, Uint8List payload) =>
+      send(dst, payload, anonymous: true);
+  @override
+  Future<void> sendReply(int replyId, Uint8List payload) async {}
+
+  @override
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async {
+    onSend?.call(dst);
+    peer?.onDeliver?.call();
+    peer?._inbound.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
+  }
+
+  @override
+  Stream<int> sessionCount() => Stream.value(0);
+  @override
+  Future<List<PeerInfo>> peers() async => const [];
+  @override
+  Future<void> dispose() async => _inbound.close();
+}
+
+Future<void> _pump() => Future<void>.delayed(const Duration(milliseconds: 80));
+
+/// Records the ORDER in which one receive's two writes land, and makes the
+/// ratchet one slow enough that "eventually" and "before" cannot be confused.
+///
+/// A test that only checks the state is on disk after the dust settles passes
+/// just as happily when the write was fired and forgotten — and a fired-and-
+/// forgotten write is the whole failure: the ack goes back, the sender stops
+/// retransmitting, and the key that would have opened the frame is still in a
+/// pending future when the process stops.
+class _OrderedStorage extends HiddenVolumeStorage {
+  _OrderedStorage(super.opener, this.log, {this.ratchetDelay = Duration.zero});
+
+  final List<String> log;
+  final Duration ratchetDelay;
+
+  @override
+  Future<void> saveRatchetStates(List<RatchetStateEntry> entries) async {
+    if (ratchetDelay > Duration.zero) await Future<void>.delayed(ratchetDelay);
+    await super.saveRatchetStates(entries);
+    log.add('ratchet');
+  }
+
+  @override
+  Future<Message> appendMessage(Message message) {
+    log.add('message');
+    return super.appendMessage(message);
+  }
+}
+
+/// Counts vacuum passes, which the in-memory fake has no reason to model.
+class _ScrubCountingStore implements KvLogStore {
+  final FakeKvLogStore inner = FakeKvLogStore();
+  int scrubs = 0;
+
+  @override
+  void scrub() => scrubs++;
+
+  @override
+  int commit(List<KvLogOp> ops) => inner.commit(ops);
+  @override
+  Uint8List? get(int ns, Uint8List key) => inner.get(ns, key);
+  @override
+  Uint8List? readLog(int ns, int logId) => inner.readLog(ns, logId);
+  @override
+  List<KvLogEntry> iterLogRange({
+    required int namespace,
+    int? start,
+    int? end,
+    required int limit,
+  }) => inner.iterLogRange(
+    namespace: namespace,
+    start: start,
+    end: end,
+    limit: limit,
+  );
+  @override
+  int count(int ns) => inner.count(ns);
+  @override
+  List<Uint8List> kvKeys(int ns) => inner.kvKeys(ns);
+  @override
+  int eraseNamespace(int ns) => inner.eraseNamespace(ns);
+  @override
+  Uint8List exportKeys() => inner.exportKeys();
+  @override
+  void close() => inner.close();
+}
+
+({FakeKvLogStore store, HiddenVolumeStorage storage}) _space() {
+  final store = FakeKvLogStore();
+  final storage = HiddenVolumeStorage(
+    ({required Uint8List password, required bool create}) =>
+        password.isEmpty ? null : store,
+  );
+  return (store: store, storage: storage);
+}
+
+void main() {
+  late FakeKvLogStore store;
+  late HiddenVolumeStorage storage;
+
+  setUp(() async {
+    final space = _space();
+    store = space.store;
+    storage = space.storage;
+    await storage.open(password: 'pw', createIfMissing: true);
+  });
+
+  group('a conversation survives a restart', () {
+    test(
+      'a session saved on one run opens the next frame on the next run',
+      () async {
+        // Audit-shaped statement of the blocker this closes. veil keeps ratchet
+        // state in memory and its runtime directory is recreated every session,
+        // so without a host store every launch starts a NEW conversation — and
+        // the peer, who did not restart, keeps sealing to the old one.
+        final peer = _node(7);
+        final key = _convKey(local: 3, peerNode: 7);
+
+        final first = _FakeRatchetNode();
+        final firstRun = RatchetPersistence(native: first, storage: storage);
+        // Established: three frames exchanged, each one written before the
+        // operation was treated as finished.
+        first.import(key, _FakeConversation().encode());
+        for (var i = 0; i < 3; i++) {
+          expect(first.open(key, i), isTrue);
+          await firstRun.flush();
+        }
+        expect(first.stateVersion(), 3);
+
+        // The process ends. Everything in [first] is gone; only the container
+        // survives, which is the whole point.
+        final second = _FakeRatchetNode();
+        final secondRun = RatchetPersistence(native: second, storage: storage);
+        expect(await secondRun.restore(), 1);
+
+        // The peer never restarted, so its next frame is index 3 — not 0. A
+        // node that had rebuilt from nothing would be expecting 0 and could
+        // never catch up, because the sender will not go back.
+        expect(second.open(key, 3), isTrue, reason: 'chain resumed at 3');
+        expect(second.refusedForMissingState, 0);
+        await secondRun.flush();
+
+        // And the third run picks up from where the second left off.
+        final third = _FakeRatchetNode();
+        final thirdRun = RatchetPersistence(native: third, storage: storage);
+        expect(await thirdRun.restore(), 1);
+        expect(third.open(key, 4), isTrue);
+
+        // The peer's node id is readable straight out of the key, which is what
+        // makes the cleanup paths possible without a side table.
+        final stored = await storage.ratchetConversationKeys();
+        expect(stored, hasLength(1));
+        expect(
+          RatchetStateEntry(stored.single, Uint8List(1)).peerNodeId,
+          peer.bytes,
+        );
+      },
+    );
+
+    test('a blob veil refuses is dropped rather than retried forever', () async {
+      final key = _convKey(local: 3, peerNode: 8);
+      await storage.saveRatchetStates([
+        // Three bytes: shorter than anything the fake will decode.
+        RatchetStateEntry(key, Uint8List.fromList([1, 2, 3])),
+      ]);
+      final node = _FakeRatchetNode();
+      expect(await RatchetPersistence(native: node, storage: storage).restore(), 0);
+      expect(
+        await storage.ratchetConversationKeys(),
+        isEmpty,
+        reason: 'unusable key material is not kept',
+      );
+    });
+  });
+
+  group('a skipped write is caught', () {
+    test(
+      'not saving after a receive costs the next message, so the write is '
+      'not optional',
+      () async {
+        // Requirement 2 of the host contract, stated as a failure rather than
+        // as a wish: if the flush after a receive is skipped, the state that
+        // reaches the next run is the one from BEFORE that receive, and the
+        // sender — who advanced — is now ahead of it. Nothing re-sends the gap
+        // in a form this node can read.
+        final key = _convKey(local: 3, peerNode: 9);
+
+        final first = _FakeRatchetNode();
+        final run = RatchetPersistence(native: first, storage: storage);
+        first.import(key, _FakeConversation().encode());
+        expect(first.open(key, 0), isTrue);
+        await run.flush();
+        // ...and here the second receive is NOT written.
+        expect(first.open(key, 1), isTrue);
+
+        final second = _FakeRatchetNode();
+        expect(
+          await RatchetPersistence(native: second, storage: storage).restore(),
+          1,
+        );
+        // The peer's next frame is index 2. The restored state is expecting 1.
+        expect(
+          second.open(key, 2),
+          isFalse,
+          reason: 'the skipped write cost exactly one message key',
+        );
+        // And the frame it IS expecting will never arrive again.
+        expect(second.stateVersion(), 0, reason: 'nothing committed');
+      },
+    );
+
+    test('the flush is awaited before a send is reported finished', () async {
+      // The window this closes is small and fatal: a send that returned before
+      // its key was on disk is a key that exists nowhere if the process stops
+      // between the two.
+      final key = _convKey(local: 3, peerNode: 10);
+      final node = _FakeRatchetNode();
+      final run = RatchetPersistence(native: node, storage: storage);
+      node.seal(key);
+      final pending = run.flush();
+      // Nothing is stored until the returned future completes.
+      expect(await storage.ratchetConversationKeys(), isEmpty);
+      await pending;
+      expect(await storage.ratchetConversationKeys(), hasLength(1));
+    });
+  });
+
+  group('the dirty loop finishes the remainder', () {
+    test(
+      'a buffer smaller than the dirty list loses nothing',
+      () async {
+        // veil bounds `take_dirty` by the caller's buffer and leaves the rest
+        // MARKED. A host that read one batch and stopped would silently strand
+        // every conversation past it until the next time it changed — by which
+        // point the keys it was holding are gone.
+        final keys = [
+          for (var i = 0; i < 11; i++) _convKey(local: 3, peerNode: 20 + i),
+        ];
+        final node = _FakeRatchetNode();
+        for (final k in keys) {
+          node.seal(k);
+        }
+        // Three at a time against eleven dirty: four passes, and the last one
+        // is the one that reports zero remaining.
+        final run = RatchetPersistence(
+          native: node,
+          storage: storage,
+          dirtyBatch: 3,
+        );
+        expect(await run.flush(), keys.length);
+        expect(node.takeDirty(64).remaining, 0, reason: 'nothing left marked');
+
+        final stored = await storage.ratchetConversationKeys();
+        expect(stored, hasLength(keys.length));
+        for (final k in keys) {
+          expect(
+            await storage.loadRatchetState(k),
+            isNotNull,
+            reason: 'peer ${k[16]} was in the remainder, not the first batch',
+          );
+        }
+
+        // Every one of them restores, which is the point of not losing them.
+        final restarted = _FakeRatchetNode();
+        expect(
+          await RatchetPersistence(
+            native: restarted,
+            storage: storage,
+          ).restore(),
+          keys.length,
+        );
+      },
+    );
+
+    test('a state larger than one KV value round-trips whole', () async {
+      // A hidden-volume KV value stops at 2 KiB; an exported session does not.
+      // The skipped-message-key cache rides along at 68 bytes per banked key,
+      // and veil caps the whole thing at 256 KiB — so the conversations that
+      // would fail a single-value scheme are exactly the ones under load, with
+      // the most keys to lose.
+      final key = _convKey(local: 3, peerNode: 40);
+      final big = Uint8List(60 * 1024);
+      for (var i = 0; i < big.length; i++) {
+        big[i] = (i * 31 + 7) & 0xff;
+      }
+      await storage.saveRatchetStates([RatchetStateEntry(key, big)]);
+      expect(await storage.loadRatchetState(key), big);
+
+      // Shrinking must not leave the old tail behind for a later, longer save
+      // to splice back in.
+      final small = Uint8List.fromList([9, 9, 9, 9]);
+      await storage.saveRatchetStates([RatchetStateEntry(key, small)]);
+      expect(await storage.loadRatchetState(key), small);
+      expect(
+        store.count(Ns.ratchet),
+        1,
+        reason: 'the records past the new tail are gone, not orphaned',
+      );
+    });
+
+    test('a run missing a record reads as absent, never as truncated', () async {
+      final key = _convKey(local: 3, peerNode: 41);
+      final blob = Uint8List(3000)..fillRange(0, 3000, 0xab);
+      await storage.saveRatchetStates([RatchetStateEntry(key, blob)]);
+      expect(await storage.loadRatchetState(key), hasLength(3000));
+      // Lose the tail record the way a damaged container would.
+      final tail = Uint8List(kRatchetKeyLen + 2)
+        ..setRange(0, kRatchetKeyLen, key)
+        ..[kRatchetKeyLen + 1] = 2;
+      store.commit([DeleteOp(Ns.ratchet, tail)]);
+      expect(
+        await storage.loadRatchetState(key),
+        isNull,
+        reason: 'half a session is a session with the WRONG keys',
+      );
+    });
+  });
+
+  group('identities do not leak', () {
+    test(
+      'one identity\'s sessions are invisible and unusable from another',
+      () async {
+        // Every identity has its own container, and the ratchet state is the
+        // one thing that would tie two of them to the same conversation on the
+        // wire if it crossed.
+        final other = _space();
+        await other.storage.open(password: 'pw2', createIfMissing: true);
+
+        final key = _convKey(local: 3, peerNode: 55);
+        final mine = _FakeRatchetNode();
+        final mineRun = RatchetPersistence(native: mine, storage: storage);
+        mine.import(key, _FakeConversation().encode());
+        expect(mine.open(key, 0), isTrue);
+        await mineRun.flush();
+        expect(await storage.ratchetConversationKeys(), hasLength(1));
+
+        // The other identity's container holds nothing, and its node restores
+        // nothing — so a frame for that conversation cannot be opened there.
+        expect(await other.storage.ratchetConversationKeys(), isEmpty);
+        final theirs = _FakeRatchetNode();
+        expect(
+          await RatchetPersistence(
+            native: theirs,
+            storage: other.storage,
+          ).restore(),
+          0,
+        );
+        expect(theirs.open(key, 1), isFalse);
+        expect(theirs.refusedForMissingState, 1);
+
+        // ...and the reverse: what the other identity writes stays in its own
+        // space rather than appearing in ours.
+        final theirKey = _convKey(local: 4, peerNode: 66);
+        theirs.seal(theirKey);
+        await RatchetPersistence(
+          native: theirs,
+          storage: other.storage,
+        ).flush();
+        expect(await other.storage.ratchetConversationKeys(), hasLength(1));
+        expect(await storage.ratchetConversationKeys(), hasLength(1));
+        expect(await storage.loadRatchetState(theirKey), isNull);
+      },
+    );
+
+    test('superseded sessions are reclaimed, not left readable', () async {
+      // Replacing a KV value ORPHANS the chunk that held the old one; the
+      // bytes stay in the container, readable to anyone with the password,
+      // until a vacuum reclaims them. For an ordinary setting that is untidy.
+      // Here every superseded blob is a chain key the ratchet has turned past,
+      // and forward secrecy a password recovers is not forward secrecy.
+      final counting = _ScrubCountingStore();
+      final vol = HiddenVolumeStorage(
+        ({required Uint8List password, required bool create}) => counting,
+      );
+      await vol.open(password: 'pw', createIfMissing: true);
+      final key = _convKey(local: 3, peerNode: 120);
+      Uint8List blob(int n) => Uint8List(1400)..[0] = n & 0xff;
+
+      for (var i = 0; i < 127; i++) {
+        await vol.saveRatchetStates([RatchetStateEntry(key, blob(i))]);
+      }
+      expect(counting.scrubs, 0, reason: 'amortized, not once per message');
+      await vol.saveRatchetStates([RatchetStateEntry(key, blob(127))]);
+      expect(
+        counting.scrubs,
+        1,
+        reason: 'the window is bounded by a count of writes, not by time',
+      );
+      expect(await vol.loadRatchetState(key), blob(127));
+    });
+
+    test('erasing an identity takes its ratchet state with it', () async {
+      final key = _convKey(local: 3, peerNode: 77);
+      await storage.saveRatchetStates([
+        RatchetStateEntry(key, Uint8List(1400)),
+      ]);
+      expect(store.count(Ns.ratchet), greaterThan(0));
+      await storage.eraseSpace();
+      expect(
+        store.count(Ns.ratchet),
+        0,
+        reason: 'the one namespace that is pure key material is not exempt',
+      );
+    });
+  });
+
+  group('cleanup reads the key', () {
+    test('forgetting a contact drops both of their devices', () async {
+      // The key is flat and reversible on purpose: everything belonging to a
+      // contact is everything with that node id in its middle 32 bytes, and
+      // two devices of one contact are two independent ratchets.
+      final gone = _node(90);
+      final phone = _convKey(local: 3, peerNode: 90, peerInstance: 1);
+      final laptop = _convKey(local: 3, peerNode: 90, peerInstance: 2);
+      final other = _convKey(local: 3, peerNode: 91);
+
+      final node = _FakeRatchetNode();
+      final run = RatchetPersistence(native: node, storage: storage);
+      for (final k in [phone, laptop, other]) {
+        node.seal(k);
+      }
+      await run.flush();
+      expect(await storage.ratchetConversationKeys(), hasLength(3));
+
+      expect(await run.forgetPeer(gone), 2);
+      expect(await storage.ratchetConversationKeys(), hasLength(1));
+      expect(await storage.loadRatchetState(other), isNotNull);
+      // Live state goes too, or the session survives the deletion in memory
+      // and re-persists itself on the next flush.
+      expect(node.list(), hasLength(1));
+      await run.flush();
+      expect(await storage.ratchetConversationKeys(), hasLength(1));
+    });
+
+    test(
+      'a contact whose sessions are only on disk still loses all of them',
+      () async {
+        // The mirror of the test above, and the one that actually pins the
+        // storage-side scan: here the node holds NOTHING — the app was
+        // restarted and the chat deleted before anything re-opened — so the
+        // only thing that can find these two conversations is reading the
+        // stored keys. With the live list carrying the case, a forget that
+        // stopped at the first stored match looked correct.
+        final gone = _node(93);
+        final phone = _convKey(local: 3, peerNode: 93, peerInstance: 1);
+        final laptop = _convKey(local: 3, peerNode: 93, peerInstance: 2);
+        final other = _convKey(local: 3, peerNode: 94);
+        for (final k in [phone, laptop, other]) {
+          await storage.saveRatchetStates([
+            RatchetStateEntry(k, _FakeConversation().encode()),
+          ]);
+        }
+
+        final cold = _FakeRatchetNode();
+        final run = RatchetPersistence(native: cold, storage: storage);
+        expect(cold.list(), isEmpty);
+        expect(await run.forgetPeer(gone), 2);
+
+        final left = await storage.ratchetConversationKeys();
+        expect(left, hasLength(1));
+        expect(await storage.loadRatchetState(other), isNotNull);
+        expect(await storage.loadRatchetState(phone), isNull);
+        expect(await storage.loadRatchetState(laptop), isNull);
+      },
+    );
+
+    test(
+      'a session veil holds but the container has not seen yet is still '
+      'forgotten',
+      () async {
+        final gone = _node(92);
+        final key = _convKey(local: 3, peerNode: 92);
+        final node = _FakeRatchetNode();
+        final run = RatchetPersistence(native: node, storage: storage);
+        // Opened this session and never flushed — deleting the chat must not
+        // leave it live in the node to be written back a moment later.
+        node.seal(key);
+        expect(await storage.ratchetConversationKeys(), isEmpty);
+
+        await run.forgetPeer(gone);
+        expect(node.list(), isEmpty);
+        await run.flush();
+        expect(await storage.ratchetConversationKeys(), isEmpty);
+      },
+    );
+
+    test(
+      'state keyed to a device we are no longer is dropped once veil says so',
+      () async {
+        // The first 16 bytes are OUR device, and they change when this
+        // identity's active subkey is re-issued. Nothing on this side knows
+        // that value, so it is learned from a key veil itself produced —
+        // never guessed.
+        final oldDevice = _convKey(local: 1, peerNode: 30);
+        final node = _FakeRatchetNode();
+        final run = RatchetPersistence(native: node, storage: storage);
+        node.seal(oldDevice);
+        await run.flush();
+        expect(
+          await storage.getSetting(kRatchetLocalInstanceSetting),
+          isNotNull,
+        );
+
+        // A later run, after the device was re-issued: veil now keys
+        // conversations under a different local instance.
+        final reissued = _FakeRatchetNode();
+        final reissuedRun = RatchetPersistence(
+          native: reissued,
+          storage: storage,
+        );
+        await reissuedRun.restore();
+        reissued.seal(_convKey(local: 2, peerNode: 31));
+        await reissuedRun.flush();
+
+        final left = await storage.ratchetConversationKeys();
+        expect(left, hasLength(1));
+        expect(left.single[0], 2, reason: 'only the current device remains');
+      },
+    );
+
+    test('a first run records the device without dropping anything', () async {
+      // Nothing stored, nothing to prune — and the marker still gets written,
+      // or the NEXT run would think the device had just changed.
+      final key = _convKey(local: 5, peerNode: 32);
+      final node = _FakeRatchetNode();
+      final run = RatchetPersistence(native: node, storage: storage);
+      node.seal(key);
+      await run.flush();
+      expect(await storage.ratchetConversationKeys(), hasLength(1));
+
+      final next = _FakeRatchetNode();
+      final nextRun = RatchetPersistence(native: next, storage: storage);
+      expect(await nextRun.restore(), 1);
+      next.seal(key);
+      await nextRun.flush();
+      expect(
+        await storage.ratchetConversationKeys(),
+        hasLength(1),
+        reason: 'the same device must not prune its own state',
+      );
+    });
+  });
+
+  group('the messaging paths write before they finish', () {
+    // The contract is not "persist somewhere"; it is "persist BEFORE the send
+    // or the receive is treated as complete". These drive the real service so
+    // the two chokepoints — the single egress point and the inbound handler —
+    // are what is being checked, not a helper beside them.
+    late _FakeTransport tA, tB;
+    late HiddenVolumeStorage sA, sB;
+    late MessagingService mA, mB;
+    late _FakeRatchetNode nA, nB;
+    late NodeId a, b;
+    late List<String> orderB;
+
+    setUp(() async {
+      a = _node(1);
+      b = _node(2);
+      nA = _FakeRatchetNode();
+      nB = _FakeRatchetNode();
+      orderB = <String>[];
+      final spaceA = _space();
+      final storeB = FakeKvLogStore();
+      sA = spaceA.storage;
+      sB = _OrderedStorage(
+        ({required Uint8List password, required bool create}) => storeB,
+        orderB,
+        // Long enough that a write which was merely STARTED before the frame
+        // was acted on cannot finish first by accident.
+        ratchetDelay: const Duration(milliseconds: 40),
+      );
+      await sA.open(password: 'a', createIfMissing: true);
+      await sB.open(password: 'b', createIfMissing: true);
+      // Sealing on the way out and opening on the way in, the way veil does it
+      // around the frame this transport carries.
+      tA = _FakeTransport(a, onSend: (dst) => nA.seal(_convKey(local: 1, peerNode: 2)));
+      tB = _FakeTransport(b, onSend: (dst) => nB.seal(_convKey(local: 2, peerNode: 1)));
+      tA.peer = tB;
+      tB.peer = tA;
+      tA.onDeliver = () =>
+          nA.open(_convKey(local: 1, peerNode: 2), nA._held.isEmpty ? -1 : 0);
+      tB.onDeliver = () {
+        nB.import(_convKey(local: 2, peerNode: 1), _FakeConversation().encode());
+        nB.seal(_convKey(local: 2, peerNode: 1));
+      };
+      mA = MessagingService(tA, sA)
+        ..ratchet = RatchetPersistence(native: nA, storage: sA)
+        ..start();
+      mB = MessagingService(tB, sB)
+        ..ratchet = RatchetPersistence(native: nB, storage: sB)
+        ..start();
+    });
+
+    tearDown(() async {
+      await mA.dispose();
+      await mB.dispose();
+    });
+
+    test('a send does not finish until its key is on disk', () async {
+      expect(await sA.ratchetConversationKeys(), isEmpty);
+      await mA.sendRequest(b, 'hello');
+      // No pump. The send already returned, so by the contract the key it
+      // burned is already in the container.
+      expect(
+        await sA.ratchetConversationKeys(),
+        hasLength(1),
+        reason: 'the flush is inside the single egress point',
+      );
+    });
+
+    test('a receive does not finish until its key is on disk', () async {
+      await mA.sendRequest(b, 'hello');
+      await _pump();
+      expect(await sB.ratchetConversationKeys(), hasLength(1));
+      // ORDER, not eventuality. veil advanced the receiving chain on the way
+      // up; from the moment this frame is acted on the sender is told to stop
+      // retransmitting, so the write has to be finished first — not merely
+      // started.
+      expect(
+        orderB.first,
+        'ratchet',
+        reason: 'the key was kept before anything was done with the frame',
+      );
+      expect(orderB, contains('message'));
+    });
+
+    test('deleting the chat takes the stored session with it', () async {
+      await mA.sendRequest(b, 'hello');
+      await _pump();
+      expect(await sA.ratchetConversationKeys(), hasLength(1));
+      await mA.deleteConversation(b);
+      expect(
+        await sA.ratchetConversationKeys(),
+        isEmpty,
+        reason: 'a deleted chat leaves no chain behind',
+      );
+    });
+  });
+
+  group('the shutdown save consumes no marks', () {
+    test('saveAll writes everything held and leaves the dirty list', () async {
+      final a = _convKey(local: 3, peerNode: 100);
+      final b = _convKey(local: 3, peerNode: 101);
+      final node = _FakeRatchetNode();
+      final run = RatchetPersistence(native: node, storage: storage);
+      node.seal(a);
+      node.seal(b);
+
+      expect(await run.saveAll(), 2);
+      expect(await storage.ratchetConversationKeys(), hasLength(2));
+      // The marks are the record of what still needs writing; a shutdown save
+      // that consumed them would leave a crash after this point with nothing
+      // to notice.
+      expect(node.takeDirty(64).keys, hasLength(2));
+    });
+  });
+}

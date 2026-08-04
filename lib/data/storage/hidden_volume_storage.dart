@@ -892,6 +892,222 @@ class HiddenVolumeStorage implements Storage {
     return AsyncFileStore(_as).readFileRange(fileId, offset, length);
   }
 
+  // --- Ratchet sessions ----------------------------------------------------
+  //
+  // One conversation is one chunk RUN in [Ns.ratchet], keyed
+  // `conversation key (64) ‖ chunk index (u16 BE)`. Chunked because a
+  // hidden-volume KV value stops at 2 KiB and an exported session does not: an
+  // established one is ~1.4 kB, but the skipped-message-key cache rides along
+  // at 68 bytes per key banked for a frame that has not arrived, and veil caps
+  // that at 256 KiB. A single-value scheme would have worked for months and
+  // then started refusing to save exactly the conversations under load — the
+  // ones with the most banked keys to lose.
+  //
+  // Chunk zero opens with the total length, so a run that is short by a record
+  // reads back as ABSENT rather than as a truncated session. veil would refuse
+  // the blob anyway ("rejects a blob it does not fully understand"), but the
+  // failure belongs here, where it names the conversation.
+
+  /// Bytes of blob per record. Half the 2 KiB KV ceiling on purpose: values
+  /// live inline in the namespace's index leaves, and a 4 KiB leaf that fits
+  /// one maximal value spends a whole tree level per conversation.
+  static const int _kRatchetChunkBytes = 1024;
+
+  /// Records per commit, bounded like the settings sweep. A conversation is
+  /// never split across commits — see [saveRatchetStates].
+  static const int _kRatchetOpsPerCommit = 128;
+
+  /// Conversations written between vacuum passes.
+  ///
+  /// Replacing a KV value does not scrub the chunk that held the old one; it
+  /// ORPHANS it, readable to anyone with the password until a vacuum reclaims
+  /// it. For ordinary settings that is untidy. For this namespace it undoes the
+  /// point: every superseded blob is a chain key the ratchet has already turned
+  /// past, and forward secrecy that a password recovers is not forward secrecy.
+  ///
+  /// Amortized rather than per-save because the pass walks the container, and
+  /// this runs on the path a send is waiting on. The window it leaves is
+  /// bounded by a count, not by time — an idle profile does not sit on old keys
+  /// because an idle profile is not producing any.
+  static const int _kRatchetSavesPerScrub = 128;
+
+  int _ratchetSavesSinceScrub = 0;
+
+  /// `conversation key ‖ chunk index`, the record key.
+  static Uint8List _ratchetRecordKey(Uint8List conversationKey, int chunk) {
+    final out = Uint8List(kRatchetKeyLen + 2);
+    out.setRange(0, kRatchetKeyLen, conversationKey);
+    out[kRatchetKeyLen] = (chunk >> 8) & 0xff;
+    out[kRatchetKeyLen + 1] = chunk & 0xff;
+    return out;
+  }
+
+  /// How many records a blob of [blobLen] bytes occupies (length prefix
+  /// included). Never zero: an empty run and an absent conversation must not
+  /// look the same.
+  static int _ratchetChunkCount(int blobLen) =>
+      ((4 + blobLen) + _kRatchetChunkBytes - 1) ~/ _kRatchetChunkBytes;
+
+  @override
+  Future<List<Uint8List>> ratchetConversationKeys() async {
+    final keys = await _as.kvKeys(Ns.ratchet);
+    final out = <Uint8List>[];
+    for (final k in keys) {
+      // Only the head record names a conversation. Counting every record would
+      // return one "conversation" per chunk of a big one.
+      if (k.length != kRatchetKeyLen + 2) continue;
+      if (k[kRatchetKeyLen] != 0 || k[kRatchetKeyLen + 1] != 0) continue;
+      out.add(Uint8List.fromList(k.sublist(0, kRatchetKeyLen)));
+    }
+    return out;
+  }
+
+  @override
+  Future<Uint8List?> loadRatchetState(Uint8List conversationKey) async {
+    if (conversationKey.length != kRatchetKeyLen) return null;
+    final head = await _as.get(Ns.ratchet, _ratchetRecordKey(conversationKey, 0));
+    if (head == null || head.length < 4) return null;
+    final total =
+        (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
+    if (total <= 0 || total > kRatchetMaxStateLen) return null;
+    final out = Uint8List(total);
+    var filled = 0;
+    void take(Uint8List record, int from) {
+      final n = record.length - from;
+      if (n <= 0) return;
+      final room = total - filled;
+      final take = n < room ? n : room;
+      out.setRange(filled, filled + take, record, from);
+      filled += take;
+    }
+
+    take(head, 4);
+    final chunks = _ratchetChunkCount(total);
+    for (var i = 1; i < chunks; i++) {
+      final part = await _as.get(Ns.ratchet, _ratchetRecordKey(conversationKey, i));
+      // A missing record means the run is incomplete. Half a session is a
+      // session with the WRONG keys, so answer "nothing held" and let the
+      // conversation re-key rather than importing a lie.
+      if (part == null) return null;
+      take(part, 0);
+    }
+    return filled == total ? out : null;
+  }
+
+  @override
+  Future<void> saveRatchetStates(List<RatchetStateEntry> entries) async {
+    if (entries.isEmpty) return;
+    var pending = <KvLogOp>[];
+    Future<void> flush() async {
+      if (pending.isEmpty) return;
+      final ops = pending;
+      pending = <KvLogOp>[];
+      await _as.commit(ops);
+    }
+
+    for (final entry in entries) {
+      if (entry.conversationKey.length != kRatchetKeyLen) {
+        throw ArgumentError.value(
+          entry.conversationKey.length,
+          'conversationKey',
+          'a conversation key is exactly $kRatchetKeyLen bytes',
+        );
+      }
+      if (entry.blob.isEmpty || entry.blob.length > kRatchetMaxStateLen) {
+        throw ArgumentError.value(
+          entry.blob.length,
+          'blob',
+          'implausible ratchet state length',
+        );
+      }
+      final stream = Uint8List(4 + entry.blob.length);
+      stream[0] = (entry.blob.length >> 24) & 0xff;
+      stream[1] = (entry.blob.length >> 16) & 0xff;
+      stream[2] = (entry.blob.length >> 8) & 0xff;
+      stream[3] = entry.blob.length & 0xff;
+      stream.setRange(4, stream.length, entry.blob);
+
+      final chunks = _ratchetChunkCount(entry.blob.length);
+      final ops = <KvLogOp>[];
+      for (var i = 0; i < chunks; i++) {
+        final start = i * _kRatchetChunkBytes;
+        final end = start + _kRatchetChunkBytes < stream.length
+            ? start + _kRatchetChunkBytes
+            : stream.length;
+        ops.add(
+          PutOp(
+            Ns.ratchet,
+            _ratchetRecordKey(entry.conversationKey, i),
+            Uint8List.sublistView(stream, start, end),
+          ),
+        );
+      }
+      // A shrinking session (skipped keys got claimed) leaves records past the
+      // new tail. Left behind, the NEXT read would stop at the length prefix
+      // and never notice them — but a later, longer save would then reuse them
+      // as if they were its own, splicing bytes from two points in the chain.
+      final priorChunks = await _ratchetStoredChunkCount(entry.conversationKey);
+      for (var i = chunks; i < priorChunks; i++) {
+        ops.add(DeleteOp(Ns.ratchet, _ratchetRecordKey(entry.conversationKey, i)));
+      }
+      // Conversations are whole or absent: never let one straddle two commits,
+      // however large it is, or a crash between them restores a session whose
+      // halves came from different points in the chain.
+      if (pending.isNotEmpty &&
+          pending.length + ops.length > _kRatchetOpsPerCommit) {
+        await flush();
+      }
+      pending.addAll(ops);
+      if (pending.length >= _kRatchetOpsPerCommit) await flush();
+      _ratchetSavesSinceScrub++;
+    }
+    await flush();
+    if (_ratchetSavesSinceScrub >= _kRatchetSavesPerScrub) {
+      _ratchetSavesSinceScrub = 0;
+      // Reclaim the chunks the replacements above orphaned. Every one of them
+      // holds a session from before the chain moved on, and a chain key that
+      // survives in the container is a chain key a password still opens.
+      await _as.scrub();
+      // Same defensive invalidation [scrubDeleted] does: if a vacuum ever
+      // renumbers the log, the fold's watermark is stale.
+      await _invalidateScanCache();
+    }
+  }
+
+  @override
+  Future<int> forgetRatchetStates(Iterable<Uint8List> conversationKeys) async {
+    final ops = <KvLogOp>[];
+    var forgotten = 0;
+    for (final key in conversationKeys) {
+      if (key.length != kRatchetKeyLen) continue;
+      final chunks = await _ratchetStoredChunkCount(key);
+      if (chunks == 0) continue;
+      forgotten++;
+      for (var i = 0; i < chunks; i++) {
+        ops.add(DeleteOp(Ns.ratchet, _ratchetRecordKey(key, i)));
+      }
+    }
+    for (var i = 0; i < ops.length; i += _kRatchetOpsPerCommit) {
+      await _as.commit(ops.skip(i).take(_kRatchetOpsPerCommit).toList());
+    }
+    // The bytes are key material, so the records they occupied are reclaimed
+    // rather than orphaned — a tombstone that leaves the old chunk readable to
+    // a key-holder is not forgetting.
+    if (ops.isNotEmpty) await _as.scrub();
+    return forgotten;
+  }
+
+  /// Records currently stored for [conversationKey], read from its head
+  /// record's length prefix (0 when nothing is held).
+  Future<int> _ratchetStoredChunkCount(Uint8List conversationKey) async {
+    final head = await _as.get(Ns.ratchet, _ratchetRecordKey(conversationKey, 0));
+    if (head == null || head.length < 4) return 0;
+    final total =
+        (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
+    if (total <= 0 || total > kRatchetMaxStateLen) return 0;
+    return _ratchetChunkCount(total);
+  }
+
   @override
   Future<Message> appendMessage(Message message) async {
     // Bind (author, seq): the author is the message originator (set by the
@@ -1976,8 +2192,14 @@ class HiddenVolumeStorage implements Storage {
     await _as.eraseNamespace(Ns.messageLog);
     // Erase the full reserved range, not merely namespaces discoverable from
     // settings: forensic identity deletion must remain complete even if a
-    // marker/counter was damaged.
-    for (var ns = Ns.messageLogShardFirst; ns <= Ns.messageLogShardLast; ns++) {
+    // marker/counter was damaged. Through the RETIRED bound, not the
+    // allocator's — narrowing what this build may write must not narrow what a
+    // destroy-everything pass reaches.
+    for (
+      var ns = Ns.messageLogShardFirst;
+      ns <= Ns.messageLogShardRetiredLast;
+      ns++
+    ) {
       await _as.eraseNamespace(ns);
     }
     for (final ns in const [
@@ -1988,6 +2210,9 @@ class HiddenVolumeStorage implements Storage {
       Ns.outbox,
       Ns.callLog,
       Ns.outboxIndex,
+      // Ratchet sessions. Leaving them would leave the ONE thing here that is
+      // pure key material behind an erase that removed everything else.
+      Ns.ratchet,
     ]) {
       await _as.eraseNamespace(ns);
     }
@@ -2392,7 +2617,11 @@ class HiddenVolumeStorage implements Storage {
     // the settings KV and keep advancing across the erase, so the peer never
     // sees a seq reuse or a gap (our next event is simply high-water + 1).
     var erased = await _as.eraseNamespace(Ns.messageLog);
-    for (var ns = Ns.messageLogShardFirst; ns <= Ns.messageLogShardLast; ns++) {
+    for (
+      var ns = Ns.messageLogShardFirst;
+      ns <= Ns.messageLogShardRetiredLast;
+      ns++
+    ) {
       erased += await _as.eraseNamespace(ns);
     }
     await _as.scrub();

@@ -31,6 +31,7 @@ import '../state/group_service.dart';
 import '../state/mailbox_orchestrator.dart';
 import '../state/mailbox_service.dart';
 import '../state/messaging_core.dart';
+import '../state/ratchet_persistence.dart' show ratchetPersistenceFor;
 import 'headless_config.dart';
 
 const _tokensKey = 'api.tokens';
@@ -139,7 +140,14 @@ class HeadlessRuntime {
         stack.transport,
         storage,
         anonymous: config.anonymous,
-      )..sourceOpener = veilSourceOpener;
+      )
+        ..sourceOpener = veilSourceOpener
+        // A daemon runs for weeks and restarts like anything else. Without this
+        // its ratchet sessions would be rebuilt from scratch on every start,
+        // which is the same silent loss the app path exists to close — and a
+        // headless peer is the one most likely to be restarted by a supervisor
+        // while the other side keeps sending.
+        ..ratchet = ratchetPersistenceFor(stack, storage);
       messaging.start();
 
       final identityToml = await storage.loadNodeConfig();
