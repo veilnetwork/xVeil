@@ -2214,6 +2214,94 @@ void main() {
     },
   );
 
+  test('one row repeated is one delta, not one delta per copy', () async {
+    // Audit XV-11. The overlay id was built from `(type, author, seq)` per
+    // row, in a LIST — so repeating one valid row N times produced N different
+    // ids, the relay dedup saw a brand new delta every time, and an accepted
+    // contact could pump the same signed row through the overlay for as long
+    // as it liked. The id is now a hash of the row CONTENT over a SET, so how
+    // many copies a delta carries is not part of what the delta IS.
+    //
+    // It stays ephemeral: RAM only, never signed, never persisted.
+    final sent = <(NodeId, String)>[];
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(
+      storage,
+      _FakeSigner(owner),
+      send: (peer, gid, json) async => sent.add((peer, json)),
+    );
+    final gid = await svc.createGroup('multiplicity');
+    for (final member in [_id(0), _id(2), _id(3), _id(4), _id(5), _id(7)]) {
+      await svc.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: member,
+        role: GroupRole.member,
+      );
+    }
+    for (var i = 0; i < 6; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    sent.clear();
+    await svc.postMessage(gid, 'once');
+    for (var i = 0; i < 6; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    final delta = sent.first.$2;
+    final wire = jsonDecode(delta) as Map;
+
+    // What an accepted contact sends: the same signed row, repeated, with the
+    // overlay id left exactly as it was. Nothing here is forged — every copy
+    // is the sender's own valid row.
+    final repeated = Map<String, dynamic>.from(wire);
+    final row = (wire['g'] as List).single;
+    repeated['g'] = [row, row, row, row, row];
+
+    final relayStorage = FakeHvContainer().storage();
+    await relayStorage.open(password: 'pw', createIfMissing: true);
+    final relayed = <(NodeId, String)>[];
+    final relay = GroupService(
+      relayStorage,
+      _FakeSigner(_id(3)),
+      send: (peer, gid, json) async => relayed.add((peer, json)),
+    );
+    final ownerBundle = (await svc.load(gid))!;
+    expect(
+      await relay.ingestSnapshot(
+        svc.snapshotJson(
+          ownerBundle.copyWith(messages: const []),
+          recipient: _id(3),
+        ),
+      ),
+      isTrue,
+    );
+
+    expect(await relay.ingestGroupEntry(owner, jsonEncode(repeated)), isTrue);
+    expect(
+      relayed,
+      isNotEmpty,
+      reason:
+          'a delta that repeats a row is still the delta it is — the id used '
+          'to change with the copy count, so this one was not recognised',
+    );
+    final forwarded = jsonDecode(relayed.first.$2) as Map;
+    expect(
+      (forwarded['g'] as List), hasLength(1),
+      reason: 'five copies in, five copies out to every neighbour',
+    );
+
+    // …and the plain delta afterwards is the SAME delta, so it is not relayed
+    // a second time. That is the property the count used to destroy.
+    final before = relayed.length;
+    expect(await relay.ingestGroupEntry(owner, delta), isTrue);
+    expect(
+      relayed,
+      hasLength(before),
+      reason: 'one row, however many copies, is one identity',
+    );
+  });
+
   test(
     'boot gap-fill contacts the same deterministic XOR neighbours',
     () async {

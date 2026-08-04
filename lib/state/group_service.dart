@@ -13366,23 +13366,23 @@ class GroupService {
         (wire['c'] as List).isNotEmpty) {
       return;
     }
-    final messages = (wire['g'] as List? ?? const [])
+    var messages = (wire['g'] as List? ?? const [])
         .map(GroupMessage.fromJson)
         .whereType<GroupMessage>()
         .toList();
-    final reactions = (wire['r'] as List? ?? const [])
+    var reactions = (wire['r'] as List? ?? const [])
         .map(GroupReaction.fromJson)
         .whereType<GroupReaction>()
         .toList();
-    final posts = (wire['p'] as List? ?? const [])
+    var posts = (wire['p'] as List? ?? const [])
         .map(SpacePost.fromJson)
         .whereType<SpacePost>()
         .toList();
-    final publicComments = (wire['pc'] as List? ?? const [])
+    var publicComments = (wire['pc'] as List? ?? const [])
         .map(SpacePublicComment.fromJson)
         .whereType<SpacePublicComment>()
         .toList();
-    final publicReactions = (wire['pr'] as List? ?? const [])
+    var publicReactions = (wire['pr'] as List? ?? const [])
         .map(SpacePublicReaction.fromJson)
         .whereType<SpacePublicReaction>()
         .toList();
@@ -13393,6 +13393,15 @@ class GroupService {
         publicReactions.isEmpty) {
       return;
     }
+    // Collapse repeats before anything else looks at them. A delta that
+    // carries one row ten times is a delta about ONE row, and relaying ten
+    // copies of it to every neighbour is the amplification this is about
+    // (audit XV-11).
+    messages = _distinctRows(messages, (row) => row.toJson());
+    reactions = _distinctRows(reactions, (row) => row.toJson());
+    posts = _distinctRows(posts, (row) => row.toJson());
+    publicComments = _distinctRows(publicComments, (row) => row.toJson());
+    publicReactions = _distinctRows(publicReactions, (row) => row.toJson());
     if (_overlayDeltaId(
           manifest.groupId,
           messages,
@@ -17270,6 +17279,22 @@ class GroupService {
     return n;
   }
 
+  /// The identity of an overlay delta: WHAT it carries, not how many times.
+  ///
+  /// This was `(type, author, seq)` per row, collected into a LIST, and two
+  /// things followed from that. Repeating one valid row N times in a single
+  /// delta produced N different ids, so the relay dedup saw a brand new delta
+  /// every time and an accepted contact could pump the same signed row through
+  /// the overlay without limit — one string, unlimited identities (audit
+  /// XV-11). And two differently-signed rows that shared an (author, seq)
+  /// collided, so the second was silently never relayed.
+  ///
+  /// Both stop when the id is a hash of the row CONTENT and the parts are a
+  /// SET: multiplicity stops mattering, and different bytes stop colliding.
+  ///
+  /// This does NOT weaken deniability. The id is ephemeral — it lives in RAM
+  /// for the lifetime of the process, is never signed, never persisted, and
+  /// never leaves this device except as the opaque `ov` field it already was.
   String _overlayDeltaId(
     NodeId groupId,
     Iterable<GroupMessage> messages,
@@ -17278,17 +17303,38 @@ class GroupService {
     Iterable<SpacePublicComment> publicComments = const [],
     Iterable<SpacePublicReaction> publicReactions = const [],
   ]) {
-    final identities = <String>[
-      for (final message in messages) 'm:${message.author.hex}:${message.seq}',
-      for (final reaction in reactions)
-        'r:${reaction.author.hex}:${reaction.seq}',
-      for (final post in posts) 'p:${post.author.hex}:${post.seq}',
-      for (final comment in publicComments) 'pc:${comment.recordHash}',
-      for (final reaction in publicReactions) 'pr:${reaction.recordHash}',
-    ]..sort();
+    final identities =
+        <String>{
+          for (final message in messages) 'm:${_rowDigest(message.toJson())}',
+          for (final reaction in reactions)
+            'r:${_rowDigest(reaction.toJson())}',
+          for (final post in posts) 'p:${_rowDigest(post.toJson())}',
+          // Already content-derived, and cheaper than re-hashing the row.
+          for (final comment in publicComments) 'pc:${comment.recordHash}',
+          for (final reaction in publicReactions) 'pr:${reaction.recordHash}',
+        }.toList()..sort();
     return crypto.sha256
         .convert(utf8.encode('${groupId.hex}|${identities.join('|')}'))
         .toString();
+  }
+
+  /// A row's content, canonically. The same `toJson`-then-encode equality the
+  /// relay's stored-row lookup already uses, so the two cannot disagree about
+  /// whether two rows are the same row.
+  static String _rowDigest(Map<String, dynamic> json) =>
+      crypto.sha256.convert(utf8.encode(jsonEncode(json))).toString();
+
+  /// Distinct rows, by that same canonical content, order preserved.
+  static List<T> _distinctRows<T>(
+    List<T> rows,
+    Map<String, dynamic> Function(T) json,
+  ) {
+    if (rows.length < 2) return rows;
+    final seen = <String>{};
+    return [
+      for (final row in rows)
+        if (seen.add(_rowDigest(json(row)))) row,
+    ];
   }
 
   bool _rememberOverlayDelta(String id) {
