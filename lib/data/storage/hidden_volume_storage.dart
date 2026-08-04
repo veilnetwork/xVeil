@@ -2022,6 +2022,11 @@ class HiddenVolumeStorage implements Storage {
     // log-index slots (per-record scrubs overwrite in place; see the interface
     // doc). Scrub afterwards so the erased chunk payloads are reclaimed too.
     final erased = await _as.eraseNamespace(Ns.fileChunks);
+    // The durable chunk accounting now describes records that are gone; leaving
+    // it would keep the collector's high-water trigger armed against a count of
+    // nothing. Dropping it re-seeds from the (now empty) namespace on the next
+    // write.
+    await AsyncFileStore(_as).forgetChunkAccounting();
     await _as.scrub();
     return erased;
   }
