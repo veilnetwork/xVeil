@@ -36,7 +36,7 @@
 /// list below is the other half of that contract.
 String identityScopedPrefKey(String key) => key;
 
-/// Every profile-scoped posture key, for the paths that must clear them.
+/// Every profile-scoped key, for the paths that must clear them.
 ///
 /// A wipe used to remove only `onboarded` and `storage_mode` (audit XV-15), so
 /// "clear all data" left the proxy exit, the VPN app list, CIDR and DNS, the
@@ -44,11 +44,20 @@ String identityScopedPrefKey(String key) => key;
 /// preference store in plaintext. Someone who wiped because they had to still
 /// had their network posture on disk, readable without a container.
 ///
-/// A list rather than a prefix sweep: `shared_preferences` holds plenty that is
+/// The device-SYNCED settings were missed by the same fix and stayed behind for
+/// the same reason (audit XV-15, again). The worst of them is the signature
+/// policy: it decides whether this device answers a "please sign this" request
+/// automatically, so an inherited "yes" makes a profile emit NON-REPUDIABLE
+/// proof of authorship — in a messenger built so that authorship can always be
+/// denied. Language and reaction visibility are milder but the same class: a
+/// wipe that leaves the interface in the language the previous occupant chose
+/// has not wiped what someone comparing two profiles would look at.
+///
+/// A list rather than a prefix sweep: the preference file holds plenty that is
 /// not ours to delete, and a wipe that guesses is a wipe that eventually
-/// removes someone else's key. Adding a posture setting means adding it here,
-/// which is the point — the compiler cannot notice, so the list has to be the
-/// obvious place to look.
+/// removes someone else's key. Adding a setting means adding it here, which is
+/// the point — the compiler cannot notice, so the list has to be the obvious
+/// place to look.
 const kIdentityPosturePrefKeys = <String>[
   'proxy_routing',
   'vpn_routing_policy',
@@ -57,6 +66,12 @@ const kIdentityPosturePrefKeys = <String>[
   'notifications_preview',
   'storage.lean_padding.v1',
   'whisper.auto_fetch.v1',
+  // Device-synced settings. `kSync*` in device_settings_sync.dart holds the
+  // same three strings; they are spelled out here rather than imported so this
+  // list stays readable as the checklist it is.
+  'signature_policy',
+  'locale',
+  'show_reactions',
 ];
 
 /// Whether this profile has agreed to the speech model being fetched on its

@@ -1,9 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'device_settings_sync.dart';
+import 'identity_scoped_prefs.dart';
 import 'providers.dart';
 
-const _kShowReactionsKey = kSyncShowReactions;
+/// PER PROFILE (audit XV-15) — same class as the language: a display choice one
+/// profile made should not describe another, and a wipe should take it.
+String get _kShowReactionsKey => identityScopedPrefKey(kSyncShowReactions);
 
 /// Whether message reactions are rendered at all — the chips under bubbles and
 /// the quick-react bar in the long-press menu, in BOTH 1:1 chats and groups.

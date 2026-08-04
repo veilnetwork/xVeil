@@ -2,9 +2,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/chat.dart' show SignaturePolicy;
 import 'device_settings_sync.dart';
+import 'identity_scoped_prefs.dart';
 import 'providers.dart';
 
-const _kSignaturePolicyKey = kSyncSignaturePolicy;
+/// PER PROFILE, and it always should have been (audit XV-15). This one decides
+/// whether the device answers a "please sign this message" request without
+/// asking, so a value inherited from the real profile makes the decoy emit
+/// NON-REPUDIABLE proof of authorship — the exact thing the app exists to make
+/// deniable. No attacker is needed for that; the user simply switches profile.
+String get _kSignaturePolicyKey =>
+    identityScopedPrefKey(kSyncSignaturePolicy);
 
 /// Default for [signaturePolicyProvider] and the value used when prefs are
 /// unavailable (tests): prompt each time.
