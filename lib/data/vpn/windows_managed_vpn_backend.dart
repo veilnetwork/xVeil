@@ -3,7 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
+
 import 'geoip_country_routes.dart';
+import 'privileged_launch_guard.dart';
 import 'vpn_backend.dart';
 import 'vpn_routing_policy.dart';
 
@@ -45,6 +48,14 @@ String buildWindowsVpnElevationScript(String executable, String request) {
 /// and stop control use a per-launch random-token directory because UAC does
 /// not preserve anonymous pipe handles reliably across the elevation boundary.
 class WindowsManagedVpnBackend implements VpnBackend {
+  WindowsManagedVpnBackend({
+    @visibleForTesting PrivilegedLaunchGuard? launchGuard,
+    @visibleForTesting bool? isWindowsHost,
+    @visibleForTesting String? executablePath,
+  }) : _launchGuard = launchGuard ?? PrivilegedLaunchGuard.forHost(),
+       _isWindowsHost = isWindowsHost ?? Platform.isWindows,
+       _executablePath = executablePath ?? Platform.resolvedExecutable;
+
   VpnBackendState _state = const VpnBackendState(VpnBackendPhase.stopped);
   Directory? _sessionDirectory;
   File? _statusFile;
@@ -52,20 +63,39 @@ class WindowsManagedVpnBackend implements VpnBackend {
   String? _token;
   int? _helperPid;
 
+  final PrivilegedLaunchGuard _launchGuard;
+  final bool _isWindowsHost;
+  final String _executablePath;
+  PrivilegedLaunchVerdict? _launchVerdict;
+
   static const _authorizationTimeout = Duration(minutes: 3);
   static const _startupTimeout = Duration(seconds: 90);
   static const _stopTimeout = Duration(seconds: 10);
   static const _pollInterval = Duration(milliseconds: 100);
 
+  /// Refuse before anything else: `probe()` decides whether to offer a feature
+  /// whose whole job is to run this executable as Administrator. If the binary
+  /// is not out of the user's reach, the answer is no regardless of what
+  /// components happen to be installed beside it (audit X-01).
+  Future<VpnBackendState?> _refuseWritableInstallation() async {
+    final verdict = _launchVerdict ??= await _launchGuard.inspect(
+      _executablePath,
+    );
+    if (verdict.isAllowed) return null;
+    return VpnBackendState(VpnBackendPhase.unsupported, detail: verdict.detail);
+  }
+
   @override
   Future<VpnBackendState> probe() async {
-    if (!Platform.isWindows) {
+    if (!_isWindowsHost) {
       return const VpnBackendState(
         VpnBackendPhase.unsupported,
         detail: 'Windows managed VPN backend was selected on another platform',
       );
     }
-    final directory = File(Platform.resolvedExecutable).parent;
+    final unsafeInstallation = await _refuseWritableInstallation();
+    if (unsafeInstallation != null) return unsafeInstallation;
+    final directory = File(_executablePath).parent;
     final missing = <String>[];
     for (final name in const ['veil_vpn_helper.dll', 'wintun.dll']) {
       final separator = Platform.pathSeparator;
@@ -191,10 +221,7 @@ class WindowsManagedVpnBackend implements VpnBackend {
           '-ExecutionPolicy',
           'Bypass',
           '-Command',
-          buildWindowsVpnElevationScript(
-            Platform.resolvedExecutable,
-            request.path,
-          ),
+          buildWindowsVpnElevationScript(_executablePath, request.path),
         ],
         stdoutEncoding: utf8,
         stderrEncoding: utf8,
