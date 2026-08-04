@@ -50,7 +50,13 @@ class _FakeTransport implements VeilTransport {
     bool anonymous = false,
   }) async {
     sent.add(payload);
-    peer?._inbound.add(InboundMessage(src: _me, payload: payload));
+    peer?._inbound.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
   }
 
   @override
@@ -165,9 +171,13 @@ void main() {
     expect(await mA.loadReactions(b.hex), {
       'message-1': {a.hex: '❤️'},
     });
-    expect(await mB.loadReactions(a.hex), {
-      'message-1': {a.hex: '❤️'},
-    }, reason: 'a changed reaction must reach the peer, not be deduped away');
+    expect(
+      await mB.loadReactions(a.hex),
+      {
+        'message-1': {a.hex: '❤️'},
+      },
+      reason: 'a changed reaction must reach the peer, not be deduped away',
+    );
 
     // ...and removing it must land too.
     await mA.sendReaction(b, 'message-1', '');

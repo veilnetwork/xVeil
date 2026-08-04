@@ -33,9 +33,19 @@ class _RecordingTransport implements VeilTransport {
   @override
   Future<void> sendReply(int replyId, Uint8List payload) async {}
   @override
-  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async {
     sends.add(anonymous);
-    peer?._inbound.add(InboundMessage(src: _me, payload: payload));
+    peer?._inbound.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
   }
 
   @override
@@ -90,28 +100,47 @@ void main() {
     await mA.sendText(b, 'meet at noon');
     await _pump();
     // Multi-chunk file so the fileMeta + several fileChunk frames all run.
-    await mA.sendFile(b, Uint8List.fromList(List.generate(20000, (i) => i & 0xff)),
-        'plan.bin');
+    await mA.sendFile(
+      b,
+      Uint8List.fromList(List.generate(20000, (i) => i & 0xff)),
+      'plan.bin',
+    );
     await _pump();
 
     // request + message + fileMeta + >=1 fileChunk — prove the paths actually ran.
-    expect(tA.sends.length, greaterThanOrEqualTo(4),
-        reason: 'expected request+text+file frames; got ${tA.sends.length}');
+    expect(
+      tA.sends.length,
+      greaterThanOrEqualTo(4),
+      reason: 'expected request+text+file frames; got ${tA.sends.length}',
+    );
     // The safety invariant: not a single frame from an anonymous identity may
     // take the clearnet path — that would leak the sender's network location.
-    expect(tA.sends.every((anon) => anon), isTrue,
-        reason: 'anonymous identity leaked a clearnet frame: ${tA.sends}');
+    expect(
+      tA.sends.every((anon) => anon),
+      isTrue,
+      reason: 'anonymous identity leaked a clearnet frame: ${tA.sends}',
+    );
   });
 
-  test('a non-anonymous identity routes clearnet (no onion overhead)', () async {
-    final mA = await wire(aAnonymous: false);
-    await mA.sendText(b, 'meet at noon');
-    await _pump();
-    await mA.sendFile(b, Uint8List.fromList(List.filled(5000, 7)), 'plan.bin');
-    await _pump();
+  test(
+    'a non-anonymous identity routes clearnet (no onion overhead)',
+    () async {
+      final mA = await wire(aAnonymous: false);
+      await mA.sendText(b, 'meet at noon');
+      await _pump();
+      await mA.sendFile(
+        b,
+        Uint8List.fromList(List.filled(5000, 7)),
+        'plan.bin',
+      );
+      await _pump();
 
-    expect(tA.sends, isNotEmpty);
-    expect(tA.sends.any((anon) => anon), isFalse,
-        reason: 'non-anonymous identity unexpectedly routed anonymously');
-  });
+      expect(tA.sends, isNotEmpty);
+      expect(
+        tA.sends.any((anon) => anon),
+        isFalse,
+        reason: 'non-anonymous identity unexpectedly routed anonymously',
+      );
+    },
+  );
 }

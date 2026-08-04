@@ -76,7 +76,13 @@ class _Link implements VeilTransport {
       final frame = parsePieceChunk(env.body);
       (sentChunks[frame.contentId] ??= []).add(frame.data);
     }
-    peer?._in.add(InboundMessage(src: _me, payload: payload));
+    peer?._in.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
   }
 
   @override
@@ -208,143 +214,142 @@ void main() {
     return (cid!, file);
   }
 
+  test('a durable offer whose file was swapped is not served under the old '
+      'content id, while an untouched one still is', () async {
+    final honestBytes = _rnd(300000, 91);
+    final (honestCid, _) = await durableOffer('honest.bin', honestBytes);
+    final (swappedCid, swappedFile) = await durableOffer(
+      'swapped.bin',
+      _rnd(300000, 92),
+    );
+
+    // The swap. SAME LENGTH, different bytes: the manifest stays internally
+    // consistent about size, so nothing short of hashing the bytes notices —
+    // and an honest receiver verifies against the manifest it was given,
+    // which still describes the file that is no longer there.
+    final secret = _rnd(300000, 93);
+    await swappedFile.writeAsBytes(secret);
+
+    // "Restart" the sender: serve state gone, storage kept — the shape in
+    // which the durable record is the only thing left pointing at the file.
+    await mA.dispose();
+    final mA2 =
+        MessagingService(
+            tA,
+            sA,
+            contentReRequestInterval: const Duration(milliseconds: 120),
+            contentPacing: Duration.zero,
+          )
+          ..sourceOpener = countingOpener
+          ..start();
+    addTearDown(mA2.dispose);
+
+    // THE CONTROL, and it comes first: the untouched offer still works.
+    // Refusing everything would "close" this finding and break the feature.
+    final honestArrived = mB.contentReceived.first;
+    expect(
+      await mB.downloadContent(a, honestCid),
+      ContentDownloadResult.requestedReoffer,
+    );
+    final event = await honestArrived.timeout(const Duration(seconds: 20));
+    expect(event.contentId, honestCid);
+    expect(
+      await sB.loadFile(honestCid),
+      honestBytes,
+      reason: 'a durable offer nobody touched must still serve',
+    );
+    expect(
+      tA.sentChunks[honestCid],
+      isNotEmpty,
+      reason:
+          'the control has to show bytes actually leaving the sender, or '
+          'the silence below proves only that nothing was serving at all',
+    );
+
+    // THE FINDING: the sender must not read the replacement off disk and
+    // put it on the wire under the old content id.
+    expect(
+      await mB.downloadContent(a, swappedCid),
+      ContentDownloadResult.requestedReoffer,
+    );
+    await Future<void>.delayed(const Duration(seconds: 2));
+
+    expect(
+      tA.sentChunks[swappedCid] ?? const <Uint8List>[],
+      isEmpty,
+      reason:
+          'the sender served ${tA.sentChunks[swappedCid]?.length} chunks for '
+          'a content id whose file had been replaced — it read whatever the '
+          'NAME pointed at and pushed it to the peer',
+    );
+    final leaked = tA.sentChunks.values
+        .expand((chunks) => chunks)
+        .where((chunk) => _isSliceOf(chunk, secret));
+    expect(
+      leaked,
+      isEmpty,
+      reason: 'bytes of the replacement file reached the wire',
+    );
+    expect(
+      await sB.loadFile(swappedCid),
+      isNull,
+      reason: 'and the peer ends up with nothing under that content id',
+    );
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
   test(
-    'a durable offer whose file was swapped is not served under the old '
-    'content id, while an untouched one still is',
+    'the verdict is cached, and not one moment past the file it was about',
     () async {
-      final honestBytes = _rnd(300000, 91);
-      final (honestCid, _) = await durableOffer('honest.bin', honestBytes);
-      final (swappedCid, swappedFile) = await durableOffer(
-        'swapped.bin',
-        _rnd(300000, 92),
+      final bytes = _rnd(120000, 77);
+      final file = File('${workdir.path}/media.bin');
+      await file.writeAsBytes(bytes);
+      Future<Uint8List> read(int offset, int length) async =>
+          Uint8List.sublistView(bytes, offset, offset + length);
+
+      final cid = await mA.registerGroupContentStreaming(
+        'media.bin',
+        bytes.length,
+        read,
+        close: () async {},
+        sourcePath: file.path,
       );
 
-      // The swap. SAME LENGTH, different bytes: the manifest stays internally
-      // consistent about size, so nothing short of hashing the bytes notices —
-      // and an honest receiver verifies against the manifest it was given,
-      // which still describes the file that is no longer there.
-      final secret = _rnd(300000, 93);
-      await swappedFile.writeAsBytes(secret);
+      // A verdict may only be cached once the file's mtime is older than the
+      // coarsest filesystem tick — otherwise a later write could hide under the
+      // same stamp. Wait that out so the caching branch is the one under test.
+      await Future<void>.delayed(const Duration(milliseconds: 2200));
 
-      // "Restart" the sender: serve state gone, storage kept — the shape in
-      // which the durable record is the only thing left pointing at the file.
-      await mA.dispose();
-      final mA2 =
-          MessagingService(
-              tA,
-              sA,
-              contentReRequestInterval: const Duration(milliseconds: 120),
-              contentPacing: Duration.zero,
-            )
-            ..sourceOpener = countingOpener
-            ..start();
-      addTearDown(mA2.dispose);
+      opens = 0;
+      expect(await mA.verifiedGroupContentSourcePath(cid), file.path);
+      final firstCheckOpens = opens;
+      expect(
+        firstCheckOpens,
+        greaterThan(0),
+        reason: 'the first check has to actually read the file',
+      );
 
-      // THE CONTROL, and it comes first: the untouched offer still works.
-      // Refusing everything would "close" this finding and break the feature.
-      final honestArrived = mB.contentReceived.first;
+      expect(await mA.verifiedGroupContentSourcePath(cid), file.path);
       expect(
-        await mB.downloadContent(a, honestCid),
-        ContentDownloadResult.requestedReoffer,
-      );
-      final event = await honestArrived.timeout(const Duration(seconds: 20));
-      expect(event.contentId, honestCid);
-      expect(
-        await sB.loadFile(honestCid),
-        honestBytes,
-        reason: 'a durable offer nobody touched must still serve',
-      );
-      expect(
-        tA.sentChunks[honestCid],
-        isNotEmpty,
+        opens,
+        firstCheckOpens,
         reason:
-            'the control has to show bytes actually leaving the sender, or '
-            'the silence below proves only that nothing was serving at all',
+            'the second check re-hashed a file that had not changed — the '
+            'verdict cache is not doing its job, and every serve pays a full pass',
       );
 
-      // THE FINDING: the sender must not read the replacement off disk and
-      // put it on the wire under the old content id.
+      // Same length, different bytes. A cache keyed on anything the write does
+      // not disturb would keep answering with the stale verdict.
+      await file.writeAsBytes(_rnd(120000, 78));
       expect(
-        await mB.downloadContent(a, swappedCid),
-        ContentDownloadResult.requestedReoffer,
-      );
-      await Future<void>.delayed(const Duration(seconds: 2));
-
-      expect(
-        tA.sentChunks[swappedCid] ?? const <Uint8List>[],
-        isEmpty,
-        reason:
-            'the sender served ${tA.sentChunks[swappedCid]?.length} chunks for '
-            'a content id whose file had been replaced — it read whatever the '
-            'NAME pointed at and pushed it to the peer',
-      );
-      final leaked = tA.sentChunks.values
-          .expand((chunks) => chunks)
-          .where((chunk) => _isSliceOf(chunk, secret));
-      expect(
-        leaked,
-        isEmpty,
-        reason: 'bytes of the replacement file reached the wire',
-      );
-      expect(
-        await sB.loadFile(swappedCid),
+        await mA.verifiedGroupContentSourcePath(cid),
         isNull,
-        reason: 'and the peer ends up with nothing under that content id',
+        reason:
+            'a cached verdict outlived the file it was taken on — the path was '
+            'still handed out for content it no longer holds',
       );
     },
-    timeout: const Timeout(Duration(seconds: 90)),
+    timeout: const Timeout(Duration(seconds: 60)),
   );
-
-  test('the verdict is cached, and not one moment past the file it was about',
-      () async {
-    final bytes = _rnd(120000, 77);
-    final file = File('${workdir.path}/media.bin');
-    await file.writeAsBytes(bytes);
-    Future<Uint8List> read(int offset, int length) async =>
-        Uint8List.sublistView(bytes, offset, offset + length);
-
-    final cid = await mA.registerGroupContentStreaming(
-      'media.bin',
-      bytes.length,
-      read,
-      close: () async {},
-      sourcePath: file.path,
-    );
-
-    // A verdict may only be cached once the file's mtime is older than the
-    // coarsest filesystem tick — otherwise a later write could hide under the
-    // same stamp. Wait that out so the caching branch is the one under test.
-    await Future<void>.delayed(const Duration(milliseconds: 2200));
-
-    opens = 0;
-    expect(await mA.verifiedGroupContentSourcePath(cid), file.path);
-    final firstCheckOpens = opens;
-    expect(
-      firstCheckOpens,
-      greaterThan(0),
-      reason: 'the first check has to actually read the file',
-    );
-
-    expect(await mA.verifiedGroupContentSourcePath(cid), file.path);
-    expect(
-      opens,
-      firstCheckOpens,
-      reason:
-          'the second check re-hashed a file that had not changed — the '
-          'verdict cache is not doing its job, and every serve pays a full pass',
-    );
-
-    // Same length, different bytes. A cache keyed on anything the write does
-    // not disturb would keep answering with the stale verdict.
-    await file.writeAsBytes(_rnd(120000, 78));
-    expect(
-      await mA.verifiedGroupContentSourcePath(cid),
-      isNull,
-      reason:
-          'a cached verdict outlived the file it was taken on — the path was '
-          'still handed out for content it no longer holds',
-    );
-  }, timeout: const Timeout(Duration(seconds: 60)));
 
   test('a durable offer stops serving when the grant that authorized it goes '
       'away, and keeps serving while it holds', () async {
@@ -439,31 +444,33 @@ void main() {
     expect(asked, 0, reason: 'nothing delegated this, so nothing gates it');
   });
 
-  test('an unstattable source name is re-checked every time, never cached',
-      () async {
-    // The in-memory sources this project's tests and any non-filesystem opener
-    // use have nothing to stamp. A verdict cached under "no stamp" could never
-    // be invalidated, so there must not be one.
-    var bytes = _rnd(300000, 73);
-    Future<Uint8List> read(int offset, int length) async =>
-        Uint8List.sublistView(bytes, offset, offset + length);
-    mA.sourceOpener = (path) async =>
-        path == 'mem://verified' ? (read: read, close: () async {}) : null;
+  test(
+    'an unstattable source name is re-checked every time, never cached',
+    () async {
+      // The in-memory sources this project's tests and any non-filesystem opener
+      // use have nothing to stamp. A verdict cached under "no stamp" could never
+      // be invalidated, so there must not be one.
+      var bytes = _rnd(300000, 73);
+      Future<Uint8List> read(int offset, int length) async =>
+          Uint8List.sublistView(bytes, offset, offset + length);
+      mA.sourceOpener = (path) async =>
+          path == 'mem://verified' ? (read: read, close: () async {}) : null;
 
-    final cid = await mA.registerGroupContentStreaming(
-      'verified.bin',
-      bytes.length,
-      read,
-      close: () async {},
-      sourcePath: 'mem://verified',
-    );
-    expect(await mA.verifiedGroupContentSourcePath(cid), 'mem://verified');
+      final cid = await mA.registerGroupContentStreaming(
+        'verified.bin',
+        bytes.length,
+        read,
+        close: () async {},
+        sourcePath: 'mem://verified',
+      );
+      expect(await mA.verifiedGroupContentSourcePath(cid), 'mem://verified');
 
-    bytes = Uint8List.fromList(bytes)..[0] ^= 0xff;
-    expect(
-      await mA.verifiedGroupContentSourcePath(cid),
-      isNull,
-      reason: 'a source with no stamp must be re-hashed, not remembered',
-    );
-  });
+      bytes = Uint8List.fromList(bytes)..[0] ^= 0xff;
+      expect(
+        await mA.verifiedGroupContentSourcePath(cid),
+        isNull,
+        reason: 'a source with no stamp must be re-hashed, not remembered',
+      );
+    },
+  );
 }

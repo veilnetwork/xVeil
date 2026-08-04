@@ -75,7 +75,8 @@ class _StreamLink implements VeilTransport, StreamTransport {
   final NodeId _me;
   final _in = StreamController<InboundMessage>.broadcast();
   _StreamLink? peer;
-  final _accepts = <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
+  final _accepts =
+      <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
   Completer<void>? _acceptWaiter;
 
   @override
@@ -88,7 +89,13 @@ class _StreamLink implements VeilTransport, StreamTransport {
     Uint8List payload, {
     bool anonymous = false,
   }) async {
-    peer?._in.add(InboundMessage(src: _me, payload: payload));
+    peer?._in.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
   }
 
   @override
@@ -126,9 +133,7 @@ class _StreamLink implements VeilTransport, StreamTransport {
 
   @override
   Future<({ReliableStream stream, NodeId src, SenderProvenance provenance})?>
-  acceptStream({
-    Duration timeout = const Duration(seconds: 2),
-  }) async {
+  acceptStream({Duration timeout = const Duration(seconds: 2)}) async {
     if (_accepts.isEmpty) {
       try {
         await (_acceptWaiter = Completer<void>()).future.timeout(timeout);
@@ -242,51 +247,47 @@ void main() {
     timeout: const Timeout(Duration(minutes: 1)),
   );
 
-  test(
-    'deleting ONE of two messages sharing the same content keeps serving; '
-    'deleting the last reference releases it',
-    () async {
-      final data = _rnd(200000, 37);
-      final cid = await offerToB(data, 'shared.bin');
-      // Same bytes again -> same contentId, a second message references it.
-      final cid2 = await mA.sendFileStreaming(
-        b,
-        'shared.bin',
-        data.length,
-        (o, l) async => Uint8List.sublistView(data, o, o + l),
-        close: () async {},
-      );
-      expect(cid2, cid);
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+  test('deleting ONE of two messages sharing the same content keeps serving; '
+      'deleting the last reference releases it', () async {
+    final data = _rnd(200000, 37);
+    final cid = await offerToB(data, 'shared.bin');
+    // Same bytes again -> same contentId, a second message references it.
+    final cid2 = await mA.sendFileStreaming(
+      b,
+      'shared.bin',
+      data.length,
+      (o, l) async => Uint8List.sublistView(data, o, o + l),
+      close: () async {},
+    );
+    expect(cid2, cid);
+    await Future<void>.delayed(const Duration(milliseconds: 200));
 
-      final ids = [
-        for (final m in await sA.loadMessages(b.hex))
-          if (m.direction == MessageDirection.outgoing &&
-              (m.fileContentId == cid || m.fileId == cid))
-            m.id,
-      ];
-      expect(ids.length, 2);
+    final ids = [
+      for (final m in await sA.loadMessages(b.hex))
+        if (m.direction == MessageDirection.outgoing &&
+            (m.fileContentId == cid || m.fileId == cid))
+          m.id,
+    ];
+    expect(ids.length, 2);
 
-      await mA.deleteMessageLocally(ids.first);
-      await mB.requestContentReoffer(a, cid);
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-      expect(
-        await mB.isContentUnavailable(cid),
-        isFalse,
-        reason: 'another message still references the content',
-      );
+    await mA.deleteMessageLocally(ids.first);
+    await mB.requestContentReoffer(a, cid);
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    expect(
+      await mB.isContentUnavailable(cid),
+      isFalse,
+      reason: 'another message still references the content',
+    );
 
-      await mA.deleteMessageLocally(ids.last);
-      await mB.requestContentReoffer(a, cid);
-      final deadline = DateTime.now().add(const Duration(seconds: 10));
-      while (!await mB.isContentUnavailable(cid) &&
-          DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-      }
-      expect(await mB.isContentUnavailable(cid), isTrue);
-    },
-    timeout: const Timeout(Duration(minutes: 1)),
-  );
+    await mA.deleteMessageLocally(ids.last);
+    await mB.requestContentReoffer(a, cid);
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    while (!await mB.isContentUnavailable(cid) &&
+        DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    expect(await mB.isContentUnavailable(cid), isTrue);
+  }, timeout: const Timeout(Duration(minutes: 1)));
 
   test(
     'a fresh offer clears the unavailable mark and the download completes',
