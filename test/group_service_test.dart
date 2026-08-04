@@ -9936,6 +9936,206 @@ void main() {
   );
 
   test(
+    'a control row backdated by its author is floored at the moment this '
+    'device first held it — and the floor never moves a claim earlier',
+    () async {
+      final t0 = DateTime.utc(2026, 8, 4, 9).millisecondsSinceEpoch;
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      var ownerWall = t0;
+      final ownerSvc = GroupService(ownerStorage, _FakeSigner(owner))
+        ..debugWallClockMs = () => ownerWall;
+      addTearDown(ownerSvc.dispose);
+      final spaceId = await ownerSvc.createSpace('Floors');
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.setRole,
+          target: bob,
+          role: GroupRole.admin,
+        ),
+        isTrue,
+      );
+
+      // Bob's device joins here and now, holding the whole history in one
+      // batch. It was not present for any of it.
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      var bobWall = t0 + const Duration(minutes: 5).inMilliseconds;
+      final bobSvc = GroupService(bobStorage, _FakeSigner(bob))
+        ..debugWallClockMs = () => bobWall;
+      addTearDown(bobSvc.dispose);
+      Future<void> sync() async {
+        expect(
+          await bobSvc.ingestSnapshot(
+            ownerSvc.snapshotJson(
+              (await ownerSvc.load(spaceId))!,
+              recipient: bob,
+            ),
+          ),
+          isTrue,
+        );
+      }
+
+      await sync();
+      final joined = (await bobSvc.load(spaceId))!;
+      expect(joined.control, isNotEmpty);
+      for (final entry in joined.control) {
+        expect(
+          joined.effectiveControlTimeMs(entry),
+          entry.createdAtMs,
+          reason:
+              'a device that joined a moment ago knows nothing about when a '
+              'row that predates it arrived, and must not invent "now" for '
+              'the whole history it was handed',
+        );
+        expect(joined.controlReceipts[controlReceiptKey(entry)], 0);
+      }
+
+      // Now the owner writes a row and dates it a week before this Space
+      // existed. Bob's device sees it for the first time today.
+      bobWall = t0 + const Duration(hours: 1).inMilliseconds;
+      final backdated = t0 - const Duration(days: 7).inMilliseconds;
+      // A separate instance, because a live service's own stamps are
+      // monotonic. Whether the number is a wrong clock or a chosen one is
+      // exactly what nobody downstream can tell.
+      final rewound = GroupService(ownerStorage, _FakeSigner(owner))
+        ..debugWallClockMs = () => backdated;
+      expect(
+        await rewound.addControlOp(spaceId, ControlOp.setName, text: 'Renamed'),
+        isTrue,
+      );
+      rewound.dispose();
+      await sync();
+      final after = (await bobSvc.load(spaceId))!;
+      final lie = after.control.lastWhere(
+        (entry) => entry.op == ControlOp.setName,
+      );
+      expect(lie.createdAtMs, backdated, reason: 'the claim is untouched');
+      expect(
+        after.effectiveControlTimeMs(lie),
+        t0 + const Duration(hours: 1).inMilliseconds,
+        reason:
+            'but nothing this device decides may believe it is older '
+            'than the moment it arrived here',
+      );
+      // The rows that were already here keep the zero they were given: the
+      // floor is recorded once, on first sight, and never revised.
+      for (final entry in after.control) {
+        if (entry.op == ControlOp.setName) continue;
+        expect(after.controlReceipts[controlReceiptKey(entry)], 0);
+        expect(after.effectiveControlTimeMs(entry), entry.createdAtMs);
+      }
+
+      // A FLOOR, not a stamp: a row dated forward keeps its own claim, which
+      // is what leaves `compareHeads` the only thing that orders the log.
+      final forwardTs = t0 + const Duration(days: 365).inMilliseconds;
+      final fastForward = GroupService(ownerStorage, _FakeSigner(owner))
+        ..debugWallClockMs = () => forwardTs;
+      expect(
+        await fastForward.addControlOp(
+          spaceId,
+          ControlOp.setDescription,
+          text: 'next year',
+        ),
+        isTrue,
+      );
+      fastForward.dispose();
+      bobWall = t0 + const Duration(hours: 2).inMilliseconds;
+      await sync();
+      final withFuture = (await bobSvc.load(spaceId))!;
+      final forward = withFuture.control.lastWhere(
+        (entry) => entry.op == ControlOp.setDescription,
+      );
+      expect(
+        withFuture.effectiveControlTimeMs(forward),
+        forwardTs,
+        reason:
+            'the floor may only raise; a forward lie is not this map\'s '
+            'problem and pretending otherwise would make it an order key',
+      );
+
+      // Re-shipped snapshots must not re-stamp anything. A peer reconnects and
+      // sends the whole bundle again on every sync; if ingest rebuilt these,
+      // every row would look as if it had just arrived and the floor under the
+      // backdated one would be gone exactly when it is needed.
+      bobWall = t0 + const Duration(days: 3).inMilliseconds;
+      await sync();
+      await sync();
+      final resynced = (await bobSvc.load(spaceId))!;
+      expect(
+        resynced.effectiveControlTimeMs(lie),
+        t0 + const Duration(hours: 1).inMilliseconds,
+        reason: 'first sight, not last sight',
+      );
+      expect(
+        resynced.controlReceipts,
+        {
+          ...after.controlReceipts,
+          controlReceiptKey(forward):
+              t0 + const Duration(hours: 2).inMilliseconds,
+        },
+        reason: 'two more syncs added nothing and moved nothing',
+      );
+
+      // Where it lives: beside the signed rows in this device's own blob, and
+      // nowhere a peer could set it. A moment a peer chose would be the same
+      // unauthenticated claim wearing a second name.
+      final blob = await bobStorage.loadFile('group:${spaceId.hex}');
+      expect(blob, isNotNull);
+      final storedBundle = jsonDecode(utf8.decode(blob!)) as Map;
+      expect(storedBundle['crx'], isA<Map>());
+      expect(
+        (storedBundle['crx'] as Map)[controlReceiptKey(lie)],
+        t0 + const Duration(hours: 1).inMilliseconds,
+      );
+      bool carriesKey(Object? node, String key) => node is Map
+          ? node.containsKey(key) ||
+                node.values.any((value) => carriesKey(value, key))
+          : node is List && node.any((value) => carriesKey(value, key));
+      expect(
+        carriesKey(
+          jsonDecode(
+            ownerSvc.snapshotJson(
+              (await ownerSvc.load(spaceId))!,
+              recipient: bob,
+            ),
+          ),
+          'crx',
+        ),
+        isFalse,
+        reason: 'never on the wire',
+      );
+      expect(
+        carriesKey(storedBundle['c'], 'crx'),
+        isFalse,
+        reason: 'and never inside the bytes an author signed',
+      );
+
+      // It survives a restart, so it is persisted rather than re-invented.
+      final reopened = GroupService(bobStorage, _FakeSigner(bob))
+        ..debugWallClockMs = () => t0 + const Duration(days: 9).inMilliseconds;
+      addTearDown(reopened.dispose);
+      expect(
+        (await reopened.load(spaceId))!.effectiveControlTimeMs(lie),
+        t0 + const Duration(hours: 1).inMilliseconds,
+      );
+
+      await bobStorage.close();
+      await ownerStorage.close();
+    },
+  );
+
+  test(
     'failed membership transaction preserves member and protected channel epoch',
     () async {
       final storage = _ControlledGroupWriteStorage();

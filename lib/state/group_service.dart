@@ -207,6 +207,7 @@ class GroupBundle {
     this.messageReceipts = const {},
     this.postReceipts = const {},
     this.channelEpochReceipts = const {},
+    this.controlReceipts = const {},
   });
   final SpaceManifest manifest;
   final List<ControlEntry> control;
@@ -280,6 +281,48 @@ class GroupBundle {
   /// is not consulted at all.
   final Map<String, int> channelEpochReceipts;
 
+  /// `'<author hex>:<seq>'` -> the local moment this device first held that
+  /// control row. The same local fold state as [messageReceipts]: never
+  /// signed, never in a snapshot, and deliberately NOT a field of
+  /// [ControlEntry] — a stamp a peer could set would be the same
+  /// unauthenticated claim under a second name.
+  ///
+  /// A control row's `createdAtMs` is a number its author chose, and
+  /// `compareHeads` merges rows from DIFFERENT authors by it. That is the
+  /// control log's ordering rule and it stays: an arrival moment differs on
+  /// every device, so it can be a floor ("no earlier than") but never a
+  /// ranking key — ranking by it would give two devices two different logs.
+  ///
+  /// The floor exists so a decision this device makes about WHEN something
+  /// happened cannot be moved by the author of the thing. Read only by such
+  /// local decisions and by nothing inside [foldControlLog], which is what
+  /// keeps the fold a pure function of signed bytes and therefore keeps two
+  /// devices with two different sets of these moments on one state.
+  ///
+  /// Keyed by `(author, seq)` rather than by row hash so recording costs no
+  /// hashing on a path that runs on every save. Two distinct rows for one
+  /// `(author, seq)` is equivocation, which the fold already rejects whole,
+  /// so the shared key can never decide anything.
+  ///
+  /// Rows already present the first time this device records for a Space are
+  /// stored as `0` — no floor. A device that joined last week knows nothing
+  /// about when a two-year-old row arrived, and inventing "now" for all of
+  /// history would make the very first revocation withdraw a moderator's
+  /// entire past. Same honesty as [channelEpochReceipts]: a device with no
+  /// arrival moment of its own does not get to pretend it has one.
+  final Map<String, int> controlReceipts;
+
+  /// The earliest moment this device is willing to believe [entry] existed:
+  /// its own claim, floored by when we first held it.
+  ///
+  /// Lying forward is not bounded here — that is [compareHeads]' problem and
+  /// it is answered by the revocation itself, since a row dated into next year
+  /// is trivially after any boundary an owner would pick.
+  int effectiveControlTimeMs(ControlEntry entry) {
+    final seen = controlReceipts[controlReceiptKey(entry)] ?? 0;
+    return entry.createdAtMs > seen ? entry.createdAtMs : seen;
+  }
+
   GroupBundle copyWith({
     SpaceManifest? manifest,
     List<ControlEntry>? control,
@@ -297,6 +340,7 @@ class GroupBundle {
     Map<String, int>? messageReceipts,
     Map<String, int>? postReceipts,
     Map<String, int>? channelEpochReceipts,
+    Map<String, int>? controlReceipts,
   }) => GroupBundle(
     manifest: manifest ?? this.manifest,
     control: control ?? this.control,
@@ -314,8 +358,13 @@ class GroupBundle {
     messageReceipts: messageReceipts ?? this.messageReceipts,
     postReceipts: postReceipts ?? this.postReceipts,
     channelEpochReceipts: channelEpochReceipts ?? this.channelEpochReceipts,
+    controlReceipts: controlReceipts ?? this.controlReceipts,
   );
 }
+
+/// Key of [GroupBundle.controlReceipts] for one control row.
+String controlReceiptKey(ControlEntry entry) =>
+    '${entry.author.hex}:${entry.seq}';
 
 /// Identity of one signed row inside [GroupBundle.messageReceipts].
 ///
@@ -5412,6 +5461,17 @@ class GroupService {
           if (at is int && at >= 0) channelEpochReceipts['${entry.key}'] = at;
         }
       }
+      // And on the control-row side. Bounded by the log itself: [_save]
+      // rebuilds it from `b.control` every write, so a row swept by a
+      // checkpoint takes its arrival moment with it.
+      final controlReceipts = <String, int>{};
+      final rawControlReceipts = d['crx'];
+      if (rawControlReceipts is Map) {
+        for (final entry in rawControlReceipts.entries) {
+          final at = entry.value;
+          if (at is int && at >= 0) controlReceipts['${entry.key}'] = at;
+        }
+      }
       final material = await _mergeEpochMaterial(
         manifest: manifest,
         control: control,
@@ -5443,6 +5503,7 @@ class GroupService {
         messageReceipts: messageReceipts,
         postReceipts: postReceipts,
         channelEpochReceipts: channelEpochReceipts,
+        controlReceipts: controlReceipts,
       );
     } catch (error) {
       // A throw here is indistinguishable from "no such group" to every
@@ -5453,7 +5514,36 @@ class GroupService {
     }
   }
 
+  /// Arrival moments for [b]'s control rows: every moment already recorded is
+  /// kept exactly as it was, every row this device has not seen before is
+  /// stamped now, and a row that has left the log takes its moment with it.
+  ///
+  /// Recorded here rather than at each append/ingest site so that no path into
+  /// the log can quietly bypass it — this is the one funnel every one of them
+  /// goes through.
+  ///
+  /// The FIRST recording pass for a Space stamps zero, not now. Everything
+  /// this device holds at that instant arrived as one historical batch it was
+  /// not present for: a device that stamped it "now" would answer "nothing
+  /// here predates today" to every question about the past, which is a lie of
+  /// its own and a far larger one than the claims the floor exists to bound.
+  Map<String, int> _notedControlReceipts(GroupBundle b) {
+    final previous = b.controlReceipts;
+    final baseline = previous.isEmpty;
+    // [_clockNowMs], not [_now]: this runs on every save and only asks what
+    // time it is. Advancing the mutation counter here would shift every
+    // control and message stamp this device writes afterwards by one per save.
+    final nowMs = _clockNowMs();
+    final noted = <String, int>{};
+    for (final entry in b.control) {
+      final key = controlReceiptKey(entry);
+      noted[key] = previous[key] ?? (baseline ? 0 : nowMs);
+    }
+    return noted;
+  }
+
   Future<void> _save(GroupBundle b, {bool notify = true}) async {
+    final controlReceipts = _notedControlReceipts(b);
     // Chunked file-store (not putSetting): the bundle carries inline media that
     // overflows the single-setting cap. storeFile replaces the prior blob (or
     // no-ops if byte-identical) and chunks large values across commits.
@@ -5491,6 +5581,7 @@ class GroupService {
       if (b.messageReceipts.isNotEmpty) 'mrx': b.messageReceipts,
       if (b.postReceipts.isNotEmpty) 'prx': b.postReceipts,
       if (b.channelEpochReceipts.isNotEmpty) 'cex': b.channelEpochReceipts,
+      if (controlReceipts.isNotEmpty) 'crx': controlReceipts,
     });
     // Published while the two writes below are in flight so a concurrent read
     // waits for the new bytes instead of reading the half-replaced blob as a
@@ -15622,6 +15713,11 @@ class GroupService {
       // fail-open the claimed stamp used to give, from the other side.
       channelEpochReceipts:
           existing?.channelEpochReceipts ?? const <String, int>{},
+      // Carried for the same reason, and here the fail-open is sharper: a peer
+      // re-shipping snapshots would make every row look as if it had arrived
+      // on the last sync, and the floor under a backdated row would vanish
+      // exactly when it is needed. [_save] then stamps whatever is new.
+      controlReceipts: existing?.controlReceipts ?? const <String, int>{},
     );
     final feedAccessChanged = hadFeedAccess != hasFeedAccess;
     await _save(saved, notify: !feedAccessChanged);
