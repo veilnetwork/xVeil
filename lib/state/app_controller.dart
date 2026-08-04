@@ -251,6 +251,12 @@ class AppController extends Notifier<AppState> {
         'storage.open refused the onboarding password; nothing was written',
       );
     }
+    // The container just answered to this password — the same one moment
+    // [unlock] uses, and the only one onboarding gets. Without this the very
+    // first session had nothing to check a typed password against, so the
+    // screen lock could not engage at all until the app was restarted (IF-01):
+    // `_lock` refuses to put up a prompt nobody can answer.
+    ref.read(screenLockProvider.notifier).rememberPassword(password);
     final profile = UserProfile(displayName: displayName);
     await storage.saveProfile(profile);
 
@@ -1492,6 +1498,13 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<void> _enterSession(UserProfile profile) async {
+    // The container has answered by the time anything reaches here, which makes
+    // this the only place the screen lock can learn what this space chose. Its
+    // own build ran from the app's first frame — before the unlock screen — and
+    // read a shut container; on the single-identity path nothing would ever
+    // rebuild it, so the saved timeout stayed `off` for the whole run (IF-01).
+    // Best-effort by construction: the read is swallowed on failure.
+    await ref.read(screenLockProvider.notifier).reloadTimeout();
     // Single-identity mode: load this space's persisted anonymity preference
     // BEFORE booting the node, since anonymity is fixed at boot. Master mode
     // reads the roster flag instead, so skip (the roster is authoritative).
