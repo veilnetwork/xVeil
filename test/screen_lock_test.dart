@@ -65,7 +65,11 @@ class _InjectableTransport implements VeilTransport {
   @override
   Stream<InboundMessage> messages() => _inbound.stream;
   @override
-  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {}
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async {}
   @override
   Future<void> sendWithReply(NodeId dst, Uint8List payload) async {}
   @override
@@ -103,10 +107,8 @@ class _CapturingNotifications extends NotificationService {
 
 class _ReadyAppController extends AppController {
   @override
-  AppState build() => AppState(
-    AppPhase.ready,
-    identity: Identity(nodeId: _self),
-  );
+  AppState build() =>
+      AppState(AppPhase.ready, identity: Identity(nodeId: _self));
 }
 
 SpaceOpener _memory() {
@@ -161,7 +163,10 @@ void main() {
       expect(ScreenLockTimeout.off.after, isNull);
       expect(ScreenLockTimeout.immediately.after, Duration.zero);
       expect(ScreenLockTimeout.oneMinute.after, const Duration(minutes: 1));
-      expect(ScreenLockTimeout.fifteenMinutes.after, const Duration(minutes: 15));
+      expect(
+        ScreenLockTimeout.fifteenMinutes.after,
+        const Duration(minutes: 15),
+      );
     });
 
     test('an unknown persisted name falls back to off, not to locking', () {
@@ -326,56 +331,62 @@ void main() {
       }
     }
 
-    test('a timeout saved last run is honoured after the container opens', () async {
-      // ONE store behind both sessions, so the second one is a restart rather
-      // than a fresh install.
-      final store = FakeKvLogStore();
-      KvLogStore? opener({required Uint8List password, required bool create}) =>
-          store;
+    test(
+      'a timeout saved last run is honoured after the container opens',
+      () async {
+        // ONE store behind both sessions, so the second one is a restart rather
+        // than a fresh install.
+        final store = FakeKvLogStore();
+        KvLogStore? opener({
+          required Uint8List password,
+          required bool create,
+        }) => store;
 
-      final first = ProviderContainer(
-        overrides: [
-          storageProvider.overrideWithValue(HiddenVolumeStorage(opener)),
-        ],
-      );
-      final firstController = first.read(appControllerProvider.notifier);
-      await settle(first);
-      await firstController.completeOnboarding(
-        password: 'pw',
-        mode: StorageMode.hiddenSpace,
-      );
-      await first
-          .read(screenLockProvider.notifier)
-          .setTimeout(ScreenLockTimeout.fiveMinutes);
-      await firstController.lock();
-      first.dispose();
+        final first = ProviderContainer(
+          overrides: [
+            storageProvider.overrideWithValue(HiddenVolumeStorage(opener)),
+          ],
+        );
+        final firstController = first.read(appControllerProvider.notifier);
+        await settle(first);
+        await firstController.completeOnboarding(
+          password: 'pw',
+          mode: StorageMode.hiddenSpace,
+        );
+        await first
+            .read(screenLockProvider.notifier)
+            .setTimeout(ScreenLockTimeout.fiveMinutes);
+        await firstController.lock();
+        first.dispose();
 
-      // Restart. The host in `MaterialApp.builder` is mounted on the first
-      // frame, so the controller is BUILT HERE — against a shut container.
-      final second = ProviderContainer(
-        overrides: [
-          storageProvider.overrideWithValue(HiddenVolumeStorage(opener)),
-        ],
-      );
-      addTearDown(second.dispose);
-      final controller = second.read(appControllerProvider.notifier);
-      await settle(second);
-      expect(
-        second.read(screenLockProvider).timeout,
-        ScreenLockTimeout.off,
-        reason: 'a shut container cannot answer, and must not be asked to',
-      );
+        // Restart. The host in `MaterialApp.builder` is mounted on the first
+        // frame, so the controller is BUILT HERE — against a shut container.
+        final second = ProviderContainer(
+          overrides: [
+            storageProvider.overrideWithValue(HiddenVolumeStorage(opener)),
+          ],
+        );
+        addTearDown(second.dispose);
+        final controller = second.read(appControllerProvider.notifier);
+        await settle(second);
+        expect(
+          second.read(screenLockProvider).timeout,
+          ScreenLockTimeout.off,
+          reason: 'a shut container cannot answer, and must not be asked to',
+        );
 
-      // The real path, not an invalidation: the container opens.
-      await controller.unlock('pw');
-      expect(second.read(appControllerProvider).phase, AppPhase.ready);
-      expect(
-        second.read(screenLockProvider).timeout,
-        ScreenLockTimeout.fiveMinutes,
-        reason: 'the saved choice read as "off" for the whole run — the load '
-            'ran once against a locked container and was never retried',
-      );
-    });
+        // The real path, not an invalidation: the container opens.
+        await controller.unlock('pw');
+        expect(second.read(appControllerProvider).phase, AppPhase.ready);
+        expect(
+          second.read(screenLockProvider).timeout,
+          ScreenLockTimeout.fiveMinutes,
+          reason:
+              'the saved choice read as "off" for the whole run — the load '
+              'ran once against a locked container and was never retried',
+        );
+      },
+    );
 
     test('a second space reads its own choice, not the previous one', () async {
       // The notifier survives a lock on the single-identity path (the provider
@@ -522,7 +533,10 @@ void main() {
     /// framework's "a Timer is still pending" check needs — while the rest of
     /// its teardown awaits work a fake-async test zone will never advance, so
     /// awaiting it hangs the test forever.
-    Future<void> shutdown(WidgetTester tester, MessagingService messaging) async {
+    Future<void> shutdown(
+      WidgetTester tester,
+      MessagingService messaging,
+    ) async {
       unawaited(messaging.dispose());
       await tester.pump();
     }
@@ -578,6 +592,8 @@ void main() {
             id: 'while-locked-1',
             sentAtMs: DateTime.now().millisecondsSinceEpoch,
           ).encode(),
+          // An honest contact on an authenticated session (audit X/V-01).
+          provenance: SenderProvenance.sessionPeer,
         ),
       );
       await settle(tester);
@@ -821,7 +837,9 @@ void main() {
   });
 
   group('the setting in Settings -> Privacy', () {
-    testWidgets('picking a timeout is what the lock then obeys', (tester) async {
+    testWidgets('picking a timeout is what the lock then obeys', (
+      tester,
+    ) async {
       final storage = HiddenVolumeStorage(_memory());
       await storage.open(password: 'pw', createIfMissing: true);
       await tester.pumpWidget(

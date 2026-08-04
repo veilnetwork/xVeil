@@ -1,11 +1,71 @@
 part of 'messaging_core.dart';
 
+/// The wire kinds whose handling spends an ACCEPTED CONTACT's privileges, and
+/// which therefore may not run on a delivery that only CLAIMS to be one (audit
+/// X/V-01).
+///
+/// The list is short on purpose, and it is not "everything contact-gated". A
+/// contact gate answers "do I know this name"; this answers "did this delivery
+/// come from it", and only the second question is worth refusing a message
+/// over. The membership rule is cost of being wrong:
+///
+/// * it writes a row into that contact's conversation and notifies the user
+///   ([WireKind.message], [WireKind.spaceRecommendation], [WireKind.fileMeta] /
+///   [WireKind.fileChunk], [WireKind.chatDeleted]) — a stranger would be
+///   putting words in a contact's mouth, which is the whole of X/V-01;
+/// * it rewrites or erases what that contact already said ([WireKind.edit],
+///   [WireKind.del], [WireKind.clear], [WireKind.reaction]) — and [clear] needs
+///   no secret at all, just a sequence number, to wipe a whole conversation;
+/// * it hands this device addresses it will then dial
+///   ([WireKind.p2pEndpoints]).
+///
+/// Everything else deliberately stays out. Delivery acks, sync beacons, piece
+/// requests and chunk plumbing carry no attribution a user ever sees, are bound
+/// to ids the honest sender minted, and legitimately arrive over paths that are
+/// [SenderProvenance.claimed] BY CONSTRUCTION — the anonymous one-time reply
+/// circuit an ack rides is exactly such a path. Refusing them would cost the
+/// messenger far more than it would deny an attacker. Group, Space, cloud and
+/// call frames stay out too, and for a better reason: their authorization is a
+/// signature over the frame itself, checked against folded membership state, so
+/// they already survive a lie about `src`.
+const _contactPrivilegedKinds = <WireKind>{
+  WireKind.message,
+  WireKind.edit,
+  WireKind.del,
+  WireKind.clear,
+  WireKind.reaction,
+  WireKind.spaceRecommendation,
+  WireKind.chatDeleted,
+  WireKind.p2pEndpoints,
+  WireKind.fileMeta,
+  WireKind.fileChunk,
+};
+
 /// Serialized, fail-closed dispatch for authenticated durable wire frames.
 ///
 /// Parsing remains behind the contact/consent and replay gates established by
 /// [MessagingService]. Keeping every [WireKind] branch in one module makes the
 /// inbound protocol surface auditable without mixing it with send APIs.
 extension _MessagingInboundDispatch on MessagingService {
+  /// Whether this delivery may act with the privileges of the accepted contact
+  /// it NAMES — the question [InboundMessage.src] cannot answer, because the
+  /// sender is the one who fills it in.
+  ///
+  /// [SenderProvenance.claimed] is not a synonym for hostile. It is the correct,
+  /// expected level for anything relayed and for the whole anonymous meta-E2E
+  /// path, so this is asked only where being wrong is expensive — see
+  /// [_contactPrivilegedKinds].
+  bool _speaksForContact(InboundMessage m, WireKind kind) {
+    if (m.provenance.isAuthenticated) return true;
+    devLog(
+      () =>
+          'xVeil[recv]: ${kind.name} from ${m.src.short} DROPPED — the delivery '
+          'is unauthenticated (${m.provenance.name}), so the name is a claim, '
+          'not a contact',
+    );
+    return false;
+  }
+
   Future<void> _dispatch(InboundMessage m) async {
     final env = WireEnvelope.decode(m.payload);
     // ONE bound on a remote sequence number, ahead of every arm that could
@@ -19,6 +79,37 @@ extension _MessagingInboundDispatch on MessagingService {
     if (existing?.status == ContactStatus.blocked) return; // drop blocked
     if (existing?.status == ContactStatus.accepted) {
       _realtimeControl.markAccepted(m.src);
+    }
+
+    // ── X/V-01: the name is not the sender ────────────────────────────────
+    // Every gate below reads `m.src` as though it were an identity. It is a
+    // NAME the sender wrote, and there is nothing at this layer to check it
+    // with: a WireEnvelope carries no signature, no MAC, and no sender field at
+    // all. The one piece of evidence is the one veil now hands over with the
+    // delivery — decided from the authenticated peer of the session the frame
+    // arrived on, never from anything the frame says about itself.
+    //
+    // So an unauthenticated delivery gets a STRANGER's treatment on the kinds
+    // that spend a contact's privileges, which on those kinds is none. That is
+    // not a ban on unauthenticated delivery and must never become one: an
+    // anonymous message from someone we do not know is a supported thing, and
+    // arrives as a `request` on the pre-consent path below, which asks for no
+    // evidence because there is no relationship to speak for yet. What stops is
+    // a stranger wearing a contact's name.
+    //
+    // Refusing costs latency, not delivery: every kind in the set is also
+    // deposited at our mailbox by its sender, and mail is recovered with its
+    // sidecar signature verified — the one attribution this app proves for
+    // itself, and the reason [SenderProvenance.signed] can carry a decision.
+    //
+    // Placed HERE, ahead of the durable ack/dedup gate, and not inside the
+    // switch arms. That gate acks the frame and consumes the frameId's dedup
+    // slot; a frame refused after it would have retired the slot the honest
+    // copy needs, so a forged `del:<id>` would SUPPRESS the real one and this
+    // fix would become the denial it exists to prevent.
+    if (_contactPrivilegedKinds.contains(env.kind) &&
+        !_speaksForContact(m, env.kind)) {
+      return;
     }
 
     // Durable-frame ack + dedup (generic, any kind): a frame sent via
@@ -45,7 +136,9 @@ extension _MessagingInboundDispatch on MessagingService {
         env.kind == WireKind.spacePublicFeedRequest ||
         env.kind == WireKind.spacePublicFeedChunk ||
         env.kind == WireKind.spacePublicMediaGrantRequest;
-    if (fid != null && deferredGroupCallAck && _outbox.hasSeen(m.src.hex, fid)) {
+    if (fid != null &&
+        deferredGroupCallAck &&
+        _outbox.hasSeen(m.src.hex, fid)) {
       // This exact frame passed membership+AEAD+signature once already. A
       // re-drive means our prior ACK was lost; re-ACK without reprocessing.
       await _ackFrame(m, fid);
@@ -340,6 +433,15 @@ extension _MessagingInboundDispatch on MessagingService {
           );
           return;
         }
+        // Same class as a message, one arm later: an offer surfaces a row in
+        // this contact's chat and, under an auto-download policy, makes the
+        // device fetch bytes the offerer chose. Gated HERE rather than with the
+        // set above because the group holder-hint branch runs first and is
+        // authorized by folded membership, not by contact consent — hoisting
+        // this would close a path that never depended on `src` being proven.
+        // Mailbox-backed like the rest: a manifest is deposited under `mf:<id>`
+        // and comes back signed.
+        if (!_speaksForContact(m, env.kind)) return;
         devLog(
           () =>
               'xVeil[content]: manifest frame ${env.body.length}B '

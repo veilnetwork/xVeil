@@ -37,16 +37,30 @@ class _Link implements VeilTransport {
   @override
   Future<void> sendReply(int replyId, Uint8List payload) async {}
   @override
-  Future<void> send(NodeId dst, Uint8List payload,
-      {bool anonymous = false}) async {
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async {
     if (!online) return; // our egress is down — drop
     final p = peer;
     if (p == null || p._me != dst) return; // routed by dst, like the real net
-    p._inbound.add(InboundMessage(src: _me, payload: payload));
+    p._inbound.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
   }
 
-  void inject(NodeId from, Uint8List payload) =>
-      _inbound.add(InboundMessage(src: from, payload: payload));
+  void inject(NodeId from, Uint8List payload) => _inbound.add(
+    InboundMessage(
+      src: from,
+      payload: payload,
+      provenance: SenderProvenance.sessionPeer,
+    ),
+  );
 
   @override
   Stream<int> sessionCount() => Stream.value(0);
@@ -86,15 +100,21 @@ void main() {
       await sB.open(password: 'b', createIfMissing: true);
       mB = MessagingService(tB, sB)..start();
       addTearDown(mB.dispose);
-      await sB.upsertContact(Contact(nodeId: a, status: ContactStatus.accepted));
+      await sB.upsertContact(
+        Contact(nodeId: a, status: ContactStatus.accepted),
+      );
     });
 
     Future<void> injectMessage(String id, String body, int seq) async {
       tB.inject(
-          a,
-          WireEnvelope.message(body,
-                  id: id, sentAtMs: 1000 + seq, seq: seq)
-              .encode());
+        a,
+        WireEnvelope.message(
+          body,
+          id: id,
+          sentAtMs: 1000 + seq,
+          seq: seq,
+        ).encode(),
+      );
       await _settle();
     }
 
@@ -111,9 +131,13 @@ void main() {
       expect(msg.body, 'edited');
       expect(msg.edited, isTrue);
       final history = await sB.loadMessageHistory(a.hex, 'm1');
-      expect(history.length, 2,
-          reason: 'original + exactly one edit version — the duplicate '
-              'must not add a third');
+      expect(
+        history.length,
+        2,
+        reason:
+            'original + exactly one edit version — the duplicate '
+            'must not add a third',
+      );
     });
 
     test('a STALE edit re-driven after a newer one does not regress the text '
@@ -128,8 +152,11 @@ void main() {
       tB.inject(a, older); // out-of-order re-drive of the superseded edit
       await _settle();
 
-      expect((await sB.loadMessages(a.hex)).single.body, 'second edit',
-          reason: 'the older seq must never overwrite the newer text');
+      expect(
+        (await sB.loadMessages(a.hex)).single.body,
+        'second edit',
+        reason: 'the older seq must never overwrite the newer text',
+      );
     });
 
     test('duplicate delete stays deleted and is a harmless no-op', () async {
@@ -156,8 +183,11 @@ void main() {
       await _settle();
 
       final left = await sB.loadMessages(a.hex);
-      expect(left.map((m) => m.id), ['m3'],
-          reason: 'seq 1..2 cleared, seq 3 kept — twice-applied is the same');
+      expect(
+        left.map((m) => m.id),
+        ['m3'],
+        reason: 'seq 1..2 cleared, seq 3 kept — twice-applied is the same',
+      );
 
       // A message arriving AFTER the duplicate clear, above the watermark,
       // still lands (the duplicate must not have widened the clear).
@@ -167,7 +197,8 @@ void main() {
 
     test('duplicate accept keeps a single accepted contact', () async {
       await sB.upsertContact(
-          Contact(nodeId: a, status: ContactStatus.pendingOutgoing));
+        Contact(nodeId: a, status: ContactStatus.pendingOutgoing),
+      );
       final accept = const WireEnvelope.accept().encode();
       tB.inject(a, accept);
       await _settle();
@@ -189,8 +220,11 @@ void main() {
       final contact = await sB.getContact(a);
       expect(contact!.status, ContactStatus.pendingIncoming);
       expect((await sB.loadConversations()).length, 1);
-      expect(await sB.loadMessages(a.hex), isEmpty,
-          reason: 'an empty re-intro greeting stores no message');
+      expect(
+        await sB.loadMessages(a.hex),
+        isEmpty,
+        reason: 'an empty re-intro greeting stores no message',
+      );
     });
   });
 
@@ -237,7 +271,9 @@ void main() {
     Future<String> seed(String body) async {
       await mA.sendText(b, body);
       await _settle();
-      return (await sA.loadMessages(b.hex)).firstWhere((m) => m.body == body).id;
+      return (await sA.loadMessages(
+        b.hex,
+      )).firstWhere((m) => m.body == body).id;
     }
 
     test('EDIT lost on first attempt is re-driven, applied once, and the ack '
@@ -246,19 +282,27 @@ void main() {
       tA.online = false; // the lossy first attempt eats the edit
       await mA.editOwnMessage(id, 'meet at ONE');
       await _settle();
-      expect((await sB.loadMessages(a.hex)).single.body, 'meet at noon',
-          reason: 'nothing reached B yet');
+      expect(
+        (await sB.loadMessages(a.hex)).single.body,
+        'meet at noon',
+        reason: 'nothing reached B yet',
+      );
       expect((await sA.pendingOutboxFrames()).length, 1);
 
       tA.online = true;
-      clock = clock.add(const Duration(seconds: 21)); // past the re-drive backoff
+      clock = clock.add(
+        const Duration(seconds: 21),
+      ); // past the re-drive backoff
       await flushA();
 
       final onB = (await sB.loadMessages(a.hex)).single;
       expect(onB.body, 'meet at ONE');
       expect(onB.edited, isTrue);
-      expect(await sA.pendingOutboxFrames(), isEmpty,
-          reason: "B's ack retired the frame");
+      expect(
+        await sA.pendingOutboxFrames(),
+        isEmpty,
+        reason: "B's ack retired the frame",
+      );
     });
 
     test('a re-driven EDIT is processed once even while the acks are lost '
@@ -273,15 +317,22 @@ void main() {
       expect((await sA.pendingOutboxFrames()).length, 1);
       clock = clock.add(const Duration(seconds: 21));
       await flushA();
-      expect((await sB.loadMessageHistory(a.hex, id)).length, 2,
-          reason: 'original + ONE edit — the re-drive was deduped, not '
-              're-applied');
+      expect(
+        (await sB.loadMessageHistory(a.hex, id)).length,
+        2,
+        reason:
+            'original + ONE edit — the re-drive was deduped, not '
+            're-applied',
+      );
 
       tB.online = true;
       clock = clock.add(const Duration(seconds: 41)); // past the doubled step
       await flushA();
-      expect(await sA.pendingOutboxFrames(), isEmpty,
-          reason: 'the healed ack path finally retired the frame');
+      expect(
+        await sA.pendingOutboxFrames(),
+        isEmpty,
+        reason: 'the healed ack path finally retired the frame',
+      );
       expect((await sB.loadMessages(a.hex)).single.body, 'final text');
     });
 
@@ -291,8 +342,11 @@ void main() {
       tA.online = false;
       await mA.deleteForEveryone(id);
       await _settle();
-      expect((await sB.loadMessages(a.hex)).length, 1,
-          reason: 'the unsend never reached B');
+      expect(
+        (await sB.loadMessages(a.hex)).length,
+        1,
+        reason: 'the unsend never reached B',
+      );
 
       tA.online = true;
       clock = clock.add(const Duration(seconds: 21));
@@ -303,22 +357,27 @@ void main() {
       expect(await sA.pendingOutboxFrames(), isEmpty);
     });
 
-    test('CLEAR lost on first attempt is re-driven and empties the peer copy',
-        () async {
-      await seed('history line');
-      tA.online = false;
-      await mA.clearConversation(b);
-      await _settle();
-      expect((await sB.loadMessages(a.hex)), isNotEmpty,
-          reason: 'the clear never reached B');
+    test(
+      'CLEAR lost on first attempt is re-driven and empties the peer copy',
+      () async {
+        await seed('history line');
+        tA.online = false;
+        await mA.clearConversation(b);
+        await _settle();
+        expect(
+          (await sB.loadMessages(a.hex)),
+          isNotEmpty,
+          reason: 'the clear never reached B',
+        );
 
-      tA.online = true;
-      clock = clock.add(const Duration(seconds: 21));
-      await flushA();
+        tA.online = true;
+        clock = clock.add(const Duration(seconds: 21));
+        await flushA();
 
-      expect(await sB.loadMessages(a.hex), isEmpty);
-      expect(await sA.pendingOutboxFrames(), isEmpty);
-    });
+        expect(await sB.loadMessages(a.hex), isEmpty);
+        expect(await sA.pendingOutboxFrames(), isEmpty);
+      },
+    );
 
     test('two conversations cleared at the SAME seq do not collide in the '
         'outbox (peer-scoped frame id)', () async {
@@ -352,11 +411,16 @@ void main() {
       await mA.clearConversation(c);
       await _settle();
       final pending = await sA.pendingOutboxFrames();
-      final clearIds =
-          pending.map((f) => f.frameId).where((x) => x.startsWith('clear:'));
-      expect(clearIds.length, 2,
-          reason: 'both clears must be enqueued — a seq-only id would have '
-              'collapsed them to one');
+      final clearIds = pending
+          .map((f) => f.frameId)
+          .where((x) => x.startsWith('clear:'));
+      expect(
+        clearIds.length,
+        2,
+        reason:
+            'both clears must be enqueued — a seq-only id would have '
+            'collapsed them to one',
+      );
 
       tA.online = true;
       clock = clock.add(const Duration(seconds: 21));
@@ -389,205 +453,236 @@ void main() {
       tA.online = false;
       await mA.acceptContact(c);
       await _settle();
-      expect((await sC.getContact(a))!.status, ContactStatus.pendingOutgoing,
-          reason: 'the accept never reached C');
       expect(
-          (await sA.pendingOutboxFrames()).map((f) => f.frameId),
-          contains('accept:${c.hex}'));
+        (await sC.getContact(a))!.status,
+        ContactStatus.pendingOutgoing,
+        reason: 'the accept never reached C',
+      );
+      expect(
+        (await sA.pendingOutboxFrames()).map((f) => f.frameId),
+        contains('accept:${c.hex}'),
+      );
 
       tA.online = true;
       clock = clock.add(const Duration(seconds: 21));
       await flushA();
 
-      expect((await sC.getContact(a))!.status, ContactStatus.accepted,
-          reason: 'the re-driven accept completed the handshake');
       expect(
-          (await sA.pendingOutboxFrames()).map((f) => f.frameId),
-          isNot(contains('accept:${c.hex}')),
-          reason: "C's ack (sent from the accept arm) retired the frame");
-    });
-
-    test('an ACK that beats the durable write does not leave a pending frame',
-        () async {
-      // `startLiveBeforeEnqueue` sends before persisting on purpose: call
-      // control must not queue behind a slow encrypted store. That opens a
-      // window — an ACK arriving inside it retires a frame whose row does not
-      // exist yet, finds nothing to delete, and then the enqueue creates a row
-      // for a frame the peer has already confirmed. Nothing retires it again,
-      // so it re-drives every outbox cycle for the life of the session
-      // (audit XV-19).
-      //
-      // Its own service pair, because the whole point is a storage whose write
-      // loses the race to the peer's ACK.
-      final slowA = _SlowEnqueueStorage(_memOpener());
-      await slowA.open(password: 'slow-a', createIfMissing: true);
-      final tSlowA = _Link(a);
-      final tSlowB = _Link(b);
-      tSlowA.peer = tSlowB;
-      tSlowB.peer = tSlowA;
-      final sSlowB = HiddenVolumeStorage(_memOpener());
-      await sSlowB.open(password: 'slow-b', createIfMissing: true);
-      final mSlowA = MessagingService(tSlowA, slowA, now: () => clock)..start();
-      final mSlowB = MessagingService(tSlowB, sSlowB, now: () => clock)..start();
-      addTearDown(mSlowA.dispose);
-      addTearDown(mSlowB.dispose);
-      await mSlowA.sendRequest(b, '');
-      await _settle();
-      await mSlowB.acceptContact(a);
-      await _settle();
-
-      // From here the enqueue takes long enough for B's ACK to get in first.
-      slowA.delayEnqueue = true;
-      await mSlowA.sendCallSignal(
-        b,
-        const CallSignal(callId: 'race', type: CallSignalType.offer),
+        (await sC.getContact(a))!.status,
+        ContactStatus.accepted,
+        reason: 'the re-driven accept completed the handshake',
       );
-      await _settle();
-      await _settle();
-
       expect(
-        await slowA.pendingOutboxFrames(),
-        isEmpty,
-        reason: 'a frame the peer already confirmed must not stay pending — '
-            'nothing would ever retire it again',
+        (await sA.pendingOutboxFrames()).map((f) => f.frameId),
+        isNot(contains('accept:${c.hex}')),
+        reason: "C's ack (sent from the accept arm) retired the frame",
       );
     });
 
-    test('call health heartbeat is live-only and never enters durable outbox',
-        () async {
-      tA.online = false;
-      await mA.sendCallSignal(
-        b,
-        const CallSignal(callId: 'call-live', type: CallSignalType.health),
-      );
-      await _settle();
+    test(
+      'an ACK that beats the durable write does not leave a pending frame',
+      () async {
+        // `startLiveBeforeEnqueue` sends before persisting on purpose: call
+        // control must not queue behind a slow encrypted store. That opens a
+        // window — an ACK arriving inside it retires a frame whose row does not
+        // exist yet, finds nothing to delete, and then the enqueue creates a row
+        // for a frame the peer has already confirmed. Nothing retires it again,
+        // so it re-drives every outbox cycle for the life of the session
+        // (audit XV-19).
+        //
+        // Its own service pair, because the whole point is a storage whose write
+        // loses the race to the peer's ACK.
+        final slowA = _SlowEnqueueStorage(_memOpener());
+        await slowA.open(password: 'slow-a', createIfMissing: true);
+        final tSlowA = _Link(a);
+        final tSlowB = _Link(b);
+        tSlowA.peer = tSlowB;
+        tSlowB.peer = tSlowA;
+        final sSlowB = HiddenVolumeStorage(_memOpener());
+        await sSlowB.open(password: 'slow-b', createIfMissing: true);
+        final mSlowA = MessagingService(tSlowA, slowA, now: () => clock)
+          ..start();
+        final mSlowB = MessagingService(tSlowB, sSlowB, now: () => clock)
+          ..start();
+        addTearDown(mSlowA.dispose);
+        addTearDown(mSlowB.dispose);
+        await mSlowA.sendRequest(b, '');
+        await _settle();
+        await mSlowB.acceptContact(a);
+        await _settle();
 
-      expect(await sA.pendingOutboxFrames(), isEmpty,
-          reason: 'liveness beats are superseded by the next beat and must not '
-              'survive as restart/outbox work');
-    });
+        // From here the enqueue takes long enough for B's ACK to get in first.
+        slowA.delayEnqueue = true;
+        await mSlowA.sendCallSignal(
+          b,
+          const CallSignal(callId: 'race', type: CallSignalType.offer),
+        );
+        await _settle();
+        await _settle();
 
-    test('non-contact group-call lifecycle re-drives by membership and dispatches',
-        () async {
-      await sA.removeConversation(b);
-      await sB.removeConversation(a);
-      final gid = _id(8);
-      mA.allowStrangerGroupSync = (peer, groupIdHex) async =>
-          peer == b && groupIdHex == gid.hex;
-      String? received;
-      mB.onGroupCallSignal = (peer, frameJson) async {
-        if (peer == a) received = frameJson;
-        return true;
-      };
-      final signal = GroupCallSignal(
-        groupId: gid,
-        callId: 'room',
-        author: a,
-        membershipEpoch: 1,
-        type: GroupCallSignalType.announce,
-        media: const CallMedia(audio: true),
-        sentAtMs: clock.millisecondsSinceEpoch,
-        nonce: '00112233445566778899aabb',
-        signature: Uint8List(64),
-        authorPubKey: Uint8List(32),
-      );
-      tA.online = false;
-      await mA.sendGroupCallSignal(b, signal, '{"ciphertext":true}');
-      await _settle();
-      expect(received, isNull);
-      expect(
-        (await sA.pendingOutboxFrames()).single.frameId,
-        startsWith('gcall:${gid.hex}:room:announce:'),
-      );
+        expect(
+          await slowA.pendingOutboxFrames(),
+          isEmpty,
+          reason:
+              'a frame the peer already confirmed must not stay pending — '
+              'nothing would ever retire it again',
+        );
+      },
+    );
 
-      tA.online = true;
-      clock = clock.add(const Duration(seconds: 21));
-      await flushA();
-      expect(received, '{"ciphertext":true}');
-      expect(
-        (await sA.pendingOutboxFrames()).map((frame) => frame.frameId),
-        isEmpty,
-      );
-    });
+    test(
+      'call health heartbeat is live-only and never enters durable outbox',
+      () async {
+        tA.online = false;
+        await mA.sendCallSignal(
+          b,
+          const CallSignal(callId: 'call-live', type: CallSignalType.health),
+        );
+        await _settle();
 
-    test('stale group-call lifecycle retires before a non-contact re-drive',
-        () async {
-      await sA.removeConversation(b);
-      await sB.removeConversation(a);
-      final gid = _id(8);
-      mA.allowStrangerGroupSync = (peer, groupIdHex) async => true;
-      var received = false;
-      mB.onGroupCallSignal = (_, _) async {
-        received = true;
-        return true;
-      };
-      final signal = GroupCallSignal(
-        groupId: gid,
-        callId: 'stale-room',
-        author: a,
-        membershipEpoch: 1,
-        type: GroupCallSignalType.announce,
-        media: const CallMedia(audio: true),
-        sentAtMs: clock.millisecondsSinceEpoch,
-        nonce: 'ffeeddccbbaa998877665544',
-        signature: Uint8List(64),
-        authorPubKey: Uint8List(32),
-      );
-      tA.online = false;
-      await mA.sendGroupCallSignal(b, signal, '{}');
-      await _settle();
-      clock = clock.add(const Duration(minutes: 3));
-      tA.online = true;
-      await flushA();
-      expect(received, isFalse);
-      expect(await sA.pendingOutboxFrames(), isEmpty);
-    });
+        expect(
+          await sA.pendingOutboxFrames(),
+          isEmpty,
+          reason:
+              'liveness beats are superseded by the next beat and must not '
+              'survive as restart/outbox work',
+        );
+      },
+    );
 
-    test('non-contact group content request re-drives by membership then expires',
-        () async {
-      await sA.removeConversation(b);
-      await sB.removeConversation(a);
-      final gid = _id(8);
-      mA.allowStrangerGroupSync = (peer, groupIdHex) async =>
-          peer == b && groupIdHex == gid.hex;
-      String? received;
-      mB.onGroupContentRequest = (peer, requestJson) {
-        if (peer == a) received = requestJson;
-      };
-      final request = GroupContentRequest(
-        groupId: gid,
-        contentId: 'c0ffee',
-        requester: a,
-        nonce: '00112233445566778899aabb',
-        tsMs: clock.millisecondsSinceEpoch,
-        signature: Uint8List(64),
-        authorPubKey: Uint8List(32),
-      );
-      final json = jsonEncode(request.toJson());
+    test(
+      'non-contact group-call lifecycle re-drives by membership and dispatches',
+      () async {
+        await sA.removeConversation(b);
+        await sB.removeConversation(a);
+        final gid = _id(8);
+        mA.allowStrangerGroupSync = (peer, groupIdHex) async =>
+            peer == b && groupIdHex == gid.hex;
+        String? received;
+        mB.onGroupCallSignal = (peer, frameJson) async {
+          if (peer == a) received = frameJson;
+          return true;
+        };
+        final signal = GroupCallSignal(
+          groupId: gid,
+          callId: 'room',
+          author: a,
+          membershipEpoch: 1,
+          type: GroupCallSignalType.announce,
+          media: const CallMedia(audio: true),
+          sentAtMs: clock.millisecondsSinceEpoch,
+          nonce: '00112233445566778899aabb',
+          signature: Uint8List(64),
+          authorPubKey: Uint8List(32),
+        );
+        tA.online = false;
+        await mA.sendGroupCallSignal(b, signal, '{"ciphertext":true}');
+        await _settle();
+        expect(received, isNull);
+        expect(
+          (await sA.pendingOutboxFrames()).single.frameId,
+          startsWith('gcall:${gid.hex}:room:announce:'),
+        );
 
-      tA.online = false;
-      await mA.sendGroupContentRequest(b, json);
-      await _settle();
-      expect(received, isNull);
-      expect(
-        (await sA.pendingOutboxFrames()).single.frameId,
-        'gcr:${gid.hex}:c0ffee:00112233445566778899aabb:${b.hex}',
-        reason: 'the destination belongs in the id — the durable outbox is '
-            'keyed by frameId, so one id shared across holders meant only the '
-            'first holder\'s request was ever persisted (audit XV-02)',
-      );
+        tA.online = true;
+        clock = clock.add(const Duration(seconds: 21));
+        await flushA();
+        expect(received, '{"ciphertext":true}');
+        expect(
+          (await sA.pendingOutboxFrames()).map((frame) => frame.frameId),
+          isEmpty,
+        );
+      },
+    );
 
-      tA.online = true;
-      clock = clock.add(const Duration(seconds: 21));
-      await flushA();
-      expect(received, json);
-      expect(await sA.pendingOutboxFrames(), hasLength(1),
-          reason: 'a non-contact gets no ACK oracle');
+    test(
+      'stale group-call lifecycle retires before a non-contact re-drive',
+      () async {
+        await sA.removeConversation(b);
+        await sB.removeConversation(a);
+        final gid = _id(8);
+        mA.allowStrangerGroupSync = (peer, groupIdHex) async => true;
+        var received = false;
+        mB.onGroupCallSignal = (_, _) async {
+          received = true;
+          return true;
+        };
+        final signal = GroupCallSignal(
+          groupId: gid,
+          callId: 'stale-room',
+          author: a,
+          membershipEpoch: 1,
+          type: GroupCallSignalType.announce,
+          media: const CallMedia(audio: true),
+          sentAtMs: clock.millisecondsSinceEpoch,
+          nonce: 'ffeeddccbbaa998877665544',
+          signature: Uint8List(64),
+          authorPubKey: Uint8List(32),
+        );
+        tA.online = false;
+        await mA.sendGroupCallSignal(b, signal, '{}');
+        await _settle();
+        clock = clock.add(const Duration(minutes: 3));
+        tA.online = true;
+        await flushA();
+        expect(received, isFalse);
+        expect(await sA.pendingOutboxFrames(), isEmpty);
+      },
+    );
 
-      clock = clock.add(kGroupContentRequestWindow + const Duration(seconds: 1));
-      await flushA();
-      expect(await sA.pendingOutboxFrames(), isEmpty);
-    });
+    test(
+      'non-contact group content request re-drives by membership then expires',
+      () async {
+        await sA.removeConversation(b);
+        await sB.removeConversation(a);
+        final gid = _id(8);
+        mA.allowStrangerGroupSync = (peer, groupIdHex) async =>
+            peer == b && groupIdHex == gid.hex;
+        String? received;
+        mB.onGroupContentRequest = (peer, requestJson) {
+          if (peer == a) received = requestJson;
+        };
+        final request = GroupContentRequest(
+          groupId: gid,
+          contentId: 'c0ffee',
+          requester: a,
+          nonce: '00112233445566778899aabb',
+          tsMs: clock.millisecondsSinceEpoch,
+          signature: Uint8List(64),
+          authorPubKey: Uint8List(32),
+        );
+        final json = jsonEncode(request.toJson());
+
+        tA.online = false;
+        await mA.sendGroupContentRequest(b, json);
+        await _settle();
+        expect(received, isNull);
+        expect(
+          (await sA.pendingOutboxFrames()).single.frameId,
+          'gcr:${gid.hex}:c0ffee:00112233445566778899aabb:${b.hex}',
+          reason:
+              'the destination belongs in the id — the durable outbox is '
+              'keyed by frameId, so one id shared across holders meant only the '
+              'first holder\'s request was ever persisted (audit XV-02)',
+        );
+
+        tA.online = true;
+        clock = clock.add(const Duration(seconds: 21));
+        await flushA();
+        expect(received, json);
+        expect(
+          await sA.pendingOutboxFrames(),
+          hasLength(1),
+          reason: 'a non-contact gets no ACK oracle',
+        );
+
+        clock = clock.add(
+          kGroupContentRequestWindow + const Duration(seconds: 1),
+        );
+        await flushA();
+        expect(await sA.pendingOutboxFrames(), isEmpty);
+      },
+    );
 
     test('repeated renegotiates enqueue DISTINCT durable frames (a type-only '
         'id would dedup the second toggle away)', () async {
@@ -619,32 +714,41 @@ void main() {
       expect(ids.toSet().length, 2, reason: 'sentAt-keyed ids must differ');
     });
 
-    test('stale durable call offer is retired instead of re-driven forever',
-        () async {
-      tA.online = false;
-      await mA.sendCallSignal(
-        b,
-        CallSignal(
-          callId: 'call-stale',
-          type: CallSignalType.offer,
-          media: const CallMedia(audio: true, video: true),
-          posture: CallPosture.direct,
-        ),
-      );
-      await _settle();
-      expect(
+    test(
+      'stale durable call offer is retired instead of re-driven forever',
+      () async {
+        tA.online = false;
+        await mA.sendCallSignal(
+          b,
+          CallSignal(
+            callId: 'call-stale',
+            type: CallSignalType.offer,
+            media: const CallMedia(audio: true, video: true),
+            posture: CallPosture.direct,
+          ),
+        );
+        await _settle();
+        expect(
           (await sA.pendingOutboxFrames()).map((f) => f.frameId),
-          contains('call:call-stale:offer'));
+          contains('call:call-stale:offer'),
+        );
 
-      tA.online = true;
-      clock = clock.add(const Duration(minutes: 3));
-      await flushA();
+        tA.online = true;
+        clock = clock.add(const Duration(minutes: 3));
+        await flushA();
 
-      expect(await sA.pendingOutboxFrames(), isEmpty,
-          reason: 'a missed real-time call is no longer useful minutes later');
-      expect(await sB.pendingOutboxFrames(), isEmpty,
-          reason: 'the stale offer was not delivered to B');
-    });
+        expect(
+          await sA.pendingOutboxFrames(),
+          isEmpty,
+          reason: 'a missed real-time call is no longer useful minutes later',
+        );
+        expect(
+          await sB.pendingOutboxFrames(),
+          isEmpty,
+          reason: 'the stale offer was not delivered to B',
+        );
+      },
+    );
 
     test('peer inbound within the nudge grace does not duplicate a just-sent '
         'call frame; the backoff re-drive still heals a lost ack', () async {
@@ -678,71 +782,96 @@ void main() {
       tA.inject(
         b,
         WireEnvelope.callSignal(
-          const CallSignal(callId: 'dup', type: CallSignalType.health)
-              .encode(),
+          const CallSignal(callId: 'dup', type: CallSignalType.health).encode(),
         ).encode(),
       );
       await _settle();
-      expect(offers, 1,
-          reason: 'inbound during the grace must not duplicate the send');
+      expect(
+        offers,
+        1,
+        reason: 'inbound during the grace must not duplicate the send',
+      );
 
       // The ack really was lost → the fast call ladder and/or the regular
       // backoff re-drive still fire. Both copies carry the same frame id and
       // are deduplicated at the receiver.
       clock = clock.add(const Duration(seconds: 21));
       await flushA();
-      expect(offers, greaterThanOrEqualTo(2),
-          reason: 'the durable guarantee is untouched');
-    });
-
-    test('RECONNECT to a wiped peer is durable: re-intro survives the lost '
-        'first attempt, and accepting heals the conversation end-to-end',
-        () async {
-      // B wipes A completely (Case-A): A's plain messages now hit B's consent
-      // gate and drop.
-      await sB.removeConversation(a);
-      await mA.sendText(b, 'anyone home?');
-      await _settle();
-      expect(await sB.getContact(a), isNull, reason: 'message dropped at gate');
-
-      // First reconnect attempt fires past the threshold — but the live path
-      // eats it (A offline at that moment).
-      tA.online = false;
-      clock = clock.add(const Duration(minutes: 3));
-      await flushA();
       expect(
-          (await sA.pendingOutboxFrames()).map((f) => f.frameId),
-          contains('reconnect:${b.hex}'));
-      expect(await sB.getContact(a), isNull);
-
-      // The durable pipeline re-drives it once the egress heals — no need to
-      // wait out the 15-min reconnect ladder.
-      tA.online = true;
-      clock = clock.add(const Duration(seconds: 21));
-      await flushA();
-      expect((await sB.getContact(a))!.status, ContactStatus.pendingIncoming,
-          reason: 're-driven re-intro surfaced on the wiped peer');
-
-      // B re-accepts → the stuck message flows → everything retires.
-      await mB.acceptContact(a);
-      await _settle();
-      clock = clock.add(const Duration(seconds: 41));
-      await flushA();
-      await mB.flushOutbox();
-      await _settle();
-      clock = clock.add(const Duration(minutes: 11)); // past any frame backoff
-      await flushA();
-      await mB.flushOutbox();
-      await _settle();
-
-      expect((await sB.loadMessages(a.hex)).map((m) => m.body),
-          contains('anyone home?'),
-          reason: 'the conversation healed after re-accept');
-      expect(await sA.pendingOutboxFrames(), isEmpty,
-          reason: "B now acks A's durable frames — reconnect retired");
-      expect(await sB.pendingOutboxFrames(), isEmpty,
-          reason: "A acked B's accept — nothing left pending");
+        offers,
+        greaterThanOrEqualTo(2),
+        reason: 'the durable guarantee is untouched',
+      );
     });
+
+    test(
+      'RECONNECT to a wiped peer is durable: re-intro survives the lost '
+      'first attempt, and accepting heals the conversation end-to-end',
+      () async {
+        // B wipes A completely (Case-A): A's plain messages now hit B's consent
+        // gate and drop.
+        await sB.removeConversation(a);
+        await mA.sendText(b, 'anyone home?');
+        await _settle();
+        expect(
+          await sB.getContact(a),
+          isNull,
+          reason: 'message dropped at gate',
+        );
+
+        // First reconnect attempt fires past the threshold — but the live path
+        // eats it (A offline at that moment).
+        tA.online = false;
+        clock = clock.add(const Duration(minutes: 3));
+        await flushA();
+        expect(
+          (await sA.pendingOutboxFrames()).map((f) => f.frameId),
+          contains('reconnect:${b.hex}'),
+        );
+        expect(await sB.getContact(a), isNull);
+
+        // The durable pipeline re-drives it once the egress heals — no need to
+        // wait out the 15-min reconnect ladder.
+        tA.online = true;
+        clock = clock.add(const Duration(seconds: 21));
+        await flushA();
+        expect(
+          (await sB.getContact(a))!.status,
+          ContactStatus.pendingIncoming,
+          reason: 're-driven re-intro surfaced on the wiped peer',
+        );
+
+        // B re-accepts → the stuck message flows → everything retires.
+        await mB.acceptContact(a);
+        await _settle();
+        clock = clock.add(const Duration(seconds: 41));
+        await flushA();
+        await mB.flushOutbox();
+        await _settle();
+        clock = clock.add(
+          const Duration(minutes: 11),
+        ); // past any frame backoff
+        await flushA();
+        await mB.flushOutbox();
+        await _settle();
+
+        expect(
+          (await sB.loadMessages(a.hex)).map((m) => m.body),
+          contains('anyone home?'),
+          reason: 'the conversation healed after re-accept',
+        );
+        expect(
+          await sA.pendingOutboxFrames(),
+          isEmpty,
+          reason: "B now acks A's durable frames — reconnect retired",
+        );
+        expect(
+          await sB.pendingOutboxFrames(),
+          isEmpty,
+          reason: "A acked B's accept — nothing left pending",
+        );
+      },
+    );
 
     test('a pending RECONNECT is retired when every stuck message hits its '
         'give-up (no forever re-drive at a ghost peer)', () async {
@@ -757,11 +886,17 @@ void main() {
         await flushA();
       }
 
-      expect((await sA.loadMessages(b.hex)).single.status,
-          MessageStatus.failed);
-      expect(await sA.pendingOutboxFrames(), isEmpty,
-          reason: 'the reconnect frame did not outlive the messages it '
-              'was reviving');
+      expect(
+        (await sA.loadMessages(b.hex)).single.status,
+        MessageStatus.failed,
+      );
+      expect(
+        await sA.pendingOutboxFrames(),
+        isEmpty,
+        reason:
+            'the reconnect frame did not outlive the messages it '
+            'was reviving',
+      );
     });
 
     test('a durable frame survives a RESTART: a fresh service over the same '
@@ -781,8 +916,10 @@ void main() {
       await mA2.flushOutbox(); // no in-memory backoff yet → immediate re-drive
       await _settle();
 
-      expect((await sB.loadMessages(a.hex)).single.body,
-          'edited before restart');
+      expect(
+        (await sB.loadMessages(a.hex)).single.body,
+        'edited before restart',
+      );
       expect(await sA.pendingOutboxFrames(), isEmpty);
     });
 
@@ -799,10 +936,16 @@ void main() {
       clock = clock.add(const Duration(seconds: 21));
       await flushA();
 
-      expect(await sA.pendingOutboxFrames(), isEmpty,
-          reason: 'moot frame dropped with its conversation');
-      expect((await sB.loadMessages(a.hex)).single.body, 'temp',
-          reason: 'nothing was delivered — the frame was retired locally');
+      expect(
+        await sA.pendingOutboxFrames(),
+        isEmpty,
+        reason: 'moot frame dropped with its conversation',
+      );
+      expect(
+        (await sB.loadMessages(a.hex)).single.body,
+        'temp',
+        reason: 'nothing was delivered — the frame was retired locally',
+      );
     });
   });
 
@@ -839,36 +982,57 @@ void main() {
       mB = MessagingService(tB, sB)..start();
       addTearDown(mA.dispose);
       addTearDown(mB.dispose);
-      await sA.upsertContact(Contact(nodeId: b, status: ContactStatus.accepted));
-      await sB.upsertContact(Contact(nodeId: a, status: ContactStatus.accepted));
+      await sA.upsertContact(
+        Contact(nodeId: b, status: ContactStatus.accepted),
+      );
+      await sB.upsertContact(
+        Contact(nodeId: a, status: ContactStatus.accepted),
+      );
     });
 
-    test("an accepted peer's edits cost B no vacuum at all, its unsend does",
-        () async {
-      tB.inject(
+    test(
+      "an accepted peer's edits cost B no vacuum at all, its unsend does",
+      () async {
+        tB.inject(
           a,
-          WireEnvelope.message('original', id: 'm1', sentAtMs: 1000, seq: 1)
-              .encode());
-      await _settle();
-      sB.scrubs = 0;
-
-      for (var i = 2; i < 12; i++) {
-        tB.inject(a, WireEnvelope.edit('m1', 'edit $i', seq: i).encode());
+          WireEnvelope.message(
+            'original',
+            id: 'm1',
+            sentAtMs: 1000,
+            seq: 1,
+          ).encode(),
+        );
         await _settle();
-      }
-      expect((await sB.loadMessages(a.hex)).single.body, 'edit 11',
-          reason: 'the edits really landed — this is not a no-op path');
-      expect(sB.scrubs, 0,
-          reason: 'ten remote edits, ten sweeps of the whole container, and '
-              'nothing to reclaim in any of them');
+        sB.scrubs = 0;
 
-      // Control: the destructive twin still scrubs, on the very same storage.
-      tB.inject(a, const WireEnvelope.del('m1').encode());
-      await _settle();
-      expect(await sB.loadMessages(a.hex), isEmpty);
-      expect(sB.scrubs, greaterThan(0),
-          reason: 'an unsend must still reclaim the plaintext');
-    });
+        for (var i = 2; i < 12; i++) {
+          tB.inject(a, WireEnvelope.edit('m1', 'edit $i', seq: i).encode());
+          await _settle();
+        }
+        expect(
+          (await sB.loadMessages(a.hex)).single.body,
+          'edit 11',
+          reason: 'the edits really landed — this is not a no-op path',
+        );
+        expect(
+          sB.scrubs,
+          0,
+          reason:
+              'ten remote edits, ten sweeps of the whole container, and '
+              'nothing to reclaim in any of them',
+        );
+
+        // Control: the destructive twin still scrubs, on the very same storage.
+        tB.inject(a, const WireEnvelope.del('m1').encode());
+        await _settle();
+        expect(await sB.loadMessages(a.hex), isEmpty);
+        expect(
+          sB.scrubs,
+          greaterThan(0),
+          reason: 'an unsend must still reclaim the plaintext',
+        );
+      },
+    );
 
     test('editing OUR OWN message costs no vacuum, deleting it does', () async {
       await mA.sendText(b, 'first draft');
@@ -891,9 +1055,14 @@ void main() {
     test('the retained edit history still reads back — dropping the vacuum '
         'reclaimed nothing, so it hid nothing either', () async {
       tB.inject(
-          a,
-          WireEnvelope.message('original', id: 'm1', sentAtMs: 1000, seq: 1)
-              .encode());
+        a,
+        WireEnvelope.message(
+          'original',
+          id: 'm1',
+          sentAtMs: 1000,
+          seq: 1,
+        ).encode(),
+      );
       await _settle();
       tB.inject(a, WireEnvelope.edit('m1', 'once', seq: 2).encode());
       await _settle();
@@ -901,10 +1070,13 @@ void main() {
       await _settle();
 
       final history = await sB.loadMessageHistory(a.hex, 'm1');
-      expect(history.map((v) => v.body).toList(),
-          ['original', 'once', 'twice'],
-          reason: 'every superseded body is still there — exactly as it was '
-              'when the edit path scrubbed, since the scrub never freed one');
+      expect(
+        history.map((v) => v.body).toList(),
+        ['original', 'once', 'twice'],
+        reason:
+            'every superseded body is still there — exactly as it was '
+            'when the edit path scrubbed, since the scrub never freed one',
+      );
 
       // And the explicit destructive path still takes them away.
       tB.inject(a, const WireEnvelope.del('m1').encode());
@@ -926,7 +1098,6 @@ class _ScrubCountingStorage extends HiddenVolumeStorage {
     return super.scrubDeleted();
   }
 }
-
 
 /// Makes the durable write lose the race to the peer's ACK.
 ///

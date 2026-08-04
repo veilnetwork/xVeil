@@ -56,7 +56,13 @@ class _Link implements VeilTransport {
       dropManifestOnce = false;
       return; // the offer's manifest is "lost" → receiver must reoffer
     }
-    peer?._in.add(InboundMessage(src: _me, payload: payload));
+    peer?._in.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
   }
 
   @override

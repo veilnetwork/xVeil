@@ -299,8 +299,10 @@ class _StreamLink
   _StreamLink? peer;
   final routes = <String, _StreamLink>{};
   final sentPayloads = <Uint8List>[];
-  final _accepts = <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
-  final _p2pAccepts = <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
+  final _accepts =
+      <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
+  final _p2pAccepts =
+      <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
   final acceptStreamWrappers =
       <ReliableStream Function(ReliableStream stream)>[];
   final openStreamDelays = <String, Duration>{};
@@ -310,6 +312,12 @@ class _StreamLink
   int openedStreamCount = 0;
   int p2pOpenStreamAttemptCount = 0;
   int p2pOpenedStreamCount = 0;
+
+  /// What this node knows about the initiator of a DIRECT stream open. Both of
+  /// veil's open paths authenticate today, so the honest default is
+  /// [SenderProvenance.sessionPeer]; a test lowers it to model an open that
+  /// proves nothing about the name it arrives under.
+  SenderProvenance p2pOpenProvenance = SenderProvenance.sessionPeer;
   int localStreamCloses = 0;
   int activeAnonymousAccepts = 0;
   int maxConcurrentAnonymousAccepts = 0;
@@ -329,7 +337,11 @@ class _StreamLink
   }) async {
     sentPayloads.add(Uint8List.fromList(payload));
     (routes[dst.hex] ?? peer)?._in.add(
-      InboundMessage(src: _me, payload: payload),
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
     );
   }
 
@@ -399,8 +411,10 @@ class _StreamLink
       stream: peerStream,
       src: _me,
       // A direct open IS authenticated in production (remote APP_OPEN rides
-      // the OVL1 session it was read from), so an honest fake says so.
-      provenance: SenderProvenance.sessionPeer,
+      // the OVL1 session it was read from), so an honest fake says so. The
+      // ACCEPTING side owns the knob because in production the accepting node
+      // is the one that decides what it knows (audit X/V-01).
+      provenance: p.p2pOpenProvenance,
     ));
     final w = p._p2pAcceptWaiter;
     p._p2pAcceptWaiter = null;
@@ -410,9 +424,7 @@ class _StreamLink
 
   @override
   Future<({ReliableStream stream, NodeId src, SenderProvenance provenance})?>
-  acceptStream({
-    Duration timeout = const Duration(seconds: 2),
-  }) async {
+  acceptStream({Duration timeout = const Duration(seconds: 2)}) async {
     activeAnonymousAccepts++;
     if (activeAnonymousAccepts > maxConcurrentAnonymousAccepts) {
       maxConcurrentAnonymousAccepts = activeAnonymousAccepts;
@@ -508,105 +520,101 @@ void main() {
     return cid;
   }
 
-  test(
-    'STREAM serve: a durable source swapped after the send streams nothing, '
-    'while an untouched one still streams',
-    () async {
-      // Audit X-02. `_serveStream` reopens `served:$cid`'s PATH on every pull
-      // and takes the manifest from `mf:$cid` — two different moments, never
-      // compared. No race is needed: replace the file after the send and every
-      // later pull reads the replacement off disk and writes it to the peer.
-      final workdir = await Directory.systemTemp.createTemp('xveil-stream-src');
-      addTearDown(() => workdir.delete(recursive: true));
-      await mB.setFileDownloadPolicy(
-        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+  test('STREAM serve: a durable source swapped after the send streams nothing, '
+      'while an untouched one still streams', () async {
+    // Audit X-02. `_serveStream` reopens `served:$cid`'s PATH on every pull
+    // and takes the manifest from `mf:$cid` — two different moments, never
+    // compared. No race is needed: replace the file after the send and every
+    // later pull reads the replacement off disk and writes it to the peer.
+    final workdir = await Directory.systemTemp.createTemp('xveil-stream-src');
+    addTearDown(() => workdir.delete(recursive: true));
+    await mB.setFileDownloadPolicy(
+      mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+    );
+    mA.sourceOpener = veilSourceOpener;
+
+    Future<String> offer(String name, Uint8List bytes) async {
+      await File('${workdir.path}/$name').writeAsBytes(bytes);
+      await mA.sendFileStreaming(
+        b,
+        name,
+        bytes.length,
+        (o, l) async => Uint8List.sublistView(bytes, o, o + l),
+        close: () async {},
+        sourcePath: '${workdir.path}/$name',
       );
-      mA.sourceOpener = veilSourceOpener;
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      return ContentManifest.fromBytes(name, bytes).contentId;
+    }
 
-      Future<String> offer(String name, Uint8List bytes) async {
-        await File('${workdir.path}/$name').writeAsBytes(bytes);
-        await mA.sendFileStreaming(
-          b,
-          name,
-          bytes.length,
-          (o, l) async => Uint8List.sublistView(bytes, o, o + l),
-          close: () async {},
-          sourcePath: '${workdir.path}/$name',
-        );
-        await Future<void>.delayed(const Duration(milliseconds: 80));
-        return ContentManifest.fromBytes(name, bytes).contentId;
-      }
+    final honestBytes = _rnd(300000, 61);
+    final honestCid = await offer('honest.bin', honestBytes);
+    final swappedCid = await offer('swapped.bin', _rnd(300000, 62));
 
-      final honestBytes = _rnd(300000, 61);
-      final honestCid = await offer('honest.bin', honestBytes);
-      final swappedCid = await offer('swapped.bin', _rnd(300000, 62));
+    // SAME LENGTH, different bytes — the manifest stays internally
+    // consistent about size, so only hashing the bytes notices.
+    final secret = _rnd(300000, 63);
+    await File('${workdir.path}/swapped.bin').writeAsBytes(secret);
 
-      // SAME LENGTH, different bytes — the manifest stays internally
-      // consistent about size, so only hashing the bytes notices.
-      final secret = _rnd(300000, 63);
-      await File('${workdir.path}/swapped.bin').writeAsBytes(secret);
+    // Restart the sender: serve state gone, storage kept. The durable record
+    // is now the only thing pointing at the file.
+    await mA.dispose();
+    final mA2 =
+        MessagingService(
+            tA,
+            sA,
+            contentPacing: Duration.zero,
+            plainFileStream: true,
+          )
+          ..sourceOpener = veilSourceOpener
+          ..start();
+    addTearDown(mA2.dispose);
 
-      // Restart the sender: serve state gone, storage kept. The durable record
-      // is now the only thing pointing at the file.
-      await mA.dispose();
-      final mA2 =
-          MessagingService(
-              tA,
-              sA,
-              contentPacing: Duration.zero,
-              plainFileStream: true,
-            )
-            ..sourceOpener = veilSourceOpener
-            ..start();
-      addTearDown(mA2.dispose);
+    final servedBytes = BytesBuilder(copy: false);
+    for (var i = 0; i < 16; i++) {
+      tA.acceptStreamWrappers.add((s) => _RecordingStream(s, servedBytes));
+    }
 
-      final servedBytes = BytesBuilder(copy: false);
-      for (var i = 0; i < 16; i++) {
-        tA.acceptStreamWrappers.add((s) => _RecordingStream(s, servedBytes));
-      }
+    // THE CONTROL, first: an untouched durable offer still streams. A fix
+    // that refused everything would "close" this and break the feature.
+    await mB.downloadContent(a, honestCid);
+    for (var i = 0; i < 200; i++) {
+      if (await sB.loadFile(honestCid) != null) break;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    expect(
+      await sB.loadFile(honestCid),
+      honestBytes,
+      reason: 'an untouched durable offer must still stream after a restart',
+    );
+    expect(
+      servedBytes.length,
+      greaterThan(0),
+      reason: 'the control has to show bytes actually leaving the sender',
+    );
 
-      // THE CONTROL, first: an untouched durable offer still streams. A fix
-      // that refused everything would "close" this and break the feature.
-      await mB.downloadContent(a, honestCid);
-      for (var i = 0; i < 200; i++) {
-        if (await sB.loadFile(honestCid) != null) break;
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-      }
-      expect(
-        await sB.loadFile(honestCid),
-        honestBytes,
-        reason: 'an untouched durable offer must still stream after a restart',
-      );
-      expect(
-        servedBytes.length,
-        greaterThan(0),
-        reason: 'the control has to show bytes actually leaving the sender',
-      );
+    // THE FINDING: the swapped one must put nothing on the wire.
+    servedBytes.clear();
+    await mB.downloadContent(a, swappedCid);
+    await Future<void>.delayed(const Duration(seconds: 3));
 
-      // THE FINDING: the swapped one must put nothing on the wire.
-      servedBytes.clear();
-      await mB.downloadContent(a, swappedCid);
-      await Future<void>.delayed(const Duration(seconds: 3));
-
-      final onTheWire = servedBytes.toBytes();
-      expect(
-        _containsSlice(onTheWire, secret),
-        isFalse,
-        reason:
-            'bytes of the replacement file were streamed to the peer under the '
-            'content id of the file it replaced',
-      );
-      expect(
-        onTheWire,
-        isEmpty,
-        reason:
-            'the sender wrote ${onTheWire.length} bytes for a content id whose '
-            'file had been replaced — it must refuse the offer, not serve it',
-      );
-      expect(await sB.loadFile(swappedCid), isNull);
-    },
-    timeout: const Timeout(Duration(seconds: 120)),
-  );
+    final onTheWire = servedBytes.toBytes();
+    expect(
+      _containsSlice(onTheWire, secret),
+      isFalse,
+      reason:
+          'bytes of the replacement file were streamed to the peer under the '
+          'content id of the file it replaced',
+    );
+    expect(
+      onTheWire,
+      isEmpty,
+      reason:
+          'the sender wrote ${onTheWire.length} bytes for a content id whose '
+          'file had been replaced — it must refuse the offer, not serve it',
+    );
+    expect(await sB.loadFile(swappedCid), isNull);
+  }, timeout: const Timeout(Duration(seconds: 120)));
 
   test('a swarm pull never opens a stream to ourselves', () async {
     // A node listed among the sources for content it does not hold used to be
@@ -619,9 +627,10 @@ void main() {
     // The download itself is expected to hang: nobody has the content and the
     // pull waits on real timeouts. What matters is WHO was contacted, so this
     // watches the attempts rather than the outcome.
-    final cid = List.filled(32, 0xAB)
-        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
-        .join();
+    final cid = List.filled(
+      32,
+      0xAB,
+    ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
     tA.openStreamAttemptsByPeer.clear();
 
     unawaited(mA.downloadContentFromAny([a, b], cid));
@@ -638,7 +647,6 @@ void main() {
       reason: 'and we were never asked to serve ourselves',
     );
   });
-
 
   test(
     'STREAM download: receiver pulls a multi-piece file over a reliable '
@@ -856,6 +864,84 @@ void main() {
       tB.openStreamAttemptCount,
       0,
       reason: 'allowed P2P should not fall back to anonymous stream',
+    );
+  });
+
+  // Audit X/V-01, the serving half. Unlike a datagram piece serve — whose
+  // bytes go to the NAMED node, so a spoofer spends our bandwidth and receives
+  // nothing — whoever opened this stream is holding the other end of it.
+  // Whoever we serve here is whoever gets the file, so the direct lane, which
+  // is the one where veil actually knows the answer, must consult it.
+  test('a direct stream open that proves nothing is not served', () async {
+    await mA.dispose();
+    await mB.dispose();
+    mA = MessagingService(
+      tA,
+      sA,
+      contentPacing: Duration.zero,
+      plainFileStream: true,
+      p2pStreamAllowed: (_) async => true,
+    )..start();
+    mB = MessagingService(
+      tB,
+      sB,
+      contentPacing: Duration.zero,
+      plainFileStream: true,
+      p2pStreamAllowed: (_) async => true,
+    )..start();
+
+    // Record what the SERVER actually puts on the wire. Asserting on the
+    // sender's decision rather than on the receiver's outcome is what makes
+    // this a test of the gate and not of a retry loop.
+    final servedBytes = BytesBuilder();
+    for (var i = 0; i < 12; i++) {
+      tA.acceptStreamWrappers.add((s) => _RecordingStream(s, servedBytes));
+    }
+
+    // THE CONTROL, first: with the open authenticated — which is what both of
+    // veil's open paths report today — the file streams over the direct lane.
+    // Without this, a gate that refused every direct open would look correct.
+    final honest = _rnd(120000, 73);
+    final honestCid = await advertiseFromA(honest, name: 'p2p-proven.bin');
+    final got = mB.contentReceived.first;
+    expect(
+      await mB.downloadContent(a, honestCid),
+      ContentDownloadResult.started,
+    );
+    await got.timeout(const Duration(seconds: 20));
+    expect(await sB.loadFile(honestCid), honest);
+    expect(
+      servedBytes.length,
+      greaterThan(0),
+      reason: 'the control has to show bytes actually leaving the sender',
+    );
+    expect(
+      tB.openStreamAttemptCount,
+      0,
+      reason: 'the control must have been served over the DIRECT lane',
+    );
+
+    // THE FINDING: same peer, same policy, same everything — only the evidence
+    // behind the initiator's name is gone. Whoever opened this stream is
+    // holding the other end of it, so serving it hands the file to whoever
+    // asked, not to the contact they named.
+    servedBytes.clear();
+    tA.p2pOpenProvenance = SenderProvenance.claimed;
+    final secret = _rnd(120000, 74);
+    final secretCid = await advertiseFromA(secret, name: 'p2p-unproven.bin');
+    await mB.downloadContent(a, secretCid);
+    await Future<void>.delayed(const Duration(seconds: 3));
+
+    expect(
+      servedBytes.length,
+      0,
+      reason: 'an unauthenticated direct open was served the file anyway',
+    );
+    expect(await sB.loadFile(secretCid), isNull);
+    expect(
+      tB.p2pOpenStreamAttemptCount,
+      greaterThanOrEqualTo(1),
+      reason: 'the refusal has to be the gate, not a stream that never opened',
     );
   });
 

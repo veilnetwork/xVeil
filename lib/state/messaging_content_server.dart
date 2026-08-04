@@ -185,6 +185,18 @@ extension _MessagingContentServer on MessagingService {
 
   void _endStreamServe(String cid) => _contentServing.endStream(cid);
 
+  /// The ANONYMOUS serve lane. Deliberately not gated on [provenance], and the
+  /// reasoning belongs where the next reader will look for it.
+  ///
+  /// This lane's initiator is derived from an onion cell, so it is
+  /// [SenderProvenance.claimed] by construction — not by oversight. Demanding
+  /// authentication here would not secure the lane, it would delete it: an
+  /// anonymous pull is how a file reaches a peer that is not directly
+  /// reachable, which for two NAT'd phones is every time. Provenance has no
+  /// answer to give here, so the serve keeps resting on the checks that do
+  /// apply — accepted-contact status or a live group grant, plus knowing the
+  /// content id at all — and this call states its level rather than leaving the
+  /// next reader to assume one was checked.
   void _acceptAnonymousContentStream(
     NodeId peer,
     SenderProvenance provenance,
@@ -198,12 +210,33 @@ extension _MessagingContentServer on MessagingService {
     _contentStreams.runServe(stream, () => _serveStream(peer, stream));
   }
 
+  /// The DIRECT serve lane, where the opposite is true: veil reads the
+  /// initiator off the authenticated session the `APP_OPEN` arrived on, so an
+  /// answer exists and refusing to consult it is the mistake X/V-01 is about.
+  ///
+  /// Unlike a datagram piece serve — whose bytes go to the NAMED node, so a
+  /// spoofer spends our bandwidth but receives nothing — the peer that opened
+  /// this stream is holding the other end of it. Whoever we serve here is
+  /// whoever gets the file. Both of veil's open paths authenticate today, so
+  /// this costs nothing honest; it stops the day one of them stops.
   void _acceptP2PContentStream(
     NodeId peer,
     SenderProvenance provenance,
     ReliableStream stream,
   ) {
     _contentStreams.runServe(stream, () async {
+      if (!provenance.isAuthenticated) {
+        devLog(
+          () =>
+              'xVeil[content]: stream-accept p2p DENIED <- ${peer.short} — '
+              'the open is unauthenticated (${provenance.name}), so the name '
+              'is a claim, not a contact',
+        );
+        try {
+          await stream.close();
+        } catch (_) {}
+        return;
+      }
       if (await _p2pStreamAllowed(peer)) {
         _bulkStreamLog(
           () =>

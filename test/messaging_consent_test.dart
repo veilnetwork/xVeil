@@ -44,7 +44,13 @@ class _FakeTransport implements VeilTransport {
     bool anonymous = false,
   }) async {
     sentPayloads.add(Uint8List.fromList(payload));
-    peer?._inbound.add(InboundMessage(src: _me, payload: payload));
+    peer?._inbound.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
   }
 
   @override

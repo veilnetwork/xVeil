@@ -38,8 +38,17 @@ class _FakeTransport implements VeilTransport {
   @override
   Future<void> sendReply(int replyId, Uint8List payload) async {}
   @override
-  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async =>
-      peer?._inbound.add(InboundMessage(src: _me, payload: payload));
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async => peer?._inbound.add(
+    InboundMessage(
+      src: _me,
+      payload: payload,
+      provenance: SenderProvenance.sessionPeer,
+    ),
+  );
   @override
   Stream<int> sessionCount() => Stream.value(0);
   @override
@@ -89,9 +98,14 @@ void main() {
     // Open the maximum number of transfers (meta only — never completed).
     for (var i = 0; i < kMaxConcurrentIncomingFiles; i++) {
       await tA.send(
-          b,
-          fileMetaEnvelope(transferId: 'stall$i', name: 'f$i', size: 10, count: 5)
-              .encode());
+        b,
+        fileMetaEnvelope(
+          transferId: 'stall$i',
+          name: 'f$i',
+          size: 10,
+          count: 5,
+        ).encode(),
+      );
     }
     await _pump();
   }
@@ -114,24 +128,33 @@ void main() {
     await _pump();
 
     final files = await incomingFiles();
-    expect(files.length, 1, reason: 'the new transfer should have been accepted');
+    expect(
+      files.length,
+      1,
+      reason: 'the new transfer should have been accepted',
+    );
     expect(await sB.loadFile(files.first.fileId!), data);
   });
 
-  test('an actively-progressing transfer is NOT evicted (no hostile eviction)',
-      () async {
-    await accept();
-    await fillWithIncompleteTransfers();
+  test(
+    'an actively-progressing transfer is NOT evicted (no hostile eviction)',
+    () async {
+      await accept();
+      await fillWithIncompleteTransfers();
 
-    // The slots are full of FRESH transfers (no time has passed). A hostile peer
-    // opening a new transfer must NOT be able to evict them — the cap holds and
-    // the new transfer is dropped.
-    final data = _bytes(9000);
-    await mA.sendFile(b, data, 'blocked.png');
-    await _pump();
-    await _pump();
+      // The slots are full of FRESH transfers (no time has passed). A hostile peer
+      // opening a new transfer must NOT be able to evict them — the cap holds and
+      // the new transfer is dropped.
+      final data = _bytes(9000);
+      await mA.sendFile(b, data, 'blocked.png');
+      await _pump();
+      await _pump();
 
-    expect(await incomingFiles(), isEmpty,
-        reason: 'fresh transfers must be protected from eviction');
-  });
+      expect(
+        await incomingFiles(),
+        isEmpty,
+        reason: 'fresh transfers must be protected from eviction',
+      );
+    },
+  );
 }

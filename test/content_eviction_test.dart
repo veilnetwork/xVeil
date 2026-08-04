@@ -22,8 +22,13 @@ class _Feed implements VeilTransport {
   _Feed(this._me);
   final NodeId _me;
   final _in = StreamController<InboundMessage>.broadcast();
-  void feed(NodeId from, Uint8List payload) =>
-      _in.add(InboundMessage(src: from, payload: payload));
+  void feed(NodeId from, Uint8List payload) => _in.add(
+    InboundMessage(
+      src: from,
+      payload: payload,
+      provenance: SenderProvenance.sessionPeer,
+    ),
+  );
   @override
   Future<NodeId> nodeId() async => _me;
   @override

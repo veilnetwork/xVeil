@@ -33,10 +33,20 @@ class _Link implements VeilTransport {
   @override
   Future<void> sendReply(int replyId, Uint8List payload) async {}
   @override
-  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async {
     final env = WireEnvelope.decode(payload);
     if (env.kind == WireKind.clear) clears.add(env);
-    peer?._in.add(InboundMessage(src: _me, payload: payload));
+    peer?._in.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
   }
 
   @override
@@ -52,8 +62,10 @@ SpaceOpener _mem() {
   return ({required password, required bool create}) => s;
 }
 
-Future<void> _until(Future<bool> Function() cond,
-    {Duration timeout = const Duration(seconds: 5)}) async {
+Future<void> _until(
+  Future<bool> Function() cond, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
   final deadline = DateTime.now().add(timeout);
   while (DateTime.now().isBefore(deadline)) {
     if (await cond()) return;
@@ -81,8 +93,12 @@ void main() {
       await sB.open(password: 'b', createIfMissing: true);
       mA = MessagingService(tA, sA)..start();
       mB = MessagingService(tB, sB)..start();
-      await sA.upsertContact(Contact(nodeId: b, status: ContactStatus.accepted));
-      await sB.upsertContact(Contact(nodeId: a, status: ContactStatus.accepted));
+      await sA.upsertContact(
+        Contact(nodeId: b, status: ContactStatus.accepted),
+      );
+      await sB.upsertContact(
+        Contact(nodeId: a, status: ContactStatus.accepted),
+      );
     });
 
     tearDown(() async {
@@ -98,19 +114,28 @@ void main() {
       // Both sides hold all three exchanged messages before the clear. Waiting
       // for only A's two local rows made this assertion scheduling-dependent:
       // B's in-flight row could legitimately arrive after the clear watermark.
-      await _until(() async =>
-          (await sB.loadMessages(a.hex)).length >= 3 &&
-          (await sA.loadMessages(b.hex)).length >= 3);
+      await _until(
+        () async =>
+            (await sB.loadMessages(a.hex)).length >= 3 &&
+            (await sA.loadMessages(b.hex)).length >= 3,
+      );
       expect(await sB.loadMessages(a.hex), isNotEmpty);
 
       await mA.clearConversation(b);
 
       // A cleared locally.
-      expect(await sA.loadMessages(b.hex), isEmpty, reason: 'A cleared its view');
+      expect(
+        await sA.loadMessages(b.hex),
+        isEmpty,
+        reason: 'A cleared its view',
+      );
       // B received the clear EVENT and converged.
       await _until(() async => (await sB.loadMessages(a.hex)).isEmpty);
-      expect(await sB.loadMessages(a.hex), isEmpty,
-          reason: 'B converged on the propagated clear');
+      expect(
+        await sB.loadMessages(a.hex),
+        isEmpty,
+        reason: 'B converged on the propagated clear',
+      );
 
       // Deniability: the wire clear frame carries only the watermark map — no
       // cleared message id, no message text.
@@ -123,8 +148,11 @@ void main() {
         expect(k, isA<String>());
         expect(v, isA<int>(), reason: 'only per-author seq numbers travel');
       });
-      expect(env.body.contains('from A'), isFalse,
-          reason: 'no message text leaks in the clear frame');
+      expect(
+        env.body.contains('from A'),
+        isFalse,
+        reason: 'no message text leaks in the clear frame',
+      );
     });
   });
 
@@ -142,62 +170,77 @@ void main() {
       s = HiddenVolumeStorage(opener);
       await s.open(password: 'p', createIfMissing: true);
       await s.upsertContact(
-          Contact(nodeId: conv, status: ContactStatus.accepted));
+        Contact(nodeId: conv, status: ContactStatus.accepted),
+      );
     });
 
-    Future<void> incoming(int seq, String body) => s.appendMessage(Message(
-          id: 'm$seq',
-          conversationId: conv.hex,
-          direction: MessageDirection.incoming,
-          body: body,
-          timestamp: DateTime.fromMillisecondsSinceEpoch(1000 * seq),
-          status: MessageStatus.delivered,
-          author: conv.hex,
-          seq: seq,
-        ));
+    Future<void> incoming(int seq, String body) => s.appendMessage(
+      Message(
+        id: 'm$seq',
+        conversationId: conv.hex,
+        direction: MessageDirection.incoming,
+        body: body,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(1000 * seq),
+        status: MessageStatus.delivered,
+        author: conv.hex,
+        seq: seq,
+      ),
+    );
 
     /// One of OUR messages, by the honest local route: no seq is supplied, so
     /// storage allocates the next slot in our own stream.
     Future<Message> mine(HiddenVolumeStorage into, String body) =>
-        into.appendMessage(Message(
-          id: 'out-$body',
-          conversationId: conv.hex,
-          direction: MessageDirection.outgoing,
-          body: body,
-          timestamp: DateTime.fromMillisecondsSinceEpoch(500),
-          status: MessageStatus.sent,
-          author: selfHex,
-        ));
+        into.appendMessage(
+          Message(
+            id: 'out-$body',
+            conversationId: conv.hex,
+            direction: MessageDirection.outgoing,
+            body: body,
+            timestamp: DateTime.fromMillisecondsSinceEpoch(500),
+            status: MessageStatus.sent,
+            author: selfHex,
+          ),
+        );
 
-    test('applyRemoteClear erases <= watermark but KEEPS newer messages',
-        () async {
-      await incoming(1, 'one');
-      await incoming(2, 'two');
-      await incoming(3, 'three'); // newer than the clear
-      expect((await s.loadMessages(conv.hex)).length, 3);
+    test(
+      'applyRemoteClear erases <= watermark but KEEPS newer messages',
+      () async {
+        await incoming(1, 'one');
+        await incoming(2, 'two');
+        await incoming(3, 'three'); // newer than the clear
+        expect((await s.loadMessages(conv.hex)).length, 3);
 
-      // Peer cleared up to seq 2 on its stream.
-      await s.applyRemoteClear(conv, conv.hex, 7, {conv.hex: 2},
-          selfHex: selfHex);
+        // Peer cleared up to seq 2 on its stream.
+        await s.applyRemoteClear(conv, conv.hex, 7, {
+          conv.hex: 2,
+        }, selfHex: selfHex);
 
-      final after = await s.loadMessages(conv.hex);
-      expect(after.map((m) => m.id), ['m3'],
-          reason: 'seq 1,2 cleared; seq 3 (> watermark) survives');
-    });
+        final after = await s.loadMessages(conv.hex);
+        expect(
+          after.map((m) => m.id),
+          ['m3'],
+          reason: 'seq 1,2 cleared; seq 3 (> watermark) survives',
+        );
+      },
+    );
 
     test('born-clear: a message that arrives AFTER the clear but <= the '
         'watermark never surfaces (convergence on reordering)', () async {
       // The clear lands first (seq 2 watermark), with no messages present yet.
-      await s.applyRemoteClear(conv, conv.hex, 7, {conv.hex: 2},
-          selfHex: selfHex);
+      await s.applyRemoteClear(conv, conv.hex, 7, {
+        conv.hex: 2,
+      }, selfHex: selfHex);
       // Now the "late" pre-clear messages arrive out of order.
       await incoming(1, 'late one');
       await incoming(2, 'late two');
       await incoming(3, 'after the clear');
 
       final after = await s.loadMessages(conv.hex);
-      expect(after.map((m) => m.id), ['m3'],
-          reason: 'seq 1,2 are born-cleared on arrival; seq 3 surfaces');
+      expect(
+        after.map((m) => m.id),
+        ['m3'],
+        reason: 'seq 1,2 are born-cleared on arrival; seq 3 surfaces',
+      );
     });
 
     // "Clear for everyone" names BOTH authors on purpose — clearing only the
@@ -215,12 +258,16 @@ void main() {
 
       // Exactly the map emitClearConversation builds: the conversation
       // high-water, which in a 1:1 chat covers both authors.
-      await s.applyRemoteClear(
-          conv, conv.hex, 7, {conv.hex: 2, selfHex: 2},
-          selfHex: selfHex);
+      await s.applyRemoteClear(conv, conv.hex, 7, {
+        conv.hex: 2,
+        selfHex: 2,
+      }, selfHex: selfHex);
 
-      expect(await s.loadMessages(conv.hex), isEmpty,
-          reason: 'everyone means everyone — our own sent messages go too');
+      expect(
+        await s.loadMessages(conv.hex),
+        isEmpty,
+        reason: 'everyone means everyone — our own sent messages go too',
+      );
     });
 
     test('a clear reaching past what our stream ever produced is held to what '
@@ -232,34 +279,46 @@ void main() {
       // line this stops being "erase what exists" and becomes "suppress what
       // has not happened yet" — which used to leave the person writing into a
       // chat that showed nothing back, with no notice and no trace.
-      await s.applyRemoteClear(conv, conv.hex, 7, {selfHex: 3000},
-          selfHex: selfHex);
-      expect(await s.loadMessages(conv.hex), isEmpty,
-          reason: 'what DID exist is still cleared');
+      await s.applyRemoteClear(conv, conv.hex, 7, {
+        selfHex: 3000,
+      }, selfHex: selfHex);
+      expect(
+        await s.loadMessages(conv.hex),
+        isEmpty,
+        reason: 'what DID exist is still cleared',
+      );
 
       final later = await mine(s, 'ours two');
       expect(later.seq, 2);
-      expect((await s.loadMessages(conv.hex)).map((m) => m.id), ['out-ours two'],
-          reason: 'the next message we write surfaces normally');
+      expect(
+        (await s.loadMessages(conv.hex)).map((m) => m.id),
+        ['out-ours two'],
+        reason: 'the next message we write surfaces normally',
+      );
     });
 
-    test('the bound is what persists, so a restart does not restore the reach',
-        () async {
-      await mine(s, 'ours one');
-      await s.applyRemoteClear(conv, conv.hex, 7, {selfHex: 3000},
-          selfHex: selfHex);
-      await s.close();
+    test(
+      'the bound is what persists, so a restart does not restore the reach',
+      () async {
+        await mine(s, 'ours one');
+        await s.applyRemoteClear(conv, conv.hex, 7, {
+          selfHex: 3000,
+        }, selfHex: selfHex);
+        await s.close();
 
-      // Same container, fresh storage object — the fold is rebuilt from the
-      // stored rows, which is how the original reach survived every restart.
-      final reopened = HiddenVolumeStorage(opener);
-      await reopened.open(password: 'p', createIfMissing: true);
-      await mine(reopened, 'after restart');
-      expect((await reopened.loadMessages(conv.hex)).map((m) => m.id),
+        // Same container, fresh storage object — the fold is rebuilt from the
+        // stored rows, which is how the original reach survived every restart.
+        final reopened = HiddenVolumeStorage(opener);
+        await reopened.open(password: 'p', createIfMissing: true);
+        await mine(reopened, 'after restart');
+        expect(
+          (await reopened.loadMessages(conv.hex)).map((m) => m.id),
           ['out-after restart'],
-          reason: 'the refold reads the bounded watermark, not the sent one');
-      await reopened.close();
-    });
+          reason: 'the refold reads the bounded watermark, not the sent one',
+        );
+        await reopened.close();
+      },
+    );
 
     test("the sender's OWN entry is left exactly as sent — it may clear its "
         'stream above anything that ever reached us', () async {
@@ -267,15 +326,19 @@ void main() {
 
       // Above every sequence of theirs we hold: legitimate, because they know
       // their own stream and we may simply not have received the rest yet.
-      await s.applyRemoteClear(conv, conv.hex, 7, {conv.hex: 9},
-          selfHex: selfHex);
+      await s.applyRemoteClear(conv, conv.hex, 7, {
+        conv.hex: 9,
+      }, selfHex: selfHex);
       expect(await s.loadMessages(conv.hex), isEmpty);
 
       // A straggler from below their watermark, arriving late: born-cleared,
       // which is the whole reason the watermark travels.
       await incoming(5, 'straggler');
-      expect(await s.loadMessages(conv.hex), isEmpty,
-          reason: 'born-clear on the sender own stream must keep working');
+      expect(
+        await s.loadMessages(conv.hex),
+        isEmpty,
+        reason: 'born-clear on the sender own stream must keep working',
+      );
 
       await incoming(10, 'after the clear');
       expect((await s.loadMessages(conv.hex)).map((m) => m.id), ['m10']);
@@ -284,22 +347,28 @@ void main() {
     test('a watermark entry for a third author is dropped — a sender speaks '
         'only for its own stream and ours', () async {
       final third = _id(5).hex;
-      await s.appendMessage(Message(
-        id: 'x1',
-        conversationId: conv.hex,
-        direction: MessageDirection.incoming,
-        body: 'from a third author',
-        timestamp: DateTime.fromMillisecondsSinceEpoch(1000),
-        status: MessageStatus.delivered,
-        author: third,
-        seq: 1,
-      ));
+      await s.appendMessage(
+        Message(
+          id: 'x1',
+          conversationId: conv.hex,
+          direction: MessageDirection.incoming,
+          body: 'from a third author',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(1000),
+          status: MessageStatus.delivered,
+          author: third,
+          seq: 1,
+        ),
+      );
 
-      await s.applyRemoteClear(conv, conv.hex, 7, {third: 500},
-          selfHex: selfHex);
+      await s.applyRemoteClear(conv, conv.hex, 7, {
+        third: 500,
+      }, selfHex: selfHex);
 
-      expect((await s.loadMessages(conv.hex)).map((m) => m.id), ['x1'],
-          reason: 'the entry names neither the sender nor us');
+      expect(
+        (await s.loadMessages(conv.hex)).map((m) => m.id),
+        ['x1'],
+        reason: 'the entry names neither the sender nor us',
+      );
     });
   });
 }

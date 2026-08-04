@@ -76,7 +76,8 @@ class _StreamLink implements VeilTransport, StreamTransport {
   final NodeId _me;
   final _in = StreamController<InboundMessage>.broadcast();
   _StreamLink? peer;
-  final _accepts = <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
+  final _accepts =
+      <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
   Completer<void>? _acceptWaiter;
 
   @override
@@ -89,7 +90,13 @@ class _StreamLink implements VeilTransport, StreamTransport {
     Uint8List payload, {
     bool anonymous = false,
   }) async {
-    peer?._in.add(InboundMessage(src: _me, payload: payload));
+    peer?._in.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
   }
 
   @override
@@ -127,9 +134,7 @@ class _StreamLink implements VeilTransport, StreamTransport {
 
   @override
   Future<({ReliableStream stream, NodeId src, SenderProvenance provenance})?>
-  acceptStream({
-    Duration timeout = const Duration(seconds: 2),
-  }) async {
+  acceptStream({Duration timeout = const Duration(seconds: 2)}) async {
     if (_accepts.isEmpty) {
       try {
         await (_acceptWaiter = Completer<void>()).future.timeout(timeout);
@@ -189,54 +194,50 @@ void main() {
     await mB.dispose();
   });
 
-  test(
-    'A sends serve-from-source (never stored locally); B receives and holds '
-    'it; A can pull its OWN file back from B by contentId',
-    () async {
-      final data = _rnd(400000, 51);
-      // A serves straight from an in-memory "source" — the bytes are NEVER put
-      // in A's own store (hasFile stays false for A), mirroring a large
-      // serve-from-disk send whose source A later deletes.
-      final cid = await mA.sendFileStreaming(
-        b,
-        'mine.bin',
-        data.length,
-        (o, l) async => Uint8List.sublistView(data, o, o + l),
-        close: () async {},
-      );
-      expect(cid, isNotNull);
+  test('A sends serve-from-source (never stored locally); B receives and holds '
+      'it; A can pull its OWN file back from B by contentId', () async {
+    final data = _rnd(400000, 51);
+    // A serves straight from an in-memory "source" — the bytes are NEVER put
+    // in A's own store (hasFile stays false for A), mirroring a large
+    // serve-from-disk send whose source A later deletes.
+    final cid = await mA.sendFileStreaming(
+      b,
+      'mine.bin',
+      data.length,
+      (o, l) async => Uint8List.sublistView(data, o, o + l),
+      close: () async {},
+    );
+    expect(cid, isNotNull);
 
-      // B downloads into its encrypted tier and becomes a holder.
-      final bGot = mB.contentReceived.first;
-      // Wait for the offer, then download.
-      final deadline = DateTime.now().add(const Duration(seconds: 10));
-      while (DateTime.now().isBefore(deadline)) {
-        if ((await sB.loadMessages(a.hex)).any((m) => m.fileContentId == cid)) {
-          break;
-        }
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+    // B downloads into its encrypted tier and becomes a holder.
+    final bGot = mB.contentReceived.first;
+    // Wait for the offer, then download.
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    while (DateTime.now().isBefore(deadline)) {
+      if ((await sB.loadMessages(a.hex)).any((m) => m.fileContentId == cid)) {
+        break;
       }
-      await mB.downloadContent(a, cid!);
-      await bGot.timeout(const Duration(seconds: 20));
-      expect(await sB.loadFile(cid), data, reason: 'B holds the blob');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    await mB.downloadContent(a, cid!);
+    await bGot.timeout(const Duration(seconds: 20));
+    expect(await sB.loadFile(cid), data, reason: 'B holds the blob');
 
-      // A never held the bytes.
-      expect(await sA.hasFile(cid), isFalse);
+    // A never held the bytes.
+    expect(await sA.hasFile(cid), isFalse);
 
-      // A's source is gone — pull the identical bytes back FROM B.
-      final aGot = mA.contentReceived.first;
-      final r = await mA.downloadContent(b, cid);
-      expect(r, ContentDownloadResult.started);
-      final ev = await aGot.timeout(const Duration(seconds: 20));
-      expect(ev.contentId, cid);
-      expect(
-        await sA.loadFile(cid),
-        data,
-        reason: 'A recovered its own file from the recipient',
-      );
-    },
-    timeout: const Timeout(Duration(minutes: 1)),
-  );
+    // A's source is gone — pull the identical bytes back FROM B.
+    final aGot = mA.contentReceived.first;
+    final r = await mA.downloadContent(b, cid);
+    expect(r, ContentDownloadResult.started);
+    final ev = await aGot.timeout(const Duration(seconds: 20));
+    expect(ev.contentId, cid);
+    expect(
+      await sA.loadFile(cid),
+      data,
+      reason: 'A recovered its own file from the recipient',
+    );
+  }, timeout: const Timeout(Duration(minutes: 1)));
 
   test(
     'B saved the file to a PLAIN file on disk (not the encrypted tier); '
@@ -304,7 +305,8 @@ void main() {
       expect(
         await sA.loadFile(cid),
         data,
-        reason: 'A recovered its file from B, served from B\'s saved plain file',
+        reason:
+            'A recovered its file from B, served from B\'s saved plain file',
       );
     },
     timeout: const Timeout(Duration(minutes: 1)),

@@ -44,7 +44,13 @@ class _FakeTransport implements VeilTransport {
     bool anonymous = false,
   }) async {
     if (!online) return; // disconnected — drop
-    peer?._inbound.add(InboundMessage(src: _me, payload: payload));
+    peer?._inbound.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
   }
 
   @override
@@ -464,31 +470,34 @@ void main() {
     },
   );
 
-  test('a peer with no mailbox is left alone until the backoff expires',
-      () async {
-    // Two things had to be true for this to work, and neither was. The
-    // condition has two spellings — the native path answers `PeerUnresolved`,
-    // the Dart path throws MailboxPeerUnresolved — and only the first earned a
-    // backoff. And the backoff was consulted in the outbox flush loop alone,
-    // while a user send finishes with its OWN background deposit that walked
-    // straight past it. So an asleep phone was re-asked on every send.
-    final mailbox = _UnresolvedMailboxSink();
-    mA.attachMailbox(mailbox);
-    tA.online = false;
+  test(
+    'a peer with no mailbox is left alone until the backoff expires',
+    () async {
+      // Two things had to be true for this to work, and neither was. The
+      // condition has two spellings — the native path answers `PeerUnresolved`,
+      // the Dart path throws MailboxPeerUnresolved — and only the first earned a
+      // backoff. And the backoff was consulted in the outbox flush loop alone,
+      // while a user send finishes with its OWN background deposit that walked
+      // straight past it. So an asleep phone was re-asked on every send.
+      final mailbox = _UnresolvedMailboxSink();
+      mA.attachMailbox(mailbox);
+      tA.online = false;
 
-    await mA.sendText(b, 'first');
-    await _pump();
-    expect(mailbox.calls, 1, reason: 'the first deposit is attempted');
+      await mA.sendText(b, 'first');
+      await _pump();
+      expect(mailbox.calls, 1, reason: 'the first deposit is attempted');
 
-    await mA.sendText(b, 'second');
-    await _pump();
-    expect(
-      mailbox.calls,
-      1,
-      reason: 'and the second is not: this peer has no mailbox to reach, and '
-          'the frame stays durable for the flush loop to deposit later',
-    );
-  });
+      await mA.sendText(b, 'second');
+      await _pump();
+      expect(
+        mailbox.calls,
+        1,
+        reason:
+            'and the second is not: this peer has no mailbox to reach, and '
+            'the frame stays durable for the flush loop to deposit later',
+      );
+    },
+  );
 
   test('flush keeps live retries moving and dedupes a slow stash', () async {
     final mailbox = _BlockingMailboxSink();

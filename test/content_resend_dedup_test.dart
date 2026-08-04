@@ -27,8 +27,13 @@ class _Link implements VeilTransport {
 
   /// Deliver a hand-built frame as if [from] had sent it (for shapes the real
   /// send path will not produce).
-  void inject(NodeId from, Uint8List payload) =>
-      _in.add(InboundMessage(src: from, payload: payload));
+  void inject(NodeId from, Uint8List payload) => _in.add(
+    InboundMessage(
+      src: from,
+      payload: payload,
+      provenance: SenderProvenance.sessionPeer,
+    ),
+  );
 
   @override
   Future<NodeId> nodeId() async => _me;
@@ -40,11 +45,21 @@ class _Link implements VeilTransport {
   @override
   Future<void> sendReply(int replyId, Uint8List payload) async {}
   @override
-  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async {
     if (WireEnvelope.decode(payload).kind == WireKind.pieceRequest) {
       pieceRequests++;
     }
-    peer?._in.add(InboundMessage(src: _me, payload: payload));
+    peer?._in.add(
+      InboundMessage(
+        src: _me,
+        payload: payload,
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
   }
 
   @override
@@ -78,12 +93,18 @@ void main() {
     await sA.open(password: 'a', createIfMissing: true);
     await sB.open(password: 'b', createIfMissing: true);
     const fast = Duration(milliseconds: 60);
-    mA = MessagingService(tA, sA,
-        contentReRequestInterval: fast, contentPacing: Duration.zero)
-      ..start();
-    mB = MessagingService(tB, sB,
-        contentReRequestInterval: fast, contentPacing: Duration.zero)
-      ..start();
+    mA = MessagingService(
+      tA,
+      sA,
+      contentReRequestInterval: fast,
+      contentPacing: Duration.zero,
+    )..start();
+    mB = MessagingService(
+      tB,
+      sB,
+      contentReRequestInterval: fast,
+      contentPacing: Duration.zero,
+    )..start();
     await sA.upsertContact(Contact(nodeId: b, status: ContactStatus.accepted));
     await sB.upsertContact(Contact(nodeId: a, status: ContactStatus.accepted));
   });
@@ -108,8 +129,9 @@ void main() {
   }) async {
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
-      final files =
-          (await s.loadMessages(peer.hex)).where((m) => m.isFile).toList();
+      final files = (await s.loadMessages(
+        peer.hex,
+      )).where((m) => m.isFile).toList();
       if (files.length >= n) return files;
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
@@ -122,14 +144,14 @@ void main() {
   test('a content offer naming a seq past the accepted maximum never surfaces, '
       'while an in-range one does', () async {
     String offer(String id, String msgId, int seq) => jsonEncode({
-          'ref': 1,
-          'id': id,
-          'name': '$msgId.bin',
-          'size': 1024,
-          'mid': msgId,
-          'au': a.hex,
-          'sq': seq,
-        });
+      'ref': 1,
+      'id': id,
+      'name': '$msgId.bin',
+      'size': 1024,
+      'mid': msgId,
+      'au': a.hex,
+      'sq': seq,
+    });
 
     tB.inject(
       a,
@@ -148,14 +170,14 @@ void main() {
     );
     await Future<void>.delayed(const Duration(milliseconds: 200));
     expect(
-        (await sB.loadMessages(a.hex)).where((m) => m.id == 'offer-past-max'),
-        isEmpty,
-        reason: 'the offer is dropped, not surfaced at a pulled-in-range slot');
+      (await sB.loadMessages(a.hex)).where((m) => m.id == 'offer-past-max'),
+      isEmpty,
+      reason: 'the offer is dropped, not surfaced at a pulled-in-range slot',
+    );
   });
 
   test('A re-send of a CLEARED file surfaces AGAIN as a NEW message — the '
-      'per-send msgId is not tombstoned by the old delete (A semantics)',
-      () async {
+      'per-send msgId is not tombstoned by the old delete (A semantics)', () async {
     final data = rnd(1024 * 1024 + 1, 11); // > 1 MiB → content path
     await mA.sendFile(b, data, 'pic.jpg');
     final first = await waitFiles(sB, a, 1);
@@ -166,17 +188,26 @@ void main() {
     // the blob: exactly the user's clear-history scenario that used to suppress
     // every future identical send.
     await mB.clearConversation(a);
-    expect((await sB.loadMessages(a.hex)).where((m) => m.isFile), isEmpty,
-        reason: 'precondition: cleared');
+    expect(
+      (await sB.loadMessages(a.hex)).where((m) => m.isFile),
+      isEmpty,
+      reason: 'precondition: cleared',
+    );
 
     // A re-sends the SAME bytes. Same contentId (so bytes still dedup/verify),
     // but a FRESH msgId → a new filePost EVENT the old tombstone cannot suppress.
     await mA.sendFile(b, data, 'pic.jpg');
     final second = await waitFiles(sB, a, 1);
-    expect(second.length, 1,
-        reason: 'the re-sent file surfaces despite the prior clear (A)');
-    expect(second.single.id, isNot(firstId),
-        reason: 'a NEW event (fresh msgId), not the resurrected old one');
+    expect(
+      second.length,
+      1,
+      reason: 'the re-sent file surfaces despite the prior clear (A)',
+    );
+    expect(
+      second.single.id,
+      isNot(firstId),
+      reason: 'a NEW event (fresh msgId), not the resurrected old one',
+    );
   });
 
   test('A re-send when B ALREADY HOLDS the blob surfaces a new message WITHOUT '
@@ -190,20 +221,32 @@ void main() {
     await waitFiles(sB, a, 1);
     await Future<void>.delayed(const Duration(milliseconds: 200));
     final reqsAfterFirst = tB.pieceRequests;
-    expect(reqsAfterFirst, greaterThan(0),
-        reason: 'the first send genuinely downloaded the pieces');
+    expect(
+      reqsAfterFirst,
+      greaterThan(0),
+      reason: 'the first send genuinely downloaded the pieces',
+    );
 
     // Second send of identical bytes: B already holds the blob (keyed by
     // contentId), so the offer renders downloaded and B issues NO new requests.
     await mA.sendFile(b, data, 'pic.jpg');
     final two = await waitFiles(sB, a, 2);
     expect(two.length, 2, reason: 'a second, distinct file message surfaced');
-    expect(tB.pieceRequests, reqsAfterFirst,
-        reason: 'dedup: the second send issued NO new piece requests');
-    expect(two.map((m) => m.id).toSet().length, 2,
-        reason: 'two distinct events (msgIds)');
-    expect(two.map((m) => m.fileContentId).toSet(), hasLength(1),
-        reason: 'both reference the ONE hash-keyed blob (contentId)');
+    expect(
+      tB.pieceRequests,
+      reqsAfterFirst,
+      reason: 'dedup: the second send issued NO new piece requests',
+    );
+    expect(
+      two.map((m) => m.id).toSet().length,
+      2,
+      reason: 'two distinct events (msgIds)',
+    );
+    expect(
+      two.map((m) => m.fileContentId).toSet(),
+      hasLength(1),
+      reason: 'both reference the ONE hash-keyed blob (contentId)',
+    );
   });
 
   test('a LARGE file (> auto-download cap) is OFFERED, not auto-fetched, until '
@@ -213,10 +256,16 @@ void main() {
 
     // The offer surfaces (metadata) but NOTHING downloads on its own.
     final offered = await waitFiles(sB, a, 1);
-    expect(offered.single.fileContentId, isNotNull,
-        reason: 'the offer carries the contentId to fetch');
-    expect(offered.single.fileSize, data.length,
-        reason: 'the offer carries the size so the user can decide');
+    expect(
+      offered.single.fileContentId,
+      isNotNull,
+      reason: 'the offer carries the contentId to fetch',
+    );
+    expect(
+      offered.single.fileSize,
+      data.length,
+      reason: 'the offer carries the size so the user can decide',
+    );
     expect(offered.single.isDownloaded, isFalse, reason: 'no blob yet');
     await Future<void>.delayed(const Duration(milliseconds: 300));
     expect(tB.pieceRequests, 0, reason: 'a large file is NOT auto-downloaded');
@@ -226,9 +275,15 @@ void main() {
     final got = mB.contentReceived.first;
     await mB.downloadContent(a, offered.single.fileContentId!);
     await got.timeout(const Duration(seconds: 30));
-    expect(tB.pieceRequests, greaterThan(0),
-        reason: 'the opt-in download issues piece requests');
-    expect(await sB.hasFile(offered.single.fileContentId!), isTrue,
-        reason: 'the blob is present after the user-triggered download');
+    expect(
+      tB.pieceRequests,
+      greaterThan(0),
+      reason: 'the opt-in download issues piece requests',
+    );
+    expect(
+      await sB.hasFile(offered.single.fileContentId!),
+      isTrue,
+      reason: 'the blob is present after the user-triggered download',
+    );
   });
 }
