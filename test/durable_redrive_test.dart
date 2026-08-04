@@ -805,6 +805,126 @@ void main() {
           reason: 'nothing was delivered — the frame was retired locally');
     });
   });
+
+  // ── Editing must not pay for a container-wide vacuum (audit report6 XV-06) ──
+  //
+  // An edit APPENDS a new row; the superseded bodies are retained ON PURPOSE so
+  // the edit history reads back, and they are reclaimed only by an explicit
+  // clear-history or a panic erase. So there is never an orphaned chunk for a
+  // vacuum to find after an edit — measured on a real container: ten edits,
+  // zero chunks reclaimed each time; one delete frees exactly one. Running the
+  // full sweep (and dropping the warm fold cache with it) on every edit was
+  // pure cost, and a peer editing its own message could drive it at will.
+  //
+  // Deleting is different and KEEPS its scrub: that is where the plaintext must
+  // actually leave the container.
+  group('an edit does not vacuum the container, a delete still does', () {
+    late NodeId a, b;
+    late _Link tA, tB;
+    late _ScrubCountingStorage sA, sB;
+    late MessagingService mA, mB;
+
+    setUp(() async {
+      a = _id(1);
+      b = _id(2);
+      tA = _Link(a);
+      tB = _Link(b);
+      tA.peer = tB;
+      tB.peer = tA;
+      sA = _ScrubCountingStorage(_memOpener());
+      sB = _ScrubCountingStorage(_memOpener());
+      await sA.open(password: 'a', createIfMissing: true);
+      await sB.open(password: 'b', createIfMissing: true);
+      mA = MessagingService(tA, sA)..start();
+      mB = MessagingService(tB, sB)..start();
+      addTearDown(mA.dispose);
+      addTearDown(mB.dispose);
+      await sA.upsertContact(Contact(nodeId: b, status: ContactStatus.accepted));
+      await sB.upsertContact(Contact(nodeId: a, status: ContactStatus.accepted));
+    });
+
+    test("an accepted peer's edits cost B no vacuum at all, its unsend does",
+        () async {
+      tB.inject(
+          a,
+          WireEnvelope.message('original', id: 'm1', sentAtMs: 1000, seq: 1)
+              .encode());
+      await _settle();
+      sB.scrubs = 0;
+
+      for (var i = 2; i < 12; i++) {
+        tB.inject(a, WireEnvelope.edit('m1', 'edit $i', seq: i).encode());
+        await _settle();
+      }
+      expect((await sB.loadMessages(a.hex)).single.body, 'edit 11',
+          reason: 'the edits really landed — this is not a no-op path');
+      expect(sB.scrubs, 0,
+          reason: 'ten remote edits, ten sweeps of the whole container, and '
+              'nothing to reclaim in any of them');
+
+      // Control: the destructive twin still scrubs, on the very same storage.
+      tB.inject(a, const WireEnvelope.del('m1').encode());
+      await _settle();
+      expect(await sB.loadMessages(a.hex), isEmpty);
+      expect(sB.scrubs, greaterThan(0),
+          reason: 'an unsend must still reclaim the plaintext');
+    });
+
+    test('editing OUR OWN message costs no vacuum, deleting it does', () async {
+      await mA.sendText(b, 'first draft');
+      await _settle();
+      final id = (await sA.loadMessages(b.hex)).single.id;
+      sA.scrubs = 0;
+
+      await mA.editOwnMessage(id, 'second draft');
+      await mA.editOwnMessage(id, 'third draft');
+      await _settle();
+      expect((await sA.loadMessages(b.hex)).single.body, 'third draft');
+      expect(sA.scrubs, 0);
+
+      // Control: the local delete on the same message does scrub.
+      await mA.deleteMessageLocally(id);
+      await _settle();
+      expect(sA.scrubs, greaterThan(0));
+    });
+
+    test('the retained edit history still reads back — dropping the vacuum '
+        'reclaimed nothing, so it hid nothing either', () async {
+      tB.inject(
+          a,
+          WireEnvelope.message('original', id: 'm1', sentAtMs: 1000, seq: 1)
+              .encode());
+      await _settle();
+      tB.inject(a, WireEnvelope.edit('m1', 'once', seq: 2).encode());
+      await _settle();
+      tB.inject(a, WireEnvelope.edit('m1', 'twice', seq: 3).encode());
+      await _settle();
+
+      final history = await sB.loadMessageHistory(a.hex, 'm1');
+      expect(history.map((v) => v.body).toList(),
+          ['original', 'once', 'twice'],
+          reason: 'every superseded body is still there — exactly as it was '
+              'when the edit path scrubbed, since the scrub never freed one');
+
+      // And the explicit destructive path still takes them away.
+      tB.inject(a, const WireEnvelope.del('m1').encode());
+      await _settle();
+      expect(await sB.loadMessageHistory(a.hex, 'm1'), isEmpty);
+    });
+  });
+}
+
+/// Counts how many container-wide vacuums a flow pays for.
+class _ScrubCountingStorage extends HiddenVolumeStorage {
+  _ScrubCountingStorage(super.opener);
+
+  int scrubs = 0;
+
+  @override
+  Future<void> scrubDeleted() {
+    scrubs++;
+    return super.scrubDeleted();
+  }
 }
 
 

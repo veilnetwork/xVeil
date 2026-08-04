@@ -55,6 +55,14 @@ class _MessagingMutations {
         return;
       }
       // Fold under the editor's seq so both devices converge on (author, seq).
+      //
+      // NOT scrubbed: an edit is a pure APPEND (a new row at a fresh seq), and
+      // the superseded bodies are RETAINED on purpose so the edit history reads
+      // back — they are reclaimed only by an explicit clear-history or panic
+      // erase. So a vacuum here can free nothing, while costing a full sweep of
+      // the container and the loss of the warm fold cache. Measured on a real
+      // container: ten edits in a row, zero chunks reclaimed each time (a
+      // delete, by contrast, frees one per message).
       await _owner._storage.editMessage(
         peer.hex,
         id,
@@ -62,7 +70,6 @@ class _MessagingMutations {
         seq: envelope.seq,
         customEmoji: envelope.customEmoji,
       );
-      await _owner._storage.scrubDeleted();
     } else if (!await hasMessage(peer, id)) {
       bufferPending(
         peer,
@@ -173,13 +180,14 @@ class _MessagingMutations {
       return;
     }
     if (isSpaceRecommendationMessageBody(message.body)) return;
+    // Append-only, like the incoming edit above — no chunk is orphaned, so
+    // there is nothing for a vacuum to reclaim (see [applyIncomingEdit]).
     final editSeq = await _owner._storage.editMessage(
       message.conversationId,
       messageId,
       trimmed,
       customEmoji: customEmoji,
     );
-    await _owner._storage.scrubDeleted();
     _owner._signal();
     final destination = NodeId.fromHex(message.conversationId);
     // Include the edit seq in the durable id: every edit is distinct, while a
