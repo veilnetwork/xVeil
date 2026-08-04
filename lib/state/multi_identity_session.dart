@@ -17,6 +17,7 @@ import '../domain/chat.dart';
 import '../domain/p2p_policy.dart';
 import '../domain/roster.dart';
 import 'messaging.dart';
+import 'ratchet_persistence.dart' show ratchetPersistenceFor;
 
 /// One identity's boot plan in an "all identities online" session: which hosted
 /// space it uses, and the ephemeral runtime endpoints (a runtime BASE to create
@@ -314,6 +315,11 @@ class MultiIdentitySession {
               )
               ..sourceOpener =
                   veilSourceOpener // DURABLE offers: re-open by path
+              // Per identity, over THIS identity's own storage and its own
+              // node. Sharing either would put one identity's chain keys in
+              // another's container, which is the whole thing separate spaces
+              // exist to prevent.
+              ..ratchet = ratchetPersistenceFor(node.stack, storage)
               ..start();
       } catch (_) {
         // Node didn't come up — keep the storage view so the UI shows history;

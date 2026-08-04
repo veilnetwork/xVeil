@@ -1,0 +1,237 @@
+import 'dart:typed_data';
+
+import '../core/ids.dart';
+import '../core/log.dart';
+import '../data/node/ratchet_ffi.dart';
+import '../data/storage/storage.dart';
+import '../data/veil_stack.dart' show RealVeilStack;
+
+/// Marker recording which of OUR devices the stored conversations belong to.
+///
+/// The first 16 bytes of every conversation key are the local device, and they
+/// change when this identity's active subkey is re-issued. Nothing else on the
+/// Dart side knows that value — veil derives it from the sovereign document —
+/// so it is LEARNED from a key veil itself produced, never guessed.
+const kRatchetLocalInstanceSetting = 'ratchet.local_instance.v1';
+
+/// Bind one identity's node to one identity's container.
+///
+/// Null when the stack has no ratchet door — a subprocess or dev-path node, a
+/// dylib built without `node-embedded`, or the loopback fake. Those builds run
+/// unratcheted one-to-one messaging, and a build with no ratchet has no ratchet
+/// state to lose.
+///
+/// Takes the pair together on purpose. The one way this goes wrong silently is
+/// a node paired with somebody else's storage, and a call that has to name both
+/// is a call where that mistake is visible at the call site.
+RatchetPersistence? ratchetPersistenceFor(
+  RealVeilStack? stack,
+  Storage storage,
+) {
+  final native = stack?.ratchetState;
+  if (native == null) return null;
+  return RatchetPersistence(native: native, storage: storage);
+}
+
+/// Durable half of the hybrid ratchet: what veil holds in memory, kept in the
+/// deniable container so it survives a restart.
+///
+/// veil agrees the keys and advances the chains; it persists none of it, and
+/// the runtime directory it does own is recreated from scratch every session.
+/// Without this the ratchet gives no forward secrecy worth the name — it gives
+/// a fresh session every launch, which is the thing it was chosen to avoid.
+///
+/// Three obligations, and each has a silent failure mode:
+///
+///  1. [restore] runs at startup, BEFORE traffic. A frame for a conversation
+///     that was not restored cannot be opened, and unlike a dropped packet the
+///     sender has already advanced its chain — nothing will re-send it in a
+///     readable form.
+///  2. [flush] runs after EVERY send and EVERY receive, before the operation
+///     counts as finished. A skipped write is a message key that exists
+///     nowhere, and the message that needed it never opens and never says why.
+///  3. The bytes are stored encrypted, because every one of them is key
+///     material. That is what the hidden volume is.
+class RatchetPersistence {
+  RatchetPersistence({
+    required RatchetStateHandle native,
+    required Storage storage,
+    int dirtyBatch = 32,
+  }) : this._(native, storage, dirtyBatch);
+
+  RatchetPersistence._(this._native, this._storage, this._dirtyBatch) {
+    if (_dirtyBatch <= 0) {
+      throw ArgumentError.value(_dirtyBatch, 'dirtyBatch', 'must be positive');
+    }
+  }
+
+  final RatchetStateHandle _native;
+  final Storage _storage;
+
+  /// Conversation keys read per `take_dirty` call.
+  ///
+  /// Bounded rather than "ask for everything": veil leaves whatever does not
+  /// fit MARKED, so the correct shape is a loop that drains until nothing
+  /// remains. A caller that asked for more than it could hold and dropped the
+  /// rest would have lost the only notice those conversations ever get.
+  final int _dirtyBatch;
+
+  /// The local-device prefix seen in keys veil produced this session.
+  Uint8List? _localInstance;
+
+  /// Hand every stored conversation back to veil.
+  ///
+  /// Returns how many were restored. A blob veil refuses is DROPPED from the
+  /// container rather than retried forever: it can never open a frame again,
+  /// and keeping unusable key material is the opposite of what this store is
+  /// for.
+  Future<int> restore() => restoreRatchetStates(_native, _storage);
+
+  /// Persist every conversation veil has named as changed.
+  ///
+  /// Loops until `remaining` reads zero: the buffer is bounded and the leftover
+  /// stays marked, so a single pass with a small batch would silently strand
+  /// the rest until they changed again — by which time the keys they were
+  /// holding are gone.
+  ///
+  /// Returns how many conversations were written.
+  Future<int> flush() async {
+    var written = 0;
+    // A pass count, not a while(true): a store that somehow kept re-marking
+    // would spin here forever, on the send path, holding a message.
+    for (var pass = 0; pass < _maxDrainPasses; pass++) {
+      final batch = _native.takeDirty(_dirtyBatch);
+      if (batch.keys.isNotEmpty) {
+        // BEFORE the save. The prune it may do is "drop what belongs to a
+        // device we are not", and running it after would have to be careful not
+        // to delete the entry this very pass just wrote.
+        await _noteLocalInstance(batch.keys.first);
+        final entries = exportRatchetStates(_native, batch.keys);
+        if (entries.isNotEmpty) {
+          await _storage.saveRatchetStates(entries);
+          written += entries.length;
+        }
+      }
+      if (batch.remaining == 0) return written;
+    }
+    devLog(
+      () =>
+          'xVeil[ratchet]: dirty list still not drained after '
+          '$_maxDrainPasses passes — wrote $written',
+    );
+    return written;
+  }
+
+  /// Save everything held, consuming no marks — for a clean shutdown.
+  ///
+  /// `list` rather than `take_dirty` on purpose: the marks are the record of
+  /// what still needs writing, and a shutdown save that consumed them would
+  /// leave a crash between here and process exit with nothing to notice.
+  Future<int> saveAll() async {
+    final entries = exportRatchetStates(_native, _native.list());
+    if (entries.isEmpty) return 0;
+    await _storage.saveRatchetStates(entries);
+    return entries.length;
+  }
+
+  /// Drop every conversation held with [peer] — both its live session and its
+  /// stored bytes.
+  ///
+  /// The peer's node id is the 32 bytes in the middle of a conversation key, so
+  /// "everything belonging to this contact" is answerable by READING the keys.
+  /// That is why the key is flat and reversible instead of a digest.
+  ///
+  /// Irreversible, so it belongs to a deleted chat or a removed contact — never
+  /// to eviction, which would cost every message that peer sends afterwards.
+  Future<int> forgetPeer(NodeId peer) async {
+    final doomed = <Uint8List>[];
+    for (final key in await _storage.ratchetConversationKeys()) {
+      if (_peerNodeMatches(key, peer.bytes)) doomed.add(key);
+    }
+    // veil holds conversations the container does not yet know about — one
+    // opened this session and not flushed, or one whose peer we are removing
+    // before it ever sent anything. Ask it too, or the session survives the
+    // deletion in memory and re-persists itself on the next flush.
+    for (final key in _native.list()) {
+      if (_peerNodeMatches(key, peer.bytes) &&
+          !doomed.any((k) => _sameKey(k, key))) {
+        doomed.add(key);
+      }
+    }
+    for (final key in doomed) {
+      _native.forget(key);
+    }
+    final forgotten = await _storage.forgetRatchetStates(doomed);
+    devLog(
+      () => 'xVeil[ratchet]: forgot ${doomed.length} conversation(s) '
+          'with ${peer.short} ($forgotten stored)',
+    );
+    return doomed.length;
+  }
+
+  /// Drop stored conversations belonging to a device that is no longer us.
+  ///
+  /// Called with a key veil produced, so the "current" device is the one veil
+  /// is actually keying conversations for, not one this side inferred. Only the
+  /// STORED bytes go: what veil holds under an old local instance it will drop
+  /// itself when the process ends, and forgetting live state on a guess is not
+  /// a trade this store gets to make.
+  Future<void> _noteLocalInstance(Uint8List sample) async {
+    final current = Uint8List.fromList(
+      sample.sublist(0, kRatchetKeyPeerNodeOffset),
+    );
+    final known = _localInstance;
+    if (known != null && _sameKey(known, current)) return;
+    _localInstance = current;
+    final stored = await _storage.getSetting(kRatchetLocalInstanceSetting);
+    final currentHex = _hex(current);
+    if (stored == currentHex) return;
+    if (stored != null) {
+      final doomed = [
+        for (final key in await _storage.ratchetConversationKeys())
+          if (!_sameKey(
+            Uint8List.sublistView(key, 0, kRatchetKeyPeerNodeOffset),
+            current,
+          ))
+            key,
+      ];
+      if (doomed.isNotEmpty) {
+        final dropped = await _storage.forgetRatchetStates(doomed);
+        devLog(
+          () =>
+              'xVeil[ratchet]: this device was re-issued — dropped $dropped '
+              'conversation(s) keyed to the device we no longer are',
+        );
+      }
+    }
+    await _storage.putSetting(kRatchetLocalInstanceSetting, currentHex);
+  }
+
+  static bool _peerNodeMatches(Uint8List conversationKey, Uint8List nodeId) {
+    if (conversationKey.length != kRatchetKeyLen || nodeId.length != 32) {
+      return false;
+    }
+    for (var i = 0; i < 32; i++) {
+      if (conversationKey[kRatchetKeyPeerNodeOffset + i] != nodeId[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static bool _sameKey(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  static String _hex(Uint8List bytes) => [
+    for (final b in bytes) b.toRadixString(16).padLeft(2, '0'),
+  ].join();
+
+  /// Enough passes to drain any plausible dirty list at [_dirtyBatch] a time,
+  /// and few enough that a pathological one cannot hang a send.
+  static const int _maxDrainPasses = 4096;
+}

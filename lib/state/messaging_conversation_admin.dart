@@ -119,6 +119,15 @@ class _MessagingConversationAdmin {
   }) async {
     if (notifyPeer) await _sendChatDeletedFarewell(peer);
     await _owner._storage.removeConversation(peer);
+    // The chat is gone; its ratchet must go with it. AFTER the farewell, which
+    // is itself a send and would re-open a session we were about to drop.
+    //
+    // Both devices of a two-device contact go, and that is exactly why the key
+    // is flat: everything with this node id in its middle 32 bytes belongs to
+    // this chat, and no side table is needed to say so. Irreversible by
+    // construction — nothing public rebuilds a chain — which is right for a
+    // deletion and wrong for anything else.
+    await _owner._forgetRatchetWith(peer, 'chat deleted');
     _owner._mailboxDelivery.clearPeerBackoff(peer.hex);
     await _removeFromAllFolders(peer.hex);
     _owner._signal();

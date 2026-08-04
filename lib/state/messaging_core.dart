@@ -32,6 +32,7 @@ import '../domain/space_join_request.dart';
 import '../domain/space_public_feed_transport.dart';
 import 'inbound_admission.dart';
 import 'mailbox_service.dart' show MailboxSink;
+import 'ratchet_persistence.dart';
 import 'sticker_message.dart';
 import 'vnote_message.dart';
 import 'voice_message.dart';
@@ -599,7 +600,11 @@ class MessagingService {
   /// a full resolve + circuit-build of its own — used for chat messages so the
   /// delivery-ACK round-trip is ~halved. Anonymity is unchanged (one-shot block,
   /// not a reused circuit).
-  Future<void> _send(NodeId dst, Uint8List payload, {bool wantReply = false}) {
+  Future<void> _send(
+    NodeId dst,
+    Uint8List payload, {
+    bool wantReply = false,
+  }) async {
     devLog(
       () =>
           'xVeil[send]: live send dst=${dst.short} anonymous=$_anonymous '
@@ -607,9 +612,16 @@ class MessagingService {
           'transport=${_transport.runtimeType}',
     );
     if (_anonymous && wantReply) {
-      return _transport.sendWithReply(dst, payload);
+      await _transport.sendWithReply(dst, payload);
+    } else {
+      await _transport.send(dst, payload, anonymous: _anonymous);
     }
-    return _transport.send(dst, payload, anonymous: _anonymous);
+    // The send advanced our sending chain, and nothing else will ever mention
+    // the key it burned. This is the single egress point, so the write happens
+    // here once instead of at the dozen call sites that reach it — and it
+    // happens BEFORE the caller is told the send finished, which is the whole
+    // of the contract.
+    await _persistRatchet('send');
   }
 
   /// Send a delivery ACK for [id] back to the sender of inbound [m]. When [m]
@@ -685,6 +697,61 @@ class MessagingService {
   /// Attach the offline-delivery [MailboxService] after construction (it is
   /// built with [deliverInbound] as its drain sink, so it must exist first).
   void attachMailbox(MailboxSink mailbox) => _mailboxDelivery.attach(mailbox);
+
+  /// The durable half of the hybrid ratchet, when this build has a node that
+  /// runs one.
+  ///
+  /// Null on the loopback transport and on any build without the embedded-node
+  /// FFI. That is not a degraded mode with a silent cost: without a ratchet
+  /// there is no ratchet state to lose. What must never happen is a ratchet
+  /// WITH this left unset — the sessions would then be rebuilt from nothing on
+  /// every launch, which is the failure this whole path exists to close.
+  RatchetPersistence? ratchet;
+
+  /// Persist whatever the ratchet changed, before the caller treats its send or
+  /// receive as finished.
+  ///
+  /// Never throws. A container write that fails is a message key we did not
+  /// keep, and the message that needed it will not open — but taking the send
+  /// down with it loses the message AND the key. Log and carry: the frame at
+  /// least reaches the peer, and the next operation on that conversation marks
+  /// it dirty again.
+  Future<void> _persistRatchet(String why) async {
+    final ratchet = this.ratchet;
+    if (ratchet == null) return;
+    try {
+      await ratchet.flush();
+    } catch (e) {
+      devLog(() => 'xVeil[ratchet]: $why flush FAILED: $e');
+    }
+  }
+
+  /// Write every conversation veil holds, on the way down. Never throws: a
+  /// teardown that fails part way holds the container's exclusive lock.
+  Future<void> _saveAllRatchet() async {
+    final ratchet = this.ratchet;
+    if (ratchet == null) return;
+    try {
+      await ratchet.saveAll();
+    } catch (e) {
+      devLog(() => 'xVeil[ratchet]: shutdown save FAILED: $e');
+    }
+  }
+
+  /// Drop every ratchet conversation with [peer] — live and stored.
+  ///
+  /// IRREVERSIBLE, so only for a deletion the user asked for. Never throws for
+  /// the same reason [_persistRatchet] does not: a failure to forget must not
+  /// leave the chat half-deleted.
+  Future<void> _forgetRatchetWith(NodeId peer, String why) async {
+    final ratchet = this.ratchet;
+    if (ratchet == null) return;
+    try {
+      await ratchet.forgetPeer(peer);
+    } catch (e) {
+      devLog(() => 'xVeil[ratchet]: forget on $why FAILED: $e');
+    }
+  }
 
   /// The app just returned to the foreground: the user is looking at the
   /// screen, so anything parked at the mailbox relay should surface NOW, not on
@@ -1073,6 +1140,13 @@ class MessagingService {
       () =>
           'xVeil[recv]: INBOUND from=${m.src.short} bytes=${m.payload.length}',
     );
+    // FIRST, before anything is stored and before the ack goes back. veil
+    // opened this frame on the way up, which advanced the receiving chain and
+    // may have banked keys for frames that have not arrived; from here the ack
+    // tells the sender to stop retransmitting. Writing after the dispatch would
+    // put a throw from any handler — a malformed body, a full disk — between
+    // the key changing and the key being kept.
+    await _persistRatchet('recv');
     // The peer answered SOMETHING — return its sync beacon to base cadence.
     _peerSync.noteInbound(m.src);
     _nudgeRetries(m.src.hex);
@@ -2794,6 +2868,13 @@ class MessagingService {
     await _realtimeSub?.cancel();
     _realtimeSub = null;
     await _quiesceInboundLanes();
+    // The lanes are quiet and the container is still open: the last chance to
+    // write anything the ratchet changed. Everything here should already be on
+    // disk — each send and each receive wrote before it finished — so this is
+    // the belt to that pair of braces, cheap because `list` consumes nothing
+    // and the dirty marks it leaves alone are what a crash after this point
+    // would still be able to act on.
+    await _saveAllRatchet();
     await contentStreamsDisposed;
     await _clearServingState();
     _groupContent.clear();
