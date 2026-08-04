@@ -6836,13 +6836,49 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     return null;
   }
 
+  /// Directional keys for the two-node DATAGRAM DELIVERY probe. Derived from
+  /// the two public node ids alone, so both ends of the probe agree without a
+  /// call handshake — which also means they authenticate NOTHING and must
+  /// never be reused by a real call: this endpoint measures whether datagrams
+  /// arrive, not whether they came from anyone in particular. Real calls derive
+  /// from E2E-authenticated contributions (deriveCallMediaKeys).
+  static ({Uint8List txKey, Uint8List rxKey}) _mediaProbeKeys(
+    NodeId local,
+    NodeId peer,
+  ) {
+    final ordered = local.hex.compareTo(peer.hex) < 0
+        ? [local, peer]
+        : [peer, local];
+    Uint8List hash(List<int> material) =>
+        Uint8List.fromList(crypto.sha256.convert(material).bytes);
+    final master = hash([
+      ...utf8.encode('xveil/soak/media-probe/v1'),
+      0,
+      ...ordered[0].bytes,
+      ...ordered[1].bytes,
+    ]);
+    Uint8List direction(NodeId from, NodeId to) =>
+        hash([...master, ...from.bytes, ...to.bytes]);
+    return (txKey: direction(local, peer), rxKey: direction(peer, local));
+  }
+
+  Future<int> _openProbeChannel(VeilFlutterTransport t, NodeId peer) async {
+    final local = await t.nodeId();
+    final keys = _mediaProbeKeys(local, peer);
+    return t.openMediaChannel(
+      peer.bytes,
+      txKey: keys.txKey,
+      rxKey: keys.rxKey,
+    );
+  }
+
   Future<void> _mediaOpen(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final peer = _peer(req);
     if (peer == null) return;
     final t = _mediaTransport(req);
     if (t == null) return;
-    final chan = await t.openMediaChannel(peer.bytes);
+    final chan = await _openProbeChannel(t, peer);
     _mediaChannels[peer.hex] = chan;
     await _json(req, {'ok': true, 'peer': peer.hex, 'chan': chan});
   }
@@ -6858,7 +6894,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final gapMs = int.tryParse(req.uri.queryParameters['gap_ms'] ?? '') ?? 5;
     var chan = _mediaChannels[peer.hex];
     if (chan == null) {
-      chan = await t.openMediaChannel(peer.bytes);
+      chan = await _openProbeChannel(t, peer);
       _mediaChannels[peer.hex] = chan;
     }
     // rc from sendMediaDatagram: 0 queued (accepted into the drain queue),

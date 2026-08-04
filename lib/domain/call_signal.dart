@@ -186,15 +186,23 @@ class CallTransportProposal {
 /// while direct avoids one awaited IPC acknowledgement per RTP packet. The
 /// signal wire schema itself is unchanged.
 /// v3 (2026-07-20): offer and answer carry independent random 32-byte media
-/// contributions. Both endpoints derive directional per-call relay keys; RTP
-/// is then symmetrically sealed once and stays below one QUIC DATAGRAM. Missing
-/// or malformed contributions safely retain the v2 ML-KEM envelope path.
+/// contributions. Both endpoints derive directional per-call keys; RTP is then
+/// symmetrically sealed once and stays below one QUIC DATAGRAM.
+/// v3 seal, revised (2026-08-04): the seal is no longer a relay optimization —
+/// it covers direct and onion too, and there is no unsealed mode left. Missing
+/// or malformed contributions therefore mean NO media channel, not a fallback
+/// path, and no code may branch on the peer's advertised version to decide
+/// whether to seal: that field is unauthenticated.
 const int kCallSignalProtocolVersion = 3;
 
-/// The peer decodes relay media batching from this protocol version on.
+/// Historical: the version from which a peer decoded relay media batching.
+/// Batching is now a wire format carried INSIDE the seal, so nothing gates on
+/// this any more. Kept because it names a real point in the wire's history.
 const int kCallRelayBatchingMinVersion = 2;
 
-/// The peer supports directional compact relay-media sealing from this version.
+/// Historical: the version from which a peer sealed relay media. Every peer
+/// that can do media at all seals every route now; retained for the same
+/// reason as [kCallRelayBatchingMinVersion].
 const int kCallRelaySealedMediaMinVersion = 3;
 
 /// Generate one endpoint's E2E-authenticated call-media contribution.
@@ -210,9 +218,9 @@ String generateCallMediaKeyContribution() {
   }
 }
 
-/// Strictly decode a v3 call-media contribution. Invalid values disable the
-/// compact optimization while the independently E2E-encrypted legacy media
-/// path remains available.
+/// Strictly decode a v3 call-media contribution. An invalid value leaves the
+/// call with no key material, and therefore with no media channel on any
+/// route — there is no unsealed path it could fall back to.
 Uint8List? decodeCallMediaKeyContribution(String? encoded) {
   if (encoded == null || encoded.length < 42 || encoded.length > 44) {
     return null;

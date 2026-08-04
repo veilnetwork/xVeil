@@ -9,33 +9,57 @@ import 'package:xveil/state/identity_scoped_prefs.dart';
 /// proxy exit, whether message previews are shown and whether every identity
 /// stays online (audit XV-10).
 ///
-/// Two failures at once: the decoy BEHAVES like the real identity, which is
-/// what anyone comparing them would look at; and the values sit in plaintext in
-/// the preference store, where a forensic tool reads the real profile's posture
-/// without opening a container at all.
+/// That was first fixed by gluing the profile name onto the key
+/// (`proxy_routing.<decoy>`), and this file used to assert exactly that. It is
+/// now the opposite contract, and deliberately so (audit XV-16): a key list
+/// carrying profile names ENUMERATED every profile on the device, in a store
+/// iOS copies into iCloud backups — a roster of identities in an app whose
+/// premise is that the second one cannot be shown to exist.
+///
+/// Separation moved to WHERE the preferences live: one file per profile, inside
+/// that profile's own directory under Application Support, which is excluded
+/// from backup. That half is proved in `profile_prefs_store_test.dart` ("a
+/// posture value one profile writes is invisible to the other"). What is left
+/// here is the half that must hold at the KEY: the name must be the same for
+/// every profile, so it says nothing about which profiles exist.
 void main() {
   final original = app.activeProfile;
   tearDown(() => app.activeProfile = original);
 
-  test('a non-default profile gets its own key', () {
-    app.activeProfile = 'decoy';
-    final scoped = identityScopedPrefKey('vpn_routing_policy');
-
-    expect(scoped, isNot('vpn_routing_policy'));
-    expect(scoped, contains('decoy'));
+  test('the key is identical for every profile, and names none of them', () {
+    const key = 'vpn_routing_policy';
+    final seen = <String>{};
+    for (final profile in [AppProfiles.defaultName, 'decoy', 'alpha', 'beta']) {
+      app.activeProfile = profile;
+      final scoped = identityScopedPrefKey(key);
+      expect(
+        scoped,
+        key,
+        reason: 'profile "$profile" must not move the key: separation lives in '
+            'the file, and a moved key would be back to a roster',
+      );
+      expect(
+        scoped,
+        isNot(contains(profile == AppProfiles.defaultName ? 'default' : profile),
+        ),
+        reason: 'a backup that reads this key list must learn no profile name',
+      );
+      seen.add(scoped);
+    }
+    expect(seen, hasLength(1));
   });
 
-  test('two profiles never collide', () {
-    app.activeProfile = 'alpha';
-    final a = identityScopedPrefKey('proxy_routing');
-    app.activeProfile = 'beta';
-    final b = identityScopedPrefKey('proxy_routing');
-
-    expect(
-      a,
-      isNot(b),
-      reason: 'one profile answering for another is the whole finding',
-    );
+  test('every posture key stays name-free under a decoy profile', () {
+    app.activeProfile = 'decoy';
+    for (final key in kIdentityPosturePrefKeys) {
+      expect(identityScopedPrefKey(key), key, reason: key);
+      expect(identityScopedPrefKey(key), isNot(contains('decoy')), reason: key);
+    }
+    // The list is the other half of the contract: it is what the wipe paths
+    // walk, so a posture setting missing from it survives "clear all data".
+    expect(kIdentityPosturePrefKeys, contains('proxy_routing'));
+    expect(kIdentityPosturePrefKeys, contains('vpn_routing_policy'));
+    expect(kIdentityPosturePrefKeys, contains('signature_policy'));
   });
 
   test('the default profile keeps the bare key', () {
@@ -44,7 +68,9 @@ void main() {
     // intended behaviour, not a loss: a decoy should not begin life wearing the
     // real profile's posture.
     app.activeProfile = AppProfiles.defaultName;
-    expect(identityScopedPrefKey('notifications_preview'),
-        'notifications_preview');
+    expect(
+      identityScopedPrefKey('notifications_preview'),
+      'notifications_preview',
+    );
   });
 }

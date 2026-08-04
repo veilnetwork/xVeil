@@ -6990,6 +6990,63 @@ class GroupService {
     bool includeArchived = false,
   }) => _channelQueries.channelsOf(spaceId, includeArchived: includeArchived);
 
+  /// Root secret one room's media seal is derived from, or null when this
+  /// device does not hold (or cannot validate) the epoch key that scopes the
+  /// room — in which case it must not open a media channel either.
+  ///
+  /// Bound to the call id so two rooms in the same epoch never share cells, and
+  /// hashed here so the epoch key itself never leaves the group service. EVERY
+  /// member can derive this, and that is the intended property: authenticity at
+  /// the participant level is already carried by the per-sender signature on
+  /// the call signal, and this seal adds confidentiality from the relays that
+  /// carry the datagrams, which are not members.
+  Future<Uint8List?> groupCallMediaSecret({
+    required NodeId groupId,
+    NodeId? channelId,
+    required int membershipEpoch,
+    int? channelEpoch,
+    required String callId,
+  }) async {
+    final bundle = await load(groupId);
+    if (bundle == null || bundle.manifest.isSovereignDevice) return null;
+    Uint8List? key;
+    if (channelId != null && channelEpoch != null) {
+      key = bundle.localChannelEpochKeys[_channelKeyId(channelId, channelEpoch)];
+      if (key == null ||
+          !_validLocalChannelEpochKey(
+            bundle.manifest,
+            bundle.control,
+            channelId,
+            channelEpoch,
+            key,
+          )) {
+        return null;
+      }
+    } else {
+      key = bundle.localEpochKeys[membershipEpoch];
+      if (key == null ||
+          !_validLocalEpochKey(
+            bundle.manifest,
+            bundle.control,
+            membershipEpoch,
+            key,
+          )) {
+        return null;
+      }
+    }
+    return Uint8List.fromList(
+      crypto.sha256
+          .convert([
+            ...utf8.encode('xveil/group-call-media/room/v1'),
+            0,
+            ...key,
+            0,
+            ...utf8.encode(callId),
+          ])
+          .bytes,
+    );
+  }
+
   /// Current participants allowed into one voice scope. Resolving this once
   /// lets the call FSM reconcile an N-party room without decrypting the same
   /// protected channel control separately for every participant.
