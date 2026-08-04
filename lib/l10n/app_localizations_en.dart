@@ -2924,6 +2924,31 @@ class AppL10nEn extends AppL10n {
       'How to answer when a contact asks you to prove you wrote a message';
 
   @override
+  String get screenLockTitle => 'Locked';
+
+  @override
+  String get settingsScreenLock => 'Lock the screen in the background';
+
+  @override
+  String get settingsScreenLockHint =>
+      'Ask for the password again after the app has been away. Messages keep arriving and notifications keep working — only the screen is covered.';
+
+  @override
+  String get screenLockOff => 'Off';
+
+  @override
+  String get screenLockImmediately => 'Immediately';
+
+  @override
+  String get screenLockOneMinute => 'After 1 minute';
+
+  @override
+  String get screenLockFiveMinutes => 'After 5 minutes';
+
+  @override
+  String get screenLockFifteenMinutes => 'After 15 minutes';
+
+  @override
   String get settingsApiTitle => 'Automation API';
 
   @override
