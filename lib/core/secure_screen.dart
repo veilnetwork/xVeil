@@ -53,8 +53,10 @@ class SecureScreen {
     try {
       await _channel.invokeMethod<void>('setSecure', {'secure': secure});
     } on MissingPluginException {
-      // A platform with no equivalent (desktop, iOS). Nothing to do, and
-      // nothing to shout about: [TaskSwitcherShield] is what covers those.
+      // Windows and Linux, which have no runner-side answer at all. Nothing to
+      // do and nothing to shout about: [TaskSwitcherShield] is what covers
+      // those. Android answers with `FLAG_SECURE`, iOS with a cover while the
+      // screen is being recorded, macOS with `NSWindow.sharingType`.
     } on PlatformException {
       // The window may be gone (a route torn down during a lifecycle change).
       // Failing to clear a flag on a dead window is not worth an error.
@@ -104,15 +106,18 @@ class _SecureScreenGuardState extends State<SecureScreenGuard> {
 
 /// A neutral cover over the whole app while it is not in the foreground.
 ///
-/// The task switcher shows a snapshot of the last frame, and on the platforms
-/// where `FLAG_SECURE` does not exist that snapshot is the only remaining way
-/// the last open chat leaves the device — someone holding the phone sees it
-/// without unlocking anything.
+/// The task switcher shows a snapshot of the last frame, and where nothing
+/// native answers that snapshot is the only remaining way the last open chat
+/// leaves the device — someone holding the phone sees it without unlocking
+/// anything.
 ///
 /// Best-effort, and worth saying plainly: the platform decides when it takes
 /// its snapshot, and a frame drawn on the way out is not guaranteed to land
-/// first. This raises the cost; [SecureScreenGuard] is what actually forbids
-/// the capture, on the one platform that offers to.
+/// first. That is exactly why the iOS runner puts up its OWN cover in
+/// `willResignActive`, where being in the snapshot is guaranteed rather than
+/// raced. This stays as the cross-platform floor — Windows and Linux have
+/// nothing else — and [SecureScreenGuard] is what actually forbids the capture
+/// on the platforms that offer to.
 ///
 /// Deliberately blank apart from the app name: a cover that said "locked" would
 /// announce that there is something to unlock.
