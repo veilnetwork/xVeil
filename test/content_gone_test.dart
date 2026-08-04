@@ -75,7 +75,7 @@ class _StreamLink implements VeilTransport, StreamTransport {
   final NodeId _me;
   final _in = StreamController<InboundMessage>.broadcast();
   _StreamLink? peer;
-  final _accepts = <({ReliableStream stream, NodeId src})>[];
+  final _accepts = <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
   Completer<void>? _acceptWaiter;
 
   @override
@@ -111,7 +111,13 @@ class _StreamLink implements VeilTransport, StreamTransport {
     final p = peer;
     if (p == null) return null;
     final aToB = _Chan(), bToA = _Chan();
-    p._accepts.add((stream: _PipeEnd(bToA, aToB), src: _me));
+    p._accepts.add((
+      stream: _PipeEnd(bToA, aToB),
+      src: _me,
+      // The anonymous lane is claimed BY CONSTRUCTION in production (the
+      // initiator comes off an onion cell), so the fake says exactly that.
+      provenance: SenderProvenance.claimed,
+    ));
     final w = p._acceptWaiter;
     p._acceptWaiter = null;
     w?.complete();
@@ -119,7 +125,8 @@ class _StreamLink implements VeilTransport, StreamTransport {
   }
 
   @override
-  Future<({ReliableStream stream, NodeId src})?> acceptStream({
+  Future<({ReliableStream stream, NodeId src, SenderProvenance provenance})?>
+  acceptStream({
     Duration timeout = const Duration(seconds: 2),
   }) async {
     if (_accepts.isEmpty) {
