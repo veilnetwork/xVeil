@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -304,6 +305,142 @@ void main() {
       expect(
         container.read(screenLockProvider).timeout,
         ScreenLockTimeout.fifteenMinutes,
+      );
+    });
+  });
+
+  group('the wiring nobody was exercising', () {
+    // Every test above hands the controller an ALREADY-OPEN container and calls
+    // `rememberPassword` by hand. Production does neither: the host is built
+    // from the first frame against a container that is still shut, and the only
+    // code that ever says the password is `AppController`. Both halves of
+    // IF-01 lived in exactly that gap, with the suite green over them.
+
+    Future<void> settle(ProviderContainer c) async {
+      for (
+        var i = 0;
+        i < 40 && c.read(appControllerProvider).phase == AppPhase.bootstrapping;
+        i++
+      ) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    }
+
+    test('a timeout saved last run is honoured after the container opens', () async {
+      // ONE store behind both sessions, so the second one is a restart rather
+      // than a fresh install.
+      final store = FakeKvLogStore();
+      KvLogStore? opener({required Uint8List password, required bool create}) =>
+          store;
+
+      final first = ProviderContainer(
+        overrides: [
+          storageProvider.overrideWithValue(HiddenVolumeStorage(opener)),
+        ],
+      );
+      final firstController = first.read(appControllerProvider.notifier);
+      await settle(first);
+      await firstController.completeOnboarding(
+        password: 'pw',
+        mode: StorageMode.hiddenSpace,
+      );
+      await first
+          .read(screenLockProvider.notifier)
+          .setTimeout(ScreenLockTimeout.fiveMinutes);
+      await firstController.lock();
+      first.dispose();
+
+      // Restart. The host in `MaterialApp.builder` is mounted on the first
+      // frame, so the controller is BUILT HERE — against a shut container.
+      final second = ProviderContainer(
+        overrides: [
+          storageProvider.overrideWithValue(HiddenVolumeStorage(opener)),
+        ],
+      );
+      addTearDown(second.dispose);
+      final controller = second.read(appControllerProvider.notifier);
+      await settle(second);
+      expect(
+        second.read(screenLockProvider).timeout,
+        ScreenLockTimeout.off,
+        reason: 'a shut container cannot answer, and must not be asked to',
+      );
+
+      // The real path, not an invalidation: the container opens.
+      await controller.unlock('pw');
+      expect(second.read(appControllerProvider).phase, AppPhase.ready);
+      expect(
+        second.read(screenLockProvider).timeout,
+        ScreenLockTimeout.fiveMinutes,
+        reason: 'the saved choice read as "off" for the whole run — the load '
+            'ran once against a locked container and was never retried',
+      );
+    });
+
+    test('a second space reads its own choice, not the previous one', () async {
+      // The notifier survives a lock on the single-identity path (the provider
+      // hands back one object), so the "the user has already chosen, do not
+      // overwrite" guard would otherwise carry the REAL space's setting into a
+      // decoy opened with a different password.
+      final spaces = {'a': FakeKvLogStore(), 'b': FakeKvLogStore()};
+      KvLogStore? opener({required Uint8List password, required bool create}) =>
+          spaces[utf8.decode(password)];
+      final c = ProviderContainer(
+        overrides: [
+          storageProvider.overrideWithValue(HiddenVolumeStorage(opener)),
+        ],
+      );
+      addTearDown(c.dispose);
+      final controller = c.read(appControllerProvider.notifier);
+      await settle(c);
+
+      await controller.completeOnboarding(
+        password: 'a',
+        mode: StorageMode.hiddenSpace,
+      );
+      await c
+          .read(screenLockProvider.notifier)
+          .setTimeout(ScreenLockTimeout.fifteenMinutes);
+      await controller.lock();
+
+      await controller.completeOnboarding(
+        password: 'b',
+        mode: StorageMode.hiddenSpace,
+      );
+      expect(
+        c.read(screenLockProvider).timeout,
+        ScreenLockTimeout.off,
+        reason: 'the second space inherited the first one\'s setting',
+      );
+    });
+
+    test('the lock can engage in the very first session', () async {
+      // Onboarding is the other path that opens a container with a password in
+      // hand, and it was the one that never said so. A first session therefore
+      // had nothing to check a typed password against, and `_lock` refuses to
+      // raise a prompt that cannot be answered — so the setting the user had
+      // just chosen did nothing until they restarted the app.
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      final controller = c.read(appControllerProvider.notifier);
+      await settle(c);
+      await controller.completeOnboarding(
+        password: 'pw',
+        mode: StorageMode.hiddenSpace,
+      );
+
+      final lock = c.read(screenLockProvider.notifier);
+      await lock.setTimeout(ScreenLockTimeout.immediately);
+      lock.onLeftForeground();
+      expect(
+        c.read(screenLockProvider).locked,
+        isTrue,
+        reason: 'the first session could not be locked at all',
+      );
+      expect(
+        lock.tryUnlock('pw'),
+        isTrue,
+        reason: 'and the password that created the container did not lift it',
       );
     });
   });
