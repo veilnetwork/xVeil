@@ -30,6 +30,7 @@ import '../domain/p2p_policy.dart';
 import '../domain/space_recommendation.dart';
 import '../domain/space_join_request.dart';
 import '../domain/space_public_feed_transport.dart';
+import 'inbound_admission.dart';
 import 'mailbox_service.dart' show MailboxSink;
 import 'sticker_message.dart';
 import 'vnote_message.dart';
@@ -710,9 +711,19 @@ class MessagingService {
     // other live frames (acks / sync beacons) still land — without the nudge the
     // stashed message surfaces only on the next idle drain (~30 s measured);
     // with it, within the debounce window. Debounced + no-op without a mailbox.
+    //
+    // The handler is deliberately NOT awaited here — a stream listener cannot
+    // apply back-pressure to a datagram transport anyway — so the frame goes
+    // through [inboundAdmission], which bounds what the un-awaited queue may
+    // hold and DROPS the rest (audit XV-05).
     void receive(InboundMessage m) {
       _mailboxDelivery.nudgeDrain();
-      _onInbound(m);
+      final admitted = inboundAdmission.admit(
+        m,
+        known: _senderIsKnown(m),
+        handle: _onInbound,
+      );
+      if (admitted != null) unawaited(admitted);
     }
 
     _sub ??= _transport.messages().listen(receive);
@@ -722,7 +733,12 @@ class MessagingService {
           .realtimeMessages()
           .listen((message) {
             _mailboxDelivery.nudgeDrain();
-            _onRealtimeInbound(message);
+            final admitted = _realtimeControl.admission.admit(
+              message,
+              known: _senderIsKnown(message),
+              handle: _onRealtimeInbound,
+            );
+            if (admitted != null) unawaited(admitted);
           });
     }
     _retryTimer ??= Timer.periodic(
@@ -1019,6 +1035,22 @@ class MessagingService {
   /// the chained future never rejects and the queue can't be poisoned.
   Future<void> _inboundChain = Future<void>.value();
 
+  /// What the un-awaited durable lane may hold before it starts dropping.
+  /// Public so a caller (and a test) can read what was refused: silent drops
+  /// would trade one invisible failure for another.
+  final InboundAdmission inboundAdmission = InboundAdmission(label: 'recv');
+
+  /// The latency lane's own bound, for tests that assert both are in place.
+  InboundAdmission get realtimeAdmissionForTest => _realtimeControl.admission;
+
+  /// Synchronous evidence that a sender is more than the name it wrote in the
+  /// `src` field — the only question admission can answer before the frame is
+  /// queued, since the real consent gate needs a storage read. Provenance is
+  /// what the delivery itself proves; the realtime cache is what an accepted
+  /// contact already established this session.
+  bool _senderIsKnown(InboundMessage m) =>
+      m.provenance.isAuthenticated || _realtimeControl.isAccepted(m.src);
+
   Future<void> _onInbound(InboundMessage m) {
     final next = _inboundChain.then((_) => _handleInbound(m));
     _inboundChain = next;
@@ -1029,6 +1061,12 @@ class MessagingService {
       _realtimeControl.deliverInbound(message);
 
   Future<void> _handleInbound(InboundMessage m) async {
+    // The lane outlives dispose(): cancelling the subscription stops NEW
+    // frames, it does not retract the ones already chained, and the container
+    // those would write into is closed moments later by
+    // MultiIdentitySession.disposeAll. Leave now — dispose() waits out
+    // whatever is already past this line (audit XV-05).
+    if (_disposed) return;
     devLog(
       () =>
           'xVeil[recv]: INBOUND from=${m.src.short} bytes=${m.payload.length}',
@@ -2709,6 +2747,34 @@ class MessagingService {
 
   Future<void> _clearServingState() => _contentServing.clear();
 
+  /// Stop admitting inbound frames and WAIT for the serialized lanes to run
+  /// dry (audit XV-05).
+  ///
+  /// Cancelling the subscriptions above ends new deliveries; it says nothing
+  /// about the frames already chained on a `Future.then()` queue. Those keep
+  /// running, and right after this dispose returns
+  /// [MultiIdentitySession.disposeAll] closes the container they write into —
+  /// so an un-awaited chain is a write into a closing store. Every handler
+  /// leaves immediately on `_disposed`, so what is actually waited for is the
+  /// single frame already past that check.
+  ///
+  /// BOUNDED: a handler parked on a transport call must not hold the teardown
+  /// — and with it the container's exclusive lock — open indefinitely. Past
+  /// the deadline the close proceeds; the handler's next store call fails
+  /// where before it corrupted quietly.
+  Future<void> _quiesceInboundLanes() async {
+    inboundAdmission.close();
+    _realtimeControl.admission.close();
+    try {
+      await Future.wait([
+        _inboundChain,
+        _realtimeControl.inboundChain,
+      ]).timeout(const Duration(seconds: 3));
+    } catch (e) {
+      devLog(() => 'xVeil[recv]: inbound lanes did not quiesce cleanly: $e');
+    }
+  }
+
   Future<void> dispose() async {
     _disposed = true; // stops transfer retry/serve work
     _outbox.dispose();
@@ -2725,6 +2791,7 @@ class MessagingService {
     _sub = null;
     await _realtimeSub?.cancel();
     _realtimeSub = null;
+    await _quiesceInboundLanes();
     await contentStreamsDisposed;
     await _clearServingState();
     _groupContent.clear();
