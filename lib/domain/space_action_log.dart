@@ -45,6 +45,8 @@ enum SpaceActionKind {
   recommendationPolicyChanged,
   encryptionRotated,
   checkpointRecorded,
+  authorityWithdrawn,
+  authorityReturned,
   other,
 }
 
@@ -167,6 +169,16 @@ SpaceActionDescriptor describeControlEntry(ControlEntry entry) {
       return SpaceActionDescriptor(
         kind: SpaceActionKind.accessPolicyChanged,
         requiredPermission: SpacePermission.manageRoles,
+      );
+    case ControlOp.revokeAuthority:
+      // A retroactive change to who held authority, and therefore to the role
+      // table, which is why it answers to the same right as a role change.
+      return SpaceActionDescriptor(
+        kind: entry.authorityBoundary?.restore == true
+            ? SpaceActionKind.authorityReturned
+            : SpaceActionKind.authorityWithdrawn,
+        requiredPermission: SpacePermission.manageRoles,
+        target: entry.target,
       );
     case ControlOp.mute:
       return SpaceActionDescriptor(

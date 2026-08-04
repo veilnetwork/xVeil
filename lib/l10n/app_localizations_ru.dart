@@ -1333,6 +1333,16 @@ class AppL10nRu extends AppL10n {
   String get spaceActionCheckpointRecorded => 'Записана контрольная точка';
 
   @override
+  String spaceActionAuthorityWithdrawn(String member) {
+    return 'Права участника $member отозваны задним числом';
+  }
+
+  @override
+  String spaceActionAuthorityReturned(String member) {
+    return 'Права участника $member возвращены';
+  }
+
+  @override
   String get spaceActionOther => 'Административное действие';
 
   @override
@@ -1588,6 +1598,46 @@ class AppL10nRu extends AppL10n {
   String spaceMemberTransferOwnershipConfirm(String member) {
     return 'Передать владение пользователю $member? Вы станете администратором, и вернуть владение сможет только новый владелец.';
   }
+
+  @override
+  String get spaceAuthorityWithdraw => 'Отозвать права задним числом';
+
+  @override
+  String get spaceAuthorityReturn => 'Вернуть права';
+
+  @override
+  String spaceAuthorityWithdrawConfirm(String member) {
+    return 'С какого момента решения участника $member перестают действовать? Блокировки и заглушения, применённые после него, отменяются. Удалённое содержимое и смены ключей вернуть нельзя.';
+  }
+
+  @override
+  String spaceAuthorityWithdrawSinceHours(int hours) {
+    String _temp0 = intl.Intl.pluralLogic(
+      hours,
+      locale: localeName,
+      other: 'За последние $hours часа',
+      many: 'За последние $hours часов',
+      few: 'За последние $hours часа',
+      one: 'За последний час',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String spaceAuthorityWithdrawSinceDays(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'За последние $days дня',
+      many: 'За последние $days дней',
+      few: 'За последние $days дня',
+      one: 'За последний день',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get spaceAuthorityWithdrawSinceAlways => 'Все решения за всё время';
 
   @override
   String get spaceRenameTitle => 'Переименовать сообщество';

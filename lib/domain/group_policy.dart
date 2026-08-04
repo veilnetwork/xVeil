@@ -62,6 +62,7 @@ class GroupState {
     this.lifecycleTransitionHash, {
     this.avatarContentId,
     this.coverContentId,
+    this.authorityBoundaries = const {},
   });
 
   /// nodeId hex -> member.
@@ -151,6 +152,25 @@ class GroupState {
   final SpaceLifecycleState lifecycleState;
   final SpaceLifecycleTransition? lifecycleTransition;
   final String? lifecycleTransitionHash;
+
+  /// Member hex -> every accepted boundary aimed at that member's chain, in
+  /// the order the fold accepted them. Audit evidence and what the owner is
+  /// shown; the enforcement already happened, inside the fold.
+  final Map<String, List<SpaceAuthorityBoundary>> authorityBoundaries;
+
+  /// The boundary currently governing anything [member] writes next, or null
+  /// when their authority has never been withdrawn or has been returned.
+  ///
+  /// Asked at `1 << 62` rather than at a real position on purpose: the
+  /// question is about the state a new row would land in, and no chain
+  /// reaches that far.
+  SpaceAuthorityBoundary? authorityWithdrawalFor(NodeId member) {
+    final governing = spaceAuthorityBoundaryAt(
+      authorityBoundaries[member.hex] ?? const [],
+      1 << 62,
+    );
+    return governing == null || governing.restore ? null : governing;
+  }
 
   bool get isArchived => lifecycleState == SpaceLifecycleState.archived;
   bool get isDeleted => lifecycleState == SpaceLifecycleState.deleted;
@@ -859,6 +879,7 @@ final class SpaceAcl {
       ControlOp.restoreSpace ||
       ControlOp.checkpoint ||
       ControlOp.acceptRules ||
+      ControlOp.revokeAuthority ||
       ControlOp.leave => false,
     };
   }
@@ -924,6 +945,7 @@ final class SpaceAcl {
       case ControlOp.restoreSpace:
       case ControlOp.checkpoint:
       case ControlOp.acceptRules:
+      case ControlOp.revokeAuthority:
       case ControlOp.leave:
         return false;
     }
@@ -949,6 +971,22 @@ final class SpaceAcl {
         return authorRole == GroupRole.owner &&
             targetRole != null &&
             targetRole != GroupRole.owner;
+      case ControlOp.revokeAuthority:
+        // The owner and nobody else, and never against the owner.
+        //
+        // Not delegable and not shared with admins: this is the one operation
+        // that reaches BACKWARDS, and two admins holding it could withdraw
+        // each other's histories for the price of one control row each. It is
+        // also what keeps the rule terminating — the owner's own authority
+        // comes from genesis or from a `transferOwnership` that no boundary
+        // may touch, so no withdrawal can ever unmake the authority of the
+        // party that issued it.
+        //
+        // `targetRole` may be null on purpose. Removing an abusive moderator
+        // and then undoing their damage is the ordinary order of events, and
+        // refusing to name someone who has already left would make the whole
+        // operation unreachable exactly when it is wanted.
+        return authorRole == GroupRole.owner && targetRole != GroupRole.owner;
       case ControlOp.setName:
       case ControlOp.setDescription:
       case ControlOp.setProfileMedia:
@@ -1263,10 +1301,141 @@ bool canApply({
 /// were REJECTED (invalid author perms / bad chaining / duplicate seq), for
 /// diagnostics — a rejected entry is never applied.
 class GroupFoldResult {
-  const GroupFoldResult(this.state, this.rejected, [this.accepted = const []]);
+  const GroupFoldResult(
+    this.state,
+    this.rejected, [
+    this.accepted = const [],
+    this.withdrawn = const [],
+  ]);
   final GroupState state;
   final List<ControlEntry> rejected;
   final List<ControlEntry> accepted;
+
+  /// The subset of [rejected] that failed for one reason only: a signed
+  /// boundary took back the authority they were written under.
+  ///
+  /// They are real rows at real positions on their author's chain, and the
+  /// author's later rows still bind them by hash — so whoever continues that
+  /// chain must continue it from HERE, not from the last row that survived.
+  /// Treating a withdrawal like an invalid row would leave its target unable
+  /// to write anything ever again, which would make returning their authority
+  /// a promise the log cannot keep.
+  final List<ControlEntry> withdrawn;
+}
+
+/// Whether a retroactive authority boundary withdraws [entry], assuming the
+/// boundary covers its chain position.
+///
+/// A withdrawal takes back the AUTHORITY a row was written under. It cannot
+/// take back what the row already caused elsewhere, and this switch is where
+/// that line is drawn once, op by op, instead of being rediscovered at each
+/// call site. Everything below that returns false is a deliberate "cannot" or
+/// "should not", not an omission.
+bool spaceAuthorityWithdraws(ControlEntry entry) {
+  switch (entry.op) {
+    // Sanctions on people, and the grants that hand out the power to impose
+    // them. This is what the operation exists for: a ban written under
+    // authority the owner has declared void simply never happened, so the
+    // person is not banned. A promotion is here too — authority a revoked
+    // moderator handed to someone else is authority they did not have.
+    case ControlOp.ban:
+    case ControlOp.mute:
+    case ControlOp.unmute:
+    case ControlOp.removeMember:
+    case ControlOp.addMember:
+    case ControlOp.setRole:
+    case ControlOp.revokeModeration:
+      return true;
+    case ControlOp.moderate:
+      // A restriction, a warning or a removal from the Space: withdrawn like
+      // any other sanction. Deleting a message or a post is NOT: the bytes are
+      // already gone from every device that applied it, and no signed row
+      // brings them back. This log already refuses `revokeModeration` for
+      // exactly those two kinds, and inventing a second, quieter way to
+      // "undelete" would only make devices disagree about what is on screen.
+      //
+      // A restricted-channel action (V14) is opaque here — the fold cannot see
+      // whether it removed content — so it fails closed and stands.
+      return entry.channelModeration == null &&
+          entry.moderationAction != null &&
+          !const {
+            SpaceModerationKind.deleteMessage,
+            SpaceModerationKind.deletePost,
+          }.contains(entry.moderationAction!.kind);
+    case ControlOp.rotateEpoch:
+      // Cannot be undone. The key material is in every member's hands the
+      // moment the row is published; withdrawing the record would not recall
+      // it, it would only make this device disagree with everyone else about
+      // which epoch is current. The epoch bump of a WITHDRAWN removal is kept
+      // for the same reason — see the fold below.
+      return false;
+    case ControlOp.setPolicy:
+    case ControlOp.archiveSpace:
+    case ControlOp.deleteSpace:
+    case ControlOp.restoreSpace:
+      // Owner-only to begin with, and each bumps `policyVersion` — the
+      // authorization context every later row in the Space binds to. Taking
+      // one back would reject every subsequent row by every author, honest
+      // ones first. The owner is never the target of a boundary anyway.
+      return false;
+    case ControlOp.createChannel:
+    case ControlOp.updateChannel:
+      // A channel's revisions are one shared chain: a protected revision must
+      // be exactly `previous + 1`, and an update must find its channel. Taking
+      // one revision back invalidates every later revision by everyone. A
+      // channel is not a sanction on a person, and an owner who dislikes it
+      // can rename, archive or replace it with one row going forward.
+      return false;
+    case ControlOp.setRetention:
+      // Retention already deleted what it deleted; this log states elsewhere
+      // that a later, looser policy cannot resurrect it.
+      return false;
+    case ControlOp.setName:
+    case ControlOp.setDescription:
+    case ControlOp.setProfileMedia:
+    case ControlOp.setPostPin:
+    case ControlOp.setRecommendationCampaign:
+    case ControlOp.setRecommendationPolicy:
+    case ControlOp.publishRules:
+      // Last-writer-wins presentation. Withdrawing one would silently restore
+      // a name or a pin from months ago, which is a surprise rather than a
+      // remedy; one row forward fixes it visibly.
+      return false;
+    case ControlOp.transferOwnership:
+      // Not a moderator power, and the one row whose withdrawal could unmake
+      // the authority of the party issuing the withdrawal.
+      return false;
+    case ControlOp.leave:
+    case ControlOp.acceptRules:
+    case ControlOp.checkpoint:
+      // The author's own acts. They grant nothing and take nothing from
+      // anyone; withdrawing a `leave` would drag someone back into a Space
+      // they walked out of.
+      return false;
+    case ControlOp.revokeAuthority:
+      // Owner-only, and nothing withdraws it. This is what keeps the rule from
+      // chasing its own tail.
+      return false;
+  }
+}
+
+/// The boundary that governs [seq] on one member's chain: the lowest-reaching
+/// one still below that position, later signed rows winning a tie.
+///
+/// [boundaries] arrive in fold order, so the tie-break is deterministic on
+/// every device without any of them carrying a moment.
+SpaceAuthorityBoundary? spaceAuthorityBoundaryAt(
+  List<SpaceAuthorityBoundary> boundaries,
+  int seq,
+) {
+  SpaceAuthorityBoundary? governing;
+  for (final boundary in boundaries) {
+    if (boundary.fromSeq >= seq) continue;
+    if (governing == null || boundary.fromSeq >= governing.fromSeq) {
+      governing = boundary;
+    }
+  }
+  return governing;
 }
 
 /// Replay [entries] over the genesis state. Entries are grouped by author and
@@ -1275,6 +1444,13 @@ class GroupFoldResult {
 /// the fold convergent regardless of interleaving because a rejected op simply
 /// doesn't apply). [verify] checks an entry's signature (injected so this stays
 /// pure — the app passes the native ed25519 verifier; tests pass a fake).
+///
+/// Folded in two stages when — and only when — the log carries an accepted
+/// `revokeAuthority`. A boundary reaches BACKWARDS over rows the first pass
+/// has already applied, so it cannot be honoured while the pass that finds it
+/// is still running. The set of boundaries only ever grows across passes and
+/// is bounded by the log, so this terminates, and it is a pure function of the
+/// same signed bytes on every device.
 GroupFoldResult foldControlLog({
   required NodeId owner,
   required List<ControlEntry> entries,
@@ -1284,6 +1460,66 @@ GroupFoldResult foldControlLog({
   String? initialAvatarContentId,
   String? initialCoverContentId,
 }) {
+  final withdrawals = <String, ControlEntry>{};
+  var result = _foldControlLogOnce(
+    owner: owner,
+    entries: entries,
+    verify: verify,
+    initialName: initialName,
+    initialDescription: initialDescription,
+    initialAvatarContentId: initialAvatarContentId,
+    initialCoverContentId: initialCoverContentId,
+    withdrawals: const [],
+  );
+  // Four is a ceiling, not an expectation: a boundary can only remove rows, and
+  // no removable row may carry a boundary, so the second pass settles every log
+  // this project can author. The cap exists so a hostile log cannot buy a fold
+  // per row, and stopping early is deterministic too.
+  for (var pass = 0; pass < 4; pass++) {
+    var grew = false;
+    for (final entry in result.accepted) {
+      if (entry.op != ControlOp.revokeAuthority) continue;
+      final rowId = '${entry.author.hex}:${entry.seq}';
+      if (withdrawals.containsKey(rowId)) continue;
+      withdrawals[rowId] = entry;
+      grew = true;
+    }
+    // The common path leaves here on the first turn, having folded once: no
+    // Space that has never withdrawn anything pays for this at all.
+    if (!grew) return result;
+    result = _foldControlLogOnce(
+      owner: owner,
+      entries: entries,
+      verify: verify,
+      initialName: initialName,
+      initialDescription: initialDescription,
+      initialAvatarContentId: initialAvatarContentId,
+      initialCoverContentId: initialCoverContentId,
+      withdrawals: withdrawals.values.toList(growable: false),
+    );
+  }
+  return result;
+}
+
+GroupFoldResult _foldControlLogOnce({
+  required NodeId owner,
+  required List<ControlEntry> entries,
+  required bool Function(ControlEntry entry) verify,
+  required List<ControlEntry> withdrawals,
+  String initialName = '',
+  String initialDescription = '',
+  String? initialAvatarContentId,
+  String? initialCoverContentId,
+}) {
+  // Target hex -> the boundaries aimed at that chain, in the order the fold
+  // that found them accepted them.
+  final authorityBoundaries = <String, List<SpaceAuthorityBoundary>>{};
+  for (final entry in withdrawals) {
+    final target = entry.target;
+    final boundary = entry.authorityBoundary;
+    if (target == null || boundary == null) continue;
+    authorityBoundaries.putIfAbsent(target.hex, () => []).add(boundary);
+  }
   final members = <String, GroupMember>{
     // Genesis owner predates every possible message timestamp, including the
     // deterministic timestamp 0 used by tests/imports.
@@ -1318,8 +1554,10 @@ GroupFoldResult foldControlLog({
   SpaceLifecycleTransition? lifecycleTransition;
   String? lifecycleTransitionHash;
   var lastRetentionActivationMs = 0;
+  final authorityLedger = <String, List<SpaceAuthorityBoundary>>{};
   final rejected = <ControlEntry>[];
   final accepted = <ControlEntry>[];
+  final withdrawn = <ControlEntry>[];
 
   // Verify before fork selection: an invalid signature with a deliberately
   // small hash must never suppress the valid row for the same `(author,seq)`.
@@ -1887,7 +2125,14 @@ GroupFoldResult foldControlLog({
           descriptor.recipientCount != expectedRecipients) {
         if (e.op == ControlOp.removeMember ||
             e.op == ControlOp.ban ||
-            moderationRemovesMember) {
+            moderationRemovesMember ||
+            // A withdrawal restores membership behind rows that were authored
+            // against the smaller roster, so precomputed recipient counts
+            // downstream of it cannot match any more. Same answer as the
+            // concurrent departure above and for the same reason: dropping the
+            // whole signed row would resurrect a member, or lose a rotation,
+            // over a stale key proposal that is simply ignored.
+            authorityBoundaries.isNotEmpty) {
           // A concurrent, deterministically-earlier departure can invalidate
           // this author's precomputed epoch/count. Membership removal still
           // applies; its stale key proposal is ignored and the state fails
@@ -1899,6 +2144,33 @@ GroupFoldResult foldControlLog({
           continue;
         }
       }
+    }
+    // Everything above has said this row is valid, chained, in context and
+    // within its author's permissions. What the owner withdrew is precisely
+    // that last clause, over a stretch of this author's chain, after the fact.
+    final governing = spaceAuthorityBoundaryAt(
+      authorityBoundaries[e.author.hex] ?? const [],
+      e.seq,
+    );
+    if (governing != null && !governing.restore && spaceAuthorityWithdraws(e)) {
+      rejected.add(e);
+      withdrawn.add(e);
+      if (canEstablishEpoch) {
+        // The one thing a withdrawal does not take back. This row rotated the
+        // key, the material reached every member, and no later row recalls it.
+        // Keeping the counter is also what lets every honest rotation after it
+        // still line up: drop the bump and every later descriptor is off by
+        // one and the whole line of them is rejected.
+        epoch++;
+        epochDescriptor = usableDescriptor;
+      }
+      // The chain is not broken, only its authority is: this row was really
+      // signed at this position, and the author's later rows still bind it by
+      // hash. Forgetting it here would make a restoration unreachable, since
+      // every row after it would fail the V2 chain check.
+      lastSeq[e.author.hex] = e.seq;
+      lastEntry[e.author.hex] = e;
+      continue;
     }
     // Apply.
     switch (e.op) {
@@ -2127,6 +2399,13 @@ GroupFoldResult foldControlLog({
       case ControlOp.checkpoint:
         // Signed no-op: its payload is consumed by causal post validation.
         break;
+      case ControlOp.revokeAuthority:
+        // No state of its own beyond the ledger every member can read: the
+        // effect of this row was applied above, to the target's rows, before
+        // any of them reached this switch.
+        authorityLedger
+            .putIfAbsent(e.target!.hex, () => [])
+            .add(e.authorityBoundary!);
       case ControlOp.leave:
         // The author removes themselves; their departure rotates the epoch too.
         members.remove(e.author.hex);
@@ -2167,8 +2446,13 @@ GroupFoldResult foldControlLog({
       lifecycleTransitionHash,
       avatarContentId: avatarContentId,
       coverContentId: coverContentId,
+      authorityBoundaries: {
+        for (final entry in authorityLedger.entries)
+          entry.key: List.unmodifiable(entry.value),
+      },
     ),
     rejected,
     List.unmodifiable(accepted),
+    List.unmodifiable(withdrawn),
   );
 }

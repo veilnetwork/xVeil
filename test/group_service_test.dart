@@ -10210,6 +10210,797 @@ void main() {
   );
 
   test(
+    'the owner withdraws a moderator\'s authority from a date: what they did '
+    'after it stops counting, what they did before it stands, and another '
+    'moderator is not touched',
+    () async {
+      final t0 = DateTime.utc(2026, 8, 4, 8).millisecondsSinceEpoch;
+      final boundaryMs = t0 + const Duration(hours: 6).inMilliseconds;
+      final dave = _id(8);
+      final erin = _id(9);
+      final frank = _id(10);
+
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      var ownerWall = t0;
+      final ownerSvc = GroupService(ownerStorage, _FakeSigner(owner))
+        ..debugWallClockMs = () => ownerWall;
+      addTearDown(ownerSvc.dispose);
+      final spaceId = await ownerSvc.createSpace('Withdrawal');
+      Future<void> add(NodeId member, GroupRole role) async {
+        expect(
+          await ownerSvc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: member,
+            role: role,
+          ),
+          isTrue,
+        );
+      }
+
+      await add(bob, GroupRole.admin);
+      await add(carol, GroupRole.admin);
+      await add(dave, GroupRole.member);
+      await add(erin, GroupRole.member);
+      await add(frank, GroupRole.member);
+      await add(stranger, GroupRole.member);
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final carolStorage = FakeHvContainer().storage();
+      await carolStorage.open(password: 'pw', createIfMissing: true);
+      Future<void> push(GroupService to, NodeId recipient) async {
+        expect(
+          await to.ingestSnapshot(
+            ownerSvc.snapshotJson(
+              (await ownerSvc.load(spaceId))!,
+              recipient: recipient,
+            ),
+          ),
+          isTrue,
+        );
+      }
+
+      Future<void> pull(GroupService from, NodeId sender) async {
+        expect(
+          await ownerSvc.ingestSnapshot(
+            from.snapshotJson((await from.load(spaceId))!, recipient: owner),
+          ),
+          isTrue,
+        );
+      }
+
+      // Two hours in: an honest silencing by the moderator who will later be
+      // revoked. It is BEFORE the line the owner draws, and it must survive.
+      ownerWall = t0 + const Duration(hours: 2).inMilliseconds;
+      final bobEarly = GroupService(bobStorage, _FakeSigner(bob))
+        ..debugWallClockMs = () => t0 + const Duration(hours: 2).inMilliseconds;
+      await push(bobEarly, bob);
+      expect(
+        await bobEarly.addControlOp(spaceId, ControlOp.mute, target: dave),
+        isTrue,
+      );
+      await pull(bobEarly, bob);
+      bobEarly.dispose();
+
+      // Carol, a second moderator nobody is accusing of anything, removes
+      // frank AFTER the line. Nothing about this may move.
+      ownerWall = t0 + const Duration(hours: 8).inMilliseconds;
+      final carolSvc = GroupService(carolStorage, _FakeSigner(carol))
+        ..debugWallClockMs = () => t0 + const Duration(hours: 8).inMilliseconds;
+      await push(carolSvc, carol);
+      expect(
+        await carolSvc.addControlOp(spaceId, ControlOp.ban, target: frank),
+        isTrue,
+      );
+      await pull(carolSvc, carol);
+      carolSvc.dispose();
+
+      // And bob removes erin after the line — the row the owner is about to
+      // unmake.
+      ownerWall = t0 + const Duration(hours: 9).inMilliseconds;
+      final bobLate = GroupService(bobStorage, _FakeSigner(bob))
+        ..debugWallClockMs = () => t0 + const Duration(hours: 9).inMilliseconds;
+      await push(bobLate, bob);
+      expect(
+        await bobLate.addControlOp(spaceId, ControlOp.ban, target: erin),
+        isTrue,
+      );
+      await pull(bobLate, bob);
+      bobLate.dispose();
+
+      final before = (await ownerSvc.stateOf(spaceId))!;
+      expect(before.isMember(erin), isFalse);
+      expect(before.isMember(frank), isFalse);
+      expect(before.memberOf(dave)!.muted, isTrue);
+
+      ownerWall = t0 + const Duration(hours: 10).inMilliseconds;
+      expect(
+        await ownerSvc.setSpaceAuthorityBoundary(
+          spaceId,
+          bob,
+          effectiveFromMs: boundaryMs,
+        ),
+        isTrue,
+      );
+
+      final after = (await ownerSvc.stateOf(spaceId))!;
+      expect(
+        after.isMember(erin),
+        isTrue,
+        reason: 'the removal was written with authority the owner has now '
+            'declared void over that stretch of bob\'s chain, so it never '
+            'happened and erin is in the Space',
+      );
+      expect(
+        after.memberOf(dave)!.muted,
+        isTrue,
+        reason: 'bob\'s honest silencing predates the line and stands — a '
+            'withdrawal is not a pardon for everything its target ever did',
+      );
+      expect(
+        after.isMember(frank),
+        isFalse,
+        reason: 'carol was not named and nothing of hers moves, even though '
+            'her row is later than the line',
+      );
+      expect(
+        after.roleOf(bob),
+        GroupRole.admin,
+        reason: 'withdrawing past authority is not the same statement as '
+            'taking the role away going forward; that is a separate row',
+      );
+      final withdrawal = after.authorityWithdrawalFor(bob);
+      expect(withdrawal, isNotNull);
+      expect(withdrawal!.effectiveFromMs, boundaryMs);
+      expect(withdrawal.fromSeq, 0, reason: 'bob\'s first row keeps its force');
+      expect(after.authorityWithdrawalFor(carol), isNull);
+
+      // Every member folds the same log to the same answer, including one that
+      // was not here for any of it.
+      final strangerStorage = FakeHvContainer().storage();
+      await strangerStorage.open(password: 'pw', createIfMissing: true);
+      final strangerSvc = GroupService(strangerStorage, _FakeSigner(stranger))
+        ..debugWallClockMs = () => t0 + const Duration(days: 40).inMilliseconds;
+      addTearDown(strangerSvc.dispose);
+      await push(strangerSvc, stranger);
+      final theirs = (await strangerSvc.stateOf(spaceId))!;
+      expect(theirs.isMember(erin), isTrue);
+      expect(theirs.memberOf(dave)!.muted, isTrue);
+      expect(theirs.isMember(frank), isFalse);
+
+      await strangerStorage.close();
+      await carolStorage.close();
+      await bobStorage.close();
+      await ownerStorage.close();
+    },
+  );
+
+  test(
+    'a moderator who dates the ban before the line does not slip under it, '
+    'because the owner drew the line where its OWN device first saw the rows',
+    () async {
+      final t0 = DateTime.utc(2026, 8, 4, 8).millisecondsSinceEpoch;
+      final boundaryMs = t0 + const Duration(hours: 6).inMilliseconds;
+      final dave = _id(8);
+      final erin = _id(9);
+
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      var ownerWall = t0;
+      final ownerSvc = GroupService(ownerStorage, _FakeSigner(owner))
+        ..debugWallClockMs = () => ownerWall;
+      addTearDown(ownerSvc.dispose);
+      final spaceId = await ownerSvc.createSpace('Backdating');
+      for (final (member, role) in [
+        (bob, GroupRole.admin),
+        (dave, GroupRole.member),
+        (erin, GroupRole.member),
+      ]) {
+        expect(
+          await ownerSvc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: member,
+            role: role,
+          ),
+          isTrue,
+        );
+      }
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      Future<void> exchange(GroupService peer, NodeId who) async {
+        expect(
+          await peer.ingestSnapshot(
+            ownerSvc.snapshotJson(
+              (await ownerSvc.load(spaceId))!,
+              recipient: who,
+            ),
+          ),
+          isTrue,
+        );
+      }
+
+      Future<void> deliver(GroupService peer) async {
+        expect(
+          await ownerSvc.ingestSnapshot(
+            peer.snapshotJson((await peer.load(spaceId))!, recipient: owner),
+          ),
+          isTrue,
+        );
+      }
+
+      // Hour two, honest and on time. The owner's device holds it well before
+      // the line, so this row's arrival moment is below it too.
+      ownerWall = t0 + const Duration(hours: 2).inMilliseconds;
+      final honest = GroupService(bobStorage, _FakeSigner(bob))
+        ..debugWallClockMs = () => t0 + const Duration(hours: 2).inMilliseconds;
+      await exchange(honest, bob);
+      expect(
+        await honest.addControlOp(spaceId, ControlOp.mute, target: dave),
+        isTrue,
+      );
+      await deliver(honest);
+      honest.dispose();
+
+      // Hour nine, and bob can see what is coming. The row is written now and
+      // dated to hour one: signed, structurally perfect, and claiming to
+      // predate any line an owner would draw over today.
+      final backdatedTs = t0 + const Duration(hours: 1).inMilliseconds;
+      ownerWall = t0 + const Duration(hours: 9).inMilliseconds;
+      final lying = GroupService(bobStorage, _FakeSigner(bob))
+        ..debugWallClockMs = () => backdatedTs;
+      await exchange(lying, bob);
+      expect(
+        await lying.addControlOp(spaceId, ControlOp.ban, target: erin),
+        isTrue,
+      );
+      await deliver(lying);
+      lying.dispose();
+
+      final bundle = (await ownerSvc.load(spaceId))!;
+      final lie = bundle.control.lastWhere(
+        (entry) => entry.author == bob && entry.op == ControlOp.ban,
+      );
+      expect(
+        lie.createdAtMs,
+        lessThan(boundaryMs),
+        reason: 'the row really does claim to predate the line',
+      );
+      expect(
+        bundle.effectiveControlTimeMs(lie),
+        greaterThan(boundaryMs),
+        reason: 'and this device really did first hold it afterwards',
+      );
+      expect((await ownerSvc.stateOf(spaceId))!.isMember(erin), isFalse);
+
+      ownerWall = t0 + const Duration(hours: 10).inMilliseconds;
+      expect(
+        await ownerSvc.setSpaceAuthorityBoundary(
+          spaceId,
+          bob,
+          effectiveFromMs: boundaryMs,
+        ),
+        isTrue,
+      );
+
+      final after = (await ownerSvc.stateOf(spaceId))!;
+      expect(
+        after.isMember(erin),
+        isTrue,
+        reason: 'a date the row chose for itself must not decide whether the '
+            'owner\'s line reaches it — this is the assertion the whole '
+            'arrival-moment floor exists for',
+      );
+      expect(
+        after.memberOf(dave)!.muted,
+        isTrue,
+        reason: 'and the honest row that really was early is untouched, so '
+            'the line is a line and not a blanket',
+      );
+      expect(after.authorityWithdrawalFor(bob)!.fromSeq, 0);
+
+      await bobStorage.close();
+      await ownerStorage.close();
+    },
+  );
+
+  test(
+    'two devices holding different arrival moments fold the withdrawn log to '
+    'the same state, because what travels is a chain position',
+    () async {
+      final t0 = DateTime.utc(2026, 8, 4, 8).millisecondsSinceEpoch;
+      final dave = _id(8);
+      final erin = _id(9);
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      var ownerWall = t0;
+      final ownerSvc = GroupService(ownerStorage, _FakeSigner(owner))
+        ..debugWallClockMs = () => ownerWall;
+      addTearDown(ownerSvc.dispose);
+      final spaceId = await ownerSvc.createSpace('Convergence');
+      for (final (member, role) in [
+        (bob, GroupRole.admin),
+        (carol, GroupRole.member),
+        (dave, GroupRole.member),
+        (erin, GroupRole.member),
+      ]) {
+        expect(
+          await ownerSvc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: member,
+            role: role,
+          ),
+          isTrue,
+        );
+      }
+
+      // Carol's device is here for all of it and stamps every row as it
+      // arrives, minute by minute.
+      final carolStorage = FakeHvContainer().storage();
+      await carolStorage.open(password: 'pw', createIfMissing: true);
+      var carolWall = t0 + const Duration(minutes: 1).inMilliseconds;
+      final carolSvc = GroupService(carolStorage, _FakeSigner(carol))
+        ..debugWallClockMs = () => carolWall;
+      addTearDown(carolSvc.dispose);
+      Future<void> carolSyncs() async {
+        expect(
+          await carolSvc.ingestSnapshot(
+            ownerSvc.snapshotJson(
+              (await ownerSvc.load(spaceId))!,
+              recipient: carol,
+            ),
+          ),
+          isTrue,
+        );
+      }
+
+      await carolSyncs();
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      ownerWall = t0 + const Duration(hours: 2).inMilliseconds;
+      carolWall = t0 + const Duration(hours: 2).inMilliseconds;
+      final bobSvc = GroupService(bobStorage, _FakeSigner(bob))
+        ..debugWallClockMs = () => t0 + const Duration(hours: 2).inMilliseconds;
+      addTearDown(bobSvc.dispose);
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!, recipient: bob),
+        ),
+        isTrue,
+      );
+      expect(
+        await bobSvc.addControlOp(spaceId, ControlOp.mute, target: dave),
+        isTrue,
+      );
+      expect(
+        await bobSvc.addControlOp(spaceId, ControlOp.ban, target: erin),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.ingestSnapshot(
+          bobSvc.snapshotJson((await bobSvc.load(spaceId))!, recipient: owner),
+        ),
+        isTrue,
+      );
+      await carolSyncs();
+
+      ownerWall = t0 + const Duration(hours: 3).inMilliseconds;
+      carolWall = t0 + const Duration(hours: 3).inMilliseconds;
+      expect(
+        await ownerSvc.setSpaceAuthorityBoundary(
+          spaceId,
+          bob,
+          effectiveFromMs: t0 + const Duration(hours: 1).inMilliseconds,
+        ),
+        isTrue,
+      );
+      await carolSyncs();
+
+      // Dave's device sees the whole thing, finished, a month later. Every row
+      // it holds arrived in one batch it was not present for, so it has no
+      // arrival moment for any of them — the opposite end of the range.
+      final daveStorage = FakeHvContainer().storage();
+      await daveStorage.open(password: 'pw', createIfMissing: true);
+      final daveSvc = GroupService(daveStorage, _FakeSigner(dave))
+        ..debugWallClockMs = () => t0 + const Duration(days: 30).inMilliseconds;
+      addTearDown(daveSvc.dispose);
+      expect(
+        await daveSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: dave,
+          ),
+        ),
+        isTrue,
+      );
+
+      final ownerBundle = (await ownerSvc.load(spaceId))!;
+      final carolBundle = (await carolSvc.load(spaceId))!;
+      final daveBundle = (await daveSvc.load(spaceId))!;
+      expect(
+        carolBundle.controlReceipts,
+        isNot(ownerBundle.controlReceipts),
+        reason: 'the premise: these devices genuinely disagree about when '
+            'these rows turned up',
+      );
+      expect(
+        daveBundle.controlReceipts.values.toSet(),
+        {0},
+        reason: 'and this one has no opinion about it at all',
+      );
+      expect(
+        daveBundle.controlReceipts,
+        isNot(carolBundle.controlReceipts),
+      );
+
+      String shape(GroupState state) => jsonEncode({
+        'members': {
+          for (final member in state.members.values)
+            member.nodeId.hex: '${member.role.name}:${member.muted}',
+        },
+        'epoch': state.epoch,
+        'policyVersion': state.policyVersion,
+        'withdrawn': {
+          for (final entry in state.authorityBoundaries.entries)
+            entry.key: [
+              for (final boundary in entry.value)
+                '${boundary.fromSeq}:${boundary.restore}',
+            ],
+        },
+      });
+
+      final ownerShape = shape((await ownerSvc.stateOf(spaceId))!);
+      expect(shape((await carolSvc.stateOf(spaceId))!), ownerShape);
+      expect(shape((await daveSvc.stateOf(spaceId))!), ownerShape);
+      expect(
+        (await daveSvc.stateOf(spaceId))!.isMember(erin),
+        isTrue,
+        reason: 'and the shared answer is the withdrawn one, not a fold that '
+            'quietly skipped the boundary',
+      );
+      expect(
+        (await daveSvc.stateOf(spaceId))!.memberOf(dave)!.muted,
+        isFalse,
+        reason: 'both of bob\'s rows fall after this line, and a device with '
+            'no arrival moments of its own reaches the same conclusion as one '
+            'that watched them land',
+      );
+
+      await daveStorage.close();
+      await carolStorage.close();
+      await bobStorage.close();
+      await ownerStorage.close();
+    },
+  );
+
+  test(
+    'authority can be returned, and returning it is forward-only: the rows '
+    'already withdrawn stay withdrawn and the next ones count again',
+    () async {
+      final t0 = DateTime.utc(2026, 8, 4, 8).millisecondsSinceEpoch;
+      final erin = _id(9);
+      final frank = _id(10);
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      var ownerWall = t0;
+      final ownerSvc = GroupService(ownerStorage, _FakeSigner(owner))
+        ..debugWallClockMs = () => ownerWall;
+      addTearDown(ownerSvc.dispose);
+      final spaceId = await ownerSvc.createSpace('Return');
+      for (final (member, role) in [
+        (bob, GroupRole.admin),
+        (erin, GroupRole.member),
+        (frank, GroupRole.member),
+      ]) {
+        expect(
+          await ownerSvc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: member,
+            role: role,
+          ),
+          isTrue,
+        );
+      }
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      Future<GroupService> bobAt(int at) async {
+        final svc = GroupService(bobStorage, _FakeSigner(bob))
+          ..debugWallClockMs = () => at;
+        expect(
+          await svc.ingestSnapshot(
+            ownerSvc.snapshotJson(
+              (await ownerSvc.load(spaceId))!,
+              recipient: bob,
+            ),
+          ),
+          isTrue,
+        );
+        return svc;
+      }
+
+      Future<void> collect(GroupService svc) async {
+        expect(
+          await ownerSvc.ingestSnapshot(
+            svc.snapshotJson((await svc.load(spaceId))!, recipient: owner),
+          ),
+          isTrue,
+        );
+      }
+
+      ownerWall = t0 + const Duration(hours: 2).inMilliseconds;
+      final first = await bobAt(t0 + const Duration(hours: 2).inMilliseconds);
+      expect(
+        await first.addControlOp(spaceId, ControlOp.ban, target: erin),
+        isTrue,
+      );
+      await collect(first);
+      first.dispose();
+
+      ownerWall = t0 + const Duration(hours: 3).inMilliseconds;
+      expect(
+        await ownerSvc.setSpaceAuthorityBoundary(
+          spaceId,
+          bob,
+          effectiveFromMs: t0 + const Duration(hours: 1).inMilliseconds,
+        ),
+        isTrue,
+      );
+      expect((await ownerSvc.stateOf(spaceId))!.isMember(erin), isTrue);
+
+      ownerWall = t0 + const Duration(hours: 4).inMilliseconds;
+      expect(
+        await ownerSvc.setSpaceAuthorityBoundary(
+          spaceId,
+          bob,
+          effectiveFromMs: t0 + const Duration(hours: 4).inMilliseconds,
+          restore: true,
+        ),
+        isTrue,
+      );
+
+      final restored = (await ownerSvc.stateOf(spaceId))!;
+      expect(
+        restored.authorityWithdrawalFor(bob),
+        isNull,
+        reason: 'bob may act again',
+      );
+      expect(
+        restored.isMember(erin),
+        isTrue,
+        reason: 'returning a role is not a statement that what was done '
+            'without one was fine — the withdrawn removal stays withdrawn',
+      );
+
+      // And the next row bob writes counts, which is the entire point of
+      // being able to return authority at all.
+      ownerWall = t0 + const Duration(hours: 5).inMilliseconds;
+      final second = await bobAt(t0 + const Duration(hours: 5).inMilliseconds);
+      expect(
+        await second.addControlOp(spaceId, ControlOp.ban, target: frank),
+        isTrue,
+        reason: 'bob\'s device must be able to continue a chain whose earlier '
+            'row was withdrawn, and must see the row it writes survive the '
+            'fold — a client that cannot write again is a restoration in name '
+            'only',
+      );
+      await collect(second);
+      second.dispose();
+      expect(
+        (await ownerSvc.stateOf(spaceId))!.isMember(frank),
+        isFalse,
+        reason: 'a returned moderator is a moderator; if the old ban was in '
+            'fact deserved it costs one row to issue it again',
+      );
+
+      // A second withdrawal after the return still reaches only forward of
+      // where it is drawn.
+      ownerWall = t0 + const Duration(hours: 6).inMilliseconds;
+      expect(
+        await ownerSvc.setSpaceAuthorityBoundary(
+          spaceId,
+          bob,
+          effectiveFromMs: t0 + const Duration(hours: 4, minutes: 30).inMilliseconds,
+        ),
+        isTrue,
+      );
+      expect(
+        (await ownerSvc.stateOf(spaceId))!.isMember(frank),
+        isTrue,
+        reason: 'the later row falls after the later line and is withdrawn too',
+      );
+
+      await bobStorage.close();
+      await ownerStorage.close();
+    },
+  );
+
+  test(
+    'only the owner may withdraw authority, never against the owner, and a '
+    'withdrawal does not undo a deleted message or a key rotation',
+    () async {
+      final t0 = DateTime.utc(2026, 8, 4, 8).millisecondsSinceEpoch;
+      final erin = _id(9);
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      )..debugWallClockMs = () => t0;
+      addTearDown(ownerSvc.dispose);
+      final spaceId = await ownerSvc.createSpace('Limits');
+      for (final (member, role) in [
+        (bob, GroupRole.admin),
+        (carol, GroupRole.admin),
+        (erin, GroupRole.member),
+      ]) {
+        expect(
+          await ownerSvc.addControlOp(
+            spaceId,
+            ControlOp.addMember,
+            target: member,
+            role: role,
+          ),
+          isTrue,
+        );
+      }
+
+      // An admin is not allowed to reach backwards over another admin: this is
+      // the one operation that rewrites what already happened, and two of them
+      // pointed at each other is a way to unmake authority for the price of a
+      // control row.
+      final carolStorage = FakeHvContainer().storage();
+      await carolStorage.open(password: 'pw', createIfMissing: true);
+      final carolSvc = GroupService(carolStorage, _FakeSigner(carol))
+        ..debugWallClockMs = () => t0 + const Duration(hours: 1).inMilliseconds;
+      addTearDown(carolSvc.dispose);
+      expect(
+        await carolSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: carol,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        await carolSvc.setSpaceAuthorityBoundary(
+          spaceId,
+          bob,
+          effectiveFromMs: t0,
+        ),
+        isFalse,
+        reason: 'an admin holds no such thing',
+      );
+      // Nor may the owner aim it at the owner: the boundary that cannot touch
+      // ownership is what keeps it from unmaking the authority that issued it.
+      expect(
+        await ownerSvc.setSpaceAuthorityBoundary(
+          spaceId,
+          owner,
+          effectiveFromMs: t0,
+        ),
+        isFalse,
+      );
+
+      // A removal by the revoked moderator rotated the key. The withdrawal
+      // puts erin back — and does NOT pretend the rotation never happened.
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      )..debugWallClockMs = () => t0 + const Duration(hours: 2).inMilliseconds;
+      addTearDown(bobSvc.dispose);
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!, recipient: bob),
+        ),
+        isTrue,
+      );
+      expect(
+        await bobSvc.addControlOp(spaceId, ControlOp.ban, target: erin),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.ingestSnapshot(
+          bobSvc.snapshotJson((await bobSvc.load(spaceId))!, recipient: owner),
+        ),
+        isTrue,
+      );
+      final banned = (await ownerSvc.stateOf(spaceId))!;
+      expect(banned.isMember(erin), isFalse);
+      final rotatedEpoch = banned.epoch;
+
+      ownerSvc.debugWallClockMs = () =>
+          t0 + const Duration(hours: 3).inMilliseconds;
+      expect(
+        await ownerSvc.setSpaceAuthorityBoundary(
+          spaceId,
+          bob,
+          effectiveFromMs: t0 + const Duration(hours: 1).inMilliseconds,
+        ),
+        isTrue,
+      );
+      final after = (await ownerSvc.stateOf(spaceId))!;
+      expect(after.isMember(erin), isTrue);
+      expect(
+        after.epoch,
+        rotatedEpoch + 1,
+        reason: 'exactly one more than the removal left behind: the key '
+            'material reached every member the moment that row was published '
+            'and no later row recalls it, so the withdrawal keeps the count '
+            'and the follow-up rotation adds the one key erin can be given. '
+            'Un-counting the removal would leave every later descriptor in '
+            'this Space off by one, which is a whole line of rotations lost '
+            'to undo a single ban',
+      );
+      expect(
+        after.epochDescriptor,
+        isNotNull,
+        reason: 'and the Space still has a key a returning member can be '
+            'given, which is what the follow-up rotation is for',
+      );
+      // Another author's rotation, precomputed against the roster as it was
+      // before erin came back, must still land. This is the cascade the kept
+      // count and the relaxed recipient check exist to prevent.
+      final carolRotator = GroupService(
+        carolStorage,
+        _FakeSigner(carol),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      )..debugWallClockMs = () => t0 + const Duration(hours: 4).inMilliseconds;
+      addTearDown(carolRotator.dispose);
+      expect(
+        await carolRotator.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: carol,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        await carolRotator.addControlOp(spaceId, ControlOp.rotateEpoch),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.ingestSnapshot(
+          carolRotator.snapshotJson(
+            (await carolRotator.load(spaceId))!,
+            recipient: owner,
+          ),
+        ),
+        isTrue,
+      );
+      final rotated = (await ownerSvc.stateOf(spaceId))!;
+      expect(
+        rotated.epoch,
+        after.epoch + 1,
+        reason: 'an untouched moderator\'s rotation is not collateral damage',
+      );
+      expect(rotated.epochDescriptor, isNotNull);
+
+      await bobStorage.close();
+      await carolStorage.close();
+      await ownerStorage.close();
+    },
+  );
+
+  test(
     'reactions: toggle on/off, aggregate, and survive snapshot round-trip',
     () async {
       final s1 = FakeHvContainer().storage();

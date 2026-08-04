@@ -3928,11 +3928,23 @@ class GroupService {
     List<ControlEntry> control,
     NodeId author,
   ) {
+    // Accepted rows PLUS the ones a signed boundary withdrew. A withdrawn row
+    // is a real row at a real position that this author's later rows bind by
+    // hash: continuing from the last SURVIVING row instead would re-use a seq
+    // and fork the chain, and the fold would then refuse everything the author
+    // ever writes again — which would make returning their authority a promise
+    // this log could not keep.
+    final folded = foldControlLog(
+      owner: manifest.owner,
+      entries: control,
+      verify: (entry) => _validControlFor(manifest, entry),
+      initialName: manifest.name,
+    );
     final authored =
-        _acceptedControl(
-            manifest,
-            control,
-          ).where((entry) => entry.author == author).toList()
+        [
+            ...folded.accepted,
+            ...folded.withdrawn,
+          ].where((entry) => entry.author == author).toList()
           ..sort((left, right) => left.seq.compareTo(right.seq));
     final acceptedHeadSeq = authored.isEmpty ? -1 : authored.last.seq;
     final hasRejectedSuffix = control.any(
@@ -7444,6 +7456,75 @@ class GroupService {
     return max + 1;
   }
 
+  /// The last row of [target]'s chain this device is willing to treat as
+  /// having existed by [effectiveFromMs], or -1 when none did.
+  ///
+  /// Read with [GroupBundle.effectiveControlTimeMs], not with the rows' own
+  /// stamps, and that is the whole reason this feature holds. A moderator who
+  /// sees a demotion coming would otherwise date the next ban a week back and
+  /// land below any cutoff the owner picked; floored by when this device first
+  /// held the row, a row that turned up after the date the owner named counts
+  /// as after it whatever year it claims.
+  ///
+  /// Answered once, here, on the owner's device. What is signed is the seq,
+  /// so every other device enforces the boundary from signed bytes alone and
+  /// two devices with two different sets of arrival moments still fold the log
+  /// to one state.
+  int spaceAuthorityCutoffSeq(
+    GroupBundle bundle,
+    NodeId target,
+    int effectiveFromMs,
+  ) {
+    var cutoff = -1;
+    for (final entry in bundle.control) {
+      if (entry.author != target || entry.seq <= cutoff) continue;
+      if (bundle.effectiveControlTimeMs(entry) > effectiveFromMs) continue;
+      cutoff = entry.seq;
+    }
+    return cutoff;
+  }
+
+  /// Withdraw [target]'s control authority over everything they wrote after
+  /// [effectiveFromMs], or return it from this point on when [restore].
+  ///
+  /// Owner-only (see `SpaceAcl.roleAllowsControl`). Returning authority is
+  /// forward-only by design: rows already withdrawn stay withdrawn, because
+  /// giving someone their role back is not a statement that what they did
+  /// without one was fine. If a withdrawn ban was in fact deserved, the
+  /// restored moderator can issue it again in one row.
+  Future<bool> setSpaceAuthorityBoundary(
+    NodeId spaceId,
+    NodeId target, {
+    required int effectiveFromMs,
+    bool restore = false,
+  }) => _serialized(spaceId, () async {
+    if (target == _signer.selfId) return false;
+    final bundle = await load(spaceId);
+    if (bundle == null || !bundle.manifest.isSpace) return false;
+    final boundary = SpaceAuthorityBoundary(
+      effectiveFromMs: effectiveFromMs,
+      // A restoration names the target's chain HEAD as this device knows it,
+      // so everything already written — including a row dated into next year
+      // that has not been folded yet — stays on the withdrawn side of it.
+      fromSeq: restore
+          ? _nextSeq(
+                  bundle.control
+                      .where((entry) => entry.author == target)
+                      .map((entry) => entry.seq),
+                ) -
+                1
+          : spaceAuthorityCutoffSeq(bundle, target, effectiveFromMs),
+      restore: restore,
+    );
+    if (!boundary.isStructurallyValid) return false;
+    return _addControlOp(
+      spaceId,
+      ControlOp.revokeAuthority,
+      target: target,
+      authorityBoundary: boundary,
+    );
+  });
+
   /// Append a control op authored by us. Returns true if it was valid (signed,
   /// permitted against the current state) and persisted; false otherwise.
   Future<bool> addControlOp(
@@ -7517,6 +7598,7 @@ class GroupService {
     SpaceRecommendationCampaign? recommendationCampaign,
     SpaceRecommendationPolicy? recommendationPolicy,
     SpaceAccessPolicy? accessPolicy,
+    SpaceAuthorityBoundary? authorityBoundary,
     int? createdAtMs,
     Future<bool> Function()? commitGuard,
   }) async {
@@ -7534,7 +7616,8 @@ class GroupService {
             op == ControlOp.setRecommendationPolicy ||
             op == ControlOp.archiveSpace ||
             op == ControlOp.deleteSpace ||
-            op == ControlOp.restoreSpace) &&
+            op == ControlOp.restoreSpace ||
+            op == ControlOp.revokeAuthority) &&
         !b.manifest.isSpace) {
       return false;
     }
@@ -7556,6 +7639,9 @@ class GroupService {
         moderationRemovesMember ||
         op == ControlOp.setRole ||
         op == ControlOp.transferOwnership ||
+        // A withdrawal reaches back over membership and role rows, so it can
+        // put someone back in the Space or take someone out of it.
+        op == ControlOp.revokeAuthority ||
         (op == ControlOp.addMember && role == GroupRole.admin);
     if (protectedAclMayChange) {
       for (final envelope in state.protectedChannels.values) {
@@ -7625,7 +7711,9 @@ class GroupService {
       ControlEntry signMutation(int seq, String prevHash) =>
           _signer.signControl(
             ControlEntry(
-              version: lifecycleTransition != null
+              version: authorityBoundary != null
+                  ? 22
+                  : lifecycleTransition != null
                   ? lifecycleTransition.recoveryDeadlineMs == null
                         ? 10
                         : 11
@@ -7681,6 +7769,7 @@ class GroupService {
               recommendationCampaign: recommendationCampaign,
               recommendationPolicy: recommendationPolicy,
               accessPolicy: accessPolicy,
+              authorityBoundary: authorityBoundary,
               policyVersion: pv,
               createdAtMs: createdAt,
               signature: Uint8List(0),
@@ -7776,10 +7865,21 @@ class GroupService {
         localKeys[prepared.descriptor.epoch] = Uint8List.fromList(preparedKey);
       }
 
+      // A withdrawal that changed who is in the Space needs the same treatment
+      // and needs it in both directions: whoever a withdrawn ban puts back has
+      // no current key, and whoever a withdrawn `addMember` takes out must not
+      // receive the next one.
+      final withdrawalMovedMembership =
+          op == ControlOp.revokeAuthority &&
+          (folded.state.members.length != state.members.length ||
+              folded.state.members.keys.any(
+                (hex) => !state.members.containsKey(hex),
+              ));
       // An add itself must remain readable by legacy peers, then an immediately
       // following signed rotate establishes a key for the post-add membership.
       // New members receive no older envelopes: forward secrecy is the default.
-      if (op == ControlOp.addMember && epochService != null) {
+      if ((op == ControlOp.addMember || withdrawalMovedMembership) &&
+          epochService != null) {
         final key = _randomEpochKey();
         generatedKeys.add(key);
         final sealed = await epochService.sealEpoch(
@@ -11326,6 +11426,10 @@ class GroupService {
         case ControlOp.setRecommendationCampaign:
         case ControlOp.setRecommendationPolicy:
         case ControlOp.checkpoint:
+        // Aimed at the target's own authority, never at their membership: a
+        // withdrawal that removes a row which removed someone is already
+        // reflected here by that row's absence from `accepted`.
+        case ControlOp.revokeAuthority:
           break;
       }
     }
@@ -11396,6 +11500,7 @@ class GroupService {
         case ControlOp.setRecommendationPolicy:
         case ControlOp.setProfileMedia:
         case ControlOp.checkpoint:
+        case ControlOp.revokeAuthority:
           break;
       }
     }
