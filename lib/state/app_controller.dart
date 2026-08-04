@@ -1616,7 +1616,7 @@ class AppController extends Notifier<AppState> {
     try {
       final stack = await RealVeilStack.startDeniable(
         storage: ref.read(storageProvider),
-        runtimeDir: boot.runtimeDir,
+        runtimeDirBase: boot.runtimeDir,
         // Offset alternates after every teardown (see _teardownRealStack) so
         // a switch/relock never rebinds the just-freed port.
         listenPort: boot.listenPort + _oneActivePortOffset,

@@ -106,7 +106,11 @@ class HeadlessRuntime {
 
       stack = await RealVeilStack.startDeniable(
         storage: storage,
-        runtimeDir: config.runtimeDir,
+        // A BASE. The daemon creates its own directory under it and owns
+        // only that: `runtime_dir` used to be chmod-ed and then recursively
+        // deleted as given, so `/` or a home directory in the config was
+        // re-permissioned on boot and emptied on shutdown (audit C-02).
+        runtimeDirBase: config.runtimeDir,
         listenPort: config.listenPort,
         anonymous: config.anonymous,
         bootstrapPeers: config.bootstrapPeers,

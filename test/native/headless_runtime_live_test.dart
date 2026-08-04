@@ -135,7 +135,14 @@ void main() {
         });
         await first.close();
         first = null;
-        expect(await Directory(config.runtimeDir).exists(), isFalse);
+        // `runtime_dir` is the BASE the daemon creates its own directory under
+        // (audit C-02), so shutdown empties it rather than removing it: what
+        // must be gone is everything the run put there.
+        expect(
+          Directory(config.runtimeDir).listSync(),
+          isEmpty,
+          reason: 'the leased runtime directory outlived the daemon',
+        );
 
         second = await HeadlessRuntime.start(
           config: config,

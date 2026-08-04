@@ -80,9 +80,10 @@ void main() {
     }
   }, skip: skipReason);
 
-  test('a symlink at the runtime path is refused, not followed', () async {
+  test('a symlink at the runtime BASE is refused, not followed', () async {
     // `Directory.create` follows a symlink, so a link planted at the runtime
-    // path redirected the CONTROL socket into a directory the attacker owns.
+    // base redirected the CONTROL socket — and, on teardown, the recursive
+    // delete — into a directory the attacker owns.
     final root = Directory.systemTemp.createTempSync('xveil_rt_link');
     addTearDown(() => root.deleteSync(recursive: true));
     final elsewhere = Directory('${root.path}/elsewhere')..createSync();
@@ -90,22 +91,23 @@ void main() {
     Link(linkPath).createSync(elsewhere.path);
 
     await expectLater(
-      createRestrictedRuntimeDir(linkPath),
+      RuntimeDirLease.acquire(linkPath),
       throwsA(isA<RuntimeDirNotPrivate>()),
     );
   }, skip: skipReason);
 
-  test('a fresh runtime directory is created and secured in one call', () async {
+  test('a leased runtime directory is created and secured in one call',
+      () async {
     final root = Directory.systemTemp.createTempSync('xveil_rt_create');
     addTearDown(() => root.deleteSync(recursive: true));
-    final target = '${root.path}/nested/runtime';
 
-    await createRestrictedRuntimeDir(target);
+    final lease = await RuntimeDirLease.acquire('${root.path}/nested');
 
-    expect(Directory(target).existsSync(), isTrue);
+    expect(Directory(lease.path).existsSync(), isTrue);
     if (posix) {
-      expect(Directory(target).statSync().mode & 0x3F, 0,
+      expect(Directory(lease.path).statSync().mode & 0x3F, 0,
           reason: 'the directory must not be reachable by group or other');
     }
+    await lease.release();
   }, skip: skipReason);
 }
