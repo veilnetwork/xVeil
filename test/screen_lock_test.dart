@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -26,6 +27,29 @@ import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/screen_lock_controller.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
+
+/// Every label the platform would hand to VoiceOver / TalkBack, read out of the
+/// SEMANTICS tree rather than the widget tree.
+///
+/// The distinction is the entire bug: the widget tree and the pixels agreed
+/// that the chat was covered while the accessibility tree — a separate tree,
+/// which is what a screen reader actually walks — still carried every message
+/// and every button under it. A `tester.tap` test cannot see that, because the
+/// opaque cover really does eat the pointer.
+List<String> _accessibleLabels(WidgetTester tester) {
+  final labels = <String>[];
+  void visit(SemanticsNode node) {
+    final label = node.getSemanticsData().label;
+    if (label.isNotEmpty) labels.add(label);
+    node.visitChildren((child) {
+      visit(child);
+      return true;
+    });
+  }
+
+  visit(tester.getSemantics(find.byType(MaterialApp)));
+  return labels;
+}
 
 final _self = _id(1);
 final _peer = _id(2);
@@ -504,6 +528,112 @@ void main() {
         tapped,
         1,
         reason: 'the lock is a picture of a lock if taps go through it',
+      );
+      await shutdown(tester, app.messaging);
+    });
+
+    testWidgets('a screen reader cannot read the chat through the cover', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final app = await mount(
+        tester,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('are you free tonight'),
+              FilledButton(
+                onPressed: () {},
+                child: const Text('delete everything'),
+              ),
+            ],
+          ),
+        ),
+      );
+      final lock = app.container.read(screenLockProvider.notifier);
+      lock.rememberPassword('pw');
+      await lock.setTimeout(ScreenLockTimeout.immediately);
+
+      // Control first. Without it the assertion below would pass just as
+      // happily over a fixture that never had anything to leak.
+      expect(
+        _accessibleLabels(tester),
+        containsAll(<String>['are you free tonight', 'delete everything']),
+        reason: 'the fixture itself is broken',
+      );
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      await settle(tester);
+      expect(
+        find.byType(ScreenLockCover),
+        findsOneWidget,
+        reason: 'the screen did not lock, so the rest proves nothing',
+      );
+
+      final behind = _accessibleLabels(tester);
+      expect(
+        behind,
+        isNot(contains('are you free tonight')),
+        reason: 'VoiceOver/TalkBack reads the conversation through the cover',
+      );
+      expect(
+        behind,
+        isNot(contains('delete everything')),
+        reason: 'a screen reader can still ACTIVATE what is under the cover',
+      );
+      // And the prompt itself has to stay reachable, or the lock would be
+      // unanswerable by exactly the person who needs a reader to answer it.
+      expect(
+        behind,
+        contains('Unlock'),
+        reason: 'the fix silenced the lock screen along with everything else',
+      );
+      await shutdown(tester, app.messaging);
+      semantics.dispose();
+    });
+
+    testWidgets('a keyboard cannot tab to what is under the cover', (
+      tester,
+    ) async {
+      // The other half of "still mounted, still interactive": an external
+      // keyboard walks the FOCUS tree, which an opaque surface does not touch.
+      final node = FocusNode(debugLabel: 'under the cover');
+      addTearDown(node.dispose);
+      final app = await mount(
+        tester,
+        body: Center(
+          child: FilledButton(
+            focusNode: node,
+            onPressed: () {},
+            child: const Text('delete everything'),
+          ),
+        ),
+      );
+      final lock = app.container.read(screenLockProvider.notifier);
+      lock.rememberPassword('pw');
+      await lock.setTimeout(ScreenLockTimeout.immediately);
+
+      node.requestFocus();
+      await tester.pump();
+      expect(node.hasFocus, isTrue, reason: 'the fixture itself is broken');
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      await settle(tester);
+      expect(find.byType(ScreenLockCover), findsOneWidget);
+      expect(
+        node.hasFocus,
+        isFalse,
+        reason: 'focus stayed on a button under the lock',
+      );
+      node.requestFocus();
+      await tester.pump();
+      expect(
+        node.hasFocus,
+        isFalse,
+        reason: 'Tab from an external keyboard still reaches under the cover',
       );
       await shutdown(tester, app.messaging);
     });

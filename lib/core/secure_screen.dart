@@ -163,10 +163,22 @@ class _TaskSwitcherShieldState extends State<TaskSwitcherShield>
   @override
   Widget build(BuildContext context) => Stack(
     children: [
-      widget.child,
+      // `ExcludeSemantics` used to sit on the COVER — which hid the cover from
+      // a screen reader and left everything underneath it perfectly readable,
+      // the opposite of what a cover is for (audit IF-02). What has to be
+      // silenced is the tree below, and the pointer and focus with it.
+      FocusScope(
+        canRequestFocus: !_covered,
+        child: ExcludeSemantics(
+          excluding: _covered,
+          child: IgnorePointer(ignoring: _covered, child: widget.child),
+        ),
+      ),
       if (_covered)
         const Positioned.fill(
-          child: ExcludeSemantics(child: _NeutralCover()),
+          // Blocks what is painted beneath; the cover itself still says nothing
+          // of its own, for the reason in [_NeutralCover].
+          child: BlockSemantics(child: ExcludeSemantics(child: _NeutralCover())),
         ),
     ],
   );
