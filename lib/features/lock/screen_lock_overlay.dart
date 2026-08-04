@@ -62,8 +62,34 @@ class _ScreenLockHostState extends ConsumerState<ScreenLockHost>
     final locked = ref.watch(screenLockProvider.select((s) => s.locked));
     return Stack(
       children: [
-        widget.child,
-        if (locked) const Positioned.fill(child: ScreenLockCover()),
+        // The tree below stays MOUNTED — that is the feature — so it has to be
+        // made unreachable rather than removed, and "unreachable" has three
+        // separate meanings the opaque cover only satisfies one of. A Material
+        // absorbs the POINTER. A screen reader walks the SEMANTICS tree, and an
+        // external keyboard walks the FOCUS tree; both went straight past the
+        // cover and read out (and could activate) the conversation underneath.
+        // That is not a corner case: the lock is turned on with two volume keys
+        // on an already-unlocked phone, and VoiceOver / TalkBack is exactly what
+        // someone holding it would reach for (audit IF-02).
+        //
+        // Toggled by flags rather than by wrapping conditionally: swapping the
+        // widget type on lock would rebuild the whole subtree and throw away the
+        // state of everything the cover exists to keep running.
+        FocusScope(
+          // Without this, Tab from a hardware keyboard walks under the cover.
+          canRequestFocus: !locked,
+          child: ExcludeSemantics(
+            excluding: locked,
+            child: IgnorePointer(ignoring: locked, child: widget.child),
+          ),
+        ),
+        if (locked)
+          // Belt and braces from the other side: anything painted before this
+          // in the same container is dropped from the semantics tree, so a
+          // sibling added to this Stack later is covered without remembering to.
+          const Positioned.fill(
+            child: BlockSemantics(child: ScreenLockCover()),
+          ),
       ],
     );
   }
