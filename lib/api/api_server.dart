@@ -3752,12 +3752,16 @@ class ApiHandler {
   groupMessages;
   final Future<String?> Function(String groupHex, String body, String? replyTo)
   sendGroupMessage;
+  /// Send the file at [path] into a group. [roots] are the token's granted
+  /// folders — the grant this send is made under, recorded with the durable
+  /// offer so a reopen can ask whether it still holds (audit XV-04).
   final Future<({String? error, String? contentId})> Function(
     String groupHex,
     String path,
     String? name,
     String caption,
-    String? replyTo, {
+    String? replyTo,
+    List<String> roots, {
     String? kind,
     int? width,
     int? height,
@@ -6053,6 +6057,7 @@ class ApiHandler {
         name as String?,
         caption,
         replyTo as String?,
+        auth.fileRoots,
         kind: kind as String?,
         width: width as int?,
         height: height as int?,
