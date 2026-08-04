@@ -1319,6 +1319,16 @@ class AppL10nEn extends AppL10n {
   String get spaceActionCheckpointRecorded => 'Recorded a control checkpoint';
 
   @override
+  String spaceActionAuthorityWithdrawn(String member) {
+    return 'Withdrew $member\'s authority retroactively';
+  }
+
+  @override
+  String spaceActionAuthorityReturned(String member) {
+    return 'Returned $member\'s authority';
+  }
+
+  @override
   String get spaceActionOther => 'Performed an administrative action';
 
   @override
@@ -1568,6 +1578,43 @@ class AppL10nEn extends AppL10n {
   String spaceMemberTransferOwnershipConfirm(String member) {
     return 'Transfer ownership to $member? You will become an administrator, and only the new owner can transfer it back.';
   }
+
+  @override
+  String get spaceAuthorityWithdraw => 'Withdraw past authority';
+
+  @override
+  String get spaceAuthorityReturn => 'Return authority';
+
+  @override
+  String spaceAuthorityWithdrawConfirm(String member) {
+    return 'From which point should $member\'s decisions stop counting? Blocks and mutes they applied after it are undone. Deleted content and key rotations cannot be brought back.';
+  }
+
+  @override
+  String spaceAuthorityWithdrawSinceHours(int hours) {
+    String _temp0 = intl.Intl.pluralLogic(
+      hours,
+      locale: localeName,
+      other: 'The last $hours hours',
+      one: 'The last hour',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String spaceAuthorityWithdrawSinceDays(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'The last $days days',
+      one: 'The last day',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get spaceAuthorityWithdrawSinceAlways =>
+      'Everything they ever decided';
 
   @override
   String get spaceRenameTitle => 'Rename community';

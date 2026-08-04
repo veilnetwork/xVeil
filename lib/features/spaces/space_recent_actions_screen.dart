@@ -53,6 +53,8 @@ String spaceActionTitle(
     l.spaceActionRecommendationPolicyChanged,
   SpaceActionKind.encryptionRotated => l.spaceActionEncryptionRotated,
   SpaceActionKind.checkpointRecorded => l.spaceActionCheckpointRecorded,
+  SpaceActionKind.authorityWithdrawn => l.spaceActionAuthorityWithdrawn(member),
+  SpaceActionKind.authorityReturned => l.spaceActionAuthorityReturned(member),
   SpaceActionKind.other => l.spaceActionOther,
 };
 
@@ -101,6 +103,8 @@ IconData _actionIcon(SpaceActionKind kind) => switch (kind) {
   SpaceActionKind.memberLeft => Icons.person_outline,
   SpaceActionKind.roleChanged ||
   SpaceActionKind.ownershipTransferred ||
+  SpaceActionKind.authorityWithdrawn ||
+  SpaceActionKind.authorityReturned ||
   SpaceActionKind.accessPolicyChanged => Icons.admin_panel_settings_outlined,
   SpaceActionKind.memberMuted ||
   SpaceActionKind.memberUnmuted ||
