@@ -673,12 +673,31 @@ class VeilFlutterTransport
     return (stream: _VeilReliableStream(r.stream), src: NodeId(r.srcNodeId));
   }
 
+  /// What this transport can honestly say about the sender of a live frame:
+  /// nothing (audit X/V-01).
+  ///
+  /// veil decides the answer and puts it on the IPC wire — the trailing byte of
+  /// `AppDeliverPayload` since veil `2e5471cc`. It does not reach here. The C
+  /// boundary this app talks through is `veilclient-ffi`'s recv callback,
+  /// `VeilRecvCb(user, src_node_id, src_app_id, reply_id, data, len)`, which has
+  /// no parameter for it, so `veil_flutter`'s `IncomingMessage` never sees it
+  /// either. The byte is decoded in Rust and dropped one frame later.
+  ///
+  /// So this reports [SenderProvenance.claimed] — the fail-closed direction and
+  /// the truthful one, not a placeholder: nothing in this process has checked
+  /// `srcNodeId` against anything. Closing X/V-01's remaining half needs the
+  /// callback and `IncomingMessage` to carry the byte; the moment they do, this
+  /// becomes `SenderProvenance.fromWire(message.provenance)` and every gate
+  /// built on it starts biting without further change.
+  static const SenderProvenance _ffiReportsNothing = SenderProvenance.claimed;
+
   @override
   Stream<InboundMessage> messages() => _app.messages().map(
     (message) => InboundMessage(
       src: NodeId(message.srcNodeId),
       payload: message.data,
       replyId: message.replyId,
+      provenance: _ffiReportsNothing,
     ),
   );
 
@@ -690,6 +709,7 @@ class VeilFlutterTransport
           src: NodeId(message.srcNodeId),
           payload: message.data,
           replyId: message.replyId,
+          provenance: _ffiReportsNothing,
         );
       });
 

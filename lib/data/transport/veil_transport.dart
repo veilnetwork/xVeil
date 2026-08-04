@@ -2,15 +2,71 @@ import 'dart:typed_data';
 
 import '../../core/ids.dart';
 
+/// How much this device actually KNOWS about an [InboundMessage.src], as
+/// opposed to what the frame merely claimed.
+///
+/// Mirrors veil's `SenderProvenance`, which since veil `2e5471cc` travels to
+/// the app as the trailing byte of `AppDeliverPayload`. Before that, every
+/// delivery path put the same untyped 32 bytes in front of the app, so a
+/// contact's message and a stranger's frame that merely NAMED that contact were
+/// indistinguishable — audit X/V-01. Any node on the network could hand this
+/// device a frame carrying an accepted contact's node id, and it arrived AS
+/// that contact.
+///
+/// The levels are a hierarchy of evidence, not of importance. Only [claimed]
+/// means "nothing at all stands behind this name".
+enum SenderProvenance {
+  /// Nothing corroborates the claim. NEVER a basis for an authorization
+  /// decision — and not a synonym for "hostile": this is the normal, correct
+  /// level for the anonymous meta-E2E path and for anything relayed. ML-KEM
+  /// seals to a PUBLISHED key, so it buys confidentiality and never origin;
+  /// anyone can name anyone. An anonymous message from a stranger is a
+  /// supported thing. A stranger wearing a contact's name is not.
+  claimed,
+
+  /// The message never left this device; `src` is our own node id.
+  localIpc,
+
+  /// `src` is the authenticated session peer that handed us the frame — the
+  /// sender speaking for itself, not a name carried through it.
+  sessionPeer,
+
+  /// `src` is proven by a signature over this very message, checked against the
+  /// sender's identity document.
+  signed;
+
+  /// Parse veil's wire byte. Anything unrecognised reads as [claimed] — the
+  /// fail-closed direction, and the only safe one: a reader that does not
+  /// understand some future level must treat the identity as unverified, never
+  /// as proven.
+  static SenderProvenance fromWire(int byte) => switch (byte) {
+    1 => localIpc,
+    2 => sessionPeer,
+    3 => signed,
+    _ => claimed,
+  };
+
+  /// Whether something the sender could not choose backs `src` up, so a
+  /// decision may rest on it. False for [claimed] alone.
+  bool get isAuthenticated => this != SenderProvenance.claimed;
+}
+
 /// A message received from a peer over the overlay network.
 class InboundMessage {
   const InboundMessage({
     required this.src,
     required this.payload,
     this.replyId = 0,
+    this.provenance = SenderProvenance.claimed,
   });
   final NodeId src;
   final Uint8List payload;
+
+  /// What this device knows about [src] (audit X/V-01). Defaults to
+  /// [SenderProvenance.claimed] on purpose: a construction site that says
+  /// nothing has, by definition, verified nothing, and the default must be the
+  /// one that cannot be mistaken for proof.
+  final SenderProvenance provenance;
 
   /// Opaque, TTL-bounded handle to a one-time anonymous reply path the SENDER
   /// embedded with this message (non-zero only when they used [sendWithReply]).
