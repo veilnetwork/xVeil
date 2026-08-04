@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/posix_file_facts.dart';
 import 'package:xveil/data/vpn/linux_managed_vpn_backend.dart';
 import 'package:xveil/data/vpn/privileged_launch_guard.dart';
 import 'package:xveil/data/vpn/vpn_backend.dart';
@@ -77,6 +79,8 @@ Map<String, PathSecurityFacts> _protectedLinuxInstall() => {
 };
 
 void main() {
+  _posixFactLayerTests();
+
   group('the chain that has to be safe', () {
     test('Windows walks the executable up to the drive root', () {
       final chain = privilegedPathChain(
@@ -575,6 +579,240 @@ void main() {
           );
       expect(state.phase, VpnBackendPhase.unsupported);
       expect(state.detail, contains('elevates this executable'));
+    });
+  });
+}
+
+PosixFileFacts _stat({
+  int uid = 0,
+  int mode = 0x81ED, // regular file, 0755
+  int inode = 7,
+  int deviceId = 1,
+}) => PosixFileFacts(
+  deviceId: deviceId,
+  inode: inode,
+  uid: uid,
+  gid: 0,
+  mode: mode,
+);
+
+/// The POSIX fact layer, which no longer runs anything.
+void _posixFactLayerTests() {
+  group('POSIX facts come from lstat, not from a program', () {
+    test('a failed lstat is undetermined, never optimistic', () {
+      final facts = posixFactsFromStat('/opt/x', null);
+      expect(facts.undeterminedReason, isNotNull);
+      expect(
+        refusalFor(facts, PrivilegedPathRole.executable),
+        contains('could not be read'),
+      );
+    });
+
+    test('root-owned and unwritable is the only clean answer', () {
+      final facts = posixFactsFromStat('/usr/bin', _stat(mode: 0x41ED));
+      expect(facts.ownerIsPrivileged, isTrue);
+      expect(facts.unprivilegedRights, isEmpty);
+      expect(refusalFor(facts, PrivilegedPathRole.executable), isNull);
+    });
+
+    test('a group- or other-writable entry grants both write and delete', () {
+      for (final mode in const [0x41FF, 0x41FD, 0x41EF]) {
+        // 0777, 0775, 0757 — group write, other write.
+        final facts = posixFactsFromStat('/opt/x', _stat(mode: mode));
+        expect(
+          facts.unprivilegedRights,
+          containsAll(const [
+            FilesystemRight.createOrWriteContent,
+            FilesystemRight.deleteChild,
+          ]),
+          reason: 'mode ${mode.toRadixString(8)}',
+        );
+      }
+    });
+
+    test('a non-root owner refuses whatever the mode says', () {
+      final facts = posixFactsFromStat('/opt/x', _stat(uid: 501, mode: 0x41C0));
+      expect(facts.ownerIsPrivileged, isFalse);
+      expect(
+        refusalFor(facts, PrivilegedPathRole.executable),
+        contains('not an administrator'),
+      );
+    });
+
+    test('a symlink is judged by its owner, not by its meaningless 0777', () {
+      // lstat on a link reports 0777 on Linux — treating that as "world
+      // writable" would refuse every distribution that puts a link in /usr/bin,
+      // and treating the link's mode as evidence of anything would be a lie.
+      // Where it POINTS is walked as its own chain; where it SITS is the parent
+      // step, which is checked in its own right.
+      final rootLink = posixFactsFromStat('/usr/bin/x', _stat(mode: 0xA1FF));
+      expect(rootLink.ownerIsPrivileged, isTrue);
+      expect(rootLink.unprivilegedRights, isEmpty);
+      expect(refusalFor(rootLink, PrivilegedPathRole.executable), isNull);
+
+      final userLink = posixFactsFromStat(
+        '/usr/bin/x',
+        _stat(uid: 501, mode: 0xA1FF),
+      );
+      expect(refusalFor(userLink, PrivilegedPathRole.executable), isNotNull);
+    });
+
+    test('lstat reads the real filesystem, and reads it as lstat', () {
+      final dir = Directory.systemTemp.createTempSync('xveil-lstat-');
+      try {
+        final target = File('${dir.path}/target')..writeAsStringSync('x');
+        final link = Link('${dir.path}/link')..createSync(target.path);
+
+        expect(posixChmod(target.path, 0x1FF), 0); // 0777
+        final file = posixLstat(target.path);
+        expect(file, isNotNull);
+        expect(file!.isRegularFile, isTrue);
+        expect(file.isSymlink, isFalse);
+        expect(file.groupOrOtherWritable, isTrue);
+        expect(file.uid, posixEuid());
+        expect(file.uid, isNot(0), reason: 'the suite must not run as root');
+
+        final linkFacts = posixLstat(link.path);
+        expect(linkFacts, isNotNull);
+        expect(
+          linkFacts!.isSymlink,
+          isTrue,
+          reason: 'lstat must not follow the last component',
+        );
+
+        expect(posixChmod(target.path, 0x1C0), 0); // 0700
+        expect(posixLstat(target.path)!.groupOrOtherWritable, isFalse);
+
+        expect(posixLstat('${dir.path}/does-not-exist'), isNull);
+
+        // The one path every POSIX host agrees about.
+        final root = posixLstat('/');
+        expect(root, isNotNull);
+        expect(root!.uid, 0);
+        expect(root.isDirectory, isTrue);
+        expect(root.groupOrOtherWritable, isFalse);
+      } finally {
+        dir.deleteSync(recursive: true);
+      }
+    }, skip: Platform.isWindows ? 'POSIX only' : null);
+  });
+
+  group('the helper we would elevate through is named absolutely', () {
+    test('the first root-owned, unwritable file wins', () {
+      expect(
+        resolveTrustedPosixTool(
+          const ['/usr/bin/pkexec', '/bin/pkexec'],
+          stat: (path) => path == '/bin/pkexec' ? _stat() : null,
+        ),
+        '/bin/pkexec',
+      );
+    });
+
+    test('a user-owned, a writable, a linked and a missing one are all '
+        'skipped', () {
+      final rejected = <String, PosixFileFacts?>{
+        '/a/pkexec': _stat(uid: 501), // somebody else's
+        '/b/pkexec': _stat(mode: 0x81FF), // 0777
+        '/c/pkexec': _stat(mode: 0x81F6), // 0766, group+other write
+        '/d/pkexec': _stat(mode: 0xA1FF), // a symlink
+        '/e/pkexec': null, // not there at all
+      };
+      for (final entry in rejected.entries) {
+        expect(
+          resolveTrustedPosixTool(
+            [entry.key],
+            stat: (path) => path == entry.key ? entry.value : null,
+          ),
+          isNull,
+          reason: entry.key,
+        );
+      }
+      expect(
+        resolveTrustedPosixTool(
+          rejected.keys.toList(),
+          stat: (path) => rejected[path],
+        ),
+        isNull,
+      );
+    });
+
+    test('nothing in this suite`s own workspace can ever qualify', () {
+      final dir = Directory.systemTemp.createTempSync('xveil-tool-');
+      try {
+        final planted = File('${dir.path}/pkexec')
+          ..writeAsStringSync('#!/bin/sh\nexec /usr/bin/pkexec "\$@"\n');
+        expect(posixChmod(planted.path, 0x1ED), 0);
+        // The whole point: it exists, it is executable, it even forwards to the
+        // real thing — and it is ours, so it is not a path to root.
+        expect(resolveTrustedPosixTool([planted.path]), isNull);
+      } finally {
+        dir.deleteSync(recursive: true);
+      }
+    }, skip: Platform.isWindows ? 'POSIX only' : null);
+
+    test('the candidate list is absolute, with no bare names left', () {
+      expect(kPkexecCandidates, isNotEmpty);
+      for (final candidate in kPkexecCandidates) {
+        expect(candidate, startsWith('/'));
+      }
+    });
+  });
+
+  group('Windows helpers are absolute and do not pass our environment on', () {
+    test('SystemRoot is honoured when it is a rooted local path', () {
+      expect(
+        windowsSystemRoot(environment: {'SystemRoot': r'D:\Windows'}),
+        r'D:\Windows',
+      );
+      expect(
+        windowsSystemRoot(environment: {'SystemRoot': r'D:\Windows\'}),
+        r'D:\Windows',
+      );
+    });
+
+    test('anything else falls back instead of being concatenated in', () {
+      for (final hostile in const [
+        r'\\attacker\share',
+        'relative',
+        '',
+        r'..\..\tmp',
+      ]) {
+        expect(
+          windowsSystemRoot(environment: {'SystemRoot': hostile}),
+          r'C:\Windows',
+          reason: hostile,
+        );
+      }
+      expect(windowsSystemRoot(environment: const {}), r'C:\Windows');
+    });
+
+    test('PowerShell and System32 tools are named by absolute path', () {
+      expect(
+        windowsPowerShellPath(environment: {'SystemRoot': r'C:\Windows'}),
+        r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe',
+      );
+      expect(
+        windowsSystem32Tool('tasklist.exe', environment: {
+          'SystemRoot': r'C:\Windows',
+        }),
+        r'C:\Windows\System32\tasklist.exe',
+      );
+    });
+
+    test('the helper environment carries no search path of ours', () {
+      final env = windowsCleanEnvironment(
+        environment: {
+          'SystemRoot': r'C:\Windows',
+          'Path': r'C:\Users\v\evil;C:\Windows\System32',
+          'PSModulePath': r'C:\Users\v\evil\modules',
+        },
+      );
+      expect(env['Path'], isNot(contains('evil')));
+      expect(env, isNot(contains('PSModulePath')));
+      expect(env['SystemRoot'], r'C:\Windows');
+      for (final entry in env['Path']!.split(';')) {
+        expect(entry, startsWith(r'C:\Windows'));
+      }
     });
   });
 }

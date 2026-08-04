@@ -66,7 +66,6 @@ class WindowsManagedVpnBackend implements VpnBackend {
   final PrivilegedLaunchGuard _launchGuard;
   final bool _isWindowsHost;
   final String _executablePath;
-  PrivilegedLaunchVerdict? _launchVerdict;
 
   static const _authorizationTimeout = Duration(minutes: 3);
   static const _startupTimeout = Duration(seconds: 90);
@@ -77,10 +76,13 @@ class WindowsManagedVpnBackend implements VpnBackend {
   /// whose whole job is to run this executable as Administrator. If the binary
   /// is not out of the user's reach, the answer is no regardless of what
   /// components happen to be installed beside it (audit X-01).
+  ///
+  /// NOT cached (audit C-01). A verdict kept for the lifetime of the backend
+  /// is a statement about the installation as it was at app start; the
+  /// question is about the installation as it is at the instant of elevation,
+  /// so it is asked again there.
   Future<VpnBackendState?> _refuseWritableInstallation() async {
-    final verdict = _launchVerdict ??= await _launchGuard.inspect(
-      _executablePath,
-    );
+    final verdict = await _launchGuard.inspect(_executablePath);
     if (verdict.isAllowed) return null;
     return VpnBackendState(VpnBackendPhase.unsupported, detail: verdict.detail);
   }
@@ -109,23 +111,16 @@ class WindowsManagedVpnBackend implements VpnBackend {
         detail: 'missing Windows VPN components: ${missing.join(', ')}',
       );
     }
-    try {
-      final result = await Process.run(
-        'where.exe',
-        const ['powershell.exe'],
-        stdoutEncoding: utf8,
-        stderrEncoding: utf8,
-      );
-      if (result.exitCode != 0) {
-        return const VpnBackendState(
-          VpnBackendPhase.unsupported,
-          detail: 'Windows PowerShell is required for UAC elevation',
-        );
-      }
-    } on ProcessException {
-      return const VpnBackendState(
+    // Asked of the FILE, not of `where.exe`: the old check ran a bare
+    // `where.exe` and then elevated through a bare `powershell.exe`, so the
+    // answer and the thing it authorized both came from PATH (audit C-01).
+    final powershell = windowsPowerShellPath();
+    if (!await File(powershell).exists()) {
+      return VpnBackendState(
         VpnBackendPhase.unsupported,
-        detail: 'Windows PowerShell is required for UAC elevation',
+        detail:
+            'Windows PowerShell is required for UAC elevation and is not at '
+            '$powershell',
       );
     }
     return status();
@@ -212,8 +207,18 @@ class WindowsManagedVpnBackend implements VpnBackend {
     );
 
     try {
+      // ASKED AGAIN, immediately before the UAC prompt. Everything between the
+      // check at the top of `start()` and this line — GeoIP expansion, the
+      // session directory, the request file — is time in which the
+      // installation could have changed (audit C-01).
+      final stillSafe = await _refuseWritableInstallation();
+      if (stillSafe != null) {
+        _state = stillSafe;
+        await _releaseSession();
+        return _state;
+      }
       final launcher = await Process.run(
-        'powershell.exe',
+        windowsPowerShellPath(),
         <String>[
           '-NoLogo',
           '-NoProfile',
@@ -225,6 +230,8 @@ class WindowsManagedVpnBackend implements VpnBackend {
         ],
         stdoutEncoding: utf8,
         stderrEncoding: utf8,
+        includeParentEnvironment: false,
+        environment: windowsCleanEnvironment(),
       ).timeout(_authorizationTimeout);
       if (launcher.exitCode != 0) {
         final detail = (launcher.stderr as String).trim();
@@ -346,10 +353,12 @@ class WindowsManagedVpnBackend implements VpnBackend {
     if (helperPid == null) return true;
     try {
       final result = await Process.run(
-        'tasklist.exe',
+        windowsSystem32Tool('tasklist.exe'),
         ['/FI', 'PID eq $helperPid', '/FO', 'CSV', '/NH'],
         stdoutEncoding: utf8,
         stderrEncoding: utf8,
+        includeParentEnvironment: false,
+        environment: windowsCleanEnvironment(),
       );
       return result.exitCode == 0 &&
           (result.stdout as String).contains('"$helperPid"');
