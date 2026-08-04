@@ -58,7 +58,7 @@ class _FakeTransport implements VeilTransport {
 
 void main() {
   test(
-    'planIdentityBoots assigns a distinct space/dir/port per identity',
+    'planIdentityBoots assigns a distinct space/port per identity',
     () async {
       final backing = SyncWrappedAsyncMultiSpaceBacking(
         FakeMultiSpaceBacking(),
@@ -75,24 +75,24 @@ void main() {
       expect(specs.map((s) => s.listenPort), [9001, 9002, 9003]);
       expect(specs.map((s) => s.anonymous), [false, true, false]);
 
-      // DENIABILITY: the runtime dir must be under the base but must NOT contain
-      // the human-readable label (a device seized while running would otherwise
-      // read identity names off the filesystem). Each is an opaque, distinct,
-      // stable hash.
+      // DENIABILITY: the plan carries a runtime BASE, and nothing derived from
+      // the human-readable label — a device seized while running would
+      // otherwise read identity names off the filesystem. Each node then
+      // creates its own randomly named directory under it
+      // ([RuntimeDirLease]), so the names are opaque AND differ between runs;
+      // the label hash this used to interpose was opaque but identical every
+      // time, which correlated one run's leftovers with the next one's.
       for (final s in specs) {
-        expect(s.runtimeDir, startsWith('/run/'));
-        expect(s.runtimeDir, isNot(contains(s.label)));
-        expect(s.runtimeDir.split('/').last, matches(r'^[0-9a-f]{16}$'));
+        expect(s.runtimeBase, '/run');
+        expect(s.runtimeBase, isNot(contains(s.label)));
       }
-      expect(specs.map((s) => s.runtimeDir).toSet().length, 3); // distinct
-      // Stable: same label → same opaque dir across calls.
       final again = await planIdentityBoots(
         [_e('work', 2)],
         backing,
         runtimeDirBase: '/run',
         listenPortBase: 9000,
       );
-      expect(again.single.runtimeDir, specs[1].runtimeDir);
+      expect(again.single.runtimeBase, specs[1].runtimeBase);
     },
   );
 

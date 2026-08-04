@@ -1,7 +1,9 @@
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 
+import 'package:xveil/core/posix_file_facts.dart';
 
 import 'native_libs.dart' show openEnvLib, processLibFor;
 import 'node/embedded_node.dart';
@@ -42,7 +44,60 @@ class RuntimeDirNotPrivate implements Exception {
 /// an outage.
 bool runtimeDirMustBePrivate() => Platform.isMacOS || Platform.isLinux;
 
-Future<ProcessResult> _chmod700(String dir) => Process.run('chmod', ['700', dir]);
+/// `chmod 700`, through libc where there is one.
+///
+/// `Process.run('chmod', …)` resolves a bare command name through PATH — the
+/// same substitutable oracle audit C-01 was about. The subprocess stays only as
+/// the fallback for a host with no usable libc binding, and the result is
+/// verified by reading the mode back either way.
+Future<ProcessResult> _chmod700(String dir) async {
+  final rc = posixChmod(dir, 0x1C0); // 0700
+  if (rc != null) {
+    return ProcessResult(
+      0,
+      rc == 0 ? 0 : 1,
+      '',
+      rc == 0 ? '' : 'chmod(2) refused $dir',
+    );
+  }
+  return Process.run('chmod', ['700', dir]);
+}
+
+/// Create [path] as a directory that MUST NOT already exist.
+///
+/// `Directory.create` happily returns an existing directory, so it cannot say
+/// "this one is mine, I just made it". `mkdir(2)` can, and it applies the mode
+/// in the same call, which also closes the window in which the directory
+/// existed at the process umask. Returns false when the path was taken (or the
+/// creation failed for any other reason).
+bool _createExclusiveDir(String path) {
+  final rc = posixMkdir(path, 0x1C0); // 0700
+  if (rc != null) return rc == 0;
+  // No libc binding (Windows): the pre-check is not atomic, but it is still a
+  // refusal to adopt somebody else's directory rather than a silent reuse.
+  if (FileSystemEntity.typeSync(path, followLinks: false) !=
+      FileSystemEntityType.notFound) {
+    return false;
+  }
+  try {
+    Directory(path).createSync();
+    return true;
+  } on FileSystemException {
+    return false;
+  }
+}
+
+String _randomName(String prefix) {
+  final random = Random.secure();
+  final bytes = List<int>.generate(4, (_) => random.nextInt(256));
+  return '$prefix-${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+}
+
+String _randomSecret() {
+  final random = Random.secure();
+  final bytes = List<int>.generate(32, (_) => random.nextInt(256));
+  return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+}
 
 /// Name of the file that marks a directory as one xVeil created and may delete.
 ///
@@ -90,35 +145,36 @@ Future<String> claimRuntimeDirUnder(
   }
   await Directory(base).create(recursive: true);
 
-  // `create` on a Directory is not exclusive, so uniqueness is what stands in
-  // for O_EXCL here: a name that carries the pid and a fresh counter cannot
-  // collide with a live sibling, and a stale one from a dead pid is reaped by
-  // the sweeper rather than adopted.
+  // Created EXCLUSIVELY: an existing name is somebody else's — a live sibling,
+  // a dead run's leftovers, or something planted — and is never adopted. The
+  // name keeps the pid because the launch sweeper reaps by it.
   var attempt = 0;
   while (true) {
     final suffix = attempt == 0 ? uniqueSuffix : '$uniqueSuffix-$attempt';
     final child = '$base/xveil-rt-$suffix';
-    final type = FileSystemEntity.typeSync(child, followLinks: false);
-    if (type != FileSystemEntityType.notFound) {
-      // Occupied — by a live sibling, a dead run's leftovers, or something
-      // planted. Never adopt it; take the next name.
+    if (!_createExclusiveDir(child)) {
       attempt++;
       if (attempt > 64) {
         throw RuntimeDirNotPrivate(base, 'no free runtime directory name');
       }
       continue;
     }
-    await Directory(child).create();
     await _writeRuntimeDirMarker(child);
     return child;
   }
 }
 
 /// Write the ownership marker into a directory we just created.
-Future<void> _writeRuntimeDirMarker(String dir) async {
+///
+/// [secret] is written by [RuntimeDirLease] and is what makes the marker
+/// evidence rather than decoration: it is unguessable and lives inside an
+/// owner-only directory, so a directory that answers with it is the very one
+/// this lease created — not one that was moved into its place afterwards.
+Future<void> _writeRuntimeDirMarker(String dir, {String? secret}) async {
   await File('$dir/$kRuntimeDirMarker').writeAsString(
     'Created by xVeil. Deleting this file makes xVeil leave the directory '
-    'alone on teardown instead of removing it.\n',
+    'alone on teardown instead of removing it.\n'
+    '${secret == null ? '' : 'lease $secret\n'}',
   );
 }
 
@@ -145,19 +201,208 @@ Future<void> markRuntimeDirOwned(String dir) async {
 bool runtimeDirIsOurs(String dir) =>
     File('$dir/$kRuntimeDirMarker').existsSync();
 
-/// Create the node's runtime directory owner-only, or refuse to use it.
+/// Ownership of ONE runtime directory this process created, and the only thing
+/// that may remove it.
+///
+/// The runtime dir arrives from configuration — `runtime_dir` in the headless
+/// config, `XVEIL_RUNTIME_DIR` in the app. It used to be taken as a finished
+/// directory: `chmod 700` was applied to it and teardown ran
+/// `delete(recursive: true)` on it with nothing checked. Name `/`, a home
+/// directory, or a shared `/run` in that field — a typo, a copied unit file, a
+/// variable set by something else in the session — and a daemon, typically
+/// running as root, re-permissioned it on the way up and erased its contents on
+/// the way down (audit C-02).
+///
+/// So the configured path is a BASE we may create under, never a directory we
+/// may own:
+///
+///   * a fresh, randomly named child is created with `mkdir(2)` and mode 0700 —
+///     exclusive, so an existing name is a refusal rather than an adoption, and
+///     the directory is never briefly world-readable at the process umask;
+///   * a secret is written into the marker inside it. The directory is
+///     owner-only, so nobody else can read the secret to forge it elsewhere;
+///   * the device+inode and owner are remembered at creation.
+///
+/// [release] deletes only after all of that still matches. Anything it cannot
+/// confirm — the marker gone or changed, a different inode behind the same
+/// name, an owner that is not us, a path that is no longer a directory — leaves
+/// the directory alone. A few leftover sockets are a rounding error next to
+/// erasing the wrong tree.
+class RuntimeDirLease {
+  RuntimeDirLease._({
+    required this.path,
+    required this.base,
+    required this._secret,
+    required this._identity,
+  });
+
+
+  /// The directory this lease created and owns.
+  final String path;
+
+  /// What it was created under. Never removed by this lease.
+  final String base;
+
+  final String _secret;
+  final PosixFileFacts? _identity;
+  bool _released = false;
+
+  /// Bases nothing may be leased directly on top of.
+  ///
+  /// The lease only ever removes its own child, so these are belt-and-braces —
+  /// but `/` or `$HOME` in a runtime-dir field is a configuration mistake worth
+  /// naming at the moment it is made rather than a location worth using.
+  static bool _forbiddenBase(String base) {
+    final home =
+        Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+    final normalized = base.length > 1 && (base.endsWith('/') || base.endsWith(r'\'))
+        ? base.substring(0, base.length - 1)
+        : base;
+    if (normalized.isEmpty || normalized == '/' || normalized == r'\') {
+      return true;
+    }
+    if (RegExp(r'^[A-Za-z]:$').hasMatch(normalized)) return true;
+    if (home != null && home.isNotEmpty && normalized == home) return true;
+    return false;
+  }
+
+  /// Take a fresh directory under [base].
+  ///
+  /// [prefix] only shapes the name; the disambiguator is random, so two
+  /// processes — or two identities in one process — never race for the same
+  /// one, and a crashed run's leftovers are never adopted.
+  static Future<RuntimeDirLease> acquire(
+    String base, {
+    String prefix = 'rt',
+  }) async {
+    if (base.trim().isEmpty) {
+      throw RuntimeDirNotPrivate(base, 'no runtime directory base was given');
+    }
+    if (_forbiddenBase(base)) {
+      throw RuntimeDirNotPrivate(
+        base,
+        'a filesystem root or home directory is not a runtime base',
+      );
+    }
+    // The BASE may legitimately already exist (a system temp dir, an app
+    // support dir, an operator's /run/xveil). It must not be a symlink:
+    // `Directory.create` follows one, and a link planted here would relocate
+    // everything below — including what teardown then removes.
+    if (FileSystemEntity.typeSync(base, followLinks: false) ==
+        FileSystemEntityType.link) {
+      throw RuntimeDirNotPrivate(base, 'runtime base is a symlink');
+    }
+    await Directory(base).create(recursive: true);
+
+    for (var attempt = 0; attempt < 8; attempt++) {
+      final path = '$base/${_randomName(prefix)}';
+      if (!_createExclusiveDir(path)) continue;
+      final secret = _randomSecret();
+      await _writeRuntimeDirMarker(path, secret: secret);
+      // Mode 0700 came from `mkdir` itself, but a filesystem that ignores it
+      // (some mounted shares do) must still be caught, and Windows has no mode
+      // to set at all — so the existing verify-or-refuse runs unchanged.
+      await restrictRuntimeDir(path);
+      return RuntimeDirLease._(
+        path: path,
+        base: base,
+        secret: secret,
+        identity: posixLstat(path),
+      );
+    }
+    throw RuntimeDirNotPrivate(base, 'no free runtime directory name');
+  }
+
+  /// Why this lease may NOT delete its directory, or null when it may.
+  ///
+  /// Fail-closed by construction: every branch that cannot establish something
+  /// returns a reason. Exposed so the refusal is testable without arranging a
+  /// deletion.
+  String? refusalToRelease() {
+    if (_released) return 'already released';
+    if (path == base) return 'the lease path is the base itself';
+    if (!path.startsWith('$base/') && !path.startsWith('$base\\')) {
+      return 'the lease path is no longer under its base';
+    }
+    final type = FileSystemEntity.typeSync(path, followLinks: false);
+    if (type == FileSystemEntityType.notFound) {
+      return 'the directory is already gone';
+    }
+    if (type != FileSystemEntityType.directory) {
+      return 'the path is no longer a directory ($type)';
+    }
+    final identity = _identity;
+    if (identity != null) {
+      // POSIX: the name may have been re-pointed at something else entirely
+      // while we held it. Identity is the (device, inode) pair, not the path.
+      final now = posixLstat(path);
+      if (now == null) return 'the directory could not be re-read';
+      if (!now.isDirectory) return 'the path is no longer a directory';
+      if (!now.sameObjectAs(identity)) {
+        return 'a different directory now answers to this path';
+      }
+      if (now.uid != identity.uid) return 'the directory changed owner';
+      final euid = posixEuid();
+      if (euid != null && now.uid != euid) {
+        return 'the directory is not owned by this process';
+      }
+    }
+    final marker = File('$path/$kRuntimeDirMarker');
+    if (FileSystemEntity.typeSync(marker.path, followLinks: false) !=
+        FileSystemEntityType.file) {
+      return 'the ownership marker is missing';
+    }
+    final String contents;
+    try {
+      contents = marker.readAsStringSync();
+    } on FileSystemException catch (error) {
+      return 'the ownership marker could not be read ($error)';
+    }
+    if (!contents.contains('lease $_secret')) {
+      return 'the ownership marker is not the one this lease wrote';
+    }
+    return null;
+  }
+
+  /// Remove the directory this lease created — and nothing else.
+  ///
+  /// Idempotent, and silent about a directory that has already gone. Returns
+  /// the reason it declined, so a caller that cares can log it; production
+  /// callers treat teardown as best-effort.
+  Future<String?> release() async {
+    final refusal = refusalToRelease();
+    if (refusal != null) {
+      _released = true;
+      if (refusal != 'the directory is already gone' &&
+          refusal != 'already released') {
+        devLog(
+          () =>
+              'xVeil[deniable]: NOT removing $path — $refusal. Leaving it is '
+              'the safe answer; deleting the wrong tree is not.',
+        );
+      }
+      return refusal;
+    }
+    _released = true;
+    try {
+      await Directory(path).delete(recursive: true);
+      return null;
+    } on FileSystemException catch (error) {
+      devLog(() => 'xVeil[deniable]: could not remove $path ($error)');
+      return '$error';
+    }
+  }
+}
+
+/// Apply and VERIFY the owner-only mode on a directory we made.
 ///
 /// It holds `admin.sock` — the node's CONTROL socket — next to `app.sock` and
 /// the obfs4 PSK. `Directory.create` leaves the mode at the process umask,
 /// which on a typical desktop is world-readable, so on a shared machine
 /// another local user could reach the admin endpoint of someone else's node.
 ///
-/// Three things this does that the old best-effort `chmod` did not:
+/// Two things this does that the old best-effort `chmod` did not:
 ///
-///   * **refuses a symlink.** `Directory.create` follows one, so a link
-///     planted at the runtime path redirected the control socket into a
-///     directory the attacker owns. Checked with `followLinks: false` before
-///     anything is created.
 ///   * **verifies the result** by reading the mode back, instead of trusting
 ///     that `chmod` exiting zero means the filesystem honoured it. Mounted
 ///     shares and some vendor mounts accept the call and keep the old mode.
@@ -165,25 +410,11 @@ bool runtimeDirIsOurs(String dir) =>
 ///     of logging and carrying on. A hardening step that only logs is a
 ///     comment claiming something untrue.
 ///
-/// Residual window, stated plainly: between `create` and `chmod` the directory
-/// exists at the umask. It is empty for that instant — the sockets and the PSK
-/// are written afterwards, by the caller, only once this returns — so the
-/// window exposes an empty directory, not a secret. Closing it entirely needs
-/// `mkdir(2)` with a mode, which Dart does not expose.
-Future<void> createRestrictedRuntimeDir(String dir) async {
-  if (FileSystemEntity.typeSync(dir, followLinks: false) ==
-      FileSystemEntityType.link) {
-    throw RuntimeDirNotPrivate(dir, 'path is a symlink');
-  }
-  await Directory(dir).create(recursive: true);
-  await restrictRuntimeDir(dir);
-}
-
-/// Apply and VERIFY the owner-only mode on an existing directory.
+/// The window this used to describe — the directory existing at the umask
+/// between `create` and `chmod` — is gone: [RuntimeDirLease] creates through
+/// `mkdir(2)` with the mode in the same call. This is now the verification
+/// half only, which is why it no longer creates anything.
 ///
-/// Split from [createRestrictedRuntimeDir] so the check is reachable on a
-/// directory the caller made itself, and so tests can hand it a deliberately
-/// permissive one.
 /// [chmod] exists for tests only. A filesystem that accepts the call and keeps
 /// the old mode is the case the read-back guards against, and there is no way
 /// to produce one on demand — so it is injected rather than described, and the
@@ -312,7 +543,7 @@ class RealVeilStack {
     String? veilCliPath,
     String? configPath,
     VeilFlutterTransport? nodeIpc,
-    this._runtimeDir,
+    this._runtimeLease,
     this.listenPort = 0,
     this.lanListen = false,
     this.listenScheme = 'tcp',
@@ -342,9 +573,11 @@ class RealVeilStack {
   final String? _config;
   // ...the deniable path uses the node's own IPC instead.
   final VeilFlutterTransport? _flutterTransport;
-  // The ephemeral runtime dir (sockets + public PSK). Deleted on dispose so it
-  // leaves NO at-rest artifact — see [dispose].
-  final String? _runtimeDir;
+  // Ownership of the ephemeral runtime dir (sockets + public PSK) this boot
+  // CREATED. Released on dispose so it leaves NO at-rest artifact — and
+  // released only after it proves the directory is still the one it made
+  // (see [RuntimeDirLease]).
+  final RuntimeDirLease? _runtimeLease;
 
   /// Step 1 of the deniable boot, extracted so the provenance contract is
   /// unit-testable: load the stored node config, or provision + store one on
@@ -394,12 +627,19 @@ class RealVeilStack {
 
   /// Production boot: identity comes from the unlocked [storage] (mined +
   /// stored on first run), the node boots in-process via deferred-init and has
-  /// its real config applied in memory — no `config.toml` on disk. [runtimeDir]
-  /// holds the ephemeral, identity-free sockets; [listenPort] is this instance's
-  /// listener (give two instances on one host distinct ports).
+  /// its real config applied in memory — no `config.toml` on disk.
+  ///
+  /// [runtimeDirBase] is a BASE, not a directory to take over: this boot
+  /// creates its own randomly-named child under it and owns only that. The
+  /// configured value used to be treated as a finished directory that was
+  /// `chmod`-ed on the way up and recursively deleted on the way down, so a
+  /// `runtime_dir` of `/`, a home directory or a shared `/run` was
+  /// re-permissioned and then emptied by a daemon that usually runs as root
+  /// (audit C-02). [listenPort] is this instance's listener (give two
+  /// instances on one host distinct ports).
   static Future<RealVeilStack> startDeniable({
     required Storage storage,
-    required String runtimeDir,
+    required String runtimeDirBase,
     DynamicLibrary? lib,
     int listenPort = 9000,
     // P2P direct-session epic: bind the node's listener on all interfaces so
@@ -453,8 +693,56 @@ class RealVeilStack {
           '[+${lap()}ms config]',
     );
 
-    // 2. Ephemeral, identity-free runtime endpoints.
-    await createRestrictedRuntimeDir(runtimeDir);
+    // 2. Ephemeral, identity-free runtime endpoints, in a directory this boot
+    // CREATES under the configured base and owns outright (audit C-02).
+    final lease = await RuntimeDirLease.acquire(runtimeDirBase);
+    try {
+      return await _startDeniableIn(
+        lease,
+        identityToml: identityToml,
+        lap: lap,
+        lib: lib,
+        listenPort: listenPort,
+        lanListen: lanListen,
+        anonymous: anonymous,
+        lazyMining: lazyMining,
+        bootstrapPeers: bootstrapPeers,
+        runtimeBootstrapPeers: runtimeBootstrapPeers,
+        udpReflectors: udpReflectors,
+        obfs4Psk: obfs4Psk,
+        proxy: proxy,
+        debugMetricsPort: debugMetricsPort,
+      );
+    } catch (_) {
+      // A boot that never completed still made a directory; nothing else will
+      // ever come back for it.
+      await lease.release();
+      rethrow;
+    }
+  }
+
+  /// The rest of [startDeniable], once the runtime directory is OURS.
+  ///
+  /// Split out so one `try` can own the release of that directory: a boot that
+  /// throws half way used to leave the sockets dir behind with nothing left to
+  /// come back for it.
+  static Future<RealVeilStack> _startDeniableIn(
+    RuntimeDirLease lease, {
+    required String identityToml,
+    required int Function() lap,
+    required DynamicLibrary? lib,
+    required int listenPort,
+    required bool lanListen,
+    required bool anonymous,
+    required bool lazyMining,
+    required List<BootstrapPeerCfg> bootstrapPeers,
+    required List<BootstrapPeerCfg>? runtimeBootstrapPeers,
+    required List<String> udpReflectors,
+    required String? obfs4Psk,
+    required ProxyRouting proxy,
+    required int? debugMetricsPort,
+  }) async {
+    final runtimeDir = lease.path;
     // iOS application-container paths exceed sockaddr_un's SUN_LEN on both
     // physical devices and Simulator. Keep discovery sidecars in the sandbox,
     // but carry local admin + IPC over authenticated loopback TCP there.
@@ -630,7 +918,7 @@ class RealVeilStack {
         transport: transport,
         runtimeBootstrapPeers: runtimeBootstrapPeers,
         bootstrapPeers: bootstrapPeers,
-        runtimeDir: runtimeDir,
+        runtimeLease: lease,
         listenPort: listenPort,
         lanListen: lanListen,
         listenScheme: listenScheme,
@@ -649,7 +937,7 @@ class RealVeilStack {
     required VeilFlutterTransport transport,
     required List<BootstrapPeerCfg>? runtimeBootstrapPeers,
     required List<BootstrapPeerCfg> bootstrapPeers,
-    required String runtimeDir,
+    required RuntimeDirLease runtimeLease,
     required int listenPort,
     required bool lanListen,
     required String listenScheme,
@@ -687,7 +975,7 @@ class RealVeilStack {
       transport: transport,
       myInvite: invite,
       nodeIpc: transport,
-      runtimeDir: runtimeDir,
+      runtimeLease: runtimeLease,
       listenPort: listenPort,
       lanListen: lanListen,
       listenScheme: listenScheme,
@@ -763,18 +1051,14 @@ class RealVeilStack {
   Future<void> dispose() async {
     await transport.dispose();
     await controller.stop();
-    // Deniability: the runtime dir (sockets + the public obfs4 PSK) is named
-    // per-identity and would otherwise persist in temp after teardown — a
-    // plaintext side-channel revealing that identities ran (and, before the
-    // opaque-naming fix, which ones). Remove it now that the node is stopped.
-    final dir = _runtimeDir;
-    if (dir != null) {
-      try {
-        final d = Directory(dir);
-        if (d.existsSync()) await d.delete(recursive: true);
-      } catch (_) {
-        // Best-effort — a leftover empty socket dir is not worth failing on.
-      }
-    }
+    // Deniability: the runtime dir (sockets + the public obfs4 PSK) would
+    // otherwise persist in temp after teardown — a plaintext side-channel
+    // revealing that identities ran. Remove it now that the node is stopped.
+    //
+    // Through the LEASE, which deletes only the directory this boot created and
+    // only while it can still prove that is what it is looking at. The bare
+    // `delete(recursive: true)` this replaced would have removed whatever the
+    // configured path happened to name (audit C-02).
+    await _runtimeLease?.release();
   }
 }
