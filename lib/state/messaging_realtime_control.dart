@@ -64,6 +64,10 @@ class _MessagingRealtimeControl {
     }
 
     if (envelope.kind == WireKind.p2pEndpoints) {
+      // BEFORE the contact check, not after: the cache below is primed by any
+      // frame that ever looked like it came from this contact, so asking it
+      // first would let the very claim under suspicion answer for itself.
+      if (!_speaksForContact(message, 'endpoints')) return;
       if (!isAccepted(message.src)) {
         final contact = await _owner._storage.getContact(message.src);
         if (contact?.status != ContactStatus.accepted) return;
@@ -101,10 +105,13 @@ class _MessagingRealtimeControl {
     if (signal == null) return;
     // Only an offer can create a call. Follow-ups avoid a storage read because
     // CallService independently checks the exact active `(peer, callId)`.
-    if (signal.type == CallSignalType.offer && !isAccepted(message.src)) {
-      final contact = await _owner._storage.getContact(message.src);
-      if (contact?.status != ContactStatus.accepted) return;
-      markAccepted(message.src);
+    if (signal.type == CallSignalType.offer) {
+      if (!_speaksForContact(message, 'offer')) return;
+      if (!isAccepted(message.src)) {
+        final contact = await _owner._storage.getContact(message.src);
+        if (contact?.status != ContactStatus.accepted) return;
+        markAccepted(message.src);
+      }
     }
     final frameId = envelope.frameId;
     if (frameId != null) {
@@ -124,6 +131,36 @@ class _MessagingRealtimeControl {
           'call=${signal.callId} from=${message.src.short} age=$age';
     });
     onCallSignal?.call(message.src, signal);
+  }
+
+  /// Whether this delivery may be granted an accepted contact's privileges.
+  ///
+  /// The gates on this lane used to consult exactly one thing — "is `src` an
+  /// accepted contact" — and `src` is the field the sender fills in. veil will
+  /// hand the app whatever name a frame carried; what it now also hands over is
+  /// how much it KNOWS about that name (audit X/V-01). An unauthenticated frame
+  /// naming a contact gets a stranger's treatment, which on this lane is none.
+  ///
+  /// Not a ban on unauthenticated delivery, and deliberately not one. Anonymous
+  /// meta-E2E arrives as [SenderProvenance.claimed] BY DESIGN and stays exactly
+  /// as welcome as it was; call follow-ups (answer / end / health) are not
+  /// routed through here either, because `CallService` matches them against the
+  /// exact live `(peer, callId)` it is already in. What stops is a stranger
+  /// wearing a contact's name to ring the phone, or to hand us bootstrap URIs
+  /// we would then dial.
+  ///
+  /// Refusing costs the fast lane and never the delivery: both kinds this lane
+  /// carries are sent on the durable contact lane at the same instant (see
+  /// [_sendCallLive] and [_sendP2PBootstrap]), so the honest copy still lands.
+  bool _speaksForContact(InboundMessage message, String what) {
+    if (message.provenance.isAuthenticated) return true;
+    devLog(
+      () =>
+          'xVeil[call-sig]: realtime $what from ${message.src.short} DROPPED — '
+          'the delivery is unauthenticated (${message.provenance.name}), so the '
+          'name is a claim, not a contact',
+    );
+    return false;
   }
 
   void _noteInbound(NodeId peer) {
