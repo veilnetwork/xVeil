@@ -3,9 +3,13 @@ import 'dart:ui';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'device_settings_sync.dart';
+import 'identity_scoped_prefs.dart';
 import 'providers.dart';
 
-const _kLocaleKey = kSyncLocale;
+/// PER PROFILE (audit XV-15). A decoy opening in the language the real profile
+/// chose is a tell of exactly the kind someone comparing the two would read,
+/// and it survived "clear all data".
+String get _kLocaleKey => identityScopedPrefKey(kSyncLocale);
 
 /// The app's UI language. `null` means "follow the system locale"; a non-null
 /// [Locale] forces that language. Persisted to `shared_preferences` so the
