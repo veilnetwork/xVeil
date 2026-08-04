@@ -5,10 +5,7 @@ import '../data/serve_source.dart';
 // ignore_for_file: prefer_initializing_formals
 
 import 'dart:async';
-import 'dart:convert';
-import 'dart:typed_data';
 
-import '../crypto/blake3.dart';
 import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
 import '../data/node/proxy_routing.dart';
 import '../data/storage/hidden_volume_storage.dart';
@@ -22,13 +19,14 @@ import '../domain/roster.dart';
 import 'messaging.dart';
 
 /// One identity's boot plan in an "all identities online" session: which hosted
-/// space it uses, and the ephemeral, per-identity runtime endpoints (a distinct
-/// runtime dir + listen port so the N nodes don't collide) and routing mode.
+/// space it uses, and the ephemeral runtime endpoints (a runtime BASE to create
+/// its own directory under + a distinct listen port so the N nodes don't
+/// collide) and routing mode.
 class IdentityBootSpec {
   const IdentityBootSpec({
     required this.label,
     required this.spaceId,
-    required this.runtimeDir,
+    required this.runtimeBase,
     required this.listenPort,
     required this.anonymous,
     this.bootstrapPeers = const [],
@@ -40,7 +38,9 @@ class IdentityBootSpec {
 
   final String label;
   final int spaceId;
-  final String runtimeDir;
+  /// Where this identity's node CREATES its runtime directory. Not a directory
+  /// it may own — see [RealVeilStack.startDeniable].
+  final String runtimeBase;
   final int listenPort;
   final bool anonymous;
   final List<BootstrapPeerCfg> bootstrapPeers;
@@ -99,10 +99,14 @@ Future<List<IdentityBootSpec>> planIdentityBoots(
         proxy: proxy,
         // Deniability: the runtime dir name must NOT be the human-readable
         // label — a device seized while running would otherwise read identity
-        // names straight off the filesystem. Use a one-way hash of the label
-        // (opaque, stable, non-reversible). The dir itself is deleted on
-        // teardown ([RealVeilStack.dispose]), so nothing survives at rest.
-        runtimeDir: '$runtimeDirBase/${_opaqueDir(roster[i].label)}',
+        // names straight off the filesystem. Every node now creates its own
+        // randomly-named directory under this shared base, which is opaque AND
+        // unstable across runs; the hash of the label this used to interpose
+        // was opaque but the SAME every time, so leftovers from a crash
+        // correlated one run's identities with the next one's. The directory is
+        // released on teardown ([RealVeilStack.dispose]), so nothing survives
+        // at rest either way.
+        runtimeBase: runtimeDirBase,
         // Offset by 1 so all-online nodes never reuse [listenPortBase] — the
         // port a just-stopped one-active node held, whose lingering teardown
         // would otherwise stall the first identity's bind for ~90s.
@@ -114,18 +118,6 @@ Future<List<IdentityBootSpec>> planIdentityBoots(
   return out;
 }
 
-/// A short, one-way, opaque directory name for an identity [label] — a BLAKE3
-/// hash truncated to 16 hex chars. Never the label itself, so a running node's
-/// runtime dir leaks no identity name.
-String _opaqueDir(String label) {
-  final h = blake3Hash(Uint8List.fromList(utf8.encode('veil.rt.dir:$label')));
-  final sb = StringBuffer();
-  for (final b in h.take(8)) {
-    sb.write(b.toRadixString(16).padLeft(2, '0'));
-  }
-  return sb.toString();
-}
-
 /// Boots an [IdentityNode] from [storage] for one [spec] — defaults to the real
 /// deniable boot; injectable so the orchestration can be tested without a node.
 typedef IdentityNodeBoot =
@@ -134,7 +126,7 @@ typedef IdentityNodeBoot =
 Future<IdentityNode> _realBoot(IdentityBootSpec spec, Storage storage) async {
   final stack = await RealVeilStack.startDeniable(
     storage: storage,
-    runtimeDir: spec.runtimeDir,
+    runtimeDirBase: spec.runtimeBase,
     listenPort: spec.listenPort,
     anonymous: spec.anonymous,
     lazyMining: spec.lazyMining,
