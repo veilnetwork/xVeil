@@ -9,6 +9,13 @@ import 'package:xveil/state/veil_group_call_media.dart';
 
 NodeId _id(int byte) => NodeId(Uint8List.fromList(List.filled(32, byte)));
 
+Uint8List _secret(int byte) => Uint8List.fromList(List.filled(32, byte));
+
+/// Room secret source for the tests that are not about the seal itself. A
+/// fresh copy per resolve: the controller wipes what it is handed.
+GroupCallMediaSecretResolver _room([int byte = 0x5a]) =>
+    (_) async => _secret(byte);
+
 GroupCall _call(NodeId self, List<NodeId> peers, {bool video = false}) {
   final now = DateTime(2026, 7, 13);
   return GroupCall(
@@ -51,6 +58,7 @@ void main() {
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
         transport,
+        roomMediaSecret: _room(),
         engineFactory: (_) => engine,
         requestMicrophone: () async => true,
         requestCamera: () async => true,
@@ -74,14 +82,14 @@ void main() {
     final self = _id(1);
     final peer = _id(2);
     final engine = _FakeEngine();
-    final at = DateTime(2026, 7, 13, 18);
     final controller = VeilGroupCallMediaController(
       _FakeTransport(self),
+      roomMediaSecret: _room(),
       engineFactory: (_) => engine,
       requestMicrophone: () async => true,
       requestCamera: () async => true,
       statsInterval: const Duration(milliseconds: 1),
-      now: () => at,
+      now: () => DateTime(2026, 7, 13, 18),
     );
     addTearDown(controller.stop);
 
@@ -89,7 +97,7 @@ void main() {
     expect(controller.lastMediaRxAt(peer), isNull);
     engine.rx[peer.hex] = 4;
     await Future<void>.delayed(const Duration(milliseconds: 10));
-    expect(controller.lastMediaRxAt(peer), at);
+    expect(controller.lastMediaRxAt(peer), DateTime(2026, 7, 13, 18));
   });
 
   test(
@@ -99,6 +107,7 @@ void main() {
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
         _FakeTransport(self),
+        roomMediaSecret: _room(),
         engineFactory: (_) => engine,
         requestMicrophone: () async => true,
         requestCamera: () async => true,
@@ -123,6 +132,7 @@ void main() {
     final engine = _FakeEngine();
     final controller = VeilGroupCallMediaController(
       _FakeTransport(self),
+      roomMediaSecret: _room(),
       engineFactory: (_) => engine,
       requestMicrophone: () async => true,
       requestCamera: () async => true,
@@ -136,6 +146,116 @@ void main() {
 
     expect(controller.localVideoFrame.value?.rgba.first, 1);
     expect(controller.videoFrameFor(peer).value?.rgba.first, 2);
+  });
+
+  group('room media is sealed per participant pair', () {
+    test('the two ends of a pair derive the same directional keys', () {
+      final alice = _id(1);
+      final bob = _id(2);
+      final secret = _secret(0x5a);
+
+      final fromAlice = deriveGroupCallMediaKeys(
+        roomSecret: secret,
+        localNode: alice,
+        peerNode: bob,
+      );
+      final fromBob = deriveGroupCallMediaKeys(
+        roomSecret: secret,
+        localNode: bob,
+        peerNode: alice,
+      );
+
+      expect(
+        fromAlice.txKey,
+        fromBob.rxKey,
+        reason: 'bob must be able to open what alice sealed',
+      );
+      expect(fromAlice.rxKey, fromBob.txKey, reason: 'and the other way round');
+      expect(fromAlice.txKey, hasLength(32));
+      expect(fromAlice.txKey, isNot(fromAlice.rxKey));
+      expect(fromAlice.txKey.any((byte) => byte != 0), isTrue);
+    });
+
+    test('a different room, or a different pair, is a different key', () {
+      final alice = _id(1);
+      final bob = _id(2);
+      final carol = _id(3);
+      final here = deriveGroupCallMediaKeys(
+        roomSecret: _secret(0x5a),
+        localNode: alice,
+        peerNode: bob,
+      );
+      final otherRoom = deriveGroupCallMediaKeys(
+        roomSecret: _secret(0x5b),
+        localNode: alice,
+        peerNode: bob,
+      );
+      final otherPeer = deriveGroupCallMediaKeys(
+        roomSecret: _secret(0x5a),
+        localNode: alice,
+        peerNode: carol,
+      );
+      expect(here.txKey, isNot(otherRoom.txKey));
+      expect(here.txKey, isNot(otherPeer.txKey));
+    });
+
+    test('every opened peer channel carries that pair\'s keys', () async {
+      final self = _id(1);
+      final alice = _id(2);
+      final bob = _id(3);
+      final transport = _FakeTransport(self);
+      final controller = VeilGroupCallMediaController(
+        transport,
+        roomMediaSecret: _room(),
+        engineFactory: (_) => _FakeEngine(),
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      addTearDown(controller.stop);
+
+      expect(await controller.start(_call(self, [alice, bob])), isTrue);
+      expect(transport.opened, [alice, bob]);
+
+      for (final peer in [alice, bob]) {
+        final expected = deriveGroupCallMediaKeys(
+          roomSecret: _secret(0x5a),
+          localNode: self,
+          peerNode: peer,
+        );
+        expect(transport.txKeys[peer.hex], expected.txKey);
+        expect(transport.rxKeys[peer.hex], expected.rxKey);
+      }
+      expect(
+        transport.txKeys[alice.hex],
+        isNot(transport.txKeys[bob.hex]),
+        reason: 'one key for the whole room would let each member open the '
+            'others\' streams off the wire',
+      );
+    });
+
+    test('a room whose secret is unavailable opens no peer channel', () async {
+      final self = _id(1);
+      final peer = _id(2);
+      final transport = _FakeTransport(self);
+      final engine = _FakeEngine();
+      final controller = VeilGroupCallMediaController(
+        transport,
+        roomMediaSecret: (_) async => null,
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      addTearDown(controller.stop);
+
+      await controller.start(_call(self, [peer]));
+
+      expect(
+        transport.opened,
+        isEmpty,
+        reason: 'an unsealable room must not reach the transport at all',
+      );
+      expect(engine.added, isEmpty);
+    });
   });
 }
 
@@ -151,13 +271,22 @@ class _FakeTransport implements GroupMediaChannelTransport {
   final NodeId self;
   final List<NodeId> opened = [];
   final List<int> closed = [];
+  final Map<String, Uint8List> txKeys = {};
+  final Map<String, Uint8List> rxKeys = {};
 
   @override
   Future<Uint8List> localNodeId() async => self.bytes;
 
   @override
-  Future<int> open(NodeId peer) async {
+  Future<int> open(
+    NodeId peer, {
+    required Uint8List txKey,
+    required Uint8List rxKey,
+  }) async {
     opened.add(peer);
+    // Copied: the caller wipes its buffers as soon as the open returns.
+    txKeys[peer.hex] = Uint8List.fromList(txKey);
+    rxKeys[peer.hex] = Uint8List.fromList(rxKey);
     return opened.length;
   }
 

@@ -110,21 +110,36 @@ Uint8List _callMediaHash(Iterable<List<int>> parts) {
   }
 }
 
-/// Derive the two directional relay-media keys from E2E-authenticated offer
-/// and answer contributions. The ordering is call-role based, while TX/RX is
+/// Derive the two directional call-media keys from E2E-authenticated offer and
+/// answer contributions. The ordering is call-role based, while TX/RX is
 /// node-direction based, so both endpoints independently obtain opposite keys.
+///
+/// ROUTE-NEUTRAL by construction. These are not "relay" keys: direct, relay and
+/// onion all seal every cell with them, so there is no route on which the seal
+/// is optional and no unsealed mode left to fall back to. Consequently there is
+/// no peer-protocol-version gate here either — that version arrives inside an
+/// UNAUTHENTICATED signal field, and any behaviour keyed off it is a lever an
+/// attacker can pull to turn the seal off.
+///
+/// Throws rather than returning null: a caller holding no keys must not reach
+/// an open, and an absent return value is exactly the shape that used to let it.
 @visibleForTesting
-({Uint8List txKey, Uint8List rxKey})? deriveRelayMediaKeys({
+({Uint8List txKey, Uint8List rxKey}) deriveCallMediaKeys({
   required Call call,
   required Uint8List localNodeId,
 }) {
-  if ((call.peerProtocolVersion ?? 1) < kCallRelaySealedMediaMinVersion ||
-      localNodeId.length != 32) {
-    return null;
+  if (localNodeId.length != 32) {
+    throw ArgumentError('localNodeId must be 32 bytes');
   }
   final localContribution = decodeCallMediaKeyContribution(call.localMediaKey);
   final peerContribution = decodeCallMediaKeyContribution(call.peerMediaKey);
-  if (localContribution == null || peerContribution == null) return null;
+  if (localContribution == null || peerContribution == null) {
+    localContribution?.fillRange(0, localContribution.length, 0);
+    peerContribution?.fillRange(0, peerContribution.length, 0);
+    throw StateError(
+      'call ${call.callId} carries no end-to-end media key material',
+    );
+  }
   final localIsCaller = call.direction == CallDirection.outgoing;
   final callerContribution = localIsCaller
       ? localContribution
@@ -164,6 +179,158 @@ Uint8List _callMediaHash(Iterable<List<int>> parts) {
   }
 }
 
+/// Open the media datagram channel for the route [call] negotiated, sealing it
+/// with the already-derived directional keys.
+///
+/// Every branch passes the same [txKey]/[rxKey] because every transport carries
+/// the same sealed cell — direct and onion are not "already protected": a
+/// direct session is hop-to-hop, and an onion media cell must be READ by the
+/// relay that splices the two circuits in order to route it.
+///
+/// [fallbackReason] is non-null only for the one permitted mid-open fallback,
+/// negotiated P2P → non-onion relay, and answers "why not p2p?" for the
+/// transport badge.
+///
+/// PRIVATE on purpose: [openSealedCallMediaChannel] is the only entry point, so
+/// no caller can acquire a shortcut that reaches an open without deriving the
+/// keys first.
+Future<({int channel, CallTransportKind transport, String? fallbackReason})>
+_openCallMediaChannel({
+  required Call call,
+  required CallMediaChannelOpener opener,
+  required Uint8List txKey,
+  required Uint8List rxKey,
+  Duration directRetryDelay = const Duration(milliseconds: 300),
+}) async {
+  if (call.transport == CallTransportKind.p2p) {
+    // The native admission probe is bounded but can lose its whole budget
+    // to a transient stall (busy client mutex, silently rate-limited
+    // query) even while the direct session is admitted. A timed-out probe
+    // is NOT an authoritative "no session" — give it one more attempt
+    // before surrendering the negotiated p2p route to relay.
+    Object? lastError;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final channel = await opener.openMediaChannel(
+          call.peer.bytes,
+          txKey: txKey,
+          rxKey: rxKey,
+          direct: true,
+        );
+        return (
+          channel: channel,
+          transport: CallTransportKind.p2p,
+          fallbackReason: null,
+        );
+      } catch (e) {
+        lastError = e;
+        devLog(
+          () =>
+              'xVeil[call-media]: direct open attempt ${attempt + 1} failed '
+              'for ${call.peer.short}: $e',
+        );
+        final transient =
+            '$e'.contains('timed out') || '$e'.contains('probe failed');
+        if (!transient) break;
+        await Future<void>.delayed(directRetryDelay);
+      }
+    }
+    devLog(
+      () =>
+          'xVeil[call-media]: direct open failed for ${call.peer.short}; '
+          'using non-onion relay: $lastError',
+    );
+    // Layer-5 diagnostics (real-P2P epic): keep WHY the negotiated p2p
+    // route fell back so the transport badge / /call_state can say
+    // "relay — no direct session" instead of a bare "relay".
+    final es = '$lastError';
+    final channel = await opener.openMediaChannel(
+      call.peer.bytes,
+      txKey: txKey,
+      rxKey: rxKey,
+      relay: true,
+    );
+    return (
+      channel: channel,
+      transport: CallTransportKind.relay,
+      fallbackReason: es.contains('not active')
+          ? 'no direct session to peer'
+          : es.contains('timed out')
+          ? 'direct probe timed out'
+          : 'direct open failed',
+    );
+  }
+  if (call.transport == CallTransportKind.relay) {
+    final channel = await opener.openMediaChannel(
+      call.peer.bytes,
+      txKey: txKey,
+      rxKey: rxKey,
+      relay: true,
+    );
+    return (
+      channel: channel,
+      transport: CallTransportKind.relay,
+      fallbackReason: null,
+    );
+  }
+  if (call.transport != CallTransportKind.onion) {
+    throw StateError(
+      'negotiated ${call.transport?.name ?? 'unset'} media has no implemented route',
+    );
+  }
+  final channel = await opener.openMediaChannel(
+    call.peer.bytes,
+    txKey: txKey,
+    rxKey: rxKey,
+  );
+  return (
+    channel: channel,
+    transport: CallTransportKind.onion,
+    fallbackReason: null,
+  );
+}
+
+/// Derive the call's directional keys and open the negotiated route with them,
+/// or open NOTHING and return null when the call carries no key material.
+///
+/// The derive and the open are one step on purpose. Keeping them apart is what
+/// used to allow "no keys → open anyway, unsealed"; here the keys are produced
+/// immediately before the open that requires them, the Dart copies are wiped
+/// straight after, and there is no branch in which [opener] is reached without
+/// them.
+@visibleForTesting
+Future<({int channel, CallTransportKind transport, String? fallbackReason})?>
+openSealedCallMediaChannel({
+  required Call call,
+  required CallMediaChannelOpener opener,
+  required Uint8List localNodeId,
+  Duration directRetryDelay = const Duration(milliseconds: 300),
+}) async {
+  final ({Uint8List txKey, Uint8List rxKey}) keys;
+  try {
+    keys = deriveCallMediaKeys(call: call, localNodeId: localNodeId);
+  } catch (error) {
+    devLog(
+      () =>
+          'xVeil[call-media]: refusing to open an unsealable channel to '
+          '${call.peer.short}: $error',
+    );
+    return null;
+  }
+  try {
+    return await _openCallMediaChannel(
+      call: call,
+      opener: opener,
+      txKey: keys.txKey,
+      rxKey: keys.rxKey,
+      directRetryDelay: directRetryDelay,
+    );
+  } finally {
+    keys.txKey.fillRange(0, keys.txKey.length, 0);
+    keys.rxKey.fillRange(0, keys.rxKey.length, 0);
+  }
+}
+
 /// Whether an initial media mount may physically start the camera.
 ///
 /// Video receive and camera transmit are independent: the user can turn the
@@ -183,10 +350,14 @@ bool shouldStartInitialCallCamera(Call call) =>
 class VeilCallMediaController implements CallMediaController {
   VeilCallMediaController(this._transport);
 
+  // v3 is unconditional now. It used to be conditioned on the loaded engine
+  // exposing the RTP packet ceiling, because v3 meant "compact relay
+  // optimization"; it now means "the offer/answer carry the contributions the
+  // channel seal is derived from", and the seal is on every route with no
+  // unsealed mode to advertise instead. An engine binary without the packet
+  // ceiling loses a video-quality knob, not a protocol level.
   @override
-  int get signalProtocolVersion => VeilMediaEngine.supportsMaxRtpPacketSize
-      ? kCallSignalProtocolVersion
-      : kCallRelayBatchingMinVersion;
+  int get signalProtocolVersion => kCallSignalProtocolVersion;
 
   final VeilFlutterTransport _transport;
   static const MethodChannel _androidCallNetwork = MethodChannel(
@@ -548,7 +719,18 @@ class VeilCallMediaController implements CallMediaController {
       chan = _chan!;
       transport = _chanTransport!;
     } else {
-      final opened = await _openMediaChannelFor(call);
+      // Keys BEFORE the open, on every route: they are required parameters of
+      // the open itself, so a call whose material cannot be derived never gets
+      // a channel at all rather than getting an unsealed one. A route rebuild
+      // re-derives the SAME pair from the same call, which is what lets the
+      // native replay window outlive the channel.
+      final opened = await openSealedCallMediaChannel(
+        call: call,
+        opener: _transport,
+        localNodeId: localId,
+      );
+      if (opened == null) return false;
+      _transportFallbackReason = opened.fallbackReason;
       chan = opened.channel;
       transport = opened.transport;
     }
@@ -581,68 +763,40 @@ class VeilCallMediaController implements CallMediaController {
       _chanPeer = null;
       return false;
     }
-    // v3 removes the per-packet ML-KEM expansion: both E2E-authenticated call
-    // contributions derive directional keys, the native channel seals each
-    // cell once, and 1000-byte RTP packets fit one QUIC DATAGRAM. Configure the
-    // packet ceiling before enabling sealing; a setup mismatch falls back to
-    // the independently secure v2 envelope path rather than fragmenting video.
+    // Batching is now purely a wire format: the batch header rides inside the
+    // channel seal, which every route already carries, so the compact envelope
+    // is always available and there is no older envelope to fall back to. The
+    // packet ceiling stays a quality knob — 1000-byte RTP packets keep a sealed
+    // cell inside one QUIC DATAGRAM instead of fragmenting video.
     _mediaBatching = false;
     _compactRelayMedia = false;
     if (transport == CallTransportKind.relay) {
-      final keys = deriveRelayMediaKeys(call: call, localNodeId: localId);
-      if (keys != null) {
-        final packetSizeOk = engine.setMaxRtpPacketSize(
-          _compactRelayRtpPacketSize,
-        );
-        int cipherRc = -1;
-        if (packetSizeOk) {
-          try {
-            cipherRc = _transport.configureRelayMediaCipher(
-              chan,
-              txKey: keys.txKey,
-              rxKey: keys.rxKey,
-            );
-          } finally {
-            keys.txKey.fillRange(0, keys.txKey.length, 0);
-            keys.rxKey.fillRange(0, keys.rxKey.length, 0);
-          }
-        } else {
-          keys.txKey.fillRange(0, keys.txKey.length, 0);
-          keys.rxKey.fillRange(0, keys.rxKey.length, 0);
-        }
-        if (cipherRc == 0) {
-          final batchingRc = _transport.setRelayMediaBatching(
-            chan,
-            true,
-            compact: true,
-          );
-          if (batchingRc != 0) {
-            devLog(
-              () =>
-                  'xVeil[call-media]: compact relay mode rejected rc=$batchingRc',
-            );
-            engine.dispose();
-            _transport.closeMediaChannel(chan);
-            _chan = null;
-            _chanPeer = null;
-            _chanTransport = null;
-            return false;
-          }
-          _mediaBatching = true;
-          _compactRelayMedia = true;
-        }
+      final packetSizeOk = engine.setMaxRtpPacketSize(
+        _compactRelayRtpPacketSize,
+      );
+      final batchingRc = _transport.setRelayMediaBatching(
+        chan,
+        true,
+        compact: true,
+      );
+      if (batchingRc != 0) {
         devLog(
-          () =>
-              'xVeil[call-media]: compact relay packet_size=$packetSizeOk '
-              'cipher_rc=$cipherRc enabled=$_compactRelayMedia',
+          () => 'xVeil[call-media]: compact relay mode rejected rc=$batchingRc',
         );
+        engine.dispose();
+        _transport.closeMediaChannel(chan);
+        _chan = null;
+        _chanPeer = null;
+        _chanTransport = null;
+        return false;
       }
-      if (!_compactRelayMedia &&
-          (call.peerProtocolVersion ?? 1) >= kCallRelayBatchingMinVersion) {
-        final rc = _transport.setRelayMediaBatching(chan, true);
-        _mediaBatching = rc == 0;
-        devLog(() => 'xVeil[call-media]: legacy relay batching rc=$rc');
-      }
+      _mediaBatching = true;
+      _compactRelayMedia = true;
+      devLog(
+        () =>
+            'xVeil[call-media]: compact relay packet_size=$packetSizeOk '
+            'enabled=$_compactRelayMedia',
+      );
     }
     _engine = engine;
     _diagnosticMediaController = this;
@@ -1030,74 +1184,6 @@ class VeilCallMediaController implements CallMediaController {
         () => 'xVeil[call-media]: Android low-latency Wi-Fi failed: $error',
       );
     }
-  }
-
-  Future<({int channel, CallTransportKind transport})> _openMediaChannelFor(
-    Call call,
-  ) async {
-    if (call.transport == CallTransportKind.p2p) {
-      // The native admission probe is bounded but can lose its whole budget
-      // to a transient stall (busy client mutex, silently rate-limited
-      // query) even while the direct session is admitted. A timed-out probe
-      // is NOT an authoritative "no session" — give it one more attempt
-      // before surrendering the negotiated p2p route to relay.
-      Object? lastError;
-      for (var attempt = 0; attempt < 2; attempt++) {
-        try {
-          final channel = await _transport.openMediaChannel(
-            call.peer.bytes,
-            direct: true,
-          );
-          _transportFallbackReason = null;
-          return (channel: channel, transport: CallTransportKind.p2p);
-        } catch (e) {
-          lastError = e;
-          devLog(
-            () =>
-                'xVeil[call-media]: direct open attempt ${attempt + 1} failed '
-                'for ${call.peer.short}: $e',
-          );
-          final transient =
-              '$e'.contains('timed out') || '$e'.contains('probe failed');
-          if (!transient) break;
-          await Future<void>.delayed(const Duration(milliseconds: 300));
-        }
-      }
-      devLog(
-        () =>
-            'xVeil[call-media]: direct open failed for ${call.peer.short}; '
-            'using non-onion relay: $lastError',
-      );
-      // Layer-5 diagnostics (real-P2P epic): keep WHY the negotiated p2p
-      // route fell back so the transport badge / /call_state can say
-      // "relay — no direct session" instead of a bare "relay".
-      final es = '$lastError';
-      _transportFallbackReason = es.contains('not active')
-          ? 'no direct session to peer'
-          : es.contains('timed out')
-          ? 'direct probe timed out'
-          : 'direct open failed';
-      final channel = await _transport.openMediaChannel(
-        call.peer.bytes,
-        relay: true,
-      );
-      return (channel: channel, transport: CallTransportKind.relay);
-    }
-    _transportFallbackReason = null;
-    if (call.transport == CallTransportKind.relay) {
-      final channel = await _transport.openMediaChannel(
-        call.peer.bytes,
-        relay: true,
-      );
-      return (channel: channel, transport: CallTransportKind.relay);
-    }
-    if (call.transport != CallTransportKind.onion) {
-      throw StateError(
-        'negotiated ${call.transport?.name ?? 'unset'} media has no implemented route',
-      );
-    }
-    final channel = await _transport.openMediaChannel(call.peer.bytes);
-    return (channel: channel, transport: CallTransportKind.onion);
   }
 
   @override

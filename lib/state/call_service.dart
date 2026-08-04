@@ -327,10 +327,10 @@ class CallService {
     if (!(_callSlot?.acquire(CallSlotOwner.direct) ?? true)) return;
     final callId = _uuid.v4();
     final posture = _localPosture;
-    final localMediaKey =
-        _signalProtocolVersion >= kCallRelaySealedMediaMinVersion
-        ? generateCallMediaKeyContribution()
-        : null;
+    // Unconditional: media on every route is sealed with a key derived from
+    // both contributions, so a call that omits ours has no media plane at all
+    // rather than an unsealed one. Nothing may gate this on a version.
+    final localMediaKey = generateCallMediaKeyContribution();
     _set(
       Call(
         callId: callId,
@@ -881,9 +881,8 @@ class CallService {
         peerProtocolVersion: sig.protocolVersion,
         micOn: !_startMuted,
         cameraOn: offeredMedia.video,
-        localMediaKey: _signalProtocolVersion >= kCallRelaySealedMediaMinVersion
-            ? generateCallMediaKeyContribution()
-            : null,
+        // See placeCall: never gated, on either side of the handshake.
+        localMediaKey: generateCallMediaKeyContribution(),
         peerMediaKey: peerMediaKey,
       ),
     );

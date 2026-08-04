@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:veil_media/veil_media.dart';
 
@@ -18,7 +21,16 @@ import 'mac_media_permissions.dart';
 
 abstract interface class GroupMediaChannelTransport {
   Future<Uint8List> localNodeId();
-  Future<int> open(NodeId peer);
+
+  /// Open a media datagram channel to one room participant. The keys are
+  /// required for the same reason as in a 1:1 call: the channel seals every
+  /// cell with them and has no unsealed mode.
+  Future<int> open(
+    NodeId peer, {
+    required Uint8List txKey,
+    required Uint8List rxKey,
+  });
+
   void close(int channel);
 }
 
@@ -31,10 +43,83 @@ class VeilGroupMediaChannelTransport implements GroupMediaChannelTransport {
   Future<Uint8List> localNodeId() async => (await _transport.nodeId()).bytes;
 
   @override
-  Future<int> open(NodeId peer) => _transport.openMediaChannel(peer.bytes);
+  Future<int> open(
+    NodeId peer, {
+    required Uint8List txKey,
+    required Uint8List rxKey,
+  }) => _transport.openMediaChannel(peer.bytes, txKey: txKey, rxKey: rxKey);
 
   @override
   void close(int channel) => _transport.closeMediaChannel(channel);
+}
+
+/// Resolves the room-scoped root secret the per-pair media keys hang off.
+/// Null means this device cannot seal for that room, and therefore must not
+/// open a media channel into it.
+typedef GroupCallMediaSecretResolver =
+    Future<Uint8List?> Function(GroupCall call);
+
+Uint8List _groupMediaHash(Iterable<List<int>> parts) {
+  final builder = BytesBuilder(copy: false);
+  for (final part in parts) {
+    builder.add(part);
+  }
+  final material = builder.takeBytes();
+  try {
+    return Uint8List.fromList(sha256.convert(material).bytes);
+  } finally {
+    material.fillRange(0, material.length, 0);
+  }
+}
+
+/// Directional media keys for ONE pair of room participants, derived from the
+/// room's [roomSecret] and the two node ids.
+///
+/// The pair master is order-independent (ids sorted), so both endpoints agree;
+/// the directional keys are order-DEPENDENT, so A's tx is B's rx. Every member
+/// of the room can derive every pair's keys, and that is not a weakness here:
+/// who said what is settled by the signature the sender puts on its call
+/// signal, while this seal exists to keep the RELAYS carrying the datagrams —
+/// which are not members — out of the audio.
+@visibleForTesting
+({Uint8List txKey, Uint8List rxKey}) deriveGroupCallMediaKeys({
+  required Uint8List roomSecret,
+  required NodeId localNode,
+  required NodeId peerNode,
+}) {
+  if (roomSecret.length != 32) {
+    throw ArgumentError('roomSecret must be 32 bytes');
+  }
+  if (localNode == peerNode) {
+    throw ArgumentError('a participant has no media channel to itself');
+  }
+  final ordered = localNode.hex.compareTo(peerNode.hex) < 0
+      ? [localNode, peerNode]
+      : [peerNode, localNode];
+  Uint8List? master;
+  try {
+    master = _groupMediaHash([
+      utf8.encode('xveil/group-call-media/pair/v1'),
+      const [0],
+      roomSecret,
+      const [0],
+      ordered[0].bytes,
+      ordered[1].bytes,
+    ]);
+    Uint8List directionKey(NodeId from, NodeId to) => _groupMediaHash([
+      utf8.encode('xveil/group-call-media/direction/v1'),
+      const [0],
+      master!,
+      from.bytes,
+      to.bytes,
+    ]);
+    return (
+      txKey: directionKey(localNode, peerNode),
+      rxKey: directionKey(peerNode, localNode),
+    );
+  } finally {
+    master?.fillRange(0, master.length, 0);
+  }
 }
 
 abstract interface class GroupAudioEngine {
@@ -149,12 +234,17 @@ class NativeGroupAudioEngine implements GroupAudioEngine {
 class VeilGroupCallMediaController implements GroupCallMediaController {
   VeilGroupCallMediaController(
     this._transport, {
+    required GroupCallMediaSecretResolver roomMediaSecret,
     this._engineFactory = NativeGroupAudioEngine.create,
     Future<bool> Function()? requestMicrophone,
     Future<bool> Function()? requestCamera,
     this._statsInterval = const Duration(seconds: 1),
     DateTime Function()? now,
-  }) : _requestMicrophone = requestMicrophone ?? _defaultMicPermission,
+  }) : // Public `roomMediaSecret:` param → private field, as with `media:` on
+       // GroupCallService.
+       // ignore: prefer_initializing_formals
+       _roomMediaSecret = roomMediaSecret,
+       _requestMicrophone = requestMicrophone ?? _defaultMicPermission,
        _requestCamera = requestCamera ?? _defaultCameraPermission,
        _now = now ?? DateTime.now;
 
@@ -163,6 +253,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       supportsNativeGroupMedia(Platform.operatingSystem);
 
   final GroupMediaChannelTransport _transport;
+  final GroupCallMediaSecretResolver _roomMediaSecret;
   final GroupAudioEngineFactory _engineFactory;
   final Future<bool> Function() _requestMicrophone;
   final Future<bool> Function() _requestCamera;
@@ -242,7 +333,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       devLog(() => 'xVeil[group-call-media]: camera permission=$cameraGranted');
     }
     final localId = await _transport.localNodeId();
-    _localIdHex = NodeId(localId).hex;
+    _localNode = NodeId(localId);
+    _localIdHex = _localNode!.hex;
     final engine = _engineFactory(localId);
     if (engine == null) return false;
     _engine = engine;
@@ -365,29 +457,62 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         _transport.close(peer.channel);
       }
     }
-    for (final entry in desired.entries) {
-      if (_peers.containsKey(entry.key)) continue;
-      int? channel;
-      try {
-        channel = await _transport.open(entry.value);
-        if (!engine.addPeer(channel: channel, peer: entry.value)) {
-          _transport.close(channel);
-          continue;
-        }
-        _peers[entry.key] = _GroupPeerChannel(entry.value, channel);
-        _peerVideoFrames.putIfAbsent(entry.key, () => ValueNotifier(null));
-      } catch (error) {
-        if (channel != null) _transport.close(channel);
-        devLog(
-          () =>
-              'xVeil[group-call-media]: peer open failed '
-              '${entry.value.short}: $error',
+    final missing = desired.entries
+        .where((entry) => !_peers.containsKey(entry.key))
+        .toList(growable: false);
+    if (missing.isEmpty) return;
+    final localNode = _localNode;
+    // Resolved BEFORE any open, exactly once per reconcile: the room secret is
+    // what the mandatory per-pair keys are derived from, so a device that
+    // cannot resolve it opens nothing rather than opening something unsealed.
+    final roomSecret = localNode == null ? null : await _roomMediaSecret(call);
+    if (localNode == null || roomSecret == null) {
+      devLog(
+        () =>
+            'xVeil[group-call-media]: no room media secret for ${call.callId}; '
+            'refusing to open ${missing.length} unsealable peer channel(s)',
+      );
+      return;
+    }
+    try {
+      for (final entry in missing) {
+        int? channel;
+        final keys = deriveGroupCallMediaKeys(
+          roomSecret: roomSecret,
+          localNode: localNode,
+          peerNode: entry.value,
         );
+        try {
+          channel = await _transport.open(
+            entry.value,
+            txKey: keys.txKey,
+            rxKey: keys.rxKey,
+          );
+          if (!engine.addPeer(channel: channel, peer: entry.value)) {
+            _transport.close(channel);
+            continue;
+          }
+          _peers[entry.key] = _GroupPeerChannel(entry.value, channel);
+          _peerVideoFrames.putIfAbsent(entry.key, () => ValueNotifier(null));
+        } catch (error) {
+          if (channel != null) _transport.close(channel);
+          devLog(
+            () =>
+                'xVeil[group-call-media]: peer open failed '
+                '${entry.value.short}: $error',
+          );
+        } finally {
+          keys.txKey.fillRange(0, keys.txKey.length, 0);
+          keys.rxKey.fillRange(0, keys.rxKey.length, 0);
+        }
       }
+    } finally {
+      roomSecret.fillRange(0, roomSecret.length, 0);
     }
   }
 
   String? _localIdHex;
+  NodeId? _localNode;
 
   void _pollStats(GroupAudioEngine expected) {
     if (_engine != expected) return;
@@ -627,6 +752,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _lastRxPackets.clear();
     _lastRxAt.clear();
     _localIdHex = null;
+    _localNode = null;
     await callAudioRouter.release();
     await AndroidCallForegroundService.setActive(false);
   }

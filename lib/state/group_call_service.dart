@@ -1046,6 +1046,13 @@ final groupCallServiceProvider = Provider<GroupCallService?>((ref) {
             VeilGroupCallMediaController.isSupportedPlatform
         ? VeilGroupCallMediaController(
             VeilGroupMediaChannelTransport(transport),
+            roomMediaSecret: (call) => groups.groupCallMediaSecret(
+              groupId: call.groupId,
+              channelId: call.channelId,
+              channelEpoch: call.channelEpoch,
+              membershipEpoch: call.membershipEpoch,
+              callId: call.callId,
+            ),
           )
         : null,
     callSlot: ref.read(callSlotProvider),
