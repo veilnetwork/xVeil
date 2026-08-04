@@ -201,6 +201,10 @@ class _MessagingContacts {
   /// have seen it), but our side is cleaned up.
   Future<void> cancelRequest(NodeId peer) async {
     await _owner._storage.removeConversation(peer);
+    // A retracted request makes the peer unknown again, so any session the
+    // request itself opened has to go too — otherwise a "fresh" relationship
+    // later resumes a chain from before it was withdrawn.
+    await _owner._forgetRatchetWith(peer, 'request cancelled');
     _owner._signal();
   }
 
