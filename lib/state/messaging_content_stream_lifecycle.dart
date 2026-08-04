@@ -1,7 +1,14 @@
 part of 'messaging_core.dart';
 
+/// [peer] is the name the initiator arrived under; [provenance] is what this
+/// device knows about that name (audit X/V-01). Both travel together so a
+/// handler cannot read the name without the evidence sitting next to it.
 typedef _InboundContentStreamHandler =
-    void Function(NodeId peer, ReliableStream stream);
+    void Function(
+      NodeId peer,
+      SenderProvenance provenance,
+      ReliableStream stream,
+    );
 
 /// One accept loop per transport, independent of a particular
 /// [MessagingService] instance.
@@ -73,7 +80,11 @@ class _InboundContentStreamBroker {
               await _abort(accepted.stream);
             } else {
               try {
-                lease.onP2P(accepted.src, accepted.stream);
+                lease.onP2P(
+                  accepted.src,
+                  accepted.provenance,
+                  accepted.stream,
+                );
               } catch (_) {
                 await _abort(accepted.stream);
               }
@@ -97,7 +108,11 @@ class _InboundContentStreamBroker {
           continue;
         }
         try {
-          lease.onAnonymous(accepted.src, accepted.stream);
+          lease.onAnonymous(
+            accepted.src,
+            accepted.provenance,
+            accepted.stream,
+          );
         } catch (_) {
           await _abort(accepted.stream);
         }

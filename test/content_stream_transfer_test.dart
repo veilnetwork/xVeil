@@ -299,8 +299,8 @@ class _StreamLink
   _StreamLink? peer;
   final routes = <String, _StreamLink>{};
   final sentPayloads = <Uint8List>[];
-  final _accepts = <({ReliableStream stream, NodeId src})>[];
-  final _p2pAccepts = <({ReliableStream stream, NodeId src})>[];
+  final _accepts = <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
+  final _p2pAccepts = <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
   final acceptStreamWrappers =
       <ReliableStream Function(ReliableStream stream)>[];
   final openStreamDelays = <String, Duration>{};
@@ -369,7 +369,12 @@ class _StreamLink
       peerStream = p.acceptStreamWrappers.removeAt(0)(peerStream);
     }
     // Peer accepts the B-end; I keep the A-end.
-    p._accepts.add((stream: peerStream, src: _me));
+    p._accepts.add((
+      stream: peerStream,
+      src: _me,
+      // Anonymous lane: claimed by construction, as in production.
+      provenance: SenderProvenance.claimed,
+    ));
     final w = p._acceptWaiter;
     p._acceptWaiter = null;
     w?.complete();
@@ -390,7 +395,13 @@ class _StreamLink
     if (p.acceptStreamWrappers.isNotEmpty) {
       peerStream = p.acceptStreamWrappers.removeAt(0)(peerStream);
     }
-    p._p2pAccepts.add((stream: peerStream, src: _me));
+    p._p2pAccepts.add((
+      stream: peerStream,
+      src: _me,
+      // A direct open IS authenticated in production (remote APP_OPEN rides
+      // the OVL1 session it was read from), so an honest fake says so.
+      provenance: SenderProvenance.sessionPeer,
+    ));
     final w = p._p2pAcceptWaiter;
     p._p2pAcceptWaiter = null;
     w?.complete();
@@ -398,7 +409,8 @@ class _StreamLink
   }
 
   @override
-  Future<({ReliableStream stream, NodeId src})?> acceptStream({
+  Future<({ReliableStream stream, NodeId src, SenderProvenance provenance})?>
+  acceptStream({
     Duration timeout = const Duration(seconds: 2),
   }) async {
     activeAnonymousAccepts++;
@@ -420,7 +432,8 @@ class _StreamLink
   }
 
   @override
-  Future<({ReliableStream stream, NodeId src})?> acceptP2PStream({
+  Future<({ReliableStream stream, NodeId src, SenderProvenance provenance})?>
+  acceptP2PStream({
     Duration timeout = const Duration(milliseconds: 250),
   }) async {
     if (_p2pAccepts.isEmpty) {

@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:veil_flutter/veil_flutter.dart';
+// veil_flutter now exports a `SenderProvenance` of its own (veil 78d57520).
+// This test asserts on the APP's port type, so the SDK's name is hidden.
+import 'package:veil_flutter/veil_flutter.dart' hide SenderProvenance;
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/state/mailbox_orchestrator.dart';
