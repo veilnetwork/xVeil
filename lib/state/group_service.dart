@@ -12450,25 +12450,14 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
-    final retention = b.manifest.isSpace
-        ? await _materializedRetentionHistory(b, state)
-        : null;
-    final retireAtMs = _now();
-    final retainedMessages = _retainedMessageRows(b.manifest, b.messages)
-        .where(
-          (message) =>
-              _messageWithinLifecycleBoundary(b.manifest, state, message) &&
-              (retention == null ||
-                  !_retentionRetiresMessage(
-                    manifest: b.manifest,
-                    revisions: retention.revisions,
-                    hiddenThroughMs: retention.hiddenThroughMs,
-                    message: message,
-                    atMs: retireAtMs,
-                  )),
-        )
-        .toList();
-    final localMessageForks = _messageForks(b.manifest, retainedMessages);
+    // ADMISSION FIRST (audit report6 XV-09). The fold above is the cheapest
+    // thing that can answer "is this peer a member", so it is the last work
+    // done before the answer. Everything below — materializing the retention
+    // history, walking every retained row, scanning for forks, then building
+    // and shipping a reply — is proportional to the whole group and used to
+    // run BEFORE anyone asked whether the sender was entitled to any of it.
+    // A Space id is public by construction (it IS the group id), so that was
+    // reachable with nothing but a transport session and a published id.
     if (!SpaceAcl(state).allows(peer, SpacePermission.distributeContent)) {
       devLog(() => 'xVeil[groups]: sync request from non-member — drop');
       if (b.manifest.isSpace) {
@@ -12493,6 +12482,25 @@ class GroupService {
       }
       return false;
     }
+    final retention = b.manifest.isSpace
+        ? await _materializedRetentionHistory(b, state)
+        : null;
+    final retireAtMs = _now();
+    final retainedMessages = _retainedMessageRows(b.manifest, b.messages)
+        .where(
+          (message) =>
+              _messageWithinLifecycleBoundary(b.manifest, state, message) &&
+              (retention == null ||
+                  !_retentionRetiresMessage(
+                    manifest: b.manifest,
+                    revisions: retention.revisions,
+                    hiddenThroughMs: retention.hiddenThroughMs,
+                    message: message,
+                    atMs: retireAtMs,
+                  )),
+        )
+        .toList();
+    final localMessageForks = _messageForks(b.manifest, retainedMessages);
     // -1, not 0: seqs start at 0, so "never seen this author" must sit BELOW
     // the first seq or seq-0 entries can never gap-fill (see [vector]).
     int seen(Object? vec, NodeId author) {
@@ -13048,16 +13056,32 @@ class GroupService {
       });
 
   /// The NON-contact variant of [ingestGroupEntry]: a member's sync vector is
-  /// answered (the handler's own membership gate is the same admission), a
-  /// bundle goes through the stranger-guarded ingest.
+  /// answered and a bundle is merged, both only through [allowStrangerGroupSync]
+  /// — the one admission every non-contact ingress passes.
+  ///
+  /// The sync-request branch used to reach the handler directly, so a stranger's
+  /// entitlement was decided deep inside it rather than here (audit report6
+  /// XV-09). It is asked here now, before the handler is entered at all: this is
+  /// the boundary where "we have never agreed to talk to this node" is known,
+  /// and the wire layer already consults the same gate before spending
+  /// reassembly RAM on a stranger's chunks. A stranger that IS a member of a
+  /// group we hold still passes — that legitimate member-to-member sync without
+  /// a pairwise contact handshake is exactly what the gate exists to allow.
   Future<bool> ingestGroupEntryFromStranger(NodeId peer, String json) async {
     Map? decoded;
     try {
       final d = jsonDecode(json);
-      if (d is Map && d['sreq'] == 1) return handleGroupSyncRequest(peer, d);
       if (d is Map) decoded = d;
     } catch (_) {
       return false; // malformed — drop
+    }
+    if (decoded != null && decoded['sreq'] == 1) {
+      final gidHex = decoded['gid'];
+      if (gidHex is! String || !await allowStrangerGroupSync(peer, gidHex)) {
+        devLog(() => 'xVeil[groups]: stranger sync request DENIED — drop');
+        return false;
+      }
+      return handleGroupSyncRequest(peer, decoded);
     }
     SpaceJoinOutboxEntry? acceptedJoinRequest;
     final manifest = SpaceManifest.fromJson(decoded?['m']);
