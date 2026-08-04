@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 
@@ -59,6 +60,13 @@ abstract interface class RatchetStateHandle {
   /// chain, so every message the peer has already sealed to it is unreadable
   /// from here on. Returns false when nothing was held.
   bool forget(Uint8List conversationKey);
+
+  /// Release whatever this door is holding open. Idempotent.
+  ///
+  /// On the interface rather than only on the FFI class because the teardown
+  /// leg that calls it runs against whatever a stack was built with, and a
+  /// leaked IPC connection is a node whose shutdown waits on nothing.
+  void close();
 }
 
 // C ABI from veilclient-ffi (node-embedded feature). See veil_ffi.h.
@@ -140,6 +148,14 @@ typedef _ForgetDart =
     int Function(Pointer<Void>, Pointer<Uint8>, Pointer<Pointer<Utf8>>);
 typedef _FreeStrNative = Void Function(Pointer<Utf8>);
 typedef _FreeStrDart = void Function(Pointer<Utf8>);
+// VeilHandle *veil_connect(const uint8_t*, uintptr_t, char** err_out);
+// void        veil_close(VeilHandle*);
+typedef _ConnectNative =
+    Pointer<Void> Function(Pointer<Uint8>, IntPtr, Pointer<Pointer<Utf8>>);
+typedef _ConnectDart =
+    Pointer<Void> Function(Pointer<Uint8>, int, Pointer<Pointer<Utf8>>);
+typedef _CloseNative = Void Function(Pointer<Void>);
+typedef _CloseDart = void Function(Pointer<Void>);
 
 /// `VEIL_ERR_RATCHET_NO_CONVERSATION` — the key names nothing this node holds.
 const int kVeilErrRatchetNoConversation = -20;
@@ -164,7 +180,16 @@ bool ratchetStateAvailable({DynamicLibrary? lib}) {
   }
 }
 
-/// [RatchetStateHandle] over a live embedded-node handle.
+/// [RatchetStateHandle] over a `VeilHandle` — an IPC CLIENT connection to the
+/// node, not the node handle.
+///
+/// This is not a detail. The store lives in the frame dispatcher's crypto, and
+/// the FFI reaches it through the runtime bundle behind a connected handle; a
+/// `VeilNode*` from `veil_node_start_deferred` is a different type and the
+/// handle table rejects it outright ("use-after-close or unknown handle"). The
+/// first version of this file passed the node handle, every call failed, and
+/// nothing but a live node could have said so — a Dart model of the store
+/// cannot be wrong about which pointer it is given.
 ///
 /// Every call is synchronous and short: the store is an in-memory map behind a
 /// lock, and the alternative — doing this off-isolate — would put the write
@@ -172,8 +197,61 @@ bool ratchetStateAvailable({DynamicLibrary? lib}) {
 class FfiRatchetStateHandle implements RatchetStateHandle {
   FfiRatchetStateHandle(this._handle, this._dl);
 
+  /// Open a connection to the node's IPC socket and take the ratchet door on
+  /// it. Null when this dylib has no ratchet door; throws when the node is not
+  /// answering yet.
+  ///
+  /// [socketPath] is an ANCHOR, exactly as `VeilClient.connect` takes it: when
+  /// its directory holds `ipc.port` / `ipc.token` sidecars the native side uses
+  /// authenticated loopback TCP instead (the iOS path, where the sandbox's
+  /// paths are longer than `sockaddr_un` allows).
+  static FfiRatchetStateHandle? connect(
+    String socketPath, {
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? processLibFor('veilclient_ffi');
+    if (!ratchetStateAvailable(lib: dl)) return null;
+    final connectFn = dl.lookupFunction<_ConnectNative, _ConnectDart>(
+      'veil_connect',
+    );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final bytes = utf8.encode(socketPath);
+    final pathPtr = calloc<Uint8>(bytes.length);
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      pathPtr.asTypedList(bytes.length).setAll(0, bytes);
+      final handle = connectFn(pathPtr, bytes.length, errOut);
+      if (handle == nullptr) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_connect (ratchet) failed: $msg');
+      }
+      return FfiRatchetStateHandle(handle, dl);
+    } finally {
+      calloc.free(pathPtr);
+      calloc.free(errOut);
+    }
+  }
+
   final Pointer<Void> _handle;
   final DynamicLibrary _dl;
+  bool _closed = false;
+
+  /// Release the IPC connection. Idempotent.
+  ///
+  /// Its own connection rather than one borrowed from the transport, so it is
+  /// closed on the way down like any other: the alternative was reaching into
+  /// `VeilClient`'s private handle, and a borrowed handle whose owner closes
+  /// first is a use-after-free on the send path.
+  @override
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    _dl.lookupFunction<_CloseNative, _CloseDart>('veil_close')(_handle);
+  }
 
   String _takeErr(Pointer<Pointer<Utf8>> errOut) {
     final err = errOut.value;

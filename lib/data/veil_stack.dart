@@ -2,7 +2,6 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:xveil/core/cleanup_legs.dart';
 import 'package:xveil/core/posix_file_facts.dart';
@@ -13,6 +12,7 @@ import 'node/node_controller.dart';
 import 'node/proxy_routing.dart';
 import 'node/ratchet_ffi.dart'
     show
+        FfiRatchetStateHandle,
         RatchetStateHandle,
         dropRejectedRatchetStates,
         importRatchetStates,
@@ -599,10 +599,14 @@ class RealVeilStack {
 
   /// The node's ratchet-state door, when it has one.
   ///
-  /// Null on the subprocess/dev paths (no in-process handle) and on a dylib
+  /// Null on the subprocess/dev paths (no IPC handle of our own) and on a dylib
   /// built without `node-embedded`. The stored conversations were already
   /// handed back to veil by the time this stack exists — see [startDeniable];
   /// what remains for the messaging layer is the write after every operation.
+  ///
+  /// Its own `veil_connect` connection, closed by [dispose]. Borrowing the
+  /// transport's would mean reaching into `VeilClient`'s private handle and
+  /// then racing its close on the send path.
   final RatchetStateHandle? ratchetState;
 
   // The config-file dev path uses veil-cli + a config file for invite/join.
@@ -900,8 +904,6 @@ class RealVeilStack {
 
     // 4. Boot deferred (anonymity armed in the stub when requested), then apply
     // the real config IN MEMORY (no file) to promote the real identity.
-    RatchetStateHandle? ratchetState;
-    var ratchetRejected = const <Uint8List>[];
     final controller = EmbeddedNodeController(
       appSocketPath: ipcSock,
       starter: () {
@@ -931,15 +933,6 @@ class RealVeilStack {
               'xVeil[deniable]: startDeferred +${tDeferred}ms, '
               'applyConfig +${ssw.elapsedMilliseconds - tDeferred}ms',
         );
-        // HERE, and not one line later. This is the last point at which the
-        // node exists and nothing outside this process can hand it a frame: the
-        // controller has not finished starting, the transport is not connected
-        // and no seed has been dialled. A frame that arrives for a conversation
-        // we have not restored cannot be opened, and — unlike a lost packet —
-        // the sender has already advanced its chain, so nothing will re-send it
-        // in a form this node can read. There is no second chance at it.
-        ratchetState = node.ratchetState();
-        ratchetRejected = importRatchetStates(ratchetState, storedRatchet);
         return node;
       },
     );
@@ -969,18 +962,52 @@ class RealVeilStack {
       );
     }
 
-    // Whatever veil would not take can never open a frame again, so the records
-    // go. After the node is up, not inside the starter: the drop is a container
-    // WRITE, and the import window exists precisely because nothing async may
-    // happen in it.
-    await dropRejectedRatchetStates(storage, ratchetRejected);
+    // 4b. Hand the stored ratchet sessions back to veil, before ANY of this
+    // app's traffic starts.
+    //
+    // This is the earliest point it can happen, and the reason is a type: the
+    // ratchet FFI takes a `VeilHandle` — an IPC client connection — and the
+    // node handle from `startDeferred` is a different one the handle table
+    // refuses. `veil_connect` cannot run until the node's IPC socket answers,
+    // which is exactly what the readiness poll above just waited for. So the
+    // import lands here, ahead of the transport, ahead of seed registration and
+    // ahead of the invite.
+    //
+    // What that leaves open is honest to state: the node has been on the
+    // network for the length of the readiness poll, and a frame arriving in
+    // that window is for a conversation not yet restored. It cannot be opened,
+    // and unlike a lost packet the sender has already advanced its chain, so
+    // nothing re-sends it in a readable form. Closing that window needs the
+    // import to happen inside veil's own boot, not from out here.
+    final RatchetStateHandle? ratchetState;
+    try {
+      ratchetState = FfiRatchetStateHandle.connect(ipcSock, lib: lib);
+    } catch (e) {
+      await runCleanupLegs('veil-stack-boot', [('controller', controller.stop)]);
+      rethrow;
+    }
+    try {
+      final rejected = importRatchetStates(ratchetState, storedRatchet);
+      // Whatever veil would not take can never open a frame again, so the
+      // records go rather than being re-read on every launch forever.
+      await dropRejectedRatchetStates(storage, rejected);
+    } catch (_) {
+      await runCleanupLegs('veil-stack-boot', [
+        ('ratchet handle', () async => ratchetState?.close()),
+        ('controller', controller.stop),
+      ]);
+      rethrow;
+    }
 
     // 5. Connect the transport, then ask the running node for its own invite.
     final VeilFlutterTransport transport;
     try {
       transport = await VeilFlutterTransport.connect(ipcSock);
     } catch (e) {
-      await runCleanupLegs('veil-stack-boot', [('controller', controller.stop)]);
+      await runCleanupLegs('veil-stack-boot', [
+        ('ratchet handle', () async => ratchetState?.close()),
+        ('controller', controller.stop),
+      ]);
       rethrow;
     }
     // Everything past here owns TWO resources — the node and the transport —
@@ -1008,6 +1035,7 @@ class RealVeilStack {
       // of whatever failed the boot; that is the error the caller needs.
       await runCleanupLegs('veil-stack-boot', [
         ('transport', transport.dispose),
+        ('ratchet handle', () async => ratchetState?.close()),
         ('controller', controller.stop),
       ]);
       rethrow;
@@ -1151,6 +1179,9 @@ class RealVeilStack {
   Future<void> dispose() async {
     final failure = await runCleanupLegs('veil-stack', [
       ('transport', transport.dispose),
+      // Before the node stops: this is an IPC connection TO it, and a handle
+      // left open is one more reason the node's shutdown waits.
+      ('ratchet handle', () async => ratchetState?.close()),
       ('controller', controller.stop),
       // Through the LEASE, which deletes only the directory this boot created
       // and only while it can still prove that is what it is looking at. The
