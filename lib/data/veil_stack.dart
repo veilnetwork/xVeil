@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
 
+import 'package:xveil/core/cleanup_legs.dart';
 import 'package:xveil/core/posix_file_facts.dart';
 
 import 'native_libs.dart' show openEnvLib, processLibFor;
@@ -551,6 +552,26 @@ class RealVeilStack {
        _config = configPath,
        _flutterTransport = nodeIpc;
 
+  /// Assemble a stack over parts that already exist.
+  ///
+  /// Only for driving [dispose] against fakes: the teardown it performs is the
+  /// one that removes the runtime directory, which is a DENIABILITY control,
+  /// and a control nothing can reach is a control nothing can check.
+  ///
+  /// Production code builds its stacks through [startDeniable] or [start];
+  /// nothing else should call this.
+  static RealVeilStack overParts({
+    required NodeController controller,
+    required VeilTransport transport,
+    required BootstrapInvite myInvite,
+    RuntimeDirLease? runtimeLease,
+  }) => RealVeilStack._(
+    controller: controller,
+    transport: transport,
+    myInvite: myInvite,
+    runtimeLease: runtimeLease,
+  );
+
   final NodeController controller;
   final VeilTransport transport;
   final BootstrapInvite myInvite;
@@ -715,8 +736,15 @@ class RealVeilStack {
       );
     } catch (_) {
       // A boot that never completed still made a directory; nothing else will
-      // ever come back for it.
-      await lease.release();
+      // ever come back for it. Every failure path inside [_startDeniableIn]
+      // arrives here, which is what makes "no start failure leaves the sockets
+      // and the PSK behind" a property of ONE place rather than of five.
+      //
+      // Through a leg so that a throw out of `release()` itself cannot replace
+      // the error that actually explains the failed boot.
+      await runCleanupLegs('veil-stack-boot', [
+        ('runtime dir', () async => lease.release()),
+      ]);
       rethrow;
     }
   }
@@ -893,7 +921,11 @@ class RealVeilStack {
       // the listen port, with no reference left to shut it down. The next boot
       // then found the port taken and failed for a reason that had nothing to
       // do with why the first one had not connected.
-      await controller.stop();
+      //
+      // Through a leg so a throw out of `stop()` cannot swallow the diagnosis
+      // below — the phase and message are the only record of WHY the node did
+      // not come up (audit XV-12).
+      await runCleanupLegs('veil-stack-boot', [('controller', controller.stop)]);
       throw StateError(
         'deniable node did not connect: ${controller.current.phase}'
         ' (${controller.current.message})',
@@ -905,7 +937,7 @@ class RealVeilStack {
     try {
       transport = await VeilFlutterTransport.connect(ipcSock);
     } catch (e) {
-      await controller.stop();
+      await runCleanupLegs('veil-stack-boot', [('controller', controller.stop)]);
       rethrow;
     }
     // Everything past here owns TWO resources — the node and the transport —
@@ -924,8 +956,16 @@ class RealVeilStack {
         listenScheme: listenScheme,
       );
     } catch (_) {
-      await transport.dispose();
-      await controller.stop();
+      // INDEPENDENT legs. Chained, a throw from `transport.dispose()` skipped
+      // `controller.stop()` and left the node running with its admin socket,
+      // its IPC socket and its listen port held, and no handle left to stop it
+      // — the very thing the readiness check above was fixed for, reappearing
+      // one step later (audit XV-12). Cleanup errors are swallowed in favour
+      // of whatever failed the boot; that is the error the caller needs.
+      await runCleanupLegs('veil-stack-boot', [
+        ('transport', transport.dispose),
+        ('controller', controller.stop),
+      ]);
       rethrow;
     }
   }
@@ -1048,17 +1088,32 @@ class RealVeilStack {
     );
   }
 
+  /// Tear the stack down: three INDEPENDENT legs, in reverse build order.
+  ///
+  /// This was a straight `await` chain, and the last link is what makes that a
+  /// privacy failure rather than untidiness. A throw from `transport.dispose()`
+  /// — an IPC socket that will not close, an FFI stop on a handle already freed
+  /// — skipped both the node stop and the runtime-dir removal, and the runtime
+  /// dir holds the sockets and the public obfs4 PSK: the plaintext trace that
+  /// identities RAN on this machine. Deniability is not something to lose to
+  /// somebody else's exception (audit XV-12).
+  ///
+  /// Sequential on purpose — order matters during teardown — but a failing leg
+  /// no longer cancels the ones after it. The first error is still rethrown, so
+  /// an unclean teardown is not silent; it is just no longer paid for with the
+  /// rest of the teardown.
   Future<void> dispose() async {
-    await transport.dispose();
-    await controller.stop();
-    // Deniability: the runtime dir (sockets + the public obfs4 PSK) would
-    // otherwise persist in temp after teardown — a plaintext side-channel
-    // revealing that identities ran. Remove it now that the node is stopped.
-    //
-    // Through the LEASE, which deletes only the directory this boot created and
-    // only while it can still prove that is what it is looking at. The bare
-    // `delete(recursive: true)` this replaced would have removed whatever the
-    // configured path happened to name (audit C-02).
-    await _runtimeLease?.release();
+    final failure = await runCleanupLegs('veil-stack', [
+      ('transport', transport.dispose),
+      ('controller', controller.stop),
+      // Through the LEASE, which deletes only the directory this boot created
+      // and only while it can still prove that is what it is looking at. The
+      // bare `delete(recursive: true)` this replaced would have removed
+      // whatever the configured path happened to name (audit C-02).
+      ('runtime dir', () async => _runtimeLease?.release()),
+    ]);
+    if (failure != null) {
+      Error.throwWithStackTrace(failure.error, failure.stack);
+    }
   }
 }
