@@ -2956,6 +2956,31 @@ class AppL10nRu extends AppL10n {
       'Как отвечать, когда контакт просит подтвердить, что вы написали сообщение';
 
   @override
+  String get screenLockTitle => 'Заблокировано';
+
+  @override
+  String get settingsScreenLock => 'Блокировать экран в фоне';
+
+  @override
+  String get settingsScreenLockHint =>
+      'Снова спрашивать пароль, если приложение было свёрнуто. Сообщения продолжают приходить, уведомления работают — закрыт только экран.';
+
+  @override
+  String get screenLockOff => 'Выключено';
+
+  @override
+  String get screenLockImmediately => 'Сразу';
+
+  @override
+  String get screenLockOneMinute => 'Через 1 минуту';
+
+  @override
+  String get screenLockFiveMinutes => 'Через 5 минут';
+
+  @override
+  String get screenLockFifteenMinutes => 'Через 15 минут';
+
+  @override
   String get settingsApiTitle => 'API автоматизации';
 
   @override

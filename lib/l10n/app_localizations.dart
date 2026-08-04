@@ -5172,6 +5172,54 @@ abstract class AppL10n {
   /// **'How to answer when a contact asks you to prove you wrote a message'**
   String get settingsSignaturePolicyHint;
 
+  /// No description provided for @screenLockTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Locked'**
+  String get screenLockTitle;
+
+  /// No description provided for @settingsScreenLock.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock the screen in the background'**
+  String get settingsScreenLock;
+
+  /// No description provided for @settingsScreenLockHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask for the password again after the app has been away. Messages keep arriving and notifications keep working — only the screen is covered.'**
+  String get settingsScreenLockHint;
+
+  /// No description provided for @screenLockOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get screenLockOff;
+
+  /// No description provided for @screenLockImmediately.
+  ///
+  /// In en, this message translates to:
+  /// **'Immediately'**
+  String get screenLockImmediately;
+
+  /// No description provided for @screenLockOneMinute.
+  ///
+  /// In en, this message translates to:
+  /// **'After 1 minute'**
+  String get screenLockOneMinute;
+
+  /// No description provided for @screenLockFiveMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'After 5 minutes'**
+  String get screenLockFiveMinutes;
+
+  /// No description provided for @screenLockFifteenMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'After 15 minutes'**
+  String get screenLockFifteenMinutes;
+
   /// No description provided for @settingsApiTitle.
   ///
   /// In en, this message translates to:
