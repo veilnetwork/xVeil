@@ -185,16 +185,30 @@ extension _MessagingContentServer on MessagingService {
 
   void _endStreamServe(String cid) => _contentServing.endStream(cid);
 
-  void _acceptAnonymousContentStream(NodeId peer, ReliableStream stream) {
-    _bulkStreamLog(() => 'xVeil[content]: stream-accept anon <- ${peer.short}');
+  void _acceptAnonymousContentStream(
+    NodeId peer,
+    SenderProvenance provenance,
+    ReliableStream stream,
+  ) {
+    _bulkStreamLog(
+      () =>
+          'xVeil[content]: stream-accept anon <- ${peer.short} '
+          '(${provenance.name})',
+    );
     _contentStreams.runServe(stream, () => _serveStream(peer, stream));
   }
 
-  void _acceptP2PContentStream(NodeId peer, ReliableStream stream) {
+  void _acceptP2PContentStream(
+    NodeId peer,
+    SenderProvenance provenance,
+    ReliableStream stream,
+  ) {
     _contentStreams.runServe(stream, () async {
       if (await _p2pStreamAllowed(peer)) {
         _bulkStreamLog(
-          () => 'xVeil[content]: stream-accept p2p <- ${peer.short}',
+          () =>
+              'xVeil[content]: stream-accept p2p <- ${peer.short} '
+              '(${provenance.name})',
         );
         await _serveStream(peer, stream);
         return;
