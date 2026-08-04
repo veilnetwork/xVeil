@@ -243,11 +243,47 @@ class CloudFolderShareHost {
     })
     send,
     DateTime Function()? now,
+    int egressBudgetBytes = defaultEgressBudgetBytes,
+    Duration egressWindow = defaultEgressWindow,
     // ignore: prefer_initializing_formals
   }) : _send = send,
-       _now = now ?? DateTime.now {
+       _now = now ?? DateTime.now,
+       // ignore: prefer_initializing_formals
+       _egressBudgetBytes = egressBudgetBytes,
+       // ignore: prefer_initializing_formals
+       _egressWindow = egressWindow {
     _ready = setListing(listing);
   }
+
+  /// What one link may make this host EMIT, per window.
+  ///
+  /// A listing request is about 150 bytes and the reply is up to 256 KiB, so
+  /// the listing op reflects roughly 1700 to 1. The MAC is no defence: it is
+  /// keyed by the folder link, which every holder has and any of them may pass
+  /// on, and the request names its own return endpoint — so the traffic lands
+  /// wherever the requester says, and the host is the one sending it. Nothing
+  /// counted, and nothing remembered a nonce, so one 150-byte datagram could
+  /// be replayed as often as the attacker liked (audit XV-07).
+  ///
+  /// The report's remedy — bind the reply to an authenticated sender — is
+  /// declined: a folder link is a BEARER capability on a deliberately
+  /// anonymous path, and the identity that would make the reply attributable
+  /// is exactly what that path exists not to have.
+  ///
+  /// The ceiling is set where legitimate use cannot reach it. Replies travel
+  /// the anonymous onion path in 256-byte chunks over rendezvous circuits;
+  /// 32 MiB a minute is around 2000 chunks a second, orders of magnitude
+  /// beyond what that path delivers. A real download never notices this. A
+  /// reflection tops out at roughly 128 listing replies a minute instead of
+  /// however many the attacker cares to ask for.
+  static const int defaultEgressBudgetBytes = 32 * 1024 * 1024;
+  static const Duration defaultEgressWindow = Duration(minutes: 1);
+
+  /// Nonces of requests already ANSWERED, bounded FIFO — the shape the group
+  /// content path uses (see `authorizeGroupContentRequest`). Only MAC-valid
+  /// requests reach it, so an outsider cannot fill it to push a real client's
+  /// nonce out.
+  static const int maxSeenNonces = 512;
 
   /// Completes once the initial listing has been sealed, and FAILS if it could
   /// not be — the create path wants that failure. [serve] does not use this:
@@ -284,7 +320,43 @@ class CloudFolderShareHost {
   Uint8List _sealedListing = Uint8List(0);
   final Map<String, ContentManifest> _served = {};
 
+  final int _egressBudgetBytes;
+  final Duration _egressWindow;
+  final Set<String> _seenNonces = <String>{};
+  DateTime? _windowStart;
+  int _spentBytes = 0;
+
   int get revision => _listing.revision;
+
+  /// Whether this nonce is new, remembering it if so.
+  ///
+  /// Called only after the MAC verifies, so what it bounds is a HOLDER
+  /// replaying its own authentic request — the cheapest form of the
+  /// reflection, since it costs the attacker nothing to produce.
+  bool _freshNonce(Uint8List nonce) {
+    final key = _contentIdHex(nonce);
+    if (!_seenNonces.add(key)) return false;
+    if (_seenNonces.length > maxSeenNonces) {
+      _seenNonces.remove(_seenNonces.first);
+    }
+    return true;
+  }
+
+  /// Charge [bytes] against this share's egress budget, or refuse.
+  ///
+  /// A tumbling window rather than anything cleverer: the point is a ceiling
+  /// that legitimate use cannot reach, not fair queueing.
+  bool _charge(int bytes) {
+    final now = _now();
+    final start = _windowStart;
+    if (start == null || now.difference(start) >= _egressWindow) {
+      _windowStart = now;
+      _spentBytes = 0;
+    }
+    if (_spentBytes + bytes > _egressBudgetBytes) return false;
+    _spentBytes += bytes;
+    return true;
+  }
 
   /// Replace the served listing. The new revision must not go backwards.
   ///
@@ -377,12 +449,16 @@ class CloudFolderShareHost {
       requestNonce: request.nonce,
     );
     if (!_equal(expected, request.mac)) return;
+    // Authenticated, and only now may it cost anything. A replay of a request
+    // already answered gets the same silence as a bad MAC.
+    if (!_freshNonce(request.nonce)) return;
     final response = _ListingResponse(
       shareId: capability.shareId,
       nonce: request.nonce,
       revision: _listing.revision,
       sealed: _sealedListing,
     ).encode();
+    if (!_charge(response.length)) return;
     await _send(
       servicePublicKey: request.returnServicePublicKey,
       targetAppId: request.returnAppId,
@@ -410,6 +486,7 @@ class CloudFolderShareHost {
       requestNonce: request.nonce,
     );
     if (!_equal(expected, request.mac)) return;
+    if (!_freshNonce(request.nonce)) return;
     final length = CloudCapabilityCodec.chunkLength(
       fileCapability,
       request.pieceIndex,
@@ -429,18 +506,23 @@ class CloudFolderShareHost {
     // Reuse the file wire response frame (XCP1) keyed by the file's shareId ==
     // the folder shareId; the client disambiguates by (contentId-derived key,
     // piece, chunk, nonce).
+    final response = _folderChunkResponse(
+      shareId: capability.shareId,
+      contentId: request.contentId,
+      pieceIndex: request.pieceIndex,
+      chunkIndex: request.chunkIndex,
+      nonce: request.nonce,
+      sealed: sealed,
+    );
+    // A chunk reply is about the size of its request, so this op reflects
+    // nothing — but it is egress from the same share, and a budget that only
+    // watched the listing would be a budget an attacker walks around.
+    if (!_charge(response.length)) return;
     await _send(
       servicePublicKey: request.returnServicePublicKey,
       targetAppId: request.returnAppId,
       targetEndpointId: request.returnEndpointId,
-      data: _folderChunkResponse(
-        shareId: capability.shareId,
-        contentId: request.contentId,
-        pieceIndex: request.pieceIndex,
-        chunkIndex: request.chunkIndex,
-        nonce: request.nonce,
-        sealed: sealed,
-      ),
+      data: response,
     );
   }
 }
