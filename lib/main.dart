@@ -24,6 +24,7 @@ import 'data/storage/async_kv_log_store.dart';
 import 'data/storage/hidden_volume_storage.dart';
 import 'data/storage/hv_native.dart';
 import 'data/storage/on_disk_blob_store.dart';
+import 'data/storage/profile_prefs_store.dart';
 import 'data/transport/veil_native.dart';
 import 'data/veil_stack.dart';
 import 'debug/soak_hook.dart';
@@ -59,6 +60,32 @@ Future<void> main([List<String> args = const []]) async {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+
+      // FIRST, before anything can read a preference: take the app's
+      // preferences out of the platform's system store and into a file in the
+      // active profile's own directory (audit XV-16).
+      //
+      // On iOS the system store is `Library/Preferences/<bundle>.plist`, which
+      // iOS copies into iCloud and encrypted device backups; the
+      // exclude-from-backup flag the app sets covers Application Support and
+      // cannot reach a directory the system owns. What was leaving the device
+      // in the clear was the whole posture — active profile, whether the
+      // profile switcher had been found, proxy and VPN routing policy with its
+      // app list and subnets, notification settings, language — and, in the KEY
+      // NAMES, a roster of which profiles exist at all.
+      //
+      // Ordering is load-bearing: `SharedPreferences` caches its map on first
+      // use, so this has to win the race with every other reader.
+      try {
+        activeProfile = await installProfilePreferences(
+          supportDir: (await getApplicationSupportDirectory()).path,
+          args: launchArguments,
+        );
+      } catch (e, st) {
+        // Never fatal: preferences are conveniences, and a launch that dies
+        // over one is a worse outcome than a launch that starts on defaults.
+        devLog(() => 'xVeil[prefs]: profile preference install failed: $e\n$st');
+      }
 
       // Desktop: arm window_manager so the close button can hide to tray
       // (DesktopTrayHost decides) instead of quitting. No-op on mobile.
@@ -209,14 +236,11 @@ Future<BootstrapResult> _bootstrapOverrides() async {
       // containers (dev/demo); otherwise the per-app support dir.
       final override = Platform.environment['XVEIL_STORE_PATH'];
       final dir = await getApplicationSupportDirectory();
+      // [activeProfile] was resolved in main() together with the preference
+      // store that belongs to it. The default profile resolves to the
+      // historical container path, so an existing install is untouched and a
+      // user who never opens the switcher cannot tell this exists.
       final prefs = await SharedPreferences.getInstance();
-      // Which profile this launch runs on. The default profile resolves to the
-      // historical path, so an existing install is untouched and a user who
-      // never opens the switcher cannot tell this exists.
-      activeProfile = AppProfiles.resolve(
-        args: launchArguments,
-        remembered: prefs.getString(AppProfiles.activePref),
-      );
       final path = (override != null && override.isNotEmpty)
           ? override
           : AppProfiles.storePath(dir.path, activeProfile);
