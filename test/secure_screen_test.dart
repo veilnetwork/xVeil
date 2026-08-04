@@ -1,8 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/secure_screen.dart';
 import 'package:xveil/state/android_screen_capture.dart';
+
+/// Every label the platform would hand to VoiceOver / TalkBack, read out of the
+/// SEMANTICS tree rather than the widget tree — a cover made of pixels does not
+/// appear in that tree at all, which is how the app underneath stayed readable.
+List<String> _accessibleLabels(WidgetTester tester) {
+  final labels = <String>[];
+  void visit(SemanticsNode node) {
+    final label = node.getSemanticsData().label;
+    if (label.isNotEmpty) labels.add(label);
+    node.visitChildren((child) {
+      visit(child);
+      return true;
+    });
+  }
+
+  visit(tester.getSemantics(find.byType(MaterialApp)));
+  return labels;
+}
 
 /// Screenshots, recordings, and the card the task switcher draws.
 ///
@@ -259,6 +278,43 @@ void main() {
       }
       await lifecycle(tester, AppLifecycleState.resumed);
       expect(find.text('xVeil'), findsNothing);
+    });
+
+    testWidgets('the cover silences the app under it, not itself', (
+      tester,
+    ) async {
+      // `ExcludeSemantics` used to sit on the COVER, which hid the one widget
+      // that had nothing to hide and left the whole app readable underneath.
+      // A screen reader walks the semantics tree, not the pixels.
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TaskSwitcherShield(
+            child: Scaffold(
+              body: Center(
+                child: FilledButton(
+                  onPressed: () {},
+                  child: const Text('are you free tonight'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        _accessibleLabels(tester),
+        contains('are you free tonight'),
+        reason: 'the fixture itself is broken',
+      );
+
+      await lifecycle(tester, AppLifecycleState.inactive);
+      expect(
+        _accessibleLabels(tester),
+        isNot(contains('are you free tonight')),
+        reason: 'the app under the cover is still being read out',
+      );
+      semantics.dispose();
     });
 
     testWidgets('the cover hides the content, it does not sit behind it', (
