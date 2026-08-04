@@ -249,11 +249,21 @@ class CloudFolderShareHost {
     _ready = setListing(listing);
   }
 
-  /// Completes once the initial listing has been sealed. [serve] awaits the
-  /// latest seal internally, so callers need this only to know the host is
-  /// answering.
+  /// Completes once the initial listing has been sealed, and FAILS if it could
+  /// not be — the create path wants that failure. [serve] does not use this:
+  /// see [_settled].
   Future<void> get ready => _ready;
   Future<void> _ready = Future.value();
+
+  /// The gate [serve] waits on, ordered behind whatever seal is in flight.
+  ///
+  /// It never completes with an error, and that is the whole point. `serve`
+  /// used to await the same future the caller did, so a listing that could not
+  /// be sealed did not merely fail to publish — it left a REJECTED future in
+  /// the serving path and the host stopped answering anything at all, the
+  /// previously published listing included. A share that had been serving
+  /// happily went silent because of a listing it never accepted (audit XV-18).
+  Future<void> _settled = Future.value();
 
   final CloudFolderCapability capability;
   final CloudFolderShareStorage storage;
@@ -277,9 +287,19 @@ class CloudFolderShareHost {
   int get revision => _listing.revision;
 
   /// Replace the served listing. The new revision must not go backwards.
+  ///
+  /// ALL OR NOTHING. Nothing about what this host serves moves until the new
+  /// listing has actually been sealed: the size ceiling lives on the
+  /// CIPHERTEXT, so a listing that passed every structural check can still be
+  /// refused here. A refusal leaves the previously published revision in place
+  /// and serving, and is reported to the caller through the returned future —
+  /// never through the serving path.
   Future<void> setListing(CloudFolderListing listing) {
-    final previous = _ready;
-    return _ready = () async {
+    final previous = _settled;
+    // An immediately-invoked closure, NOT `Future(...)`: the latter defers the
+    // body onto a timer, which a widget test's fake clock never fires — the
+    // seal then never happened and every caller waited forever.
+    final work = () async {
       // Serialize behind any in-flight seal so a rapid re-publish cannot race.
       try {
         await previous;
@@ -297,6 +317,11 @@ class CloudFolderShareHost {
         ..clear()
         ..addAll(_flattenFiles(listing.entries));
     }();
+    // Registering the handler here also marks [work]'s error as handled, so a
+    // caller that awaits it still sees the throw and one that does not cannot
+    // raise an unhandled async error.
+    _settled = work.then((_) {}, onError: (_) {});
+    return _ready = work;
   }
 
   static Map<String, ContentManifest> _flattenFiles(
@@ -325,11 +350,9 @@ class CloudFolderShareHost {
       // holder has the folder key but the capability is no longer valid.
       if (_now().millisecondsSinceEpoch >= capability.expiresAtMs) return;
       // Answer against the latest published listing, never a half-sealed one.
-      try {
-        await _ready;
-      } catch (_) {
-        return;
-      }
+      // [_settled] and not [ready]: a listing this host REFUSED must not take
+      // the one it already publishes down with it.
+      await _settled;
       final listing = _ListingRequest.parse(wire);
       if (listing != null) {
         await _serveListing(listing);
@@ -342,6 +365,10 @@ class CloudFolderShareHost {
 
   Future<void> _serveListing(_ListingRequest request) async {
     if (!_equal(request.shareId, capability.shareId)) return;
+    // Nothing has ever been published here — a host restored over a stored
+    // listing that would not seal. Silence is the honest answer; an empty
+    // sealed body is not a listing and the client rejects it anyway.
+    if (_sealedListing.isEmpty) return;
     final expected = CloudCapabilityCodec.listingRequestMac(
       capability: capability,
       returnServicePublicKey: request.returnServicePublicKey,
