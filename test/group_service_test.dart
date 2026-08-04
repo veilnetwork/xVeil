@@ -3075,6 +3075,189 @@ void main() {
     },
   );
 
+  // ── A stranger's SYNC REQUEST passes the same door as its bundle ──────────
+  //
+  // A Space id is its group id, which is published on purpose, so "knows the
+  // id" is not a credential. The request branch used to reach the handler
+  // straight from the wire and have its entitlement settled deep inside, after
+  // the whole group had been loaded, folded, retention-materialized and
+  // fork-scanned (audit report6 XV-09). Both halves matter and are pinned
+  // below: an outsider gets nothing AND does not get us to do the work, while
+  // a member who is not a contact — the case the stranger door exists for —
+  // still gets its answer.
+  test(
+    'stranger sync REQUEST: a non-member is turned away at the door, a '
+    'member without any contact relationship is still answered',
+    () async {
+      Future<void> drain() async {
+        for (var i = 0; i < 6; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+      }
+
+      final owner = _id(1);
+      final bob = _id(2);
+      final outsider = _id(9);
+
+      final toWire = <String>[];
+      final s1 = FakeHvContainer().storage();
+      await s1.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(
+        s1,
+        _FakeSigner(owner),
+        send: (p, g, j) async => toWire.add(j),
+      );
+      final spaceId = await ownerSvc.createSpace(
+        'Open house',
+        visibility: SpaceVisibility.public,
+      );
+      await ownerSvc.addControlOp(
+        spaceId,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      );
+      await drain();
+      final joinSnapshot = toWire.last;
+
+      final s2 = FakeHvContainer().storage();
+      await s2.open(password: 'pw', createIfMissing: true);
+      final bobSvc = GroupService(s2, _FakeSigner(bob), send: (p, g, j) async {});
+      expect(await bobSvc.ingestSnapshot(joinSnapshot), isTrue);
+      expect(
+        await ownerSvc.publishSpacePost(spaceId, body: 'members only'),
+        isNotNull,
+      );
+      await drain();
+
+      final request = (await bobSvc.buildGroupSyncRequest(spaceId))!;
+      final requestJson = jsonEncode(request);
+
+      // The outsider replays the very same well-formed request, which needs
+      // nothing but the public Space id and a transport session.
+      toWire.clear();
+      expect(
+        await ownerSvc.ingestGroupEntryFromStranger(outsider, requestJson),
+        isFalse,
+      );
+      expect(toWire, isEmpty, reason: 'nothing goes back to a non-member');
+      final afterOutsider = await ownerSvc.spaceObservabilitySnapshot();
+      expect(
+        afterOutsider.counters['aclDenied.reason.notMember'],
+        isNull,
+        reason: 'the request was refused at the stranger door — the handler '
+            'that records this was never entered at all',
+      );
+      expect(afterOutsider.counters['p2pBackfill.reason.notMember'], isNull);
+
+      // …and the door is not simply shut for everyone: Bob is a member per our
+      // own fold and holds no contact relationship with us, which is exactly
+      // the exchange the stranger path exists to carry.
+      expect(await ownerSvc.allowStrangerGroupSync(bob, spaceId.hex), isTrue);
+      expect(
+        await ownerSvc.ingestGroupEntryFromStranger(bob, requestJson),
+        isTrue,
+      );
+      expect(
+        toWire,
+        isNotEmpty,
+        reason: 'the legitimate member-to-member sync still gets its delta',
+      );
+      expect(await bobSvc.ingestSnapshot(toWire.last), isTrue);
+      expect(
+        (await bobSvc.postsOf(spaceId)).map((post) => post.body),
+        contains('members only'),
+      );
+    },
+  );
+
+  test(
+    'a sync request is refused before the group is materialized, not after',
+    () async {
+      Future<void> drain() async {
+        for (var i = 0; i < 6; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+      }
+
+      final owner = _id(1);
+      final bob = _id(2);
+      final outsider = _id(9);
+
+      final toWire = <String>[];
+      final s1 = FakeHvContainer().storage();
+      await s1.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(
+        s1,
+        _FakeSigner(owner),
+        send: (p, g, j) async => toWire.add(j),
+      );
+      final spaceId = await ownerSvc.createSpace(
+        'Retention house',
+        visibility: SpaceVisibility.public,
+      );
+      await ownerSvc.addControlOp(
+        spaceId,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      );
+      for (var i = 0; i < 5; i++) {
+        expect(
+          await ownerSvc.publishSpacePost(spaceId, body: 'post $i'),
+          isNotNull,
+        );
+      }
+      await drain();
+      final request = (await ownerSvc.buildGroupSyncRequest(spaceId))!;
+
+      // Materializing the retention history is the first of the per-group
+      // passes the reply is built from, and it is the one that reads the wall
+      // clock. A refusal that happens first therefore never reads it — this is
+      // the observable edge between "decide, then work" and "work, then
+      // decide". A member's request does the work and does read it.
+      var wallClockReads = 0;
+      ownerSvc.debugWallClockMs = () {
+        wallClockReads++;
+        return DateTime.now().millisecondsSinceEpoch;
+      };
+
+      toWire.clear();
+      expect(await ownerSvc.handleGroupSyncRequest(outsider, request), isFalse);
+      expect(
+        wallClockReads,
+        0,
+        reason: 'the outsider was refused before a single pass over the group',
+      );
+      expect(toWire, isEmpty);
+      expect(
+        (await ownerSvc.spaceObservabilitySnapshot())
+            .counters['aclDenied.reason.notMember'],
+        1,
+        reason: 'reached through the handler directly, the refusal is still '
+            'recorded — it just costs nothing now',
+      );
+
+      // Control: an entitled member still gets the full treatment, so the
+      // refusal above is an admission decision and not a dead code path.
+      final bobRequest = Map<String, dynamic>.from(request)
+        ..['p'] = <String, Object>{}
+        ..['pg'] = <String, Object>{}
+        ..['c'] = <String, Object>{};
+      expect(
+        await ownerSvc.handleGroupSyncRequest(bob, bobRequest),
+        isTrue,
+      );
+      expect(
+        wallClockReads,
+        greaterThan(0),
+        reason: 'the member DOES pay for the passes the outsider skipped — '
+            'the counter is measuring real work, not nothing at all',
+      );
+      expect(toWire, isNotEmpty);
+    },
+  );
+
   test(
     'unread + incoming: ingest feeds the stream, watermark clears the count',
     () async {
