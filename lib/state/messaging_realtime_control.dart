@@ -21,6 +21,23 @@ class _MessagingRealtimeControl {
   final Set<String> _acceptedPeers = {};
   Future<void> _inboundChain = Future<void>.value();
 
+  /// This lane's own bound (audit XV-05). Smaller than the durable lane's:
+  /// call control and endpoint sets are small frames, so a big one here is
+  /// already the wrong shape, and the whole point of the lane is latency —
+  /// a deep queue on it is worse than a dropped frame either way.
+  final InboundAdmission admission = InboundAdmission(
+    label: 'call-sig',
+    maxBytes: 1 << 20,
+    maxFrames: 512,
+    maxKnownPeerBytes: 256 << 10,
+    maxStrangerPeerBytes: 32 << 10,
+    maxStrangerBytes: 128 << 10,
+  );
+
+  /// The tail of the serialized chain, for [MessagingService.dispose] to wait
+  /// on before the shared container closes underneath it.
+  Future<void> get inboundChain => _inboundChain;
+
   bool isAccepted(NodeId peer) => _acceptedPeers.contains(peer.hex);
 
   void markAccepted(NodeId peer) => _acceptedPeers.add(peer.hex);
@@ -46,6 +63,9 @@ class _MessagingRealtimeControl {
   }
 
   Future<void> _handleInbound(InboundMessage message) async {
+    // Same rule as the durable lane: a frame chained before dispose() must not
+    // run against a store that is being closed (audit XV-05).
+    if (_owner._disposed) return;
     late final WireEnvelope envelope;
     try {
       envelope = WireEnvelope.decode(message.payload);
