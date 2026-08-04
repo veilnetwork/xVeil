@@ -1449,4 +1449,139 @@ void main() {
     );
     expect(signed.authorPubKey.length, 32);
   });
+
+  test(
+    'a withdrawal takes back the sanctions and leaves alone what it cannot '
+    'undo — decided at the fold, not next to it',
+    () {
+      ControlEntry moderation(
+        NodeId author,
+        int seq,
+        String prevHash,
+        SpaceModerationKind kind,
+        NodeId target,
+      ) {
+        final at = _t++;
+        return ControlEntry(
+          version: 8,
+          groupId: _owner,
+          author: author,
+          seq: seq,
+          prevHash: prevHash,
+          op: ControlOp.moderate,
+          target: target,
+          role: null,
+          moderationAction: SpaceModerationAction(
+            kind: kind,
+            target: target,
+            scope: kind == SpaceModerationKind.deleteMessage
+                ? SpaceModerationScope.posts
+                : SpaceModerationScope.space,
+            reason: 'documented',
+            createdAtMs: at,
+            reference: kind == SpaceModerationKind.deleteMessage
+                ? SpaceModerationReference(
+                    kind: SpaceModerationReferenceKind.spacePostComment,
+                    author: target,
+                    seq: 0,
+                  )
+                : null,
+          ),
+          policyVersion: 0,
+          createdAtMs: at,
+          signature: Uint8List(0),
+        );
+      }
+
+      final addAdmin = _e(
+        _owner,
+        0,
+        ControlOp.addMember,
+        target: _admin,
+        role: GroupRole.admin,
+      );
+      final addBob = _e(
+        _owner,
+        1,
+        ControlOp.addMember,
+        target: _bob,
+        role: GroupRole.member,
+      );
+      final addCarol = _e(
+        _owner,
+        2,
+        ControlOp.addMember,
+        target: _carol,
+        role: GroupRole.member,
+      );
+      // Two acts by the same moderator on the same day. One is a restriction
+      // that a signed row can lift; the other took content off every device
+      // that applied it, and no signed row brings that back.
+      final restrict = moderation(
+        _admin,
+        0,
+        '',
+        SpaceModerationKind.restrictMessages,
+        _bob,
+      );
+      final deletion = moderation(
+        _admin,
+        1,
+        controlEntryHash(restrict),
+        SpaceModerationKind.deleteMessage,
+        _carol,
+      );
+      final boundary = ControlEntry(
+        version: 22,
+        groupId: _owner,
+        author: _owner,
+        seq: 3,
+        prevHash: controlEntryHash(addCarol),
+        op: ControlOp.revokeAuthority,
+        target: _admin,
+        role: null,
+        authorityBoundary: const SpaceAuthorityBoundary(
+          effectiveFromMs: 0,
+          fromSeq: -1,
+        ),
+        policyVersion: 0,
+        createdAtMs: _t++,
+        signature: Uint8List(0),
+      );
+
+      final log = [addAdmin, addBob, addCarol, restrict, deletion, boundary];
+      final before = foldControlLog(
+        owner: _owner,
+        entries: log.sublist(0, 5),
+        verify: _ok,
+      ).state;
+      expect(before.moderationRecords, hasLength(2));
+
+      final after = foldControlLog(owner: _owner, entries: log, verify: _ok);
+      expect(
+        after.state.moderationRecords.values.map(
+          (record) => record.action.kind,
+        ),
+        [SpaceModerationKind.deleteMessage],
+        reason: 'the restriction was authority and is taken back; the '
+            'deletion is not something the log can un-happen, and this log '
+            'already refuses to revoke that kind for the same reason — a '
+            'second, quieter way to "undelete" would only make devices '
+            'disagree about what is on screen',
+      );
+      expect(
+        after.withdrawn.map((entry) => entry.seq),
+        [0],
+        reason: 'exactly the restriction, and it is reported as withdrawn '
+            'rather than merely rejected so the author can still continue '
+            'the chain it sits on',
+      );
+      expect(
+        after.state.authorityWithdrawalFor(_admin)?.fromSeq,
+        -1,
+        reason: 'and the ledger says so, for everyone to read',
+      );
+      expect(after.state.authorityWithdrawalFor(_owner), isNull);
+    },
+  );
 }
