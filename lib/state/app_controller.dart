@@ -26,6 +26,7 @@ import 'proxy_routing_controller.dart';
 import 'identity_scoped_prefs.dart';
 import 'notifications.dart';
 import 'providers.dart';
+import 'screen_lock_controller.dart';
 import 'storage_preferences.dart';
 import 'vpn_controller.dart';
 import 'whisper_model_controller.dart';
@@ -328,6 +329,10 @@ class AppController extends Notifier<AppState> {
       state = const AppState(AppPhase.locked, unlockError: true);
       return;
     }
+    // The container just answered to this password, so this is the one moment
+    // the screen lock can learn to recognise it. Only a recogniser is kept —
+    // never the password, and never anything that reaches disk.
+    ref.read(screenLockProvider.notifier).rememberPassword(password);
     // Master vs identity is decided AFTER unlock by inspecting contents (never
     // from disk — deniability). A roster ⇒ master: read it, then release the
     // exclusive lock (only one space open at a time) and let the user pick.
@@ -1705,6 +1710,10 @@ class AppController extends Notifier<AppState> {
       // A notification backend that is not up cannot be holding anything.
     }
     ref.read(opaqueNotificationPayloadsProvider).clear();
+    // The session is over, so the screen lock has nothing left to cover — and
+    // must not carry this session's password recogniser into the next one,
+    // which may well be a different identity entirely.
+    ref.read(screenLockProvider.notifier).forgetSession();
     // EVERY LEG RUNS (audit XV-08). These were a plain `await` chain, so the
     // first failure skipped all of it: a session that would not stop left the
     // node running, the runtime dir populated, the container OPEN and the

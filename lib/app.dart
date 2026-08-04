@@ -5,6 +5,7 @@ import 'core/secure_screen.dart';
 import 'features/calls/call_overlay.dart';
 import 'features/calls/group_call_overlay.dart';
 import 'features/calls/call_lifecycle_bridge.dart';
+import 'features/lock/screen_lock_overlay.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/router.dart';
 import 'state/api_server.dart';
@@ -39,22 +40,31 @@ class XVeilApp extends ConsumerWidget {
       // the task-switcher cover above THAT: the snapshot the platform takes on
       // the way out would otherwise show whatever was last on screen, call UI
       // included (audit X-11).
+      // The screen lock sits INSIDE the shield and OVER everything else: it is
+      // a cover, not a route, so the home shell — and with it the notification
+      // binder, the node and every service below — stays mounted and keeps
+      // delivering while the screen is locked. Routing to a lock screen would
+      // unmount all of it, and the point of this lock is that it costs nothing
+      // in delivery.
       builder: (context, child) => TaskSwitcherShield(
-        child: Stack(
-          children: [
-            ?child,
-            const CallLifecycleBridge(),
-            const CallOverlay(),
-            const GroupCallOverlay(),
-            // Eagerly build the group service once the identity is ready, so
-            // its inbound-snapshot bridge is attached BEFORE any group frame
-            // arrives (a member added on another device pushes a snapshot
-            // immediately).
-            const _GroupBridge(),
-            // Keep the automation-API controller alive so a persisted "enabled"
-            // flag re-opens the loopback server on boot (off by default).
-            const _ApiBridge(),
-          ],
+        child: ScreenLockHost(
+          child: Stack(
+            children: [
+              ?child,
+              const CallLifecycleBridge(),
+              const CallOverlay(),
+              const GroupCallOverlay(),
+              // Eagerly build the group service once the identity is ready, so
+              // its inbound-snapshot bridge is attached BEFORE any group frame
+              // arrives (a member added on another device pushes a snapshot
+              // immediately).
+              const _GroupBridge(),
+              // Keep the automation-API controller alive so a persisted
+              // "enabled" flag re-opens the loopback server on boot (off by
+              // default).
+              const _ApiBridge(),
+            ],
+          ),
         ),
       ),
     );

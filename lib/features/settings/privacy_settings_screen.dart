@@ -6,11 +6,14 @@ import 'package:go_router/go_router.dart';
 
 import '../../domain/chat.dart' show SignaturePolicy;
 import '../../domain/p2p_policy.dart';
+import '../../domain/screen_lock.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/api_server.dart';
 import '../../state/p2p_policy_controller.dart';
+import '../../state/screen_lock_controller.dart';
 import '../../state/signature_policy_controller.dart';
+import '../lock/screen_lock_overlay.dart' show screenLockTimeoutLabel;
 import '../../state/messaging.dart' show messagingServiceProvider;
 
 String p2pPolicyLabel(AppL10n l, P2PGlobalPolicy p) => switch (p) {
@@ -82,6 +85,30 @@ class PrivacySettingsScreen extends ConsumerWidget {
     await ref.read(signaturePolicyProvider.notifier).set(choice);
   }
 
+  Future<void> _pickScreenLockTimeout(
+    BuildContext context,
+    WidgetRef ref,
+    AppL10n l,
+  ) async {
+    final current = ref.read(screenLockProvider).timeout;
+    final choice = await showDialog<ScreenLockTimeout>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text(l.settingsScreenLock),
+        children: [
+          for (final value in ScreenLockTimeout.values)
+            ListTile(
+              title: Text(screenLockTimeoutLabel(l, value)),
+              trailing: current == value ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.of(context).pop(value),
+            ),
+        ],
+      ),
+    );
+    if (choice == null) return;
+    await ref.read(screenLockProvider.notifier).setTimeout(choice);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
@@ -132,6 +159,25 @@ class PrivacySettingsScreen extends ConsumerWidget {
             onTap: () => _pickSignaturePolicy(context, ref, l),
           ),
           const _RecommendationPrivacySwitch(),
+          // The screen, not the volume: the container stays open behind the
+          // prompt so messages keep arriving and notifications keep working.
+          // The hint says so, because a lock that silently stopped delivery
+          // would be discovered the hard way.
+          Builder(
+            builder: (_) {
+              final timeout = ref.watch(
+                screenLockProvider.select((s) => s.timeout),
+              );
+              return ListTile(
+                key: const ValueKey('screen-lock-timeout'),
+                leading: const Icon(Icons.lock_clock_outlined),
+                title: Text(l.settingsScreenLock),
+                subtitle: Text(l.settingsScreenLockHint),
+                trailing: Text(screenLockTimeoutLabel(l, timeout)),
+                onTap: () => _pickScreenLockTimeout(context, ref, l),
+              );
+            },
+          ),
           const Divider(),
           // Local automation API (REST API epic): off by default; a permanently
           // open port is discoverable, so the user opts in here. When on it binds
