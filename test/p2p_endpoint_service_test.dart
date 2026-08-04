@@ -3,11 +3,23 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/crypto/blake3.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/state/messaging_core.dart';
 import 'package:xveil/state/p2p_endpoint_service.dart';
 
-NodeId _peer(int fill) => NodeId(Uint8List.fromList(List.filled(32, fill)));
+Uint8List _pk(int fill) => Uint8List.fromList(List.filled(32, fill));
+
+/// A peer id derived the way the wire derives it — `node_id == BLAKE3(pubkey)`
+/// — so an invite minted from the same key really presents THIS peer.
+NodeId _peer(int fill) => NodeId(blake3Hash(_pk(fill)));
+
+/// A dialable bootstrap invite belonging to [fill]'s identity.
+String _inviteUri(int fill, {String host = '192.168.1.9'}) => BootstrapInvite(
+  publicKey: _pk(fill),
+  nonce: Uint8List.fromList(List.filled(8, 3)),
+  transport: 'tcp://$host:9000',
+).toUri();
 
 BootstrapInvite _identity() => BootstrapInvite(
   publicKey: Uint8List.fromList(List.filled(32, 7)),
@@ -194,9 +206,7 @@ void main() {
       final frame = jsonEncode({
         'v': 1,
         'ts': 111,
-        'e': [
-          'veil:bootstrap?pk=AAAA&t=tcp://192.168.1.9:9000&a=ed25519&nc=BB',
-        ],
+        'e': [_inviteUri(2)],
       });
       // First joined dial "brings the session up".
       h.messaging.onP2PEndpoints!(peer, frame);
@@ -218,9 +228,7 @@ void main() {
       jsonEncode({
         'v': 1,
         'ts': 5,
-        'e': [
-          'veil:bootstrap?pk=AAAA&t=tcp://192.168.1.9:9000&a=ed25519&nc=BB',
-        ],
+        'e': [_inviteUri(2)],
       }),
     );
     await Future<void>.delayed(const Duration(milliseconds: 100));
@@ -229,6 +237,52 @@ void main() {
     expect(h.svc.knownEndpoints(peer), isEmpty);
   });
 
+  test(
+    'inbound frame: an endpoint naming a THIRD party is never dialed, the '
+    "peer's own endpoint after it still is",
+    () async {
+      final h = _Harness();
+      final peer = _peer(2);
+      final foreign = _inviteUri(77, host: '192.168.1.66');
+      final own = _inviteUri(2);
+      // An ACCEPTED contact — transport admission proves only that — offers a
+      // stranger's identity/address first, then its own.
+      h.messaging.onP2PEndpoints!(
+        peer,
+        jsonEncode({
+          'v': 1,
+          'ts': 1,
+          'e': [foreign, own],
+        }),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      // The foreign candidate was skipped, not merely deferred; the peer's own
+      // candidate was still redeemed (skip must not abort the whole dial).
+      expect(h.joined, [own]);
+      h.admitted = true;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      expect(h.joined, [own]);
+    },
+  );
+
+  test(
+    'inbound frame: an unparseable endpoint is dropped, not dialed',
+    () async {
+      final h = _Harness();
+      final peer = _peer(2);
+      h.messaging.onP2PEndpoints!(
+        peer,
+        jsonEncode({
+          'v': 1,
+          'ts': 1,
+          'e': ['tcp://192.168.1.66:9000'], // bare address, no identity at all
+        }),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(h.joined, isEmpty);
+    },
+  );
+
   test('inbound frame: stale ts never regresses newer endpoints', () async {
     final h = _Harness();
     h.admitted = true; // no dial loops — isolate the fold logic
@@ -236,7 +290,7 @@ void main() {
     String frame(int ts, String host) => jsonEncode({
       'v': 1,
       'ts': ts,
-      'e': ['veil:bootstrap?pk=AAAA&t=tcp://$host:9000&a=ed25519&nc=BB'],
+      'e': [_inviteUri(3, host: host)],
     });
     h.messaging.onP2PEndpoints!(peer, frame(200, '192.168.1.20'));
     await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -258,9 +312,7 @@ void main() {
       jsonEncode({
         'v': 1,
         'ts': 1,
-        'e': [
-          'veil:bootstrap?pk=AAAA&t=tcp://192.168.1.9:9000&a=ed25519&nc=BB',
-        ],
+        'e': [_inviteUri(5)],
       }),
     );
     await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -366,7 +418,7 @@ void main() {
       jsonEncode({
         'v': 1,
         'ts': 1,
-        'e': ['veil:bootstrap?pk=AAAA&t=tcp://192.168.1.9:9000&a=ed25519&nc=BB'],
+        'e': [_inviteUri(12)],
       }),
     );
     await Future<void>.delayed(const Duration(milliseconds: 50));
