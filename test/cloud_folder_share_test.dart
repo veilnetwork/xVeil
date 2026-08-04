@@ -491,6 +491,138 @@ void main() {
     );
     await hostToClient.close();
   });
+
+  group('a listing that will not seal (audit XV-18)', () {
+    // Structurally impeccable — the entry cap exactly, every name inside its
+    // own limit — and far past the 256 KiB ceiling, which lives on the
+    // CIPHERTEXT and so is invisible to every check that runs before the seal.
+    CloudFolderListing bloated(ContentManifest manifest, int revision) =>
+        CloudFolderListing(
+          name: 'Проекты',
+          revision: revision,
+          entries: [
+            for (var i = 0; i < CloudFolderListing.maxTotalEntries; i++)
+              CloudFolderListingEntry.file(
+                name: '${'w' * 500}$i',
+                manifest: manifest,
+              ),
+          ],
+        );
+
+    test('the host goes on serving the listing it already published', () async {
+      final fixture = await buildFolder(fileCount: 1);
+      final hostToClient = StreamController<Uint8List>.broadcast();
+      addTearDown(hostToClient.close);
+      final host = CloudFolderShareHost(
+        capability: fixture.capability,
+        storage: fixture.storage,
+        listing: fixture.listing,
+        send:
+            ({
+              required servicePublicKey,
+              required targetAppId,
+              required targetEndpointId,
+              required data,
+            }) async => hostToClient.add(data),
+      );
+      CloudFolderShareClient client() => CloudFolderShareClient(
+        capability: fixture.capability,
+        returnServicePublicKey: Uint8List.fromList(List.filled(32, 3)),
+        returnAppId: Uint8List.fromList(List.filled(32, 4)),
+        returnEndpointId: 48,
+        incoming: hostToClient.stream,
+        send: (data) async => unawaited(host.serve(data)),
+        randomBytes: _counterBytes(),
+        timeout: const Duration(seconds: 2),
+      );
+      expect((await client().fetchListing()).revision, 2);
+
+      await expectLater(
+        host.setListing(
+          bloated(fixture.listing.entries.first.manifest!, 3),
+        ),
+        throwsA(anything),
+        reason: 'a listing past the sealed ceiling must be refused',
+      );
+
+      // The refusal used to be reported through the SAME future serve waits
+      // on, so a listing the host never accepted silenced the one it had been
+      // publishing all along — and no restart brought it back.
+      final still = await client().fetchListing();
+      expect(still.revision, 2);
+      expect(still.totalEntries, fixture.listing.totalEntries);
+    });
+
+    test('a host that could not seal its FIRST listing still takes a later '
+        'one', () async {
+      final fixture = await buildFolder(fileCount: 1);
+      final hostToClient = StreamController<Uint8List>.broadcast();
+      addTearDown(hostToClient.close);
+      var answers = 0;
+      final host = CloudFolderShareHost(
+        capability: fixture.capability,
+        storage: fixture.storage,
+        listing: bloated(fixture.listing.entries.first.manifest!, 3),
+        send:
+            ({
+              required servicePublicKey,
+              required targetAppId,
+              required targetEndpointId,
+              required data,
+            }) async {
+              answers++;
+              hostToClient.add(data);
+            },
+      );
+      await expectLater(host.ready, throwsA(anything));
+
+      // Nothing was ever published, so the honest answer is silence — not an
+      // empty sealed body, which is not a listing.
+      final silence = StreamController<Uint8List>.broadcast();
+      addTearDown(silence.close);
+      Uint8List? asked;
+      final prober = CloudFolderShareClient(
+        capability: fixture.capability,
+        returnServicePublicKey: Uint8List.fromList(List.filled(32, 3)),
+        returnAppId: Uint8List.fromList(List.filled(32, 4)),
+        returnEndpointId: 48,
+        incoming: silence.stream,
+        send: (data) async => asked ??= Uint8List.fromList(data),
+        randomBytes: _counterBytes(),
+      );
+      unawaited(prober.fetchListing().then((_) {}, onError: (_) {}));
+      for (var i = 0; i < 6; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(asked, isNotNull, reason: 'the prober must have asked');
+      await host.serve(asked!);
+      expect(answers, 0, reason: 'an unpublished share answers nothing');
+
+      // …and it is REPAIRABLE. This is the whole point: the share used to be
+      // dead in exactly this state, because the failure was permanent.
+      await host.setListing(
+        CloudFolderListing(
+          name: 'Проекты',
+          revision: 4,
+          entries: fixture.listing.entries,
+        ),
+      );
+      final client = CloudFolderShareClient(
+        capability: fixture.capability,
+        returnServicePublicKey: Uint8List.fromList(List.filled(32, 3)),
+        returnAppId: Uint8List.fromList(List.filled(32, 4)),
+        returnEndpointId: 48,
+        incoming: hostToClient.stream,
+        send: (data) async => unawaited(host.serve(data)),
+        randomBytes: _counterBytes(),
+        timeout: const Duration(seconds: 2),
+      );
+      final listing = await client.fetchListing();
+      expect(listing.revision, 4);
+      expect(listing.totalEntries, fixture.listing.totalEntries);
+      expect(answers, 1);
+    });
+  });
 }
 
 /// A deterministic non-repeating nonce generator for the client (each call

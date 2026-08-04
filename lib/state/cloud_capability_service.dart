@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
+import '../core/log.dart';
 import '../data/storage/storage.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/cloud.dart';
@@ -431,7 +432,6 @@ class CloudCapabilityService {
         send: endpoint.sendAnonymous,
         now: _now,
       );
-      await host.ready;
       final hosted = _HostedFolderShare(
         row,
         capability,
@@ -441,6 +441,23 @@ class CloudCapabilityService {
       );
       hosted.listen();
       _folderShares[_shareKey(capability.shareId)] = hosted;
+      // A STORED listing that will not seal must not cost the share its host.
+      // It used to: the throw closed the endpoint and the row stayed in the
+      // registry with nothing hosting it, so `refreshFolderShare` answered
+      // "unknown share" and every restart repeated the same failure — the
+      // share could not serve and could not be replaced either (audit XV-18).
+      // Host it silent instead: it publishes nothing until a listing that CAN
+      // be sealed replaces it, and replacing it is now possible.
+      try {
+        await host.ready;
+      } catch (error) {
+        devLog(
+          () =>
+              'xVeil[cloud]: stored folder listing rev '
+              '${row.listingRevision} could not be sealed ($error) — hosting '
+              'the share silent so it can be republished',
+        );
+      }
     } catch (_) {
       await endpoint?.close();
       rethrow;
@@ -714,6 +731,25 @@ class CloudCapabilityService {
       if (CloudFolderListing.fromJson(listing.toJson()) == null) {
         throw StateError('folder listing is invalid or too large');
       }
+      // SEAL IT FIRST — and throw here, before anything durable moves.
+      //
+      // The structural check above counts entries; the 256 KiB ceiling is on
+      // the CIPHERTEXT, and long names carry a listing past it with an entry
+      // count well under the cap. The old order wrote the row, then discovered
+      // the refusal, and the damage was not the failed publish: the share
+      // stopped answering with the listing it was ALREADY serving, the durable
+      // row named a revision whose bytes could never exist, and a restart
+      // re-read that row, failed to host it, and left the share registered
+      // with nothing hosting it — which is also what made `refreshFolderShare`
+      // answer "unknown share" from then on. Unrepairable, permanently
+      // (audit XV-18).
+      //
+      // Sealing is deterministic in (key, revision, listing), so the seal the
+      // host performs a few lines below produces these exact bytes.
+      await CloudCapabilityCodec.sealListing(
+        capability: hosted.capability,
+        listing: listing,
+      );
       // Persist the bumped revision + new listing BEFORE serving the new
       // sealed ciphertext. The listing nonce is derived from the revision, so
       // a crash after serving but before persisting would let the next

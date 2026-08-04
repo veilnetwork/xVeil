@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/domain/cloud.dart';
 import 'package:xveil/domain/cloud_capability.dart';
 import 'package:xveil/domain/content_manifest.dart';
@@ -997,4 +998,193 @@ void main() {
       await downloaderStorage.close();
     },
   );
+
+  group('an unsealable listing (audit XV-18)', () {
+    // Structurally impeccable — exactly the 512-entry cap, every name inside
+    // its own limit — and far past the 256 KiB ceiling, which lives on the
+    // CIPHERTEXT and so is invisible to every check that runs before the seal.
+    List<CloudFolderListingEntry> bloated(ContentManifest manifest) => [
+      for (var i = 0; i < CloudFolderListing.maxTotalEntries; i++)
+        CloudFolderListingEntry.file(
+          name: '${'w' * 500}$i',
+          manifest: manifest,
+        ),
+    ];
+
+    Future<
+      ({
+        _Network network,
+        FakeHvContainer box,
+        HiddenVolumeStorage storage,
+        CloudCapabilityService owner,
+        CloudFolderShareInfo share,
+        ContentManifest manifest,
+        CloudFolderListingEntry entry,
+      })
+    >
+    ownerWithShare() async {
+      final network = _Network();
+      final box = FakeHvContainer();
+      final storage = box.storage();
+      await storage.open(password: 'o', createIfMissing: true);
+      final bytes = Uint8List.fromList(
+        List.generate(420, (j) => (j * 7) & 0xff),
+      );
+      final manifest = ContentManifest.fromBytes(
+        'keep.bin',
+        bytes,
+        pieceSize: 256,
+      );
+      await storage.storeFile(manifest.contentId, bytes);
+      await storage.storeFile(
+        'mf:${manifest.contentId}',
+        Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+      );
+      final entry = CloudFolderListingEntry.file(
+        name: 'keep.bin',
+        manifest: manifest,
+      );
+      final owner = CloudCapabilityService(
+        storage,
+        network,
+        now: () => DateTime(2030),
+        random: _Random(),
+        folderClientTimeout: const Duration(milliseconds: 400),
+      );
+      final share = await owner.createFolderShare(
+        folderId: 'folder-xv18',
+        folderName: 'Bloat',
+        entries: [entry],
+      );
+      return (
+        network: network,
+        box: box,
+        storage: storage,
+        owner: owner,
+        share: share,
+        manifest: manifest,
+        entry: entry,
+      );
+    }
+
+    test('the sealed size is checked BEFORE the row is written, and the share '
+        'goes on serving the listing it already had', () async {
+      final f = await ownerWithShare();
+      final downloaderBox = FakeHvContainer();
+      final downloaderStorage = downloaderBox.storage();
+      await downloaderStorage.open(password: 'd', createIfMissing: true);
+      final downloader = CloudCapabilityService(
+        downloaderStorage,
+        f.network,
+        now: () => DateTime(2030),
+        random: _Random()..value = 21,
+        folderClientTimeout: const Duration(milliseconds: 400),
+      );
+      expect((await downloader.fetchFolderListing(f.share.link)).revision, 1);
+
+      await expectLater(
+        f.owner.refreshFolderShare(
+          f.share.shareId,
+          folderName: 'Bloat',
+          entries: bloated(f.manifest),
+        ),
+        throwsA(anything),
+      );
+
+      // The durable row must not have moved: it used to name revision 2 and a
+      // listing whose bytes could never exist, which is what no restart could
+      // undo.
+      expect(
+        f.owner.listFolderShares().single.listingRevision,
+        1,
+        reason: 'the refused revision was written down anyway',
+      );
+      // …and the live share must still answer. The refusal used to leave a
+      // rejected future in the serving gate, so the host stopped answering the
+      // OLD listing too — a share that had been working went silent over a
+      // listing it never accepted.
+      final still = await downloader.fetchFolderListing(f.share.link);
+      expect(still.revision, 1);
+      expect(still.totalEntries, 1);
+
+      // And an ordinary republish still works afterwards.
+      expect(
+        await f.owner.refreshFolderShare(
+          f.share.shareId,
+          folderName: 'Bloat',
+          entries: [f.entry],
+        ),
+        isTrue,
+      );
+      expect((await downloader.fetchFolderListing(f.share.link)).revision, 2);
+
+      await downloader.close();
+      await f.owner.close();
+      await f.storage.close();
+      await downloaderStorage.close();
+    });
+
+    test('a share left with a stored listing that cannot be sealed is hosted '
+        'silent and can be republished', () async {
+      final f = await ownerWithShare();
+      await f.owner.close();
+
+      // What the old write-then-seal order left on disk. Nothing produces this
+      // any more, but a store that already holds it must not be a share that
+      // is dead forever: it used to fail to host, which ALSO made
+      // refreshFolderShare answer "unknown share" for the rest of time.
+      const registryFile = 'cloud.folder.capabilities.registry.v1';
+      final rows =
+          jsonDecode(utf8.decode((await f.storage.loadFile(registryFile))!))
+              as List;
+      final row = Map<String, dynamic>.from(rows.single as Map);
+      row['lrev'] = 2;
+      row['listing'] = CloudFolderListing(
+        name: 'Bloat',
+        revision: 2,
+        entries: bloated(f.manifest),
+      ).toJson();
+      await f.storage.storeFile(
+        registryFile,
+        Uint8List.fromList(utf8.encode(jsonEncode([row]))),
+        name: 'cloud-capability-metadata',
+      );
+
+      final reopened = CloudCapabilityService(
+        f.storage,
+        f.network,
+        now: () => DateTime(2030),
+        random: _Random()..value = 33,
+        folderClientTimeout: const Duration(milliseconds: 400),
+      );
+      final downloaderBox = FakeHvContainer();
+      final downloaderStorage = downloaderBox.storage();
+      await downloaderStorage.open(password: 'd', createIfMissing: true);
+      final downloader = CloudCapabilityService(
+        downloaderStorage,
+        f.network,
+        now: () => DateTime(2030),
+        random: _Random()..value = 34,
+        folderClientTimeout: const Duration(milliseconds: 400),
+      );
+
+      expect(
+        await reopened.refreshFolderShare(
+          f.share.shareId,
+          folderName: 'Bloat',
+          entries: [f.entry],
+        ),
+        isTrue,
+        reason: 'the share was unrepairable: registered, but never hosted',
+      );
+      final listing = await downloader.fetchFolderListing(f.share.link);
+      expect(listing.revision, 3);
+      expect(listing.totalEntries, 1);
+
+      await downloader.close();
+      await reopened.close();
+      await f.storage.close();
+      await downloaderStorage.close();
+    });
+  });
 }
