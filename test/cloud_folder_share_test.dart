@@ -492,6 +492,153 @@ void main() {
     await hostToClient.close();
   });
 
+  group('the reply address is the requester\'s to choose (audit XV-07)', () {
+    // A listing request is ~150 B and the reply is up to 256 KiB, and the
+    // request NAMES the endpoint the reply goes to. The MAC does not help:
+    // its key is the folder link, which every holder has and any of them may
+    // pass on. Nothing counted the bytes and nothing remembered a nonce, so
+    // one datagram could be replayed at whatever rate the attacker liked,
+    // aimed wherever they liked, and the host did the sending.
+    //
+    // Binding the reply to an authenticated sender — the report's remedy — is
+    // declined on purpose: a folder link is a bearer capability on a
+    // deliberately anonymous path.
+
+    /// One MAC-valid listing request, exactly as a real client emits it.
+    Future<Uint8List> askedListing(
+      CloudFolderCapability capability,
+      Uint8List Function(int) nonces,
+    ) async {
+      Uint8List? asked;
+      final silence = StreamController<Uint8List>.broadcast();
+      addTearDown(silence.close);
+      final prober = CloudFolderShareClient(
+        capability: capability,
+        returnServicePublicKey: Uint8List.fromList(List.filled(32, 3)),
+        returnAppId: Uint8List.fromList(List.filled(32, 4)),
+        returnEndpointId: 48,
+        incoming: silence.stream,
+        send: (data) async => asked ??= Uint8List.fromList(data),
+        randomBytes: nonces,
+      );
+      unawaited(prober.fetchListing().then((_) {}, onError: (_) {}));
+      for (var i = 0; i < 6; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      return asked!;
+    }
+
+    test('one authentic request is answered once, however often it is '
+        'resent', () async {
+      final fixture = await buildFolder(fileCount: 1);
+      var answers = 0;
+      var bytes = 0;
+      final host = CloudFolderShareHost(
+        capability: fixture.capability,
+        storage: fixture.storage,
+        listing: fixture.listing,
+        send:
+            ({
+              required servicePublicKey,
+              required targetAppId,
+              required targetEndpointId,
+              required data,
+            }) async {
+              answers++;
+              bytes += data.length;
+            },
+      );
+      await host.ready;
+      // ONE generator across both asks: `_counterBytes` restarts, so two of
+      // them would hand out the same nonce and the "different request" half
+      // below would be testing nothing.
+      final nonces = _counterBytes();
+      final request = await askedListing(fixture.capability, nonces);
+
+      await host.serve(request);
+      expect(answers, 1, reason: 'the first ask is legitimate and is answered');
+      final firstReply = bytes;
+      expect(
+        firstReply,
+        greaterThan(request.length),
+        reason:
+            'this op only matters because the reply is the bigger half. This '
+            'fixture is a two-entry folder; at the 256 KiB ceiling the ratio '
+            'against a 150-byte request is about 1700 to 1',
+      );
+
+      for (var i = 0; i < 200; i++) {
+        await host.serve(request);
+      }
+      expect(
+        answers,
+        1,
+        reason:
+            'the same 150-byte datagram was reflected 200 more times, at an '
+            'address the sender of it chose',
+      );
+      expect(bytes, firstReply);
+
+      // The sanity half: a DIFFERENT authentic request is still served, so
+      // "answered once" cannot mean the host stopped answering.
+      final second = await askedListing(fixture.capability, nonces);
+      expect(second, isNot(request));
+      await host.serve(second);
+      expect(answers, 2);
+    });
+
+    test('a share stops emitting once its budget for the window is spent',
+        () async {
+      // The nonce cache stops a replay; it cannot stop a link holder minting
+      // fresh authentic requests, because minting them is what holding the
+      // link means. The budget is the ceiling on THAT — set here far below the
+      // production one so the test does not have to move 32 MiB.
+      final fixture = await buildFolder(fileCount: 1);
+      var clock = DateTime(2030);
+      var answers = 0;
+      final host = CloudFolderShareHost(
+        capability: fixture.capability,
+        storage: fixture.storage,
+        listing: fixture.listing,
+        now: () => clock,
+        egressBudgetBytes: 2000,
+        egressWindow: const Duration(minutes: 1),
+        send:
+            ({
+              required servicePublicKey,
+              required targetAppId,
+              required targetEndpointId,
+              required data,
+            }) async => answers++,
+      );
+      await host.ready;
+      final nonces = _counterBytes();
+      for (var i = 0; i < 40; i++) {
+        await host.serve(await askedListing(fixture.capability, nonces));
+      }
+      final spent = answers;
+      expect(
+        spent,
+        greaterThan(0),
+        reason: 'a budget that refuses everything is not a budget',
+      );
+      expect(
+        spent,
+        lessThan(40),
+        reason:
+            'forty authentic requests emptied the share with nothing counting '
+            'the bytes going out',
+      );
+
+      // The window turns over and the share serves again — this is a
+      // ceiling on a rate, not a share that breaks the first time it is
+      // leaned on.
+      clock = clock.add(const Duration(minutes: 2));
+      await host.serve(await askedListing(fixture.capability, nonces));
+      expect(answers, spent + 1);
+    });
+  });
+
   group('a listing that will not seal (audit XV-18)', () {
     // Structurally impeccable — the entry cap exactly, every name inside its
     // own limit — and far past the 256 KiB ceiling, which lives on the
