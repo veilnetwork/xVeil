@@ -2,7 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import 'geoip_country_routes.dart';
+import 'privileged_launch_guard.dart';
 import 'vpn_backend.dart';
 import 'vpn_routing_policy.dart';
 
@@ -36,6 +39,14 @@ Map<String, Object?> buildLinuxVpnHelperRequest({
 /// stdin or stopping the app triggers transactional cleanup. No extra VPN
 /// daemon/binary is installed.
 class LinuxManagedVpnBackend implements VpnBackend {
+  LinuxManagedVpnBackend({
+    @visibleForTesting PrivilegedLaunchGuard? launchGuard,
+    @visibleForTesting bool? isLinuxHost,
+    @visibleForTesting String? executablePath,
+  }) : _launchGuard = launchGuard ?? PrivilegedLaunchGuard.forHost(),
+       _isLinuxHost = isLinuxHost ?? Platform.isLinux,
+       _executablePath = executablePath ?? Platform.resolvedExecutable;
+
   Process? _helper;
   Future<int>? _exitCode;
   StreamSubscription<String>? _stdoutSubscription;
@@ -44,18 +55,38 @@ class LinuxManagedVpnBackend implements VpnBackend {
   VpnBackendState _state = const VpnBackendState(VpnBackendPhase.stopped);
   final StringBuffer _stderr = StringBuffer();
 
+  final PrivilegedLaunchGuard _launchGuard;
+  final bool _isLinuxHost;
+  final String _executablePath;
+  PrivilegedLaunchVerdict? _launchVerdict;
+
   static const _startupTimeout = Duration(minutes: 3);
   static const _stopTimeout = Duration(seconds: 8);
   static const _stderrLimit = 8192;
 
+  /// `pkexec` re-execs THIS binary as root, so an unpacked tarball sitting in
+  /// the user's home would hand root to whatever was dropped beside it — and
+  /// the polkit prompt, which is the only thing the user sees, looks identical
+  /// either way (audit X-01). Asked first, before any capability check: what is
+  /// being elevated matters more than whether `nft` happens to be installed.
+  Future<VpnBackendState?> _refuseWritableInstallation() async {
+    final verdict = _launchVerdict ??= await _launchGuard.inspect(
+      _executablePath,
+    );
+    if (verdict.isAllowed) return null;
+    return VpnBackendState(VpnBackendPhase.unsupported, detail: verdict.detail);
+  }
+
   @override
   Future<VpnBackendState> probe() async {
-    if (!Platform.isLinux) {
+    if (!_isLinuxHost) {
       return const VpnBackendState(
         VpnBackendPhase.unsupported,
         detail: 'Linux managed VPN backend was selected on another platform',
       );
     }
+    final unsafeInstallation = await _refuseWritableInstallation();
+    if (unsafeInstallation != null) return unsafeInstallation;
     if (!await File('/dev/net/tun').exists()) {
       return const VpnBackendState(
         VpnBackendPhase.unsupported,
@@ -161,11 +192,7 @@ class LinuxManagedVpnBackend implements VpnBackend {
     try {
       final helper = await Process.start(
         'pkexec',
-        <String>[
-          Platform.resolvedExecutable,
-          '--xveil-vpn-helper',
-          request.path,
-        ],
+        <String>[_executablePath, '--xveil-vpn-helper', request.path],
         mode: ProcessStartMode.normal,
         runInShell: false,
       );
