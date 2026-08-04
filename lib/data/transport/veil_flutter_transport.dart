@@ -18,6 +18,21 @@ import 'veil_mailbox.dart';
 import 'veil_mailbox_network.dart';
 import 'veil_transport.dart';
 
+/// The single surface through which the call media plane opens a datagram
+/// channel. Every route goes through here and every route carries the same
+/// mandatory directional keys, so the route→open mapping can be exercised
+/// without a live node while the production implementation stays the only one
+/// that talks to native.
+abstract interface class CallMediaChannelOpener {
+  Future<int> openMediaChannel(
+    Uint8List dstNode, {
+    required Uint8List txKey,
+    required Uint8List rxKey,
+    bool direct,
+    bool relay,
+  });
+}
+
 /// Production [VeilTransport] over veil_flutter. Binds the shared `xveil/inbox`
 /// named endpoint, so a peer is addressable from its node id alone (its app_id
 /// is derived — see [chatAppIdFor], verified against the native bindNamed).
@@ -28,7 +43,8 @@ class VeilFlutterTransport
         RelayRealtimeTransport,
         RealtimeInboundTransport,
         StreamTransport,
-        P2PStreamTransport {
+        P2PStreamTransport,
+        CallMediaChannelOpener {
   VeilFlutterTransport._(
     this._socketPath,
     this._nodeId,
@@ -176,13 +192,26 @@ class VeilFlutterTransport
 
   /// Open a lossy media datagram channel to [dstNode] (32 bytes). Returns the
   /// channel id used by [sendMediaDatagram]/[closeMediaChannel].
+  ///
+  /// [txKey]/[rxKey] are the 32-byte directional call-media keys and are
+  /// REQUIRED on every route. The native channel seals each cell with them and
+  /// opens each inbound cell against them — there is no unsealed mode on any
+  /// transport, so a channel that cannot be keyed simply does not open. The
+  /// onion path in particular is NOT protected by its circuit envelope: the
+  /// splicing relay must read the cell to route it.
+  @override
   Future<int> openMediaChannel(
     Uint8List dstNode, {
+    required Uint8List txKey,
+    required Uint8List rxKey,
     bool direct = false,
     bool relay = false,
   }) async {
     if (direct && relay) {
       throw ArgumentError('media channel cannot be both direct and relay');
+    }
+    if (txKey.length != 32 || rxKey.length != 32) {
+      throw ArgumentError('call-media keys must be 32 bytes');
     }
     if (!direct && !relay) {
       // ANONYMOUS-circuit media (group voice channels, onion 1:1 media) must
@@ -195,7 +224,11 @@ class VeilFlutterTransport
       // its own connection (564008c). IPC head-of-line blocking on the main
       // connection has since been closed architecturally by per-request ids,
       // so anon media on `_client` is safe again.
-      return _client.openMediaChannel(dstNodeId: dstNode);
+      return _client.openMediaChannel(
+        dstNodeId: dstNode,
+        txKey: txKey,
+        rxKey: rxKey,
+      );
     }
     final peer = NodeId(dstNode);
     if (relay) {
@@ -203,12 +236,16 @@ class VeilFlutterTransport
         dstNodeId: dstNode,
         dstAppId: mediaAppIdFor(peer),
         dstEndpointId: veilMediaEndpointId,
+        txKey: txKey,
+        rxKey: rxKey,
       );
     }
     return _mediaApp.openDirectMediaChannel(
       dstNodeId: dstNode,
       dstAppId: mediaAppIdFor(peer),
       dstEndpointId: veilMediaEndpointId,
+      txKey: txKey,
+      rxKey: rxKey,
     );
   }
 
@@ -216,18 +253,12 @@ class VeilFlutterTransport
   int sendMediaDatagram(int chan, Uint8List payload) =>
       _client.sendMediaDatagram(chan, payload);
 
-  /// Enable audio/RTCP batching on a relay media channel. Callers gate this on
-  /// the peer's call protocol version: a batched cell is silent noise to an
-  /// older build.
+  /// Select the batch envelope on a relay media channel. This is a WIRE FORMAT
+  /// choice, not a security one: the batch header travels inside the same seal
+  /// as every other cell, so it is never a fan-out instruction anyone on the
+  /// path can read or rewrite. Nothing here needs the peer's protocol version.
   int setRelayMediaBatching(int chan, bool on, {bool compact = false}) =>
       _mediaApp.setRelayMediaBatching(chan, on, compact: compact);
-
-  /// Configure directional v3 keys before enabling compact relay batching.
-  int configureRelayMediaCipher(
-    int chan, {
-    required Uint8List txKey,
-    required Uint8List rxKey,
-  }) => _mediaApp.configureRelayMediaCipher(chan, txKey: txKey, rxKey: rxKey);
 
   /// Relay drain queue/IPC timing for live call diagnostics.
   Map<String, int>? mediaChannelStats(int chan) =>
@@ -238,7 +269,11 @@ class VeilFlutterTransport
   /// actual anonymous route.
   int repairMediaChannel(int chan) => _client.repairMediaChannel(chan);
 
-  /// Inbound media datagrams received from [peerNode] (32 bytes) since start.
+  /// Inbound media datagrams from [peerNode] (32 bytes) that OPENED against the
+  /// channel key, since process start. A stranger who writes into the receive
+  /// point can no longer advance it, so this is a liveness signal about the
+  /// peer rather than about the network — same units, strictly stronger
+  /// meaning, so existing thresholds still hold.
   int mediaRecvCount(Uint8List peerNode) => _client.mediaRecvCount(peerNode);
 
   /// Close a media channel.

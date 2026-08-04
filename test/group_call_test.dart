@@ -19,6 +19,7 @@ import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/state/group_epoch_service.dart';
 import 'package:xveil/state/group_call_service.dart';
 import 'package:xveil/state/group_service.dart';
+import 'package:xveil/state/veil_group_call_media.dart';
 import 'package:xveil/state/call_service.dart';
 
 import 'support/fake_hv_container.dart';
@@ -1313,6 +1314,119 @@ void main() {
         ownerCalls.current?.screenOn,
         isFalse,
         reason: 'an OS-revoked projection is folded into room state',
+      );
+    },
+  );
+
+  test(
+    'every member of a room reaches the same media secret, outsiders none',
+    () async {
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerService = GroupService(
+        ownerStorage,
+        _Signer(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+        sendGroupCallFrame: (_, _, _) async {},
+      );
+      final groupId = await ownerService.createGroup('Room media');
+      expect(
+        await ownerService.addControlOp(
+          groupId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final bobService = GroupService(
+        bobStorage,
+        _Signer(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+        sendGroupCallFrame: (_, _, _) async {},
+      );
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(groupId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+
+      final epoch = (await ownerService.stateOf(groupId))!.epoch;
+      final ownerSecret = await ownerService.groupCallMediaSecret(
+        groupId: groupId,
+        membershipEpoch: epoch,
+        callId: 'room-1',
+      );
+      final bobSecret = await bobService.groupCallMediaSecret(
+        groupId: groupId,
+        membershipEpoch: epoch,
+        callId: 'room-1',
+      );
+
+      expect(ownerSecret, isNotNull);
+      expect(ownerSecret, hasLength(32));
+      expect(ownerSecret!.any((byte) => byte != 0), isTrue);
+      expect(
+        bobSecret,
+        ownerSecret,
+        reason: 'two members that reach different room secrets cannot open '
+            "each other's media cells at all",
+      );
+
+      // …and the per-pair keys hanging off it are mirror images, so each end
+      // opens exactly what the other sealed.
+      final fromOwner = deriveGroupCallMediaKeys(
+        roomSecret: ownerSecret,
+        localNode: owner,
+        peerNode: bob,
+      );
+      final fromBob = deriveGroupCallMediaKeys(
+        roomSecret: bobSecret!,
+        localNode: bob,
+        peerNode: owner,
+      );
+      expect(fromOwner.txKey, fromBob.rxKey);
+      expect(fromOwner.rxKey, fromBob.txKey);
+
+      expect(
+        await ownerService.groupCallMediaSecret(
+          groupId: groupId,
+          membershipEpoch: epoch,
+          callId: 'room-2',
+        ),
+        isNot(ownerSecret),
+        reason: 'a second room in the same epoch must not reuse the cells',
+      );
+
+      final strangerStorage = FakeHvContainer().storage();
+      await strangerStorage.open(password: 'pw', createIfMissing: true);
+      final strangerService = GroupService(
+        strangerStorage,
+        _Signer(stranger),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+        sendGroupCallFrame: (_, _, _) async {},
+      );
+      expect(
+        await strangerService.groupCallMediaSecret(
+          groupId: groupId,
+          membershipEpoch: epoch,
+          callId: 'room-1',
+        ),
+        isNull,
+        reason: 'a non-member holds no epoch key, so it can seal nothing',
       );
     },
   );
