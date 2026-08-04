@@ -374,18 +374,201 @@ void main() {
       final wire = WireEnvelope.p2pEndpoints(
         body,
       ).withFrameId('p2p:ep:456').encode();
+      // An honest delivery: the node checked the claimed sender against the
+      // authenticated peer of the session that carried the frame.
+      InboundMessage honest() => InboundMessage(
+        src: peer,
+        payload: wire,
+        provenance: SenderProvenance.sessionPeer,
+      );
 
-      transport.realtimeInbound.add(InboundMessage(src: peer, payload: wire));
+      transport.realtimeInbound.add(honest());
 
       expect(
         await received.future.timeout(const Duration(milliseconds: 500)),
         body,
       );
-      transport.realtimeInbound.add(InboundMessage(src: peer, payload: wire));
+      transport.realtimeInbound.add(honest());
       await Future<void>.delayed(const Duration(milliseconds: 20));
       expect(calls, 1, reason: 'a realtime re-drive must be deduplicated');
     },
   );
+
+  group('a name is not an identity (X/V-01)', () {
+    // veil hands the app whatever sender a frame named; since 2e5471cc it also
+    // hands over how much it KNOWS about that name. Before, a frame naming an
+    // accepted contact WAS that contact — any node on the network could ring
+    // this phone as one, or hand it bootstrap URIs to dial.
+
+    test('an unauthenticated frame wearing a contact name does not ring', () async {
+      final messaging = MessagingService(transport, storage)..start();
+      addTearDown(messaging.dispose);
+      var rings = 0;
+      messaging.onCallSignal = (_, _) => rings++;
+
+      // `peer` IS an accepted contact — that is the whole point. The only
+      // thing wrong with this frame is that nothing verified who sent it.
+      transport.realtimeInbound.add(
+        InboundMessage(
+          src: peer,
+          payload: WireEnvelope.callSignal(
+            const CallSignal(
+              callId: 'spoofed-offer',
+              type: CallSignalType.offer,
+            ).encode(),
+          ).encode(),
+        ),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        rings,
+        0,
+        reason: 'a stranger rang the phone as one of the user\'s contacts',
+      );
+    });
+
+    test('an unauthenticated frame wearing a contact name is not dialled', () async {
+      final messaging = MessagingService(transport, storage)..start();
+      addTearDown(messaging.dispose);
+      var calls = 0;
+      messaging.onP2PEndpoints = (_, _) => calls++;
+
+      transport.realtimeInbound.add(
+        InboundMessage(
+          src: peer,
+          payload: WireEnvelope.p2pEndpoints(
+            '{"v":1,"ts":111,"e":["veil:bootstrap?attacker"]}',
+          ).withFrameId('p2p:ep:111').encode(),
+        ),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        calls,
+        0,
+        reason: 'the app would have dialled an address the attacker chose',
+      );
+    });
+
+    test('the session cache cannot be used to answer for the claim', () async {
+      // The accepted-peer cache is primed by anything that ever looked like
+      // this contact, so a check placed AFTER it would let the suspect claim
+      // vouch for itself. Prime it the way production does, then spoof.
+      final messaging = MessagingService(transport, storage)..start();
+      addTearDown(messaging.dispose);
+      await messaging.sendCallSignal(
+        peer,
+        const CallSignal(callId: 'warm', type: CallSignalType.health),
+      );
+      var rings = 0;
+      messaging.onCallSignal = (_, _) => rings++;
+
+      transport.realtimeInbound.add(
+        InboundMessage(
+          src: peer,
+          payload: WireEnvelope.callSignal(
+            const CallSignal(
+              callId: 'cached-spoof',
+              type: CallSignalType.offer,
+            ).encode(),
+          ).encode(),
+        ),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(rings, 0, reason: 'the warm cache answered for the attacker');
+    });
+
+    test('an honest delivery from the same contact still rings', () async {
+      // The control. Same contact, same frame — the only difference is that
+      // this one arrived over a session whose peer the node authenticated.
+      final messaging = MessagingService(transport, storage)..start();
+      addTearDown(messaging.dispose);
+      final received = Completer<CallSignal>();
+      messaging.onCallSignal = (source, signal) {
+        expect(source, peer);
+        if (!received.isCompleted) received.complete(signal);
+      };
+
+      transport.realtimeInbound.add(
+        InboundMessage(
+          src: peer,
+          payload: WireEnvelope.callSignal(
+            const CallSignal(
+              callId: 'honest-offer',
+              type: CallSignalType.offer,
+            ).encode(),
+          ).encode(),
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
+
+      final actual = await received.future.timeout(
+        const Duration(milliseconds: 500),
+      );
+      expect(actual.callId, 'honest-offer');
+    });
+
+    test('the anonymous path is not what was closed', () async {
+      // Anonymous meta-E2E is `claimed` BY DESIGN — ML-KEM proves
+      // confidentiality and never origin — and veil pins that with a test so a
+      // future "fix" cannot quietly shut it. It must not be shut here either:
+      // call follow-ups are matched by CallService against the exact live
+      // (peer, callId) it is already in, so they never needed a contact check
+      // and still do not have one.
+      final messaging = MessagingService(transport, storage)..start();
+      addTearDown(messaging.dispose);
+      final received = Completer<CallSignal>();
+      messaging.onCallSignal = (_, signal) {
+        if (!received.isCompleted) received.complete(signal);
+      };
+
+      transport.realtimeInbound.add(
+        InboundMessage(
+          src: peer,
+          payload: WireEnvelope.callSignal(
+            const CallSignal(
+              callId: 'anonymous-answer',
+              type: CallSignalType.answer,
+            ).encode(),
+          ).encode(),
+        ),
+      );
+
+      final actual = await received.future.timeout(
+        const Duration(milliseconds: 500),
+      );
+      expect(
+        actual.callId,
+        'anonymous-answer',
+        reason: 'an unauthenticated lane was closed wholesale, not the spoof',
+      );
+    });
+
+    test('the mailbox drain is verified, so it speaks for the contact', () {
+      // The one attribution this app proves for itself: the drained sender is
+      // the orchestrator's crypto-verified one, not the relay's wire hint.
+      expect(SenderProvenance.signed.isAuthenticated, isTrue);
+      expect(SenderProvenance.sessionPeer.isAuthenticated, isTrue);
+      expect(SenderProvenance.localIpc.isAuthenticated, isTrue);
+      expect(SenderProvenance.claimed.isAuthenticated, isFalse);
+    });
+
+    test('an unknown wire byte reads as a claim, never as proof', () {
+      expect(SenderProvenance.fromWire(0), SenderProvenance.claimed);
+      expect(SenderProvenance.fromWire(1), SenderProvenance.localIpc);
+      expect(SenderProvenance.fromWire(2), SenderProvenance.sessionPeer);
+      expect(SenderProvenance.fromWire(3), SenderProvenance.signed);
+      for (final byte in [4, 9, 0x7F, 0xFF, -1]) {
+        expect(
+          SenderProvenance.fromWire(byte),
+          SenderProvenance.claimed,
+          reason: 'byte $byte must fail CLOSED, down to a claim and never up',
+        );
+      }
+    });
+  });
 
   test('realtime P2P endpoints stay behind accepted-contact consent', () async {
     final messaging = MessagingService(transport, storage)..start();
@@ -431,6 +614,7 @@ void main() {
           payload: WireEnvelope.p2pEndpoints(
             '{"v":1,"ts":900,"e":["veil:bootstrap?first"]}',
           ).withFrameId('p2p:ep:900').encode(),
+          provenance: SenderProvenance.sessionPeer,
         ),
       );
       await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -441,6 +625,7 @@ void main() {
           payload: WireEnvelope.p2pEndpoints(
             secondBody,
           ).withFrameId('p2p:ep:901').encode(),
+          provenance: SenderProvenance.sessionPeer,
         ),
       );
 
@@ -581,6 +766,7 @@ void main() {
             type: CallSignalType.offer,
           ).encode(),
         ).encode(),
+        provenance: SenderProvenance.sessionPeer,
       ),
     );
 
