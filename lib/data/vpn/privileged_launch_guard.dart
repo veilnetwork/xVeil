@@ -21,13 +21,22 @@
 /// ancestor up to the root. A writable grandparent is just as fatal as a
 /// writable leaf: swap the directory, keep the name.
 ///
-/// Fail-closed everywhere. An ACL that cannot be read, a `stat` that will not
-/// run, a relative or network path — all refuse. "Could not tell" is never
+/// Fail-closed everywhere. An ACL that cannot be read, an `lstat` that fails,
+/// a relative or network path — all refuse. "Could not tell" is never
 /// "probably fine" when the answer decides whether to start a root process.
+///
+/// And the guard never asks a program PATH chose. The first version of this
+/// read owner and mode by running `stat`, then the elevation itself ran a bare
+/// `pkexec`: a wrapper dropped into any PATH component answered the question
+/// AND was handed the answer's consequence (audit C-01). POSIX facts now come
+/// from libc directly, and every helper this file will run is named by
+/// absolute path and checked before it is used.
 library;
 
 import 'dart:convert';
 import 'dart:io';
+
+import '../../core/posix_file_facts.dart';
 
 /// What a path is doing in the chain. It decides which rights are fatal — the
 /// masks genuinely differ, and using the strictest one everywhere would refuse
@@ -328,17 +337,60 @@ class PrivilegedLaunchGuard {
 
 // --- Linux -----------------------------------------------------------------
 
+/// Turns one `lstat(2)` answer into facts. Pure, so the whole mapping is
+/// covered without needing a root-owned path to point it at.
+///
+/// [stat] is null when the call failed or the host cannot answer at all —
+/// which is a refusal, not a shrug.
+PathSecurityFacts posixFactsFromStat(String path, PosixFileFacts? stat) {
+  if (stat == null) {
+    return PathSecurityFacts.undetermined(
+      path,
+      'lstat(2) could not read this path',
+    );
+  }
+  if (stat.isSymlink) {
+    // The mode of a symlink is meaningless (0777 on Linux, and nothing
+    // enforces it anywhere), so only its OWNER is evidence. What decides
+    // whether the link can be repointed is the write bit on its parent, and
+    // what it currently points at is walked as its own chain — both are steps
+    // of this same walk, judged in their own right.
+    return PathSecurityFacts(
+      path: path,
+      ownerIsPrivileged: stat.uid == 0,
+      unprivilegedRights: const {},
+    );
+  }
+  // Group- or other-writable. On POSIX that single bit is both "create
+  // entries here" and "delete what is here", so it maps to both.
+  return PathSecurityFacts(
+    path: path,
+    ownerIsPrivileged: stat.uid == 0,
+    unprivilegedRights: stat.groupOrOtherWritable
+        ? const {
+            FilesystemRight.createOrWriteContent,
+            FilesystemRight.deleteChild,
+          }
+        : const {},
+  );
+}
+
 /// Owner must be uid 0, and neither group nor other may write.
 ///
-/// Deliberately dereferences (`stat -L`): the mode of a symlink itself is
-/// meaningless on Linux (always 777), and what actually decides whether a link
-/// can be repointed is the write bit on its parent — which is a step of this
-/// same chain and is checked in its own right.
+/// Facts come from libc's `lstat`, never from a subprocess. `stat` is a bare
+/// command name, so whoever can drop a file into a PATH component could answer
+/// the question that decides whether this binary is handed to `pkexec`
+/// (audit C-01). Nothing in the environment changes which `lstat` the process
+/// already has.
 ///
-/// Known limit: POSIX mode bits only. An extended ACL (`setfacl`) granting
-/// write to somebody is invisible here. That is the shape the decision was
-/// specified in; the fix, if it is ever wanted, is a `getfacl --skip-base`
-/// pass whose non-empty output turns the entry undetermined.
+/// `lstat` also means the link itself rather than what it points at, which the
+/// old `stat -L` could not distinguish: [posixFactsFromStat] judges a link by
+/// its owner, and the target is walked as its own chain.
+///
+/// Known limit, unchanged: POSIX mode bits only. An extended ACL (`setfacl`)
+/// granting write to somebody is invisible here. That is the shape the
+/// decision was specified in; the fix, if it is ever wanted, is an
+/// `acl_get_file` pass whose extra entries turn the entry undetermined.
 class PosixPathSecurityProbe implements PathSecurityProbe {
   const PosixPathSecurityProbe();
 
@@ -354,56 +406,51 @@ class PosixPathSecurityProbe implements PathSecurityProbe {
   @override
   Future<List<PathSecurityFacts>> inspect(
     List<PrivilegedPathStep> steps,
-  ) async {
-    ProcessResult result;
-    try {
-      result = await Process.run(
-        'stat',
-        <String>[
-          '-L',
-          '-c',
-          '%n\u0001%u\u0001%a',
-          ...steps.map((step) => step.path),
-        ],
-        stdoutEncoding: utf8,
-        stderrEncoding: utf8,
-      );
-    } on ProcessException catch (error) {
-      return [
-        for (final step in steps)
-          PathSecurityFacts.undetermined(step.path, 'stat: ${error.message}'),
-      ];
-    }
-    final parsed = <String, PathSecurityFacts>{};
-    for (final line in const LineSplitter().convert(result.stdout as String)) {
-      final fields = line.split('\u0001');
-      if (fields.length != 3) continue;
-      final uid = int.tryParse(fields[1]);
-      final mode = int.tryParse(fields[2], radix: 8);
-      if (uid == null || mode == null) continue;
-      // Group- or other-writable. On POSIX that single bit is both "create
-      // entries here" and "delete what is here", so it maps to both.
-      final writable = mode & 0x12 != 0; // 0o020 | 0o002
-      parsed[fields[0]] = PathSecurityFacts(
-        path: fields[0],
-        ownerIsPrivileged: uid == 0,
-        unprivilegedRights: writable
-            ? const {
-                FilesystemRight.createOrWriteContent,
-                FilesystemRight.deleteChild,
-              }
-            : const {},
-      );
-    }
-    return [
-      for (final step in steps)
-        parsed[step.path] ??
-            PathSecurityFacts.undetermined(
-              step.path,
-              'stat did not report this path',
-            ),
-    ];
+  ) async => [
+    for (final step in steps)
+      posixFactsFromStat(step.path, posixLstat(step.path)),
+  ];
+}
+
+/// The absolute places a POSIX privilege helper may legitimately live.
+///
+/// Order decides only which one is found first; every candidate still has to
+/// pass [resolveTrustedPosixTool] before it is used.
+const List<String> kPkexecCandidates = <String>[
+  '/usr/bin/pkexec',
+  '/bin/pkexec',
+  '/usr/local/bin/pkexec',
+  // NixOS keeps its setuid wrappers here and has no /usr/bin at all.
+  '/run/wrappers/bin/pkexec',
+];
+
+/// The first of [candidates] that exists and is safe to run as a step towards
+/// root: a real file, owned by root, not writable by anybody else.
+///
+/// PATH is not consulted, which is the entire point. The old code ran `pkexec`
+/// by bare name, so the guard could pass on the real installation while the
+/// elevation went to a wrapper the attacker had planted earlier in PATH — the
+/// wrapper only had to forward to the real thing for the polkit dialog to look
+/// exactly as expected (audit C-01).
+///
+/// [stat] is injectable so both answers stay testable on a host that has no
+/// polkit at all.
+String? resolveTrustedPosixTool(
+  List<String> candidates, {
+  PosixFileFacts? Function(String path)? stat,
+}) {
+  final read = stat ?? posixLstat;
+  for (final candidate in candidates) {
+    final facts = read(candidate);
+    if (facts == null) continue;
+    // A symlink here is one more thing that can be repointed, and following it
+    // would only move the question elsewhere. Candidates are named exactly.
+    if (!facts.isRegularFile) continue;
+    if (facts.uid != 0) continue;
+    if (facts.groupOrOtherWritable) continue;
+    return candidate;
   }
+  return null;
 }
 
 // --- Windows ---------------------------------------------------------------
@@ -483,8 +530,63 @@ PathSecurityFacts windowsFactsFromAcl(String path, Object? decoded) {
   );
 }
 
-/// Reads owner + DACL through PowerShell, which `probe()` has already
-/// established is present. Nothing but fact collection lives here.
+/// `%SystemRoot%`, sanity-checked, or the documented default.
+///
+/// Read from the environment because a Windows install is not obliged to be on
+/// `C:`, but never taken on faith: anything that is not a rooted local path is
+/// ignored rather than concatenated into a command line.
+String windowsSystemRoot({Map<String, String>? environment}) {
+  final env = environment ?? Platform.environment;
+  for (final key in const ['SystemRoot', 'SYSTEMROOT', 'windir']) {
+    final value = env[key];
+    if (value != null && RegExp(r'^[A-Za-z]:\\').hasMatch(value)) {
+      return value.replaceFirst(RegExp(r'\\+$'), '');
+    }
+  }
+  return r'C:\Windows';
+}
+
+/// Windows PowerShell by absolute path, never by name.
+String windowsPowerShellPath({Map<String, String>? environment}) =>
+    '${windowsSystemRoot(environment: environment)}'
+    r'\System32\WindowsPowerShell\v1.0\powershell.exe';
+
+/// A tool that ships in System32, by absolute path.
+String windowsSystem32Tool(String name, {Map<String, String>? environment}) =>
+    '${windowsSystemRoot(environment: environment)}\\System32\\$name';
+
+/// The environment a helper process is given — ours is not passed on.
+///
+/// `PATH` here is only what Windows itself needs; nothing is resolved through
+/// it by us. Handing our own environment to a process that is part of an
+/// elevation decision would put back the search path this file just took away.
+Map<String, String> windowsCleanEnvironment({
+  Map<String, String>? environment,
+}) {
+  final root = windowsSystemRoot(environment: environment);
+  return <String, String>{
+    'SystemRoot': root,
+    'windir': root,
+    'Path': '$root\\System32;$root;$root\\System32\\Wbem;'
+        '$root\\System32\\WindowsPowerShell\\v1.0',
+    'PATHEXT': '.COM;.EXE;.BAT;.CMD',
+    'ComSpec': '$root\\System32\\cmd.exe',
+  };
+}
+
+/// Reads owner + DACL through PowerShell at its absolute System32 path.
+/// Nothing but fact collection lives here.
+///
+/// TEMPORARY, and named as such in the audit's own wording: the correct
+/// Windows answer is `CreateFile` + `GetFinalPathNameByHandle` +
+/// `GetNamedSecurityInfo` with reparse points refused, so that the ACL is read
+/// from the same handle the path resolved to. What is here instead removes the
+/// ORACLE — the absolute path plus a cleaned environment mean no
+/// `powershell.exe` planted in the application directory or anywhere in PATH
+/// can answer for the system one (audit C-01) — but it does not close the
+/// window between reading the ACL and using the path, and it does not detect a
+/// directory junction. Do not read this class as the fix; read it as the part
+/// of the fix that could be written without a Windows host to verify on.
 class WindowsPathSecurityProbe implements PathSecurityProbe {
   const WindowsPathSecurityProbe();
 
@@ -501,10 +603,20 @@ class WindowsPathSecurityProbe implements PathSecurityProbe {
   Future<List<PathSecurityFacts>> inspect(
     List<PrivilegedPathStep> steps,
   ) async {
+    final powershell = windowsPowerShellPath();
+    if (!File(powershell).existsSync()) {
+      return [
+        for (final step in steps)
+          PathSecurityFacts.undetermined(
+            step.path,
+            'Windows PowerShell is not at $powershell',
+          ),
+      ];
+    }
     ProcessResult result;
     try {
       result = await Process.run(
-        'powershell.exe',
+        powershell,
         <String>[
           '-NoLogo',
           '-NoProfile',
@@ -516,6 +628,8 @@ class WindowsPathSecurityProbe implements PathSecurityProbe {
         ],
         stdoutEncoding: utf8,
         stderrEncoding: utf8,
+        includeParentEnvironment: false,
+        environment: windowsCleanEnvironment(),
       );
     } on ProcessException catch (error) {
       return [
