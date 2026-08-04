@@ -10,8 +10,6 @@ import '../../core/secret_wipe.dart';
 import '../native_libs.dart' show processLibFor;
 import 'node_controller.dart';
 import 'proxy_routing.dart';
-import 'ratchet_ffi.dart'
-    show FfiRatchetStateHandle, RatchetStateHandle, ratchetStateAvailable;
 import 'veil_node.dart' show veilSocketProbe;
 
 /// The handle the embedded-node symbols resolve against. On Android they live
@@ -949,23 +947,6 @@ class EmbeddedNode {
       calloc.free(tomlPtr);
       calloc.free(errOut);
     }
-  }
-
-  /// This node's ratchet state door, or null when the loaded dylib was built
-  /// without it.
-  ///
-  /// The one piece of node state veil cannot keep: the host persists it, and
-  /// the host here is the deniable container. Guarded by a symbol lookup rather
-  /// than assumed present — a build without the feature must still run, just
-  /// without ratcheted one-to-one messages.
-  RatchetStateHandle? ratchetState() {
-    if (_stopped) {
-      throw StateError(
-        'ratchetState called after stop() — node handle is freed',
-      );
-    }
-    if (!ratchetStateAvailable(lib: _dl)) return null;
-    return FfiRatchetStateHandle(_handle, _dl);
   }
 
   void stop() {

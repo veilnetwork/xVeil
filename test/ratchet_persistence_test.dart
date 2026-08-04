@@ -114,6 +114,11 @@ class _FakeRatchetNode implements RatchetStateHandle {
     return _held.remove(_hex(conversationKey)) != null;
   }
 
+  bool closed = false;
+
+  @override
+  void close() => closed = true;
+
   static Uint8List _unhex(String hex) => Uint8List.fromList([
     for (var i = 0; i < hex.length; i += 2)
       int.parse(hex.substring(i, i + 2), radix: 16),
