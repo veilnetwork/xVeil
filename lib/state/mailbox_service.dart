@@ -680,7 +680,18 @@ class MailboxService implements MailboxSink {
       );
       gotMail = recovered.isNotEmpty;
       for (final m in recovered) {
-        _deliver(InboundMessage(src: m.sender, payload: m.data));
+        // The one attribution in this app that is already proven rather than
+        // claimed: `m.sender` is the orchestrator's `verifiedSender`, recovered
+        // from the blob's sidecar and confirmed by the auth-deliver signature —
+        // never the relay's wire hint. So this path states [signed] and means
+        // it (audit X/V-01).
+        _deliver(
+          InboundMessage(
+            src: m.sender,
+            payload: m.data,
+            provenance: SenderProvenance.signed,
+          ),
+        );
       }
     } on MailboxDrainUnreachable {
       // Every known relay failed to ANSWER (vs. a relay answering "empty"). We

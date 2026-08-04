@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veil_flutter/veil_flutter.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/state/mailbox_orchestrator.dart';
 import 'package:xveil/state/mailbox_service.dart';
 
@@ -129,6 +130,35 @@ void main() {
       lessThanOrEqualTo(4),
       reason: 'after the window the idle back-off must resume',
     );
+  });
+
+  test('drained mail is delivered as a PROVEN sender, not a claimed one', () async {
+    // X/V-01. The drain is the one inbound path this app authenticates for
+    // itself: `DrainedMessage.sender` is the orchestrator's crypto-verified
+    // sender, recovered from the blob's sidecar and confirmed by the
+    // auth-deliver signature, never the relay's wire hint. It must say so, or
+    // the gates that ask cannot tell it from a frame that named anyone.
+    final delivered = <InboundMessage>[];
+    final service = MailboxService(
+      client: _FakeClient(),
+      me: _id(1),
+      orchestrator: orch,
+      deliver: delivered.add,
+      drainInterval: const Duration(milliseconds: 100),
+    );
+    addTearDown(service.dispose);
+    orch.queued.add([_mail()]);
+    await service.start(relays: [_id(7)]);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(delivered, isNotEmpty, reason: 'nothing was drained at all');
+    expect(delivered.first.src, _id(9));
+    expect(
+      delivered.first.provenance,
+      SenderProvenance.signed,
+      reason: 'a verified sender reached the app as an unverified claim',
+    );
+    expect(delivered.first.provenance.isAuthenticated, isTrue);
   });
 
   test('drained mail re-arms the burst window by itself', () async {
