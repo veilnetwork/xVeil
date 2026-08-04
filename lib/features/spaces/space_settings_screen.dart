@@ -23,7 +23,16 @@ import '../../state/messaging.dart' show conversationsProvider;
 import '../chat/chat_actions.dart';
 import 'space_avatar.dart';
 
-enum _SpaceMemberAction { unmute, promote, demote, remove, ban, transferOwner }
+enum _SpaceMemberAction {
+  unmute,
+  promote,
+  demote,
+  remove,
+  ban,
+  transferOwner,
+  withdrawAuthority,
+  returnAuthority,
+}
 
 /// The Space-native management surface. It deliberately writes through the
 /// existing signed control log: the UI only predicts permissions for clarity;
@@ -1000,12 +1009,29 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
       if (actionId == null) _failure();
       return;
     }
+    if (action == _SpaceMemberAction.returnAuthority) {
+      if (!await service.setSpaceAuthorityBoundary(
+        spaceId,
+        member.nodeId,
+        effectiveFromMs: DateTime.now().millisecondsSinceEpoch,
+        restore: true,
+      )) {
+        _failure();
+      }
+      return;
+    }
+    if (action == _SpaceMemberAction.withdrawAuthority) {
+      await _withdrawAuthority(service, spaceId, member, label);
+      return;
+    }
     final (operation, role) = switch (action) {
       _SpaceMemberAction.unmute => (ControlOp.unmute, null),
       _SpaceMemberAction.promote => (ControlOp.setRole, GroupRole.admin),
       _SpaceMemberAction.demote => (ControlOp.setRole, GroupRole.member),
       _SpaceMemberAction.remove => (ControlOp.removeMember, null),
-      _SpaceMemberAction.ban => throw StateError('handled above'),
+      _SpaceMemberAction.ban ||
+      _SpaceMemberAction.withdrawAuthority ||
+      _SpaceMemberAction.returnAuthority => throw StateError('handled above'),
       _SpaceMemberAction.transferOwner => (ControlOp.transferOwnership, null),
     };
     final applied = action == _SpaceMemberAction.transferOwner
@@ -1017,6 +1043,84 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
             role: role,
           );
     if (!applied) _failure();
+  }
+
+  /// Ask the owner for the date the withdrawal takes effect, then write it.
+  ///
+  /// The date is the only thing the owner is asked for, and it is offered as a
+  /// short list of past points rather than a free calendar: what the owner
+  /// actually knows is "since roughly when did this go wrong", and the log
+  /// answers the rest by translating the date into a position on the target's
+  /// chain (see `GroupService.spaceAuthorityCutoffSeq`).
+  ///
+  /// The role itself is left alone on purpose. Withdrawing what someone did is
+  /// a different statement from taking away what they may do next, and the
+  /// menu already carries the second one.
+  Future<void> _withdrawAuthority(
+    GroupService service,
+    NodeId spaceId,
+    GroupMember member,
+    String label,
+  ) async {
+    final l = AppL10n.of(context);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final choices = <(String, int)>[
+      (
+        l.spaceAuthorityWithdrawSinceHours(1),
+        const Duration(hours: 1).inMilliseconds,
+      ),
+      (
+        l.spaceAuthorityWithdrawSinceHours(24),
+        const Duration(days: 1).inMilliseconds,
+      ),
+      (
+        l.spaceAuthorityWithdrawSinceDays(7),
+        const Duration(days: 7).inMilliseconds,
+      ),
+      (
+        l.spaceAuthorityWithdrawSinceDays(30),
+        const Duration(days: 30).inMilliseconds,
+      ),
+      (l.spaceAuthorityWithdrawSinceAlways, now),
+    ];
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l.spaceAuthorityWithdraw),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(l.spaceAuthorityWithdrawConfirm(label)),
+              const SizedBox(height: 16),
+              for (final (title, back) in choices)
+                ListTile(
+                  key: ValueKey('space-authority-since-$back'),
+                  dense: true,
+                  title: Text(title),
+                  onTap: () => Navigator.of(dialogContext).pop(now - back),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l.actionCancel),
+          ),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    if (!await service.setSpaceAuthorityBoundary(
+      spaceId,
+      member.nodeId,
+      effectiveFromMs: picked < 0 ? 0 : picked,
+    )) {
+      _failure();
+    }
   }
 
   Future<void> _leave(GroupService service, NodeId spaceId) async {
@@ -1180,6 +1284,27 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
         PopupMenuItem(
           value: _SpaceMemberAction.transferOwner,
           child: Text(l.spaceMemberTransferOwnership),
+        ),
+      );
+    }
+    // Offered for anyone the owner may aim it at, whatever role they hold
+    // NOW: the point of the operation is what they did while they held one,
+    // and demoting first is the ordinary order of events.
+    if (allowed(ControlOp.revokeAuthority)) {
+      final withdrawn = state.authorityWithdrawalFor(member.nodeId);
+      actions.add(
+        PopupMenuItem(
+          value: withdrawn == null
+              ? _SpaceMemberAction.withdrawAuthority
+              : _SpaceMemberAction.returnAuthority,
+          child: Text(
+            withdrawn == null
+                ? l.spaceAuthorityWithdraw
+                : l.spaceAuthorityReturn,
+            style: withdrawn == null
+                ? TextStyle(color: Theme.of(context).colorScheme.error)
+                : null,
+          ),
         ),
       );
     }

@@ -350,6 +350,7 @@ enum ControlOp {
   setRecommendationCampaign,
   setRecommendationPolicy,
   checkpoint,
+  revokeAuthority, // the owner withdraws (or returns) one member's authority
   leave; // the author removes THEMSELVES (any member may leave)
 
   static ControlOp? fromName(String? s) {
@@ -421,6 +422,69 @@ class SpacePostBoundary {
   }
 }
 
+/// The owner's signed statement that one member's control authority does not
+/// (or does again) cover a stretch of that member's own chain.
+///
+/// [fromSeq] is the last entry of the target's chain that keeps its authority;
+/// everything after it is withdrawn, with `-1` meaning "everything they ever
+/// wrote". The boundary is a chain POSITION rather than a moment, and that is
+/// the whole reason this works. Where the owner drew it is a question about
+/// the past, answered once, on the owner's device, with the arrival moments
+/// only that device has (see `GroupBundle.effectiveControlTimeMs`); what
+/// travels is the answer. Every other device then applies a rule that reads
+/// nothing but signed bytes, so a moderator's history folds identically on a
+/// device that watched it happen and on one that joined this morning.
+///
+/// It also closes the obvious escape. A control row's `createdAtMs` is chosen
+/// by its author, so a moderator who sees the demotion coming would otherwise
+/// date the next ban a week back and slip under any boundary expressed as a
+/// date. A chain position cannot be slipped under: seq is per-author monotone
+/// and hash-chained, so anything written after the owner looked has a higher
+/// seq no matter what year it claims.
+///
+/// [effectiveFromMs] is the date the owner actually picked. It is carried for
+/// the audit trail and for what the members are shown, and is deliberately not
+/// what the fold enforces.
+class SpaceAuthorityBoundary {
+  const SpaceAuthorityBoundary({
+    required this.effectiveFromMs,
+    required this.fromSeq,
+    this.restore = false,
+  });
+
+  final int effectiveFromMs;
+  final int fromSeq;
+
+  /// False withdraws authority after [fromSeq]; true returns it, overriding
+  /// every earlier boundary that sits lower in the target's chain. Restoring
+  /// is forward-only by construction — a row below this position was already
+  /// written under authority the owner declared void, and returning someone's
+  /// role is not a statement that what they did without one was fine.
+  final bool restore;
+
+  bool get isStructurallyValid => effectiveFromMs >= 0 && fromSeq >= -1;
+
+  Map<String, dynamic> toJson() => {
+    'from': effectiveFromMs,
+    'seq': fromSeq,
+    if (restore) 'restore': true,
+  };
+
+  static SpaceAuthorityBoundary? fromJson(Object? value) {
+    if (value is! Map || value['from'] is! int || value['seq'] is! int) {
+      return null;
+    }
+    final restore = value['restore'];
+    if (restore != null && restore is! bool) return null;
+    final boundary = SpaceAuthorityBoundary(
+      effectiveFromMs: value['from'] as int,
+      fromSeq: value['seq'] as int,
+      restore: restore == true,
+    );
+    return boundary.isStructurallyValid ? boundary : null;
+  }
+}
+
 /// One entry in a group's control-log: an [op] by [author] at their own
 /// monotonic [seq], chained by [prevHash] (hash of the author's previous
 /// entry, or empty for their first), bound to the [policyVersion] it was
@@ -456,6 +520,7 @@ class ControlEntry {
     this.recommendationCampaign,
     this.recommendationPolicy,
     this.accessPolicy,
+    this.authorityBoundary,
     Uint8List? authorPubKey,
   }) : authorPubKey = authorPubKey ?? Uint8List(0);
 
@@ -480,7 +545,9 @@ class ControlEntry {
   /// snapshot containing legacy Space-wide custom-role grants, participant
   /// groups and direct roles. V18 carries schema-2 access snapshots whose
   /// positive grants bind a functional area or an exact signed
-  /// category/channel. V19 carries schema-3 access snapshots with explicit
+  /// category/channel. V22 carries the owner's retroactive withdrawal or
+  /// return of one member's control authority over a stretch of that member's
+  /// own chain. V19 carries schema-3 access snapshots with explicit
   /// denials; applicable denials override positive and built-in non-owner
   /// grants without changing any V17/V18 canonical bytes. V20 lets a bounded
   /// manageRoles delegate author a transition-checked access snapshot. V21
@@ -514,6 +581,7 @@ class ControlEntry {
   final SpaceRecommendationCampaign? recommendationCampaign;
   final SpaceRecommendationPolicy? recommendationPolicy;
   final SpaceAccessPolicy? accessPolicy;
+  final SpaceAuthorityBoundary? authorityBoundary;
 
   /// Optional scale-free recipient-envelope root for the epoch established by
   /// this control entry. Legacy entries omit it and keep identical bytes.
@@ -548,7 +616,8 @@ class ControlEntry {
           version == 18 ||
           version == 19 ||
           version == 20 ||
-          version == 21) &&
+          version == 21 ||
+          version == 22) &&
       seq >= 0 &&
       policyVersion >= 0 &&
       createdAtMs >= 0 &&
@@ -773,6 +842,32 @@ class ControlEntry {
                 accessPolicy == null
           : recommendationPolicy == null &&
                 op != ControlOp.setRecommendationPolicy) &&
+      (version == 22
+          ? op == ControlOp.revokeAuthority &&
+                authorityBoundary != null &&
+                authorityBoundary!.isStructurallyValid &&
+                groupId != null &&
+                target != null &&
+                role == null &&
+                text == null &&
+                epochDescriptor == null &&
+                channel == null &&
+                channelControl == null &&
+                postBoundary == null &&
+                controlCheckpoint == null &&
+                rules == null &&
+                rulesAcceptance == null &&
+                moderationAction == null &&
+                moderationRevocation == null &&
+                channelModeration == null &&
+                channelRetention == null &&
+                retentionPolicy == null &&
+                lifecycleTransition == null &&
+                postPin == null &&
+                recommendationCampaign == null &&
+                recommendationPolicy == null &&
+                accessPolicy == null
+          : authorityBoundary == null && op != ControlOp.revokeAuthority) &&
       (version == 14
           ? op == ControlOp.moderate &&
                 channelModeration != null &&
@@ -903,6 +998,7 @@ class ControlEntry {
     recommendationCampaign: recommendationCampaign,
     recommendationPolicy: recommendationPolicy,
     accessPolicy: accessPolicy,
+    authorityBoundary: authorityBoundary,
     policyVersion: policyVersion,
     createdAtMs: createdAtMs,
     signature: sig,
@@ -948,6 +1044,8 @@ class ControlEntry {
       if (recommendationPolicy != null)
         'recommendationPolicy': recommendationPolicy!.toJson(),
       if (accessPolicy != null) 'accessPolicy': accessPolicy!.toJson(),
+      if (authorityBoundary != null)
+        'authorityBoundary': authorityBoundary!.toJson(),
       'pv': policyVersion,
       'ts': createdAtMs,
     };
@@ -989,6 +1087,8 @@ class ControlEntry {
     if (recommendationPolicy != null)
       'recommendationPolicy': recommendationPolicy!.toJson(),
     if (accessPolicy != null) 'accessPolicy': accessPolicy!.toJson(),
+    if (authorityBoundary != null)
+      'authorityBoundary': authorityBoundary!.toJson(),
     'pv': policyVersion,
     'ts': createdAtMs,
     'sig': base64Encode(signature),
@@ -1021,7 +1121,8 @@ class ControlEntry {
             version != 18 &&
             version != 19 &&
             version != 20 &&
-            version != 21) ||
+            version != 21 &&
+            version != 22) ||
         author is! String ||
         seq is! int ||
         prev is! String ||
@@ -1127,6 +1228,12 @@ class ControlEntry {
           ? SpaceAccessPolicy.fromJson(j['accessPolicy'])
           : null;
       if (j.containsKey('accessPolicy') && accessPolicy == null) return null;
+      final authorityBoundary = j.containsKey('authorityBoundary')
+          ? SpaceAuthorityBoundary.fromJson(j['authorityBoundary'])
+          : null;
+      if (j.containsKey('authorityBoundary') && authorityBoundary == null) {
+        return null;
+      }
       final entry = ControlEntry(
         version: version,
         groupId: j['gid'] is String ? NodeId.fromHex(j['gid'] as String) : null,
@@ -1156,6 +1263,7 @@ class ControlEntry {
         recommendationCampaign: recommendationCampaign,
         recommendationPolicy: recommendationPolicy,
         accessPolicy: accessPolicy,
+        authorityBoundary: authorityBoundary,
         policyVersion: pv,
         createdAtMs: ts,
         signature: Uint8List.fromList(base64Decode(sig)),

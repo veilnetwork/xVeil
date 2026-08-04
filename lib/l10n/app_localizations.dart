@@ -2352,6 +2352,18 @@ abstract class AppL10n {
   /// **'Recorded a control checkpoint'**
   String get spaceActionCheckpointRecorded;
 
+  /// No description provided for @spaceActionAuthorityWithdrawn.
+  ///
+  /// In en, this message translates to:
+  /// **'Withdrew {member}\'s authority retroactively'**
+  String spaceActionAuthorityWithdrawn(String member);
+
+  /// No description provided for @spaceActionAuthorityReturned.
+  ///
+  /// In en, this message translates to:
+  /// **'Returned {member}\'s authority'**
+  String spaceActionAuthorityReturned(String member);
+
   /// No description provided for @spaceActionOther.
   ///
   /// In en, this message translates to:
@@ -2741,6 +2753,42 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Transfer ownership to {member}? You will become an administrator, and only the new owner can transfer it back.'**
   String spaceMemberTransferOwnershipConfirm(String member);
+
+  /// No description provided for @spaceAuthorityWithdraw.
+  ///
+  /// In en, this message translates to:
+  /// **'Withdraw past authority'**
+  String get spaceAuthorityWithdraw;
+
+  /// No description provided for @spaceAuthorityReturn.
+  ///
+  /// In en, this message translates to:
+  /// **'Return authority'**
+  String get spaceAuthorityReturn;
+
+  /// No description provided for @spaceAuthorityWithdrawConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'From which point should {member}\'s decisions stop counting? Blocks and mutes they applied after it are undone. Deleted content and key rotations cannot be brought back.'**
+  String spaceAuthorityWithdrawConfirm(String member);
+
+  /// No description provided for @spaceAuthorityWithdrawSinceHours.
+  ///
+  /// In en, this message translates to:
+  /// **'{hours, plural, one{The last hour} other{The last {hours} hours}}'**
+  String spaceAuthorityWithdrawSinceHours(int hours);
+
+  /// No description provided for @spaceAuthorityWithdrawSinceDays.
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, one{The last day} other{The last {days} days}}'**
+  String spaceAuthorityWithdrawSinceDays(int days);
+
+  /// No description provided for @spaceAuthorityWithdrawSinceAlways.
+  ///
+  /// In en, this message translates to:
+  /// **'Everything they ever decided'**
+  String get spaceAuthorityWithdrawSinceAlways;
 
   /// No description provided for @spaceRenameTitle.
   ///
