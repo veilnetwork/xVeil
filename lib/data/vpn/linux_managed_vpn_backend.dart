@@ -43,6 +43,13 @@ class LinuxManagedVpnBackend implements VpnBackend {
     @visibleForTesting PrivilegedLaunchGuard? launchGuard,
     @visibleForTesting bool? isLinuxHost,
     @visibleForTesting String? executablePath,
+    // The last three exist so the ELEVATION ITSELF is reachable from a test on
+    // a host that has no /dev/net/tun and no polkit. Everything they stand in
+    // for is a fact about the machine, never a decision: what is elevated, and
+    // whether it is still safe to elevate it, is decided by the guard above.
+    @visibleForTesting this.tunDevice = '/dev/net/tun',
+    @visibleForTesting this.requiredTools = const ['ip', 'nft'],
+    @visibleForTesting this.resolvePkexec,
   }) : _launchGuard = launchGuard ?? PrivilegedLaunchGuard.forHost(),
        _isLinuxHost = isLinuxHost ?? Platform.isLinux,
        _executablePath = executablePath ?? Platform.resolvedExecutable;
@@ -58,7 +65,15 @@ class LinuxManagedVpnBackend implements VpnBackend {
   final PrivilegedLaunchGuard _launchGuard;
   final bool _isLinuxHost;
   final String _executablePath;
-  PrivilegedLaunchVerdict? _launchVerdict;
+  /// Test seams. Each stands in for a FACT about the machine — never for a
+  /// decision: what gets elevated, and whether it is still safe to elevate it,
+  /// is answered by the guard above and by nothing here.
+  @visibleForTesting
+  final String tunDevice;
+  @visibleForTesting
+  final List<String> requiredTools;
+  @visibleForTesting
+  final String? Function()? resolvePkexec;
 
   static const _startupTimeout = Duration(minutes: 3);
   static const _stopTimeout = Duration(seconds: 8);
@@ -69,10 +84,15 @@ class LinuxManagedVpnBackend implements VpnBackend {
   /// the polkit prompt, which is the only thing the user sees, looks identical
   /// either way (audit X-01). Asked first, before any capability check: what is
   /// being elevated matters more than whether `nft` happens to be installed.
+  ///
+  /// NOT cached. The first version answered once and kept the verdict for the
+  /// lifetime of the backend, so a directory that became writable — or a
+  /// binary replaced — after the app had started was still elevated on the
+  /// strength of a check from minutes earlier (audit C-01). It is asked again
+  /// immediately before the elevation itself, which is the only moment whose
+  /// answer actually matters.
   Future<VpnBackendState?> _refuseWritableInstallation() async {
-    final verdict = _launchVerdict ??= await _launchGuard.inspect(
-      _executablePath,
-    );
+    final verdict = await _launchGuard.inspect(_executablePath);
     if (verdict.isAllowed) return null;
     return VpnBackendState(VpnBackendPhase.unsupported, detail: verdict.detail);
   }
@@ -87,13 +107,25 @@ class LinuxManagedVpnBackend implements VpnBackend {
     }
     final unsafeInstallation = await _refuseWritableInstallation();
     if (unsafeInstallation != null) return unsafeInstallation;
-    if (!await File('/dev/net/tun').exists()) {
-      return const VpnBackendState(
+    if (!await File(tunDevice).exists()) {
+      return VpnBackendState(
         VpnBackendPhase.unsupported,
-        detail: '/dev/net/tun is unavailable',
+        detail: '$tunDevice is unavailable',
       );
     }
-    final missing = await _missingTools(const ['pkexec', 'ip', 'nft']);
+    if (_pkexec() == null) {
+      return VpnBackendState(
+        VpnBackendPhase.unsupported,
+        detail:
+            'no root-owned pkexec was found at a known absolute path '
+            '(${kPkexecCandidates.join(', ')})',
+      );
+    }
+    // `ip`/`nft` are a capability hint, not an authorization: they are invoked
+    // by the privileged helper, and a fake one here only makes us TRY and
+    // fail. The tool that decides whether we become root is resolved above,
+    // absolutely, and never through PATH.
+    final missing = await _missingTools(requiredTools);
     if (missing.isNotEmpty) {
       return VpnBackendState(
         VpnBackendPhase.unsupported,
@@ -102,6 +134,10 @@ class LinuxManagedVpnBackend implements VpnBackend {
     }
     return status();
   }
+
+  /// The absolute, root-owned `pkexec` we would run, or null if there is none.
+  String? _pkexec() =>
+      (resolvePkexec ?? () => resolveTrustedPosixTool(kPkexecCandidates))();
 
   @override
   Future<VpnBackendState> status() async {
@@ -190,8 +226,29 @@ class LinuxManagedVpnBackend implements VpnBackend {
 
     final startup = Completer<VpnBackendState>();
     try {
+      // ASKED AGAIN, here, with the request already written and nothing left
+      // between this line and the elevation. The check at the top of `start()`
+      // happened before GeoIP expansion and a file write; a verdict from
+      // before those is a verdict about the past (audit C-01).
+      final stillSafe = await _refuseWritableInstallation();
+      if (stillSafe != null) {
+        _state = stillSafe;
+        await _deleteRequestDirectory();
+        return _state;
+      }
+      // Absolute and checked: a `pkexec` earlier in PATH would have been handed
+      // exactly the thing this guard exists to protect.
+      final pkexec = _pkexec();
+      if (pkexec == null) {
+        _state = const VpnBackendState(
+          VpnBackendPhase.unsupported,
+          detail: 'no root-owned pkexec was found at a known absolute path',
+        );
+        await _deleteRequestDirectory();
+        return _state;
+      }
       final helper = await Process.start(
-        'pkexec',
+        pkexec,
         <String>[_executablePath, '--xveil-vpn-helper', request.path],
         mode: ProcessStartMode.normal,
         runInShell: false,
