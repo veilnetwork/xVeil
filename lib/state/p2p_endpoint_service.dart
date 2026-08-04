@@ -347,6 +347,14 @@ class P2PEndpointService {
   /// Redeem the peer's endpoint URIs until a direct session is admitted.
   /// Single-flight per peer; each URI gets a short admitted-poll window (the
   /// node keeps re-dialing registered peers in the background afterwards).
+  ///
+  /// Every candidate is bound to [peer] before it is joined: the invite's
+  /// `node_id` (BLAKE3 of its public key) MUST be the peer whose frame carried
+  /// it. Without that, an ACCEPTED contact — the only sender that reaches this
+  /// path — could name a third party's identity/address and make us open a
+  /// session with, and register, a node we never chose. The daemon's own join
+  /// path already pins its issuer (`expected_issuer_pk`); this is the app-side
+  /// half of the same admission.
   Future<void> _dialPeer(NodeId peer) async {
     final key = peer.hex;
     final uris = _peerEndpoints[key];
@@ -355,6 +363,7 @@ class P2PEndpointService {
     try {
       for (final uri in uris) {
         if (await _admitted(peer)) return;
+        if (!_invitePresents(uri, peer)) continue;
         try {
           await _joinEndpoint(uri);
         } catch (e) {
@@ -374,6 +383,32 @@ class P2PEndpointService {
     } finally {
       _dialing.remove(key);
     }
+  }
+
+  /// Whether [uri] is a parseable bootstrap invite that presents [peer]'s own
+  /// identity. An unparseable or foreign-identity candidate is dropped with a
+  /// named, address-free reason — never dialed.
+  bool _invitePresents(String uri, NodeId peer) {
+    final NodeId presented;
+    try {
+      presented = BootstrapInvite.parse(uri).nodeId;
+    } catch (_) {
+      devLog(
+        () =>
+            'xVeil[p2p]: drop endpoint from ${peer.short} '
+            '(unparseable invite)',
+      );
+      return false;
+    }
+    if (presented != peer) {
+      devLog(
+        () =>
+            'xVeil[p2p]: drop endpoint from ${peer.short} '
+            '(invite names ${presented.short})',
+      );
+      return false;
+    }
+    return true;
   }
 
   /// Build one bootstrap URI per usable local address: identity (pubkey +
