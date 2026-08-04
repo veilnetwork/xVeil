@@ -80,6 +80,31 @@ class MainFlutterWindow: NSWindow {
       }
     }
 
+    // Native half of core/secure_screen.dart on macOS. `sharingType = .none`
+    // is the documented way to say "no other process may read this window's
+    // contents" — it is what takes the window out of a screen share and out of
+    // another app's window capture, and it is the nearest thing macOS has to
+    // FLAG_SECURE. Same channel and same counted hold as Android and iOS, and
+    // scoped the same way for the same reason: set permanently it would take
+    // this app's own screen sharing out of its own screen share.
+    //
+    // Honest about its reach: it stops other processes reading the window.
+    // Whether it also removes the window from a whole-display recording has
+    // varied by macOS release and is NOT verified here, so the Dart shutter
+    // stays where it is rather than being retired in favour of this.
+    let secureChannel = FlutterMethodChannel(
+      name: "xveil/secure_screen",
+      binaryMessenger: flutterViewController.engine.binaryMessenger)
+    secureChannel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "setSecure",
+            let secure = (call.arguments as? [String: Any])?["secure"] as? Bool else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      self?.sharingType = secure ? .none : .readOnly
+      result(nil)
+    }
+
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     super.awakeFromNib()
