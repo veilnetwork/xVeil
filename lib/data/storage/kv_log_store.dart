@@ -38,6 +38,22 @@ class Ns {
   /// historical enqueue/ack journal.
   static const int outboxIndex = 8;
 
+  /// KV namespace holding the DOUBLE-RATCHET state of one-to-one conversations
+  /// — the one thing in this app that cannot be rebuilt from anything public.
+  ///
+  /// veil keeps its ratchet sessions in memory and never persists them: its
+  /// only database belongs to the mailbox, and neither the send path nor the
+  /// frame dispatcher can reach it. So the host keeps them, and "the host"
+  /// here means the deniable container — every byte of an exported session is
+  /// key material.
+  ///
+  /// Its own namespace rather than a prefix inside [settings] for two reasons.
+  /// Enumerating what to restore at startup is then exactly `kvKeys` with no
+  /// prefix filtering, and the settings namespace is the one the content
+  /// collector already walks key-by-key — hundreds of conversation rows would
+  /// be paid for on every sweep that has nothing to do with them.
+  static const int ratchet = 9;
+
   /// Message-log shards occupy an otherwise-unused namespace range.
   ///
   /// hidden-volume's log index is bounded per namespace (roughly 10–20K log
@@ -47,12 +63,26 @@ class Ns {
   /// source of truth, so no mutable "active shard" pointer or append lock is
   /// needed.
   /// The native commit payload can carry at most 95 active namespace roots.
-  /// Eight are reserved above (including the legacy message log), leaving 87
-  /// shards without ever making a fully-populated app space exceed that format
-  /// ceiling. Namespace is a u8, but using all 224 remaining byte values would
-  /// fail much earlier with `TooManyNamespaces`.
+  /// NINE are reserved above (including the legacy message log and the ratchet
+  /// store), leaving 86 shards without ever making a fully-populated app space
+  /// exceed that format ceiling. Namespace is a u8, but using all 224 remaining
+  /// byte values would fail much earlier with `TooManyNamespaces`.
+  ///
+  /// The last shard byte came down by one when [ratchet] was added, and that is
+  /// the only safe direction to move it: [messageLogNamespaceFor] is a pure
+  /// function of the log id and does not shift, so lowering the bound lowers
+  /// the CEILING and renumbers nothing. Raising it would have moved existing
+  /// rows out from under the shard that holds them.
   static const int messageLogShardFirst = 32;
-  static const int messageLogShardLast = 118;
+  static const int messageLogShardLast = 117;
+
+  /// The highest shard byte any build has ever been able to allocate.
+  ///
+  /// Only the ERASE paths use it. Forensic deletion is about what a container
+  /// holds, not about what this build would have put there, so narrowing the
+  /// allocator must not narrow the sweep — exactly the reason namespace 3 is
+  /// still named by [HiddenVolumeStorage.eraseSpace] long after it was retired.
+  static const int messageLogShardRetiredLast = 118;
   static const int messageLogShardSize = 8192;
   static const int messageLogShardCapacity =
       (messageLogShardLast - messageLogShardFirst + 1) * messageLogShardSize;
