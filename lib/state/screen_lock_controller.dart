@@ -131,8 +131,33 @@ class ScreenLockController extends Notifier<ScreenLockState> {
       if (_userSet) return;
       state = state.copyWith(timeout: screenLockTimeoutFromName(raw));
     } catch (_) {
-      // Closed storage (the lock screen, tests) — keep the default.
+      // Closed storage (the lock screen, tests) — keep the default. Which is
+      // why [reloadTimeout] exists: this is the NORMAL outcome at build time,
+      // not an edge case, and something has to come back for the answer.
     }
+  }
+
+  /// Read the persisted timeout again now that the container is actually open.
+  ///
+  /// [build] runs while it is still shut. `ScreenLockHost` lives in
+  /// `MaterialApp.builder`, so it is mounted from the first frame — before the
+  /// unlock screen, let alone the unlock — and the `getSetting` in [_load]
+  /// throws "storage is locked" there. That throw is swallowed, and on the
+  /// single-identity path nothing ever retried it: `storageProvider` hands back
+  /// the SAME object that `open()` mutates in place, so `ref.watch` never fires
+  /// a second time and the saved choice read as `off` for the whole run. (The
+  /// multi-identity path re-points the provider at a different object and
+  /// happened to self-heal, which is why this only ever bit some users.)
+  ///
+  /// Called from `AppController._enterSession`, i.e. from the one moment the
+  /// container has answered — not from a rebuild that may never come.
+  Future<void> reloadTimeout() {
+    // Whatever the previous session chose must not veto the space that just
+    // opened: this IS the moment its stored value became readable, so the
+    // container wins. The in-flight guard inside [_load] still protects a user
+    // who changes the setting while this read is running.
+    _userSet = false;
+    return _load();
   }
 
   Future<void> setTimeout(ScreenLockTimeout value) async {
