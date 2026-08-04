@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import '../../core/error_journal.dart';
+import '../../core/log.dart';
 import '../../domain/file_transfer.dart';
 import 'async_kv_log_store.dart';
 import 'kv_log_store.dart';
@@ -22,7 +25,44 @@ const int _kChunksPerCommit = 64;
 
 /// Start a conservative orphan scan before the Log namespace reaches the
 /// hidden-volume two-level B+ index's empirical ~15K unique-id ceiling.
-const int _kFileChunkGcThreshold = 12000;
+const int _kFileChunkGcHighWater = 12000;
+
+/// ...and only RE-ARM that trigger once the live count falls back below this.
+///
+/// The high mark alone never releases (audit XV-20). Past it a store whose
+/// chunks are all live reclaims nothing, the condition stays true, and the
+/// pre-write check — a full `count()` leaf walk, plus a whole-settings scan
+/// with a JSON decode per key and a paged walk of the ENTIRE chunk log — is
+/// then paid for every further chunk, forever, with ~3000 records left before
+/// the index refuses writes outright (that refusal has been observed live; see
+/// the settings-GC note in `messaging_core.start`).
+///
+/// The trigger is also not "a big upload": a blob over [kMaxStoredFileBytes]
+/// routes to the on-disk tier and never reaches here. What reaches it is ~45 MB
+/// of SMALL files — [_kFileChunkGcHighWater] records of [_kStoreRecord] bytes.
+const int _kFileChunkGcLowWater = 10000;
+
+/// A sweep that frees fewer ids than this found nothing worth the two scans.
+const int _kFileChunkGcMinYield = 64;
+
+/// After such a sweep, skip the check entirely until this many further chunk
+/// records have been appended. `file_next_log` is the odometer: it only ever
+/// counts up, so no separate counter is needed to measure the interval.
+///
+/// DELIBERATELY WIDER than the hysteresis band (2000). At exactly the band's
+/// width this brake could never fire — climbing from the low mark back to the
+/// high one already costs 2000 appends — so it would be a comment rather than a
+/// mechanism. At twice the band a re-armed store must earn its next full scan,
+/// and the cost of the delay is bounded: the trigger is re-evaluated at most
+/// [_kMaxStoredChunks] records later, so the worst case at the moment a sweep
+/// finally runs is ~14000 live records, still short of the index ceiling.
+const int _kFileChunkGcBackoffChunks = 4000;
+
+/// KV key of the durable chunk accounting — inside the VOLUME, next to the data
+/// it describes, because it IS state metadata (how full this container's chunk
+/// index is), and that belongs nowhere an observer outside the container can
+/// read it.
+const String _kChunkGcKey = 'file_chunk_gc';
 
 const int _kLogScanPage = 512;
 // Dart VM integers and the handwritten FFI binding use the non-negative i64
@@ -136,6 +176,150 @@ void _addPieceRecords(Set<int> active, Map<String, dynamic> metadata) {
   }
 }
 
+/// Reported into the error journal — never thrown — the one time a sweep proves
+/// the chunk index is genuinely full: every record in it is referenced by live
+/// metadata, so nothing can be reclaimed and the container is a few thousand
+/// records from refusing writes. Reported ONCE per fill (the flag clears as
+/// soon as room reappears) so the ceiling is visible instead of arriving as a
+/// silent slowdown followed by a hard `IndexFull`.
+class FileChunkIndexFull implements Exception {
+  const FileChunkIndexFull(this.liveChunks);
+
+  final int liveChunks;
+
+  @override
+  String toString() =>
+      'FileChunkIndexFull: $liveChunks live file-chunk records and the orphan '
+      'sweep reclaimed nothing — the in-volume file store is full';
+}
+
+void _reportChunkIndexFull(int liveChunks) {
+  devLog(
+    () =>
+        'xVeil[storage]: file-chunk index FULL — $liveChunks live records, '
+        'orphan sweep reclaimed nothing; further stores will hit IndexFull',
+  );
+  errorJournal.record(
+    kind: 'storage-file-chunks-full',
+    error: FileChunkIndexFull(liveChunks),
+    atMs: DateTime.now().millisecondsSinceEpoch,
+  );
+}
+
+/// Durable accounting for the chunk-index garbage collector — one small JSON
+/// value under [_kChunkGcKey].
+///
+/// Replaces a `count(Ns.fileChunks)` on the write path. That call walks every
+/// leaf of the namespace with no cache (the store's own docs say it is "rarely
+/// on a UI hot path"), and it sat on the hottest one there is: once per stored
+/// chunk.
+class _ChunkGcState {
+  const _ChunkGcState({
+    required this.live,
+    required this.armed,
+    required this.retryAt,
+    required this.reportedFull,
+  });
+
+  /// Seed for a store that has no accounting yet — one written before this
+  /// bookkeeping existed, or one whose namespace was just erased. Costs the
+  /// single full `count()` that used to be paid per chunk.
+  const _ChunkGcState.seed(this.live)
+    : armed = true,
+      retryAt = 0,
+      reportedFull = false;
+
+  /// Estimated live chunk records. Exact for every write this class makes, and
+  /// reset to the TRUTH by every sweep — so the one drift source (a caller
+  /// folding [AsyncFileStore.deleteFileOps] into its own commit) can only leave
+  /// it reading HIGH, which sweeps one time too early rather than too late.
+  final int live;
+
+  /// May a sweep start at the high-water mark? Cleared by a sweep that leaves
+  /// the store above [_kFileChunkGcLowWater]; this is the hysteresis, and
+  /// without it the durable counter alone changes nothing — the condition
+  /// simply keeps reporting true from a cheaper source.
+  final bool armed;
+
+  /// `file_next_log` value below which no sweep runs at all (the post-sweep
+  /// back-off).
+  final int retryAt;
+
+  /// Whether the "index is full" report has already been made for this fill.
+  final bool reportedFull;
+
+  static _ChunkGcState? decode(Uint8List? raw) {
+    if (raw == null) return null;
+    final Object? json;
+    try {
+      json = jsonDecode(utf8.decode(raw));
+    } on FormatException {
+      return null; // corrupt bookkeeping re-seeds; it is a hint, not data
+    }
+    if (json is! Map<String, dynamic>) return null;
+    final live = json['live'];
+    if (live is! int || live < 0) return null;
+    final retryAt = json['retryAt'];
+    return _ChunkGcState(
+      live: live,
+      armed: json['armed'] != false,
+      retryAt: retryAt is int && retryAt > 0 ? retryAt : 0,
+      reportedFull: json['full'] == true,
+    );
+  }
+
+  Uint8List encode() => Uint8List.fromList(
+    utf8.encode(
+      jsonEncode({
+        'live': live,
+        'armed': armed,
+        'retryAt': retryAt,
+        'full': reportedFull,
+      }),
+    ),
+  );
+
+  bool shouldSweep(int incoming, int nextLogId) =>
+      armed &&
+      nextLogId >= retryAt &&
+      live + incoming >= _kFileChunkGcHighWater;
+
+  /// After a commit that appended [appended] records and deleted [deleted] —
+  /// folded INTO that commit, so a crash can't leave the count behind the log.
+  _ChunkGcState afterWrite({int appended = 0, int deleted = 0}) {
+    final next = live + appended - deleted;
+    final roomAgain = next < _kFileChunkGcLowWater;
+    return _ChunkGcState(
+      live: next < 0 ? 0 : next,
+      armed: armed || roomAgain,
+      retryAt: retryAt,
+      reportedFull: reportedFull && !roomAgain,
+    );
+  }
+
+  /// After a sweep that reclaimed [removed] ids and left [liveNow] behind.
+  _ChunkGcState afterSweep({
+    required int removed,
+    required int liveNow,
+    required int nextLogId,
+  }) {
+    final roomAgain = liveNow < _kFileChunkGcLowWater;
+    final lowYield = removed < _kFileChunkGcMinYield;
+    return _ChunkGcState(
+      live: liveNow,
+      armed: roomAgain,
+      retryAt: lowYield ? nextLogId + _kFileChunkGcBackoffChunks : 0,
+      reportedFull: reportedFull || (lowYield && !roomAgain),
+    );
+  }
+
+  /// True when this state is the first to conclude the index is full.
+  bool newlyFull(_ChunkGcState prior) => reportedFull && !prior.reportedFull;
+}
+
+/// One sweep's outcome: what it reclaimed, and the exact live count it saw.
+typedef _SweepResult = ({int removed, int live});
+
 /// Max chunk records a stored file may occupy. A file must be deletable in ONE
 /// atomic commit (delete every record id + drop metadata together so a blob
 /// can't linger half-scrubbed), and a commit holds ≤ 1024 records
@@ -221,11 +405,11 @@ class FileStore {
     final priorIds = metadata == null
         ? const <int>[]
         : _recordIds(_fileSegments(metadata));
-    if (chunks.isNotEmpty &&
-        _store.count(Ns.fileChunks) + chunks.length >= _kFileChunkGcThreshold) {
-      reclaimOrphanedFileChunkIds();
-    }
     final nextBase = chunks.isEmpty ? null : _nextLogId();
+    var gc = _gcState();
+    if (nextBase != null && gc.shouldSweep(chunks.length, nextBase)) {
+      gc = _sweepAndAccount(gc, nextBase).state;
+    }
     final ids = nextBase == null
         ? const <int>[]
         : [
@@ -236,11 +420,18 @@ class FileStore {
       final end = start + _kChunksPerCommit < chunks.length
           ? start + _kChunksPerCommit
           : chunks.length;
+      // The accounting rides IN the append commit: chunks written before a
+      // crash occupy index slots whether or not the metadata was published, so
+      // a counter updated only at the end would under-count exactly the
+      // orphans this collector exists to find.
+      gc = gc.afterWrite(appended: end - start);
       _store.commit([
         for (var i = start; i < end; i++)
           AppendLogOp(Ns.fileChunks, ids[i], chunks[i].data),
+        PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
       ]);
     }
+    gc = gc.afterWrite(deleted: priorIds.length);
     _store.commit([
       for (final id in priorIds) DeleteLogOp(Ns.fileChunks, id),
       PutOp(
@@ -260,8 +451,30 @@ class FileStore {
           _k('file_next_log'),
           _k('${nextBase + chunks.length}'),
         ),
+      PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
     ]);
     return fileId;
+  }
+
+  /// The durable chunk accounting, seeded from a single full [KvLogStore.count]
+  /// the first time (a store written before this bookkeeping existed).
+  _ChunkGcState _gcState() =>
+      _ChunkGcState.decode(_store.get(Ns.settings, _k(_kChunkGcKey))) ??
+      _ChunkGcState.seed(_store.count(Ns.fileChunks));
+
+  ({_ChunkGcState state, int removed}) _sweepAndAccount(
+    _ChunkGcState prior,
+    int nextLogId,
+  ) {
+    final swept = _reclaim();
+    final next = prior.afterSweep(
+      removed: swept.removed,
+      liveNow: swept.live,
+      nextLogId: nextLogId,
+    );
+    _store.commit([PutOp(Ns.settings, _k(_kChunkGcKey), next.encode())]);
+    if (next.newlyFull(prior)) _reportChunkIndexFull(next.live);
+    return (state: next, removed: swept.removed);
   }
 
   /// The ops that purge a stored file: remove each record id from the Log index
@@ -284,7 +497,14 @@ class FileStore {
   /// Purge a stored file in its own commit. No-op if the id is unknown.
   void deleteFile(String fileId) {
     final ops = deleteFileOps(fileId);
-    if (ops.isNotEmpty) _store.commit(ops);
+    if (ops.isEmpty) return;
+    final gc = _gcState().afterWrite(
+      deleted: ops.whereType<DeleteLogOp>().length,
+    );
+    _store.commit([
+      ...ops,
+      PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
+    ]);
   }
 
   FileMeta? metadata(String fileId) {
@@ -316,7 +536,13 @@ class FileStore {
   /// empty-payload tombstones. The live set is derived from every whole-file
   /// and streamed-piece metadata record first; malformed metadata aborts before
   /// any mutation, so the collector fails closed rather than risking data loss.
-  int reclaimOrphanedFileChunkIds() {
+  ///
+  /// Also refreshes the durable accounting to the exact live count this scan
+  /// saw — the one place the estimate is reconciled with the truth.
+  int reclaimOrphanedFileChunkIds() =>
+      _sweepAndAccount(_gcState(), _nextLogId()).removed;
+
+  _SweepResult _reclaim() {
     final active = <int>{};
     for (final key in _store.kvKeys(Ns.settings)) {
       final isPiece = _startsWith(key, _pieceKeyPrefix);
@@ -333,6 +559,7 @@ class FileStore {
     }
 
     var removed = 0;
+    var seen = 0;
     int? start;
     while (true) {
       final page = _store.iterLogRange(
@@ -341,6 +568,7 @@ class FileStore {
         limit: _kLogScanPage,
       );
       if (page.isEmpty) break;
+      seen += page.length;
       final orphanIds = [
         for (final entry in page)
           if (!active.contains(entry.logId)) entry.logId,
@@ -359,7 +587,9 @@ class FileStore {
       if (page.length < _kLogScanPage || last >= _kMaxDartLogId) break;
       start = last + 1;
     }
-    return removed;
+    // Every record was visited exactly once, so this is the exact live count —
+    // free, and the only reconciliation the estimate ever needs.
+    return (removed: removed, live: seen - removed);
   }
 }
 
@@ -431,12 +661,11 @@ class AsyncFileStore {
     final priorIds = metadata == null
         ? const <int>[]
         : _recordIds(_fileSegments(metadata));
-    if (chunks.isNotEmpty &&
-        await _store.count(Ns.fileChunks) + chunks.length >=
-            _kFileChunkGcThreshold) {
-      await reclaimOrphanedFileChunkIds();
-    }
     final nextBase = chunks.isEmpty ? null : await _nextLogId();
+    var gc = await _gcState();
+    if (nextBase != null && gc.shouldSweep(chunks.length, nextBase)) {
+      gc = (await _sweepAndAccount(gc, nextBase)).state;
+    }
     final ids = nextBase == null
         ? const <int>[]
         : [
@@ -447,11 +676,17 @@ class AsyncFileStore {
       final end = start + _kChunksPerCommit < chunks.length
           ? start + _kChunksPerCommit
           : chunks.length;
+      gc = gc.afterWrite(appended: end - start);
       await _store.commit([
         for (var i = start; i < end; i++)
           AppendLogOp(Ns.fileChunks, ids[i], chunks[i].data),
+        PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
       ]);
     }
+    gc = gc.afterWrite(
+      deleted:
+          priorIds.length + priorPurge.whereType<DeleteLogOp>().length,
+    );
     await _store.commit([
       ...priorPurge,
       for (final id in priorIds) DeleteLogOp(Ns.fileChunks, id),
@@ -472,6 +707,7 @@ class AsyncFileStore {
           _k('file_next_log'),
           _k('${nextBase + chunks.length}'),
         ),
+      PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
     ]);
     return fileId;
   }
@@ -544,18 +780,20 @@ class AsyncFileStore {
       transferId: '$fileId:$pieceIndex',
       maxChunk: _maxRecord,
     );
-    if (await _store.count(Ns.fileChunks) + chunks.length >=
-        _kFileChunkGcThreshold) {
-      await reclaimOrphanedFileChunkIds();
-    }
     final base = await _nextLogId();
+    var gc = await _gcState();
+    if (gc.shouldSweep(chunks.length, base)) {
+      gc = (await _sweepAndAccount(gc, base)).state;
+    }
     for (var s = 0; s < chunks.length; s += _kChunksPerCommit) {
       final e = s + _kChunksPerCommit < chunks.length
           ? s + _kChunksPerCommit
           : chunks.length;
+      gc = gc.afterWrite(appended: e - s);
       await _store.commit([
         for (var i = s; i < e; i++)
           AppendLogOp(Ns.fileChunks, base + i, chunks[i].data),
+        PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
       ]);
     }
     final metaRaw = await _store.get(Ns.settings, _k('file:$fileId'));
@@ -590,6 +828,7 @@ class AsyncFileStore {
         ),
       ),
       PutOp(Ns.settings, _k('file_next_log'), _k('${base + chunks.length}')),
+      PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
     ]);
   }
 
@@ -725,8 +964,68 @@ class AsyncFileStore {
     return out.toBytes();
   }
 
+  /// The durable chunk accounting, seeded from a single full
+  /// [AsyncKvLogStore.count] the first time (a store written before this
+  /// bookkeeping existed, or one whose namespace was just erased).
+  Future<_ChunkGcState> _gcState() async =>
+      _ChunkGcState.decode(await _store.get(Ns.settings, _k(_kChunkGcKey))) ??
+      _ChunkGcState.seed(await _store.count(Ns.fileChunks));
+
+  /// Drop the accounting — for a wholesale namespace erase, after which the
+  /// stored count describes records that no longer exist. The next write
+  /// re-seeds it.
+  Future<void> forgetChunkAccounting() async {
+    await _store.commit([DeleteOp(Ns.settings, _k(_kChunkGcKey))]);
+  }
+
+  /// In-flight sweep, per BACKING STORE rather than per instance: callers build
+  /// a throwaway [AsyncFileStore] around the space for every single call, so an
+  /// instance field would guard nothing. Weak (an [Expando]) so a closed space
+  /// is still collectable.
+  static final Expando<Future<({_ChunkGcState state, int removed})>>
+  _sweepInFlight = Expando('fileChunkSweep');
+
+  /// Sweep, reconcile the accounting, and report a genuinely full index once.
+  /// Single-flight: a second caller joins the running scan instead of starting
+  /// a competing full walk of the settings namespace and the whole chunk log.
+  Future<({_ChunkGcState state, int removed})> _sweepAndAccount(
+    _ChunkGcState prior,
+    int nextLogId,
+  ) {
+    final running = _sweepInFlight[_store];
+    if (running != null) return running;
+    final started = _runSweep(prior, nextLogId);
+    _sweepInFlight[_store] = started;
+    unawaited(
+      started.then<void>((_) {}, onError: (Object _) {}).whenComplete(() {
+        if (identical(_sweepInFlight[_store], started)) {
+          _sweepInFlight[_store] = null;
+        }
+      }),
+    );
+    return started;
+  }
+
+  Future<({_ChunkGcState state, int removed})> _runSweep(
+    _ChunkGcState prior,
+    int nextLogId,
+  ) async {
+    final swept = await _reclaim();
+    final next = prior.afterSweep(
+      removed: swept.removed,
+      liveNow: swept.live,
+      nextLogId: nextLogId,
+    );
+    await _store.commit([PutOp(Ns.settings, _k(_kChunkGcKey), next.encode())]);
+    if (next.newlyFull(prior)) _reportChunkIndexFull(next.live);
+    return (state: next, removed: swept.removed);
+  }
+
   /// Async twin of [FileStore.reclaimOrphanedFileChunkIds].
-  Future<int> reclaimOrphanedFileChunkIds() async {
+  Future<int> reclaimOrphanedFileChunkIds() async =>
+      (await _sweepAndAccount(await _gcState(), await _nextLogId())).removed;
+
+  Future<_SweepResult> _reclaim() async {
     final active = <int>{};
     for (final key in await _store.kvKeys(Ns.settings)) {
       final isPiece = _startsWith(key, _pieceKeyPrefix);
@@ -743,6 +1042,7 @@ class AsyncFileStore {
     }
 
     var removed = 0;
+    var seen = 0;
     int? start;
     while (true) {
       final page = await _store.iterLogRange(
@@ -751,6 +1051,7 @@ class AsyncFileStore {
         limit: _kLogScanPage,
       );
       if (page.isEmpty) break;
+      seen += page.length;
       final orphanIds = [
         for (final entry in page)
           if (!active.contains(entry.logId)) entry.logId,
@@ -769,6 +1070,6 @@ class AsyncFileStore {
       if (page.length < _kLogScanPage || last >= _kMaxDartLogId) break;
       start = last + 1;
     }
-    return removed;
+    return (removed: removed, live: seen - removed);
   }
 }
