@@ -253,9 +253,14 @@ abstract interface class StreamTransport {
 
   /// Accept the next inbound stream opened to our chat endpoint, or null on
   /// [timeout] (a server loop polls). The receive side of file streaming.
-  Future<({ReliableStream stream, NodeId src})?> acceptStream({
-    Duration timeout,
-  });
+  ///
+  /// A stream initiator is a sender too: [src] is the name it arrived under and
+  /// [provenance] is what this device KNOWS about that name (audit X/V-01).
+  /// This lane is the ANONYMOUS one — its peer is derived from an onion cell,
+  /// so it is [SenderProvenance.claimed] by construction and by design. Read
+  /// [provenance]; do not read [src] alone and assume.
+  Future<({ReliableStream stream, NodeId src, SenderProvenance provenance})?>
+  acceptStream({Duration timeout});
 
   /// Pre-warm the transport's outbound path toward [dst] so the next
   /// [openStream] / serve to that peer skips the cold-start (circuit-pool
@@ -273,7 +278,11 @@ abstract interface class StreamTransport {
 abstract interface class P2PStreamTransport {
   Future<ReliableStream?> openP2PStream(NodeId dst);
 
-  Future<({ReliableStream stream, NodeId src})?> acceptP2PStream({
-    Duration timeout,
-  });
+  /// Same contract as [StreamTransport.acceptStream], with one difference that
+  /// matters: this lane's initiator IS authenticated today (a remote APP_OPEN
+  /// rides an OVL1 session; a local open is IPC), so [provenance] is normally
+  /// [SenderProvenance.sessionPeer] or [SenderProvenance.localIpc] and a gate
+  /// built on it costs nothing honest.
+  Future<({ReliableStream stream, NodeId src, SenderProvenance provenance})?>
+  acceptP2PStream({Duration timeout});
 }

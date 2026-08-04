@@ -1,7 +1,12 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:veil_flutter/veil_ffi.dart';
+// `SenderProvenance` now exists on BOTH sides of this boundary: veil_flutter's
+// (the SDK's decode of veil's wire byte) and this app's port type. They are the
+// same four levels with the same bytes, but the app must speak its own
+// vocabulary, so the SDK's name is hidden here and its value crosses as a
+// `wireByte` — the one representation both sides agree on by construction.
+import 'package:veil_flutter/veil_ffi.dart' hide SenderProvenance;
 
 import '../../core/ids.dart';
 import '../../core/log.dart';
@@ -652,44 +657,57 @@ class VeilFlutterTransport
 
   /// Accept the next inbound anonymous stream a peer opened to us, or null on
   /// [timeout] (so a server loop polls). The receive side of file streaming.
+  ///
+  /// Always [SenderProvenance.claimed], and that is the truthful answer rather
+  /// than a placeholder: veil's anonymous stream hub derives the initiator from
+  /// an onion cell, which is what anonymity means. `veil_stream_accept` carries
+  /// a level; `veil_anon_stream_accept` has nothing to carry, because there is
+  /// nothing to say. Stating it here keeps the caller from inheriting a trust
+  /// level nobody established.
   @override
-  Future<({ReliableStream stream, NodeId src})?> acceptStream({
-    Duration timeout = const Duration(seconds: 2),
-  }) async {
+  Future<({ReliableStream stream, NodeId src, SenderProvenance provenance})?>
+  acceptStream({Duration timeout = const Duration(seconds: 2)}) async {
     final r = await _client.acceptAnonStream(timeout: timeout);
     if (r == null) return null;
     return (
       stream: _VeilAnonReliableStream(r.stream),
       src: NodeId(r.srcNodeId),
+      provenance: SenderProvenance.claimed,
     );
   }
 
+  /// The direct lane, where veil DOES know who opened the stream: a remote
+  /// `APP_OPEN` is read off the authenticated OVL1 session it arrived on, never
+  /// off the frame body. `veil_stream_accept` pre-seeds its out-param with the
+  /// fail-closed value, so a native side that forgot to write it reads as
+  /// [SenderProvenance.claimed] rather than as whatever the allocator left.
   @override
-  Future<({ReliableStream stream, NodeId src})?> acceptP2PStream({
-    Duration timeout = const Duration(milliseconds: 250),
-  }) async {
+  Future<({ReliableStream stream, NodeId src, SenderProvenance provenance})?>
+  acceptP2PStream({Duration timeout = const Duration(milliseconds: 250)}) async {
     final r = await _app.acceptStream(timeout: timeout);
     if (r == null) return null;
-    return (stream: _VeilReliableStream(r.stream), src: NodeId(r.srcNodeId));
+    return (
+      stream: _VeilReliableStream(r.stream),
+      src: NodeId(r.srcNodeId),
+      provenance: SenderProvenance.fromWire(r.provenance.wireByte),
+    );
   }
 
-  /// What this transport can honestly say about the sender of a live frame:
-  /// nothing (audit X/V-01).
+  /// What veil KNOWS about the sender of a live frame, carried the whole way
+  /// (audit X/V-01).
   ///
-  /// veil decides the answer and puts it on the IPC wire — the trailing byte of
-  /// `AppDeliverPayload` since veil `2e5471cc`. It does not reach here. The C
-  /// boundary this app talks through is `veilclient-ffi`'s recv callback,
-  /// `VeilRecvCb(user, src_node_id, src_app_id, reply_id, data, len)`, which has
-  /// no parameter for it, so `veil_flutter`'s `IncomingMessage` never sees it
-  /// either. The byte is decoded in Rust and dropped one frame later.
+  /// The node decides it where the claim turns into an identity — from the
+  /// authenticated peer of the session the frame arrived on, never from
+  /// anything the frame writes — and since veil `78d57520` it survives the last
+  /// leg too: `VeilRecvCb` gained a `provenance` parameter beside the id it
+  /// qualifies, so `veil_flutter`'s `IncomingMessage` carries it instead of
+  /// dropping it one frame short of the app.
   ///
-  /// So this reports [SenderProvenance.claimed] — the fail-closed direction and
-  /// the truthful one, not a placeholder: nothing in this process has checked
-  /// `srcNodeId` against anything. Closing X/V-01's remaining half needs the
-  /// callback and `IncomingMessage` to carry the byte; the moment they do, this
-  /// becomes `SenderProvenance.fromWire(message.provenance)` and every gate
-  /// built on it starts biting without further change.
-  static const SenderProvenance _ffiReportsNothing = SenderProvenance.claimed;
+  /// Re-decoded through THIS app's [SenderProvenance.fromWire] rather than
+  /// mapped enum-to-enum, so the two definitions are held to the same wire
+  /// bytes and an unrecognised one fails closed on this side as well.
+  static SenderProvenance _provenanceOf(IncomingMessage message) =>
+      SenderProvenance.fromWire(message.provenance.wireByte);
 
   @override
   Stream<InboundMessage> messages() => _app.messages().map(
@@ -697,7 +715,7 @@ class VeilFlutterTransport
       src: NodeId(message.srcNodeId),
       payload: message.data,
       replyId: message.replyId,
-      provenance: _ffiReportsNothing,
+      provenance: _provenanceOf(message),
     ),
   );
 
@@ -709,7 +727,7 @@ class VeilFlutterTransport
           src: NodeId(message.srcNodeId),
           payload: message.data,
           replyId: message.replyId,
-          provenance: _ffiReportsNothing,
+          provenance: _provenanceOf(message),
         );
       });
 
