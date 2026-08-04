@@ -428,12 +428,14 @@ class MessagingService {
     Future<Uint8List> Function(int offset, int length) read, {
     required Future<void> Function() close,
     String? sourcePath,
+    List<String> sourceRoots = const [],
   }) => _groupContent.registerGroupContentStreaming(
     name,
     size,
     read,
     close: close,
     sourcePath: sourcePath,
+    sourceRoots: sourceRoots,
   );
 
   /// Verified original source for media this identity registered by path.

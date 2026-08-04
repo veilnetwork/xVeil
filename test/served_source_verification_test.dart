@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -415,6 +416,89 @@ void main() {
           'the record was acting as its own authorization',
     );
     expect(asked, hasLength(2), reason: 'the answer must not be cached');
+  });
+
+  test('a GROUP offer stops serving when the grant that authorized it goes '
+      'away, and keeps serving while it holds', () async {
+    // The group twin of the test above (audit XV-04). The reopen has re-checked
+    // the grant since `5e78b5c` — but the group registration recorded no roots
+    // for it to check, so every group offer read as user-picked and outlived
+    // both the folder leaving the token and the token being revoked.
+    final bytes = _rnd(100000, 61);
+    final file = File('${workdir.path}/group-delegated.bin');
+    await file.writeAsBytes(bytes);
+    Future<Uint8List> read(int offset, int length) async =>
+        Uint8List.sublistView(bytes, offset, offset + length);
+
+    var granted = true;
+    final asked = <(String, List<String>)>[];
+    mA.servedSourceAuthorizer = (path, roots) async {
+      asked.add((path, roots));
+      return granted;
+    };
+
+    final cid = await mA.registerGroupContentStreaming(
+      'group-delegated.bin',
+      bytes.length,
+      read,
+      close: () async {},
+      sourcePath: file.path,
+      sourceRoots: [workdir.path],
+    );
+    // The ROOTS field specifically — the record's `path` already contains the
+    // workdir, so a substring check here would pass on a record that carries
+    // no grant at all.
+    expect(
+      (jsonDecode((await sA.getSetting('served:$cid'))!) as Map)['roots'],
+      [workdir.path],
+      reason: 'the grant has to be recorded, or there is nothing to re-check',
+    );
+
+    // THE CONTROL: while the grant holds, the offer serves.
+    expect(await mA.verifiedGroupContentSourcePath(cid), file.path);
+    expect(
+      asked,
+      hasLength(1),
+      reason: 'the reopen never asked — the record was not delegated',
+    );
+    expect(asked.single.$1, file.path);
+    expect(asked.single.$2, [workdir.path]);
+
+    granted = false;
+    expect(
+      await mA.verifiedGroupContentSourcePath(cid),
+      isNull,
+      reason:
+          'the group offer kept reading out of a folder that is no longer '
+          'granted',
+    );
+    expect(asked, hasLength(2), reason: 'the answer must not be cached');
+  });
+
+  test('a group file the user picked here is not gated either', () async {
+    // Fail-closed for delegated group offers must not become fail-closed for
+    // a person choosing a file in this app — the same rule the 1:1 path has.
+    final bytes = _rnd(80000, 62);
+    final file = File('${workdir.path}/group-mine.bin');
+    await file.writeAsBytes(bytes);
+    Future<Uint8List> read(int offset, int length) async =>
+        Uint8List.sublistView(bytes, offset, offset + length);
+
+    var asked = 0;
+    mA.servedSourceAuthorizer = (path, roots) async {
+      asked++;
+      return false; // would refuse everything, if it were consulted
+    };
+
+    final cid = await mA.registerGroupContentStreaming(
+      'group-mine.bin',
+      bytes.length,
+      read,
+      close: () async {},
+      sourcePath: file.path,
+    );
+    expect(await mA.verifiedGroupContentSourcePath(cid), file.path);
+    expect(asked, 0, reason: 'nothing delegated this, so nothing gates it');
   });
 
   test('a file the user picked here is not gated by anyone\'s grant', () async {

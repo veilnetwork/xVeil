@@ -258,12 +258,23 @@ class _MessagingGroupContent {
   ///
   /// When [sourcePath] is present, the source and hashing parameters are also
   /// recorded so a restart can reopen/revalidate it for a later group pull.
+  ///
+  /// [sourceRoots] are the folders that AUTHORIZED this registration — an API
+  /// token's `fileRoots`. Their presence is what marks the durable record as
+  /// delegated rather than user-picked, and they are what a reopen hours later
+  /// re-checks against the grants that exist THEN. The 1:1 send has recorded
+  /// them since `5e78b5c`; the group path did not, so every group offer looked
+  /// like a person picking a file here and outlived both the folder leaving
+  /// the token and the token being revoked (audit XV-04). Empty stays empty:
+  /// a file a person chose in this app is gated by nothing, and must not
+  /// become gated by fixing this.
   Future<String> registerGroupContentStreaming(
     String name,
     int size,
     Future<Uint8List> Function(int offset, int length) read, {
     required Future<void> Function() close,
     String? sourcePath,
+    List<String> sourceRoots = const [],
   }) async {
     if (size <= 0) {
       await close();
@@ -294,6 +305,9 @@ class _MessagingGroupContent {
             'size': size,
             'pieceSize': manifest.pieceSize,
             'name': name,
+            // The grant this offer was made under. Recorded so a later reopen
+            // can ask whether it still holds instead of assuming it does.
+            if (sourceRoots.isNotEmpty) 'roots': sourceRoots,
           }),
         );
       } catch (e) {
