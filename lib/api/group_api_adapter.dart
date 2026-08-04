@@ -32,6 +32,12 @@ typedef RegisterGroupContentSource =
       Future<Uint8List> Function(int offset, int length) read, {
       required Future<void> Function() close,
       String? sourcePath,
+      // The token's granted folders — the grant this registration is made
+      // under. They travel with the durable `served:` record so a reopen hours
+      // later can ask whether the grant still holds, instead of the record's
+      // own existence standing in for the answer (audit XV-04). Empty means a
+      // person picked the file in this app, and nothing gates it.
+      List<String> sourceRoots,
     });
 
 final class GroupApiAdapter {
@@ -1975,12 +1981,17 @@ final class GroupApiAdapter {
     );
   }
 
+  /// [roots] are the token's granted folders. The 1:1 send has carried them
+  /// into its durable offer since `5e78b5c`; this is the twin that did not,
+  /// so a group offer made on a bot's behalf kept reading out of a folder
+  /// nobody had granted for as long as a peer kept asking (audit XV-04).
   Future<({String? error, String? contentId})> sendFile(
     String groupHex,
     String path,
     String? requestedName,
     String caption,
-    String? replyTo, {
+    String? replyTo,
+    List<String> roots, {
     String? kind,
     int? width,
     int? height,
@@ -2020,6 +2031,7 @@ final class GroupApiAdapter {
         source.read,
         close: source.close,
         sourcePath: file.absolute.path,
+        sourceRoots: roots,
       );
       final attachment = _attachment(
         cid: cid,

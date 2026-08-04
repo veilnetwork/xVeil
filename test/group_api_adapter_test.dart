@@ -137,7 +137,7 @@ void main() {
     final api = GroupApiAdapter(
       service,
       registerContentSource:
-          (name, size, read, {required close, sourcePath}) async {
+          (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
             await close();
             return 'unused';
           },
@@ -242,7 +242,7 @@ void main() {
     final api = GroupApiAdapter(
       service,
       registerContentSource:
-          (name, size, read, {required close, sourcePath}) async {
+          (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
             await close();
             return 'unused';
           },
@@ -280,7 +280,7 @@ void main() {
     final api = GroupApiAdapter(
       service,
       registerContentSource:
-          (name, size, read, {required close, sourcePath}) async {
+          (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
             await close();
             return 'unused';
           },
@@ -361,7 +361,7 @@ void main() {
       final api = GroupApiAdapter(
         service,
         registerContentSource:
-            (name, size, read, {required close, sourcePath}) async {
+            (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
               await close();
               return 'unused';
             },
@@ -391,7 +391,7 @@ void main() {
     final api = GroupApiAdapter(
       service,
       registerContentSource:
-          (name, size, read, {required close, sourcePath}) async {
+          (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
             await close();
             return 'unused';
           },
@@ -446,7 +446,7 @@ void main() {
       final api = GroupApiAdapter(
         service,
         registerContentSource:
-            (name, size, read, {required close, sourcePath}) async {
+            (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
               await close();
               return 'unused';
             },
@@ -507,7 +507,7 @@ void main() {
       final api = GroupApiAdapter(
         service,
         registerContentSource:
-            (name, size, read, {required close, sourcePath}) async {
+            (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
               await close();
               return 'unused';
             },
@@ -632,7 +632,7 @@ void main() {
       final api = GroupApiAdapter(
         service,
         registerContentSource:
-            (name, size, read, {required close, sourcePath}) async {
+            (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
               await close();
               return 'unused';
             },
@@ -908,7 +908,7 @@ void main() {
       final api = GroupApiAdapter(
         service,
         registerContentSource:
-            (name, size, read, {required close, sourcePath}) async {
+            (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
               const cid = 'c0ffee';
               try {
                 await storage.storeFile(cid, await read(0, size), name: name);
@@ -932,6 +932,7 @@ void main() {
           null,
           'watch',
           null,
+          const [],
         );
         expect(sent.error, isNull);
         expect(sent.contentId, 'c0ffee');
@@ -964,6 +965,7 @@ void main() {
             null,
             '',
             null,
+            const [],
           )).error,
           'source not found',
         );
@@ -982,7 +984,7 @@ void main() {
     final api = GroupApiAdapter(
       service,
       registerContentSource:
-          (name, size, read, {required close, sourcePath}) async {
+          (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
             await close();
             return 'a' * 64;
           },
@@ -1003,6 +1005,7 @@ void main() {
           'photo.png',
           '',
           null,
+          const [],
           kind: 'image',
           width: 800,
           height: 600,
@@ -1024,6 +1027,7 @@ void main() {
           'note.vop1',
           '',
           null,
+          const [],
           kind: 'voice',
           durationMs: 4200,
         )).error,
@@ -1046,11 +1050,11 @@ void main() {
       // renders: each would publish a signed row that reads as broken
       // everywhere and can never be corrected.
       for (final bad in [
-        () => api.sendFile(group, source.path, 'x.png', '', null,
+        () => api.sendFile(group, source.path, 'x.png', '', null, const [],
             kind: 'image'),
-        () => api.sendFile(group, source.path, 'x.vop1', '', null,
+        () => api.sendFile(group, source.path, 'x.vop1', '', null, const [],
             kind: 'voice'),
-        () => api.sendFile(group, source.path, 'x.bin', '', null,
+        () => api.sendFile(group, source.path, 'x.bin', '', null, const [],
             kind: 'hologram'),
       ]) {
         expect((await bad()).error, isNotNull);
@@ -1063,7 +1067,14 @@ void main() {
 
       // Saying nothing keeps the behaviour this call always had.
       expect(
-        (await api.sendFile(group, source.path, 'plain.bin', '', null)).error,
+        (await api.sendFile(
+          group,
+          source.path,
+          'plain.bin',
+          '',
+          null,
+          const [],
+        )).error,
         isNull,
       );
       posted = (await service.messagesOf(
@@ -1089,7 +1100,7 @@ void main() {
     final api = GroupApiAdapter(
       service,
       registerContentSource:
-          (name, declaredSize, read, {required close, sourcePath}) async {
+          (name, declaredSize, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
             expect(declaredSize, size);
             durablePath = sourcePath;
             final first = await read(0, 4096);
@@ -1115,7 +1126,14 @@ void main() {
       await raf.writeByte(23);
       await raf.close();
 
-      final sent = await api.sendFile(group, source.path, null, '', null);
+      final sent = await api.sendFile(
+        group,
+        source.path,
+        null,
+        '',
+        null,
+        const [],
+      );
       expect(sent.error, isNull);
       expect(sent.contentId, 'large-cid');
       expect(closed, isTrue);
@@ -1144,6 +1162,7 @@ void main() {
         Future<Uint8List> Function(int, int) read, {
         required Future<void> Function() close,
         String? sourcePath,
+        List<String> sourceRoots = const [],
       }) async {
         final cid = 'api-$size-$name';
         try {
@@ -1246,6 +1265,7 @@ void main() {
             Future<Uint8List> Function(int, int) read, {
             required Future<void> Function() close,
             String? sourcePath,
+            List<String> sourceRoots = const [],
           }) async {
             try {
               return 'unused';
@@ -1278,6 +1298,7 @@ void main() {
         null,
         '',
         null,
+        const [],
       )).error,
       'group not found',
     );
@@ -1318,7 +1339,7 @@ void main() {
     final api = GroupApiAdapter(
       service,
       registerContentSource:
-          (name, size, read, {required close, sourcePath}) async {
+          (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
             await close();
             return 'unused';
           },
@@ -1390,7 +1411,7 @@ void main() {
       final memberApi = GroupApiAdapter(
         memberService,
         registerContentSource:
-            (name, size, read, {required close, sourcePath}) async {
+            (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
               await close();
               return 'unused';
             },
@@ -1465,7 +1486,7 @@ void main() {
       final api = GroupApiAdapter(
         service,
         registerContentSource:
-            (name, size, read, {required close, sourcePath}) async {
+            (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
               await close();
               return 'unused';
             },
@@ -1613,7 +1634,7 @@ void main() {
     final api = GroupApiAdapter(
       service,
       registerContentSource:
-          (name, size, read, {required close, sourcePath}) async {
+          (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
             await close();
             return 'unused';
           },
@@ -1681,7 +1702,7 @@ void main() {
       final api = GroupApiAdapter(
         service,
         registerContentSource:
-            (name, size, read, {required close, sourcePath}) async {
+            (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
               await close();
               return 'unused';
             },
@@ -1828,7 +1849,7 @@ void main() {
       GroupApiAdapter adapter(GroupService service) => GroupApiAdapter(
         service,
         registerContentSource:
-            (name, size, read, {required close, sourcePath}) async {
+            (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
               await close();
               return 'unused';
             },

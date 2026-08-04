@@ -16,6 +16,9 @@ void main() {
   // handler hands downstream, not the one the caller typed (audit XV-08).
   final pathsSent = <String>[];
   final rootsSent = <List<String>>[];
+  // …and the same for the GROUP send, which had no grant to record at all
+  // (audit XV-04).
+  final groupRootsSent = <List<String>>[];
   final groupPosts = <(String, String, String?)>[];
   final groupActions = <(String, String, String, String?)>[];
   final channelPosts = <(String, String, String, String?)>[];
@@ -114,6 +117,7 @@ void main() {
     sent.clear();
     pathsSent.clear();
     rootsSent.clear();
+    groupRootsSent.clear();
     groupPosts.clear();
     groupActions.clear();
     channelPosts.clear();
@@ -327,7 +331,8 @@ void main() {
             path,
             name,
             caption,
-            replyTo, {
+            replyTo,
+            roots, {
             kind,
             width,
             height,
@@ -341,6 +346,7 @@ void main() {
               'durationMs': durationMs,
             });
             pathsSent.add(path);
+            groupRootsSent.add(roots);
             if (group == 'missing') {
               return (error: 'group not found', contentId: null);
             }
@@ -1435,7 +1441,7 @@ void main() {
         groupMessages: (_, _) async => const [],
         sendGroupMessage: (_, _, _) async => null,
         sendGroupFile:
-            (_, _, _, _, _, {kind, width, height, durationMs}) async =>
+            (_, _, _, _, _, _, {kind, width, height, durationMs}) async =>
                 (error: null, contentId: 'cid'),
         fetchGroupFile: (_, _) async => null,
         loadGroupFile: (_, _) async =>
@@ -3281,7 +3287,7 @@ void main() {
       createGroup: (_) async => 'gid',
       groupMessages: (_, _) async => const [],
       sendGroupMessage: (_, _, _) async => null,
-      sendGroupFile: (_, _, _, _, _, {kind, width, height, durationMs}) async =>
+      sendGroupFile: (_, _, _, _, _, _, {kind, width, height, durationMs}) async =>
           (error: null, contentId: 'cid'),
       fetchGroupFile: (_, _) async => null,
       loadGroupFile: (_, _) async =>
@@ -4471,6 +4477,22 @@ void main() {
       );
     });
 
+    test('the GROUP send records its grant too', () async {
+      // The 1:1 route has carried the grant into its durable offer since
+      // `5e78b5c`; the group route did not, so a group offer made on a bot's
+      // behalf looked like a person picking a file here and outlived both the
+      // folder leaving the token and the token being revoked (audit XV-04).
+      final real = File('${root.path}${Platform.pathSeparator}shared.txt');
+      await real.writeAsString('x');
+      final h = make(fileRoots: [root.path]);
+      expect((await post(h, '/v1/groups/files', real.path)).status, 200);
+      expect(
+        groupRootsSent.single,
+        [root.path],
+        reason: 'the group send was handed no grant to record',
+      );
+    });
+
     test('a directory or a device node is not a sendable file', () async {
       final h = make(fileRoots: [root.path]);
       final sub = Directory('${root.path}${Platform.pathSeparator}sub');
@@ -4933,7 +4955,7 @@ void main() {
         groupMessages: (_, _) async => const [],
         sendGroupMessage: (_, _, _) async => null,
         sendGroupFile:
-            (_, _, _, _, _, {kind, width, height, durationMs}) async =>
+            (_, _, _, _, _, _, {kind, width, height, durationMs}) async =>
                 (error: null, contentId: 'cid'),
         fetchGroupFile: (_, _) async => null,
         loadGroupFile: (_, _) async =>
