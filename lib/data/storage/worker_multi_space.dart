@@ -11,6 +11,7 @@ import 'hv_native.dart';
 import 'kv_log_store.dart';
 import 'multi_space_store.dart';
 import 'worker_death.dart';
+import 'package:xveil/core/log.dart';
 
 /// A worker that is up and has answered its bootstrap: the isolate, the port
 /// that serves requests on it, and the watcher armed on its death.
@@ -84,7 +85,16 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
     // kill is exactly what strands the native handle (the same reason
     // WorkerKvLogStore.close refuses to kill on timeout).
     if (_closed) {
-      await _shutdown(live.port);
+      try {
+        await _shutdown(live.port);
+      } catch (e) {
+        // Logged, not raised: the op that triggered this spawn is doomed either
+        // way, and "the backing is closed" is the answer it needs. [close]'s own
+        // caller is the one that gets the teardown failure.
+        devLog(
+          () => 'xVeil[storage]: multi-space rollback shutdown failed: $e',
+        );
+      }
       throw StateError('WorkerMultiSpaceBacking is closed');
     }
     return live.port;
@@ -224,26 +234,113 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
     await _shutdown(port);
   }
 
-  /// Ask the worker to close the container, then stop watching and kill it.
+  /// How long a close waits for the worker before giving up on the wait.
+  ///
+  /// Settable for tests only: the wait itself is what is under test, and five
+  /// seconds of real time per case is not a thing to spend.
+  @visibleForTesting
+  static Duration closeTimeout = const Duration(seconds: 5);
+
+  /// Ask the worker to close the container, and report honestly what happened.
   ///
   /// Shared by [close] and by the closed-during-spawn rollback in [_spawn], on
   /// purpose: they are the same teardown, and a second hand-rolled copy of it is
   /// how the stranded-flock bug comes back.
+  ///
+  /// This used to answer its own timeout with `_MOk(null)` — a FABRICATED
+  /// SUCCESS — and then kill the worker regardless, so a container that had not
+  /// closed reported a clean close to the caller and lost its handle in the
+  /// bargain. It also dropped a real `_MErr` from the worker on the floor. Both
+  /// are lies about the one fact the caller needs: whether the container's
+  /// exclusive lock is back.
+  ///
+  /// Aligned now with [WorkerKvLogStore.close], which is the one of the three
+  /// worker lifecycles that already got this right.
   Future<void> _shutdown(SendPort port) async {
+    final watch = _watch;
     final reply = ReceivePort();
+    // Single-subscription port: capture the one future ONCE, or the background
+    // drain below cannot listen to what the timeout gave up on.
+    final done = reply.first;
+    port.send(_MClose(reply.sendPort));
+    Object? answer;
+    Object? died;
     try {
-      port.send(_MClose(reply.sendPort));
-      await reply.first.timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => const _MOk(null),
-      );
-    } finally {
-      reply.close();
-      // Stop watching BEFORE the kill, or our own teardown reports the worker
-      // as having died on us.
-      _watch?.dispose();
-      _isolate?.kill(priority: Isolate.immediate);
+      // Raced against the worker's death like every other call (audit XV-07):
+      // `errorsAreFatal` makes a crashed worker die QUIETLY, so a close that
+      // waited on the reply alone burned the whole timeout for nothing.
+      //
+      // The worker never replies a bare null (`_MOk`/`_MErr` are objects), so
+      // null unambiguously means the timeout fired.
+      answer =
+          await (watch == null
+                  ? done
+                  : Future.any<Object?>([done, watch.future]))
+              .timeout(closeTimeout, onTimeout: () => null);
+    } catch (e) {
+      died = e;
     }
+    if (died != null) {
+      reply.close();
+      watch?.dispose();
+      _isolate?.kill(priority: Isolate.immediate);
+      throw hv.HvException(
+        'Internal',
+        'multi-space worker died during close: $died',
+      );
+    }
+    if (answer != null) {
+      reply.close();
+      // Stop watching BEFORE the kill: an expected shutdown is not a death to
+      // report, and leaving the watcher armed turns every clean close into an
+      // error future with nobody listening.
+      watch?.dispose();
+      _isolate?.kill(priority: Isolate.immediate);
+      if (answer is _MErr) {
+        throw hv.HvException(answer.kind, answer.message);
+      }
+      return;
+    }
+    // Timed out — the worker is almost certainly blocked inside a long
+    // synchronous FFI op (a big commit/scan) with our close queued behind it.
+    // KILLING IT HERE WOULD LEAK THE NATIVE CONTAINER HANDLE: an isolate kill
+    // cannot interrupt or unwind an FFI frame, so the backing would never
+    // close, the container's exclusive flock would stay held by THIS PROCESS,
+    // and every later open would fail Busy until an app restart — the "correct
+    // password but won't unlock" trap. Let the worker drain and close in the
+    // background (it kills itself after serving `_MClose`) and TELL THE CALLER,
+    // because until that lands the lock is still held.
+    devLog(
+      () =>
+          'xVeil[storage]: multi-space worker close timed out '
+          '(>${closeTimeout.inMilliseconds}ms) — waiting in background for the '
+          'container to finish closing (flock still held)',
+    );
+    unawaited(
+      done
+          .then(
+            (_) => devLog(
+              () =>
+                  'xVeil[storage]: late multi-space close completed — '
+                  'container handle released',
+            ),
+          )
+          .catchError((Object e) {
+            devLog(() => 'xVeil[storage]: late multi-space close failed: $e');
+          })
+          .whenComplete(() {
+            reply.close();
+            // The worker is finally gone, on its own terms. Stop watching now
+            // rather than at the timeout: until this lands the isolate is still
+            // live and a real crash in the meantime is still worth reporting.
+            watch?.dispose();
+          }),
+    );
+    throw hv.HvException(
+      'Busy',
+      'multi-space worker did not close within '
+          '${closeTimeout.inMilliseconds}ms; the container lock is still held',
+    );
   }
 }
 
