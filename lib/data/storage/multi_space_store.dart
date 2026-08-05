@@ -31,6 +31,10 @@ abstract interface class MultiSpaceBacking {
   Uint8List exportKeys(int id);
   void scrub(int id);
 
+  /// See [KvLogStore.slotUtilization]. Null on the native multi-space handle —
+  /// its FFI has no per-space `stats`.
+  SlotUtilization? slotUtilization(int id);
+
   /// Reclaim slots whose data a previous session deleted, for one hosted space.
   ///
   /// Separate from [scrub], which compacts data batches. This one erases what
@@ -97,6 +101,9 @@ class MultiSpaceKvLogStore implements KvLogStore {
   void scrub() => _backing.scrub(_id);
 
   @override
+  SlotUtilization? slotUtilization() => _backing.slotUtilization(_id);
+
+  @override
   Uint8List exportKeys() => _backing.exportKeys(_id);
 
   @override
@@ -129,6 +136,9 @@ abstract interface class AsyncMultiSpaceBacking {
   Future<List<Uint8List>> kvKeys(int id, int namespace);
   Future<Uint8List> exportKeys(int id);
   Future<void> scrub(int id);
+
+  /// See [MultiSpaceBacking.slotUtilization].
+  Future<SlotUtilization?> slotUtilization(int id);
 
   /// See [MultiSpaceBacking.vacuumOrphans]. Called after unlock completes.
   Future<void> vacuumOrphans(int id);
@@ -188,6 +198,9 @@ class AsyncMultiSpaceKvLogStore implements AsyncKvLogStore {
   Future<void> scrub() => _backing.scrub(_id);
 
   @override
+  Future<SlotUtilization?> slotUtilization() => _backing.slotUtilization(_id);
+
+  @override
   Future<Uint8List> exportKeys() => _backing.exportKeys(_id);
 
   @override
@@ -234,6 +247,9 @@ class SyncWrappedAsyncMultiSpaceBacking implements AsyncMultiSpaceBacking {
   Future<Uint8List> exportKeys(int id) async => _inner.exportKeys(id);
   @override
   Future<void> scrub(int id) async => _inner.scrub(id);
+  @override
+  Future<SlotUtilization?> slotUtilization(int id) async =>
+      _inner.slotUtilization(id);
   @override
   Future<void> vacuumOrphans(int id) async => _inner.vacuumOrphans(id);
   @override

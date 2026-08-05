@@ -3336,6 +3336,20 @@ class AppL10nEn extends AppL10n {
       'Reclaim unused space — the app re-opens. Keeps ONLY the unlocked space: any other hidden identity in this container is discarded.';
 
   @override
+  String settingsStorageReclaimable(String size) {
+    return '$size of it can be reclaimed by compacting';
+  }
+
+  @override
+  String settingsStorageBloatTitle(String size) {
+    return 'Compacting would free about $size';
+  }
+
+  @override
+  String get settingsStorageBloatBody =>
+      'Most of this file is padding left over from earlier writes — normal for this storage, but it never shrinks on its own. Compact it when convenient.';
+
+  @override
   String get settingsStorageCompactDone => 'Reclaimed';
 
   @override
