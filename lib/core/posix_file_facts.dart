@@ -163,14 +163,36 @@ typedef _ChmodDart = int Function(Pointer<Utf8>, int);
 typedef _MkdirNative = Int32 Function(Pointer<Utf8>, Uint32);
 typedef _MkdirDart = int Function(Pointer<Utf8>, int);
 
+/// `open(2)` declared with TWO arguments on purpose. The C function is
+/// variadic, and its third parameter is read only when `O_CREAT` is in the
+/// flags — which nothing here passes. Declaring the extra argument would mean
+/// promising a variadic call convention that AArch64 does not implement the way
+/// a fixed signature describes.
+typedef _OpenNative = Int32 Function(Pointer<Utf8>, Int32);
+typedef _OpenDart = int Function(Pointer<Utf8>, int);
+typedef _FdIntNative = Int32 Function(Int32);
+typedef _FdIntDart = int Function(int);
+
 class _Libc {
-  _Libc(this.layout, this.lstat, this.chmod, this.mkdir, this.geteuid);
+  _Libc(
+    this.layout,
+    this.lstat,
+    this.chmod,
+    this.mkdir,
+    this.geteuid,
+    this.open,
+    this.fsync,
+    this.close,
+  );
 
   final _StatLayout layout;
   final _PathIntDart lstat;
   final _ChmodDart? chmod;
   final _MkdirDart? mkdir;
   final int Function()? geteuid;
+  final _OpenDart? open;
+  final _FdIntDart? fsync;
+  final _FdIntDart? close;
 }
 
 _Libc? _libc;
@@ -222,7 +244,40 @@ _Libc? _resolveLibc() {
   } on ArgumentError {
     geteuid = null;
   }
-  return _libc = _Libc(layout, lstat, chmod, mkdir, geteuid);
+  _OpenDart? open;
+  try {
+    open = process
+        .lookup<NativeFunction<_OpenNative>>('open')
+        .asFunction<_OpenDart>();
+  } on ArgumentError {
+    open = null;
+  }
+  _FdIntDart? fsync;
+  try {
+    fsync = process
+        .lookup<NativeFunction<_FdIntNative>>('fsync')
+        .asFunction<_FdIntDart>();
+  } on ArgumentError {
+    fsync = null;
+  }
+  _FdIntDart? close;
+  try {
+    close = process
+        .lookup<NativeFunction<_FdIntNative>>('close')
+        .asFunction<_FdIntDart>();
+  } on ArgumentError {
+    close = null;
+  }
+  return _libc = _Libc(
+    layout,
+    lstat,
+    chmod,
+    mkdir,
+    geteuid,
+    open,
+    fsync,
+    close,
+  );
 }
 
 /// Whether this host can answer any of the questions below.
@@ -324,3 +379,34 @@ int? posixMkdir(String path, int mode) {
 
 /// The effective uid of this process, or null when it cannot be read.
 int? posixEuid() => _resolveLibc()?.geteuid?.call();
+
+/// `fsync(2)` on the DIRECTORY at [path].
+///
+/// Flushing a file makes its CONTENT durable; it says nothing about the name
+/// that points at it. A write-then-rename whose rename is still only in the
+/// page cache can be lost across a power failure while the data it wrote
+/// survives — leaving the temporary file on disk and the real name gone. The
+/// directory is the object that has to be synced for the rename to stick.
+///
+/// Dart exposes no handle to a directory, so this opens one (`O_RDONLY`, which
+/// is legal on a directory on both Linux and Darwin), syncs and closes it.
+/// Null when the host has no usable binding; otherwise 0 on success.
+int? posixFsyncDir(String path) {
+  final libc = _resolveLibc();
+  final open = libc?.open;
+  final fsync = libc?.fsync;
+  final close = libc?.close;
+  if (open == null || fsync == null || close == null) return null;
+  final pathPtr = path.toNativeUtf8();
+  try {
+    final fd = open(pathPtr, 0); // O_RDONLY, and never O_CREAT
+    if (fd < 0) return -1;
+    try {
+      return fsync(fd);
+    } finally {
+      close(fd);
+    }
+  } finally {
+    calloc.free(pathPtr);
+  }
+}
