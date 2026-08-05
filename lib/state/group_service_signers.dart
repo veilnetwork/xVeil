@@ -30,9 +30,19 @@ abstract class GroupSigner {
   bool verifyModerationAppeal(SpaceModerationAppeal appeal);
   bool verifyModerationAppealDecision(SpaceModerationAppealDecision decision);
   bool verifySpaceManifest(SpaceManifest manifest);
-  ({Uint8List signature, Uint8List publicKey}) signDetached(
-    Uint8List message,
-  ) => throw UnsupportedError('detached identity signing is unavailable');
+  /// Abstract, not a throwing default.
+  ///
+  /// It used to carry `=> throw UnsupportedError(...)`, which makes the
+  /// compiler accept a signer that cannot sign and moves the failure to
+  /// whichever of the dozen-odd call sites reaches it first — abuse reports,
+  /// public-feed posts, space descriptors, reactions. Every implementer in the
+  /// tree already overrides it, so the throwing body was reachable only by a
+  /// signer someone forgot to finish, which is exactly the case a declaration
+  /// should catch at compile time.
+  ///
+  /// The usual objection — that tightening a public interface breaks outside
+  /// implementers — does not apply: this package has never been published.
+  ({Uint8List signature, Uint8List publicKey}) signDetached(Uint8List message);
   bool verifyDetached({
     required NodeId signer,
     required Uint8List publicKey,
