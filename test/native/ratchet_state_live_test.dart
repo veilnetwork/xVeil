@@ -137,6 +137,20 @@ void main() {
         );
       }
       expect(door.list(), hasLength(32));
+
+      // The sweep, over the real ABI. Two things at once, and only a live node
+      // can say either: that `veil_ratchet_expire` resolves and its `size_t *`
+      // out-parameter is typed the way the header declares it, and that a
+      // conversation this device has spoken on is never aged out. All 32 are
+      // marked authenticated and stamped in 2023 — far past any time-to-live —
+      // so a sweep that judged by age alone would take every one of them, and
+      // both ends of all 32 conversations would be wedged for good.
+      expect(
+        door.expire(),
+        0,
+        reason: 'a proven conversation must not age out at any age',
+      );
+      expect(door.list(), hasLength(32));
       // `forget` is the store's own way of saying "this conversation changed":
       // it marks the key and drops the entry. The mark is what the batch loop
       // reads, and it outlives the entry, which is why the count below is 32

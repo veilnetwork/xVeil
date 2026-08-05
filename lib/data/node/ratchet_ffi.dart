@@ -88,6 +88,26 @@ abstract interface class RatchetStateHandle {
   /// from here on. Returns false when nothing was held.
   bool forget(Uint8List conversationKey);
 
+  /// Age out every conversation this device has never spoken on and that has
+  /// gone unused past veil's time-to-live. Returns how many went.
+  ///
+  /// For a timer or a return to the foreground. Without a caller the sweep only
+  /// runs when the store hits its ceiling, so a device flooded once carries the
+  /// wreckage until something else needs the room.
+  ///
+  /// Only unproven conversations age out. One that has carried traffic is never
+  /// dropped by time at any age: the peer cannot restart its copy from anything
+  /// on the wire, so aging one out would wedge both ends permanently. Those are
+  /// [forget]'s business, on a user's decision.
+  ///
+  /// veil reads its own clock for this. There is deliberately no parameter —
+  /// nothing that arrived over the network gets to decide what is old enough to
+  /// disappear.
+  ///
+  /// Each conversation dropped is MARKED, so the stored blob is deleted by the
+  /// next [RatchetPersistence.flush] rather than resurrected at the next launch.
+  int expire();
+
   /// Release whatever this door is holding open. Idempotent.
   ///
   /// On the interface rather than only on the FFI class because the teardown
@@ -198,6 +218,12 @@ typedef _ForgetNative =
     Int32 Function(Pointer<Void>, Pointer<Uint8>, Pointer<Pointer<Utf8>>);
 typedef _ForgetDart =
     int Function(Pointer<Void>, Pointer<Uint8>, Pointer<Pointer<Utf8>>);
+// `Size`, not `IntPtr`: the C parameter is `size_t *`, and getting that wrong
+// is how the ratchet's state came to be never written at all.
+typedef _ExpireNative =
+    Int32 Function(Pointer<Void>, Pointer<Size>, Pointer<Pointer<Utf8>>);
+typedef _ExpireDart =
+    int Function(Pointer<Void>, Pointer<Size>, Pointer<Pointer<Utf8>>);
 typedef _FreeStrNative = Void Function(Pointer<Utf8>);
 typedef _FreeStrDart = void Function(Pointer<Utf8>);
 // VeilHandle *veil_connect(const uint8_t*, uintptr_t, char** err_out);
@@ -628,6 +654,25 @@ class FfiRatchetStateHandle implements RatchetStateHandle {
       return true;
     } finally {
       calloc.free(keyPtr);
+      calloc.free(errOut);
+    }
+  }
+
+  @override
+  int expire() {
+    final fn = _dl.lookupFunction<_ExpireNative, _ExpireDart>(
+      'veil_ratchet_expire',
+    );
+    final droppedOut = calloc<Size>();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      final rc = fn(_handle, droppedOut, errOut);
+      if (rc != 0) {
+        throw StateError('veil_ratchet_expire failed: ${_takeErr(errOut)}');
+      }
+      return droppedOut.value;
+    } finally {
+      calloc.free(droppedOut);
       calloc.free(errOut);
     }
   }
