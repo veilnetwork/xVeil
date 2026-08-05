@@ -247,27 +247,84 @@ class AppController extends Notifier<AppState> {
       createIfMissing: true,
     );
     if (!opened) {
-      state = state.copyWith(phase: AppPhase.onboarding, preparingReason: null);
-      ref.read(pendingDeviceLinkProvider.notifier).state = false;
-      takePendingIdentityPhrase();
+      await _abandonOnboarding();
       throw StateError(
         'storage.open refused the onboarding password; nothing was written',
       );
     }
-    // The container just answered to this password — the same one moment
-    // [unlock] uses, and the only one onboarding gets. Without this the very
-    // first session had nothing to check a typed password against, so the
-    // screen lock could not engage at all until the app was restarted (IF-01):
-    // `_lock` refuses to put up a prompt nobody can answer.
-    ref.read(screenLockProvider.notifier).rememberPassword(password);
-    final profile = UserProfile(displayName: displayName);
-    await storage.saveProfile(profile);
+    // From here the container is OPEN, and every remaining step can fail. The
+    // rollback used to cover only the step above — the one that had not opened
+    // anything yet — so a profile write, a preference write or a node boot that
+    // threw left the container OPEN, its exclusive flock held, the screen lock
+    // primed with the password, and the phase parked on "setting up" with no
+    // way forward and no way back (audit report8).
+    try {
+      // The container just answered to this password — the same one moment
+      // [unlock] uses, and the only one onboarding gets. Without this the very
+      // first session had nothing to check a typed password against, so the
+      // screen lock could not engage at all until the app was restarted
+      // (IF-01): `_lock` refuses to put up a prompt nobody can answer.
+      ref.read(screenLockProvider.notifier).rememberPassword(password);
+      final profile = UserProfile(displayName: displayName);
+      await storage.saveProfile(profile);
 
-    final prefs = await ref.read(prefsProvider.future);
-    await prefs.setBool(_onboardedKey(), true);
-    await prefs.setString(_kStorageModeKey, mode.name);
+      final prefs = await ref.read(prefsProvider.future);
+      // `setBool`/`setString` ANSWER whether the write landed, and both answers
+      // were dropped. A preference store that refuses (the in-memory fallback
+      // main() installs when the profile store cannot be created, a full disk)
+      // left this install marked "onboarded" only in RAM: the next launch shows
+      // first-run setup again, over a container that already exists, and the
+      // storage mode the user chose is gone with it.
+      if (!await prefs.setBool(_onboardedKey(), true)) {
+        throw StateError('preference store refused the onboarding marker');
+      }
+      if (!await prefs.setString(_kStorageModeKey, mode.name)) {
+        throw StateError('preference store refused the storage mode');
+      }
 
-    await _enterSession(profile);
+      await _enterSession(profile);
+    } catch (e, st) {
+      devLog(() => 'xVeil[onboarding]: FAILED, rolling back: $e\n$st');
+      errorJournal.record(
+        kind: 'onboarding',
+        error: e,
+        stack: st,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await _abandonOnboarding(closeStorage: true);
+      rethrow;
+    }
+  }
+
+  /// Undo a first-launch setup that did not finish.
+  ///
+  /// The container FILE is deliberately left alone — it may already hold other
+  /// deniable spaces, and this app cannot prove otherwise; the same reasoning
+  /// as [startOver]. What goes is everything this attempt put in memory or in
+  /// preferences: the open handle and its exclusive lock, the screen lock's
+  /// password recogniser, the master phrase, the device-link intent, and the
+  /// two preference keys that would otherwise send the next launch to a lock
+  /// screen for an identity that was never finished.
+  Future<void> _abandonOnboarding({bool closeStorage = false}) async {
+    if (closeStorage) {
+      try {
+        await ref.read(storageProvider).close();
+      } catch (e) {
+        devLog(() => 'xVeil[onboarding]: rollback close failed: $e');
+      }
+      // Primed with a password for a session that will not exist.
+      ref.read(screenLockProvider.notifier).forgetSession();
+      try {
+        final prefs = await ref.read(prefsProvider.future);
+        await prefs.remove(_onboardedKey());
+        await prefs.remove(_kStorageModeKey);
+      } catch (e) {
+        devLog(() => 'xVeil[onboarding]: rollback prefs failed: $e');
+      }
+    }
+    ref.read(pendingDeviceLinkProvider.notifier).state = false;
+    takePendingIdentityPhrase();
+    state = state.copyWith(phase: AppPhase.onboarding, preparingReason: null);
   }
 
   /// Guards [unlock] against overlapping runs (UI double-submit racing the
