@@ -382,8 +382,9 @@ String _hex(Uint8List k) =>
 /// Bytes past which the sending counter sits, inside a blob [_conversationBlob]
 /// built: `VRC1` header, then the primitive's `VSR1` header.
 const int _sendingIndexOffset =
-    // VRC1 ‖ v1 ‖ peer_ik(32) ‖ authenticated ‖ no prologue ‖ session length
-    4 + 1 + 32 + 1 + 1 + 4 +
+    // VRC1 ‖ v2 ‖ peer_ik(32) ‖ authenticated ‖ last_used_at(8) ‖ no prologue
+    // ‖ session length
+    4 + 1 + 32 + 1 + 8 + 1 + 4 +
     // VSR1 ‖ v1 ‖ dh_sk(32) ‖ Some(32) ‖ rk(32) ‖ Some(32) ‖ Some(32)
     4 + 1 + 32 + 33 + 32 + 33 + 33;
 
@@ -420,9 +421,13 @@ Uint8List _conversationBlob({required int sendingIndex}) {
 
   final entry = BytesBuilder()
     ..add(const [0x56, 0x52, 0x43, 0x31]) // "VRC1"
-    ..addByte(1) // CONVERSATION_BLOB_V1
+    ..addByte(2) // CONVERSATION_BLOB_V2
     ..add(Uint8List(32)..fillRange(0, 32, 0x77)) // peer_ik
     ..addByte(1) // authenticated
+    // last_used_at, big-endian seconds. v2 carries it so the store can age out
+    // conversations nobody ever answered; a proven one like this is never aged
+    // out at any value, which is why a fixed stamp is safe here.
+    ..add(_u64(1_700_000_000))
     ..addByte(0) // no pending prologue
     ..add(_u32(sessionBytes.length))
     ..add(sessionBytes);
@@ -441,6 +446,17 @@ int _sendingIndexOf(Uint8List blob) {
 }
 
 Uint8List _u32(int v) => Uint8List.fromList([
+  (v >> 24) & 0xff,
+  (v >> 16) & 0xff,
+  (v >> 8) & 0xff,
+  v & 0xff,
+]);
+
+Uint8List _u64(int v) => Uint8List.fromList([
+  (v >> 56) & 0xff,
+  (v >> 48) & 0xff,
+  (v >> 40) & 0xff,
+  (v >> 32) & 0xff,
   (v >> 24) & 0xff,
   (v >> 16) & 0xff,
   (v >> 8) & 0xff,
