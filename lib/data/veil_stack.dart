@@ -991,6 +991,22 @@ class RealVeilStack {
       // Whatever veil would not take can never open a frame again, so the
       // records go rather than being re-read on every launch forever.
       await dropRejectedRatchetStates(storage, rejected);
+      // Age out conversations nobody ever answered, now that the store is
+      // whole. veil sweeps by itself only when the store hits its ceiling, so
+      // a device that was flooded once would otherwise carry the wreckage in
+      // memory until something else needed the room — and would import it back
+      // at every launch besides. Here is the one moment per run when the store
+      // is known-complete and no traffic has touched it yet.
+      //
+      // Memory is reclaimed on this line; the stored bytes go with the next
+      // flush, which is what the marks veil leaves behind are for. Only
+      // conversations this device has never sent on are eligible — aging out
+      // one that has carried traffic would wedge both ends for good, since the
+      // peer cannot restart its copy from anything on the wire.
+      final aged = ratchetState?.expire() ?? 0;
+      if (aged > 0) {
+        devLog(() => 'xVeil[ratchet]: aged out $aged unanswered conversation(s)');
+      }
     } catch (_) {
       await runCleanupLegs('veil-stack-boot', [
         ('ratchet handle', () async => ratchetState?.close()),

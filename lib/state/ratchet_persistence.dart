@@ -175,6 +175,16 @@ class RatchetPersistence {
         await _storage.saveRatchetStates(entries);
         written += entries.length;
       }
+      // veil marks a conversation changed when it DROPS one too — aged out
+      // past its time-to-live, evicted to make room, or forgotten — and the
+      // only sign of that here is an export that comes back empty. Deleting
+      // the stored bytes is therefore part of discharging the mark, not a
+      // separate errand: skip it and the blob outlives the decision, and the
+      // next launch's restore imports back exactly what veil just got rid of.
+      final dropped = _missingFrom(batch.keys, entries);
+      if (dropped.isNotEmpty) {
+        await _storage.forgetRatchetStates(dropped);
+      }
       // Only now. Anything above that threw skipped this line, which is the
       // whole point: the marks outlive a failed write.
       final cleared = _native.ackDirty(batch.keys, batch.generation);
@@ -283,6 +293,16 @@ class RatchetPersistence {
     }
     await _storage.putSetting(kRatchetLocalInstanceSetting, currentHex);
   }
+
+  /// The keys of [named] that [exported] does not account for — the ones veil
+  /// marked and then turned out not to hold.
+  static List<Uint8List> _missingFrom(
+    List<Uint8List> named,
+    List<RatchetStateEntry> exported,
+  ) => [
+    for (final key in named)
+      if (!exported.any((e) => _sameKey(e.conversationKey, key))) key,
+  ];
 
   static bool _peerNodeMatches(Uint8List conversationKey, Uint8List nodeId) {
     if (conversationKey.length != kRatchetKeyLen || nodeId.length != 32) {
