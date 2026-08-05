@@ -6634,6 +6634,35 @@ class ApiServer {
   /// it is slack, generous enough that no ordinary client could trip it and
   /// small enough that nobody can rent the process's memory through a channel
   /// that has no use for what they send.
+  ///
+  /// ## What this budget does NOT bound, and why
+  ///
+  /// It is counted AFTER each message is materialised, so ONE message larger
+  /// than the whole budget is allocated in full before it is ever charged.
+  /// That is not an oversight and it is not fixable here: `dart:io` exposes no
+  /// per-message ceiling on a `WebSocket`. It joins every frame of a message
+  /// into one `String`/`List<int>` and only then delivers it, so any counting
+  /// this class can do necessarily happens downstream of the allocation. What
+  /// the budget bounds is the SUM across messages, which is what stops a drip
+  /// feed; a single huge message is bounded only by the process.
+  ///
+  /// What took the teeth out of that remainder is compression being OFF (see
+  /// the upgrade below). The danger was amplification — a few kilobytes of
+  /// zeros on the wire inflating to gigabytes in here, with no ratio limit —
+  /// and without deflate a peer now has to actually send every byte it wants
+  /// us to hold.
+  ///
+  /// ## Why the inbound stream is listened to at all
+  ///
+  /// The audit's remedy was to replace this with a one-way event stream, so
+  /// there would be no inbound side to bound. DECLINED, for the reason
+  /// recorded further down at `ws.listen`: on a SERVER-side socket `ws.done`
+  /// does not complete when the peer disconnects — measured — and the inbound
+  /// stream is the only thing that reports it. Dropping the listener puts the
+  /// subscription cap back to counting only upwards, which is the bug where
+  /// sixteen ordinary bot reconnects wedged the feed at 503 until the app was
+  /// restarted. The inbound stream is not read for its data. It is the
+  /// disconnect signal, and there is no other.
   static const kEventFeedInboundByteBudget = 64 * 1024;
 
   Future<int?> start(int port) async {
