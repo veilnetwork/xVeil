@@ -401,21 +401,67 @@ Future<String> installProfilePreferences({
   Map<String, String>? environment,
 }) async {
   final legacy = SharedPreferencesStorePlatform.instance;
-  final remembered =
-      await readRememberedProfile(supportDir) ??
-      await _legacyString(legacy, AppProfiles.activePref);
-  final profile = AppProfiles.resolve(
+  final pointer = await readRememberedProfile(supportDir);
+  final legacyPointer = await _legacyString(legacy, AppProfiles.activePref);
+  final resolved = AppProfiles.resolveWithSource(
     args: args,
     environment: environment,
-    remembered: remembered,
+    pointer: pointer,
+    legacyPointer: legacyPointer,
   );
+  final profile = resolved.name;
+
+  // CARRY THE OLD POINTER ACROSS, before anything empties the store it lives
+  // in. Skipping this is what audit X-01 found: the first launch after the
+  // upgrade read `profile.active.v1` from the system store and picked the right
+  // profile, the migration then emptied that store without copying the pointer
+  // anywhere, and the SECOND launch — with neither pointer left — silently
+  // dropped the user into the default profile, a different identity with a
+  // different posture, and offered onboarding for it.
+  //
+  // What is carried is the OLD POINTER'S OWN VALUE, never the resolved name.
+  // That is what keeps `--profile` and `XVEIL_PROFILE` one-shot: launching with
+  // a flag still runs that profile for this process only, and still leaves the
+  // remembered choice exactly as the user left it. It is also why this does not
+  // wait for the flag-less case — clearing the store destroys the pointer no
+  // matter which source won this particular launch.
+  //
+  // The question asked is "would the OLD pointer decide, had this launch been
+  // given no instructions" — deliberately not "did it decide this time". An
+  // empty `args`/`environment` is passed for exactly that reason: a source that
+  // answers here can only be [ProfileSource.legacyPointer], and anything else
+  // means the old pointer held nothing this build would accept and there is
+  // nothing to lose by emptying the store.
+  final carried = pointer == null
+      ? AppProfiles.resolveWithSource(
+          args: const [],
+          environment: const {},
+          legacyPointer: legacyPointer,
+        )
+      : null;
+  var pointerSafe = true;
+  if (carried != null && carried.source == ProfileSource.legacyPointer) {
+    pointerSafe = await writeRememberedProfile(supportDir, carried.name);
+    if (!pointerSafe) {
+      devLog(
+        () =>
+            'xVeil[prefs]: could not carry the remembered profile into '
+            '${activeProfilePath(supportDir)} — leaving the system store alone '
+            'rather than forgetting which profile this install runs on',
+      );
+    }
+  }
 
   final store = await ProfilePreferencesStore.load(
     profilePrefsPath(supportDir, profile),
   );
-  await _migrateLegacy(legacy, supportDir, profile, store);
-  // Deliberately NOT written back: `--profile` and `XVEIL_PROFILE` stay
-  // one-shot, exactly as before. Only the switcher records a choice.
+  await _migrateLegacy(
+    legacy,
+    supportDir,
+    profile,
+    store,
+    mayClearLegacy: pointerSafe,
+  );
   SharedPreferencesStorePlatform.instance = store;
   return profile;
 }
@@ -480,8 +526,9 @@ Future<void> _migrateLegacy(
   SharedPreferencesStorePlatform legacy,
   String supportDir,
   String profile,
-  ProfilePreferencesStore into,
-) async {
+  ProfilePreferencesStore into, {
+  required bool mayClearLegacy,
+}) async {
   Map<String, Object> all;
   try {
     all = await legacy.getAll();
@@ -516,7 +563,8 @@ Future<void> _migrateLegacy(
     final full = entry.key;
     if (!full.startsWith('flutter.')) continue;
     final bare = full.substring('flutter.'.length);
-    // The active-profile pointer moved to its own file; the rest is settings.
+    // The active-profile pointer has its own file and was carried there before
+    // this ran; the rest is settings.
     if (bare == AppProfiles.activePref) continue;
 
     final routed = routeLegacyKey(bare, known);
@@ -545,12 +593,13 @@ Future<void> _migrateLegacy(
     if (!await store._flush()) written = false;
   }
 
-  if (!written) {
+  if (!written || !mayClearLegacy) {
     devLog(
       () =>
-          'xVeil[prefs]: NOT emptying the system store — a per-profile file '
-          'could not be written. A second copy in the backup is bad; losing '
-          'the only copy is worse, and the next launch can try again.',
+          'xVeil[prefs]: NOT emptying the system store — '
+          '${written ? 'the active-profile pointer could not be carried over' : 'a per-profile file could not be written'}. '
+          'A second copy in the backup is bad; losing the only copy is worse, '
+          'and the next launch can try again.',
     );
     return;
   }

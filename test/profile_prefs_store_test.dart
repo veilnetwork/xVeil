@@ -276,6 +276,196 @@ void main() {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Audit X-01. The pointer the migration threw away.
+  // ─────────────────────────────────────────────────────────────────────────
+  group('the profile an upgrade inherits', () {
+    test('is still the same one on the SECOND launch, not just the first', () async {
+      // The install being reproduced: the choice is where it has always been —
+      // the system store — and the file pointer does not exist yet.
+      SharedPreferencesStorePlatform.instance =
+          InMemorySharedPreferencesStore.withData({
+            'flutter.${AppProfiles.activePref}': 'private',
+            'flutter.proxy_routing.private': 'PRIVATE-EXIT',
+          });
+      final systemStore = SharedPreferencesStorePlatform.instance;
+
+      // FIRST launch after the upgrade. This one was never in doubt: the
+      // pointer is still readable, so the right profile is picked.
+      expect(
+        await installProfilePreferences(
+          supportDir: support.path,
+          args: const [],
+          environment: const {},
+        ),
+        'private',
+      );
+      expect(
+        await systemStore.getAll(),
+        isEmpty,
+        reason: 'the system store must still be emptied — that is the leak',
+      );
+
+      // SECOND launch. A new process, and the system store the first launch
+      // emptied. THIS is the finding: with the pointer left uncarried there is
+      // nothing on disk to read, and the app comes up on `default` — a
+      // different identity, a different posture, and an onboarding screen.
+      SharedPreferencesStorePlatform.instance =
+          InMemorySharedPreferencesStore.withData(const {});
+      expect(
+        await installProfilePreferences(
+          supportDir: support.path,
+          args: const [],
+          environment: const {},
+        ),
+        'private',
+        reason: 'the second launch must land where the first one did',
+      );
+
+      // And the settings went with it rather than to the default profile.
+      final installed = await SharedPreferencesStorePlatform.instance.getAll();
+      expect(installed['flutter.proxy_routing'], 'PRIVATE-EXIT');
+    });
+
+    test('is recorded in the file pointer, once, before anything is erased', () async {
+      SharedPreferencesStorePlatform.instance =
+          InMemorySharedPreferencesStore.withData({
+            'flutter.${AppProfiles.activePref}': 'private',
+          });
+      await installProfilePreferences(
+        supportDir: support.path,
+        args: const [],
+        environment: const {},
+      );
+      expect(await readRememberedProfile(support.path), 'private');
+    });
+
+    test('a --profile flag runs elsewhere WITHOUT taking the choice with it', () async {
+      // Both halves in one launch: the flag decides this run, and the pointer
+      // that the clear is about to destroy is still carried across untouched.
+      SharedPreferencesStorePlatform.instance =
+          InMemorySharedPreferencesStore.withData({
+            'flutter.${AppProfiles.activePref}': 'private',
+          });
+
+      expect(
+        await installProfilePreferences(
+          supportDir: support.path,
+          args: const ['--profile', 'lab'],
+          environment: const {},
+        ),
+        'lab',
+      );
+      expect(
+        await readRememberedProfile(support.path),
+        'private',
+        reason: 'a one-shot flag must never become the remembered choice',
+      );
+
+      SharedPreferencesStorePlatform.instance =
+          InMemorySharedPreferencesStore.withData(const {});
+      expect(
+        await installProfilePreferences(
+          supportDir: support.path,
+          args: const [],
+          environment: const {},
+        ),
+        'private',
+        reason: 'the next flag-less launch goes back to what the user chose',
+      );
+    });
+
+    test('XVEIL_PROFILE is one-shot too and rewrites no pointer', () async {
+      SharedPreferencesStorePlatform.instance =
+          InMemorySharedPreferencesStore.withData({
+            'flutter.${AppProfiles.activePref}': 'private',
+          });
+
+      expect(
+        await installProfilePreferences(
+          supportDir: support.path,
+          args: const [],
+          environment: const {AppProfiles.envVar: 'lab'},
+        ),
+        'lab',
+      );
+      expect(
+        await readRememberedProfile(support.path),
+        'private',
+        reason: 'an environment variable is an instruction, not a choice',
+      );
+    });
+
+    test('an existing file pointer is never overwritten by the old one', () async {
+      await writeRememberedProfile(support.path, 'decoy');
+      SharedPreferencesStorePlatform.instance =
+          InMemorySharedPreferencesStore.withData({
+            'flutter.${AppProfiles.activePref}': 'private',
+          });
+
+      expect(
+        await installProfilePreferences(
+          supportDir: support.path,
+          args: const [],
+          environment: const {},
+        ),
+        'decoy',
+      );
+      expect(
+        await readRememberedProfile(support.path),
+        'decoy',
+        reason: 'the file pointer is the newer record of the two',
+      );
+    });
+
+    test('says WHICH source decided, so the caller can tell them apart', () {
+      expect(
+        AppProfiles.resolveWithSource(
+          args: const ['--profile', 'lab'],
+          environment: const {AppProfiles.envVar: 'env'},
+          pointer: 'ptr',
+          legacyPointer: 'old',
+        ).source,
+        ProfileSource.argument,
+      );
+      expect(
+        AppProfiles.resolveWithSource(
+          environment: const {AppProfiles.envVar: 'env'},
+          pointer: 'ptr',
+          legacyPointer: 'old',
+        ).source,
+        ProfileSource.environment,
+      );
+      expect(
+        AppProfiles.resolveWithSource(
+          environment: const {},
+          pointer: 'ptr',
+          legacyPointer: 'old',
+        ).source,
+        ProfileSource.newPointer,
+      );
+      final legacy = AppProfiles.resolveWithSource(
+        environment: const {},
+        legacyPointer: 'old',
+      );
+      expect(legacy.source, ProfileSource.legacyPointer);
+      expect(legacy.name, 'old');
+      expect(
+        AppProfiles.resolveWithSource(environment: const {}).source,
+        ProfileSource.fallbackDefault,
+      );
+      // An unusable legacy pointer is not a source at all, so nothing is
+      // carried and the store may be emptied.
+      expect(
+        AppProfiles.resolveWithSource(
+          environment: const {},
+          legacyPointer: '../escape',
+        ).source,
+        ProfileSource.fallbackDefault,
+      );
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Audit X-02. A write that says it worked when it did not.
   // ─────────────────────────────────────────────────────────────────────────
   group('a write that did not land', () {
@@ -321,6 +511,34 @@ void main() {
         (await systemStore.getAll())['flutter.proxy_routing.decoy'],
         'DECOY-EXIT',
         reason: 'the only remaining copy must survive a failed migration',
+      );
+    });
+
+    test('of the carried pointer also stops the system store being emptied', () async {
+      // X-01 and X-02 meeting: if the pointer cannot be recorded, clearing the
+      // store would forget which profile this install runs on.
+      blockWritesTo(activeProfilePath(support.path));
+      SharedPreferencesStorePlatform.instance =
+          InMemorySharedPreferencesStore.withData({
+            'flutter.${AppProfiles.activePref}': 'private',
+            'flutter.proxy_routing.private': 'PRIVATE-EXIT',
+          });
+      final systemStore = SharedPreferencesStorePlatform.instance;
+
+      expect(
+        await installProfilePreferences(
+          supportDir: support.path,
+          args: const [],
+          environment: const {},
+        ),
+        'private',
+      );
+      expect(
+        (await systemStore.getAll())['flutter.${AppProfiles.activePref}'],
+        'private',
+        reason:
+            'without the pointer anywhere on disk, the old store is the only '
+            'thing that still knows the answer',
       );
     });
 

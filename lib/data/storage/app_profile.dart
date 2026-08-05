@@ -1,5 +1,44 @@
 import 'dart:io' show Platform;
 
+/// WHERE the profile for this launch came from.
+///
+/// The name alone is not enough to act on. Two of these sources are one-shot
+/// instructions for this run only, one is a stored choice that already lives
+/// where it belongs, one is a stored choice in a place that is about to be
+/// erased, and the last is no choice at all — and the migration in
+/// `installProfilePreferences` has to treat all five differently. Returning
+/// only the name is what let a remembered non-default profile be forgotten on
+/// the second launch after the upgrade (audit X-01).
+enum ProfileSource {
+  /// `--profile name` / `--profile=name` on the command line.
+  argument,
+
+  /// The `XVEIL_PROFILE` environment variable.
+  environment,
+
+  /// The `xveil.profile` file — the switcher's own record.
+  newPointer,
+
+  /// The `profile.active.v1` preference in the platform's system store: the
+  /// pre-migration home of the same choice, and the only source that has to be
+  /// CARRIED somewhere before that store is emptied.
+  legacyPointer,
+
+  /// Nothing said anything; production.
+  fallbackDefault,
+}
+
+/// A profile name together with [ProfileSource].
+class ResolvedProfile {
+  const ResolvedProfile(this.name, this.source);
+
+  final String name;
+  final ProfileSource source;
+
+  @override
+  String toString() => 'ResolvedProfile($name from ${source.name})';
+}
+
 /// Which on-disk profile the app runs against — the equivalent of a browser's
 /// `--profile`, so a debug build and the production build can live side by side
 /// on one machine instead of sharing (and corrupting) one container.
@@ -75,16 +114,43 @@ class AppProfiles {
     List<String> args = const [],
     Map<String, String>? environment,
     String? remembered,
+  }) => resolveWithSource(
+    args: args,
+    environment: environment,
+    pointer: remembered,
+  ).name;
+
+  /// [resolve], but it also says WHICH source answered.
+  ///
+  /// The two pointers are separate parameters rather than one `remembered`
+  /// because the caller has to be able to tell them apart: the legacy one sits
+  /// in a store the migration is about to empty, so it must be carried into
+  /// [ProfileSource.newPointer]'s file first or the choice is lost on the NEXT
+  /// launch — the launch after the one that migrated (audit X-01). An argument
+  /// or an environment variable is an instruction for this run and must never
+  /// become a stored choice.
+  static ResolvedProfile resolveWithSource({
+    List<String> args = const [],
+    Map<String, String>? environment,
+    String? pointer,
+    String? legacyPointer,
   }) {
-    for (final candidate in [
-      _fromArgs(args),
-      (environment ?? Platform.environment)[envVar],
-      remembered,
-    ]) {
+    final candidates = <(String?, ProfileSource)>[
+      (_fromArgs(args), ProfileSource.argument),
+      (
+        (environment ?? Platform.environment)[envVar],
+        ProfileSource.environment,
+      ),
+      (pointer, ProfileSource.newPointer),
+      (legacyPointer, ProfileSource.legacyPointer),
+    ];
+    for (final (candidate, source) in candidates) {
       final name = candidate?.trim().toLowerCase();
-      if (name != null && name.isNotEmpty && isValidName(name)) return name;
+      if (name != null && name.isNotEmpty && isValidName(name)) {
+        return ResolvedProfile(name, source);
+      }
     }
-    return defaultName;
+    return const ResolvedProfile(defaultName, ProfileSource.fallbackDefault);
   }
 
   /// The node's listener port for [profile], given the platform's [base].
