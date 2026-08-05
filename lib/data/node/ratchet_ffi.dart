@@ -4,6 +4,18 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+// The ABI contract is GENERATED from `veil_ffi.h` and lives with the bindings
+// it describes. Reaching into the plugin's `lib/src` for it is deliberate and
+// is the lesser evil by a wide margin: the alternative is restating a hash and
+// a reader in this package, where they would drift from the header the moment
+// it changed — which is the exact class of divergence this check exists to
+// catch, reintroduced by the check itself.
+// ignore: implementation_imports
+import 'package:veil_flutter/src/abi_contract.dart' show veilAbiContractHash;
+// ignore: implementation_imports
+import 'package:veil_flutter/src/native.dart'
+    show VeilAbiContractMismatch, readAbiContractHash;
+
 import '../../core/log.dart';
 import '../../core/secret_wipe.dart';
 import '../native_libs.dart' show processLibFor;
@@ -41,7 +53,9 @@ abstract interface class RatchetStateHandle {
   ///
   /// Whatever did not fit stays marked too, so a caller with a small buffer
   /// loops until `remaining` reads zero.
-  ({List<Uint8List> keys, int remaining, int generation}) peekDirty(int maxKeys);
+  ({List<Uint8List> keys, int remaining, int generation}) peekDirty(
+    int maxKeys,
+  );
 
   /// Clear the marks of [keys] whose state is now DURABLE, as of [generation].
   ///
@@ -211,11 +225,7 @@ typedef _CloseDart = void Function(Pointer<Void>);
 /// and a `Pointer` is not something a test can hand to anything. The bound
 /// check is the other half: a count that cannot be right must not be turned
 /// into a number of keys read out of the buffer.
-List<Uint8List> dirtyKeysFrom(
-  Uint8List buffer,
-  int writtenKeys,
-  int maxKeys,
-) {
+List<Uint8List> dirtyKeysFrom(Uint8List buffer, int writtenKeys, int maxKeys) {
   if (writtenKeys < 0 || writtenKeys > maxKeys) {
     throw StateError(
       'veil_ratchet_peek_dirty wrote $writtenKeys keys for a buffer of '
@@ -245,14 +255,55 @@ const int kVeilErrRatchetNoConversation = -20;
 /// the required length was reported instead.
 const int kVeilErrRatchetBufferTooSmall = -21;
 
+/// Refuse [dl] unless its C ABI is the one these bindings were generated
+/// against — BEFORE any other symbol on it is looked up.
+///
+/// The guard existed, but only inside the veil_flutter plugin's own loader, and
+/// nothing in this file goes through that loader: it resolves its own handle
+/// with [processLibFor]. So the ratchet door — the one part of veil whose state
+/// cannot be rebuilt from anything public — was the one door reached over an
+/// UNVERIFIED ABI.
+///
+/// The failure this guards is not a missing symbol (that fails loudly on its
+/// own). It is a symbol that still exists and no longer means the same thing: a
+/// parameter inserted into the middle of a list, a `size_t` that changed width.
+/// One call through that is memory corruption, so the check has to come before
+/// the first one — which is why [ratchetStateAvailable] can no longer answer
+/// from a lookup alone.
+///
+/// [expectedAbiHash] is a parameter rather than a constant read inline for the
+/// same reason the plugin's loader takes one: so the refusal itself is testable
+/// against a REAL library. There is no mocking a [DynamicLibrary].
+void assertRatchetAbiContract(
+  DynamicLibrary dl, {
+  String expectedAbiHash = veilAbiContractHash,
+}) {
+  final actual = readAbiContractHash(dl);
+  if (actual != expectedAbiHash) {
+    throw VeilAbiContractMismatch(expected: expectedAbiHash, actual: actual);
+  }
+}
+
 /// True when the loaded dylib exposes the ratchet door (built
 /// `--features node-embedded` against a veil new enough to have it).
 ///
 /// Answered by a symbol lookup rather than a version check: a build without
 /// the feature is not a broken build, it is one whose one-to-one messages are
 /// not ratcheted, and it must still run.
-bool ratchetStateAvailable({DynamicLibrary? lib}) {
+///
+/// The ABI contract is checked FIRST, and its failure is NOT folded into the
+/// `false` below. The two are different facts and collapsing them is what the
+/// bug was: `veil_ratchet_state_version` exists in the outdated library too, so
+/// a mismatched native answered "available" here and then failed later, on some
+/// newer symbol, with a message about the wrong thing entirely. "This build has
+/// no ratchet" is a state to run in; "this library is not the one these
+/// bindings describe" is not.
+bool ratchetStateAvailable({
+  DynamicLibrary? lib,
+  String expectedAbiHash = veilAbiContractHash,
+}) {
   final dl = lib ?? processLibFor('veilclient_ffi');
+  assertRatchetAbiContract(dl, expectedAbiHash: expectedAbiHash);
   try {
     dl.lookup<NativeFunction<_VersionNative>>('veil_ratchet_state_version');
     return true;
@@ -280,7 +331,10 @@ class FfiRatchetStateHandle implements RatchetStateHandle {
 
   /// Open a connection to the node's IPC socket and take the ratchet door on
   /// it. Null when this dylib has no ratchet door; throws when the node is not
-  /// answering yet.
+  /// answering yet, and throws [VeilAbiContractMismatch] when the library is
+  /// not the one these bindings were generated against — the contract check
+  /// runs inside [ratchetStateAvailable], ahead of `veil_connect`, so no call
+  /// is ever made through a mismatched ABI.
   ///
   /// [socketPath] is an ANCHOR, exactly as `VeilClient.connect` takes it: when
   /// its directory holds `ipc.port` / `ipc.token` sidecars the native side uses
@@ -352,7 +406,9 @@ class FfiRatchetStateHandle implements RatchetStateHandle {
     try {
       final rc = fn(_handle, out, errOut);
       if (rc != 0) {
-        throw StateError('veil_ratchet_state_version failed: ${_takeErr(errOut)}');
+        throw StateError(
+          'veil_ratchet_state_version failed: ${_takeErr(errOut)}',
+        );
       }
       return out.value;
     } finally {
@@ -600,9 +656,7 @@ class FfiRatchetStateHandle implements RatchetStateHandle {
 /// Split from [importRatchetStates] because the boot cannot do them together:
 /// the read is async and the import has to happen inside the synchronous window
 /// where the node exists and nothing can reach it yet.
-Future<List<RatchetStateEntry>> loadStoredRatchetStates(
-  Storage storage,
-) async {
+Future<List<RatchetStateEntry>> loadStoredRatchetStates(Storage storage) async {
   final out = <RatchetStateEntry>[];
   for (final key in await storage.ratchetConversationKeys()) {
     final blob = await storage.loadRatchetState(key);
@@ -629,7 +683,8 @@ List<Uint8List> importRatchetStates(
   if (handle == null || entries.isEmpty) return const [];
   final rejected = <Uint8List>[];
   for (final entry in entries) {
-    if (entry.blob.isEmpty || !handle.import(entry.conversationKey, entry.blob)) {
+    if (entry.blob.isEmpty ||
+        !handle.import(entry.conversationKey, entry.blob)) {
       rejected.add(entry.conversationKey);
     }
   }
