@@ -18,6 +18,7 @@ import '../domain/p2p_policy.dart';
 import '../domain/roster.dart';
 import 'messaging.dart';
 import 'ratchet_persistence.dart' show ratchetPersistenceFor;
+import 'package:xveil/core/log.dart';
 
 /// One identity's boot plan in an "all identities online" session: which hosted
 /// space it uses, and the ephemeral runtime endpoints (a runtime BASE to create
@@ -39,6 +40,7 @@ class IdentityBootSpec {
 
   final String label;
   final int spaceId;
+
   /// Where this identity's node CREATES its runtime directory. Not a directory
   /// it may own — see [RealVeilStack.startDeniable].
   final String runtimeBase;
@@ -278,14 +280,11 @@ class MultiIdentitySession {
           // it fires ahead of the success continuation and disposes a node we
           // actually wanted.
           unawaited(
-            booting.then(
-              (stranded) async {
-                try {
-                  await stranded.dispose();
-                } catch (_) {}
-              },
-              onError: (_) {},
-            ),
+            booting.then((stranded) async {
+              try {
+                await stranded.dispose();
+              } catch (_) {}
+            }, onError: (_) {}),
           );
           rethrow;
         }
@@ -382,8 +381,13 @@ class MultiIdentitySession {
     _storages.clear();
     try {
       await _backing.close();
-    } catch (_) {
-      /* lock release is best-effort */
+    } catch (e) {
+      // Best-effort by design — one identity's failed teardown must not cost
+      // the rest — but no longer SILENT: the backing now says when the
+      // container's lock is still held (a worker that would not close in time,
+      // or that died mid-close), and that is the fact behind every later
+      // "correct password but won't unlock".
+      devLog(() => 'xVeil[all-online]: container lock release failed: $e');
     }
   }
 }
