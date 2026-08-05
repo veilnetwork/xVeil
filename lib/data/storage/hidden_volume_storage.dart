@@ -699,13 +699,19 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
-  Future<Uint8List?> loadFile(String fileId) async {
+  Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async {
     final meta = await _odMeta(fileId);
     if (meta != null) {
       if (_blobs == null) return null;
       final size = meta['sz'] as int;
       // Whole-file read — large-file callers should STREAM via [readFileRange]
       // instead (this holds the whole blob in RAM). Used for small/medium blobs.
+      //
+      // The ceiling is checked against the STORED size, which is the one number
+      // here that describes the bytes about to be allocated. A caller checking
+      // a size it was handed by a sender cannot do this: the sender chooses
+      // whether to include one (audit report8).
+      if (maxBytes != null && size > maxBytes) return null;
       return _blobs!.readRange(
         meta['fn'] as String,
         base64.decode(meta['k'] as String),
@@ -715,7 +721,7 @@ class HiddenVolumeStorage implements Storage {
         size,
       );
     }
-    return AsyncFileStore(_as).loadFile(fileId);
+    return AsyncFileStore(_as).loadFile(fileId, maxBytes: maxBytes);
   }
 
   @override
