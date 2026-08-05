@@ -4,11 +4,21 @@ import 'dart:typed_data';
 
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import 'hv_kv_log_store.dart';
 import 'hv_native.dart';
 import 'kv_log_store.dart';
 import 'multi_space_store.dart';
 import 'worker_death.dart';
+
+/// A worker that is up and has answered its bootstrap: the isolate, the port
+/// that serves requests on it, and the watcher armed on its death.
+typedef LiveMultiSpaceWorker = ({
+  Isolate isolate,
+  SendPort port,
+  WorkerDeath watch,
+});
 
 /// Off-UI-isolate [AsyncMultiSpaceBacking] backed by a dedicated WORKER ISOLATE
 /// that owns the real synchronous [HvMultiSpaceBacking] (one native
@@ -37,7 +47,50 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
 
   Future<SendPort> _ensure() => _ready ??= _spawn();
 
+  /// How a worker is brought up — spawned, then waited on for its bootstrap
+  /// reply. Overridden in tests ONLY, where the hidden-volume native library is
+  /// not loadable at all (a spawned worker dies on `dlsym` before it can open
+  /// anything), so the decision below — publish, or roll back because a [close]
+  /// landed meanwhile — has no other way to be exercised.
+  @visibleForTesting
+  static Future<LiveMultiSpaceWorker> Function(
+    String path,
+    int paddingPresetTag,
+  )?
+  debugBringUpWorker;
+
+  /// Spawn a worker and take its result — or take the [close] that landed while
+  /// it was coming up. Two awaits sit inside [_bringUp], and both of them are
+  /// window enough (see the rollback below).
   Future<SendPort> _spawn() async {
+    final hook = debugBringUpWorker;
+    final live = await (hook == null
+        ? _bringUp()
+        : hook(_path, paddingPreset.tag));
+    _isolate = live.isolate;
+    _watch = live.watch;
+    _toWorker = live.port;
+    // [close] can have landed during either await in [_bringUp], and until
+    // these assignments there was nothing here for it to find: it saw a null
+    // port, killed an isolate that had not opened anything yet, and returned.
+    // The worker then finished opening the CONTAINER and stayed alive holding
+    // its exclusive flock, with no reference to it left anywhere — and every
+    // later unlock failed `Busy` until the process died. Same shape as the
+    // lock-during-boot window in AppController (audit H-06): a resource
+    // published after the teardown that was supposed to reclaim it.
+    //
+    // Shut it down through the PROTOCOL rather than killing it: by now the
+    // container is open, and an isolate kill cannot unwind an FFI frame, so a
+    // kill is exactly what strands the native handle (the same reason
+    // WorkerKvLogStore.close refuses to kill on timeout).
+    if (_closed) {
+      await _shutdown(live.port);
+      throw StateError('WorkerMultiSpaceBacking is closed');
+    }
+    return live.port;
+  }
+
+  Future<LiveMultiSpaceWorker> _bringUp() async {
     final boot = ReceivePort();
     // Watch the isolate BEFORE it can die (audit XV-07). This is the
     // all-online path: N identities share one worker, so a worker that dies
@@ -64,7 +117,10 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
       boot.close();
       death.dispose();
       isolate.kill(priority: Isolate.immediate);
-      throw hv.HvException('Internal', 'multi-space worker died during open: $e');
+      throw hv.HvException(
+        'Internal',
+        'multi-space worker died during open: $e',
+      );
     }
     boot.close();
     void abandon() {
@@ -77,10 +133,7 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
         abandon();
         throw hv.HvException(kind, message);
       case _MOk(:final value):
-        _isolate = isolate;
-        _watch = death;
-        _toWorker = value as SendPort;
-        return _toWorker!;
+        return (isolate: isolate, port: value as SendPort, watch: death);
       default:
         abandon();
         throw StateError(
@@ -151,10 +204,32 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
     _closed = true;
     final port = _toWorker;
     if (port == null) {
+      // Nothing published yet — but a spawn may be IN FLIGHT and about to
+      // publish a worker with the container open. It sees `_closed` and shuts
+      // itself down; wait for that to finish rather than returning while a live
+      // worker is still on its way up (the flock outlives us otherwise).
+      final spawning = _ready;
+      if (spawning != null) {
+        try {
+          await spawning;
+        } catch (_) {
+          // The rollback throws by design; the teardown it performed is what
+          // this await was for.
+        }
+      }
       _watch?.dispose();
       _isolate?.kill(priority: Isolate.immediate); // never finished spawning
       return;
     }
+    await _shutdown(port);
+  }
+
+  /// Ask the worker to close the container, then stop watching and kill it.
+  ///
+  /// Shared by [close] and by the closed-during-spawn rollback in [_spawn], on
+  /// purpose: they are the same teardown, and a second hand-rolled copy of it is
+  /// how the stranded-flock bug comes back.
+  Future<void> _shutdown(SendPort port) async {
     final reply = ReceivePort();
     try {
       port.send(_MClose(reply.sendPort));
