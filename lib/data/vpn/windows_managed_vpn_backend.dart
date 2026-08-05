@@ -52,6 +52,16 @@ class WindowsManagedVpnBackend implements VpnBackend {
     @visibleForTesting PrivilegedLaunchGuard? launchGuard,
     @visibleForTesting bool? isWindowsHost,
     @visibleForTesting String? executablePath,
+    // Stands in for a FACT about the machine — which DLLs are beside the
+    // executable — never for a decision. The sibling Linux backend has had
+    // `tunDevice` and `requiredTools` for the same reason: without a seam, a
+    // test that wants to reach the NEXT check can only get there by relying on
+    // the host to be missing something, which makes it pass on the developer's
+    // machine and fail on the platform it is named after.
+    @visibleForTesting this.requiredComponents = const [
+      'veil_vpn_helper.dll',
+      'wintun.dll',
+    ],
   }) : _launchGuard = launchGuard ?? PrivilegedLaunchGuard.forHost(),
        _isWindowsHost = isWindowsHost ?? Platform.isWindows,
        _executablePath = executablePath ?? Platform.resolvedExecutable;
@@ -66,6 +76,8 @@ class WindowsManagedVpnBackend implements VpnBackend {
   final PrivilegedLaunchGuard _launchGuard;
   final bool _isWindowsHost;
   final String _executablePath;
+  @visibleForTesting
+  final List<String> requiredComponents;
 
   static const _authorizationTimeout = Duration(minutes: 3);
   static const _startupTimeout = Duration(seconds: 90);
@@ -99,7 +111,7 @@ class WindowsManagedVpnBackend implements VpnBackend {
     if (unsafeInstallation != null) return unsafeInstallation;
     final directory = File(_executablePath).parent;
     final missing = <String>[];
-    for (final name in const ['veil_vpn_helper.dll', 'wintun.dll']) {
+    for (final name in requiredComponents) {
       final separator = Platform.pathSeparator;
       if (!await File('${directory.path}$separator$name').exists()) {
         missing.add(name);
