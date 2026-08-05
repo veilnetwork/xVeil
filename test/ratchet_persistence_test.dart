@@ -834,4 +834,72 @@ void main() {
       expect(node.takeDirty(64).keys, hasLength(2));
     });
   });
+
+  group("take_dirty's answer is a count of keys", () {
+    // The unit the C ABI speaks in, pulled out of the `Pointer` plumbing so it
+    // can be checked without a native node. A `size_t` read as a byte length
+    // instead of a key count is the whole of audit C-01: the marks are cleared
+    // by the same call, so every key it fails to yield is a conversation whose
+    // state is never written and whose next launch resumes on a message key it
+    // already spent.
+    Uint8List buffer(int keys) => Uint8List(keys * kRatchetKeyLen)
+      ..setAll(0, [
+        for (var i = 0; i < keys * kRatchetKeyLen; i++) (i * 7 + 1) & 0xff,
+      ]);
+
+    test('one written key is one 64-byte key, not one byte', () {
+      final buf = buffer(32);
+      final keys = dirtyKeysFrom(buf, 1, 32);
+      expect(keys, hasLength(1));
+      expect(keys.single, Uint8List.sublistView(buf, 0, kRatchetKeyLen));
+    });
+
+    test('two written keys are two keys, at the right stride', () {
+      final buf = buffer(32);
+      final keys = dirtyKeysFrom(buf, 2, 32);
+      expect(keys, hasLength(2));
+      expect(keys[0], Uint8List.sublistView(buf, 0, kRatchetKeyLen));
+      expect(
+        keys[1],
+        Uint8List.sublistView(buf, kRatchetKeyLen, 2 * kRatchetKeyLen),
+      );
+    });
+
+    test('a full batch of 32 is 32 keys', () {
+      final buf = buffer(32);
+      final keys = dirtyKeysFrom(buf, 32, 32);
+      expect(keys, hasLength(32));
+      for (var i = 0; i < 32; i++) {
+        expect(
+          keys[i],
+          Uint8List.sublistView(buf, i * kRatchetKeyLen, (i + 1) * kRatchetKeyLen),
+        );
+      }
+    });
+
+    test('nothing written is no keys', () {
+      expect(dirtyKeysFrom(buffer(32), 0, 32), isEmpty);
+    });
+
+    test('a count above the batch asked for is refused', () {
+      // The buffer here is twice the size the batch needs, so the length check
+      // below is no help: what refuses this is the count being more than veil
+      // was ever given room to write.
+      expect(() => dirtyKeysFrom(buffer(64), 33, 32), throwsStateError);
+    });
+
+    test('a count the buffer cannot hold is refused, not read past', () {
+      // And here the count is within the batch, so only the buffer's own
+      // length stands between a wrong `size_t` and a read past the end of it.
+      // The marks are already gone either way; not reading past is what is
+      // left to get right.
+      expect(() => dirtyKeysFrom(buffer(4), 8, 32), throwsStateError);
+    });
+
+    test('a negative count is refused', () {
+      // `size_t` is unsigned; a negative here means the out-slot was read as a
+      // signed type of the wrong width, which is the same class of mistake.
+      expect(() => dirtyKeysFrom(buffer(32), -1, 32), throwsStateError);
+    });
+  });
 }

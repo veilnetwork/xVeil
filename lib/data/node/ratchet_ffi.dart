@@ -74,13 +74,18 @@ typedef _VersionNative =
     Int32 Function(Pointer<Void>, Pointer<Uint64>, Pointer<Pointer<Utf8>>);
 typedef _VersionDart =
     int Function(Pointer<Void>, Pointer<Uint64>, Pointer<Pointer<Utf8>>);
+// `size_t` is UNSIGNED, and `Size` is the only Dart type that says so. `IntPtr`
+// happens to be the right WIDTH on every ABI here, which is exactly why the
+// mismatch survives: on 64-bit nothing observable differs, and on a 32-bit ABI
+// (Android armeabi-v7a, x86) a length above 2 GiB reads back NEGATIVE and every
+// bound check downstream compares against the wrong sign.
 typedef _TakeDirtyNative =
     Int32 Function(
       Pointer<Void>,
       Pointer<Uint8>,
-      IntPtr,
-      Pointer<IntPtr>,
-      Pointer<IntPtr>,
+      Size,
+      Pointer<Size>,
+      Pointer<Size>,
       Pointer<Pointer<Utf8>>,
     );
 typedef _TakeDirtyDart =
@@ -88,16 +93,16 @@ typedef _TakeDirtyDart =
       Pointer<Void>,
       Pointer<Uint8>,
       int,
-      Pointer<IntPtr>,
-      Pointer<IntPtr>,
+      Pointer<Size>,
+      Pointer<Size>,
       Pointer<Pointer<Utf8>>,
     );
 typedef _ListNative =
     Int32 Function(
       Pointer<Void>,
       Pointer<Uint8>,
-      IntPtr,
-      Pointer<IntPtr>,
+      Size,
+      Pointer<Size>,
       Pointer<Pointer<Utf8>>,
     );
 typedef _ListDart =
@@ -105,7 +110,7 @@ typedef _ListDart =
       Pointer<Void>,
       Pointer<Uint8>,
       int,
-      Pointer<IntPtr>,
+      Pointer<Size>,
       Pointer<Pointer<Utf8>>,
     );
 typedef _ExportNative =
@@ -113,8 +118,8 @@ typedef _ExportNative =
       Pointer<Void>,
       Pointer<Uint8>,
       Pointer<Uint8>,
-      IntPtr,
-      Pointer<IntPtr>,
+      Size,
+      Pointer<Size>,
       Pointer<Pointer<Utf8>>,
     );
 typedef _ExportDart =
@@ -123,7 +128,7 @@ typedef _ExportDart =
       Pointer<Uint8>,
       Pointer<Uint8>,
       int,
-      Pointer<IntPtr>,
+      Pointer<Size>,
       Pointer<Pointer<Utf8>>,
     );
 typedef _ImportNative =
@@ -131,7 +136,7 @@ typedef _ImportNative =
       Pointer<Void>,
       Pointer<Uint8>,
       Pointer<Uint8>,
-      IntPtr,
+      Size,
       Pointer<Pointer<Utf8>>,
     );
 typedef _ImportDart =
@@ -156,6 +161,49 @@ typedef _ConnectDart =
     Pointer<Void> Function(Pointer<Uint8>, int, Pointer<Pointer<Utf8>>);
 typedef _CloseNative = Void Function(Pointer<Void>);
 typedef _CloseDart = void Function(Pointer<Void>);
+
+/// Read `veil_ratchet_take_dirty`'s answer out of the buffer it filled.
+///
+/// [writtenKeys] is a COUNT OF KEYS. The C contract says so — "`*out_written`
+/// receives how many keys were written" — and veil bounds it by
+/// `out_buf_cap / VEIL_RATCHET_KEY_LEN`. Reading it as a BYTE LENGTH is silent
+/// and total: at the standard batch of 32 every non-empty answer is at most 32,
+/// one key is [kRatchetKeyLen] = 64 bytes, so the split yields ZERO keys on a
+/// call that has ALREADY cleared their dirty marks. The flush then sees an
+/// empty list and `remaining == 0`, reports success, and the next launch
+/// re-imports the state from before the send — which on an established
+/// conversation re-derives a sending-chain message key that was already spent.
+///
+/// Its own function, and public, because that arithmetic is the whole defect
+/// and a `Pointer` is not something a test can hand to anything. The bound
+/// check is the other half: a count that cannot be right must not be turned
+/// into a number of keys read out of the buffer.
+List<Uint8List> dirtyKeysFrom(
+  Uint8List buffer,
+  int writtenKeys,
+  int maxKeys,
+) {
+  if (writtenKeys < 0 || writtenKeys > maxKeys) {
+    throw StateError(
+      'veil_ratchet_take_dirty wrote $writtenKeys keys for a buffer of '
+      '$maxKeys',
+    );
+  }
+  final bytes = writtenKeys * kRatchetKeyLen;
+  if (bytes > buffer.length) {
+    throw StateError(
+      'veil_ratchet_take_dirty wrote $bytes bytes into ${buffer.length}',
+    );
+  }
+  // `i + kRatchetKeyLen <= bytes`, not `i < bytes`: [bytes] is an exact
+  // multiple of the key length whenever the count is right, so the two agree —
+  // and when it is NOT right, this one yields no key at all rather than a
+  // 64-byte read off the end of a one-byte answer.
+  return [
+    for (var i = 0; i + kRatchetKeyLen <= bytes; i += kRatchetKeyLen)
+      Uint8List.fromList(buffer.sublist(i, i + kRatchetKeyLen)),
+  ];
+}
 
 /// `VEIL_ERR_RATCHET_NO_CONVERSATION` — the key names nothing this node holds.
 const int kVeilErrRatchetNoConversation = -20;
@@ -290,8 +338,8 @@ class FfiRatchetStateHandle implements RatchetStateHandle {
     );
     final cap = maxKeys * kRatchetKeyLen;
     final buf = calloc<Uint8>(cap);
-    final written = calloc<IntPtr>();
-    final remaining = calloc<IntPtr>();
+    final written = calloc<Size>();
+    final remaining = calloc<Size>();
     final errOut = calloc<Pointer<Utf8>>();
     try {
       final rc = fn(_handle, buf, cap, written, remaining, errOut);
@@ -299,7 +347,7 @@ class FfiRatchetStateHandle implements RatchetStateHandle {
         throw StateError('veil_ratchet_take_dirty failed: ${_takeErr(errOut)}');
       }
       return (
-        keys: _splitKeys(buf, written.value),
+        keys: dirtyKeysFrom(buf.asTypedList(cap), written.value, maxKeys),
         remaining: remaining.value,
       );
     } finally {
@@ -313,7 +361,7 @@ class FfiRatchetStateHandle implements RatchetStateHandle {
   @override
   List<Uint8List> list() {
     final fn = _dl.lookupFunction<_ListNative, _ListDart>('veil_ratchet_list');
-    final total = calloc<IntPtr>();
+    final total = calloc<Size>();
     final errOut = calloc<Pointer<Utf8>>();
     // Two passes when the first buffer is short. `list` consumes nothing, so
     // asking twice is free — unlike `take_dirty`, where a re-read would be a
@@ -327,7 +375,12 @@ class FfiRatchetStateHandle implements RatchetStateHandle {
           if (rc != 0) {
             throw StateError('veil_ratchet_list failed: ${_takeErr(errOut)}');
           }
+          // A COUNT, like `take_dirty`'s — and used as one here, which is why
+          // this call was never broken the way that one was.
           final held = total.value;
+          if (held < 0) {
+            throw StateError('veil_ratchet_list reported $held conversations');
+          }
           if (held * kRatchetKeyLen <= cap) {
             return _splitKeys(buf, held * kRatchetKeyLen);
           }
@@ -350,7 +403,9 @@ class FfiRatchetStateHandle implements RatchetStateHandle {
       'veil_ratchet_export',
     );
     final keyPtr = calloc<Uint8>(kRatchetKeyLen);
-    final outLen = calloc<IntPtr>();
+    // BYTES here, unlike `take_dirty` and `list` — `veil_ratchet_export`
+    // documents `*out_len` as a length, and it is used as one.
+    final outLen = calloc<Size>();
     final errOut = calloc<Pointer<Utf8>>();
     Pointer<Uint8> buf = nullptr;
     var cap = 4096;
@@ -379,7 +434,11 @@ class FfiRatchetStateHandle implements RatchetStateHandle {
         if (rc != 0) {
           throw StateError('veil_ratchet_export failed: ${_takeErr(errOut)}');
         }
-        return Uint8List.fromList(buf.asTypedList(outLen.value));
+        final len = outLen.value;
+        if (len < 0 || len > cap) {
+          throw StateError('veil_ratchet_export wrote $len into $cap bytes');
+        }
+        return Uint8List.fromList(buf.asTypedList(len));
       }
       throw StateError('veil_ratchet_export grew between two sizing passes');
     } finally {
