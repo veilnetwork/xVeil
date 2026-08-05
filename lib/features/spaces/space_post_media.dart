@@ -12,6 +12,7 @@ import '../../core/ids.dart';
 import '../../data/serve_source.dart';
 import '../../domain/content_manifest.dart';
 import '../../domain/media_file_name.dart';
+import '../../domain/media_object.dart' show kInlineImageMaxBytes;
 import '../../domain/space_post.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/group_service_providers.dart';
@@ -321,16 +322,21 @@ class _SpacePostMediaTileState extends ConsumerState<_SpacePostMediaTile> {
   }
 
   Future<void> _loadImage() async {
-    if (_loadingImage ||
-        _imageReadAttempted ||
-        (widget.media.size ?? 0) > 24 * 1024 * 1024) {
-      return;
-    }
+    if (_loadingImage || _imageReadAttempted) return;
+    // The size the SENDER declared is a hint, not a bound: it was `(size ?? 0) >
+    // limit`, so a post that simply omitted one read as zero and sailed through
+    // to a whole-file read of any size at all. The real ceiling is enforced by
+    // the store, against the size it recorded itself; this only saves the round
+    // trip when the declared size already says no.
+    final declared = widget.media.size;
+    if (declared != null && declared > kInlineImageMaxBytes) return;
     _imageReadAttempted = true;
     _loadingImage = true;
     Uint8List? bytes;
     try {
-      bytes = await ref.read(storageProvider).loadFile(_cid);
+      bytes = await ref
+          .read(storageProvider)
+          .loadFile(_cid, maxBytes: kInlineImageMaxBytes);
     } catch (_) {}
     _loadingImage = false;
     if (mounted && bytes != null) setState(() => _image = bytes);
