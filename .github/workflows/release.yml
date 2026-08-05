@@ -1,8 +1,8 @@
 name: release
 
-# A tag builds the artifacts. Everything slow and everything that only
-# re-proves what the local gate already proved is opt-in: `run_checks` on a
-# manual dispatch.
+# A tag runs the checks and THEN builds the artifacts, in that order and only
+# in that order. `run_checks` still exists, but it can only turn the checks off
+# on a manual dispatch, and that path cannot reach `publish`.
 #
 # Building on a runner also keeps the builder's home directory out of the
 # binaries. `libapp.so` carries the absolute path of the Flutter plugin
@@ -27,7 +27,9 @@ on:
   workflow_dispatch:
     inputs:
       run_checks:
-        description: 'Also run analyze + the Dart suite (slow, off by default)'
+        description: >-
+          Run analyze + the Dart suite. Tags always do; a manual dispatch may
+          skip it, and then it cannot publish.
         required: false
         type: boolean
         default: false
@@ -49,11 +51,25 @@ env:
   WHISPER_COMMIT: '7695a5331230c585f5ce92291c4256973985ae5a'
 
 jobs:
-  # Opt-in only. `analyze` and the 1985-test suite are the local pre-tag gate;
-  # running them again on every tag costs runner minutes to learn nothing.
+  # THE GATE. A tag runs it unconditionally, and nothing is built until it is
+  # green.
+  #
+  # It used to be opt-in — `if: workflow_dispatch && inputs.run_checks` — and no
+  # build job depended on it either way, so pushing a tag went straight to
+  # building and drafting a release without `analyze` or the suite having run
+  # ONCE against that commit and those submodule pointers. The stated reasoning
+  # was that the local pre-tag gate had already proved it. A local gate proves
+  # whatever was in somebody's working tree, which is not the tagged tree, and
+  # says nothing whatever about what `submodules: recursive` resolves to here —
+  # and third_party/veil and third_party/hidden-volume are where most of the
+  # behaviour lives.
+  #
+  # A manual dispatch may still skip it (`run_checks: false`), for re-running a
+  # build whose artifacts expired. That path is fenced off from `publish`, which
+  # requires this job to have actually SUCCEEDED rather than merely not failed.
   checks:
     name: analyze + tests
-    if: github.event_name == 'workflow_dispatch' && inputs.run_checks
+    if: github.event_name != 'workflow_dispatch' || inputs.run_checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -69,6 +85,11 @@ jobs:
 
   android:
     name: android APKs
+    # `!cancelled()` rather than the implicit `success()`: it is what lets the
+    # deliberate manual skip through (a skipped `checks` is not a failed one)
+    # while a RED `checks` still stops the build dead.
+    needs: checks
+    if: ${{ !cancelled() && needs.checks.result != 'failure' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -260,6 +281,8 @@ jobs:
 
   linux:
     name: linux bundle
+    needs: checks
+    if: ${{ !cancelled() && needs.checks.result != 'failure' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -356,6 +379,8 @@ jobs:
 
   windows:
     name: windows bundle
+    needs: checks
+    if: ${{ !cancelled() && needs.checks.result != 'failure' }}
     runs-on: windows-latest
     # Unsigned, and it will stay that way until someone buys an Authenticode
     # certificate: SmartScreen warns on first run ("Windows protected your PC"
@@ -503,10 +528,15 @@ jobs:
 
   # A DRAFT: publishing is a decision someone makes after looking at what was
   # built, and none of this has run on a phone.
+  #
+  # `needs.checks.result == 'success'` and not just "did not fail": a manual
+  # dispatch can be launched against a TAG ref with `run_checks: false`, which
+  # would otherwise satisfy the tag test above with the suite skipped entirely.
+  # Nothing gets attached to a release that analyze and the tests have not seen.
   publish:
     name: draft release
-    needs: scan
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: [checks, scan]
+    if: startsWith(github.ref, 'refs/tags/') && needs.checks.result == 'success'
     runs-on: ubuntu-latest
     # The ONE job that needs to write: it attaches the artifacts to the draft.
     permissions:
