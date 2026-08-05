@@ -83,15 +83,31 @@ build_android() {
   command -v cargo-ndk >/dev/null || die "cargo-ndk not installed (cargo install cargo-ndk)"
   [[ -n "${ANDROID_NDK_HOME:-}" ]] || die "ANDROID_NDK_HOME is not set (point it at your NDK)"
 
-  # The plugin gradle modules already run cargo-ndk per ABI on `flutter build
-  # apk` (with node-embedded), so the normal path is simply:
+  # ONE of the two plugins builds itself; the other does not, and this script
+  # used to claim both did.
+  #
+  # veil_flutter's gradle module has cargo-ndk wiring and rebuilds its per-ABI
+  # .so on every `flutter build apk`. hidden_volume's module has no cargo step
+  # at all — it bundles whatever already sits in its `jniLibs/`, a directory
+  # that is gitignored. So nothing rebuilt it, nothing noticed it going stale,
+  # and between 2026-08-02 and 2026-08-05 every APK shipped a hidden-volume
+  # library older than the Dart bindings talking to it. The runtime checksum
+  # guard refused to open the container rather than calling through mismatched
+  # signatures, so what a device showed was onboarding failing outright —
+  # while every gate on every machine stayed green, because no gate builds an
+  # APK and no APK build touches that library.
+  #
+  # Hence: build it here, in the path `builder.py android` actually takes.
+  echo "==> hidden_volume per-ABI .so — gradle will NOT build these"
+  "$HV/scripts/build-android.sh"
+
+  echo
   echo "Toolchain OK (cargo-ndk + NDK present)."
-  echo "Both plugins build their per-ABI .so during the gradle build, so just run:"
+  echo "veil_flutter builds its own .so during the gradle build; run:"
   echo "  flutter build apk            # or: flutter run on a device/emulator"
   echo
-  echo "To pre-build the .so without gradle (CI / offline):"
+  echo "To pre-build veil's .so without gradle (CI / offline):"
   echo "  (cd $VEIL && ./scripts/build-mobile.sh --target aarch64-linux-android)"
-  echo "  (cd $HV   && ./scripts/build-android.sh)"
 }
 
 case "$PLATFORM" in
