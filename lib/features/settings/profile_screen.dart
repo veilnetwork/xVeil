@@ -64,10 +64,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   Future<void> _choose(String name) async {
     final support = await getApplicationSupportDirectory();
-    await writeRememberedProfile(support.path, name);
+    final recorded = await writeRememberedProfile(support.path, name);
     if (!mounted) return;
-    setState(() => _selected = name);
     final l = AppL10n.of(context);
+    if (!recorded) {
+      // The write reports honestly now (audit X-02). Showing the choice as
+      // taken when the next launch will not see it is how someone ends up in a
+      // different identity than the one they picked.
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.profileChoiceNotSaved)));
+      return;
+    }
+    setState(() => _selected = name);
     if (name != activeProfile) {
       ScaffoldMessenger.of(
         context,

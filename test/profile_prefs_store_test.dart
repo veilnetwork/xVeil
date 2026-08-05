@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:shared_preferences_platform_interface/types.dart';
+import 'package:xveil/core/posix_file_facts.dart';
 import 'package:xveil/data/storage/app_profile.dart';
 import 'package:xveil/data/storage/profile_prefs_store.dart';
 import 'package:xveil/state/identity_scoped_prefs.dart';
@@ -272,4 +274,225 @@ void main() {
       expect(installed['flutter.proxy_routing'], 'NEW');
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Audit X-02. A write that says it worked when it did not.
+  // ─────────────────────────────────────────────────────────────────────────
+  group('a write that did not land', () {
+    // A rename onto a DIRECTORY cannot succeed, which is the same shape of
+    // refusal a full disk or a read-only mount produces — and unlike either of
+    // those it can be arranged on demand.
+    void blockWritesTo(String path) =>
+        Directory(path).createSync(recursive: true);
+
+    test('is reported to the caller, not swallowed', () async {
+      final path = profilePrefsPath(support.path, AppProfiles.defaultName);
+      blockWritesTo(path);
+      final store = await ProfilePreferencesStore.load(path);
+
+      expect(
+        await store.setValue('String', 'flutter.proxy_routing', 'EXIT'),
+        isFalse,
+        reason: 'every mutator used to return true no matter what happened',
+      );
+      expect(await store.remove('flutter.proxy_routing'), isFalse);
+      expect(await store.clear(), isFalse);
+    });
+
+    test('leaves the system store ALONE instead of erasing the only copy', () async {
+      // The decoy's destination cannot be written, so its settings exist
+      // nowhere else yet. Emptying the source here is data loss, and the
+      // settings lost are the ones that decide how a container is opened.
+      blockWritesTo('${support.path}/profiles/decoy/xveil.prefs.json');
+      SharedPreferencesStorePlatform.instance =
+          InMemorySharedPreferencesStore.withData({
+            'flutter.proxy_routing': 'REAL-EXIT',
+            'flutter.proxy_routing.decoy': 'DECOY-EXIT',
+          });
+      final systemStore = SharedPreferencesStorePlatform.instance;
+
+      await installProfilePreferences(
+        supportDir: support.path,
+        args: const [],
+        environment: const {},
+      );
+
+      expect(
+        (await systemStore.getAll())['flutter.proxy_routing.decoy'],
+        'DECOY-EXIT',
+        reason: 'the only remaining copy must survive a failed migration',
+      );
+    });
+
+    test('a system store that refuses to clear keeps the copies it made', () async {
+      SharedPreferencesStorePlatform.instance = _RefusesToClear({
+        'flutter.proxy_routing': 'REAL-EXIT',
+      });
+
+      await installProfilePreferences(
+        supportDir: support.path,
+        args: const [],
+        environment: const {},
+      );
+
+      // The old code awaited `clear()` and logged success whatever it returned.
+      // Nothing can force a store to comply, but the migration must not lose
+      // the values over it either.
+      expect(
+        _fileEntries('${support.path}/xveil.prefs.json')['flutter.proxy_routing'],
+        'REAL-EXIT',
+      );
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Audit X-04. The suffix that matched first instead of longest.
+  // ─────────────────────────────────────────────────────────────────────────
+  group('routing a suffixed key to its profile', () {
+    test('takes the LONGEST profile name, not the first one that fits', () {
+      const known = {'default', 'a', 'x.a'};
+      expect(
+        routeLegacyKey('proxy_routing.x.a', known),
+        (owner: 'x.a', key: 'proxy_routing'),
+      );
+      expect(
+        routeLegacyKey('proxy_routing.a', known),
+        (owner: 'a', key: 'proxy_routing'),
+      );
+      // Still not a profile just because it ends in a dot-something.
+      expect(
+        routeLegacyKey('storage.lean_padding.v1', known),
+        (owner: 'default', key: 'storage.lean_padding.v1'),
+      );
+    });
+
+    test('does not hand `x.a` settings to profile `a`', () async {
+      Directory('${support.path}/profiles/a').createSync(recursive: true);
+      Directory('${support.path}/profiles/x.a').createSync(recursive: true);
+      SharedPreferencesStorePlatform.instance =
+          InMemorySharedPreferencesStore.withData({
+            'flutter.proxy_routing.x.a': 'X-A-EXIT',
+            'flutter.proxy_routing.a': 'A-EXIT',
+          });
+
+      await installProfilePreferences(
+        supportDir: support.path,
+        args: const [],
+        environment: const {},
+      );
+
+      final xa = _fileEntries('${support.path}/profiles/x.a/xveil.prefs.json');
+      final a = _fileEntries('${support.path}/profiles/a/xveil.prefs.json');
+      expect(xa['flutter.proxy_routing'], 'X-A-EXIT');
+      expect(a['flutter.proxy_routing'], 'A-EXIT');
+      expect(
+        a.keys,
+        isNot(contains('flutter.proxy_routing.x')),
+        reason: 'matching `.a` first invents that key and files it under `a`',
+      );
+      expect(
+        a.values,
+        isNot(contains('X-A-EXIT')),
+        reason: 'one profile routing policy must not arrive in another',
+      );
+    });
+
+    test('reads a directory name the way the host writes paths', () {
+      // What `Directory.listSync` hands back on Windows. Splitting on `/`
+      // returned the whole string, so no profile was ever recognised there and
+      // every suffixed value migrated into the default profile.
+      expect(
+        lastPathSegment(
+          r'C:\Users\me\AppData\Roaming\xveil\profiles\decoy',
+          windows: true,
+        ),
+        'decoy',
+      );
+      // Windows accepts both separators.
+      expect(lastPathSegment(r'C:\xveil/profiles/decoy', windows: true), 'decoy');
+      expect(
+        lastPathSegment('/home/me/.local/share/xveil/profiles/decoy'),
+        'decoy',
+      );
+      // ...and on POSIX a backslash is an ordinary character in a name, so
+      // splitting on it there would invent a segment.
+      expect(lastPathSegment(r'/tmp/xveil/a\b', windows: false), r'a\b');
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Audit X-05. Who else on this machine can read the posture.
+  // ─────────────────────────────────────────────────────────────────────────
+  group('the files on disk', () {
+    final skipReason = Platform.isWindows || !posixFactsAvailable
+        ? 'POSIX modes are not the access boundary on this host'
+        : null;
+
+    test('are owner-only, and so is the directory holding them', () async {
+      final path = profilePrefsPath(support.path, 'decoy');
+      final store = await ProfilePreferencesStore.load(path);
+      expect(
+        await store.setValue('String', 'flutter.vpn_routing_policy', 'POSTURE'),
+        isTrue,
+      );
+
+      expect(posixLstat(path)?.permissions, 0x180, reason: '0600');
+      expect(
+        posixLstat('${support.path}/profiles/decoy')?.permissions,
+        0x1C0,
+        reason: '0700',
+      );
+      expect(
+        posixLstat(path)?.groupOrOtherWritable,
+        isFalse,
+        reason: 'another local user must not be able to rewrite the posture',
+      );
+    }, skip: skipReason);
+
+    test('include the active-profile pointer, which names the identity', () async {
+      expect(await writeRememberedProfile(support.path, 'decoy'), isTrue);
+      expect(
+        posixLstat(activeProfilePath(support.path))?.permissions,
+        0x180,
+        reason: 'which profile is in use is the fact most worth hiding',
+      );
+    }, skip: skipReason);
+
+    test('are renamed into place, leaving no temporary behind', () async {
+      expect(await writeRememberedProfile(support.path, 'decoy'), isTrue);
+      expect(
+        File('${activeProfilePath(support.path)}.tmp').existsSync(),
+        isFalse,
+      );
+      expect(await readRememberedProfile(support.path), 'decoy');
+    });
+
+    test('are never written THROUGH a symlink planted at the temporary', () async {
+      final victim = File('${support.path}/somebody-elses-file')
+        ..writeAsStringSync('untouched');
+      Link(
+        '${activeProfilePath(support.path)}.tmp',
+      ).createSync(victim.path);
+
+      expect(await writeRememberedProfile(support.path, 'decoy'), isTrue);
+      expect(
+        victim.readAsStringSync(),
+        'untouched',
+        reason: 'the write must land in our own file, not down the link',
+      );
+      expect(await readRememberedProfile(support.path), 'decoy');
+    }, skip: skipReason);
+  });
+}
+
+/// A system store that accepts everything and clears nothing — the case the old
+/// migration reported as a success because it never looked at the answer.
+class _RefusesToClear extends InMemorySharedPreferencesStore {
+  _RefusesToClear(super.data) : super.withData();
+
+  @override
+  Future<bool> clear() async => false;
+
+  @override
+  Future<bool> clearWithParameters(ClearParameters parameters) async => false;
 }

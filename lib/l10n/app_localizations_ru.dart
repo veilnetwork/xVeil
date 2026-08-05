@@ -5797,6 +5797,10 @@ class AppL10nRu extends AppL10n {
   String get profileRunningNow => 'Сейчас запущен';
 
   @override
+  String get profileChoiceNotSaved =>
+      'Не удалось сохранить выбор — следующий запуск будет на текущем профиле';
+
+  @override
   String get profileRestartRequired =>
       'Перезапустите xVeil, чтобы сменить профиль';
 

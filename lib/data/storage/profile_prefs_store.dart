@@ -6,6 +6,7 @@ import 'package:shared_preferences_platform_interface/shared_preferences_platfor
 import 'package:shared_preferences_platform_interface/types.dart';
 
 import '../../core/log.dart';
+import '../../core/posix_file_facts.dart';
 import 'app_profile.dart';
 
 /// App preferences, held in a FILE under the app-support directory instead of
@@ -111,7 +112,13 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
     };
   }
 
-  Future<void> _flush() {
+  /// Persist the current entries. **False means nothing reached the disk.**
+  ///
+  /// This used to catch every exception, log it and hand its caller a `true`
+  /// anyway — so a full disk, a read-only mount or a permission error read as a
+  /// successful save, and the migration below emptied the only other copy on
+  /// the strength of it (audit X-02).
+  Future<bool> _flush() {
     final snapshot = <String, Object>{
       'v': _version,
       'e': {
@@ -119,34 +126,23 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
           entry.key: {'t': entry.value.type, 'v': entry.value.value},
       },
     };
-    final next = _writes.then((_) async {
-      try {
-        await _file.parent.create(recursive: true);
-        // Write-then-rename: a crash mid-write must not leave a truncated file
-        // that the next launch reads as "no preferences at all".
-        final temp = File('${_file.path}.tmp');
-        await temp.writeAsString(jsonEncode(snapshot), flush: true);
-        await temp.rename(_file.path);
-      } catch (e) {
-        devLog(() => 'xVeil[prefs]: could not write ${_file.path}: $e');
-      }
-    });
+    final next = _writes.then(
+      (_) => writePrivateFileAtomically(_file, jsonEncode(snapshot)),
+    );
     _writes = next;
     return next;
   }
 
   @override
-  Future<bool> setValue(String valueType, String key, Object value) async {
+  Future<bool> setValue(String valueType, String key, Object value) {
     _entries[key] = (type: valueType, value: value);
-    await _flush();
-    return true;
+    return _flush();
   }
 
   @override
-  Future<bool> remove(String key) async {
+  Future<bool> remove(String key) {
     _entries.remove(key);
-    await _flush();
-    return true;
+    return _flush();
   }
 
   @override
@@ -155,15 +151,14 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
   );
 
   @override
-  Future<bool> clearWithParameters(ClearParameters parameters) async {
+  Future<bool> clearWithParameters(ClearParameters parameters) {
     final filter = parameters.filter;
     _entries.removeWhere(
       (key, _) =>
           key.startsWith(filter.prefix) &&
           (filter.allowList == null || filter.allowList!.contains(key)),
     );
-    await _flush();
-    return true;
+    return _flush();
   }
 
   @override
@@ -185,6 +180,162 @@ class ProfilePreferencesStore extends SharedPreferencesStorePlatform {
   }
 
   static const String _defaultPrefix = 'flutter.';
+}
+
+/// Owner-only permissions for what this file writes: `0600` on the preference
+/// and pointer files, `0700` on the directory holding them.
+///
+/// These files are the app's SECURITY POSTURE in the clear — which profile is
+/// active, the VPN routing policy with its app ids and subnets, whether the
+/// switcher has been found. They must be readable before anything is unlocked,
+/// so they cannot go inside the container; the least that can be asked of them
+/// is that no other local account can read them (audit X-05).
+const int _ownerOnlyFile = 0x180; // 0600
+const int _ownerOnlyDir = 0x1C0; // 0700
+
+/// Whether a failure to make these files owner-only must fail the write.
+///
+/// The same split, for the same reason, as `runtimeDirMustBePrivate` in the
+/// veil stack. On macOS and Linux the app-support path can sit on a filesystem
+/// other local accounts share, so a posture file at a permissive umask is a
+/// real exposure and writing it is worse than not writing it. On Android and
+/// iOS the app sandbox is already the boundary, and on Windows access is
+/// governed by the profile ACL, which a POSIX mode cannot describe and this
+/// code does not attempt to set — refusing there would trade a guarantee those
+/// platforms already give for a broken settings screen.
+bool prefsFilesMustBePrivate() => Platform.isMacOS || Platform.isLinux;
+
+/// Create [dir] and make it owner-only.
+///
+/// Best effort on purpose: the file mode below is the check that decides, and
+/// for the default profile this directory is the app-support directory itself,
+/// which the platform already places inside the app's own tree.
+Future<void> _ensurePrivateDir(Directory dir) async {
+  await dir.create(recursive: true);
+  if (Platform.isWindows) return;
+  final rc = posixChmod(dir.path, _ownerOnlyDir);
+  if (rc != null && rc != 0) {
+    devLog(() => 'xVeil[prefs]: could not restrict ${dir.path} to 0700');
+  }
+}
+
+/// Make [path] readable by its owner ONLY, and PROVE it.
+///
+/// Three separate things, none of which the other two cover:
+///
+///   * `chmod` exiting zero means the filesystem accepted the request. Mounted
+///     shares and some vendor mounts accept it and keep the old mode, so the
+///     mode is read back rather than assumed.
+///   * the read-back is an `lstat`, so a symlink swapped in at the name between
+///     the create and here is seen as a symlink instead of being followed.
+///   * the owner is checked against this process, which is what catches a file
+///     that is now somebody else's.
+///
+/// Goes through libc, not `Process.run('chmod', …)`: a bare command name is
+/// resolved through PATH, which is the substitutable oracle audit C-01 was
+/// about.
+bool _restrictToOwner(String path) {
+  if (Platform.isWindows) return true;
+  final rc = posixChmod(path, _ownerOnlyFile);
+  if (!prefsFilesMustBePrivate()) return true;
+  if (rc == null || rc != 0) {
+    devLog(() => 'xVeil[prefs]: chmod 0600 refused $path');
+    return false;
+  }
+  final facts = posixLstat(path);
+  if (facts == null) {
+    devLog(() => 'xVeil[prefs]: could not read the mode back for $path');
+    return false;
+  }
+  if (!facts.isRegularFile) {
+    devLog(() => 'xVeil[prefs]: $path is not a regular file, refusing to write');
+    return false;
+  }
+  if (facts.permissions != _ownerOnlyFile) {
+    devLog(
+      () =>
+          'xVeil[prefs]: $path is ${facts.permissions.toRadixString(8)} after '
+          'chmod, not 600',
+    );
+    return false;
+  }
+  final euid = posixEuid();
+  if (euid != null && facts.uid != euid) {
+    devLog(() => 'xVeil[prefs]: $path is not owned by this process');
+    return false;
+  }
+  return true;
+}
+
+/// Write [contents] to [file] durably, privately and atomically — or return
+/// **false**, which is the entire point of the function.
+///
+/// The version this replaces caught every exception, logged it, and let its
+/// callers report success (audit X-02); the migration then emptied the only
+/// other copy of the data on the strength of that report. What it now
+/// establishes before it says yes:
+///
+///   * **atomic** — the bytes land under a temporary name and are renamed over
+///     the target, so a crash mid-write cannot leave a truncated file that the
+///     next launch reads as "no preferences at all";
+///   * **durable** — the file is fsynced before the rename and the DIRECTORY
+///     after it. Syncing only the file makes the CONTENT survive a power cut
+///     while the rename that gave it its name does not (audit X-02);
+///   * **private** — the mode is applied to the temporary while it is still
+///     empty, so the values never exist on disk at the process umask, not even
+///     between two syscalls (audit X-05);
+///   * **actually there** — the file is read back and compared. A filesystem
+///     that accepted every call is not the same thing as a filesystem that
+///     kept the result.
+Future<bool> writePrivateFileAtomically(File file, String contents) async {
+  final temp = File('${file.path}.tmp');
+  try {
+    await _ensurePrivateDir(file.parent);
+    // Never write THROUGH a link someone else planted at the temporary name:
+    // that is how a 0600 file ends up being somebody else's file, with our
+    // posture in it. A directory in the way is not something to clear out.
+    final planted = FileSystemEntity.typeSync(temp.path, followLinks: false);
+    if (planted == FileSystemEntityType.link) {
+      await Link(temp.path).delete();
+    } else if (planted == FileSystemEntityType.directory) {
+      devLog(() => 'xVeil[prefs]: ${temp.path} is a directory, refusing');
+      return false;
+    }
+
+    // Create empty, restrict, THEN fill. Reversing these two would put the
+    // values on disk at the umask for as long as the chmod takes to run, and
+    // [_restrictToOwner]'s lstat is also what catches a link that won the race
+    // between the type check above and this open.
+    final handle = await temp.open(mode: FileMode.writeOnly);
+    try {
+      if (!_restrictToOwner(temp.path)) return false;
+      await handle.writeString(contents);
+      await handle.flush(); // fsync(2) on the file
+    } finally {
+      await handle.close();
+    }
+
+    await temp.rename(file.path);
+    // The rename itself, made durable. Null just means no libc binding here.
+    posixFsyncDir(file.parent.path);
+    if (!_restrictToOwner(file.path)) return false;
+
+    // Read it back. This is the difference between "no call reported an error"
+    // and "the bytes are there".
+    if (await file.readAsString() != contents) {
+      devLog(() => 'xVeil[prefs]: ${file.path} did not read back as written');
+      return false;
+    }
+    return true;
+  } catch (e) {
+    devLog(() => 'xVeil[prefs]: could not write ${file.path}: $e');
+    try {
+      if (temp.existsSync()) await temp.delete();
+    } catch (_) {
+      /* the temporary is litter, not a reason to fail differently */
+    }
+    return false;
+  }
 }
 
 /// Where a profile keeps its preferences.
@@ -211,12 +362,17 @@ Future<String?> readRememberedProfile(String supportDir) async {
   }
 }
 
-/// Remember [profile] as the one to launch next time.
-Future<void> writeRememberedProfile(String supportDir, String profile) async {
-  final file = File(activeProfilePath(supportDir));
-  await file.parent.create(recursive: true);
-  await file.writeAsString(profile, flush: true);
-}
+/// Remember [profile] as the one to launch next time. **False means it was not
+/// recorded** and the next launch will not know about it.
+///
+/// Written the same way as everything else here: to a temporary name, fsynced,
+/// renamed, the directory fsynced, mode 0600 applied before any content exists
+/// and verified afterwards. Writing straight into the file meant a crash part
+/// way through left a zero-length pointer — which reads as "no profile
+/// remembered" and silently sends the next launch to the default one (audit
+/// X-05).
+Future<bool> writeRememberedProfile(String supportDir, String profile) =>
+    writePrivateFileAtomically(File(activeProfilePath(supportDir)), profile);
 
 /// Install the per-profile file store as the app's preference backend, moving
 /// anything the system store still holds into it first.
@@ -235,15 +391,24 @@ Future<void> writeRememberedProfile(String supportDir, String profile) async {
 /// process: the plugin caches its map on first use, and the only way to drop
 /// that cache is an API marked test-only. Called from `main` immediately after
 /// the binding is up, which is the earliest anything can read a preference.
+///
+/// [environment] defaults to the process environment. It is a parameter for the
+/// same reason [AppProfiles.resolve] takes one: `XVEIL_PROFILE` must be shown
+/// to stay one-shot, and a test cannot set a variable on its own process.
 Future<String> installProfilePreferences({
   required String supportDir,
   required List<String> args,
+  Map<String, String>? environment,
 }) async {
   final legacy = SharedPreferencesStorePlatform.instance;
   final remembered =
       await readRememberedProfile(supportDir) ??
       await _legacyString(legacy, AppProfiles.activePref);
-  final profile = AppProfiles.resolve(args: args, remembered: remembered);
+  final profile = AppProfiles.resolve(
+    args: args,
+    environment: environment,
+    remembered: remembered,
+  );
 
   final store = await ProfilePreferencesStore.load(
     profilePrefsPath(supportDir, profile),
@@ -265,6 +430,50 @@ Future<String?> _legacyString(
   } catch (_) {
     return null;
   }
+}
+
+/// The last segment of [path], the way the HOST names paths.
+///
+/// `split('/').last` was wrong on Windows, where `Directory.listSync` hands
+/// back `C:\…\profiles\decoy` and the whole string came back as the "name" — so
+/// no directory there was ever recognised as a profile and every suffixed key
+/// migrated into the default profile, which is precisely the profile those
+/// values must stay away from (audit X-04).
+///
+/// Only Windows treats `\` as a separator. On POSIX a backslash is an ordinary
+/// character in a file name, and splitting on it there would invent segments
+/// that do not exist. [windows] is a parameter rather than a read of
+/// `Platform`, because a Windows path is not something a test on this machine
+/// can otherwise produce.
+String lastPathSegment(String path, {bool? windows}) {
+  var cut = path.lastIndexOf('/');
+  if (windows ?? Platform.isWindows) {
+    final back = path.lastIndexOf('\\');
+    if (back > cut) cut = back;
+  }
+  return cut < 0 ? path : path.substring(cut + 1);
+}
+
+/// Which profile a legacy key belongs to, and the key with the suffix removed.
+///
+/// LONGEST suffix wins, which is why [known] is sorted here rather than
+/// iterated in whatever order it arrived. With profiles `a` and `x.a` both on
+/// the device, the first match against `proxy_routing.x.a` could be `.a` — and
+/// the value, a routing policy, went to profile `a` under the invented key
+/// `proxy_routing.x` (audit X-04). Only the longest match names a real profile;
+/// every shorter one is a suffix of that name.
+({String owner, String key}) routeLegacyKey(String bare, Set<String> known) {
+  final byLength = known.where((name) => name != AppProfiles.defaultName).toList()
+    ..sort((a, b) => b.length.compareTo(a.length));
+  for (final name in byLength) {
+    if (bare.endsWith('.$name')) {
+      return (
+        owner: name,
+        key: bare.substring(0, bare.length - name.length - 1),
+      );
+    }
+  }
+  return (owner: AppProfiles.defaultName, key: bare);
 }
 
 Future<void> _migrateLegacy(
@@ -294,7 +503,7 @@ Future<void> _migrateLegacy(
     final dir = Directory('$supportDir/profiles');
     if (dir.existsSync()) {
       for (final entry in dir.listSync()) {
-        final name = entry.path.split('/').last;
+        final name = lastPathSegment(entry.path);
         if (AppProfiles.isValidName(name)) known.add(name);
       }
     }
@@ -310,26 +519,22 @@ Future<void> _migrateLegacy(
     // The active-profile pointer moved to its own file; the rest is settings.
     if (bare == AppProfiles.activePref) continue;
 
-    var owner = AppProfiles.defaultName;
-    var unsuffixed = bare;
-    for (final name in known) {
-      if (name != AppProfiles.defaultName && bare.endsWith('.$name')) {
-        owner = name;
-        unsuffixed = bare.substring(0, bare.length - name.length - 1);
-        break;
-      }
-    }
+    final routed = routeLegacyKey(bare, known);
     final typed = (type: _typeOf(entry.value), value: entry.value);
-    if (owner == profile) {
+    if (routed.owner == profile) {
       // Never overwrite: a value already in the file is newer than one the
       // system store kept from before the move.
-      into._entries.putIfAbsent('flutter.$unsuffixed', () => typed);
+      into._entries.putIfAbsent('flutter.${routed.key}', () => typed);
     } else {
-      (elsewhere[owner] ??= {})['flutter.$unsuffixed'] = typed;
+      (elsewhere[routed.owner] ??= {})['flutter.${routed.key}'] = typed;
     }
   }
 
-  await into._flush();
+  // EVERY destination has to be on disk before the source is emptied. A single
+  // failed write used to be logged and ignored, and the clear below then
+  // destroyed the only remaining copy of settings that decide how the container
+  // is opened (audit X-02).
+  var written = await into._flush();
   for (final other in elsewhere.entries) {
     final store = await ProfilePreferencesStore.load(
       profilePrefsPath(supportDir, other.key),
@@ -337,18 +542,38 @@ Future<void> _migrateLegacy(
     for (final kv in other.value.entries) {
       store._entries.putIfAbsent(kv.key, () => kv.value);
     }
-    await store._flush();
+    if (!await store._flush()) written = false;
+  }
+
+  if (!written) {
+    devLog(
+      () =>
+          'xVeil[prefs]: NOT emptying the system store — a per-profile file '
+          'could not be written. A second copy in the backup is bad; losing '
+          'the only copy is worse, and the next launch can try again.',
+    );
+    return;
   }
 
   // Now empty the system store. This is the half that actually closes the
   // leak: everything above only made a second copy.
   try {
-    await legacy.clear();
-    devLog(
-      () =>
-          'xVeil[prefs]: moved ${all.length} preference(s) out of the system '
-          'store into per-profile files',
-    );
+    if (await legacy.clear()) {
+      devLog(
+        () =>
+            'xVeil[prefs]: moved ${all.length} preference(s) out of the system '
+            'store into per-profile files',
+      );
+    } else {
+      // The old code awaited this and logged success regardless, so a store
+      // that declined to clear left the whole posture in the backup under a
+      // log line saying it had been removed.
+      devLog(
+        () =>
+            'xVeil[prefs]: the system store REFUSED to clear — the preferences '
+            'are still in it, and still in the backup',
+      );
+    }
   } catch (e) {
     devLog(() => 'xVeil[prefs]: could not empty the system store: $e');
   }
