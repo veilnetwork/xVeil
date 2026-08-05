@@ -33,6 +33,7 @@ import '../state/mailbox_service.dart';
 import '../state/messaging_core.dart';
 import '../state/ratchet_persistence.dart' show ratchetPersistenceFor;
 import 'headless_config.dart';
+import 'secret_file.dart';
 
 const _tokensKey = 'api.tokens';
 const _webhookKey = 'api.webhook';
@@ -101,8 +102,13 @@ class HeadlessRuntime {
       String? psk;
       final pskPath = config.obfs4PskFile;
       if (pskPath != null) {
-        psk = (await File(pskPath).readAsString()).trim();
-        if (psk.isEmpty) throw StateError('obfs4 PSK file is empty');
+        // Type-checked and bounded, not a bare `readAsString`. Note WHERE this
+        // sits: the container is already unlocked and the password is already
+        // in memory, so a named pipe here does not fail the start, it hangs it
+        // — silently, forever, with the store open. Not routed through
+        // [readSecretFile] on purpose: that demands owner-only permissions,
+        // which is the wrong ask for a key that ships inside every APK.
+        psk = await readSharedSecretFile(pskPath, 'obfs4 PSK');
       }
 
       stack = await RealVeilStack.startDeniable(

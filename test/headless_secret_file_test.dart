@@ -192,4 +192,109 @@ void main() {
       );
     });
   });
+
+  /// The SHARED-secret path: the obfs4 PSK, which every APK already carries.
+  ///
+  /// It cannot demand owner-only permissions the way [readSecretFile] does —
+  /// the value is public by construction — but the two things that have nothing
+  /// to do with secrecy still apply, and did not: `headless_runtime` read this
+  /// with a bare `readAsString`, no type check and no ceiling, AFTER unlocking
+  /// the container.
+  group('a shared deployment secret', () {
+    test('an ordinary file is read and trimmed', () async {
+      final path = await writeSecret('psk', 'AAAABBBBCCCC=\n', '644');
+      expect(await readSharedSecretFile(path, 'obfs4 PSK'), 'AAAABBBBCCCC=');
+    });
+
+    test('group- and world-readable is FINE here — the key ships in every APK',
+        () async {
+      final path = await writeSecret('psk666', 'shared-key', '666');
+      expect(await readSharedSecretFile(path, 'obfs4 PSK'), 'shared-key');
+    });
+
+    test('a named pipe is refused rather than waited on', () async {
+      final fifo = '${dir.path}/psk.fifo';
+      final mk = await Process.run('mkfifo', [fifo]);
+      expect(mk.exitCode, 0, reason: 'mkfifo failed: ${mk.stderr}');
+      // Nothing ever opens the write end. The old bare `readAsString` would
+      // still be sitting here when the test timed out; this has to come back.
+      await expectLater(
+        readSharedSecretFile(fifo, 'obfs4 PSK').timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => throw StateError('BLOCKED on the fifo'),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('not a regular file'), isNot(contains('BLOCKED'))),
+          ),
+        ),
+      );
+    });
+
+    test('a directory is refused', () async {
+      final sub = Directory('${dir.path}/psk.d');
+      await sub.create();
+      await expectLater(
+        readSharedSecretFile(sub.path, 'obfs4 PSK'),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('not a regular file'),
+          ),
+        ),
+      );
+    });
+
+    test('a file past the ceiling is refused, not loaded', () async {
+      final path = await writeSecret('big', 'x' * (64 + 1), '600');
+      await expectLater(
+        readSharedSecretFile(path, 'obfs4 PSK', maxBytes: 64),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('larger than 64 bytes'),
+          ),
+        ),
+      );
+    });
+
+    test('exactly at the ceiling is not over it', () async {
+      final path = await writeSecret('exact', 'x' * 64, '600');
+      expect(
+        await readSharedSecretFile(path, 'obfs4 PSK', maxBytes: 64),
+        'x' * 64,
+      );
+    });
+
+    test('the default ceiling is small enough to matter', () async {
+      expect(kSharedSecretFileMaxBytes, lessThanOrEqualTo(64 * 1024));
+      final path = await writeSecret(
+        'huge',
+        'y' * (kSharedSecretFileMaxBytes + 1),
+        '600',
+      );
+      await expectLater(
+        readSharedSecretFile(path, 'obfs4 PSK'),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('an empty file is still empty', () async {
+      final path = await writeSecret('blank', '   \n', '600');
+      await expectLater(
+        readSharedSecretFile(path, 'obfs4 PSK'),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('is empty'),
+          ),
+        ),
+      );
+    });
+  });
 }
