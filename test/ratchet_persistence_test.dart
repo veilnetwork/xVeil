@@ -138,8 +138,39 @@ class _FakeRatchetNode implements RatchetStateHandle {
 
   @override
   bool forget(Uint8List conversationKey) {
-    _dirty.remove(_hex(conversationKey));
-    return _held.remove(_hex(conversationKey)) != null;
+    final held = _held.remove(_hex(conversationKey)) != null;
+    // MARKS rather than unmarks, because that is what veil does: dropping a
+    // conversation is a change like any other, and the mark is the only way
+    // the host is told its stored blob has to go. Unmarking here made the
+    // fake tidier and hid the one case that matters — a key named dirty that
+    // veil no longer holds.
+    if (held) {
+      _version++;
+      _dirty[_hex(conversationKey)] = _version;
+    }
+    return held;
+  }
+
+  /// Conversations [expire] will age out on its next call.
+  ///
+  /// veil decides this from its own clock and from whether this device has
+  /// ever spoken on the conversation; re-deriving that here would be a second
+  /// implementation of a policy veil already tests. What the host has to get
+  /// right is the OBSERVABLE half — entries vanish and are marked — so that is
+  /// what this models.
+  final Set<String> expiring = <String>{};
+
+  @override
+  int expire() {
+    var dropped = 0;
+    for (final hex in expiring.toList()) {
+      if (_held.remove(hex) == null) continue;
+      _version++;
+      _dirty[hex] = _version;
+      dropped++;
+    }
+    expiring.clear();
+    return dropped;
   }
 
   /// The marks currently standing, for tests that assert on them directly.
@@ -417,6 +448,59 @@ void main() {
         isEmpty,
         reason: 'unusable key material is not kept',
       );
+    });
+    test(
+      'a conversation veil aged out has its stored bytes deleted, not left to '
+      'be imported back',
+      () async {
+        final kept = _convKey(local: 3, peerNode: 20);
+        final aged = _convKey(local: 3, peerNode: 21);
+        final node = _FakeRatchetNode();
+        final run = RatchetPersistence(native: node, storage: storage);
+        node.import(kept, _FakeConversation().encode());
+        node.import(aged, _FakeConversation().encode());
+        node.seal(kept);
+        node.seal(aged);
+        await run.flush();
+        expect(await storage.ratchetConversationKeys(), hasLength(2));
+
+        // veil sweeps: the conversation leaves the store and is MARKED, which
+        // is the only notice the host gets that its blob has to go.
+        node.expiring.add(_FakeRatchetNode._hex(aged));
+        expect(node.expire(), 1);
+        // ...and a live conversation moves in the same breath, so the flush
+        // below carries BOTH in one batch. A rule that only deleted when a
+        // batch produced no exports at all would look right against a batch of
+        // one and be wrong here, which is the shape these misses take.
+        node.seal(kept);
+        await run.flush();
+
+        final left = await storage.ratchetConversationKeys();
+        expect(left, hasLength(1), reason: 'the aged-out blob was deleted');
+        expect(left.single, kept);
+        // The point of deleting it: a restore must not resurrect what the
+        // sweep just decided to be rid of.
+        final next = _FakeRatchetNode();
+        expect(await RatchetPersistence(native: next, storage: storage).restore(), 1);
+        expect(next.list(), hasLength(1));
+      },
+    );
+
+    test('a conversation forgotten while marked leaves no blob behind', () async {
+      // Same shape by a different route: forget() drops the entry and marks it
+      // too, so the flush that discharges the mark is what must delete the
+      // bytes. This used to be skipped silently.
+      final key = _convKey(local: 3, peerNode: 22);
+      final node = _FakeRatchetNode();
+      final run = RatchetPersistence(native: node, storage: storage);
+      node.import(key, _FakeConversation().encode());
+      node.seal(key);
+      await run.flush();
+      expect(await storage.ratchetConversationKeys(), hasLength(1));
+
+      expect(node.forget(key), isTrue);
+      await run.flush();
+      expect(await storage.ratchetConversationKeys(), isEmpty);
     });
   });
 
