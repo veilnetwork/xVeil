@@ -205,6 +205,9 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
   @override
   Future<void> scrub(int id) => _call<void>((reply) => _MScrub(id, reply));
   @override
+  Future<SlotUtilization?> slotUtilization(int id) =>
+      _call<SlotUtilization?>((reply) => _MSlotUtilization(id, reply));
+  @override
   Future<void> vacuumOrphans(int id) =>
       _call<void>((reply) => _MVacuumOrphans(id, reply));
 
@@ -440,6 +443,11 @@ class _MScrub extends _MReq {
   final int id;
 }
 
+class _MSlotUtilization extends _MReq {
+  const _MSlotUtilization(this.id, super.reply);
+  final int id;
+}
+
 class _MClose extends _MReq {
   const _MClose(super.reply);
 }
@@ -535,6 +543,8 @@ void _multiWorkerEntry(_MOpenConfig cfg) {
           backing.scrub(id);
           return null;
         });
+      case _MSlotUtilization(:final id):
+        run(() => backing.slotUtilization(id));
       case _MClose():
         try {
           backing.close();

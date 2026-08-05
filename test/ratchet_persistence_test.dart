@@ -360,6 +360,8 @@ class _ScrubCountingStore implements KvLogStore {
   @override
   Uint8List exportKeys() => inner.exportKeys();
   @override
+  SlotUtilization? slotUtilization() => inner.slotUtilization();
+  @override
   void close() => inner.close();
 }
 

@@ -73,6 +73,8 @@ class _CountingStore implements KvLogStore {
   @override
   Uint8List exportKeys() => _inner.exportKeys();
   @override
+  SlotUtilization? slotUtilization() => _inner.slotUtilization();
+  @override
   void close() => _inner.close();
 }
 

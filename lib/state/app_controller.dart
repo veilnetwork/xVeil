@@ -12,6 +12,7 @@ import '../data/native_libs.dart';
 
 import '../data/node/node_controller.dart';
 import '../data/node/proxy_routing.dart';
+import '../data/storage/kv_log_store.dart' show SlotUtilization;
 import '../data/storage/on_disk_blob_store.dart';
 import '../data/storage/storage.dart';
 import '../data/veil_stack.dart';
@@ -584,6 +585,73 @@ class AppController extends Notifier<AppState> {
       await ref.read(storageProvider).putSetting(_lastCompactSizeKey, '$after');
     } catch (_) {}
     return (before: before, after: after);
+  }
+
+  /// What the storage-maintenance UI needs in order to tell the user whether
+  /// compacting is worth doing — the container's size, how much of it is dead
+  /// padding, and whether that is enough to be worth mentioning unprompted.
+  ///
+  /// Null when there is nothing honest to say: no real container, compaction
+  /// unavailable (multi-identity — see [canCompactStorage]), or a backing that
+  /// cannot report slot occupancy. The UI must then show the size alone, NOT a
+  /// reclaimable figure of zero.
+  Future<StorageReclaim?> storageReclaim() async {
+    // Same gate as the compact button: on a multi-identity container the ratio
+    // both understates (sibling spaces' chunks are not "owned" by this one)
+    // and describes something the user cannot act on anyway.
+    if (!canCompactStorage) return null;
+    final size = await containerSizeBytes();
+    if (size == null) return null;
+    final SlotUtilization? utilization;
+    try {
+      utilization = await ref.read(storageProvider).containerUtilization();
+    } catch (_) {
+      return null;
+    }
+    if (utilization == null) return null;
+    return estimateStorageReclaim(
+      sizeBytes: size,
+      utilization: utilization,
+      autoCompactEnabled: await autoCompactEnabled(),
+    );
+  }
+
+  /// Turn a size + slot occupancy into the maintenance readout, and decide
+  /// whether it deserves an unprompted nudge.
+  ///
+  /// Pure and static so the decision is testable on its own and there is ONE
+  /// place that makes it — the screen renders [StorageReclaim.worthCompacting],
+  /// it does not re-derive the rule from thresholds of its own.
+  ///
+  /// The thresholds are the ones auto-compaction ALREADY uses, deliberately:
+  ///  * [_autoCompactMinBytes] — below it the padding is noise either way;
+  ///  * [_autoCompactGrowthFactor] — auto-compaction fires once the file has
+  ///    grown to N× its post-compaction (i.e. live) size, and a file that is
+  ///    N× its live data is `1 - 1/N` dead. Measuring the dead share directly
+  ///    is strictly better than comparing against a remembered size, and it
+  ///    needs no bookkeeping to survive.
+  ///
+  /// [autoCompactEnabled] SUPPRESSES the nudge: with the opt-in on, the next
+  /// unlock compacts by itself and there is nothing to ask the user for. The
+  /// nudge exists for the default configuration — auto-compaction off, one
+  /// identity, nobody watching the file grow.
+  static StorageReclaim estimateStorageReclaim({
+    required int sizeBytes,
+    required SlotUtilization utilization,
+    required bool autoCompactEnabled,
+  }) {
+    final dead = utilization.deadFraction;
+    final reclaimable = (sizeBytes * dead).floor();
+    final deadEnough = dead >= 1.0 - (1.0 / _autoCompactGrowthFactor);
+    return StorageReclaim(
+      sizeBytes: sizeBytes,
+      reclaimableBytes: reclaimable < 0 ? 0 : reclaimable,
+      deadFraction: dead,
+      worthCompacting:
+          !autoCompactEnabled &&
+          sizeBytes >= _autoCompactMinBytes &&
+          deadEnough,
+    );
   }
 
   static const String _autoCompactKey = 'storage.autocompact.v1';
@@ -2250,6 +2318,40 @@ class AppController extends Notifier<AppState> {
     _clearMasterSession();
     state = const AppState(AppPhase.identityDamaged);
   }
+}
+
+/// The storage-maintenance readout: what the container costs on disk, what
+/// compacting it would give back, and whether that is worth saying unprompted.
+///
+/// Built ONLY by [AppController.estimateStorageReclaim] so the "is this worth
+/// mentioning" rule has a single home.
+final class StorageReclaim {
+  const StorageReclaim({
+    required this.sizeBytes,
+    required this.reclaimableBytes,
+    required this.deadFraction,
+    required this.worthCompacting,
+  });
+
+  /// Current on-disk size of the container.
+  final int sizeBytes;
+
+  /// Roughly what a compaction would return to the filesystem. An estimate:
+  /// dead slots are counted, not measured, and the rewrite also drops the
+  /// commit history — so the real result tends to be a little better.
+  final int reclaimableBytes;
+
+  /// Share of the file that is dead padding, in `[0, 1]`.
+  final double deadFraction;
+
+  /// Whether the app should point this out on its own.
+  ///
+  /// It is a DISK-SPACE remark and nothing more: the container is healthy, the
+  /// data is intact, and the padding is the deniability design working as
+  /// intended. Nothing here may be dressed up as a warning, and nothing here
+  /// starts a compaction — that needs the password and tears the session down,
+  /// so it stays the user's explicit act.
+  final bool worthCompacting;
 }
 
 final appControllerProvider = NotifierProvider<AppController, AppState>(

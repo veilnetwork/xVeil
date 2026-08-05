@@ -82,6 +82,23 @@ class HvKvLogStore implements KvLogStore {
   Uint8List exportKeys() => _space.spaceKeys();
 
   @override
+  SlotUtilization? slotUtilization() {
+    // Best-effort: this only feeds a maintenance READOUT, so a container that
+    // will not report its stats must degrade to "unknown" rather than take
+    // down the storage call that asked.
+    try {
+      final s = _space.stats();
+      return SlotUtilization(
+        ownedChunks: s.ownedChunkCount,
+        totalSlots: s.totalSlotCount,
+      );
+    } catch (e) {
+      devLog(() => 'xVeil[storage]: slot utilization unavailable: $e');
+      return null;
+    }
+  }
+
+  @override
   void close() => _space.close();
 }
 
@@ -246,6 +263,16 @@ class HvMultiSpaceBacking implements MultiSpaceBacking {
 
   @override
   void scrub(int id) => _multi.vacuumDataBatches(id);
+
+  @override
+  SlotUtilization? slotUtilization(int id) {
+    // Unknown, honestly. `MultiSpaceHandle` has no `stats` on the FFI surface
+    // (only `SpaceHandle` does), and inventing a number here would be worse
+    // than saying nothing. Nothing is lost in practice: a container hosting
+    // several spaces is exactly the one where compaction is NOT offered —
+    // `compact_known` keeps only the spaces whose passwords it was given.
+    return null;
+  }
 
   @override
   void vacuumOrphans(int id) => _multi.vacuumSpace(id);

@@ -3371,6 +3371,20 @@ class AppL10nRu extends AppL10n {
       'Освободить неиспользуемое место — приложение переоткроется. Сохраняется ТОЛЬКО разблокированное пространство: любая другая скрытая личность в этом контейнере будет потеряна.';
 
   @override
+  String settingsStorageReclaimable(String size) {
+    return 'из них $size вернёт сжатие';
+  }
+
+  @override
+  String settingsStorageBloatTitle(String size) {
+    return 'Сжатие освободит примерно $size';
+  }
+
+  @override
+  String get settingsStorageBloatBody =>
+      'Большая часть файла — padding от прошлых записей. Для этого хранилища это нормально, но сам по себе файл не уменьшится. Сожмите его, когда будет удобно.';
+
+  @override
   String get settingsStorageCompactDone => 'Освобождено';
 
   @override
