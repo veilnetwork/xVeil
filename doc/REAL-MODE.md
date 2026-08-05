@@ -31,8 +31,16 @@ scripts/run-real-instance.sh .dev-nodes/a/config.toml /tmp/xveil-a.store
 scripts/run-real-instance.sh .dev-nodes/b/config.toml /tmp/xveil-b.store
 ```
 
-`XVEIL_STORE_PATH` gives each instance its own container (they share the app
-bundle, hence shared `shared_preferences`, but storage stays separate).
+`XVEIL_STORE_PATH` gives each instance its own container.
+
+Preferences are no longer shared between them either. They used to be: one app
+bundle meant one `shared_preferences` store, so both windows read and wrote the
+same settings. App preferences now live in a file inside the ACTIVE PROFILE's
+own directory (`ProfilePreferencesStore`), which is what took the app's posture
+out of iCloud and out of the key names — so two instances on different profiles
+(`--profile`, or `XVEIL_PROFILE`) have separate settings as well as separate
+storage. Two instances on the SAME profile still share a preference file,
+because it is the same profile.
 
 In each window: finish onboarding (any password) → **+** (add contact) shows
 **this** instance's invite; paste the **other** instance's invite → send. The
