@@ -6,7 +6,68 @@
 /// where it can and cannot tell.
 library;
 
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+
+/// Ceiling on a SHARED deployment secret read from a file.
+///
+/// The obfs4 PSK is one base64 line — 44 characters for a 32-byte key. 4 KiB is
+/// far past any legitimate value and far below anything worth worrying about.
+const int kSharedSecretFileMaxBytes = 4096;
+
+/// Read a SHARED deployment secret — one every participant already holds — from
+/// [path], with a type check and a ceiling and nothing else.
+///
+/// Deliberately NOT [readSecretFile]. That one refuses anything readable beyond
+/// its owner, which is the correct rule for a container password and the wrong
+/// one here: the obfs4 PSK ships inside every published APK and every bundle, so
+/// demanding 0600 of the operator's copy would break deployments in order to
+/// protect a value anyone who has the app already has.
+///
+/// The two things that ARE checked have nothing to do with secrecy, which is
+/// why they belong on this path as much as on the other one:
+///
+///  * it resolves to a REGULAR FILE. `readAsString` on a named pipe blocks
+///    until somebody writes to and closes the other end. This read happens
+///    AFTER the deniable container is unlocked, so a fifo at that path does not
+///    fail the start — it wedges it, with the store open and the password in
+///    memory, and nothing on the console to say why (audit XV-16);
+///  * it is at most [maxBytes]. `readAsString` reads whatever is there, so a
+///    large file becomes the daemon's heap. The read is bounded at the STREAM,
+///    not by a `length()` taken beforehand, so a file that grows between the
+///    two calls cannot get past it either.
+///
+/// Symlinks are followed on purpose: a deployment key reached through a link
+/// (`/etc/xveil/psk -> /run/secrets/...`) is ordinary, and there is nothing here
+/// worth refusing it over.
+Future<String> readSharedSecretFile(
+  String path,
+  String label, {
+  int maxBytes = kSharedSecretFileMaxBytes,
+}) async {
+  final type = FileSystemEntity.typeSync(path);
+  if (type != FileSystemEntityType.file) {
+    throw StateError(
+      '$label file $path is not a regular file ($type) — refusing to read it.',
+    );
+  }
+  // One byte past the ceiling, so "exactly at the limit" and "over it" are
+  // distinguishable without reading any more than that.
+  final buffer = BytesBuilder(copy: false);
+  await for (final chunk in File(path).openRead(0, maxBytes + 1)) {
+    buffer.add(chunk);
+  }
+  final bytes = buffer.takeBytes();
+  if (bytes.length > maxBytes) {
+    throw StateError(
+      '$label file $path is larger than $maxBytes bytes — refusing to read it.',
+    );
+  }
+  final value = utf8.decode(bytes, allowMalformed: true).trim();
+  if (value.isEmpty) throw StateError('$label file is empty');
+  return value;
+}
 
 /// The flag that lets an operator use a secret file this process cannot vouch
 /// for. Named as a statement rather than a switch: the operator is asserting
