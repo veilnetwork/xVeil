@@ -1889,5 +1889,8 @@
   "identityDamagedTitle": "This space opened, but its identity is damaged",
   "identityDamagedBody": "Your password was right — the container unlocked. What it holds where your identity should be cannot be read. This app will not go on and act as if you were someone new.",
   "identityDamagedUntouched": "Nothing was changed or overwritten. Your data is still in the container exactly as it was found.",
-  "identityDamagedBack": "Back to the lock screen"
+  "identityDamagedBack": "Back to the lock screen",
+  "backupNotExcludedTitle": "This device may be copying your data into its backup",
+  "backupNotExcludedBody": "xVeil asks the system to keep its container out of iCloud and computer backups. On this device that did not take effect ({reason}). Your data stays encrypted, but a backup could show that this app holds an identity, and a copy of it could be attacked away from your phone. Turning off backup for xVeil in the system settings closes it.",
+  "@backupNotExcludedBody": { "placeholders": { "reason": { "type": "String" } } }
 }

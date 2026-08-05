@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart' show MissingPluginException;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:shared_preferences_platform_interface/types.dart';
@@ -701,6 +702,95 @@ void main() {
       expect(await readRememberedProfile(support.path), 'decoy');
     }, skip: skipReason);
   });
+
+  /// FAIL-CLOSED, and the assertion is about WHICH store is active — not about
+  /// whether an error was reported.
+  ///
+  /// The install ends, on its last line, with the assignment that swaps the
+  /// backend. Everything before it is file work that a platform can refuse. In
+  /// `main` that was wrapped in "never fatal" and nothing else, so a refusal
+  /// left `SharedPreferencesStorePlatform.instance` at the plugin default —
+  /// i.e. the system store, i.e. iCloud, encrypted backups, and profile names
+  /// glued into key names. One failed mkdir undid audit XV-16 in full.
+  group('when the install cannot be done', () {
+    /// The system store as the plugin leaves it: a sentinel that must NEVER be
+    /// what a failed install settles on.
+    final systemStore = _SystemStoreStandIn();
+
+    setUp(() => SharedPreferencesStorePlatform.instance = systemStore);
+
+    test('the active store is NOT the system one', () async {
+      final errors = <Object>[];
+      final profile = await installProfilePreferencesOrFallback(
+        // Exactly how this fails in the field: path_provider has no answer on
+        // this platform, so the directory lookup throws before any of the
+        // install runs.
+        supportDir: () async => throw MissingPluginException('no path_provider'),
+        args: const [],
+        onError: (e, _) => errors.add(e),
+      );
+
+      final active = SharedPreferencesStorePlatform.instance;
+      expect(
+        identical(active, systemStore),
+        isFalse,
+        reason:
+            'a failed install must not leave the process writing its posture '
+            'into the platform store — that is the leak XV-16 closed',
+      );
+      expect(active, isA<InMemorySharedPreferencesStore>());
+      expect(await active.getAll(), isEmpty);
+      expect(profile, AppProfiles.defaultName);
+      expect(errors, hasLength(1), reason: 'the failure is still reported');
+    });
+
+    test('what is written afterwards does not reach the system store', () async {
+      await installProfilePreferencesOrFallback(
+        supportDir: () async => throw MissingPluginException('no path_provider'),
+        args: const [],
+      );
+      await SharedPreferencesStorePlatform.instance.setValue(
+        'String',
+        'flutter.vpn_routing_policy',
+        '{"apps":["org.example.app"]}',
+      );
+      expect(
+        await systemStore.getAll(),
+        isEmpty,
+        reason: 'the routing policy is posture, and it must not go to backup',
+      );
+    });
+
+    test('a SUCCESSFUL install still gets the real file store', () async {
+      final profile = await installProfilePreferencesOrFallback(
+        supportDir: () async => support.path,
+        args: const [],
+      );
+      expect(profile, AppProfiles.defaultName);
+      expect(
+        SharedPreferencesStorePlatform.instance,
+        isA<ProfilePreferencesStore>(),
+        reason: 'the fallback must not be what every launch ends up on',
+      );
+    });
+
+    test('the fallback never displaces a file store already installed', () async {
+      await installProfilePreferencesOrFallback(
+        supportDir: () async => support.path,
+        args: const [],
+      );
+      final installed = SharedPreferencesStorePlatform.instance;
+      installEphemeralPreferences();
+      expect(identical(SharedPreferencesStorePlatform.instance, installed), isTrue);
+    });
+  });
+}
+
+/// Stands in for whatever the plugin registered — `NSUserDefaults` on iOS. The
+/// point of the group above is that this object is not what a failed install
+/// leaves behind.
+class _SystemStoreStandIn extends InMemorySharedPreferencesStore {
+  _SystemStoreStandIn() : super.empty();
 }
 
 /// A system store that accepts everything and clears nothing — the case the old

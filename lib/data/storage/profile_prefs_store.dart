@@ -466,6 +466,63 @@ Future<String> installProfilePreferences({
   return profile;
 }
 
+/// [installProfilePreferences], and — when it cannot be done — an EMPTY
+/// IN-MEMORY store rather than the platform's system one.
+///
+/// The install is a sequence of file operations that ends, on its LAST line,
+/// with the assignment that swaps the backend. Anything that throws before that
+/// line (a `path_provider` that has no answer on this platform, an app-support
+/// directory that cannot be created, a read-only volume) used to be caught in
+/// `main` under "never fatal: preferences are conveniences" — and left
+/// `SharedPreferencesStorePlatform.instance` as the plugin's default.
+///
+/// That default IS the system store, which is the thing being escaped. Every
+/// setting written afterwards goes back into `NSUserDefaults`, back into iCloud
+/// and encrypted backups, and — because the profile name is glued into the key
+/// names on that path — back to publishing a roster of which profiles exist.
+/// One failed `mkdir` silently undid the whole of audit XV-16.
+///
+/// So the failure is taken TOWARDS privacy instead of away from it: an empty
+/// in-memory backend. The app starts, every screen works, and settings changed
+/// this session are forgotten when it exits. That is a bad session; the
+/// alternative is a leak. The report's own remedy — refuse to write, or refuse
+/// to unlock — was rejected: it breaks the launch and confronts the user with a
+/// plugin failure they can do nothing about.
+///
+/// [supportDir] is a callback rather than a value so that the directory lookup
+/// is inside the guard too. It is the single most likely thing here to fail on
+/// a platform where the plugin is missing, and taking it outside would leave
+/// exactly the hole this closes.
+Future<String> installProfilePreferencesOrFallback({
+  required Future<String> Function() supportDir,
+  required List<String> args,
+  Map<String, String>? environment,
+  void Function(Object error, StackTrace stack)? onError,
+}) async {
+  try {
+    return await installProfilePreferences(
+      supportDir: await supportDir(),
+      args: args,
+      environment: environment,
+    );
+  } catch (e, st) {
+    onError?.call(e, st);
+    installEphemeralPreferences();
+    return AppProfiles.defaultName;
+  }
+}
+
+/// Put an empty in-memory backend in place of the system store.
+///
+/// A no-op when the real file store is already installed, so this can never
+/// undo a successful install — the only throw that could reach it comes from
+/// before the assignment, but "could not have happened" is a worse guarantee
+/// than "cannot".
+void installEphemeralPreferences() {
+  if (SharedPreferencesStorePlatform.instance is ProfilePreferencesStore) return;
+  SharedPreferencesStorePlatform.instance = InMemorySharedPreferencesStore.empty();
+}
+
 Future<String?> _legacyString(
   SharedPreferencesStorePlatform legacy,
   String key,
