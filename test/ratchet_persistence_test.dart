@@ -38,8 +38,14 @@ NodeId _node(int fill) => NodeId(Uint8List(32)..fillRange(0, 32, fill));
 /// the sender has already moved on, so a retransmit does not help either.
 class _FakeRatchetNode implements RatchetStateHandle {
   final Map<String, _FakeConversation> _held = {};
-  final Set<String> _dirty = <String>{};
+
+  /// Each marked conversation against the version it was marked AT — what
+  /// makes an acknowledgement safe to honour or safe to ignore.
+  final Map<String, int> _dirty = <String, int>{};
   int _version = 0;
+
+  /// Acknowledgements that named a conversation which had moved on.
+  int refusedStaleAcks = 0;
 
   /// Frames refused because the receiving state was not there.
   int refusedForMissingState = 0;
@@ -51,8 +57,8 @@ class _FakeRatchetNode implements RatchetStateHandle {
   int seal(Uint8List key) {
     final c = _held.putIfAbsent(_hex(key), () => _FakeConversation());
     final index = c.sent++;
-    _dirty.add(_hex(key));
     _version++;
+    _dirty[_hex(key)] = _version;
     return index;
   }
 
@@ -69,8 +75,8 @@ class _FakeRatchetNode implements RatchetStateHandle {
     }
     if (index != c.received) return false;
     c.received++;
-    _dirty.add(_hex(key));
     _version++;
+    _dirty[_hex(key)] = _version;
     return true;
   }
 
@@ -78,15 +84,37 @@ class _FakeRatchetNode implements RatchetStateHandle {
   int stateVersion() => _version;
 
   @override
-  ({List<Uint8List> keys, int remaining}) takeDirty(int maxKeys) {
-    final ordered = _dirty.toList()..sort();
-    final taken = ordered.take(maxKeys).toList();
-    for (final k in taken) {
-      _dirty.remove(k);
+  ({List<Uint8List> keys, int remaining, int generation}) peekDirty(
+    int maxKeys,
+  ) {
+    final ordered = _dirty.keys.toList()..sort();
+    final named = ordered.take(maxKeys).toList();
+    // CONSUMES NOTHING, and whatever did not fit is still listed — the two
+    // halves of the contract the drain loop exists for. Dropping either would
+    // lose the only notice those conversations get.
+    return (
+      keys: [for (final k in named) _unhex(k)],
+      remaining: _dirty.length - named.length,
+      generation: _version,
+    );
+  }
+
+  @override
+  int ackDirty(List<Uint8List> keys, int generation) {
+    var cleared = 0;
+    for (final key in keys) {
+      final marked = _dirty[_hex(key)];
+      if (marked == null) continue;
+      if (marked > generation) {
+        // Marked again after the caller read it: the bytes it just wrote are
+        // from before that change, so the mark stands.
+        refusedStaleAcks++;
+        continue;
+      }
+      _dirty.remove(_hex(key));
+      cleared++;
     }
-    // Whatever did not fit STAYS MARKED — the contract the drain loop exists
-    // for. Dropping it would lose the only notice those conversations get.
-    return (keys: [for (final k in taken) _unhex(k)], remaining: _dirty.length);
+    return cleared;
   }
 
   @override
@@ -113,6 +141,10 @@ class _FakeRatchetNode implements RatchetStateHandle {
     _dirty.remove(_hex(conversationKey));
     return _held.remove(_hex(conversationKey)) != null;
   }
+
+  /// The marks currently standing, for tests that assert on them directly.
+  List<Uint8List> get marked =>
+      [for (final k in (_dirty.keys.toList()..sort())) _unhex(k)];
 
   bool closed = false;
 
@@ -243,6 +275,21 @@ class _PausableStorage extends HiddenVolumeStorage {
       beforeRatchetSave = null;
       await hook();
     }
+    await super.saveRatchetStates(entries);
+  }
+}
+
+/// A container that refuses to take ratchet state — a full disk, a closed
+/// worker, an encryption error. Anything that happens between reading the marks
+/// and getting the bytes down.
+class _FailingStorage extends HiddenVolumeStorage {
+  _FailingStorage(super.opener);
+
+  bool failRatchetSaves = true;
+
+  @override
+  Future<void> saveRatchetStates(List<RatchetStateEntry> entries) async {
+    if (failRatchetSaves) throw StateError('no space left on device');
     await super.saveRatchetStates(entries);
   }
 }
@@ -448,7 +495,7 @@ void main() {
           dirtyBatch: 3,
         );
         expect(await run.flush(), keys.length);
-        expect(node.takeDirty(64).remaining, 0, reason: 'nothing left marked');
+        expect(node.marked, isEmpty, reason: 'nothing left marked');
 
         final stored = await storage.ratchetConversationKeys();
         expect(stored, hasLength(keys.length));
@@ -851,7 +898,88 @@ void main() {
       // The marks are the record of what still needs writing; a shutdown save
       // that consumed them would leave a crash after this point with nothing
       // to notice.
-      expect(node.takeDirty(64).keys, hasLength(2));
+      expect(node.marked, hasLength(2));
+    });
+  });
+
+  group('the mark is cleared by the write, not by the read', () {
+    test('a write that fails leaves the work marked for the next flush',
+        () async {
+      // The notice a conversation gets is ONE mark. Under a destructive read it
+      // was spent on the attempt rather than on the result, so a disk that said
+      // no took the notice with it — and not only for this conversation: for
+      // every other key in the same batch, which had done nothing wrong at all.
+      final failing = _FailingStorage(
+        ({required Uint8List password, required bool create}) =>
+            password.isEmpty ? null : FakeKvLogStore(),
+      );
+      await failing.open(password: 'pw', createIfMissing: true);
+      final a = _convKey(local: 3, peerNode: 60);
+      final b = _convKey(local: 3, peerNode: 61);
+      final node = _FakeRatchetNode();
+      final run = RatchetPersistence(native: node, storage: failing);
+      node.seal(a);
+      node.seal(b);
+
+      await expectLater(run.flush(), throwsStateError);
+      expect(
+        run.degraded,
+        isTrue,
+        reason: 'a failed write must not leave the object claiming the state '
+            'is safe',
+      );
+      expect(
+        node.marked,
+        hasLength(2),
+        reason: 'the marks went down with the write that failed',
+      );
+
+      // The disk comes back. Nothing had to change for this to be picked up:
+      // the work was never forgotten.
+      failing.failRatchetSaves = false;
+      expect(await run.flush(), 2);
+      expect(run.degraded, isFalse);
+      expect(node.marked, isEmpty);
+      expect(await failing.loadRatchetState(a), isNotNull);
+      expect(await failing.loadRatchetState(b), isNotNull);
+      await failing.close();
+    });
+
+    test('a conversation that moved mid-write keeps its mark', () async {
+      // The acknowledgement carries the generation the read reported. This
+      // conversation changed after that read, so the bytes on their way down do
+      // not contain the change — and clearing the mark would leave the state
+      // for the newer send in no queue at all.
+      final paused = _PausableStorage(
+        ({required Uint8List password, required bool create}) =>
+            password.isEmpty ? null : FakeKvLogStore(),
+      );
+      await paused.open(password: 'pw', createIfMissing: true);
+      final key = _convKey(local: 3, peerNode: 62);
+      final node = _FakeRatchetNode();
+      final run = RatchetPersistence(native: node, storage: paused);
+
+      node.seal(key);
+      paused.beforeRatchetSave = () async {
+        // The send that lands while the previous one's write is in flight.
+        node.seal(key);
+      };
+      expect(await run.flush(), 1);
+      expect(node.refusedStaleAcks, 1);
+      expect(
+        node.marked,
+        hasLength(1),
+        reason: 'the second send was acknowledged by a write that predates it',
+      );
+
+      // And the flush that follows it writes the state that includes both.
+      expect(await run.flush(), 1);
+      expect(node.marked, isEmpty);
+      final stored = _FakeConversation.decode(
+        (await paused.loadRatchetState(key))!,
+      )!;
+      expect(stored.sent, 2);
+      await paused.close();
     });
   });
 

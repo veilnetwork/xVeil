@@ -123,7 +123,24 @@ class RatchetPersistence {
   Future<int> restore() =>
       _exclusive(() => restoreRatchetStates(_native, _storage));
 
+  /// True when the last flush did not reach the container.
+  ///
+  /// The send or receive that produced it was still completed — taking that
+  /// down would lose the message AND the key — but "the state is safe" is a
+  /// claim this object stops making until a flush succeeds. The marks are still
+  /// standing, so the next one retries the same work.
+  bool get degraded => _degraded;
+  bool _degraded = false;
+
   /// Persist every conversation veil has named as changed.
+  ///
+  /// Peek, persist, THEN acknowledge — and the acknowledgement carries the
+  /// generation the peek reported. A disk error, a closed worker or a crash
+  /// between the export and the commit leaves the marks standing, so the next
+  /// flush does the work again; under a destructive read the notice was gone
+  /// the moment it was read, taking the rest of the batch with it. A
+  /// conversation that changed since the peek keeps its mark, because the bytes
+  /// on their way down do not contain that change.
   ///
   /// Loops until `remaining` reads zero: the buffer is bounded and the leftover
   /// stays marked, so a single pass with a small batch would silently strand
@@ -131,26 +148,44 @@ class RatchetPersistence {
   /// holding are gone.
   ///
   /// Returns how many conversations were written.
-  Future<int> flush() => _exclusive(_flush);
+  Future<int> flush() => _exclusive(() async {
+    try {
+      final written = await _flush();
+      _degraded = false;
+      return written;
+    } catch (_) {
+      _degraded = true;
+      rethrow;
+    }
+  });
 
   Future<int> _flush() async {
     var written = 0;
     // A pass count, not a while(true): a store that somehow kept re-marking
     // would spin here forever, on the send path, holding a message.
     for (var pass = 0; pass < _maxDrainPasses; pass++) {
-      final batch = _native.takeDirty(_dirtyBatch);
-      if (batch.keys.isNotEmpty) {
-        // BEFORE the save. The prune it may do is "drop what belongs to a
-        // device we are not", and running it after would have to be careful not
-        // to delete the entry this very pass just wrote.
-        await _noteLocalInstance(batch.keys.first);
-        final entries = exportRatchetStates(_native, batch.keys);
-        if (entries.isNotEmpty) {
-          await _storage.saveRatchetStates(entries);
-          written += entries.length;
-        }
+      final batch = _native.peekDirty(_dirtyBatch);
+      if (batch.keys.isEmpty) return written;
+      // BEFORE the save. The prune it may do is "drop what belongs to a
+      // device we are not", and running it after would have to be careful not
+      // to delete the entry this very pass just wrote.
+      await _noteLocalInstance(batch.keys.first);
+      final entries = exportRatchetStates(_native, batch.keys);
+      if (entries.isNotEmpty) {
+        await _storage.saveRatchetStates(entries);
+        written += entries.length;
       }
-      if (batch.remaining == 0) return written;
+      // Only now. Anything above that threw skipped this line, which is the
+      // whole point: the marks outlive a failed write.
+      final cleared = _native.ackDirty(batch.keys, batch.generation);
+      // Nothing left waiting, or this pass discharged nothing. The second is
+      // what a non-destructive read has to answer for that a drain did not:
+      // conversations that moved while we were writing keep their marks and
+      // come back on the NEXT peek, so a loop that only watched `remaining`
+      // would re-export the same batch for as long as the peer keeps talking —
+      // on the send path, holding a message. The work is not lost by stopping:
+      // it is still marked, and the operation that moved it flushes too.
+      if (batch.remaining == 0 || cleared == 0) return written;
     }
     devLog(
       () =>
