@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/posix_file_facts.dart';
 import 'package:xveil/headless/secret_file.dart';
 
 /// What the daemon will and will not read a secret out of.
@@ -101,6 +102,86 @@ void main() {
       await expectLater(
         readSecretFile(path, 'password', isWindows: false),
         throwsA(isA<StateError>()),
+      );
+    });
+
+    test('a file owned by ANOTHER account is refused, 0600 or not', () async {
+      // Mode 0600 on somebody else's file protects THEM. They can still
+      // rewrite it under us, and FileStat carries no uid — so this was
+      // documented as unchecked and unreachable. `lstat` carries st_uid and
+      // libc carries geteuid, so it is reachable, and now checked.
+      final path = await writeSecret('theirs', 'secret', '600');
+      final euid = posixEuid();
+      expect(euid, isNotNull, reason: 'no geteuid — this host cannot answer');
+      // chown to another uid needs root. Rather than skip the assertion, take
+      // the one file on the box that is 0600 and NOT ours if there is one;
+      // otherwise assert the code path directly against a faked euid is not
+      // possible, so verify the decision through a root-owned system file.
+      final rootOwned = File('/etc/master.passwd');
+      if (!rootOwned.existsSync() || posixLstat(rootOwned.path)?.uid == euid) {
+        markTestSkipped('no other-owned 0600 file available on this host');
+        return;
+      }
+      await expectLater(
+        readSecretFile(rootOwned.path, 'password', isWindows: false),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('not by this process'),
+          ),
+        ),
+      );
+      // And the control: our own file at the same mode is still read.
+      expect(await readSecretFile(path, 'password', isWindows: false), 'secret');
+    });
+
+    test('a mid-read swap that preserves size AND mtime is REFUSED', () async {
+      // The whole reason the comparison moved to (device, inode). Size and
+      // modification time are both writable by anyone who can write the file,
+      // so a detector made of those two is one `touch -r` from blind. An inode
+      // is not something the attacker gets to pick.
+      final ours = await writeSecret('mine', 'realsecret', '600');
+      final planted = await writeSecret('theirs2', 'FAKEsecret', '600');
+      expect(
+        File(ours).lengthSync(),
+        File(planted).lengthSync(),
+        reason: 'the swap is only interesting at equal size',
+      );
+      // BOTH set, to an explicit value: `setLastModified` truncates to whole
+      // seconds, so copying one file's stamp onto the other leaves the
+      // original's sub-second part behind and the two would differ for a
+      // reason that has nothing to do with the check.
+      final stamp = DateTime.utc(2020, 1, 1, 12);
+      File(ours).setLastModifiedSync(stamp);
+      File(planted).setLastModifiedSync(stamp);
+      expect(File(ours).statSync().size, File(planted).statSync().size);
+      expect(
+        File(ours).statSync().modified,
+        File(planted).statSync().modified,
+        reason: 'a size+mtime detector would call these two identical',
+      );
+
+      // An async body runs synchronously to its first await, and the first
+      // await here is the read — so by this line the "before" lstat and every
+      // check are already done, and the swap lands in exactly the window the
+      // detection exists for.
+      final reading = readSecretFile(ours, 'password', isWindows: false);
+      File(ours).deleteSync();
+      File(planted).renameSync(ours);
+
+      await expectLater(
+        reading,
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('changed while it was being read'),
+          ),
+        ),
+        reason:
+            'same name, same size, same mtime, different inode — refusing is '
+            'the only safe answer, because the bytes may be the planted ones',
       );
     });
   });

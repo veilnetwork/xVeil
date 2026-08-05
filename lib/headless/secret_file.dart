@@ -10,6 +10,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../core/posix_file_facts.dart';
+
 /// Ceiling on a SHARED deployment secret read from a file.
 ///
 /// The obfs4 PSK is one base64 line — 44 characters for a 32-byte key. 4 KiB is
@@ -116,13 +118,40 @@ String? unverifiableSecretFileReason({required bool isWindows}) => isWindows
 ///
 ///  * it is not a symlink, and it is a regular file;
 ///  * on POSIX, no permission bit is set beyond the owner's;
+///  * on POSIX, it is OWNED by this process;
 ///  * on Windows, NOTHING can be checked, so the read is refused unless the
 ///    operator asserts otherwise ([acceptUnchecked]);
 ///  * the file did not change between the check and the read.
 ///
-/// Ownership is NOT checked on any platform, because [FileStat] carries no uid.
-/// A file owned by another account but at mode 0600 passes on POSIX; the mode
-/// check is what stands between that and a disclosure.
+/// ## One call, not three
+///
+/// The type check, the mode check and the "before" snapshot used to be three
+/// separate lookups against the NAME. That left a window between the mode check
+/// and the snapshot: a file swapped in there is never mode-checked, and because
+/// the swap happened BEFORE the snapshot it also produces a perfectly
+/// consistent before/after pair. The detection agreed that nothing had changed,
+/// about a file that was never checked (audit X-05).
+///
+/// On POSIX all three now come from ONE `lstat(2)` via [posixLstat]: the facts
+/// that decide are the same facts that get compared afterwards, so there is no
+/// window between deciding and snapshotting to swap into.
+///
+/// ## Ownership, and comparing by identity
+///
+/// [FileStat] carries no uid, which is why ownership went unchecked — a file
+/// owned by ANOTHER account at mode 0600 used to pass, and that account could
+/// then rewrite it under us. `lstat` carries `st_uid`, and [posixEuid] says who
+/// we are, so on POSIX that is now closed.
+///
+/// The before/after comparison is by `(st_dev, st_ino)` — object identity —
+/// rather than by size and modification time. Both of those are writable by
+/// anyone who can write the file (`utimes`), so a swap that preserves them is
+/// one `touch -r` away from being invisible. An inode is not something the
+/// attacker gets to choose.
+///
+/// Windows, and any POSIX host whose `struct stat` layout [posixLstat] does not
+/// know, keep the original path-based flow — it is what those platforms had,
+/// and it is not made worse.
 ///
 /// [isWindows] and [warn] are injected so the refusal is testable from any
 /// host — this is the branch that had no coverage at all.
@@ -134,15 +163,32 @@ Future<String> readSecretFile(
   void Function(String warning)? warn,
 }) async {
   final windows = isWindows ?? Platform.isWindows;
-  final type = FileSystemEntity.typeSync(path, followLinks: false);
-  if (type == FileSystemEntityType.link) {
-    throw StateError(
-      '$label file $path is a symlink — refusing to follow it. Point the '
-      'option at the real file.',
-    );
-  }
-  if (type != FileSystemEntityType.file) {
-    throw StateError('$label file $path is not a regular file');
+  // THE one call, when the host can answer it. `isWindows: true` deliberately
+  // forgoes it even on a POSIX machine: that injection exists to exercise the
+  // Windows branch, and a branch that quietly used libc would not be it.
+  final before = windows ? null : posixLstat(path);
+
+  if (before != null) {
+    if (before.isSymlink) {
+      throw StateError(
+        '$label file $path is a symlink — refusing to follow it. Point the '
+        'option at the real file.',
+      );
+    }
+    if (!before.isRegularFile) {
+      throw StateError('$label file $path is not a regular file');
+    }
+  } else {
+    final type = FileSystemEntity.typeSync(path, followLinks: false);
+    if (type == FileSystemEntityType.link) {
+      throw StateError(
+        '$label file $path is a symlink — refusing to follow it. Point the '
+        'option at the real file.',
+      );
+    }
+    if (type != FileSystemEntityType.file) {
+      throw StateError('$label file $path is not a regular file');
+    }
   }
   final unverifiable = unverifiableSecretFileReason(isWindows: windows);
   if (unverifiable != null) {
@@ -173,7 +219,26 @@ Future<String> readSecretFile(
       'platform — the permission check still applies to $label file $path.',
     );
   }
-  if (!windows) {
+  if (before != null) {
+    // Mode and owner out of the SAME lstat that will be compared after the
+    // read. No second lookup, so no window to swap into between deciding this
+    // file is acceptable and recording what it was.
+    if (before.mode & 0x3F != 0) {
+      throw StateError(
+        '$label file $path is mode ${(before.mode & 0x1FF).toRadixString(8)} — '
+        'readable beyond its owner. Run: chmod 600 $path',
+      );
+    }
+    final euid = posixEuid();
+    if (euid != null && before.uid != euid) {
+      throw StateError(
+        '$label file $path is owned by uid ${before.uid}, not by this process '
+        '(uid $euid). Mode 0600 on somebody else\'s file protects THEM, not '
+        'you — they can still rewrite it under you. Own the file, or type the '
+        'secret at the prompt instead.',
+      );
+    }
+  } else if (!windows) {
     final mode = File(path).statSync().mode;
     if (mode & 0x3F != 0) {
       throw StateError(
@@ -182,22 +247,40 @@ Future<String> readSecretFile(
       );
     }
   }
-  // The checks above are path-based, and so is the read: separate syscalls
-  // against a name, not one descriptor. Dart exposes neither
-  // `openat`/`O_NOFOLLOW` nor `fstat`, so the file checked cannot be PROVEN to
-  // be the file read without dropping to FFI on three platforms (audit XV-16,
-  // X-10). What is reachable is detection. Capture the state, read, and
-  // compare: a swap between the check and the read changes the type, the mode,
-  // the size or the modification time, and any of those differing means we no
-  // longer know what we just read. Refuse rather than return it — a secret that
-  // might be someone else's planted file is worse than no secret.
-  final before = await File(path).stat();
+
+  // The checks are against a NAME and so is the read: separate syscalls, not
+  // one descriptor. Dart exposes neither `openat`/`O_NOFOLLOW` nor `fstat`, so
+  // the file checked cannot be PROVEN to be the file read without dropping to
+  // FFI on three platforms (audit XV-16, X-10). What is reachable is detection:
+  // read, look again, and refuse if it is not the same object. A secret that
+  // might be somebody else's planted file is worse than no secret.
+  if (before != null) {
+    final value = (await File(path).readAsString()).trim();
+    final after = posixLstat(path);
+    if (after == null ||
+        !before.sameObjectAs(after) ||
+        before.mode != after.mode ||
+        before.uid != after.uid) {
+      throw StateError(
+        '$label file $path changed while it was being read — refusing to use '
+        'its contents.',
+      );
+    }
+    if (value.isEmpty) throw StateError('$label file is empty');
+    return value;
+  }
+
+  // Windows, or a POSIX ABI with no layout in the table: size and modification
+  // time are all Dart offers. Weaker — both are writable by anyone who can
+  // write the file — but it is what these platforms had, and nothing here makes
+  // it worse.
+  final beforeStat = await File(path).stat();
   final value = (await File(path).readAsString()).trim();
-  final after = await File(path).stat();
-  if (before.type != after.type ||
-      before.mode != after.mode ||
-      before.size != after.size ||
-      before.modified != after.modified) {
+  final afterStat = await File(path).stat();
+  if (beforeStat.type != afterStat.type ||
+      beforeStat.mode != afterStat.mode ||
+      beforeStat.size != afterStat.size ||
+      beforeStat.modified != afterStat.modified) {
     throw StateError(
       '$label file $path changed while it was being read — refusing to use '
       'its contents.',
