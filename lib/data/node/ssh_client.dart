@@ -174,7 +174,12 @@ Future<SshResult> sshRun({
         return ok;
       },
     );
-    final session = await client.execute(command);
+    // Timed out like every other leg. Connect, the stream drain and the session
+    // teardown each had a deadline; opening the channel did not, so a host that
+    // passed the pin check, completed the handshake and then simply never
+    // answered `session-open` left this await pending forever — and "My nodes"
+    // with a spinner that no longer has an end (audit XV-17).
+    final session = await client.execute(command).timeout(timeout);
     // Bounded, not folded: an unbounded fold lets a compromised host stream
     // for the whole timeout window and land it all in our heap. Past the cap
     // we stop keeping bytes AND close the session, so the peer stops sending
