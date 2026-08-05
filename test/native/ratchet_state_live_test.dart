@@ -82,9 +82,10 @@ void main() {
       // were mis-typed this reads back stack garbage rather than zero.
       expect(ratchet.stateVersion(), 0);
 
-      final dirty = ratchet.takeDirty(8);
+      final dirty = ratchet.peekDirty(8);
       expect(dirty.keys, isEmpty);
       expect(dirty.remaining, 0);
+      expect(ratchet.ackDirty(const [], dirty.generation), 0);
       expect(ratchet.list(), isEmpty);
 
       final unknown = Uint8List(kRatchetKeyLen)..fillRange(0, kRatchetKeyLen, 7);
@@ -147,22 +148,31 @@ void main() {
 
       // The whole defect in one line: with the count read as a byte length,
       // every one of these three answers is EMPTY — 1, 2 and 29 are all below
-      // the 64 bytes one key takes — while the marks are consumed regardless.
+      // the 64 bytes one key takes.
       final seen = <String>[];
-      final first = door.takeDirty(1);
+      final first = door.peekDirty(1);
       expect(first.keys, hasLength(1));
       expect(first.remaining, 31);
       seen.addAll(first.keys.map(_hex));
 
-      final second = door.takeDirty(2);
+      // And reading the list is not what discharges it: the same call again
+      // names the same work, because the marks stand until the bytes are down.
+      final repeat = door.peekDirty(1);
+      expect(repeat.keys.map(_hex), first.keys.map(_hex));
+      expect(repeat.remaining, 31);
+      expect(door.ackDirty(first.keys, first.generation), 1);
+
+      final second = door.peekDirty(2);
       expect(second.keys, hasLength(2));
       expect(second.remaining, 29);
       seen.addAll(second.keys.map(_hex));
+      expect(door.ackDirty(second.keys, second.generation), 2);
 
-      final rest = door.takeDirty(32);
+      final rest = door.peekDirty(32);
       expect(rest.keys, hasLength(29));
       expect(rest.remaining, 0);
       seen.addAll(rest.keys.map(_hex));
+      expect(door.ackDirty(rest.keys, rest.generation), 29);
 
       // Every key, once, and byte-identical to what went in: a split at the
       // wrong stride would still return the right COUNT of 64-byte slices while
@@ -172,8 +182,33 @@ void main() {
       for (final key in [...first.keys, ...second.keys, ...rest.keys]) {
         expect(key, hasLength(kRatchetKeyLen));
       }
-      // Drained means drained.
-      expect(door.takeDirty(32).keys, isEmpty);
+      // Acknowledged means acknowledged.
+      expect(door.peekDirty(32).keys, isEmpty);
+
+      // And an acknowledgement that predates a change does not cover it. This
+      // conversation moves after the read; the bytes the host is writing are
+      // from before the move, so its mark has to survive them — or the state
+      // that reaches the next launch is the one from before, on a chain the
+      // peer has already advanced.
+      final moving = _convKey(peerNode: 200);
+      expect(
+        _settledImport(() => door.import(moving, _conversationBlob(sendingIndex: 1))),
+        isTrue,
+      );
+      expect(_settled(() => door.forget(moving)), isTrue);
+      final inFlight = door.peekDirty(32);
+      expect(inFlight.keys.map(_hex), [_hex(moving)]);
+      expect(
+        _settledImport(() => door.import(moving, _conversationBlob(sendingIndex: 2))),
+        isTrue,
+      );
+      expect(_settled(() => door.forget(moving)), isTrue);
+      expect(
+        door.ackDirty(inFlight.keys, inFlight.generation),
+        0,
+        reason: 'a stale acknowledgement cleared a live mark',
+      );
+      expect(door.peekDirty(32).keys.map(_hex), [_hex(moving)]);
     } finally {
       await node.dispose();
     }
@@ -222,7 +257,8 @@ void main() {
         // survives; only the container does, which is the entire point of it.
         expect(_settled(() => door.forget(key)), isTrue);
         expect(door.list(), isEmpty);
-        door.takeDirty(32);
+        final leftover = door.peekDirty(32);
+        door.ackDirty(leftover.keys, leftover.generation);
 
         expect(await RatchetPersistence(native: door, storage: storage).restore(), 1);
         final resumed = _sendingIndexOf(door.export(key)!);

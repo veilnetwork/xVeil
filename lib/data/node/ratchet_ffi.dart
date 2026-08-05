@@ -30,14 +30,27 @@ abstract interface class RatchetStateHandle {
   /// cannot say.
   int stateVersion();
 
-  /// Up to [maxKeys] conversations that changed since the last call, and how
-  /// many are still waiting.
+  /// Up to [maxKeys] conversations waiting to be persisted, how many are still
+  /// waiting beyond them, and the generation to acknowledge them at.
   ///
-  /// Clears the marks of what it returns and ONLY of what it returns: whatever
-  /// did not fit stays marked, so a caller with a small buffer loops until
-  /// `remaining` reads zero. Dropping the overflow would mean losing the only
-  /// notice those conversations ever get.
-  ({List<Uint8List> keys, int remaining}) takeDirty(int maxKeys);
+  /// CONSUMES NOTHING. Reading the list is not what discharges the obligation:
+  /// between here and a durable write there is an export, a worker hop and a
+  /// commit, and a failure at any of them would otherwise lose the only notice
+  /// these conversations get — along with the rest of their batch — until they
+  /// change again. The marks stand until [ackDirty].
+  ///
+  /// Whatever did not fit stays marked too, so a caller with a small buffer
+  /// loops until `remaining` reads zero.
+  ({List<Uint8List> keys, int remaining, int generation}) peekDirty(int maxKeys);
+
+  /// Clear the marks of [keys] whose state is now DURABLE, as of [generation].
+  ///
+  /// Called after the write lands and never before. A conversation that changed
+  /// since the peek was re-marked at a later generation and keeps its mark: the
+  /// bytes just written do not contain that change, and clearing it would throw
+  /// away the only notice it gets. Returns how many marks were cleared, which
+  /// is how a caller sees that one moved under it.
+  int ackDirty(List<Uint8List> keys, int generation);
 
   /// Every conversation held, consuming nothing — for a full save at shutdown.
   List<Uint8List> list();
@@ -79,21 +92,41 @@ typedef _VersionDart =
 // mismatch survives: on 64-bit nothing observable differs, and on a 32-bit ABI
 // (Android armeabi-v7a, x86) a length above 2 GiB reads back NEGATIVE and every
 // bound check downstream compares against the wrong sign.
-typedef _TakeDirtyNative =
+typedef _PeekDirtyNative =
     Int32 Function(
       Pointer<Void>,
       Pointer<Uint8>,
       Size,
       Pointer<Size>,
       Pointer<Size>,
+      Pointer<Uint64>,
       Pointer<Pointer<Utf8>>,
     );
-typedef _TakeDirtyDart =
+typedef _PeekDirtyDart =
     int Function(
       Pointer<Void>,
       Pointer<Uint8>,
       int,
       Pointer<Size>,
+      Pointer<Size>,
+      Pointer<Uint64>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _AckDirtyNative =
+    Int32 Function(
+      Pointer<Void>,
+      Pointer<Uint8>,
+      Size,
+      Uint64,
+      Pointer<Size>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _AckDirtyDart =
+    int Function(
+      Pointer<Void>,
+      Pointer<Uint8>,
+      int,
+      int,
       Pointer<Size>,
       Pointer<Pointer<Utf8>>,
     );
@@ -162,7 +195,7 @@ typedef _ConnectDart =
 typedef _CloseNative = Void Function(Pointer<Void>);
 typedef _CloseDart = void Function(Pointer<Void>);
 
-/// Read `veil_ratchet_take_dirty`'s answer out of the buffer it filled.
+/// Read `veil_ratchet_peek_dirty`'s answer out of the buffer it filled.
 ///
 /// [writtenKeys] is a COUNT OF KEYS. The C contract says so — "`*out_written`
 /// receives how many keys were written" — and veil bounds it by
@@ -185,14 +218,14 @@ List<Uint8List> dirtyKeysFrom(
 ) {
   if (writtenKeys < 0 || writtenKeys > maxKeys) {
     throw StateError(
-      'veil_ratchet_take_dirty wrote $writtenKeys keys for a buffer of '
+      'veil_ratchet_peek_dirty wrote $writtenKeys keys for a buffer of '
       '$maxKeys',
     );
   }
   final bytes = writtenKeys * kRatchetKeyLen;
   if (bytes > buffer.length) {
     throw StateError(
-      'veil_ratchet_take_dirty wrote $bytes bytes into ${buffer.length}',
+      'veil_ratchet_peek_dirty wrote $bytes bytes into ${buffer.length}',
     );
   }
   // `i + kRatchetKeyLen <= bytes`, not `i < bytes`: [bytes] is an exact
@@ -329,31 +362,65 @@ class FfiRatchetStateHandle implements RatchetStateHandle {
   }
 
   @override
-  ({List<Uint8List> keys, int remaining}) takeDirty(int maxKeys) {
+  ({List<Uint8List> keys, int remaining, int generation}) peekDirty(
+    int maxKeys,
+  ) {
     if (maxKeys <= 0) {
       throw ArgumentError.value(maxKeys, 'maxKeys', 'must be positive');
     }
-    final fn = _dl.lookupFunction<_TakeDirtyNative, _TakeDirtyDart>(
-      'veil_ratchet_take_dirty',
+    final fn = _dl.lookupFunction<_PeekDirtyNative, _PeekDirtyDart>(
+      'veil_ratchet_peek_dirty',
     );
     final cap = maxKeys * kRatchetKeyLen;
     final buf = calloc<Uint8>(cap);
     final written = calloc<Size>();
     final remaining = calloc<Size>();
+    final generation = calloc<Uint64>();
     final errOut = calloc<Pointer<Utf8>>();
     try {
-      final rc = fn(_handle, buf, cap, written, remaining, errOut);
+      final rc = fn(_handle, buf, cap, written, remaining, generation, errOut);
       if (rc != 0) {
-        throw StateError('veil_ratchet_take_dirty failed: ${_takeErr(errOut)}');
+        throw StateError('veil_ratchet_peek_dirty failed: ${_takeErr(errOut)}');
       }
       return (
         keys: dirtyKeysFrom(buf.asTypedList(cap), written.value, maxKeys),
         remaining: remaining.value,
+        generation: generation.value,
       );
     } finally {
       calloc.free(buf);
       calloc.free(written);
       calloc.free(remaining);
+      calloc.free(generation);
+      calloc.free(errOut);
+    }
+  }
+
+  @override
+  int ackDirty(List<Uint8List> keys, int generation) {
+    if (keys.isEmpty) return 0;
+    for (final key in keys) {
+      _checkKey(key);
+    }
+    final fn = _dl.lookupFunction<_AckDirtyNative, _AckDirtyDart>(
+      'veil_ratchet_ack_dirty',
+    );
+    final buf = calloc<Uint8>(keys.length * kRatchetKeyLen);
+    final cleared = calloc<Size>();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      final view = buf.asTypedList(keys.length * kRatchetKeyLen);
+      for (var i = 0; i < keys.length; i++) {
+        view.setAll(i * kRatchetKeyLen, keys[i]);
+      }
+      final rc = fn(_handle, buf, keys.length, generation, cleared, errOut);
+      if (rc != 0) {
+        throw StateError('veil_ratchet_ack_dirty failed: ${_takeErr(errOut)}');
+      }
+      return cleared.value;
+    } finally {
+      calloc.free(buf);
+      calloc.free(cleared);
       calloc.free(errOut);
     }
   }

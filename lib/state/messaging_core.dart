@@ -714,15 +714,24 @@ class MessagingService {
   /// Never throws. A container write that fails is a message key we did not
   /// keep, and the message that needed it will not open — but taking the send
   /// down with it loses the message AND the key. Log and carry: the frame at
-  /// least reaches the peer, and the next operation on that conversation marks
-  /// it dirty again.
+  /// least reaches the peer.
+  ///
+  /// The operation is still reported as finished, which is a lie worth naming
+  /// rather than hiding — so it is named. What makes it survivable is that the
+  /// failure no longer costs the notice: the marks are only cleared once the
+  /// bytes are down, so the conversations in that batch are still listed and
+  /// the next flush writes them.
   Future<void> _persistRatchet(String why) async {
     final ratchet = this.ratchet;
     if (ratchet == null) return;
     try {
       await ratchet.flush();
     } catch (e) {
-      devLog(() => 'xVeil[ratchet]: $why flush FAILED: $e');
+      devLog(
+        () => 'xVeil[ratchet]: DEGRADED — $why flush FAILED: $e. The '
+            'conversations it covered are still marked and the next flush '
+            'retries them; until one succeeds the container is behind veil.',
+      );
     }
   }
 
