@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import '../core/ids.dart';
@@ -79,13 +80,48 @@ class RatchetPersistence {
   /// The local-device prefix seen in keys veil produced this session.
   Uint8List? _localInstance;
 
+  /// One ratchet transaction at a time per container.
+  ///
+  /// Every operation here is several awaited steps — read the marks, export,
+  /// read the prior record length, commit — and none of them is atomic against
+  /// the others. Two of them in flight reach this order without anything going
+  /// wrong anywhere: the first exports a conversation, awaits its reads, and
+  /// has not committed; the conversation changes; the second exports the NEW
+  /// bytes and commits; then the first's commit lands and puts the old session
+  /// back on top of it. The worker queue does not help — it serialises single
+  /// RPCs, and the transaction is several.
+  ///
+  /// Keyed to the STORAGE rather than to this object, because the thing that
+  /// must not be written twice at once is the CONTAINER: an identity switch
+  /// whose old [RatchetPersistence] has not finished tearing down is two
+  /// writers over one set of records. Weak, so a container that goes away takes
+  /// its gate with it.
+  static final Expando<Future<void>> _gates = Expando('ratchet write gate');
+
+  /// Run [op] with no other ratchet transaction on this container in flight.
+  ///
+  /// Nothing inside [op] may call back into a gated method — that is a
+  /// self-deadlock, not a re-entrant lock — which is why the gate sits on the
+  /// four public entry points and nowhere below them.
+  Future<T> _exclusive<T>(Future<T> Function() op) {
+    final previous = _gates[_storage] ?? Future<void>.value();
+    final released = Completer<void>();
+    _gates[_storage] = released.future;
+    return previous
+        .then((_) => op())
+        // Released whatever happened: a failed write must not wedge the door
+        // for every send after it.
+        .whenComplete(released.complete);
+  }
+
   /// Hand every stored conversation back to veil.
   ///
   /// Returns how many were restored. A blob veil refuses is DROPPED from the
   /// container rather than retried forever: it can never open a frame again,
   /// and keeping unusable key material is the opposite of what this store is
   /// for.
-  Future<int> restore() => restoreRatchetStates(_native, _storage);
+  Future<int> restore() =>
+      _exclusive(() => restoreRatchetStates(_native, _storage));
 
   /// Persist every conversation veil has named as changed.
   ///
@@ -95,7 +131,9 @@ class RatchetPersistence {
   /// holding are gone.
   ///
   /// Returns how many conversations were written.
-  Future<int> flush() async {
+  Future<int> flush() => _exclusive(_flush);
+
+  Future<int> _flush() async {
     var written = 0;
     // A pass count, not a while(true): a store that somehow kept re-marking
     // would spin here forever, on the send path, holding a message.
@@ -127,7 +165,9 @@ class RatchetPersistence {
   /// `list` rather than `take_dirty` on purpose: the marks are the record of
   /// what still needs writing, and a shutdown save that consumed them would
   /// leave a crash between here and process exit with nothing to notice.
-  Future<int> saveAll() async {
+  Future<int> saveAll() => _exclusive(_saveAll);
+
+  Future<int> _saveAll() async {
     final entries = exportRatchetStates(_native, _native.list());
     if (entries.isEmpty) return 0;
     await _storage.saveRatchetStates(entries);
@@ -143,7 +183,9 @@ class RatchetPersistence {
   ///
   /// Irreversible, so it belongs to a deleted chat or a removed contact — never
   /// to eviction, which would cost every message that peer sends afterwards.
-  Future<int> forgetPeer(NodeId peer) async {
+  Future<int> forgetPeer(NodeId peer) => _exclusive(() => _forgetPeer(peer));
+
+  Future<int> _forgetPeer(NodeId peer) async {
     final doomed = <Uint8List>[];
     for (final key in await _storage.ratchetConversationKeys()) {
       if (_peerNodeMatches(key, peer.bytes)) doomed.add(key);

@@ -227,6 +227,26 @@ class _OrderedStorage extends HiddenVolumeStorage {
   }
 }
 
+/// Lets a test stop one ratchet transaction in the gap it actually loses races
+/// in: after the export, before the commit.
+class _PausableStorage extends HiddenVolumeStorage {
+  _PausableStorage(super.opener);
+
+  /// Runs once, inside the first ratchet save, between the bytes being read out
+  /// of veil and the records reaching the container.
+  Future<void> Function()? beforeRatchetSave;
+
+  @override
+  Future<void> saveRatchetStates(List<RatchetStateEntry> entries) async {
+    final hook = beforeRatchetSave;
+    if (hook != null) {
+      beforeRatchetSave = null;
+      await hook();
+    }
+    await super.saveRatchetStates(entries);
+  }
+}
+
 /// Counts vacuum passes, which the in-memory fake has no reason to model.
 class _ScrubCountingStore implements KvLogStore {
   final FakeKvLogStore inner = FakeKvLogStore();
@@ -832,6 +852,112 @@ void main() {
       // that consumed them would leave a crash after this point with nothing
       // to notice.
       expect(node.takeDirty(64).keys, hasLength(2));
+    });
+  });
+
+  group('one ratchet transaction at a time', () {
+    late _PausableStorage paused;
+    late FakeKvLogStore pausedStore;
+
+    setUp(() async {
+      pausedStore = FakeKvLogStore();
+      paused = _PausableStorage(
+        ({required Uint8List password, required bool create}) =>
+            password.isEmpty ? null : pausedStore,
+      );
+      await paused.open(password: 'pw', createIfMissing: true);
+    });
+
+    test('a flush that overtakes another cannot leave the older state', () async {
+      final key = _convKey(local: 3, peerNode: 40);
+      final node = _FakeRatchetNode();
+      final run = RatchetPersistence(native: node, storage: paused);
+
+      // One send. The first flush reads these bytes out and stops on the far
+      // side of the export, holding a commit it has not made.
+      node.seal(key);
+      Future<int>? overtaker;
+      paused.beforeRatchetSave = () async {
+        // Another send lands while that commit is in the air, and the flush it
+        // triggers exports the NEWER bytes.
+        node.seal(key);
+        overtaker = run.flush();
+        // Long enough for the second transaction to run to completion if
+        // nothing is stopping it — which is the failure: its newer record is
+        // then overwritten by the older one still on its way down.
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+      };
+      await run.flush();
+      await overtaker;
+
+      final stored = _FakeConversation.decode(
+        (await paused.loadRatchetState(key))!,
+      )!;
+      expect(
+        stored.sent,
+        2,
+        reason: 'the container holds the state from before the second send: '
+            'the older transaction committed last',
+      );
+    });
+
+    test('two persistences over one container are still one writer', () async {
+      // The gate is on the CONTAINER, not on the object. An identity switch
+      // that has not finished tearing the old [RatchetPersistence] down is two
+      // of them over one set of records, and a lock each is no lock at all —
+      // the older transaction still lands last and still wins.
+      final key = _convKey(local: 3, peerNode: 42);
+      final node = _FakeRatchetNode();
+      final leaving = RatchetPersistence(native: node, storage: paused);
+      final arriving = RatchetPersistence(native: node, storage: paused);
+
+      node.seal(key);
+      Future<int>? other;
+      paused.beforeRatchetSave = () async {
+        node.seal(key);
+        other = arriving.flush();
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+      };
+      await leaving.flush();
+      await other;
+
+      final stored = _FakeConversation.decode(
+        (await paused.loadRatchetState(key))!,
+      )!;
+      expect(
+        stored.sent,
+        2,
+        reason: 'the second persistence wrote through the first one\'s '
+            'transaction',
+      );
+    });
+
+    test('a flush in flight cannot resurrect a conversation just forgotten',
+        () async {
+      final peer = _node(41);
+      final key = _convKey(local: 3, peerNode: 41);
+      final node = _FakeRatchetNode();
+      final run = RatchetPersistence(native: node, storage: paused);
+
+      node.seal(key);
+      Future<int>? forgetting;
+      paused.beforeRatchetSave = () async {
+        // The chat is deleted while the write for it is in the air. Deleting a
+        // chat is irreversible on purpose, and a write that lands afterwards
+        // puts the key material of a conversation the user removed back into
+        // the container — where the next launch restores it.
+        forgetting = run.forgetPeer(peer);
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+      };
+      await run.flush();
+      await forgetting;
+
+      expect(
+        await paused.ratchetConversationKeys(),
+        isEmpty,
+        reason: 'a forgotten conversation came back after the deletion',
+      );
+      expect(node.list(), isEmpty);
     });
   });
 
