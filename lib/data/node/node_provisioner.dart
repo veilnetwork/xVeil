@@ -147,8 +147,23 @@ extension NodeListenTransportInfo on NodeListenTransport {
   };
 }
 
-/// One release asset and the independently-published digest that authenticates
-/// it before the remote server ever installs or executes it.
+/// One release asset and the digest the deployment checks it against before the
+/// remote server ever installs or executes it.
+///
+/// The digest is NOT an independent attestation, and saying so here mattered
+/// more than anywhere else: this is the class that feeds a root install on
+/// someone else's box. It comes from the SAME release as the binary — the
+/// GitHub asset digest, or the release's own `sha256-<triple>.txt` — from the
+/// same host, under the same tag. Whoever can publish or alter that release
+/// publishes both. A comment here called it "independently-published", which
+/// read like a second opinion and was not one (audit X-05; the twin on
+/// `VeilGithubReleaseResolver` was corrected and this copy was missed).
+///
+/// What it does buy: the bytes that arrive are the bytes the release names, so
+/// a substitution in transit or at a mirror is caught before the script installs
+/// the file as root. What it does not buy: any statement about who published the
+/// release. A signed manifest (TUF/Sigstore) is the fix for that, and it lives
+/// in veil's release process rather than here.
 class NodeReleaseArtifact {
   const NodeReleaseArtifact({
     required this.component,
