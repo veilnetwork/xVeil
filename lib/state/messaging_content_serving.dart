@@ -60,7 +60,8 @@ class _MessagingContentServing {
   /// the identity of the file that was checked. See
   /// `MessagingService._servedSourceStillMatches`, which owns the meaning;
   /// this only holds the answer. Insertion order is drop order.
-  final Map<String, ({int size, int mtimeMs, bool ok})> servedVerdicts = {};
+  final Map<String, ({int deviceId, int inode, int size, int mtimeMs, bool ok})>
+      servedVerdicts = {};
 
   /// Checks in progress, so a range-parallel pull that opens several serve
   /// streams for one contentId shares ONE hashing pass.
@@ -69,7 +70,13 @@ class _MessagingContentServing {
   void noteServedVerdict(String contentId, VeilSourceStamp stamp, bool ok) {
     // Re-insert so the freshest verdict is also the youngest entry.
     servedVerdicts.remove(contentId);
+    // The identity fields ride along with the content fields. A verdict keyed
+    // on size and mtime alone is a verdict a swapped file can inherit: both are
+    // writable by whoever can write the file, so `truncate` plus `touch -r`
+    // hands the planted bytes somebody else's "verified" and skips the hash.
     servedVerdicts[contentId] = (
+      deviceId: stamp.deviceId,
+      inode: stamp.inode,
       size: stamp.size,
       mtimeMs: stamp.mtimeMs,
       ok: ok,
