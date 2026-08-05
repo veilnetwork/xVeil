@@ -47,8 +47,23 @@ if [[ -z "$VERSION" ]]; then
   exit 1
 fi
 
+# The debug hook is opt-in at COMPILE time -- soak_hook.dart reads a
+# `bool.fromEnvironment`, so a build without the define has no hook at all and
+# no way to gain one later. Without a pass-through here, a macOS stand build
+# cannot be driven: /health answers nothing and it looks like a node that
+# failed to bootstrap. (The Android path has the same shape; it cost an hour
+# there on 2026-08-05 before the define was found.)
+HOOK_DEFINE=()
+case "${XVEIL_DEBUG_HOOK:-}" in
+  1|true|yes)
+    HOOK_DEFINE=(--dart-define=XVEIL_DEBUG_HOOK=true)
+    echo "    debug hook: ON (stand build — do not hand this to a user)"
+    ;;
+esac
+
 echo "==> flutter config ($CONFIG, version=$VERSION)"
-flutter build macos "--$CONFIG" --config-only --dart-define=XVEIL_VERSION="$VERSION"
+flutter build macos "--$CONFIG" --config-only \
+  --dart-define=XVEIL_VERSION="$VERSION" "${HOOK_DEFINE[@]}"
 
 echo "==> xcodebuild (ad-hoc, no VPN entitlement)"
 # -derivedDataPath is NOT optional. Without it xcodebuild writes the app into
