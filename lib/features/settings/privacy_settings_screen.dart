@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/backup_exclusion.dart';
 import '../../domain/chat.dart' show SignaturePolicy;
 import '../../domain/p2p_policy.dart';
 import '../../domain/screen_lock.dart';
@@ -119,6 +120,7 @@ class PrivacySettingsScreen extends ConsumerWidget {
       ),
       body: ListView(
         children: [
+          const BackupExclusionWarning(),
           Builder(
             builder: (_) {
               final p2p = ref.watch(p2pPolicyProvider);
@@ -423,6 +425,88 @@ class _RecommendationPrivacySwitchState
                   .read(messagingServiceProvider)
                   .setSpaceRecommendationsEnabled(value);
             },
+    );
+  }
+}
+
+/// A warning shown when the device is NOT keeping xVeil's data out of its
+/// backup.
+///
+/// Nothing more than a warning, on purpose. The audit's remedy for the same
+/// finding was to block writes or block the unlock; that takes a working app
+/// away from someone over a filesystem condition they cannot fix from inside
+/// it, and the container is encrypted either way. What a backup actually costs
+/// is deniability of its EXISTENCE, plus the chance to attack a copy of it at
+/// leisure — which is worth saying plainly and letting the person act on.
+///
+/// Empty on every platform that does not answer the channel: Android seals the
+/// same data with `allowBackup=false` and data-extraction rules in the
+/// manifest, and no desktop has an OS backup service in this loop.
+class BackupExclusionWarning extends StatefulWidget {
+  const BackupExclusionWarning({super.key, this.exclusion});
+
+  /// Injected by tests, which have no runner to answer the channel.
+  final BackupExclusion? exclusion;
+
+  @override
+  State<BackupExclusionWarning> createState() => _BackupExclusionWarningState();
+}
+
+class _BackupExclusionWarningState extends State<BackupExclusionWarning> {
+  String? _reason;
+
+  @override
+  void initState() {
+    super.initState();
+    _ask();
+  }
+
+  Future<void> _ask() async {
+    final reason = await (widget.exclusion ?? const BackupExclusion()).problem();
+    if (!mounted || reason == null) return;
+    setState(() => _reason = reason);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reason = _reason;
+    if (reason == null) return const SizedBox.shrink();
+    final l = AppL10n.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      key: const ValueKey('backup-not-excluded'),
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+      color: scheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.cloud_off_outlined, color: scheme.onErrorContainer),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l.backupNotExcludedTitle,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      color: scheme.onErrorContainer,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    l.backupNotExcludedBody(reason),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: scheme.onErrorContainer,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
