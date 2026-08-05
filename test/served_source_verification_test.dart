@@ -557,4 +557,92 @@ void main() {
       );
     },
   );
+
+  /// FORGING THE STAMP, with no race at all.
+  ///
+  /// The verdict cache used to be keyed on `(size, mtime)`. Both are writable by
+  /// anyone who can write the file: `truncate` to the original length and
+  /// `touch -r` against the original stamp reproduces the key exactly, in two
+  /// commands, at leisure. A file swapped in that way inherited the previous
+  /// file's "this content was verified" verdict and was served without ever
+  /// being hashed again — the comment beside the stamp admitted both fields
+  /// were forgeable and stopped there.
+  ///
+  /// `(st_dev, st_ino)` is not something the attacker gets to choose. A rename
+  /// over the name always yields a different inode.
+  test('a swap that reproduces size AND mtime does not inherit the verdict',
+      () async {
+    final file = File('${workdir.path}/forged.bin');
+    final honest = _rnd(300000, 201);
+    await file.writeAsBytes(honest);
+    // Old enough that the verdict is actually CACHED — a stamp younger than the
+    // settle window is deliberately not remembered, and then this test would
+    // pass without the cache ever being consulted.
+    final stamp = DateTime.utc(2020, 1, 1, 12);
+    file.setLastModifiedSync(stamp);
+
+    Future<Uint8List> read(int offset, int length) async {
+      final handle = await file.open();
+      try {
+        await handle.setPosition(offset);
+        return await handle.read(length);
+      } finally {
+        await handle.close();
+      }
+    }
+
+    mA.sourceOpener = countingOpener;
+    final cid = await mA.registerGroupContentStreaming(
+      'forged.bin',
+      honest.length,
+      read,
+      close: () async {},
+      sourcePath: file.path,
+    );
+    expect(await mA.verifiedGroupContentSourcePath(cid), file.path);
+
+    // The verdict is now cached: asking again costs no open.
+    final afterFirst = opens;
+    expect(await mA.verifiedGroupContentSourcePath(cid), file.path);
+    expect(
+      opens,
+      afterFirst,
+      reason: 'the cache has to be live, or this proves nothing',
+    );
+
+    final before = await veilSourceStamp(file.path);
+
+    // THE FORGERY. Same length, different bytes, and the mtime put back — a
+    // rename so the name now points at a different object.
+    final planted = File('${workdir.path}/planted.bin');
+    await planted.writeAsBytes(_rnd(300000, 202));
+    planted.setLastModifiedSync(stamp);
+    planted.renameSync(file.path);
+
+    final after = await veilSourceStamp(file.path);
+    expect(after, isNotNull);
+    expect(
+      (size: after!.size, mtimeMs: after.mtimeMs),
+      (size: before!.size, mtimeMs: before.mtimeMs),
+      reason: 'the forgery is faithful — the OLD key cannot tell these apart',
+    );
+    expect(
+      after.inode == before.inode && after.deviceId == before.deviceId,
+      isFalse,
+      reason: 'the identity is what the attacker could not reproduce',
+    );
+
+    expect(
+      await mA.verifiedGroupContentSourcePath(cid),
+      isNull,
+      reason:
+          'the planted file must be re-hashed and rejected, not handed the '
+          'previous file\'s verdict',
+    );
+    expect(
+      opens,
+      greaterThan(afterFirst),
+      reason: 'and re-hashing means it was actually reopened',
+    );
+  });
 }

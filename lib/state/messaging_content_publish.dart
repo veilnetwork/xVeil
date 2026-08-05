@@ -308,12 +308,18 @@ extension _MessagingContentPublish on MessagingService {
   /// so the verdict is cached against the file's size and mtime and re-taken
   /// as soon as either moves.
   ///
-  /// DETECTION, NOT PREVENTION, and the cache key is where that shows: size
-  /// and mtime are writable by whoever can write the file. Dart offers no
-  /// `openat`, no `O_NOFOLLOW` and no `fstat`, so there is no way from here to
-  /// bind the check and the open to the same inode; this project has hit that
-  /// wall before and chose detection deliberately. What this does close is the
-  /// case that needed no timing at all.
+  /// DETECTION, NOT PREVENTION. Dart offers no `openat`, no `O_NOFOLLOW` and no
+  /// `fstat`, so there is no way from here to bind the check and the open to
+  /// the same descriptor; this project has hit that wall before and chose
+  /// detection deliberately. What this does close is the case that needed no
+  /// timing at all.
+  ///
+  /// The cache key used to be size and mtime, both writable by whoever can
+  /// write the file — so the detector could be defeated outright by `truncate`
+  /// plus `touch -r`, no race required, and the planted file inherited the
+  /// cached "verified" verdict and was served without being hashed. The key now
+  /// carries `(st_dev, st_ino)` as well, which is not something an attacker
+  /// gets to choose.
   Future<bool> _servedSourceStillMatches(
     String cid,
     _ServedRecord rec,
@@ -321,7 +327,11 @@ extension _MessagingContentPublish on MessagingService {
     final stamp = await veilSourceStamp(rec.path);
     if (stamp != null) {
       final cached = _contentServing.servedVerdicts[cid];
+      // All four, identity first. Matching size and mtime is what an attacker
+      // can arrange; matching (device, inode) is what they cannot.
       if (cached != null &&
+          cached.deviceId == stamp.deviceId &&
+          cached.inode == stamp.inode &&
           cached.size == stamp.size &&
           cached.mtimeMs == stamp.mtimeMs) {
         return cached.ok;

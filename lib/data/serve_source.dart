@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../core/posix_file_facts.dart';
+
 /// A byte source the SENDER serves a large file from directly (the original file
 /// on disk) — read + close closures over a [RandomAccessFile]. Reads are
 /// SERIALIZED through an internal gate: the serve loop issues many reads and a
@@ -13,23 +15,57 @@ typedef VeilServeSource = ({
 });
 
 /// What a serve source's file looked like when it was last checked.
-typedef VeilSourceStamp = ({int size, int mtimeMs});
+///
+/// `(deviceId, inode)` is the OBJECT'S identity; `(size, mtimeMs)` is what it
+/// contained. Both halves are needed and neither replaces the other — see
+/// [veilSourceStamp].
+typedef VeilSourceStamp = ({int deviceId, int inode, int size, int mtimeMs});
 
-/// Size + last-modified of [path], or null when it cannot be stat'ed.
+/// Identity + size + last-modified of [path], or null when it cannot be read.
 ///
-/// A cache key for "is this still the file we verified", nothing more. Null is
-/// not a failure — an in-memory or otherwise non-filesystem source name simply
-/// has nothing to stamp, and a caller must then re-check rather than trust a
-/// key that can never change.
+/// A cache key for "is this still the file we verified". Null is not a failure —
+/// an in-memory or otherwise non-filesystem source name simply has nothing to
+/// stamp, and a caller must then re-check rather than trust a key that can never
+/// change.
 ///
-/// Both fields are writable by anyone who can write the file (`utimes`), so a
-/// matching stamp is evidence and not proof. Dart has no `fstat` on an open
-/// handle to do better with.
+/// ## Why it is not size and mtime
+///
+/// It used to be exactly those two, with a comment admitting that both are
+/// writable by anyone who can write the file. That is not a caveat, it is the
+/// whole attack: `truncate` to the original length and `touch -r` against the
+/// original file reproduces the stamp exactly, in two commands, with no timing
+/// involved. And the stamp is what decides whether a cached "this content was
+/// verified" verdict still applies — so forging it means a swapped file
+/// inherits somebody else's verdict and is served without ever being hashed.
+///
+/// `(st_dev, st_ino)` is not writable. There is no call that says "give this
+/// file that inode": an attacker who replaces the file gets whatever the
+/// filesystem hands out, and a rename-over-the-name always yields a different
+/// one. That comes from [posixLstat], which is already in the tree for exactly
+/// this kind of question (audit C-02).
+///
+/// Both halves are kept, because each covers what the other misses:
+///
+///  * `lstat` does not follow the last symlink, so when [path] IS a link the
+///    identity is the LINK's. Repointing a link means replacing it, which
+///    changes that inode — but swapping the file the link points AT does not,
+///    and size/mtime are what notice that;
+///  * conversely a rewrite in place keeps the inode and moves size or mtime.
+///
+/// On Windows, and on any POSIX ABI whose `struct stat` layout [posixLstat]
+/// does not know, the identity fields are 0 and the stamp degrades to exactly
+/// what it was before — no weaker, and no pretence of being stronger.
 Future<VeilSourceStamp?> veilSourceStamp(String path) async {
   try {
     final stat = await File(path).stat();
     if (stat.type == FileSystemEntityType.notFound) return null;
-    return (size: stat.size, mtimeMs: stat.modified.millisecondsSinceEpoch);
+    final facts = posixLstat(path);
+    return (
+      deviceId: facts?.deviceId ?? 0,
+      inode: facts?.inode ?? 0,
+      size: stat.size,
+      mtimeMs: stat.modified.millisecondsSinceEpoch,
+    );
   } catch (_) {
     return null;
   }
