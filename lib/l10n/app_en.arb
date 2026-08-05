@@ -1841,6 +1841,10 @@
   "profileExplainer": "A profile is a separate installation: its own container, its own password, its own identities. Nothing is shared between profiles. Use one to keep a test build away from your real data.",
   "profileDefaultName": "Default (production)",
   "profileRunningNow": "Running now",
+  "profileChoiceNotSaved": "The choice could not be saved — the next launch will use the current profile",
+  "@profileChoiceNotSaved": {
+    "description": "Shown when the active-profile pointer file could not be written durably; the selection is not applied so the screen never claims a switch that will not happen."
+  },
   "profileRestartRequired": "Restart xVeil to switch profile",
   "profileSwitchNote": "The chosen profile is remembered and applies on the next launch. On desktop you can also pass --profile <name>; on a phone, set XVEIL_PROFILE before launch.",
   "profileCreateTitle": "New profile",

@@ -10266,6 +10266,12 @@ abstract class AppL10n {
   /// **'Running now'**
   String get profileRunningNow;
 
+  /// Shown when the active-profile pointer file could not be written durably; the selection is not applied so the screen never claims a switch that will not happen.
+  ///
+  /// In en, this message translates to:
+  /// **'The choice could not be saved — the next launch will use the current profile'**
+  String get profileChoiceNotSaved;
+
   /// No description provided for @profileRestartRequired.
   ///
   /// In en, this message translates to:
