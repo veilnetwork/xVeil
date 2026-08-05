@@ -4,7 +4,8 @@ xVeil is a cross-platform (Android · iOS · Windows · Linux · macOS) Flutter 
 for the [veil](https://github.com/veilnetwork/veil) overlay network. It is
 **messenger-first**: a Telegram-grade chat experience whose primary differentiator
 is decentralization and deniability. Proxy/VPN routing and node management are
-secondary surfaces; cloud file storage is a future "killer feature".
+secondary surfaces. Cloud file storage is shipped, not planned — its own screens,
+folder sync, a trash with undo, and per-folder ACLs.
 
 It is built for people in censored / authoritarian environments. The two design
 rules that follow from that — minimal user actions, and no central source of data —
