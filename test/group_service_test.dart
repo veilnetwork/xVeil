@@ -447,9 +447,9 @@ class _HalfWrittenBundleStorage extends HiddenVolumeStorage {
   }
 
   @override
-  Future<Uint8List?> loadFile(String fileId) async {
+  Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async {
     if (_incomplete.contains(fileId)) return null;
-    return super.loadFile(fileId);
+    return super.loadFile(fileId, maxBytes: maxBytes);
   }
 }
 
@@ -463,9 +463,9 @@ class _CountingGroupReadStorage extends HiddenVolumeStorage {
   int groupBundleReads = 0;
 
   @override
-  Future<Uint8List?> loadFile(String fileId) async {
+  Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async {
     if (fileId.startsWith('group:')) groupBundleReads++;
-    return super.loadFile(fileId);
+    return super.loadFile(fileId, maxBytes: maxBytes);
   }
 }
 

@@ -45,9 +45,9 @@ class _CountingStorage extends HiddenVolumeStorage {
   final Map<String, int> fileLoads = {};
 
   @override
-  Future<Uint8List?> loadFile(String fileId) {
+  Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) {
     fileLoads.update(fileId, (count) => count + 1, ifAbsent: () => 1);
-    return super.loadFile(fileId);
+    return super.loadFile(fileId, maxBytes: maxBytes);
   }
 }
 

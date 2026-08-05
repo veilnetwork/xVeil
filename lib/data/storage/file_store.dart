@@ -948,10 +948,19 @@ class AsyncFileStore {
 
   /// Reassemble the whole stored file, or null if unknown / incomplete. For a
   /// large STREAMED file prefer [readFileRange] to avoid holding it all in RAM.
-  Future<Uint8List?> loadFile(String fileId) async {
+  ///
+  /// [maxBytes] refuses an over-large file from its RECORDED SIZE, before any
+  /// chunk is read — see [Storage.loadFile]. A record with no readable size is
+  /// refused too when a ceiling is asked for: "we do not know how big this is"
+  /// is not a reason to read it all.
+  Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async {
     final raw = await _store.get(Ns.settings, _k('file:$fileId'));
     if (raw == null) return null;
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    if (maxBytes != null) {
+      final size = m['size'];
+      if (size is! int || size > maxBytes) return null;
+    }
     if (m['streamed'] == true) {
       return readFileRange(fileId, 0, m['size'] as int);
     }

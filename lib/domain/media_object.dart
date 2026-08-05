@@ -1,3 +1,16 @@
+/// The most a whole IMAGE may be read into RAM to be shown inline.
+///
+/// Inline rendering decodes the file entire, and the decoded bitmap costs
+/// several times the file on top of it — so this is the number that decides
+/// whether a picture someone else sent can push the app out of memory. Above
+/// it the thumb and the download affordance stand in, which is what they are
+/// for.
+///
+/// It belongs to the DOMAIN rather than to one screen because both screens that
+/// render a stored image need the same answer, and one of them had no ceiling
+/// at all while the other's was defeated by an omitted size (audit report8).
+const int kInlineImageMaxBytes = 24 * 1024 * 1024;
+
 /// One domain description for user-visible media carried by messages,
 /// publications and the content store.
 ///

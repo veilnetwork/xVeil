@@ -390,7 +390,18 @@ abstract interface class Storage {
   Future<void> storeFile(String fileId, Uint8List bytes, {String? name});
 
   /// Load a previously stored file, or null if unknown / incomplete.
-  Future<Uint8List?> loadFile(String fileId);
+  ///
+  /// THIS HOLDS THE WHOLE FILE IN RAM. [maxBytes], when given, is a hard
+  /// ceiling enforced against the RECORDED SIZE before a byte is read: a file
+  /// larger than it comes back null rather than being reassembled. Prefer
+  /// [readFileRange] wherever the caller can stream.
+  ///
+  /// The ceiling lives here rather than at the call sites because here is where
+  /// the size is actually KNOWN. A caller checking a size it was handed —
+  /// `(media.size ?? 0) > limit` — passes an absent size as zero and reads a
+  /// file of any size at all, which is exactly what a hostile sender omits
+  /// (audit report8).
+  Future<Uint8List?> loadFile(String fileId, {int? maxBytes});
 
   /// Remove one stored blob from either encrypted tier. The implementation
   /// atomically scrubs its in-volume key/chunk metadata before best-effort

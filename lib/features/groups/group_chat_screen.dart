@@ -18,6 +18,7 @@ import '../../data/serve_source.dart';
 import '../../domain/chat.dart';
 import '../../domain/call_signal.dart';
 import '../../domain/group.dart';
+import '../../domain/media_object.dart' show kInlineImageMaxBytes;
 import '../../domain/group_message.dart';
 import '../../domain/group_policy.dart';
 import '../../domain/group_reaction.dart';
@@ -2133,7 +2134,13 @@ class _GroupRefImageState extends ConsumerState<_GroupRefImage> {
     _lastAttemptAt = DateTime.now();
     Uint8List? bytes;
     try {
-      bytes = await ref.read(storageProvider).loadFile(cid);
+      // Bounded: this renders the FULL bytes inline, and it had no ceiling at
+      // all — a group attachment of any size someone else chose was read whole
+      // into RAM and then decoded on top of that. Over the ceiling the thumb
+      // and the download affordance stay, which is what they are for.
+      bytes = await ref
+          .read(storageProvider)
+          .loadFile(cid, maxBytes: kInlineImageMaxBytes);
     } catch (_) {
       // Keep the thumb/download affordance and retry after a provider signal.
     } finally {
