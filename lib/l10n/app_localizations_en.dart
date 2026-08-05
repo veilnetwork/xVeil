@@ -5896,4 +5896,13 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get identityDamagedBack => 'Back to the lock screen';
+
+  @override
+  String get backupNotExcludedTitle =>
+      'This device may be copying your data into its backup';
+
+  @override
+  String backupNotExcludedBody(String reason) {
+    return 'xVeil asks the system to keep its container out of iCloud and computer backups. On this device that did not take effect ($reason). Your data stays encrypted, but a backup could show that this app holds an identity, and a copy of it could be attacked away from your phone. Turning off backup for xVeil in the system settings closes it.';
+  }
 }

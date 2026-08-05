@@ -144,6 +144,12 @@ final class ScreenPrivacyGuard {
   private var mediaPermissionsChannel: FlutterMethodChannel?
   private var callAudioRouteChannel: FlutterMethodChannel?
   private var secureScreenChannel: FlutterMethodChannel?
+  private var backupExclusionChannel: FlutterMethodChannel?
+
+  /// Why the container is NOT excluded from iCloud/iTunes backups, or nil when
+  /// it is. Static because it is settled in `didFinishLaunching`, before the
+  /// engine that will eventually ask for it exists.
+  private static var backupExclusionProblem: String?
 
   override func application(
     _ application: UIApplication,
@@ -233,6 +239,26 @@ final class ScreenPrivacyGuard {
       result(nil)
     }
     secureScreenChannel = secureChannel
+
+    // The answer is already settled by the time anything can ask: the exclusion
+    // runs in `didFinishLaunching`, before the engine exists. So this is a pull,
+    // not a push — Dart asks once when Settings → Privacy is built.
+    //
+    // nil means excluded. A string is the reason it is not, and it is shown as
+    // a warning rather than acted on: there is nothing the app can do about a
+    // filesystem that refuses the flag, and blocking the launch or the unlock
+    // over it would take the app away from the person instead of telling them.
+    let backupChannel = FlutterMethodChannel(
+      name: "xveil/backup_exclusion",
+      binaryMessenger: registrar.messenger())
+    backupChannel.setMethodCallHandler { call, result in
+      guard call.method == "problem" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      result(Self.backupExclusionProblem)
+    }
+    backupExclusionChannel = backupChannel
   }
 
   private static func setCallAudioRoute(speaker: Bool) -> Bool {
@@ -279,10 +305,30 @@ final class ScreenPrivacyGuard {
   /// `isExcludedFromBackup`; on iOS it is a per-app sandbox dir, so nothing but
   /// xVeil's own data lives there. Foundation-only (no Flutter engine API), so it
   /// is build-safe; best-effort (a failure must never block launch).
+  ///
+  /// VERIFIED, not assumed. `setResourceValues` returning without throwing means
+  /// the call was accepted, which is not the same as the flag being set, and a
+  /// missing directory used to be a silent `return` — nothing logged, nothing
+  /// reported, and every later launch equally quiet. The whole container going
+  /// into iCloud is not a failure that should only be discoverable by reading
+  /// somebody's backup.
+  ///
+  /// The read-back drops the cached resource values first. `setResourceValues`
+  /// populates that cache from what it just wrote, so re-reading without
+  /// clearing it returns our own assertion and proves nothing at all.
+  ///
+  /// Still best-effort: the outcome is REPORTED (to `xveil/backup_exclusion`,
+  /// which Settings → Privacy reads) and never blocks launch. Refusing to start
+  /// or refusing to unlock over it would take a working app away from someone
+  /// over a condition they cannot fix from inside it.
   private func excludeAppDataFromBackup() {
     let fm = FileManager.default
     guard var url = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-    else { return }
+    else {
+      Self.backupExclusionProblem = "the Application Support directory could not be located"
+      NSLog("xVeil: \(Self.backupExclusionProblem!)")
+      return
+    }
     do {
       // path_provider creates this lazily; ensure it exists first (setting the
       // resource value requires the item to exist).
@@ -290,7 +336,18 @@ final class ScreenPrivacyGuard {
       var values = URLResourceValues()
       values.isExcludedFromBackup = true
       try url.setResourceValues(values)
+
+      url.removeAllCachedResourceValues()
+      let readBack = try url.resourceValues(forKeys: [.isExcludedFromBackupKey])
+      if readBack.isExcludedFromBackup == true {
+        Self.backupExclusionProblem = nil
+      } else {
+        Self.backupExclusionProblem =
+          "the exclude-from-backup flag did not read back as set"
+        NSLog("xVeil: \(Self.backupExclusionProblem!)")
+      }
     } catch {
+      Self.backupExclusionProblem = "\(error)"
       NSLog("xVeil: could not exclude app data from backup: \(error)")
     }
   }

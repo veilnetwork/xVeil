@@ -77,16 +77,25 @@ Future<void> main([List<String> args = const []]) async {
       //
       // Ordering is load-bearing: `SharedPreferences` caches its map on first
       // use, so this has to win the race with every other reader.
-      try {
-        activeProfile = await installProfilePreferences(
-          supportDir: (await getApplicationSupportDirectory()).path,
-          args: launchArguments,
-        );
-      } catch (e, st) {
-        // Never fatal: preferences are conveniences, and a launch that dies
-        // over one is a worse outcome than a launch that starts on defaults.
-        devLog(() => 'xVeil[prefs]: profile preference install failed: $e\n$st');
-      }
+      //
+      // Still never fatal — a launch that dies over a preference is a worse
+      // outcome than one that starts without them — but "not fatal" used to
+      // mean "carry on with the SYSTEM STORE", which is the exact thing being
+      // escaped. The assignment that swaps the backend is the last line of the
+      // installer, so any throw before it (a missing `path_provider`, an
+      // app-support directory that will not create) left everything after this
+      // point writing back into `NSUserDefaults` and back into the backup,
+      // profile roster and all. The fallback now leans the other way: an empty
+      // in-memory store. Settings are lost on exit; nothing leaves the device.
+      activeProfile = await installProfilePreferencesOrFallback(
+        supportDir: () async => (await getApplicationSupportDirectory()).path,
+        args: launchArguments,
+        onError: (e, st) => devLog(
+          () =>
+              'xVeil[prefs]: profile preference install failed, running on an '
+              'in-memory store for this session: $e\n$st',
+        ),
+      );
 
       // Desktop: arm window_manager so the close button can hide to tray
       // (DesktopTrayHost decides) instead of quitting. No-op on mobile.

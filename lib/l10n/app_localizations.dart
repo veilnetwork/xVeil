@@ -10523,6 +10523,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Back to the lock screen'**
   String get identityDamagedBack;
+
+  /// No description provided for @backupNotExcludedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This device may be copying your data into its backup'**
+  String get backupNotExcludedTitle;
+
+  /// No description provided for @backupNotExcludedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil asks the system to keep its container out of iCloud and computer backups. On this device that did not take effect ({reason}). Your data stays encrypted, but a backup could show that this app holds an identity, and a copy of it could be attacked away from your phone. Turning off backup for xVeil in the system settings closes it.'**
+  String backupNotExcludedBody(String reason);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
