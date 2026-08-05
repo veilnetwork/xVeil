@@ -513,19 +513,25 @@ void main() {
     });
 
     test('Windows probe() gets PAST the guard when protected', () async {
+      // Named component, not the real one, for the reason its Linux sibling
+      // above records: relying on the HOST to be missing a file makes the case
+      // pass on a developer's Mac and fail on Windows, where the DLL beside the
+      // executable is exactly what a real installation has.
+      const absentComponent = 'xveil-test-absent-component.dll';
       final state = await WindowsManagedVpnBackend(
         isWindowsHost: true,
         executablePath: r'C:\Program Files\xVeil\xveil.exe',
+        requiredComponents: const [absentComponent],
         launchGuard: PrivilegedLaunchGuard(
           probe: _FakeProbe(_protectedWindowsInstall()),
           windows: true,
         ),
       ).probe();
-      // Still unsupported on this host — there is no `veil_vpn_helper.dll` on a
-      // Mac — but for the NEXT reason down, which is what proves the guard let
-      // it through instead of swallowing the feature wholesale.
+      // Still unsupported, but for the NEXT reason down, which is what proves
+      // the guard let it through instead of swallowing the feature wholesale.
       expect(state.detail, isNot(contains('protected location')));
       expect(state.detail, contains('missing Windows VPN components'));
+      expect(state.detail, contains(absentComponent));
     });
 
     test('Linux probe() refuses an unpacked tarball', () async {
@@ -548,17 +554,27 @@ void main() {
     });
 
     test('Linux probe() gets PAST the guard when protected', () async {
+      // The tun path is injected rather than left at its default, and that is
+      // the whole point of the case. It used to rely on the HOST not having
+      // `/dev/net/tun` — true on the Mac this is usually run on, false on the
+      // Linux this test is named after. So it passed where it did not matter
+      // and failed where it did: on a real Linux box the probe gets past the
+      // device too, `detail` is null, and the assertion below blew up on a
+      // machine that was behaving correctly.
+      const absentTun = '/nonexistent/xveil-test/net/tun';
       final state = await LinuxManagedVpnBackend(
         isLinuxHost: true,
         executablePath: '/usr/lib/xveil/xveil',
+        tunDevice: absentTun,
         launchGuard: PrivilegedLaunchGuard(
           probe: _FakeProbe(_protectedLinuxInstall()),
           windows: false,
         ),
       ).probe();
       expect(state.detail, isNot(contains('protected location')));
-      // The next check down is /dev/net/tun, which no Mac has.
-      expect(state.detail, contains('/dev/net/tun'));
+      // Stopped at the NEXT check down, which is what proves the guard let it
+      // through instead of swallowing the feature wholesale.
+      expect(state.detail, contains(absentTun));
     });
 
     test('Linux start() will not pkexec a writable installation', () async {
