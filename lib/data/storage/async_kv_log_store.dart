@@ -325,6 +325,31 @@ void _workerEntry(_OpenConfig cfg) {
 class WorkerKvLogStore implements AsyncKvLogStore {
   WorkerKvLogStore._(this._isolate, this._toWorker, this._watch);
 
+  /// Assemble a store over a worker that is ALREADY up.
+  ///
+  /// TEST SEAM ONLY. The hidden-volume library cannot be loaded in a test VM —
+  /// a spawned worker dies on `dlsym` long before it opens anything — so the
+  /// close contract below, the one the other two worker lifecycles in this
+  /// project are now aligned to, would otherwise have no way to be exercised at
+  /// all. Production builds its workers through [open] / [openWithKeys].
+  ///
+  /// Deliberately NOT annotated `@visibleForTesting`: that annotation lives in
+  /// `package:flutter/foundation.dart`, and this file is reachable from the
+  /// headless daemon's entry points — one Flutter import anywhere in that graph
+  /// stops `dart build cli` compiling at all (see
+  /// `test/headless_is_flutter_free_test.dart`).
+  static WorkerKvLogStore overWorker({
+    required Isolate isolate,
+    required SendPort toWorker,
+    required WorkerDeath watch,
+  }) => WorkerKvLogStore._(isolate, toWorker, watch);
+
+  /// How long [close] waits for the worker before giving up on the wait.
+  /// Settable for TESTS ONLY — the wait is what is under test, and five real
+  /// seconds per case is not a thing to spend. Unannotated for the same
+  /// Flutter-free reason as [overWorker].
+  static Duration closeTimeout = const Duration(seconds: 5);
+
   final Isolate _isolate;
   final SendPort _toWorker;
 
@@ -488,12 +513,28 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     final reply = ReceivePort();
     final done = reply.first; // single-subscription: capture exactly once
     _toWorker.send(_CloseReq(reply.sendPort));
-    final r = await done.timeout(
-      const Duration(seconds: 5),
-      // The worker never replies a bare null (_Ok/_Err are objects), so null
+    // Raced against the worker's death, exactly like every other call (audit
+    // XV-07) — this was the one wait in the file that still watched only the
+    // reply. `errorsAreFatal` makes a crashed worker die QUIETLY, so a worker
+    // that faulted on the way out left this burning the whole timeout and then
+    // registering a background drain for a reply that can never come: the
+    // watcher was never disposed and its ports were never closed.
+    Object? r;
+    try {
+      // The worker never replies a bare null (`_Ok`/`_Err` are objects), so null
       // unambiguously means the timeout fired.
-      onTimeout: () => null,
-    );
+      r = await Future.any<Object?>([
+        done,
+        _death,
+      ]).timeout(closeTimeout, onTimeout: () => null);
+    } catch (e) {
+      // The worker died mid-close. Nothing is left to wait for, and whether the
+      // container handle was released with it is not something this can claim.
+      reply.close();
+      _watch.dispose();
+      _isolate.kill(priority: Isolate.immediate);
+      throw hv.HvException('Internal', 'storage worker died during close: $e');
+    }
     if (r != null) {
       reply.close();
       // Stop watching BEFORE the kill: an expected shutdown is not a death to
@@ -509,13 +550,19 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     // cannot interrupt or unwind an FFI frame, so the store would never close,
     // the container's exclusive flock would stay held by THIS PROCESS, and
     // every later open of the container would fail Busy until an app restart —
-    // the "correct password but won't unlock" trap. Return now so the caller
-    // (lock/switch) isn't stuck, but let the worker drain and close in the
-    // background; it kills itself after serving _CloseReq.
+    // the "correct password but won't unlock" trap. Let the worker drain and
+    // close in the background instead; it kills itself after serving _CloseReq.
+    //
+    // And SAY SO. Returning normally here told the caller the container was
+    // closed while its exclusive lock was still held — the same fabricated
+    // success WorkerMultiSpaceBacking used to manufacture with an
+    // `onTimeout` that answered `_MOk`. The caller does not have to be stuck to
+    // be told; every teardown path already collects this and carries on.
     devLog(
       () =>
-          'xVeil[storage]: worker close timed out (>5s) — waiting in '
-          'background for the store to finish closing (flock still held)',
+          'xVeil[storage]: worker close timed out '
+          '(>${closeTimeout.inMilliseconds}ms) — waiting in background for the '
+          'store to finish closing (flock still held)',
     );
     unawaited(
       done
@@ -536,6 +583,11 @@ class WorkerKvLogStore implements AsyncKvLogStore {
             // live and a real crash in the meantime is still worth reporting.
             _watch.dispose();
           }),
+    );
+    throw hv.HvException(
+      'Busy',
+      'storage worker did not close within ${closeTimeout.inMilliseconds}ms; '
+          'the container lock is still held',
     );
   }
 }
