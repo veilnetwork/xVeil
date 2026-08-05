@@ -242,7 +242,10 @@ class AppController extends Notifier<AppState> {
     // open — so a failure here surfaced later, somewhere else, as a confusing
     // error against half-written onboarding state. Roll the phase back and say
     // what happened while the cause is still on the stack.
-    final opened = await storage.open(password: password, createIfMissing: true);
+    final opened = await storage.open(
+      password: password,
+      createIfMissing: true,
+    );
     if (!opened) {
       state = state.copyWith(phase: AppPhase.onboarding, preparingReason: null);
       ref.read(pendingDeviceLinkProvider.notifier).state = false;
@@ -275,6 +278,51 @@ class AppController extends Notifier<AppState> {
   /// ends in ready/locked either way).
   bool _unlockInFlight = false;
 
+  /// LIFECYCLE GENERATION — what makes "is the session I am building still the
+  /// one the user wants?" a question with an answer (audit H-06).
+  ///
+  /// Every boot in this file creates a live resource — a node, a hosted session
+  /// owning every identity's node and the container's shared lock — and
+  /// publishes it into a provider AFTER an await. [lock] runs in that window as
+  /// a matter of course: it is reachable from the tray and from the API, and the
+  /// window is the WHOLE node boot, first-run mining included. A lock that
+  /// landed inside it read the providers, found them empty (nothing was
+  /// published yet), tore down nothing and returned — and then the boot it never
+  /// saw finished and published a LIVE node and an OPEN container into a session
+  /// the user had already ended, with the lock screen up in front of it. The
+  /// phase even walked back to `ready`. That is a deniability failure, not an
+  /// inconvenience: the machine stays on the network after a visible "locked".
+  ///
+  /// The guard that existed covered only two unlocks overlapping
+  /// ([_unlockInFlight]); nothing here knew about lock at all.
+  ///
+  /// Every transition that ENDS a session ([lock], [startOver],
+  /// [wipeContainers]) bumps this BEFORE it tears anything down. Everything that
+  /// builds a live resource takes a snapshot before its awaits and, if the
+  /// snapshot has gone stale by the time it holds the result, ROLLS BACK what it
+  /// built instead of publishing it. There is no await between the check and the
+  /// publish, so a lock either sees the published resource and tears it down, or
+  /// is seen by the check — never neither.
+  int _lifecycle = 0;
+
+  /// Ends the current lifecycle: nothing built under the previous generation may
+  /// be published any more. Called at the TOP of every teardown-to-locked path,
+  /// before the first await, so an in-flight boot cannot slip past it.
+  void _endLifecycle() => _lifecycle++;
+
+  /// True when a session-ending transition happened since [gen] was taken.
+  bool _supersededSince(int gen) => gen != _lifecycle;
+
+  /// Test seam for the one dependency of [_ensureRealStack] a unit test cannot
+  /// provide: the static [RealVeilStack.startDeniable], which boots a real
+  /// in-process node. Substituting it is what makes the lock-during-boot window
+  /// drivable at all — against the real boot the race is decided by a
+  /// multi-second mine nothing in a test can hold open.
+  ///
+  /// Null in production, where the real boot runs with the composed config.
+  @visibleForTesting
+  Future<RealVeilStack> Function()? debugDeniableStackStarter;
+
   /// Returning user: try to unlock the space with [password].
   Future<void> unlock(String password) async {
     if (_unlockInFlight) {
@@ -291,6 +339,9 @@ class AppController extends Notifier<AppState> {
 
   Future<void> _unlockInner(String password) async {
     final t0 = DateTime.now();
+    // Taken before the first await: everything this unlock publishes is only
+    // valid while the lifecycle it started in is still current.
+    final gen = _lifecycle;
     int ms() => DateTime.now().difference(t0).inMilliseconds;
     devLog(() => 'xVeil[unlock]: begin (phase=${state.phase.name})');
     // Show the loading screen BEFORE the heavy work: opening the real container
@@ -382,6 +433,12 @@ class AppController extends Notifier<AppState> {
             devLog(() => 'xVeil[all-online]: boot FAILED -> picker: $e\n$st');
             await _teardownSession();
           }
+        }
+        if (_supersededSince(gen)) {
+          // Locked while we were classifying. The picker is a SESSION screen —
+          // putting it up now would walk the phase back off the lock screen.
+          devLog(() => 'xVeil[unlock]: locked mid-unlock — not showing picker');
+          return;
         }
         state = state.copyWith(
           phase: AppPhase.pickingIdentity,
@@ -590,6 +647,8 @@ class AppController extends Notifier<AppState> {
     List<RosterEntry> roster,
     DeniableBootConfig boot,
   ) async {
+    // Taken before the first await — see [_lifecycle].
+    final gen = _lifecycle;
     // Still part of the unlock from the user's view (opening + booting all).
     state = state.copyWith(
       phase: AppPhase.preparingNode,
@@ -622,7 +681,9 @@ class AppController extends Notifier<AppState> {
     // then failed on the lock it could no longer release.
     try {
       await session.bootAll(roster);
-      await ref.read(backgroundNodeProvider.notifier).applyIfNodeUp(nodeUp: true);
+      await ref
+          .read(backgroundNodeProvider.notifier)
+          .applyIfNodeUp(nodeUp: true);
     } catch (_) {
       // Best-effort: a teardown failure must not mask the original error, and
       // the original is what the caller needs to see.
@@ -630,6 +691,24 @@ class AppController extends Notifier<AppState> {
         await session.disposeAll();
       } catch (_) {}
       rethrow;
+    }
+    // ...and only once it is still WANTED. A lock during `bootAll` — the window
+    // is every identity's node coming up — read an empty [sessionProvider],
+    // found nothing to dispose and returned; publishing here would then hand a
+    // locked app a session with every node running and the container's shared
+    // lock held, unreachable for cleanup until the process dies (audit H-06).
+    if (_supersededSince(gen)) {
+      devLog(
+        () =>
+            'xVeil[all-online]: locked while booting — disposing the session '
+            'instead of publishing it',
+      );
+      try {
+        await session.disposeAll();
+      } catch (e) {
+        devLog(() => 'xVeil[all-online]: rollback disposeAll failed: $e');
+      }
+      return;
     }
     // Published only once it is whole. From here `disposeAll` is reachable
     // through the provider, so lock/teardown can find it.
@@ -642,6 +721,7 @@ class AppController extends Notifier<AppState> {
   /// transport/invite via [realStackProvider]) at a hosted identity and surface
   /// it. Used on entry and on every all-online switch — no teardown.
   Future<void> _activateOnline(String label, List<String> identities) async {
+    final gen = _lifecycle;
     final session = ref.read(sessionProvider)!;
     _activeLabel = label;
     ref.read(activeIdentityProvider.notifier).state = label;
@@ -664,6 +744,12 @@ class AppController extends Notifier<AppState> {
     final nodeId = stack != null
         ? stack.myInvite.nodeId
         : await ref.read(veilTransportProvider).nodeId();
+    if (_supersededSince(gen)) {
+      // Locked while the profile / node id was being read. `ready` here would
+      // put the messenger back over a lock screen the user just raised.
+      devLog(() => 'xVeil[all-online]: locked mid-activate — staying locked');
+      return;
+    }
     state = AppState(
       AppPhase.ready,
       identity: Identity(
@@ -1369,7 +1455,11 @@ class AppController extends Notifier<AppState> {
       await storage.saveProfile(UserProfile(displayName: label));
       final roster = <RosterEntry>[
         ...base,
-        RosterEntry(label: label, spaceKeys: candidateKeys, anonymous: anonymous),
+        RosterEntry(
+          label: label,
+          spaceKeys: candidateKeys,
+          anonymous: anonymous,
+        ),
       ];
       await storage.close();
 
@@ -1498,6 +1588,10 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<void> _enterSession(UserProfile profile) async {
+    // Taken before the first await — see [_lifecycle]. Every caller of this
+    // (unlock, pick, switch, anonymity/lazy-mining reboot, proxy re-apply) can
+    // be locked out from under, and all of them end here at `ready`.
+    final gen = _lifecycle;
     // The container has answered by the time anything reaches here, which makes
     // this the only place the screen lock can learn what this space chose. Its
     // own build ran from the app's first frame — before the unlock screen — and
@@ -1539,6 +1633,14 @@ class AppController extends Notifier<AppState> {
       );
     }
     await _ensureRealStack();
+    if (_supersededSince(gen)) {
+      // The node boot is the longest await the app has (first-run mining), and
+      // a lock inside it has already torn down / refused whatever came up.
+      // Reaching `ready` from here would leave the messenger on screen with no
+      // session behind it (audit H-06).
+      devLog(() => 'xVeil[session]: locked while coming up — not entering');
+      return;
+    }
     final stack = ref.read(realStackProvider);
     if (stack == null) {
       // Loopback / legacy: kick the placeholder controller without blocking.
@@ -1626,8 +1728,12 @@ class AppController extends Notifier<AppState> {
     // one thing deniable separation cannot survive. It also kept the secret in
     // the Dart heap across a lock.
     final identityPhrase = takePendingIdentityPhrase();
-    try {
-      final stack = await RealVeilStack.startDeniable(
+    // Taken before the boot — the longest await in the app (see [_lifecycle]).
+    final gen = _lifecycle;
+    Future<RealVeilStack> startStack() async {
+      final starter = debugDeniableStackStarter;
+      if (starter != null) return starter();
+      return RealVeilStack.startDeniable(
         storage: ref.read(storageProvider),
         runtimeDirBase: boot.runtimeDir,
         // Offset alternates after every teardown (see _teardownRealStack) so
@@ -1650,6 +1756,33 @@ class AppController extends Notifier<AppState> {
         proxy: ref.read(effectiveProxyRoutingProvider),
         identityPhrase: identityPhrase,
       );
+    }
+
+    try {
+      final stack = await startStack();
+      if (_supersededSince(gen)) {
+        // A lock landed while the node was coming up. It looked in
+        // [realStackProvider], found nothing — because nothing was published
+        // yet — and finished, reporting the app locked. Publishing here would
+        // put a LIVE node and the open container behind the lock screen, and
+        // [_enterSession] would walk the phase back to `ready` (audit H-06).
+        // Roll the node back instead; NOTHING is published under a generation
+        // that has ended.
+        devLog(
+          () =>
+              'xVeil[deniable]: node came up after a lock — tearing it down '
+              'instead of publishing it',
+        );
+        try {
+          await stack.dispose();
+        } catch (e) {
+          devLog(() => 'xVeil[deniable]: rollback dispose failed: $e');
+        }
+        // Same reason as [_teardownRealStack]: the port this boot bound is now
+        // in lingering teardown and the next one must not rebind it.
+        _oneActivePortOffset = _oneActivePortOffset == 0 ? 64 : 0;
+        return;
+      }
       ref.read(realStackProvider.notifier).state = stack;
       // Real node is up — clear any pending boot status so the UI follows the
       // real controller's live state, not a stale "connecting…".
@@ -1672,7 +1805,6 @@ class AppController extends Notifier<AppState> {
       devLog(() => 'xVeil[deniable]: boot FAILED: $e\n$st');
     }
   }
-
 
   /// Bring down the OS-level VPN tunnel.
   ///
@@ -1700,6 +1832,11 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<void> lock() async {
+    // FIRST, before any await and before anything is torn down: end the
+    // lifecycle. What this teardown cannot see — a node or a hosted session
+    // still mid-boot, published only after the await it is sitting in — now
+    // refuses to publish itself and rolls back on its own (audit H-06).
+    _endLifecycle();
     // Timestamped phases: a lock that takes seconds points at whichever step
     // stalled (a busy storage worker on close is the prime suspect for the
     // "won't unlock until restart" report — see WorkerKvLogStore.close).
@@ -1866,6 +2003,7 @@ class AppController extends Notifier<AppState> {
   /// existing container file is left untouched on disk — deniability means we
   /// can't and shouldn't prove it exists; the user simply sets up anew.
   Future<void> startOver() async {
+    _endLifecycle(); // same window as [lock] — see [_lifecycle]
     await _stopVpnTunnel();
     await _teardownSession();
     await _teardownRealStack();
@@ -1896,6 +2034,7 @@ class AppController extends Notifier<AppState> {
   /// spaces are unrecoverable without the container. The UI must gate this
   /// behind an explicit, clearly-worded confirmation.
   Future<void> wipeContainers() async {
+    _endLifecycle(); // same window as [lock] — see [_lifecycle]
     await _stopVpnTunnel();
     await _teardownSession();
     await _teardownRealStack();
@@ -1925,7 +2064,9 @@ class AppController extends Notifier<AppState> {
       try {
         if (await blobRoot.exists()) await blobRoot.delete(recursive: true);
       } catch (e) {
-        devLog(() => 'xVeil[wipe]: failed to delete blobs at ${blobRoot.path}: $e');
+        devLog(
+          () => 'xVeil[wipe]: failed to delete blobs at ${blobRoot.path}: $e',
+        );
       }
     }
 
