@@ -4,7 +4,8 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' show PlatformDispatcher;
 
-import 'package:flutter/foundation.dart' show kProfileMode, kReleaseMode;
+import 'package:flutter/foundation.dart'
+    show kProfileMode, kReleaseMode, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -30,6 +31,7 @@ import 'data/transport/veil_native.dart';
 import 'data/veil_stack.dart';
 import 'debug/soak_hook.dart';
 import 'features/bootstrap/storage_unavailable_app.dart';
+import 'features/bootstrap/startup_failed_app.dart';
 import 'state/providers.dart';
 import 'state/storage_preferences.dart';
 import 'package:xveil/core/error_journal.dart';
@@ -58,144 +60,174 @@ Future<void> main([List<String> args = const []]) async {
   // flashes a red ErrorWidget). These handlers turn every uncaught error into
   // a logged, survived event. They are defense-in-depth ONLY — the call sites
   // still guard + recover; this is the net under them.
-  runZonedGuarded(
-    () async {
-      WidgetsFlutterBinding.ensureInitialized();
+  runZonedGuarded(() => runStartup(), (error, stack) {
+    devLog(() => 'xVeil[uncaught:zone]: $error\n$stack');
+    errorJournal.record(
+      kind: 'zone',
+      error: error,
+      stack: stack,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+    );
+  });
+}
 
-      // FIRST, before anything can read a preference: take the app's
-      // preferences out of the platform's system store and into a file in the
-      // active profile's own directory (audit XV-16).
-      //
-      // On iOS the system store is `Library/Preferences/<bundle>.plist`, which
-      // iOS copies into iCloud and encrypted device backups; the
-      // exclude-from-backup flag the app sets covers Application Support and
-      // cannot reach a directory the system owns. What was leaving the device
-      // in the clear was the whole posture — active profile, whether the
-      // profile switcher had been found, proxy and VPN routing policy with its
-      // app list and subnets, notification settings, language — and, in the KEY
-      // NAMES, a roster of which profiles exist at all.
-      //
-      // Ordering is load-bearing: `SharedPreferences` caches its map on first
-      // use, so this has to win the race with every other reader.
-      //
-      // Still never fatal — a launch that dies over a preference is a worse
-      // outcome than one that starts without them — but "not fatal" used to
-      // mean "carry on with the SYSTEM STORE", which is the exact thing being
-      // escaped. The assignment that swaps the backend is the last line of the
-      // installer, so any throw before it (a missing `path_provider`, an
-      // app-support directory that will not create) left everything after this
-      // point writing back into `NSUserDefaults` and back into the backup,
-      // profile roster and all. The fallback now leans the other way: an empty
-      // in-memory store. Settings are lost on exit; nothing leaves the device.
-      activeProfile = await installProfilePreferencesOrFallback(
-        supportDir: () async => (await getApplicationSupportDirectory()).path,
-        args: launchArguments,
-        onError: (e, st) => devLog(
-          () =>
-              'xVeil[prefs]: profile preference install failed, running on an '
-              'in-memory store for this session: $e\n$st',
-        ),
-      );
+/// Bring the app up, and put SOMETHING on screen even if that fails.
+///
+/// The zone handler around this can only LOG an uncaught error; it cannot
+/// un-skip the `runApp` the throw jumped over. Every failure in [boot] — a
+/// preference store that will not install, a container path that will not
+/// resolve, a provider override that throws while it is built — therefore ended
+/// as an empty window: the process alive, a log written where nobody looks, and
+/// a user with no way to tell whether their data had been touched.
+///
+/// [boot] and [present] are injectable so the guarantee is testable: an app
+/// that only fails to appear when something goes wrong during startup is not
+/// something a test can arrange from the outside.
+@visibleForTesting
+Future<void> runStartup({
+  Future<void> Function() boot = _bootAndRunApp,
+  void Function(Widget) present = runApp,
+}) async {
+  try {
+    await boot();
+  } catch (e, st) {
+    devLog(() => 'xVeil[startup]: FAILED before runApp: $e\n$st');
+    errorJournal.record(
+      kind: 'startup',
+      error: e,
+      stack: st,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    // Last resort, and it must not be able to throw on its own: a const widget
+    // over the compiled-in localizations, nothing read, nothing opened.
+    present(const StartupFailedApp());
+  }
+}
 
-      // Desktop: arm window_manager so the close button can hide to tray
-      // (DesktopTrayHost decides) instead of quitting. No-op on mobile.
-      //
-      // Guarded because this runs BEFORE `runApp` (audit X-16). The zone
-      // handler below catches the error and logs it, but there is no UI yet to
-      // log it to: the user gets a window that never appears, over an optional
-      // piece of window chrome. Losing the tray behaviour is a far smaller
-      // failure than losing the app, so carry on without it.
-      try {
-        await initDesktopWindow();
-      } catch (e, st) {
-        devLog(
-          () => 'xVeil: desktop window setup failed, continuing: $e\n$st',
-        );
-      }
+/// Everything between process start and the app appearing on screen. Extracted
+/// so [runStartup] has one thing to guard and one thing to fall back from.
+Future<void> _bootAndRunApp() async {
+  WidgetsFlutterBinding.ensureInitialized();
 
-      // Content hashing on the native digest (~30-50x the pure-Dart rate):
-      // with package:crypto a 64 MiB attachment spent ~1.8 s hashing before
-      // its offer could go out. Probe once — an older bundled dylib without
-      // the symbol keeps the pure-Dart fallback (identical digests either
-      // way, so contentIds and dedup are unaffected).
-      try {
-        veil.VeilCrypto.sha256(Uint8List(0));
-        ContentManifest.sha256Override = veil.VeilCrypto.sha256;
-        devLog(() => 'xVeil[init]: native sha256 engaged for content hashing');
-      } catch (_) {
-        devLog(() => 'xVeil[init]: native sha256 unavailable, Dart fallback');
-      }
+  // FIRST, before anything can read a preference: take the app's
+  // preferences out of the platform's system store and into a file in the
+  // active profile's own directory (audit XV-16).
+  //
+  // On iOS the system store is `Library/Preferences/<bundle>.plist`, which
+  // iOS copies into iCloud and encrypted device backups; the
+  // exclude-from-backup flag the app sets covers Application Support and
+  // cannot reach a directory the system owns. What was leaving the device
+  // in the clear was the whole posture — active profile, whether the
+  // profile switcher had been found, proxy and VPN routing policy with its
+  // app list and subnets, notification settings, language — and, in the KEY
+  // NAMES, a roster of which profiles exist at all.
+  //
+  // Ordering is load-bearing: `SharedPreferences` caches its map on first
+  // use, so this has to win the race with every other reader.
+  //
+  // Still never fatal — a launch that dies over a preference is a worse
+  // outcome than one that starts without them — but "not fatal" used to
+  // mean "carry on with the SYSTEM STORE", which is the exact thing being
+  // escaped. The assignment that swaps the backend is the last line of the
+  // installer, so any throw before it (a missing `path_provider`, an
+  // app-support directory that will not create) left everything after this
+  // point writing back into `NSUserDefaults` and back into the backup,
+  // profile roster and all. The fallback now leans the other way: an empty
+  // in-memory store. Settings are lost on exit; nothing leaves the device.
+  activeProfile = await installProfilePreferencesOrFallback(
+    supportDir: () async => (await getApplicationSupportDirectory()).path,
+    args: launchArguments,
+    onError: (e, st) => devLog(
+      () =>
+          'xVeil[prefs]: profile preference install failed, running on an '
+          'in-memory store for this session: $e\n$st',
+    ),
+  );
 
-      final priorFlutterOnError = FlutterError.onError;
-      FlutterError.onError = (details) {
-        devLog(() => 'xVeil[uncaught:flutter]: ${details.exceptionAsString()}');
-        errorJournal.record(
-          kind: 'flutter',
-          error: details.exception,
-          stack: details.stack,
-          atMs: DateTime.now().millisecondsSinceEpoch,
-        );
-        // Keep the framework default (red ErrorWidget in debug, console in
-        // release) so a genuine widget bug is still diagnosable in dev.
-        priorFlutterOnError?.call(details);
-      };
+  // Desktop: arm window_manager so the close button can hide to tray
+  // (DesktopTrayHost decides) instead of quitting. No-op on mobile.
+  //
+  // Guarded because this runs BEFORE `runApp` (audit X-16). The zone
+  // handler below catches the error and logs it, but there is no UI yet to
+  // log it to: the user gets a window that never appears, over an optional
+  // piece of window chrome. Losing the tray behaviour is a far smaller
+  // failure than losing the app, so carry on without it.
+  try {
+    await initDesktopWindow();
+  } catch (e, st) {
+    devLog(() => 'xVeil: desktop window setup failed, continuing: $e\n$st');
+  }
 
-      // Uncaught async / platform errors (the fire-and-forget teardown legs the
-      // audit flagged). Returning true marks them handled so they don't escalate.
-      PlatformDispatcher.instance.onError = (error, stack) {
-        devLog(() => 'xVeil[uncaught:platform]: $error\n$stack');
-        errorJournal.record(
-          kind: 'platform',
-          error: error,
-          stack: stack,
-          atMs: DateTime.now().millisecondsSinceEpoch,
-        );
-        return true;
-      };
+  // Content hashing on the native digest (~30-50x the pure-Dart rate):
+  // with package:crypto a 64 MiB attachment spent ~1.8 s hashing before
+  // its offer could go out. Probe once — an older bundled dylib without
+  // the symbol keeps the pure-Dart fallback (identical digests either
+  // way, so contentIds and dedup are unaffected).
+  try {
+    veil.VeilCrypto.sha256(Uint8List(0));
+    ContentManifest.sha256Override = veil.VeilCrypto.sha256;
+    devLog(() => 'xVeil[init]: native sha256 engaged for content hashing');
+  } catch (_) {
+    devLog(() => 'xVeil[init]: native sha256 unavailable, Dart fallback');
+  }
 
-      // In a SHIPPED build never surface a raw stack-trace red screen to the
-      // user (poor UX, and a stack on screen is an information leak in a deniable
-      // app). Replace it with a neutral placeholder; the error is still logged
-      // above. Debug keeps the red screen so developers see failures.
-      if (kReleaseMode) {
-        ErrorWidget.builder = (details) => const SizedBox.shrink();
-      }
+  final priorFlutterOnError = FlutterError.onError;
+  FlutterError.onError = (details) {
+    devLog(() => 'xVeil[uncaught:flutter]: ${details.exceptionAsString()}');
+    errorJournal.record(
+      kind: 'flutter',
+      error: details.exception,
+      stack: details.stack,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    // Keep the framework default (red ErrorWidget in debug, console in
+    // release) so a genuine widget bug is still diagnosable in dev.
+    priorFlutterOnError?.call(details);
+  };
 
-      final boot = await _bootstrapOverrides();
-      if (mustRefuseInsecureStorage(
-        shipped: kReleaseMode || kProfileMode,
-        secureStorageReady: boot.secureStorageReady,
-      )) {
-        // Refuse here rather than anywhere later: this runs before the router,
-        // so no unlock screen, no onboarding and no API can be reached by any
-        // subsequent navigation. A dead end is the point.
-        runApp(const StorageUnavailableApp());
-        return;
-      }
+  // Uncaught async / platform errors (the fire-and-forget teardown legs the
+  // audit flagged). Returning true marks them handled so they don't escalate.
+  PlatformDispatcher.instance.onError = (error, stack) {
+    devLog(() => 'xVeil[uncaught:platform]: $error\n$stack');
+    errorJournal.record(
+      kind: 'platform',
+      error: error,
+      stack: stack,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    return true;
+  };
 
-      runApp(
-        ProviderScope(
-          overrides: boot.overrides,
-          // Riverpod 3 retries failed providers by default. Preserve the
-          // established fail-fast behavior here: operational retries already
-          // live in the mailbox/node services with their own bounded backoff,
-          // while retrying provider construction could duplicate side effects.
-          retry: _disableAutomaticProviderRetry,
-          child: const DesktopTrayHost(
-            child: DebugSoakHookHost(child: XVeilApp()),
-          ),
-        ),
-      );
-    },
-    (error, stack) {
-      devLog(() => 'xVeil[uncaught:zone]: $error\n$stack');
-      errorJournal.record(
-        kind: 'zone',
-        error: error,
-        stack: stack,
-        atMs: DateTime.now().millisecondsSinceEpoch,
-      );
-    },
+  // In a SHIPPED build never surface a raw stack-trace red screen to the
+  // user (poor UX, and a stack on screen is an information leak in a deniable
+  // app). Replace it with a neutral placeholder; the error is still logged
+  // above. Debug keeps the red screen so developers see failures.
+  if (kReleaseMode) {
+    ErrorWidget.builder = (details) => const SizedBox.shrink();
+  }
+
+  final boot = await _bootstrapOverrides();
+  if (mustRefuseInsecureStorage(
+    shipped: kReleaseMode || kProfileMode,
+    secureStorageReady: boot.secureStorageReady,
+  )) {
+    // Refuse here rather than anywhere later: this runs before the router,
+    // so no unlock screen, no onboarding and no API can be reached by any
+    // subsequent navigation. A dead end is the point.
+    runApp(const StorageUnavailableApp());
+    return;
+  }
+
+  runApp(
+    ProviderScope(
+      overrides: boot.overrides,
+      // Riverpod 3 retries failed providers by default. Preserve the
+      // established fail-fast behavior here: operational retries already
+      // live in the mailbox/node services with their own bounded backoff,
+      // while retrying provider construction could duplicate side effects.
+      retry: _disableAutomaticProviderRetry,
+      child: const DesktopTrayHost(child: DebugSoakHookHost(child: XVeilApp())),
+    ),
   );
 }
 
@@ -399,9 +431,7 @@ Future<BootstrapResult> _bootstrapOverrides() async {
     // Sweep the base we actually claimed under, not the platform default — an
     // operator who set XVEIL_RUNTIME_DIR gets their leftovers reaped too, and
     // the default path is unchanged when they did not.
-    unawaited(
-      sweepStaleRuntimeDirs(File(runtimeDir).parent.path),
-    );
+    unawaited(sweepStaleRuntimeDirs(File(runtimeDir).parent.path));
     final port =
         int.tryParse(Platform.environment['XVEIL_LISTEN_PORT'] ?? '') ??
         AppProfiles.listenPort(
@@ -464,7 +494,10 @@ Future<BootstrapResult> _bootstrapOverrides() async {
           'obfs4Psk=${obfs4Psk != null && obfs4Psk.isNotEmpty} '
           'udpReflectors=${udpReflectors.length})',
     );
-  } else if (Platform.isAndroid || Platform.isIOS || kReleaseMode || kProfileMode) {
+  } else if (Platform.isAndroid ||
+      Platform.isIOS ||
+      kReleaseMode ||
+      kProfileMode) {
     // A packaged build ALWAYS ships the in-process node, so reaching here means
     // the native library failed to load / lacks the embedded-node FFI. Surface
     // that honestly instead of silently showing the demo node.

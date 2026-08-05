@@ -127,6 +127,17 @@ class AppL10nEn extends AppL10n {
       'This build is damaged or incomplete. Install xVeil again from the release page. Nothing that was already stored on this device has been touched.';
 
   @override
+  String get startupFailedTitle => 'xVeil could not start';
+
+  @override
+  String get startupFailedBody =>
+      'Something went wrong while the app was setting itself up, before any of your data was touched. Nothing was opened, nothing was written and nothing was sent.';
+
+  @override
+  String get startupFailedAction =>
+      'Close xVeil and open it again. If it keeps happening, reinstall it from the release page.';
+
+  @override
   String get recoveryTitle => 'Save your recovery phrase';
 
   @override
