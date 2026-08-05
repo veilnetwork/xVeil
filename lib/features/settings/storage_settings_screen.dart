@@ -27,6 +27,11 @@ class StorageSettingsScreen extends ConsumerStatefulWidget {
 
 class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
   int? _size;
+
+  /// The maintenance readout, or null when there is nothing honest to report
+  /// (no real container, several identities, a backing that cannot measure).
+  /// Null renders the size ALONE — never "0 B reclaimable".
+  StorageReclaim? _reclaim;
   bool _autoCompact = false;
   bool _leanPadding = true;
   bool _loaded = false;
@@ -40,11 +45,13 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
   Future<void> _load() async {
     final ctrl = ref.read(appControllerProvider.notifier);
     final size = await ctrl.containerSizeBytes();
+    final reclaim = await ctrl.storageReclaim();
     final autoCompact = await ctrl.autoCompactEnabled();
     final leanPadding = await ctrl.leanStoragePaddingEnabled();
     if (!mounted) return;
     setState(() {
       _size = size;
+      _reclaim = reclaim;
       _autoCompact = autoCompact;
       _leanPadding = leanPadding;
       _loaded = true;
@@ -83,6 +90,9 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
         SnackBar(content: Text(l.settingsStorageCompactFailed)),
       );
     }
+    // Re-read: the size and the dead share both just changed, and the nudge
+    // has to disappear on its own once it has been acted on.
+    if (mounted) await _load();
   }
 
   @override
@@ -98,10 +108,27 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               children: [
+                // The decision is made ONCE, in AppController; the screen only
+                // renders it. Re-deriving "is the file bloated?" from
+                // thresholds here is how the two would drift apart.
+                if (_reclaim?.worthCompacting ?? false)
+                  _BloatNudge(
+                    reclaimableBytes: _reclaim!.reclaimableBytes,
+                    onCompact: () => _compact(l),
+                  ),
                 ListTile(
                   leading: const Icon(Icons.sd_storage_outlined),
                   title: Text(l.settingsStorage),
-                  subtitle: Text(_size == null ? '—' : fmtBytes(_size!)),
+                  subtitle: Text(
+                    _size == null
+                        ? '—'
+                        // No reclaim figure ⇒ show the size alone. "0 B
+                        // reclaimable" would be a claim we cannot make.
+                        : _reclaim == null
+                        ? fmtBytes(_size!)
+                        : '${fmtBytes(_size!)} · '
+                              '${l.settingsStorageReclaimable(fmtBytes(_reclaim!.reclaimableBytes))}',
+                  ),
                 ),
                 if (ctrl.canCompactStorage)
                   ListTile(
@@ -147,6 +174,47 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                 const WhisperModelTile(),
               ],
             ),
+    );
+  }
+}
+
+/// The unprompted "your container is mostly padding" remark.
+///
+/// Inline and dismissible by acting on it, NOT a dialog: the container is fine,
+/// the data is intact, and this is a note about disk space. It is styled from
+/// the theme's *secondary* container rather than its error colours for the same
+/// reason — an alarm here would be a lie about what is happening.
+///
+/// Tapping it opens the ordinary compaction flow, password prompt and all. It
+/// never compacts by itself: that tears the session down and needs the
+/// password, so it stays something the user asks for.
+class _BloatNudge extends StatelessWidget {
+  const _BloatNudge({required this.reclaimableBytes, required this.onCompact});
+
+  final int reclaimableBytes;
+  final VoidCallback onCompact;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+      color: scheme.secondaryContainer,
+      elevation: 0,
+      child: ListTile(
+        leading: Icon(Icons.compress, color: scheme.onSecondaryContainer),
+        title: Text(
+          l.settingsStorageBloatTitle(fmtBytes(reclaimableBytes)),
+          style: TextStyle(color: scheme.onSecondaryContainer),
+        ),
+        subtitle: Text(
+          l.settingsStorageBloatBody,
+          style: TextStyle(color: scheme.onSecondaryContainer),
+        ),
+        isThreeLine: true,
+        onTap: onCompact,
+      ),
     );
   }
 }

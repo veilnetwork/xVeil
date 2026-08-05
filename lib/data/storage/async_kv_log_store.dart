@@ -38,6 +38,10 @@ abstract interface class AsyncKvLogStore {
   Future<int> eraseNamespace(int namespace);
   Future<void> scrub();
   Future<Uint8List> exportKeys();
+
+  /// See [KvLogStore.slotUtilization]. Null is "unknown", not "nothing dead".
+  Future<SlotUtilization?> slotUtilization();
+
   Future<void> close();
 }
 
@@ -86,6 +90,8 @@ class SyncWrappedAsyncKvLogStore implements AsyncKvLogStore {
   Future<void> scrub() async => _inner.scrub();
   @override
   Future<Uint8List> exportKeys() async => _inner.exportKeys();
+  @override
+  Future<SlotUtilization?> slotUtilization() async => _inner.slotUtilization();
   @override
   Future<void> close() async => _inner.close();
 }
@@ -200,6 +206,10 @@ class _ExportKeysReq extends _Req {
   const _ExportKeysReq(super.reply);
 }
 
+class _SlotUtilizationReq extends _Req {
+  const _SlotUtilizationReq(super.reply);
+}
+
 class _CloseReq extends _Req {
   const _CloseReq(super.reply);
 }
@@ -305,6 +315,8 @@ void _workerEntry(_OpenConfig cfg) {
         });
       case _ExportKeysReq():
         run(() => store.exportKeys());
+      case _SlotUtilizationReq():
+        run(() => store.slotUtilization());
       case _CloseReq():
         try {
           store.close();
@@ -505,6 +517,10 @@ class WorkerKvLogStore implements AsyncKvLogStore {
   @override
   Future<Uint8List> exportKeys() =>
       _call<Uint8List>((reply) => _ExportKeysReq(reply));
+
+  @override
+  Future<SlotUtilization?> slotUtilization() =>
+      _call<SlotUtilization?>((reply) => _SlotUtilizationReq(reply));
 
   @override
   Future<void> close() async {
