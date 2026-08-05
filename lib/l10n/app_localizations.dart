@@ -301,6 +301,24 @@ abstract class AppL10n {
   /// **'This build is damaged or incomplete. Install xVeil again from the release page. Nothing that was already stored on this device has been touched.'**
   String get storageUnavailableAction;
 
+  /// No description provided for @startupFailedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil could not start'**
+  String get startupFailedTitle;
+
+  /// No description provided for @startupFailedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Something went wrong while the app was setting itself up, before any of your data was touched. Nothing was opened, nothing was written and nothing was sent.'**
+  String get startupFailedBody;
+
+  /// No description provided for @startupFailedAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Close xVeil and open it again. If it keeps happening, reinstall it from the release page.'**
+  String get startupFailedAction;
+
   /// No description provided for @recoveryTitle.
   ///
   /// In en, this message translates to:
