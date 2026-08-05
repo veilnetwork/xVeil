@@ -126,6 +126,13 @@ class FakeKvLogStore implements KvLogStore {
   @override
   Uint8List exportKeys() => Uint8List.fromList(_keys);
 
+  /// Unknown — deliberately not a fabricated 100%-live answer. There is no
+  /// container file here, so there is no slot occupancy to report, and a fake
+  /// that claimed "nothing to reclaim" would make the maintenance readout look
+  /// correct in tests while saying nothing true about a real container.
+  @override
+  SlotUtilization? slotUtilization() => null;
+
   @override
   void close() {
     onClose?.call();

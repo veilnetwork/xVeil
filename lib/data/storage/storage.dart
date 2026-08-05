@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'kv_log_store.dart' show SlotUtilization;
 import '../../core/ids.dart';
 import '../../domain/call_log.dart';
 import '../../domain/chat.dart';
@@ -357,6 +358,19 @@ abstract interface class Storage {
   /// [sweepSettingsGarbage] (wholesale). Returns the number of erased entries.
   /// NOT for product UI.
   Future<int> purgeFileStore();
+
+  /// How much of the container file is still live data, as this space sees it
+  /// — or null when the backing cannot say (locked, in-memory fake, shared
+  /// multi-space handle).
+  ///
+  /// The one number the maintenance UI was missing. Nothing else in this port
+  /// distinguishes a 7 GB container holding 5 MB of messages from a 7 GB
+  /// container holding 7 GB of them, so the app could only ever show a size
+  /// and leave the user to guess whether compacting was worth a password and a
+  /// reconnect. See [SlotUtilization] for why the file grows that way.
+  ///
+  /// Read-only and cheap: it reports, it never repacks.
+  Future<SlotUtilization?> containerUtilization();
 
   /// Bench/debug: entry counts per storage namespace, for diagnosing which
   /// namespace is approaching the log-index cap. Message-log diagnostics also

@@ -67,6 +67,9 @@ class FakeMultiSpaceBacking implements MultiSpaceBacking {
   @override
   void scrub(int id) => _s(id).scrub();
 
+  @override
+  SlotUtilization? slotUtilization(int id) => _s(id).slotUtilization();
+
   /// Space ids the host asked to vacuum, in call order.
   ///
   /// Recorded rather than ignored so a test can prove the post-unlock scrub

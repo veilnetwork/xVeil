@@ -126,6 +126,9 @@ class _RecordingBacking implements AsyncMultiSpaceBacking {
   @override
   Future<void> scrub(int id) async => _inner.scrub(id);
   @override
+  Future<SlotUtilization?> slotUtilization(int id) async =>
+      _inner.slotUtilization(id);
+  @override
   Future<void> vacuumOrphans(int id) async => _inner.vacuumOrphans(id);
   @override
   Future<void> close() async {

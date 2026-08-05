@@ -2596,6 +2596,16 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
+  Future<SlotUtilization?> containerUtilization() async {
+    // A LOCKED store has no space to ask, and this is a readout: answering
+    // "unknown" is right where `_as` would throw and take the settings screen
+    // down with it.
+    final store = _store;
+    if (store == null) return null;
+    return store.slotUtilization();
+  }
+
+  @override
   Future<Map<String, int>> namespaceCounts() async {
     await _ensureMessageLogNamespacesLoaded();
     var shardedMessageCount = 0;

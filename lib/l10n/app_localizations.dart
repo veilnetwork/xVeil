@@ -5910,6 +5910,24 @@ abstract class AppL10n {
   /// **'Reclaim unused space — the app re-opens. Keeps ONLY the unlocked space: any other hidden identity in this container is discarded.'**
   String get settingsStorageCompactBody;
 
+  /// No description provided for @settingsStorageReclaimable.
+  ///
+  /// In en, this message translates to:
+  /// **'{size} of it can be reclaimed by compacting'**
+  String settingsStorageReclaimable(String size);
+
+  /// No description provided for @settingsStorageBloatTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Compacting would free about {size}'**
+  String settingsStorageBloatTitle(String size);
+
+  /// No description provided for @settingsStorageBloatBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Most of this file is padding left over from earlier writes — normal for this storage, but it never shrinks on its own. Compact it when convenient.'**
+  String get settingsStorageBloatBody;
+
   /// No description provided for @settingsStorageCompactDone.
   ///
   /// In en, this message translates to:

@@ -141,6 +141,53 @@ class KvLogEntry {
   final Uint8List payload;
 }
 
+/// How much of the container file is still carrying live data, as ONE space
+/// sees it. Mirrors hidden-volume's `SpaceStats` slot pair.
+///
+/// The store is append-only and never reuses a freed slot (deliberately — a
+/// second write at one offset is not explicable by a decoy password and would
+/// hand an observer with two disk snapshots proof of live data; see
+/// `third_party/hidden-volume/DESIGN.md`, "Slot-reuse prohibition"). So every
+/// superseded chunk stays in the file forever and only a repack removes it.
+/// That is not a leak, but it means the file's size stops describing what is
+/// in it, and NOTHING told the user — a container observed at 7.0 GB compacted
+/// down to 4.8 MB.
+///
+/// [totalSlots] is the whole file's slot count; [ownedChunks] is what THIS
+/// space still owns. So on a lone-space container the difference is dead
+/// padding, and [deadFraction] is what a compaction would give back. On a
+/// container hosting several spaces the other spaces' chunks are not "owned"
+/// here either, so this UNDERSTATES utilization — which is why the one caller
+/// that turns it into an offer to compact does so only where compaction is
+/// available at all, i.e. a single identity.
+final class SlotUtilization {
+  const SlotUtilization({required this.ownedChunks, required this.totalSlots});
+
+  /// Chunks decryptable under this space's key (superblock replicas, commits,
+  /// index nodes, data batches).
+  final int ownedChunks;
+
+  /// Slots in the container file, excluding the cleartext header chunk.
+  final int totalSlots;
+
+  /// Share of the file that is still live data, in `[0, 1]`.
+  ///
+  /// An EMPTY container answers `0.0`, matching `SpaceStats::utilization_ratio`
+  /// — which is why [deadFraction] cannot simply be `1 - liveFraction`.
+  double get liveFraction {
+    if (totalSlots <= 0) return 0.0;
+    final live = ownedChunks / totalSlots;
+    return live > 1.0 ? 1.0 : live;
+  }
+
+  /// Share of the file a compaction would reclaim, in `[0, 1]`.
+  ///
+  /// `0.0` for a container with no slots at all: there, `liveFraction` is 0
+  /// because there is NOTHING, not because everything in it is dead, and
+  /// inverting it blindly would report a brand-new container as 100% garbage.
+  double get deadFraction => totalSlots <= 0 ? 0.0 : 1.0 - liveFraction;
+}
+
 /// Thin port over a single unlocked hidden-volume space (KV + append-log,
 /// atomic batched commits). The production adapter wraps `HvSpace`; the fake
 /// is pure in-memory.
@@ -185,6 +232,15 @@ abstract interface class KvLogStore {
   /// [KeysSpaceOpener] without its password. **Sensitive** — keep only inside a
   /// deniable space, never log. Maps to `HvSpace.spaceKeys`.
   Uint8List exportKeys();
+
+  /// Live-vs-total slot occupancy of the container behind this space, or null
+  /// where the backing cannot answer (the in-memory fake, which has no file,
+  /// and the multi-space handle, whose FFI exposes no per-space stats). Maps
+  /// to `HvSpace.stats()`.
+  ///
+  /// Null is "unknown", NOT "nothing to reclaim" — a caller must not render it
+  /// as 0 bytes of dead padding.
+  SlotUtilization? slotUtilization();
 
   void close();
 }
