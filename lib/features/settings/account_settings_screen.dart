@@ -122,6 +122,10 @@ class AccountSettingsScreen extends ConsumerWidget {
     final master = ref.watch(
       appControllerProvider.select((s) => (s.isMaster, s.activeIdentity)),
     );
+    // Anonymity is read off the notifier below (roster flag / space setting),
+    // not off AppState — so the toggle's own effect is invisible to the watch
+    // above. This makes the three tiles that depend on it redraw.
+    ref.watch(anonymityRevisionProvider);
     return Scaffold(
       appBar: AppBar(
         leading: const RootedBackButton(),
