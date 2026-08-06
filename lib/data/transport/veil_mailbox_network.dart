@@ -33,6 +33,13 @@ const int kMailboxFetchEndpointId = 2;
 /// is fire-and-forget, so mixed fleets degrade to the old TTL-only behavior.
 const int kMailboxAckEndpointId = 3;
 
+/// `replyEndpointId` for a send the target never answers: veil reads 0 as "no
+/// reply block", so it builds no ephemeral reply circuit for it. Nothing is
+/// ever delivered to endpoint 0, so a block addressed there was undeliverable
+/// by construction — which is why the value is free to carry this meaning.
+/// A daemon predating the reading builds the unused circuit as before.
+const int kNoReplyEndpointId = 0;
+
 /// Encode a `MailboxPutPayload` (veil-proto `ipc.rs`) for the network PUT wire:
 ///   receiver_id(32) | content_id(32) | sender_id(32) | blob_len(u32 BE) | blob
 ///   | push_env_len(u16) | cap_token_len(u16) | wake_env_len(u16)
@@ -633,15 +640,17 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       }
       try {
         if (relayKemPk != null && relayKemPk.length == 32) {
-          // KEM-key-given (the same routing that makes FETCH reliable). The
-          // one-time reply block goes unused — the ack handler doesn't answer —
-          // but only the Direct* variant offers the key-given routing.
+          // KEM-key-given (the same routing that makes FETCH reliable), with
+          // replyEndpointId 0 = NO reply block. The ack handler never answers,
+          // so the one-time reply circuit this used to build per relay carried
+          // nothing back — and a drain round paid for three of them on top of
+          // the three it needs for FETCH.
           await _fetchApp.sendAnonymousAuthenticatedDirectWithReply(
             dstNodeId: relay.bytes,
             dstX25519Pk: relayKemPk,
             dstAppId: kMailboxAppId,
             dstEndpointId: kMailboxAckEndpointId,
-            replyEndpointId: _replyEndpointId,
+            replyEndpointId: kNoReplyEndpointId,
             data: contentId,
           );
         } else {
