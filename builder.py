@@ -437,7 +437,25 @@ def _android(release: bool) -> list[Step]:
         steps.append(
             Step(
                 "debug APK",
-                argv=["flutter", "build", "apk", "--debug"],
+                argv=[
+                    "flutter", "build", "apk", "--debug",
+                    f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                    # The stand hook is compile-time (soak_hook.dart reads a
+                    # bool.fromEnvironment), so an APK built without the define
+                    # has no hook and no way to gain one. Passed through from
+                    # the environment rather than always-on: a debug APK is
+                    # still an ordinary build unless someone asks for a stand.
+                    # Without this the macOS script had the pass-through and
+                    # the Android path did not, and a phone came up mute --
+                    # /health answering nothing looks exactly like a node that
+                    # failed to bootstrap, which is where the search then goes.
+                    *(
+                        ["--dart-define=XVEIL_DEBUG_HOOK=true"]
+                        if os.environ.get("XVEIL_DEBUG_HOOK", "").lower()
+                        in ("1", "true", "yes")
+                        else []
+                    ),
+                ],
                 env=_path_remap_env(),
             )
         )
