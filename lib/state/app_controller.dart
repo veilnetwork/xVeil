@@ -1035,6 +1035,15 @@ class AppController extends Notifier<AppState> {
   /// per-identity [isIdentityAnonymous] there).
   bool get singleIdentityAnonymous => _singleAnonymous;
 
+  /// Tell the UI these flags moved. They live on the notifier rather than in
+  /// [AppState] — and the toggle reboots the node WITHOUT changing the watched
+  /// fields (phase returns to `ready`, the active label is the same), so a
+  /// screen that only watches [AppState] keeps drawing the pre-toggle value.
+  /// Call after EVERY change to the roster's `anonymous` or [_singleAnonymous].
+  void _bumpAnonymityRevision() {
+    ref.read(anonymityRevisionProvider.notifier).state++;
+  }
+
   /// Toggle anonymity for a SINGLE (non-master) identity: persist the preference
   /// into the open space and reboot the node under it (anonymity is fixed at
   /// boot). No-op in master mode (that path is [setIdentityAnonymous]) or when
@@ -1047,6 +1056,7 @@ class AppController extends Notifier<AppState> {
 
     await storage.putSetting(_kAnonymousSetting, anonymous ? 'true' : 'false');
     _singleAnonymous = anonymous;
+    _bumpAnonymityRevision();
 
     // Reboot the node so the new routing takes effect. The space stays open
     // (teardown only stops the node); _enterSession re-reads the setting and
@@ -1178,6 +1188,7 @@ class AppController extends Notifier<AppState> {
       await storage.saveRoster(updated);
       await storage.close();
       _pendingRoster = updated;
+      _bumpAnonymityRevision();
 
       // Re-enter so the change takes effect (a node's anonymity is fixed at
       // its boot, so editing the roster requires the node to re-boot under it).

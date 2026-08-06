@@ -139,6 +139,14 @@ final identityOriginProvider = FutureProvider.autoDispose<String?>((ref) async {
   }
 });
 
+/// Bumped whenever an identity's anonymity preference changes. The flags
+/// themselves live on [AppController] — the master roster's `anonymous` entry
+/// and the single space's `anonymous` setting — NOT in [AppState], so watching
+/// the state alone leaves a screen drawing the value it read before the toggle
+/// (the settings switch looked dead: it flipped the node and kept the old
+/// position). Anything that renders anonymity watches this too.
+final anonymityRevisionProvider = StateProvider<int>((ref) => 0);
+
 /// Parameters for the in-process deniable boot, set by main() when the
 /// node-embedded dylib is loaded. Null disables it (loopback / legacy paths).
 class DeniableBootConfig {
