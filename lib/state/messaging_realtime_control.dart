@@ -1,5 +1,10 @@
 part of 'messaging_core.dart';
 
+/// Outbox key prefix for a direct-endpoint share. One place, because the code
+/// that mints these ids and the code that retires the superseded ones must
+/// agree — a silent disagreement leaves the old frames re-driving.
+const _kP2PEndpointFramePrefix = 'p2p:ep:';
+
 /// Latency-critical 1:1 call and direct-endpoint control plane.
 ///
 /// Owns the dedicated serialized inbound lane, its session-scoped consent
@@ -358,14 +363,45 @@ class _MessagingRealtimeControl {
           'xVeil[p2p]: out endpoints to=${peer.short} '
           '(${bodyJson.length} B)',
     );
+    // Retire every EARLIER endpoint frame for this peer first.
+    //
+    // Each share is keyed by its timestamp, so a refreshed set is a new frame
+    // and the old one stays in the outbox, re-driven every few seconds until
+    // acked. That was tolerable while only a call ever shared endpoints. Now a
+    // conversation does, and on the stand two such frames were still being
+    // re-driven minutes later — a superseded address list, retried forever.
+    //
+    // Superseding is what makes them moot: the receiver rejects an older set by
+    // timestamp anyway ("drop endpoints … stale ts"), so re-driving one can
+    // only ever produce a drop. Endpoints are, in this file's own words,
+    // ephemeral runtime facts — the newest set is the only one worth sending.
+    await _retireEarlierEndpointFrames(peer);
     final envelope = WireEnvelope.p2pEndpoints(bodyJson);
     await _owner.sendDurable(
       peer,
-      'p2p:ep:$sentAtMs',
+      '$_kP2PEndpointFramePrefix$sentAtMs',
       envelope,
       liveSender: (wire) => _sendP2PBootstrap(peer, wire),
       awaitLive: false,
       startLiveBeforeEnqueue: true,
     );
+  }
+
+  /// Drop this peer's pending endpoint frames from the outbox. Best-effort:
+  /// failing to read the outbox must not stop us sending fresh endpoints, which
+  /// is the useful half.
+  Future<void> _retireEarlierEndpointFrames(NodeId peer) async {
+    try {
+      final pending = await _owner._storage.pendingOutboxFrames();
+      for (final frame in pending) {
+        if (frame.peerHex == peer.hex &&
+            frame.frameId.startsWith(_kP2PEndpointFramePrefix)) {
+          _owner._retireOutboxFrame(peer.hex, frame.frameId);
+        }
+      }
+    } catch (e) {
+      devLog(() => 'xVeil[p2p]: could not retire earlier endpoint frames for '
+          '${peer.short} (non-fatal): $e');
+    }
   }
 }
