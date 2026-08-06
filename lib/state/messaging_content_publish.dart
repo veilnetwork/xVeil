@@ -200,6 +200,43 @@ extension _MessagingContentPublish on MessagingService {
     );
   }
 
+  /// The OFFER frame to re-advertise for an un-acked outgoing file message, or
+  /// null when this message has no offer that could be re-sent.
+  ///
+  /// Re-driving a file message means re-sending the MANIFEST — the few hundred
+  /// bytes that NAME the content — and never the content itself, which the
+  /// recipient pulls on its own terms. Null is therefore the safe answer, and
+  /// it is the answer for a small inline file: its bytes travelled as
+  /// fileMeta + fileChunk and it has no manifest at all. So "no manifest, no
+  /// re-offer" is what keeps a retry from ever becoming a byte re-push — the
+  /// cost that the blanket file exclusion used to avoid by giving up on file
+  /// offers entirely.
+  Future<Uint8List?> _fileOfferRetryFrame(Message message) async {
+    // Sender-side a large send records fileId = contentId; fileContentId is the
+    // receiver's "offered, not downloaded" spelling. Same order as
+    // [_manifestForPeerOffer] reads them.
+    final cid = message.fileContentId ?? message.fileId;
+    if (cid == null) return null;
+    // Live serve entry first, then the durable `mf:$cid` blob so an offer still
+    // re-drives after a restart. Both bind the id they were stored under, so a
+    // small file's UUID can never resolve to somebody else's manifest.
+    final manifest =
+        _serving[cid]?.manifest ?? await _loadPersistedManifest(cid);
+    if (manifest == null) return null;
+    // Re-bind THIS message's event identity rather than whichever send last
+    // occupied `_serving[cid]`: one blob may be offered to several contacts,
+    // and the copy that finally arrives must fold into the event being retried.
+    return _encodeContentManifest(
+      _baseContentManifest(manifest).withEvent(
+        msgId: message.id,
+        author: message.author,
+        seq: message.seq,
+        ts: message.timestamp.millisecondsSinceEpoch,
+        thumbB64: message.thumb,
+      ),
+    ).frame;
+  }
+
   /// Parsed `served:$cid` record. Legacy records are a bare path string; new
   /// ones are JSON `{path,size,pieceSize,name,roots}` so the manifest can be
   /// rebuilt from the source file when the mf: blob is missing (its persist
