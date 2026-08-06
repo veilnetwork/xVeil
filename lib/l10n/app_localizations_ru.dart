@@ -3193,6 +3193,10 @@ class AppL10nRu extends AppL10n {
   String get contactP2PDeny => 'Запретить';
 
   @override
+  String get contactP2PHint =>
+      '«Разрешить» — сообщения и звонки с этим контактом идут напрямую: намного быстрее, но он видит ваш IP-адрес. Остальные варианты оставляют переписку на релейном пути. Сообщения доходят в любом случае.';
+
+  @override
   String get chatMenuAllowPeerDelete => 'Разрешить собеседнику удалять у меня';
 
   @override

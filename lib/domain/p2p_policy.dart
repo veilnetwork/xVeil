@@ -16,6 +16,32 @@ const String kP2PGlobalPolicySettingKey = 'p2p.policy.v1';
 P2PGlobalPolicy p2pGlobalPolicyFromName(String? raw) => P2PGlobalPolicy.values
     .firstWhere((p) => p.name == raw, orElse: () => kDefaultP2PGlobalPolicy);
 
+/// Whether MESSAGING may run the direct-connection ladder toward this contact.
+///
+/// Deliberately stricter than [p2pPolicyAllows], and it does NOT consult
+/// [P2PGlobalPolicy]. Placing a call is already an act of reaching out to one
+/// named person, and the media path exposes the address to them anyway; sending
+/// a chat message is not, and people send them to everyone they know. So the
+/// direct route in a conversation is opt-in PER CONTACT: `followGlobal` — the
+/// default — means NO here, not "whatever calls do".
+///
+/// The mailbox path is unaffected either way. A denial here costs latency, not
+/// delivery.
+bool p2pMessagingAllows({
+  required ContactP2POverride override,
+  required bool contactKnown,
+  required bool contactBlocked,
+  required bool localAnonymous,
+}) {
+  // An anonymous identity must never emit a direct endpoint — same veto as
+  // [p2pPolicyAllows], repeated rather than delegated so neither can be
+  // relaxed without the other being looked at.
+  if (localAnonymous) return false;
+  if (contactBlocked) return false;
+  if (!contactKnown) return false;
+  return override == ContactP2POverride.allow;
+}
+
 bool p2pPolicyAllows({
   required P2PGlobalPolicy global,
   required ContactP2POverride override,

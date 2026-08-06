@@ -61,6 +61,10 @@ class _Harness {
 
   final _FakeMessaging messaging = _FakeMessaging();
   bool allows;
+
+  /// The per-contact messaging opt-in. Defaults to FALSE, matching the product
+  /// default — a conversation gets no direct route unless someone asked for it.
+  bool messagingAllows = false;
   bool lanListen;
   List<String> addresses;
   List<String>? listenTransports;
@@ -86,6 +90,7 @@ class _Harness {
   late final P2PEndpointService svc = P2PEndpointService(
     messaging,
     localAllowsP2P: (_) async => allows,
+    messagingAllowsP2P: (_) async => messagingAllows,
     joinEndpoint: (uri) async {
       joined.add(uri);
       if (admitOnJoin) admitted = true;
@@ -110,6 +115,8 @@ class _Harness {
 }
 
 void main() {
+  _messagingWarmTests();
+
   test('maybeShare mints one bootstrap URI per LAN address', () async {
     final h = _Harness();
     await h.svc.maybeShare(_peer(1));
@@ -476,5 +483,80 @@ void main() {
     // The forced reply does NOT re-request a reshare (settles in one round).
     final reply = jsonDecode(h.messaging.sentEndpoints.last.$2) as Map;
     expect(reply.containsKey('r'), isFalse);
+  });
+}
+
+/// The messaging warm — the link that gives a CONVERSATION a direct route.
+///
+/// Until this existed the ladder was reachable only from `call_service`, so no
+/// chat ever had a direct session and every message went through the mailbox.
+/// The gate is per contact and defaults to off, so the tests below are as much
+/// about what it must NOT do.
+void _messagingWarmTests() {
+  test('no opt-in for the contact ⇒ the ladder never runs', () async {
+    final h = _Harness()..messagingAllows = false;
+    await h.svc.warmForMessaging(_peer(0x21));
+    expect(
+      h.messaging.sentEndpoints,
+      isEmpty,
+      reason: 'a conversation with no per-contact opt-in must not so much as '
+          'share an endpoint — that address is the whole privacy cost',
+    );
+    expect(h.joined, isEmpty);
+  });
+
+  test('opted in ⇒ the ladder runs and shares endpoints', () async {
+    final h = _Harness()..messagingAllows = true;
+    await h.svc.warmForMessaging(_peer(0x22));
+    expect(
+      h.messaging.sentEndpoints,
+      hasLength(1),
+      reason: 'the ladder starts with a forced mutual endpoint exchange',
+    );
+  });
+
+  test('an existing direct session is left alone', () async {
+    final h = _Harness()
+      ..messagingAllows = true
+      ..admitted = true;
+    await h.svc.warmForMessaging(_peer(0x23));
+    expect(
+      h.messaging.sentEndpoints,
+      isEmpty,
+      reason: 'already direct — re-running the ladder would reshare endpoints '
+          'on a schedule the peer never asked for',
+    );
+  });
+
+  test('the ladder is throttled per peer, not run per frame', () async {
+    final h = _Harness()..messagingAllows = true;
+    final peer = _peer(0x24);
+    await h.svc.warmForMessaging(peer);
+    final afterFirst = h.messaging.sentEndpoints.length;
+    expect(afterFirst, 1);
+
+    // A conversation puts many frames through the same egress point.
+    for (var i = 0; i < 5; i++) {
+      await h.svc.warmForMessaging(peer);
+    }
+    expect(
+      h.messaging.sentEndpoints,
+      hasLength(afterFirst),
+      reason: 'every ack, receipt and message goes through the same call — the '
+          'ladder must not follow each one',
+    );
+
+    // Past the window it may try again: a warm that found nothing should get
+    // another go within the life of a conversation.
+    h.now = h.now.add(const Duration(minutes: 3));
+    await h.svc.warmForMessaging(peer);
+    expect(h.messaging.sentEndpoints, hasLength(afterFirst + 1));
+  });
+
+  test('a different peer is not throttled by the first', () async {
+    final h = _Harness()..messagingAllows = true;
+    await h.svc.warmForMessaging(_peer(0x25));
+    await h.svc.warmForMessaging(_peer(0x26));
+    expect(h.messaging.sentEndpoints, hasLength(2));
   });
 }
