@@ -379,12 +379,31 @@ void main() {
 
         final bucketGrowth = await growthFor(hv.PaddingPreset.bucket256KiB);
         final leanGrowth = await growthFor(hv.PaddingPreset.none);
+        // This used to assert `lean < bucket ~/ 4`, and slot reuse retired that
+        // premise rather than breaking it: every commit used to round up into a
+        // bucket of its OWN (12 writes = 12 buckets = 3 MiB), so lean looked
+        // cheap by comparison. Reuse keeps all twelve inside ONE bucket, so the
+        // padded mode got 12x cheaper and the gap the ratio measured closed
+        // from the other side.
+        //
+        // What replaces it is the property the ratio never checked at all: that
+        // padded growth is BOUNDED. The defect reuse exists to prevent — a
+        // reference container at 7.0 GB against 4.8 MB of content — passed the
+        // old assertion untouched, because both sides grew together.
+        expect(
+          bucketGrowth,
+          lessThanOrEqualTo(256 * 1024),
+          reason:
+              'slot reuse must keep 12 hot metadata writes inside a SINGLE '
+              '256 KiB bucket; one bucket per commit is the unbounded growth '
+              'this exists to catch (bucket=$bucketGrowth)',
+        );
         expect(
           leanGrowth,
-          lessThan(bucketGrowth ~/ 4),
+          lessThanOrEqualTo(bucketGrowth),
           reason:
-              'lean mode should trade size-change padding for much lower future '
-              'growth on hot metadata writes (bucket=$bucketGrowth, lean=$leanGrowth)',
+              'lean must never cost more than padded — the preset would not be '
+              'honoured (bucket=$bucketGrowth, lean=$leanGrowth)',
         );
       } finally {
         dir.deleteSync(recursive: true);
@@ -425,9 +444,18 @@ void main() {
 
       final bucketGrowth = await growthFor(hv.PaddingPreset.bucket256KiB);
       final leanGrowth = await growthFor(hv.PaddingPreset.none);
+      // Same retirement as the single-space case above: reuse closed the ratio
+      // from the padded side, so the bound is what carries the meaning now.
+      expect(
+        bucketGrowth,
+        lessThanOrEqualTo(256 * 1024),
+        reason:
+            'always-online multi-space storage must get the same bounded '
+            'growth from slot reuse (bucket=$bucketGrowth)',
+      );
       expect(
         leanGrowth,
-        lessThan(bucketGrowth ~/ 4),
+        lessThanOrEqualTo(bucketGrowth),
         reason:
             'always-online multi-space storage must honour the same lean '
             'padding mode (bucket=$bucketGrowth, lean=$leanGrowth)',
