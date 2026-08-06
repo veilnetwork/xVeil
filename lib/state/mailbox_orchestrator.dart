@@ -240,13 +240,25 @@ class MailboxOrchestrator {
     //   * `blobs` non-empty but all-seen → ack removal hasn't landed yet; wait a
     //     beat for it and re-fetch so the NEXT oldest surfaces THIS drain.
     var ackSettleRetries = 0;
+    // Where a drain's wall-clock actually goes. Without this the pass reports
+    // one number ("in 9687ms") that could be any mix of fetches, settle waits
+    // and open/ack work, and tuning it is guesswork — the split is what says
+    // which of the three to touch.
+    var rounds = 0;
+    var settles = 0;
+    var fetchMs = 0;
+    var settleMs = 0;
+    final drainSw = Stopwatch()..start();
     for (var round = 0; round < _maxDrainRounds; round++) {
       if (shouldContinue?.call() == false) break;
+      rounds++;
+      final fetchSw = Stopwatch()..start();
       final blobs = await _relay.fetch(
         me: me,
         authCookie: authCookie,
         knownRelays: knownRelays,
       );
+      fetchMs += fetchSw.elapsedMilliseconds;
       // A call may have started while the native FETCH was in flight. Leave
       // the returned blobs unacked at the relay and stop before decrypt/ack;
       // the first post-call drain will recover them normally.
@@ -261,7 +273,10 @@ class MailboxOrchestrator {
         // backlog to the next tick. Bounded so a relay that never removes
         // (pre-ack build) can't spin the loop: give up after a few settles.
         if (ackSettleRetries++ >= _maxAckSettleRetries) break;
+        settles++;
+        final settleSw = Stopwatch()..start();
         await Future<void>.delayed(_ackSettleDelay);
+        settleMs += settleSw.elapsedMilliseconds;
         continue;
       }
       ackSettleRetries = 0; // progress made — reset the settle budget
@@ -275,6 +290,18 @@ class MailboxOrchestrator {
         delivered: delivered,
         shouldContinue: shouldContinue,
         onMessage: onMessage,
+      );
+    }
+    // Only when something happened worth explaining: an idle single-round pass
+    // is the steady state and its one number already says everything.
+    if (rounds > 1 || delivered.isNotEmpty) {
+      final total = drainSw.elapsedMilliseconds;
+      devLog(
+        () =>
+            'xVeil[drain]: rounds=$rounds settles=$settles '
+            'fetch=${fetchMs}ms settle=${settleMs}ms '
+            'other=${total - fetchMs - settleMs}ms total=${total}ms '
+            'recovered=${delivered.length}',
       );
     }
     return delivered;
