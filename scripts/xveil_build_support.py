@@ -147,6 +147,63 @@ def sh(script_path: str, *args: str) -> list[str]:
     return ["bash", os.path.join(ROOT, script_path), *args]
 
 
+# Suffixes that decide whether a Rust artifact is current. Cargo relinks when a
+# source is newer than what it produced, so these are the same files cargo
+# already weighs.
+SOURCE_SUFFIXES = (".rs", ".toml", ".lock")
+
+# Directories that are SEPARATE cargo targets when they sit beside a
+# Cargo.toml: nothing in them is compiled into the library, so a test-only edit
+# must not condemn a current .so. A gate that cries wolf is a gate people learn
+# to pass with a flag.
+NON_LIBRARY_DIRS = ("tests", "benches", "examples", "fuzz")
+
+
+def newer_source(artifact: str, roots: list[str]) -> str | None:
+    """The first source under `roots` newer than `artifact`, or None.
+
+    The one question worth asking of a native library before packaging it: was
+    it built from the tree it is about to ship with? Cargo answers it by this
+    exact comparison, so after a build that actually ran, nothing under `roots`
+    can be newer than the artifact. Something that IS newer means the build did
+    not run — the file on disk was made by an earlier one, possibly days ago,
+    possibly against a different on-disk format.
+
+    That is not hypothetical: between 2026-08-02 and 2026-08-05 every APK
+    carried a hidden-volume library older than the Dart bindings calling it,
+    because the only step that builds it was not on the path the build took.
+    Every gate stayed green — none of them looks at a built artifact.
+
+    `roots` may name files as well as directories. `target/` is skipped: it
+    holds output rather than source, and walking it costs seconds.
+    """
+    if not os.path.isfile(artifact):
+        return None
+    stamp = os.path.getmtime(artifact)
+    for root in roots:
+        if os.path.isfile(root):
+            if os.path.getmtime(root) > stamp:
+                return root
+            continue
+        for directory, subdirs, files in os.walk(root):
+            pruned = ["target", ".git"]
+            if os.path.isfile(os.path.join(directory, "Cargo.toml")):
+                pruned += list(NON_LIBRARY_DIRS)
+            subdirs[:] = [d for d in subdirs if d not in pruned]
+            for name in files:
+                if not name.endswith(SOURCE_SUFFIXES):
+                    continue
+                path = os.path.join(directory, name)
+                try:
+                    if os.path.getmtime(path) > stamp:
+                        return path
+                except OSError:
+                    # Raced away between listing and stat; it cannot be what
+                    # the artifact was built from either way.
+                    continue
+    return None
+
+
 def package_manager() -> tuple[str, list[str]] | None:
     """The system package manager and its non-interactive install prefix.
 
