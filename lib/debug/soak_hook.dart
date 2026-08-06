@@ -3899,6 +3899,27 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (q.containsKey('ret')) {
       await messaging.setContactRetention(peer, int.tryParse(q['ret'] ?? ''));
     }
+    // The per-contact direct-connection opt-in (`allow` / `deny` / `global`).
+    // It governs whether a CONVERSATION may run the P2P ladder, and nothing
+    // else on the stand can set it — the control lives behind a long-press and
+    // a dialog, and driving those blind is how a password once ended up in a
+    // search box. Values match ContactP2POverride; anything else is refused
+    // rather than quietly treated as the default.
+    if (q.containsKey('p2p')) {
+      final raw = q['p2p'];
+      final match = ContactP2POverride.values.where(
+        (v) =>
+            v.name == raw ||
+            (raw == 'global' && v == ContactP2POverride.followGlobal),
+      );
+      if (match.isEmpty) {
+        return _json(req, {
+          'ok': false,
+          'error': 'p2p must be one of allow,deny,global',
+        }, status: 400);
+      }
+      await messaging.setContactP2POverride(peer, match.first);
+    }
     return _json(req, {'ok': true});
   }
 
