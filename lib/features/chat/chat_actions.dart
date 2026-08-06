@@ -219,6 +219,16 @@ Future<void> pickContactP2P(
     builder: (context) => SimpleDialog(
       title: Text(l.chatMenuP2P),
       children: [
+        // The price is an IP address, and it is now paid by the conversation
+        // as well as by calls — say so where the choice is made, not in a
+        // settings screen nobody opens on the way here.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+          child: Text(
+            l.contactP2PHint,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
         for (final v in ContactP2POverride.values)
           ListTile(
             title: Text(_contactP2PLabel(l, v)),

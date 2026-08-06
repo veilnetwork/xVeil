@@ -5574,6 +5574,12 @@ abstract class AppL10n {
   /// **'Deny'**
   String get contactP2PDeny;
 
+  /// No description provided for @contactP2PHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow lets messages and calls with this contact take a direct route: much faster, and it shows them your IP address. Anything else keeps the conversation on the relay path. Messages are delivered either way.'**
+  String get contactP2PHint;
+
   /// No description provided for @chatMenuAllowPeerDelete.
   ///
   /// In en, this message translates to:
