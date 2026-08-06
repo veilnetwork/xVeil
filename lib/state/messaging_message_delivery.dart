@@ -89,8 +89,7 @@ class _MessagingMessageDelivery {
       for (final message in messages) {
         if (message.direction != MessageDirection.outgoing ||
             message.status != MessageStatus.sent ||
-            _delivered.contains(message.id) ||
-            message.isFile) {
+            _delivered.contains(message.id)) {
           continue;
         }
 
@@ -108,27 +107,42 @@ class _MessagingMessageDelivery {
           peer: peer.hex,
         );
 
+        // A file message re-drives its OFFER — the manifest naming the content,
+        // the same frame the original send built and deposited. The bytes are
+        // never re-driven: the recipient pulls them on its own terms, and
+        // re-pushing them on a 3s tick is the cost that used to justify
+        // dropping file messages from this loop altogether. A message with no
+        // manifest to offer (a small inline file, whose bytes ARE the send)
+        // yields null and is skipped, so that cost cannot reappear here.
+        //
         // Preserve the original timestamp and author sequence so retry and
         // gap-fill fold into the same convergent event on the recipient.
-        final recommendation = parseSpaceRecommendationMessage(message.body);
-        final wire =
-            (recommendation == null
-                    ? WireEnvelope.message(
-                        message.body,
-                        id: message.id,
-                        sentAtMs: message.timestamp.millisecondsSinceEpoch,
-                        seq: message.seq,
-                        replyTo: message.replyToId,
-                        forwardedFrom: message.forwardedFrom,
-                        customEmoji: message.customEmoji,
-                      )
-                    : WireEnvelope.spaceRecommendation(
-                        recommendation,
-                        id: message.id,
-                        sentAtMs: message.timestamp.millisecondsSinceEpoch,
-                        seq: message.seq,
-                      ))
-                .encode();
+        final Uint8List wire;
+        if (message.isFile) {
+          final offer = await _owner._fileOfferRetryFrame(message);
+          if (offer == null) continue;
+          wire = offer;
+        } else {
+          final recommendation = parseSpaceRecommendationMessage(message.body);
+          wire =
+              (recommendation == null
+                      ? WireEnvelope.message(
+                          message.body,
+                          id: message.id,
+                          sentAtMs: message.timestamp.millisecondsSinceEpoch,
+                          seq: message.seq,
+                          replyTo: message.replyToId,
+                          forwardedFrom: message.forwardedFrom,
+                          customEmoji: message.customEmoji,
+                        )
+                      : WireEnvelope.spaceRecommendation(
+                          recommendation,
+                          id: message.id,
+                          sentAtMs: message.timestamp.millisecondsSinceEpoch,
+                          seq: message.seq,
+                        ))
+                  .encode();
+        }
         devLog(
           () =>
               'xVeil[timeline]: retry id=${message.id} '
@@ -137,7 +151,13 @@ class _MessagingMessageDelivery {
         // Only the initial send creates a one-shot reply circuit. Retrying that
         // setup every three seconds was the dominant circuit-build load.
         await _owner._send(peer, wire);
-        _owner._stashInBackground(peer, message.id, wire);
+        // An offer is deposited under the key its original send used, so a live
+        // copy and a drained copy still dedup by the same event identity.
+        _owner._stashInBackground(
+          peer,
+          message.isFile ? 'mf:${message.id}' : message.id,
+          wire,
+        );
       }
     }
   }
