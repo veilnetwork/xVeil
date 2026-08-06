@@ -244,6 +244,12 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   final int _putHopCount;
   final int _putReplicaFanout;
   final Duration _fetchTimeout;
+
+  /// How long the fetch window stays open for the remaining relays once one has
+  /// already answered. Sized to cover ordinary spread between healthy relays
+  /// (they answer within a few hundred ms of each other), not to outwait a sick
+  /// one — that is what the next pass is for. See the note at the arming site.
+  static const Duration _stragglerGrace = Duration(milliseconds: 700);
   final RelayKeyCache? _relayKeyCache;
 
   /// Last logged known-relay count — the steady-state drain plan is logged
@@ -427,6 +433,31 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     var expected = 0;
     var allSent = false;
     final window = Completer<void>();
+    // Straggler grace. The window used to close only when EVERY relay had
+    // answered, or on the flat [_fetchTimeout] — so one habitually slow relay
+    // out of three cost the full timeout on EVERY pass, mail or no mail. That
+    // is the drain's whole duration (measured: ~6s per pass against ~0.5s when
+    // all three answered in time), and because the poll loop waits for the pass
+    // to finish, it also stretched the cadence from 3s to ~9.3s. A message
+    // therefore waited most of a cadence plus a whole timeout: the 6-20s
+    // observed end-to-end on 2026-08-06.
+    //
+    // Waiting that long buys almost nothing. The union is already declared
+    // authoritative on ONE answer below ("At least one relay ANSWERED"), the
+    // deposit fans out to several replicas so a blob is rarely on one relay
+    // alone, and anything genuinely missed is picked up by the next pass one
+    // cadence later. So once a relay has answered, the others get a short grace
+    // rather than the full window.
+    Timer? graceTimer;
+    void armGrace() {
+      if (!allSent || replies == 0 || window.isCompleted || graceTimer != null) {
+        return;
+      }
+      graceTimer = Timer(_stragglerGrace, () {
+        if (!window.isCompleted) window.complete();
+      });
+    }
+
     final sub = _fetchApp.messages().listen((m) {
       try {
         final blobs = decodeMailboxFetchResp(m.data);
@@ -456,6 +487,8 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       }
       if (allSent && replies >= expected && !window.isCompleted) {
         window.complete();
+      } else {
+        armGrace();
       }
     });
     try {
@@ -520,28 +553,40 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         }
       }));
       allSent = true;
+      // A reply may have landed before the last send returned, in which case
+      // the listener could not arm the grace yet (it waits for `allSent` so a
+      // pass cannot close before every relay was even asked).
+      armGrace();
       if (expected > 0 && replies < expected) {
-        // Same per-relay reply window as the old sequential path — but shared,
-        // so the whole drain costs ~1 RTT instead of ~relays×RTT.
+        // Shared window: the whole drain costs ~1 RTT instead of relays×RTT.
+        // [_fetchTimeout] is now only the backstop for the case where NOTHING
+        // answers at all — once anything does, `armGrace` closes the window.
         try {
           await window.future.timeout(_fetchTimeout);
         } on TimeoutException {
-          // Change-only: a persistently slow relay repeats the same shortfall
-          // every pass (see _lastReplyOutcome).
-          final outcome = '$replies/$expected';
-          if (outcome != _lastReplyOutcome) {
-            _lastReplyOutcome = outcome;
-            devLog(() => 'xVeil[drain]: reply window closed with '
-                '$outcome replies');
-          }
+          // Nothing answered within the backstop.
         }
       }
-      if (expected > 0 && replies >= expected && _lastReplyOutcome != null) {
-        _lastReplyOutcome = null;
-        devLog(() =>
-            'xVeil[drain]: reply window recovered ($replies/$expected)');
+      // Reported here rather than in the catch above, so an EARLY close with a
+      // shortfall is as visible as a timed-out one. It was only ever logged on
+      // timeout, and the grace makes the early close the common path — the
+      // shortfall would otherwise have gone silent exactly when it started
+      // happening on every pass.
+      if (expected > 0) {
+        final outcome = '$replies/$expected';
+        if (replies >= expected) {
+          if (_lastReplyOutcome != null) {
+            _lastReplyOutcome = null;
+            devLog(() => 'xVeil[drain]: reply window recovered ($outcome)');
+          }
+        } else if (outcome != _lastReplyOutcome) {
+          _lastReplyOutcome = outcome;
+          devLog(
+              () => 'xVeil[drain]: reply window closed with $outcome replies');
+        }
       }
     } finally {
+      graceTimer?.cancel();
       await sub.cancel();
     }
     if (malformed != null) throw malformed!;

@@ -55,9 +55,20 @@ class _FakeOrchestrator implements MailboxOrchestrator {
     required Future<bool> Function(Uint8List contentId) alreadyHave,
     List<NodeId> knownRelays = const [],
     bool Function()? shouldContinue,
+    void Function(DrainedMessage message)? onMessage,
   }) async {
     drains++;
-    return queued.isEmpty ? const [] : queued.removeAt(0);
+    final out = queued.isEmpty
+        ? const <DrainedMessage>[]
+        : queued.removeAt(0);
+    // The real orchestrator hands each message up as it opens, BEFORE the loop
+    // ends, and the service now delivers from here rather than from the
+    // returned batch. A fake that skipped this would deliver nothing and quietly
+    // contradict the contract it stands in for.
+    for (final m in out) {
+      onMessage?.call(m);
+    }
+    return out;
   }
 
   @override
