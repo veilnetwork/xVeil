@@ -55,6 +55,35 @@ if [ -n "$newer_veil_source" ]; then
   exit 1
 fi
 
+# The same question about the OTHER dylib, which this script has been copying
+# unchecked since it was written. hidden-volume owns the at-rest format, so a
+# stale copy here is worse than a stale veilclient: the Dart bindings carry a
+# per-method uniffi checksum table that fails CLOSED, and the app then refuses
+# to open its own container rather than misbehaving visibly. That is the macOS
+# twin of the Android jniLibs staleness of 2026-08-02..05 — same cause (nothing
+# on the packaging path rebuilds it), same silence.
+BUILD_HINT="scripts/build-native.sh"
+[ "$PROFILE" = "release" ] && BUILD_HINT="scripts/build-native.sh --release"
+# tests/benches/examples are separate cargo targets, never linked into the
+# cdylib — condemning the dylib for a test-only edit would just teach the
+# operator to work around the check.
+newer_hv_source="$(find "$ROOT/third_party/hidden-volume/crates" \
+  -type f \( -name '*.rs' -o -name 'Cargo.toml' \) \
+  -not -path '*/tests/*' -not -path '*/benches/*' \
+  -not -path '*/examples/*' -not -path '*/fuzz/*' \
+  -newer "$HV" -print -quit)"
+if [ -z "$newer_hv_source" ]; then
+  newer_hv_source="$(find "$ROOT/third_party/hidden-volume" -maxdepth 1 -type f \
+    \( -name 'Cargo.toml' -o -name 'Cargo.lock' \) \
+    -newer "$HV" -print -quit)"
+fi
+if [ -n "$newer_hv_source" ]; then
+  echo "ERROR: $HV is older than Rust source $newer_hv_source" >&2
+  echo "The app would refuse to open its own container (uniffi checksum guard)." >&2
+  echo "run: $BUILD_HINT" >&2
+  exit 1
+fi
+
 # The veil dylib MUST carry the embedded-node FFI (built --features node-embedded),
 # else the app degrades to a non-deniable boot. Fail loudly if it doesn't.
 if ! nm -gU "$VC" 2>/dev/null | grep -q 'veil_config_init'; then

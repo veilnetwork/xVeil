@@ -30,6 +30,7 @@ from xveil_build_support import (  # noqa: E402
     have,
     host,
     main,
+    newer_source,
     sh,
 )
 
@@ -164,9 +165,130 @@ _MEDIA_STAGE_DIR = os.path.join("android", "app", "src", "main", "jniLibs")
 _MEDIA_BUILD_SCRIPT = os.path.join(
     VEIL, "flutter", "veil_media", "android", "build_veil_media_so.sh"
 )
-# Produced per ABI by the plugins' own gradle cargo-ndk tasks. Listed because
-# their absence is exactly as silent and exactly as fatal: no network, no store.
+# Listed because their absence is exactly as silent and exactly as fatal: no
+# network, no store. Only ONE of the two is produced by a gradle cargo-ndk task
+# (see _ANDROID_NATIVE).
 _REQUIRED_EVERY_ABI = ("libveilclient_ffi.so", "libhidden_volume_ffi.so")
+
+# The Rust trees each native library is built from. Used to ask the only
+# question that matters about a built artifact: is it older than the code it
+# claims to be?
+_HV_SOURCES = [
+    os.path.join(ROOT, HV, "crates"),
+    os.path.join(ROOT, HV, "Cargo.toml"),
+    os.path.join(ROOT, HV, "Cargo.lock"),
+]
+_VEIL_SOURCES = [
+    os.path.join(ROOT, VEIL, "crates"),
+    os.path.join(ROOT, VEIL, "veilclient"),
+    os.path.join(ROOT, VEIL, "veilcore"),
+    os.path.join(ROOT, VEIL, "Cargo.toml"),
+    os.path.join(ROOT, VEIL, "Cargo.lock"),
+]
+
+# (library, staging dir, its sources, what rebuilds it).
+#
+# The two plugins are NOT symmetric and the asymmetry is the whole defect.
+# veil_flutter's gradle module runs cargo-ndk on every `flutter build apk`;
+# hidden_volume's module has no cargo step at all and simply bundles whatever
+# already sits in its gitignored jniLibs/. So for one of them "gradle ran"
+# means "the library is current" and for the other it means nothing.
+_ANDROID_NATIVE = (
+    (
+        "libhidden_volume_ffi.so",
+        os.path.join(
+            HV, "experimental", "flutter_plugin", "hidden_volume",
+            "android", "src", "main", "jniLibs",
+        ),
+        _HV_SOURCES,
+        "scripts/build-mobile.sh android   (needs bash + cargo-ndk + ANDROID_NDK_HOME)",
+    ),
+    (
+        "libveilclient_ffi.so",
+        os.path.join(VEIL, "flutter", "veil_flutter", "android", "src", "main", "jniLibs"),
+        _VEIL_SOURCES,
+        "flutter build apk   (its gradle module runs cargo-ndk; unset VEIL_SKIP_CARGO)",
+    ),
+)
+
+
+def _check_android_native_fresh() -> None:
+    """Refuse to package a native library older than the code it stands for.
+
+    Existence was already checked; that is not the same question. A .so from
+    2026-08-02 exists just as convincingly as one built a minute ago, and the
+    APK that shipped it was honestly green — the storage format had moved
+    underneath it and the runtime checksum guard refused to open the container,
+    which a device shows as onboarding simply failing.
+
+    Run AFTER the flutter build: gradle produces veil_flutter's .so during it,
+    and hidden_volume's is produced by the step at the top of this plan or by
+    nothing at all.
+    """
+    problems: list[str] = []
+    for soname, stage_dir, sources, cure in _ANDROID_NATIVE:
+        stage = os.path.join(ROOT, stage_dir)
+        staged = []
+        if os.path.isdir(stage):
+            for abi in sorted(os.listdir(stage)):
+                path = os.path.join(stage, abi, soname)
+                if os.path.isfile(path):
+                    staged.append((abi, path))
+        if not staged:
+            problems.append(f"{soname}: nothing staged under {stage_dir}\n      fix: {cure}")
+            continue
+        stale = []
+        for abi, path in staged:
+            newer = newer_source(path, sources)
+            if newer:
+                stale.append(f"{abi} is older than {os.path.relpath(newer, ROOT)}")
+        if stale:
+            problems.append(
+                f"{soname}: " + "; ".join(stale) + f"\n      fix: {cure}"
+            )
+        else:
+            print(f"    {soname}: {len(staged)} ABI(s), each newer than its Rust source")
+    if problems:
+        raise RuntimeError(
+            "NATIVE LIBRARIES ARE STALE — this APK would ship code that was not\n"
+            "    built from this tree.\n    "
+            + "\n    ".join(problems)
+        )
+
+
+def _check_linux_native_fresh(release: bool) -> None:
+    """The same question for the Linux bundle.
+
+    veil_flutter's linux CMakeLists copies both .so straight out of each
+    submodule's target/<profile>/ and only checks that they EXIST, so a bundle
+    built without running build-native.sh first carries whatever was there.
+    """
+    profile = "release" if release else "debug"
+    problems: list[str] = []
+    for soname, submodule, sources in (
+        ("libhidden_volume_ffi.so", HV, _HV_SOURCES),
+        ("libveilclient_ffi.so", VEIL, _VEIL_SOURCES),
+    ):
+        path = os.path.join(ROOT, submodule, "target", profile, soname)
+        if not os.path.isfile(path):
+            problems.append(f"{soname}: not built at {os.path.relpath(path, ROOT)}")
+            continue
+        newer = newer_source(path, sources)
+        if newer:
+            problems.append(
+                f"{soname}: older than {os.path.relpath(newer, ROOT)}"
+            )
+        else:
+            print(f"    {soname}: newer than its Rust source")
+    if problems:
+        raise RuntimeError(
+            "NATIVE LIBRARIES ARE STALE — the bundle copies these straight out\n"
+            "    of each submodule's target/, so it would ship code that was not\n"
+            "    compiled from this tree.\n    "
+            + "\n    ".join(problems)
+            + "\n    fix: scripts/build-native.sh"
+            + (" --release" if release else "")
+        )
 # arm64-v8a ONLY, deliberately. armeabi-v7a and x86_64 built fine and were
 # published through v0.9.1, but neither can carry the media engine, so voice
 # messages, video notes, calls and speech-to-text are dead in them. Shipping an
@@ -257,15 +379,19 @@ def _check_android_native_libs() -> None:
 
 
 def _android(release: bool) -> list[Step]:
-    # The per-ABI .so is produced by each plugin's gradle cargo-ndk task during
-    # `flutter build apk`; this script only preflights the toolchain, so a host
-    # without bash loses a check rather than the build.
+    # NOT optional, and the previous comment here ("gradle builds the .so
+    # anyway") was false: gradle builds ONE of the two. This step is the only
+    # thing in an APK build that produces libhidden_volume_ffi.so, so a failure
+    # that is shrugged off leaves the previous one in place — which is exactly
+    # what shipped for three days. A host without bash cannot run it at all;
+    # there the freshness gate after the build is what refuses the leftovers.
     steps = [
         Step(
-            "native toolchain preflight",
+            "native libraries (hidden_volume has no gradle cargo step)",
             argv=sh("scripts/build-mobile.sh", "android") if have("bash") else [],
-            optional=True,
-            skip_if="" if have("bash") else "needs bash; gradle builds the .so anyway",
+            skip_if=(
+                "" if have("bash") else "needs bash — the freshness gate below decides"
+            ),
         )
     ]
     whisper = _whisper_script("android")
@@ -301,6 +427,9 @@ def _android(release: bool) -> list[Step]:
             )
         )
         steps.append(
+            Step("native libraries are current", call=_check_android_native_fresh)
+        )
+        steps.append(
             Step("native libraries in the APKs", call=_check_android_native_libs)
         )
         steps.append(Step("signing check", call=_check_android_signing))
@@ -312,6 +441,11 @@ def _android(release: bool) -> list[Step]:
                 env=_path_remap_env(),
             )
         )
+        # A debug APK goes on a phone too, and a stale storage library fails
+        # there the same way. The check costs a walk of two source trees.
+        steps.append(
+            Step("native libraries are current", call=_check_android_native_fresh)
+        )
     return steps
 
 
@@ -320,7 +454,11 @@ def _linux(release: bool) -> list[Step]:
         Step(
             "native libraries",
             argv=sh("scripts/build-native.sh") + (["--release"] if release else []),
-        )
+        ),
+        Step(
+            "native libraries are current",
+            call=lambda: _check_linux_native_fresh(release),
+        ),
     ]
     whisper = _whisper_script("linux")
     steps.append(

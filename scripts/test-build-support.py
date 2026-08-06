@@ -20,6 +20,7 @@ import os
 import os.path
 import shutil
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -48,7 +49,12 @@ class FakeWindows:
         self.which, self.present = which, present
 
     def __enter__(self):
-        self.saved = (os.name, shutil.which, os.path.exists, os.path.join)
+        # dirname belongs in here too: __exit__ used to "restore" it from
+        # os.path.__dict__, which by then already held the replacement, so the
+        # first block left every later caller with the Windows lambda.
+        self.saved = (
+            os.name, shutil.which, os.path.exists, os.path.join, os.path.dirname
+        )
         os.name = "nt"
         shutil.which = lambda tool: self.which.get(tool)
         os.path.exists = lambda path: path in self.present
@@ -59,9 +65,64 @@ class FakeWindows:
         return self
 
     def __exit__(self, *_exc) -> None:
-        os.name, shutil.which, os.path.exists, os.path.join = self.saved
-        os.path.dirname = os.path.__dict__["dirname"]
+        (
+            os.name, shutil.which, os.path.exists, os.path.join, os.path.dirname
+        ) = self.saved
 
+
+print("newer_source()")
+
+
+def _touch(path: str, when: int) -> str:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("x")
+    os.utime(path, (when, when))
+    return path
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    crates = os.path.join(tmp, "crates")
+    source = _touch(os.path.join(crates, "space", "log.rs"), 1000)
+    manifest = _touch(os.path.join(tmp, "Cargo.toml"), 1000)
+    # A file cargo does not compile from, in a directory cargo writes to.
+    _touch(os.path.join(crates, "target", "leftover.rs"), 9000)
+    _touch(os.path.join(crates, "README.md"), 9000)
+    artifact = _touch(os.path.join(tmp, "libthing.so"), 2000)
+
+    check("an artifact newer than its sources is current",
+          bs.newer_source(artifact, [crates, manifest]), None)
+    check("target/ is output, not source",
+          bs.newer_source(artifact, [crates]), None)
+
+    # A crate's tests/ is its own cargo target and is never linked into the
+    # library, so touching one must not condemn the .so.
+    crate = os.path.join(crates, "thing")
+    _touch(os.path.join(crate, "Cargo.toml"), 1000)
+    _touch(os.path.join(crate, "tests", "integration.rs"), 9000)
+    _touch(os.path.join(crate, "benches", "throughput.rs"), 9000)
+    crate_src = _touch(os.path.join(crate, "src", "lib.rs"), 1000)
+    check("a crate's tests/ and benches/ are not library inputs",
+          bs.newer_source(artifact, [crates]), None)
+    # …but its src/ is, and that is the whole point.
+    os.utime(crate_src, (9000, 9000))
+    check("a crate's src/ still condemns a stale artifact",
+          bs.newer_source(artifact, [crates]), crate_src)
+    os.utime(crate_src, (1000, 1000))
+
+    os.utime(source, (3000, 3000))
+    check("a source touched after the build is named",
+          bs.newer_source(artifact, [crates, manifest]), source)
+
+    os.utime(source, (1000, 1000))
+    os.utime(manifest, (3000, 3000))
+    check("a manifest named directly is weighed too",
+          bs.newer_source(artifact, [crates, manifest]), manifest)
+
+    # Absence is a different question, with a different message, and answering
+    # it here would report a MISSING library as a current one.
+    check("a missing artifact is not called current",
+          bs.newer_source(os.path.join(tmp, "nope.so"), [crates]), None)
 
 print("resolve() on Windows")
 
