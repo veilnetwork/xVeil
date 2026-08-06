@@ -308,10 +308,21 @@ class MailboxService implements MailboxSink {
 
   StreamSubscription<VeilEvent>? _wakeSub;
 
+  /// A wake that arrived while a drain was already in flight.
+  ///
+  /// [_drainTick] drops such a tick, which is right for a TIMER tick (the pass
+  /// under way is already doing that work) and wrong for a wake: a wake is a
+  /// relay saying a specific deposit just landed, and the pass under way may be
+  /// past its fetch rounds and unable to see it. Dropping it cost the whole
+  /// remainder of that pass plus a poll interval — measured as the slow mode of
+  /// a bimodal delivery time on the stand, ~8-10s against ~2.8s when the wake
+  /// found the node idle. Remembered here and spent the moment the pass ends.
+  bool _wakePending = false;
+
   /// A relay told us a deposit just landed ([VeilEventKind.mailboxWake]) —
   /// authoritative "you have mail", so drain NOW (no nudge debounce; the relay
   /// already debounces per receiver) and open the burst window for the rest of
-  /// the exchange. A drain already in flight is respected by [_drainTick].
+  /// the exchange.
   void onDepositWake() {
     if (backgroundDrainPaused ||
         _disposed ||
@@ -319,11 +330,18 @@ class MailboxService implements MailboxSink {
         _drainTimer == null) {
       return;
     }
-    devLog(() => 'xVeil[mailbox]: deposit wake — draining now');
     _heat();
     _drainSkips = 0;
     _emptyDrainStreak = 0;
     _armDrainLoop();
+    if (_draining) {
+      _wakePending = true;
+      devLog(
+        () => 'xVeil[mailbox]: deposit wake during a drain — queued for its end',
+      );
+      return;
+    }
+    devLog(() => 'xVeil[mailbox]: deposit wake — draining now');
     unawaited(_drainTick());
   }
 
@@ -613,6 +631,17 @@ class MailboxService implements MailboxSink {
       _draining = false;
       if (identical(_drainCompletion, completion)) _drainCompletion = null;
       if (!completion.isCompleted) completion.complete();
+      // A wake that landed mid-pass names mail this pass may never have looked
+      // for. Spend it now rather than making it wait out a poll interval. Only
+      // a wake does this: it is evidence of a specific deposit, where a timer
+      // tick is just the schedule.
+      if (_wakePending) {
+        _wakePending = false;
+        if (!_disposed && !_handleDead && !backgroundDrainPaused) {
+          devLog(() => 'xVeil[mailbox]: spending the wake queued mid-drain');
+          unawaited(_drainTick());
+        }
+      }
     });
   }
 
