@@ -81,6 +81,13 @@ extension _MessagingInboundDispatch on MessagingService {
       _realtimeControl.markAccepted(m.src);
     }
 
+    // Hearing from a peer is the mailbox backoff's only recovery signal — see
+    // [_MessagingMailboxDelivery.notePeerReachable] for why it had none, and why
+    // this one is gated on provenance rather than on `m.src` alone.
+    if (m.provenance.isAuthenticated) {
+      _mailboxDelivery.notePeerReachable(m.src.hex);
+    }
+
     // ── X/V-01: the name is not the sender ────────────────────────────────
     // Every gate below reads `m.src` as though it were an identity. It is a
     // NAME the sender wrote, and there is nothing at this layer to check it

@@ -83,7 +83,11 @@ class _MessagingMessageDelivery {
       final messages = await _owner._storage.loadMessages(conversation.id);
       // Runs before unresolved-peer backoff so dead identities still terminate.
       await _maybeReconnect(peer, messages);
-      if (_owner._mailboxDelivery.peerBackedOff(peer.hex, DateTime.now())) {
+      if (_owner._mailboxDelivery.suppressedByBackoff(
+        peer.hex,
+        DateTime.now(),
+        'message retry',
+      )) {
         continue;
       }
       for (final message in messages) {
