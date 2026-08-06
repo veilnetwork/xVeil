@@ -53,6 +53,18 @@ class _FakeTransport implements VeilTransport {
     );
   }
 
+  /// Inject a delivery that only CLAIMS to come from [src] — the provenance of
+  /// anything relayed or anonymous, where `src` is a name the sender wrote.
+  void injectClaimed(NodeId src, Uint8List payload) {
+    _inbound.add(
+      InboundMessage(
+        src: src,
+        payload: payload,
+        provenance: SenderProvenance.claimed,
+      ),
+    );
+  }
+
   @override
   Stream<int> sessionCount() => Stream.value(0);
   @override
@@ -495,6 +507,91 @@ void main() {
         reason:
             'and the second is not: this peer has no mailbox to reach, and '
             'the frame stays durable for the flush loop to deposit later',
+      );
+    },
+  );
+
+  test(
+    'hearing from the peer clears the backoff instead of waiting it out',
+    () async {
+      // The backoff above had exactly two exits — a deposit that SUCCEEDS, and
+      // the chat being deleted — and the first cannot happen while it is
+      // running. So the ladder only climbed: 30s, 60s, 120s ... to a 30-minute
+      // cap. A phone that dozes for a minute and comes straight back is the
+      // ordinary case, and on the stand it bought half an hour of silence
+      // toward a peer that was demonstrably reachable (2026-08-06). An
+      // authenticated delivery FROM the peer is the evidence the loop never
+      // consulted.
+      final mailbox = _UnresolvedMailboxSink();
+      mA.attachMailbox(mailbox);
+      tA.online = false;
+
+      await mA.sendText(b, 'first');
+      await _pump();
+      expect(mailbox.calls, 1, reason: 'the first deposit is attempted');
+
+      await mA.sendText(b, 'second');
+      await _pump();
+      expect(mailbox.calls, 1, reason: 'the backoff suppresses the second');
+
+      // B is reachable and says so. This arrives over tB, which is still
+      // online, and carries SenderProvenance.sessionPeer.
+      await mB.sendText(a, 'I am back');
+      await _pump();
+
+      await mA.sendText(b, 'third');
+      await _pump();
+      expect(
+        mailbox.calls,
+        2,
+        reason:
+            'the peer proved it is reachable, so the next send deposits again '
+            'rather than serving out the remaining backoff',
+      );
+    },
+  );
+
+  test(
+    'an UNAUTHENTICATED delivery naming the peer does not clear the backoff',
+    () async {
+      // `src` on an unauthenticated delivery is a name the sender wrote, so
+      // honouring it here would let anyone clear anyone's backoff on demand and
+      // aim the retry loop at a peer that still cannot be resolved — the exact
+      // hammering the backoff exists to stop. The near miss to the test above.
+      final mailbox = _UnresolvedMailboxSink();
+      mA.attachMailbox(mailbox);
+      tA.online = false;
+
+      await mA.sendText(b, 'first');
+      await _pump();
+      expect(mailbox.calls, 1);
+
+      await mA.sendText(b, 'second');
+      await _pump();
+      expect(mailbox.calls, 1, reason: 'the backoff suppresses the second');
+
+      // Same bytes B would have sent, same `src`, but relayed rather than
+      // session-authenticated.
+      tA.injectClaimed(
+        b,
+        WireEnvelope(
+          WireKind.message,
+          'I am back',
+          id: 'forged-1',
+          seq: 9001,
+          sentAtMs: DateTime.now().millisecondsSinceEpoch,
+        ).encode(),
+      );
+      await _pump();
+
+      await mA.sendText(b, 'third');
+      await _pump();
+      expect(
+        mailbox.calls,
+        1,
+        reason:
+            'an unauthenticated claim is not evidence of reachability, so the '
+            'backoff still stands',
       );
     },
   );

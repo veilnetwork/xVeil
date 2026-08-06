@@ -292,7 +292,11 @@ class _MessagingOutbox {
       if (contact?.status == ContactStatus.blocked && !groupMemberCarrier) {
         continue;
       }
-      if (_owner._mailboxDelivery.peerBackedOff(frame.peerHex, _owner._now())) {
+      if (_owner._mailboxDelivery.suppressedByBackoff(
+        frame.peerHex,
+        _owner._now(),
+        'outbox flush',
+      )) {
         continue;
       }
       _owner._stashInBackground(peer, frame.frameId, frame.wire);

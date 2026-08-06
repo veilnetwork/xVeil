@@ -14,12 +14,14 @@ class _MessagingMailboxDelivery {
   final Set<String> _inFlight = {};
   final Map<String, DateTime> _failedAt = {};
   final Map<String, ({int count, DateTime nextAt})> _peerUnresolvedBackoff = {};
+  final Map<String, DateTime> _lastSuppressionLog = {};
 
   bool _paused = false;
 
   static const _maxBackgroundStashes = 1;
   static const _retryBackoff = Duration(seconds: 30);
   static const _peerUnresolvedCap = Duration(minutes: 30);
+  static const _suppressionLogEvery = Duration(minutes: 1);
 
   bool get paused => _paused;
 
@@ -40,13 +42,69 @@ class _MessagingMailboxDelivery {
 
   void removeStashed(String id) => _stashed.remove(id);
 
-  void clearPeerBackoff(String peerHex) =>
-      _peerUnresolvedBackoff.remove(peerHex);
-
-  bool peerBackedOff(String peerHex, DateTime now) {
-    final backoff = _peerUnresolvedBackoff[peerHex];
-    return backoff != null && now.isBefore(backoff.nextAt);
+  void clearPeerBackoff(String peerHex) {
+    _peerUnresolvedBackoff.remove(peerHex);
+    _lastSuppressionLog.remove(peerHex);
   }
+
+  /// Live proof the peer is online: an AUTHENTICATED delivery from it.
+  ///
+  /// The backoff below had exactly two ways out — a deposit that SUCCEEDS, and
+  /// the chat being deleted — and the first cannot happen while the backoff is
+  /// running. So the ladder only ever climbed, and a peer that went away for a
+  /// moment and came straight back stayed penalised for up to
+  /// [_peerUnresolvedCap]. A phone that dozes for a minute is the ordinary case,
+  /// not an edge one, and on the stand it turned a one-minute nap into half an
+  /// hour of silence in the direction of a peer that was demonstrably back
+  /// (2026-08-06).
+  ///
+  /// Hearing FROM the peer is the recovery signal the loop never had. It must be
+  /// AUTHENTICATED: `src` on an unauthenticated delivery is a name the sender
+  /// wrote (see `_speaksForContact`), so accepting it here would let anyone
+  /// clear anyone's backoff on demand and aim the retry loop at an unresolvable
+  /// peer — the exact hammering the backoff exists to stop.
+  void notePeerReachable(String peerHex) {
+    if (_peerUnresolvedBackoff.remove(peerHex) == null) return;
+    _lastSuppressionLog.remove(peerHex);
+    devLog(
+      () =>
+          'xVeil[send]: backoff CLEARED dst=${_short(peerHex)} — an '
+          'authenticated delivery arrived, so the peer is reachable now',
+    );
+  }
+
+  /// Whether a deposit for [peerHex] is suppressed by the unresolved-peer
+  /// backoff — and the one place that says so out loud.
+  ///
+  /// The predicate and the log line are deliberately the SAME call. They used to
+  /// be separate: three call sites took this decision and not one of them
+  /// reported it, so a node sitting on a running backoff looked from the outside
+  /// exactly like a node doing nothing — no deposit, no error, no line, for up
+  /// to [_peerUnresolvedCap]. That silence, not the backoff itself, was the
+  /// expensive half of diagnosing the 2026-08-06 outage. Keeping the two joined
+  /// means a future call site cannot acquire the behaviour without the evidence.
+  bool suppressedByBackoff(String peerHex, DateTime now, String where) {
+    final backoff = _peerUnresolvedBackoff[peerHex];
+    if (backoff == null || !now.isBefore(backoff.nextAt)) return false;
+    // One line per peer per window rather than one per pass: the flush loop asks
+    // about every conversation every few seconds, and a line each would bury the
+    // log this exists to make readable.
+    final last = _lastSuppressionLog[peerHex];
+    if (last == null || now.difference(last) >= _suppressionLogEvery) {
+      _lastSuppressionLog[peerHex] = now;
+      devLog(
+        () =>
+            'xVeil[send]: deposit SUPPRESSED dst=${_short(peerHex)} at $where — '
+            'unresolved-peer backoff, ${backoff.nextAt.difference(now).inSeconds}s '
+            'left (attempt ${backoff.count}). Clears on a deposit that succeeds '
+            'or on an authenticated delivery from the peer',
+      );
+    }
+    return true;
+  }
+
+  static String _short(String peerHex) =>
+      peerHex.length >= 8 ? peerHex.substring(0, 8) : peerHex;
 
   /// Admit at most one background seal/fanout. Skipped ids stay durable and
   /// are reconsidered on the next flush, avoiding CPU bursts during calls.
@@ -63,7 +121,7 @@ class _MessagingMailboxDelivery {
     // hammering the mailbox of a peer we had just failed to resolve. The frame
     // stays durable regardless: the flush loop deposits it once the backoff
     // expires.
-    if (peerBackedOff(peer.hex, DateTime.now())) return;
+    if (suppressedByBackoff(peer.hex, DateTime.now(), 'maybeStash')) return;
     final mailbox = _mailbox;
     if (mailbox == null) {
       devLog(
