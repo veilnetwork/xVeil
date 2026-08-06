@@ -26,9 +26,53 @@ class FakeKvLogStore implements KvLogStore {
   /// exclusive per-file lock by releasing it when this handle closes.
   void Function()? onClose;
 
+  /// Rejects exactly what hidden-volume's `Tx` rejects inside ONE transaction
+  /// (R-NSKIND): a namespace is addressed either by key (`put`/`delete`) or by
+  /// log id (`append_log`/`delete_log`), never both, and `delete_log` may not
+  /// be mixed with `append_log` for the same namespace even though both are
+  /// log-addressed (`Tx::delete_log`, `Tx::check_namespace_kind`).
+  ///
+  /// Without this the fake accepted a batch the native store answers with
+  /// `WrongNamespaceKind` — and the call journal shipped for weeks writing a
+  /// batch that every real device refused, with a green unit suite behind it.
+  /// A fake that is more permissive than the thing it stands in for cannot
+  /// fail the test that matters.
+  static void _checkNamespaceKinds(List<KvLogOp> ops) {
+    final byKey = <int>{};
+    final appended = <int>{};
+    final deletedLog = <int>{};
+    for (final op in ops) {
+      switch (op) {
+        case PutOp(:final namespace) || DeleteOp(:final namespace):
+          byKey.add(namespace);
+        case AppendLogOp(:final namespace):
+          appended.add(namespace);
+        case DeleteLogOp(:final namespace):
+          deletedLog.add(namespace);
+      }
+    }
+    for (final ns in appended.union(deletedLog)) {
+      if (byKey.contains(ns)) {
+        throw StateError(
+          'wrong namespace kind: namespace $ns is addressed both by key and '
+          'by log id in one commit',
+        );
+      }
+    }
+    for (final ns in appended) {
+      if (deletedLog.contains(ns)) {
+        throw StateError(
+          'wrong namespace kind: delete_log cannot be mixed with append_log '
+          'in one Tx (namespace $ns)',
+        );
+      }
+    }
+  }
+
   @override
   int commit(List<KvLogOp> ops) {
     if (ops.isEmpty) return _seq;
+    _checkNamespaceKinds(ops);
     for (final op in ops) {
       switch (op) {
         case PutOp(:final namespace, :final key, :final value):
