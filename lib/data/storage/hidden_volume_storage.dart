@@ -2759,14 +2759,35 @@ class HiddenVolumeStorage implements Storage {
         if (r.logId != null) DeleteLogOp(Ns.callLog, r.logId!),
     ];
     final keepNew = !evicted.any((r) => r.logId == null);
-    if (!keepNew && doomed.isEmpty) return true;
-    await _commitAtNextLogId(
-      (logId) => [
-        if (keepNew)
+    // TWO commits, appends first. hidden-volume refuses a transaction that both
+    // appends to and deletes from ONE Log namespace (`Tx::delete_log` ->
+    // WrongNamespaceKind "delete_log cannot be mixed with append_log in one
+    // Tx"), and the reverse order is refused just as firmly by
+    // `Tx::check_namespace_kind`. One batch therefore threw for every call once
+    // the journal reached its cap, and the recorder's catchError turned that
+    // into a log line — the journal simply stopped growing, on a device, while
+    // the in-memory fake accepted the same batch and kept the suite green.
+    //
+    // Appends first, never the other way round: a crash between the two commits
+    // then leaves cap+1 rows, which the next append re-evicts, instead of a
+    // hole where the evicted rows used to be.
+    if (keepNew) {
+      await _commitAtNextLogId(
+        (logId) => [
           AppendLogOp(Ns.callLog, logId, _sk(jsonEncode(entry.toJson()))),
-        ...doomed,
-      ],
-    );
+        ],
+      );
+    }
+    if (doomed.isNotEmpty) {
+      try {
+        await _as.commit(doomed);
+      } catch (e) {
+        // The row IS journaled; eviction is recomputed from stored state on
+        // every append, so a failed one heals itself on the next call. Failing
+        // here would tell the recorder a call went unrecorded when it did not.
+        devLog(() => 'xVeil[call-log]: eviction deferred: $e');
+      }
+    }
     return true;
   }
 
