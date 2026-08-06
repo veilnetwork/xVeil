@@ -696,6 +696,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/contact_info':
           await _contactInfoHook(req);
           return;
+        case '/anon_routing':
+          await _anonRoutingHook(req);
+          return;
         case '/pref_set':
           await _prefSetHook(req);
           return;
@@ -3927,6 +3930,42 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   /// Set an allowlisted app preference ?key=&v= through its REAL controller
   /// (the same path a settings-screen toggle takes), so a linked device should
   /// receive a settingSet event.
+  /// Read or set the identity's anonymous (onion) routing.
+  ///
+  /// The setting decides whether messages go out over the onion rendezvous —
+  /// which reaches a peer behind NAT without a direct route — or over the
+  /// direct path, which for two NAT'd peers has no route at all and therefore
+  /// falls to the store-and-forward mailbox. It is the difference between
+  /// live delivery and a poll cycle, and there was no way to flip it from the
+  /// stand: the only path was the settings screen. `GET` with no `on=`
+  /// reports the current value; the node reboots in place when it changes.
+  Future<void> _anonRoutingHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final ctrl = ref.read(appControllerProvider.notifier);
+    final want = req.uri.queryParameters['on'];
+    if (want == null) {
+      return _json(req, {
+        'ok': true,
+        'anonymous': ctrl.singleIdentityAnonymous,
+      });
+    }
+    final on = want == '1' || want == 'true';
+    final label = ctrl.activeIdentity;
+    // Single-identity and master mode have separate setters; the single one
+    // refuses (returns false) when a roster is present, so try it first and
+    // fall through rather than guessing which mode this stand is in.
+    var ok = await ctrl.setSingleIdentityAnonymous(on);
+    if (!ok && label != null) {
+      ok = await ctrl.setIdentityAnonymous(label, on);
+    }
+    return _json(req, {
+      'ok': ok,
+      'anonymous': on,
+      'identity': label,
+      'note': 'the node reboots in place; wait for phase=ready',
+    });
+  }
+
   Future<void> _prefSetHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final q = req.uri.queryParameters;
