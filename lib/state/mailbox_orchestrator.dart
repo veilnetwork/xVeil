@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -103,6 +104,19 @@ class PoisonedBlobRegistry {
     }
     return sb.toString();
   }
+}
+
+/// Where one drain's wall-clock went. Passed down rather than kept on the
+/// orchestrator so two passes can never mix their numbers.
+class _DrainCost {
+  int fetchMs = 0;
+  int openMs = 0;
+  int ackMs = 0;
+  int settleMs = 0;
+  int rounds = 0;
+  int settles = 0;
+  int opens = 0;
+  int acks = 0;
 }
 
 /// Offline-delivery orchestration: seal a message for an offline peer and stash
@@ -244,21 +258,18 @@ class MailboxOrchestrator {
     // one number ("in 9687ms") that could be any mix of fetches, settle waits
     // and open/ack work, and tuning it is guesswork — the split is what says
     // which of the three to touch.
-    var rounds = 0;
-    var settles = 0;
-    var fetchMs = 0;
-    var settleMs = 0;
+    final cost = _DrainCost();
     final drainSw = Stopwatch()..start();
     for (var round = 0; round < _maxDrainRounds; round++) {
       if (shouldContinue?.call() == false) break;
-      rounds++;
+      cost.rounds++;
       final fetchSw = Stopwatch()..start();
       final blobs = await _relay.fetch(
         me: me,
         authCookie: authCookie,
         knownRelays: knownRelays,
       );
-      fetchMs += fetchSw.elapsedMilliseconds;
+      cost.fetchMs += fetchSw.elapsedMilliseconds;
       // A call may have started while the native FETCH was in flight. Leave
       // the returned blobs unacked at the relay and stop before decrypt/ack;
       // the first post-call drain will recover them normally.
@@ -273,10 +284,10 @@ class MailboxOrchestrator {
         // backlog to the next tick. Bounded so a relay that never removes
         // (pre-ack build) can't spin the loop: give up after a few settles.
         if (ackSettleRetries++ >= _maxAckSettleRetries) break;
-        settles++;
+        cost.settles++;
         final settleSw = Stopwatch()..start();
         await Future<void>.delayed(_ackSettleDelay);
-        settleMs += settleSw.elapsedMilliseconds;
+        cost.settleMs += settleSw.elapsedMilliseconds;
         continue;
       }
       ackSettleRetries = 0; // progress made — reset the settle budget
@@ -290,18 +301,21 @@ class MailboxOrchestrator {
         delivered: delivered,
         shouldContinue: shouldContinue,
         onMessage: onMessage,
+        cost: cost,
       );
     }
     // Only when something happened worth explaining: an idle single-round pass
     // is the steady state and its one number already says everything.
-    if (rounds > 1 || delivered.isNotEmpty) {
+    if (cost.rounds > 1 || delivered.isNotEmpty) {
       final total = drainSw.elapsedMilliseconds;
+      final rest =
+          total - cost.fetchMs - cost.settleMs - cost.openMs - cost.ackMs;
       devLog(
         () =>
-            'xVeil[drain]: rounds=$rounds settles=$settles '
-            'fetch=${fetchMs}ms settle=${settleMs}ms '
-            'other=${total - fetchMs - settleMs}ms total=${total}ms '
-            'recovered=${delivered.length}',
+            'xVeil[drain]: rounds=${cost.rounds} settles=${cost.settles} '
+            'fetch=${cost.fetchMs}ms settle=${cost.settleMs}ms '
+            'open=${cost.openMs}ms/${cost.opens} ack=${cost.ackMs}ms/${cost.acks} '
+            'rest=${rest}ms total=${total}ms recovered=${delivered.length}',
       );
     }
     return delivered;
@@ -317,6 +331,7 @@ class MailboxOrchestrator {
     required List<DrainedMessage> delivered,
     bool Function()? shouldContinue,
     void Function(DrainedMessage message)? onMessage,
+    required _DrainCost cost,
   }) async {
     for (final b in blobs) {
       if (shouldContinue?.call() == false) return;
@@ -329,23 +344,26 @@ class MailboxOrchestrator {
       final cidHex = _cidHex(b.contentId);
       if (_openFailedOnce.contains(cidHex)) {
         await _poisoned?.add(b.contentId);
-        await _ack(me, b.contentId, authCookie, knownRelays);
+        await _ack(cost, me, b.contentId, authCookie, knownRelays);
         continue;
       }
       if (await (_poisoned?.contains(b.contentId) ?? Future.value(false))) {
-        await _ack(me, b.contentId, authCookie, knownRelays);
+        await _ack(cost, me, b.contentId, authCookie, knownRelays);
         continue;
       }
       if (await alreadyHave(b.contentId)) {
-        await _ack(me, b.contentId, authCookie, knownRelays);
+        await _ack(cost, me, b.contentId, authCookie, knownRelays);
         continue;
       }
       OpenedMailboxMessage opened;
       try {
+        final openSw = Stopwatch()..start();
         opened = await _crypto.open(
           blob: b.blob,
           ourCertVersion: ourCertVersion,
         );
+        cost.openMs += openSw.elapsedMilliseconds;
+        cost.opens++;
       } catch (e) {
         // TRANSIENT failure first: an IPC timeout ("timeout waiting for
         // mailbox_open reply" — the node was busy/starting and simply didn't
@@ -396,7 +414,7 @@ class MailboxOrchestrator {
         );
         _openFailedOnce.add(cidHex);
         await _poisoned?.add(b.contentId);
-        await _ack(me, b.contentId, authCookie, knownRelays);
+        await _ack(cost, me, b.contentId, authCookie, knownRelays);
         continue;
       }
       _transientOpenFails.remove(cidHex); // opened fine — forget old timeouts
@@ -421,21 +439,27 @@ class MailboxOrchestrator {
       // Measured on the stand: a drain that carried one message took ~6.8s while
       // the fetch that produced it took ~0.5s.
       onMessage?.call(message);
-      await _ack(me, b.contentId, authCookie, knownRelays);
+      await _ack(cost, me, b.contentId, authCookie, knownRelays);
     }
   }
 
   Future<void> _ack(
+    _DrainCost cost,
     NodeId me,
     Uint8List contentId,
     Uint8List authCookie,
     List<NodeId> knownRelays,
-  ) => _relay.ack(
-    me: me,
-    contentId: contentId,
-    authCookie: authCookie,
-    knownRelays: knownRelays,
-  );
+  ) async {
+    final sw = Stopwatch()..start();
+    await _relay.ack(
+      me: me,
+      contentId: contentId,
+      authCookie: authCookie,
+      knownRelays: knownRelays,
+    );
+    cost.ackMs += sw.elapsedMilliseconds;
+    cost.acks++;
+  }
 }
 
 /// Full hex of a content id — the in-RAM quarantine key.
