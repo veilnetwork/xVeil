@@ -56,6 +56,37 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
     return ctrl.singleIdentityAnonymous;
   }
 
+  /// The MESSAGING gate: may a conversation with [peer] run the direct ladder?
+  /// Opt-in per contact — see [p2pMessagingAllows] for why this does not follow
+  /// the global policy the way calls do. A denial is normal and costs latency
+  /// only, so it is logged at the same level as the call-path denial but must
+  /// never surface as an error.
+  Future<bool> allowsMessagingPeer(NodeId peer) async {
+    try {
+      final contact = await ref.read(storageProvider).getContact(peer);
+      final override = contact?.p2pOverride ?? kDefaultContactP2POverride;
+      final allowed = p2pMessagingAllows(
+        override: override,
+        contactKnown: contact != null,
+        contactBlocked: contact?.status == ContactStatus.blocked,
+        localAnonymous: localAnonymous,
+      );
+      if (!allowed) {
+        devLog(
+          () =>
+              'xVeil[p2p]: messaging ladder not allowed for ${peer.short} '
+              '(override=${override.name} known=${contact != null} '
+              'anonymous=$localAnonymous) — mailbox path unaffected',
+        );
+      }
+      return allowed;
+    } catch (e) {
+      devLog(() => 'xVeil[p2p]: messaging policy check failed for '
+          '${peer.short}: $e');
+      return false;
+    }
+  }
+
   Future<bool> allowsPeer(NodeId peer) async {
     try {
       final contact = await ref.read(storageProvider).getContact(peer);

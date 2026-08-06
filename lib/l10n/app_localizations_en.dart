@@ -3158,6 +3158,10 @@ class AppL10nEn extends AppL10n {
   String get contactP2PDeny => 'Deny';
 
   @override
+  String get contactP2PHint =>
+      'Allow lets messages and calls with this contact take a direct route: much faster, and it shows them your IP address. Anything else keeps the conversation on the relay path. Messages are delivered either way.';
+
+  @override
   String get chatMenuAllowPeerDelete => 'Let this contact delete at me';
 
   @override
