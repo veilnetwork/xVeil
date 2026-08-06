@@ -611,6 +611,14 @@ class MessagingService {
           'wantReply=$wantReply bytes=${payload.length} '
           'transport=${_transport.runtimeType}',
     );
+    // Ask for a direct route toward this peer, if the person allowed one for
+    // them. Deliberately NOT awaited and deliberately after the log line: this
+    // send goes out exactly as it did before, over whatever route already
+    // exists, and the ladder — which reshares endpoints, dials and punches —
+    // runs beside it for the sake of the next one. Self-throttled on the other
+    // side, so calling it from the single egress point is a map lookup per
+    // frame. A conversation with no opt-in never reaches the network here.
+    prepareDirectRoute?.call(dst);
     if (_anonymous && wantReply) {
       await _transport.sendWithReply(dst, payload);
     } else {
@@ -1239,6 +1247,17 @@ class MessagingService {
   /// with an ordinary message id too.
   void _retireOutboxFrame(String peerHex, String frameId) =>
       _outbox.retire(peerHex, frameId);
+
+  /// Asked, on every outbound frame, to bring up a direct route toward the
+  /// peer — the P2P ladder that until now only calls ever ran, which is why a
+  /// conversation had no direct session to use and every message went through
+  /// the mailbox.
+  ///
+  /// Synchronous and returning nothing on purpose: sending must not wait on it.
+  /// The implementation is expected to be self-throttled and to check the
+  /// per-contact opt-in itself; null (loopback / dev stack / no real P2P) means
+  /// the old behaviour exactly.
+  void Function(NodeId peer)? prepareDirectRoute;
 
   // ── Opt-in authorship attestation ─────────────────────────────────────────
 

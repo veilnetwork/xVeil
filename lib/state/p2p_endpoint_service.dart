@@ -48,6 +48,7 @@ class P2PEndpointService {
   P2PEndpointService(
     this._messaging, {
     required this._localAllowsP2P,
+    required this._messagingAllowsP2P,
     required this._joinEndpoint,
     required this._pnetStatus,
     required this._myIdentity,
@@ -63,6 +64,11 @@ class P2PEndpointService {
 
   final MessagingService _messaging;
   final Future<bool> Function(NodeId peer) _localAllowsP2P;
+
+  /// The per-contact opt-in that governs [warmForMessaging] — STRICTER than
+  /// [_localAllowsP2P] and separate from it on purpose, so that relaxing the
+  /// call-path policy cannot quietly hand every conversation a direct route.
+  final Future<bool> Function(NodeId peer) _messagingAllowsP2P;
   final Future<void> Function(String uri) _joinEndpoint;
   final Future<({bool admitted, bool hasCert})> Function(Uint8List peer)
   _pnetStatus;
@@ -105,10 +111,22 @@ class P2PEndpointService {
   /// the transport-badge/log layer; cleared when a direct session comes up.
   final Map<String, String> _fallbackReason = {};
 
+  /// Last time the MESSAGING warm ran the ladder for a peer. Separate from
+  /// [_lastSharedAt]: that throttles one frame, this throttles the whole
+  /// ladder, which reshares, dials and punches.
+  final Map<String, DateTime> _lastWarmAt = {};
+
   void Function(NodeId, String)? _handler;
   bool _started = false;
 
   static const _shareThrottle = Duration(minutes: 3);
+
+  /// How often a conversation may re-run the ladder toward one peer. A chat
+  /// sends many frames — acks, receipts, typing — through the same egress, and
+  /// the ladder is expensive on both ends. Shorter than [_shareThrottle]
+  /// because a warm that finds nothing should get another go within the life of
+  /// a conversation, not three minutes later.
+  static const _warmThrottle = Duration(minutes: 2);
   static const _maxEndpointsPerFrame = 4;
 
   /// Host/LAN-dial slice of the call-time ladder: how long to poll for the
@@ -166,6 +184,44 @@ class P2PEndpointService {
       if (requestReshare) 'r': 1,
     });
     await _messaging.sendP2PEndpoints(peer, body, sentAtMs: ts);
+  }
+
+  /// Messaging entry to the ladder — the reason a conversation can ever get a
+  /// direct route at all. [ensureReady] is the CALL path: it must answer now,
+  /// so the caller waits on it. A chat must not wait on anything, so this is
+  /// fire-and-forget and returns nothing: the message it rode in on still goes
+  /// out the way it always did, and it is the NEXT one that benefits.
+  ///
+  /// Order matters. The throttle is checked first and in memory, so the steady
+  /// state of a busy conversation is one map lookup per frame — the policy read
+  /// hits storage and [_admitted] crosses the FFI, and neither belongs on the
+  /// path of every ack and receipt.
+  ///
+  /// [messagingAllowsP2P] is the per-contact opt-in, NOT the global policy the
+  /// call path uses. See `p2pMessagingAllows`.
+  Future<void> warmForMessaging(NodeId peer) async {
+    if (!_lanListenEnabled()) return; // loopback bind — nothing dialable
+    final last = _lastWarmAt[peer.hex];
+    final now = _now();
+    if (last != null && now.difference(last) < _warmThrottle) return;
+    // Stamp BEFORE the awaits: two frames leaving back to back would otherwise
+    // both pass the check and run the ladder twice.
+    _lastWarmAt[peer.hex] = now;
+    try {
+      if (!await _messagingAllowsP2P(peer)) return;
+      // Already direct — nothing to warm, and re-running the ladder here would
+      // reshare endpoints on a schedule the peer never asked for.
+      if (await _admitted(peer)) return;
+      devLog(() => 'xVeil[p2p]: messaging warm — running the ladder for '
+          '${peer.short}');
+      final ok = await ensureReady(peer);
+      devLog(() => 'xVeil[p2p]: messaging warm for ${peer.short} '
+          '${ok ? "got a direct session" : "stayed on the relay path"}');
+    } catch (e) {
+      // Best-effort by construction: the conversation is already delivering
+      // over the mailbox, and a warm that throws must not touch that.
+      devLog(() => 'xVeil[p2p]: messaging warm for ${peer.short} failed: $e');
+    }
   }
 
   /// Call-time gate: make "peer reachable for P2P" mean "a live direct session
@@ -541,6 +597,8 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
     messaging,
     localAllowsP2P: (peer) =>
         ref.read(p2pPolicyProvider.notifier).allowsPeer(peer),
+    messagingAllowsP2P: (peer) =>
+        ref.read(p2pPolicyProvider.notifier).allowsMessagingPeer(peer),
     joinEndpoint: transport.joinP2PEndpoint,
     pnetStatus: transport.peerPnetStatus,
     myIdentity: () => stack.myInvite,
@@ -556,7 +614,14 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
       );
     },
   )..start();
-  ref.onDispose(svc.dispose);
+  // The link that gives a CONVERSATION a direct route. Without it the ladder
+  // exists but nothing in messaging ever calls it, which is exactly the state
+  // this replaces.
+  messaging.prepareDirectRoute = (peer) => unawaited(svc.warmForMessaging(peer));
+  ref.onDispose(() {
+    messaging.prepareDirectRoute = null;
+    svc.dispose();
+  });
   return svc;
 });
 
