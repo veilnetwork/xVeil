@@ -402,10 +402,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     try {
       switch (req.uri.path) {
         case '/health':
+          // `ready` is the SESSION phase and says nothing about the node. A
+          // failed node boot leaves the app on the loopback fake — talking to
+          // itself, dropping everything as unauthenticated — and this used to
+          // answer a flat `ready:true` for it, which is how a stand spent an
+          // afternoon measuring a node that was not there. `realStack` is the
+          // fact that distinguishes them; `nodeBoot` carries the reason when
+          // it is false.
+          final boot = ref.read(nodeBootStateProvider);
           await _json(req, {
             'ok': true,
             'phase': ref.read(appControllerProvider).phase.name,
             'ready': ref.read(appControllerProvider).phase == AppPhase.ready,
+            'realStack': ref.read(realStackProvider) != null,
+            if (boot != null) 'nodeBoot': boot.phase.name,
+            if (boot?.message != null) 'nodeBootError': boot!.message,
           });
           return;
         case '/dev_log':

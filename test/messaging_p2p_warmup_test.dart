@@ -125,6 +125,46 @@ void main() {
     await _pump();
   });
 
+  test('a fresh endpoint share retires the one it supersedes', () async {
+    final a = _id(5);
+    final b = _id(6);
+    final tA = _Transport(a);
+    final tB = _Transport(b);
+    tA.peer = tB;
+    tB.peer = tA;
+    final sA = HiddenVolumeStorage(_memOpener());
+    final sB = HiddenVolumeStorage(_memOpener());
+    await sA.open(password: 'a', createIfMissing: true);
+    await sB.open(password: 'b', createIfMissing: true);
+    final mB = MessagingService(tB, sB)..start();
+    final mA = MessagingService(tA, sA)..start();
+    await mA.sendRequest(b, 'hi');
+    await _pump();
+    await mB.acceptContact(a);
+    await _pump();
+
+    // Cut delivery so nothing acks: this is about what the SENDER keeps, and
+    // an ack would retire the frames for a different reason.
+    tA.peer = null;
+
+    await mA.sendP2PEndpoints(b, '{"v":1,"ts":1000,"e":[]}', sentAtMs: 1000);
+    await _pump();
+    await mA.sendP2PEndpoints(b, '{"v":1,"ts":2000,"e":[]}', sentAtMs: 2000);
+    await _pump();
+
+    final endpointFrames = [
+      for (final f in await sA.pendingOutboxFrames())
+        if (f.frameId.startsWith('p2p:ep:')) f.frameId,
+    ];
+    expect(
+      endpointFrames,
+      ['p2p:ep:2000'],
+      reason: 'a superseded address list is re-driven every few seconds and '
+          'rejected on arrival as stale — the outbox must keep only the newest '
+          'share per peer, or every run of the ladder adds one more forever',
+    );
+  });
+
   group('who a conversation may ask for a direct route', () {
     const known = true;
 
