@@ -221,6 +221,10 @@ class MailboxOrchestrator {
     required Future<bool> Function(Uint8List contentId) alreadyHave,
     List<NodeId> knownRelays = const [],
     bool Function()? shouldContinue,
+    /// Invoked the moment a blob is opened and verified, BEFORE the loop goes
+    /// looking for more. The returned list still carries everything, so a
+    /// caller that only wants the batch can ignore this.
+    void Function(DrainedMessage message)? onMessage,
   }) async {
     final delivered = <DrainedMessage>[];
     final seenThisDrain = <String>{};
@@ -270,6 +274,7 @@ class MailboxOrchestrator {
         knownRelays: knownRelays,
         delivered: delivered,
         shouldContinue: shouldContinue,
+        onMessage: onMessage,
       );
     }
     return delivered;
@@ -284,6 +289,7 @@ class MailboxOrchestrator {
     required List<NodeId> knownRelays,
     required List<DrainedMessage> delivered,
     bool Function()? shouldContinue,
+    void Function(DrainedMessage message)? onMessage,
   }) async {
     for (final b in blobs) {
       if (shouldContinue?.call() == false) return;
@@ -367,19 +373,27 @@ class MailboxOrchestrator {
         continue;
       }
       _transientOpenFails.remove(cidHex); // opened fine — forget old timeouts
-      delivered.add(
-        DrainedMessage(
-          // The CRYPTO-VERIFIED sender, recovered from the blob's sidecar and
-          // confirmed by the auth-deliver signature — NOT the relay-supplied wire
-          // hint (which is 0 on the anonymous path). This is the trustworthy
-          // attribution for the message.
-          sender: opened.verifiedSender,
-          contentId: b.contentId,
-          appId: opened.appId,
-          endpointId: opened.endpointId,
-          data: opened.data,
-        ),
+      final message = DrainedMessage(
+        // The CRYPTO-VERIFIED sender, recovered from the blob's sidecar and
+        // confirmed by the auth-deliver signature — NOT the relay-supplied wire
+        // hint (which is 0 on the anonymous path). This is the trustworthy
+        // attribution for the message.
+        sender: opened.verifiedSender,
+        contentId: b.contentId,
+        appId: opened.appId,
+        endpointId: opened.endpointId,
+        data: opened.data,
       );
+      delivered.add(message);
+      // Hand it up NOW, not when the loop ends. The rounds after this one exist
+      // to clear a BACKLOG: they re-fetch, find the relay still serving the blob
+      // whose ack is in flight, and wait [_ackSettleDelay] for the removal to
+      // land — up to [_maxAckSettleRetries] times. That is correct work, but it
+      // is about messages we do NOT have yet, and batching the return until it
+      // finished made every message wait out the search for its successors.
+      // Measured on the stand: a drain that carried one message took ~6.8s while
+      // the fetch that produced it took ~0.5s.
+      onMessage?.call(message);
       await _ack(me, b.contentId, authCookie, knownRelays);
     }
   }

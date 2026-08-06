@@ -244,6 +244,56 @@ void main() {
       );
       expect(sticky.fetchCalls, lessThanOrEqualTo(9));
     });
+
+    test('a message is handed up while the loop is still hunting a backlog',
+        () async {
+      // The rounds after the one that produced a message are looking for a
+      // BACKLOG: they re-fetch, meet the relay still serving the blob whose ack
+      // is in flight, and wait for the removal to land. Returning the batch only
+      // when that finished made every message wait out the search for its
+      // successors -- on the stand a drain carrying one message took ~6.8s while
+      // the fetch that produced it took ~0.5s.
+      final sticky = _AckIgnoringOneBlobRelay();
+      final orch = MailboxOrchestrator(
+        LoopbackMailboxCrypto(senderForOpen: peer),
+        sticky,
+      );
+      await orch.stash(
+        me: peer,
+        recipient: me,
+        appId: _appId(0xAA),
+        endpointId: 9,
+        data: Uint8List.fromList([1, 2, 3]),
+        contentId: _cid(0x5A),
+      );
+
+      DrainedMessage? handedUp;
+      var fetchesWhenHandedUp = -1;
+      final drained = await orch.drain(
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+        onMessage: (m) {
+          handedUp = m;
+          fetchesWhenHandedUp = sticky.fetchCalls;
+        },
+      );
+
+      expect(handedUp, isNotNull, reason: 'the message must be handed up');
+      expect(handedUp!.data, Uint8List.fromList([1, 2, 3]));
+      expect(drained, hasLength(1), reason: 'the batch still carries it too');
+      // The structural proof, in place of a timing race: the loop went on
+      // fetching AFTER the hand-up. If delivery still waited for the loop, this
+      // count would equal the total.
+      expect(
+        fetchesWhenHandedUp,
+        lessThan(sticky.fetchCalls),
+        reason:
+            'the message was handed up while the drain was still fetching for '
+            'a backlog, not after the whole loop finished',
+      );
+    });
   });
 
   group('poisoned-blob quarantine', () {

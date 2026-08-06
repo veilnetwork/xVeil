@@ -502,6 +502,21 @@ class MailboxService implements MailboxSink {
   DateTime? _lastNudge;
   static const Duration _nudgeDebounce = Duration(seconds: 2);
 
+  /// Hand one drained message to the app.
+  ///
+  /// The one attribution in this app that is already proven rather than
+  /// claimed: `m.sender` is the orchestrator's `verifiedSender`, recovered from
+  /// the blob's sidecar and confirmed by the auth-deliver signature — never the
+  /// relay's wire hint. So this path states [SenderProvenance.signed] and means
+  /// it (audit X/V-01).
+  void _deliverDrained(DrainedMessage m) => _deliver(
+    InboundMessage(
+      src: m.sender,
+      payload: m.data,
+      provenance: SenderProvenance.signed,
+    ),
+  );
+
   /// A peer is provably LIVE-reachable right now (we just received a frame from
   /// it), so a message it stashed for us is likely already sitting at the relay
   /// — drain NOW instead of waiting out the idle exponential back-off.
@@ -672,27 +687,22 @@ class MailboxService implements MailboxSink {
         // same content id), so we re-deliver everything the relay returns and
         // let that gate duplicates — keeps this layer storage-free.
         alreadyHave: (_) async => false,
+        // Deliver as each blob opens, rather than when the loop ends. The
+        // rounds after the one that produced a message are hunting a BACKLOG:
+        // they re-fetch, meet the relay still serving the blob whose ack is in
+        // flight, and wait for the removal to land. Correct work — but it is
+        // about mail we do not have yet, and holding the batch until it
+        // finished made every message wait out the search for its successors.
+        onMessage: _deliverDrained,
       );
       devLog(
         () =>
             'xVeil[mailbox]: drain done recovered=${recovered.length} '
             'in ${sw.elapsedMilliseconds}ms',
       );
+      // Already handed up one-by-one via `onMessage` above; the list is kept
+      // only to decide heat and back-off below.
       gotMail = recovered.isNotEmpty;
-      for (final m in recovered) {
-        // The one attribution in this app that is already proven rather than
-        // claimed: `m.sender` is the orchestrator's `verifiedSender`, recovered
-        // from the blob's sidecar and confirmed by the auth-deliver signature —
-        // never the relay's wire hint. So this path states [signed] and means
-        // it (audit X/V-01).
-        _deliver(
-          InboundMessage(
-            src: m.sender,
-            payload: m.data,
-            provenance: SenderProvenance.signed,
-          ),
-        );
-      }
     } on MailboxDrainUnreachable {
       // Every known relay failed to ANSWER (vs. a relay answering "empty"). We
       // do NOT know the mailbox is empty, so this must NOT inflate the idle
