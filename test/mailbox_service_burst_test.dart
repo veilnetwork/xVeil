@@ -47,6 +47,10 @@ class _FakeOrchestrator implements MailboxOrchestrator {
   int drains = 0;
   final List<List<DrainedMessage>> queued = [];
 
+  /// When set, a drain blocks here until the test releases it — so a wake can
+  /// be delivered while a pass is genuinely in flight.
+  Completer<void>? gate;
+
   @override
   Future<List<DrainedMessage>> drain({
     required NodeId me,
@@ -58,6 +62,8 @@ class _FakeOrchestrator implements MailboxOrchestrator {
     void Function(DrainedMessage message)? onMessage,
   }) async {
     drains++;
+    final held = gate;
+    if (held != null) await held.future;
     final out = queued.isEmpty
         ? const <DrainedMessage>[]
         : queued.removeAt(0);
@@ -172,6 +178,47 @@ void main() {
       reason: 'a verified sender reached the app as an unverified claim',
     );
     expect(delivered.first.provenance.isAuthenticated, isTrue);
+  });
+
+  test('a wake that lands mid-drain is spent, not dropped', () async {
+    // A wake is a relay naming a deposit that just landed, and the pass under
+    // way may already be past its fetch rounds — so it can miss exactly the
+    // mail the wake announces. Dropping it (which is right for a TIMER tick,
+    // wrong for a wake) cost the rest of that pass plus a whole poll interval:
+    // the slow half of a bimodal delivery time on the stand, ~8-10s against
+    // ~2.8s when the wake found the node idle.
+    final service = MailboxService(
+      client: _FakeClient(),
+      me: _id(1),
+      orchestrator: orch,
+      deliver: (_) {},
+      // Long on purpose: if a drain follows the wake it cannot be the schedule
+      // that produced it.
+      drainInterval: const Duration(seconds: 30),
+    )..hotDrainInterval = const Duration(seconds: 30);
+    addTearDown(service.dispose);
+
+    final gate = Completer<void>();
+    orch.gate = gate;
+    await service.start(relays: [_id(7)]); // start's immediate tick blocks
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    final duringDrain = orch.drains;
+    expect(duringDrain, 1, reason: 'the first pass must be in flight');
+
+    service.onDepositWake(); // lands while that pass is still running
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    expect(orch.drains, duringDrain, reason: 'it cannot run inside the pass');
+
+    orch.gate = null;
+    gate.complete(); // the pass ends
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    expect(
+      orch.drains,
+      greaterThan(duringDrain),
+      reason:
+          'the queued wake must be spent the moment the pass ends — 30s of '
+          'poll interval says this drain came from the wake, not the timer',
+    );
   });
 
   test('drained mail re-arms the burst window by itself', () async {
