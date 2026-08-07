@@ -108,11 +108,14 @@ void main() {
     final content = Uint8List.fromList(List.filled(32, 0x2C));
 
     test('splits a large payload and reassembles to the original', () {
-      // A 1000-byte payload → ceil(1000/240) = 5 chunks.
+      // Size the payload off the chunk constant, not a literal: at 240 bytes
+      // a 1000-byte payload was five chunks, and at 7680 it is one — which
+      // would have left this test asserting nothing about splitting.
+      final size = kMailboxPutChunkDataBytes * 2 + 100;
       final payload =
-          Uint8List.fromList(List.generate(1000, (i) => (i * 7 + 1) & 0xff));
+          Uint8List.fromList(List.generate(size, (i) => (i * 7 + 1) & 0xff));
       final chunks = chunkMailboxPut(content, payload);
-      expect(chunks.length, (1000 + 239) ~/ 240);
+      expect(chunks.length, 3);
 
       final reassembled = BytesBuilder();
       for (var i = 0; i < chunks.length; i++) {

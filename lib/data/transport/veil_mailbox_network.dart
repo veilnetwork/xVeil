@@ -72,10 +72,17 @@ Uint8List encodeMailboxPut({
 
 /// Max `chunk_data` bytes per PUT chunk — MUST match veil-proto
 /// `MAILBOX_PUT_CHUNK_DATA_BYTES`. A deposit travels as a sender-anonymous onion
-/// message capped at one 512-byte cell, so a real (KB-sized) `MailboxPutPayload`
-/// is split across N chunks; the relay reassembles by `content_id` before
+/// message capped at ONE anonymous cell, so a `MailboxPutPayload` larger than
+/// this is split across N chunks; the relay reassembles by `content_id` before
 /// storing. (The FETCH reply path already fragments, so only PUT needs this.)
-const int kMailboxPutChunkDataBytes = 240;
+///
+/// Was 240, sized against the 512-byte cell veil used until 2026-08-07. The cell
+/// is 8192 now and a chunk is one cell on the wire either way, so a ~1.5 KB
+/// deposit cost seven whole cells for 1.7 KB of content. At 7680 every deposit
+/// that can ever be fetched back is a single chunk (the FETCH reply budget caps
+/// a servable blob near 5.6 KB). The Rust side pins this against the real cell
+/// budget in `a_full_deposit_chunk_fits_one_anonymous_cell`.
+const int kMailboxPutChunkDataBytes = 7680;
 
 /// Encode one `MailboxPutChunkPayload` (veil-proto `ipc.rs`):
 ///   content_id(32) | chunk_index(u16 BE) | chunk_total(u16 BE) | chunk_data
