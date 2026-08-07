@@ -86,7 +86,10 @@ class _MessagingReplication {
   /// Says so out loud, once the queue crosses the line and then at most once a
   /// minute per peer: a subsystem that has quietly stopped replicating is
   /// indistinguishable from one with nothing to say.
-  bool _backedUp(NodeId dst, String what) {
+  Future<bool> _backedUp(NodeId dst, String what) async {
+    // Seed the counter if the first flush has not run yet — the start-up burst
+    // this guards happens inside that very window.
+    await _owner._outbox.ensurePendingCounted();
     if (!_owner._outbox.replicationBackedUpFor(dst.hex)) return false;
     final now = _owner._now();
     final last = _backlogLoggedAt[dst.hex];
@@ -112,7 +115,7 @@ class _MessagingReplication {
     String groupIdHex,
     String bundleJson,
   ) async {
-    if (_backedUp(dst, 'group snapshot')) return;
+    if (await _backedUp(dst, 'group snapshot')) return;
     final bytes = Uint8List.fromList(utf8.encode(bundleJson));
     // Three things belong in this id, and two of them were missing.
     //
@@ -167,7 +170,7 @@ class _MessagingReplication {
     String documentIdHex,
     String frameJson,
   ) async {
-    if (_backedUp(dst, 'document frame')) return;
+    if (await _backedUp(dst, 'document frame')) return;
     final bytes = Uint8List.fromList(utf8.encode(frameJson));
     // Content digest + destination, for exactly the reasons spelled out in
     // [sendGroupSnapshot]: a document frame also fans out to every recipient,
