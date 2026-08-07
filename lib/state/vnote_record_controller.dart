@@ -53,26 +53,62 @@ class NativeVnoteRecorder implements VnoteRecorder {
     return rec == null ? null : NativeVnoteRecorder(rec);
   }
 
+  /// How long to wait for the first camera frame before recording without one.
+  ///
+  /// Opening Camera2 and getting a frame back is usually a few hundred
+  /// milliseconds; a camera that opens and then delivers nothing must not
+  /// leave the record button dead, so the clip starts anyway and any later
+  /// frame still gets pushed.
+  static const Duration _firstFrameGrace = Duration(seconds: 2);
+
   @override
   Future<bool> start() async {
-    if (!_rec.start()) return false;
+    // Elsewhere the recorder owns its own camera, so the clip and the capture
+    // begin together.
+    if (!Platform.isAndroid) return _rec.start();
+
     // Android has no native camera backend — the calls' Dart capturer feeds
     // frames through the push ABI (front lens, upright, ~12 fps). A capture
     // failure degrades to audio-only, mirroring the native mic policy.
-    if (Platform.isAndroid) {
-      final cam = AndroidCameraCapture();
-      _cam = cam;
-      final ok = await cam.start((y, u, v, w, h) {
-        if (_cam != cam) return;
-        _rec.pushFrame(y, u, v, w, h);
-      });
-      if (!ok) {
-        _cam = null;
-        devLog(() => 'xVeil[vnote]: android camera start failed — audio-only');
+    //
+    // The clip's clock starts on the FIRST FRAME, not before opening the
+    // camera. Starting it first meant the recording began during Camera2's
+    // open + session configure, so its opening seconds held no video at all:
+    // the timer ran, the preview sat on nothing, and playback showed a frozen
+    // picture until the first frame finally landed.
+    final cam = AndroidCameraCapture();
+    _cam = cam;
+    final firstFrame = Completer<bool>();
+    var clipStarted = false;
+    final opened = await cam.start((y, u, v, w, h) {
+      if (_cam != cam) return;
+      if (!clipStarted) {
+        clipStarted = _rec.start();
+        if (!firstFrame.isCompleted) firstFrame.complete(clipStarted);
+        if (!clipStarted) return;
       }
+      _rec.pushFrame(y, u, v, w, h);
+    });
+    if (!opened) {
+      _cam = null;
+      devLog(() => 'xVeil[vnote]: android camera start failed — audio-only');
+      return _rec.start();
     }
-    return true;
+    return firstFrame.future.timeout(
+      _firstFrameGrace,
+      onTimeout: () {
+        if (clipStarted) return true;
+        clipStarted = _rec.start();
+        devLog(
+          () =>
+              'xVeil[vnote]: no camera frame in '
+              '${_firstFrameGrace.inMilliseconds}ms — recording without video',
+        );
+        return clipStarted;
+      },
+    );
   }
+
   @override
   double get level => _rec.level;
   @override
@@ -132,12 +168,11 @@ class VnoteRecordState {
     VnoteRecordPhase? phase,
     int? elapsedMs,
     double? level,
-  }) =>
-      VnoteRecordState(
-        phase: phase ?? this.phase,
-        elapsedMs: elapsedMs ?? this.elapsedMs,
-        level: level ?? this.level,
-      );
+  }) => VnoteRecordState(
+    phase: phase ?? this.phase,
+    elapsedMs: elapsedMs ?? this.elapsedMs,
+    level: level ?? this.level,
+  );
 }
 
 class VnoteRecordController extends Notifier<VnoteRecordState> {
@@ -257,5 +292,5 @@ class VnoteRecordController extends Notifier<VnoteRecordState> {
 
 final vnoteRecordControllerProvider =
     NotifierProvider<VnoteRecordController, VnoteRecordState>(
-  VnoteRecordController.new,
-);
+      VnoteRecordController.new,
+    );
