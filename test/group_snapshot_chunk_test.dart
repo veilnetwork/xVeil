@@ -525,4 +525,73 @@ void main() {
       expect(calls, 2, reason: 'terminal chunks dedup and only re-ack');
     },
   );
+
+  test('a destination whose queue is not draining stops being fed', () async {
+    // Replication fans every change out to every member, so a member that never
+    // acknowledges accumulates one batch per change with no end. Measured on
+    // the stand: 3473 frames, 9.56 MB, queued to a linked device wiped four
+    // days earlier and still growing at every app start.
+    //
+    // Nothing is dropped here — we decline to ADD. What must survive is the
+    // guarantee that two devices reach the same state, and that never came from
+    // this queue: a device that returns asks what it is missing and the sender
+    // recomputes it. See `_backedUp`.
+    final s = await sender(a, [b]);
+    var pending = 0;
+    var i = 0;
+    // Push past the cap. Each snapshot is distinct (content-addressed id), so
+    // every one is a fresh durable frame until the guard trips.
+    while (i < 400) {
+      await s.messaging.sendGroupSnapshot(b, 'aa11', 'snapshot-$i');
+      final now = (await s.storage.pendingOutboxFrames()).length;
+      if (now == pending) break; // the guard has stopped accepting
+      pending = now;
+      i++;
+    }
+    expect(
+      i,
+      lessThan(400),
+      reason: 'the queue must stop growing well before 400 snapshots',
+    );
+    expect(
+      pending,
+      lessThanOrEqualTo(300),
+      reason: 'and it must settle near the cap, not wander past it',
+    );
+
+    // The frames already queued are UNTOUCHED — this is back-pressure, not a
+    // purge, and losing them is exactly what must not happen.
+    expect(pending, greaterThan(200));
+  });
+
+  test('a peer that drains is fed again', () async {
+    // The cap lifts by itself: acks retire frames, the count falls, and the
+    // next snapshot is queued as before. Nothing has to notice the peer is
+    // back — the queue length IS the signal.
+    final s = await sender(a, [b]);
+    var i = 0;
+    var pending = 0;
+    while (i < 400) {
+      await s.messaging.sendGroupSnapshot(b, 'aa11', 'snapshot-$i');
+      final now = (await s.storage.pendingOutboxFrames()).length;
+      if (now == pending) break;
+      pending = now;
+      i++;
+    }
+    expect(pending, greaterThan(0));
+
+    // Drain it the way an ack would.
+    for (final f in await s.storage.pendingOutboxFrames()) {
+      s.messaging.debugRetireOutboxFrame(f.peerHex, f.frameId);
+    }
+    await pumpEventQueue();
+    expect((await s.storage.pendingOutboxFrames()), isEmpty);
+
+    await s.messaging.sendGroupSnapshot(b, 'aa11', 'after-the-drain');
+    expect(
+      (await s.storage.pendingOutboxFrames()),
+      isNotEmpty,
+      reason: 'replication resumes once the backlog has cleared',
+    );
+  });
 }

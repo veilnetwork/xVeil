@@ -5934,4 +5934,15 @@ class AppL10nEn extends AppL10n {
   String backupNotExcludedBody(String reason) {
     return 'xVeil asks the system to keep its container out of iCloud and computer backups. On this device that did not take effect ($reason). Your data stays encrypted, but a backup could show that this app holds an identity, and a copy of it could be attacked away from your phone. Turning off backup for xVeil in the system settings closes it.';
   }
+
+  @override
+  String devicesLastSeen(String when) {
+    return 'Last seen $when';
+  }
+
+  @override
+  String get devicesNeverSeen => 'Never seen since this device was linked';
+
+  @override
+  String get devicesAwayLong => 'Away a long time — consider unlinking';
 }

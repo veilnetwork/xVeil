@@ -1248,6 +1248,92 @@ class MessagingService {
   void _retireOutboxFrame(String peerHex, String frameId) =>
       _outbox.retire(peerHex, frameId);
 
+  /// Retire one durable frame, as an ACK from the peer would. Lets a test drain
+  /// a queue without standing up the whole acknowledgement path. Named `debug`
+  /// like the other test seams in this layer, which carry no annotation because
+  /// this file has no `meta` import to hang one on.
+  void debugRetireOutboxFrame(String peerHex, String frameId) =>
+      _retireOutboxFrame(peerHex, frameId);
+
+  /// Storage key holding when [peerHex] was last authenticated-heard-from.
+  static String _lastSeenKey(String peerHex) => 'peer_seen:$peerHex';
+
+  /// In-memory copy of the above, so the common case costs no storage read.
+  final Map<String, int> _lastSeenMs = {};
+
+  /// Persist at most this often per peer. A busy conversation would otherwise
+  /// write a settings row per inbound frame, and the answer is only ever read
+  /// at human resolution ("three weeks ago").
+  static const _lastSeenWriteEvery = Duration(minutes: 5);
+  final Map<String, int> _lastSeenWrittenMs = {};
+
+  /// Record that [peer] was heard from, authenticated, just now.
+  Future<void> notePeerSeen(NodeId peer) async {
+    final now = _now().millisecondsSinceEpoch;
+    _lastSeenMs[peer.hex] = now;
+    final written = _lastSeenWrittenMs[peer.hex];
+    if (written != null &&
+        now - written < _lastSeenWriteEvery.inMilliseconds) {
+      return;
+    }
+    _lastSeenWrittenMs[peer.hex] = now;
+    try {
+      await _storage.putSetting(_lastSeenKey(peer.hex), '$now');
+    } catch (_) {
+      // Best-effort: a lost timestamp costs a stale "last seen", nothing more.
+    }
+  }
+
+  /// When [peer] was last heard from, or null if never — which for a device
+  /// group member means it has not been seen since this container was made.
+  Future<DateTime?> lastSeen(NodeId peer) async {
+    final cached = _lastSeenMs[peer.hex];
+    if (cached != null) return DateTime.fromMillisecondsSinceEpoch(cached);
+    try {
+      final raw = await _storage.getSetting(_lastSeenKey(peer.hex));
+      final ms = int.tryParse(raw ?? '');
+      if (ms == null) return null;
+      _lastSeenMs[peer.hex] = ms;
+      return DateTime.fromMillisecondsSinceEpoch(ms);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Drop every durable frame still queued for [peer].
+  ///
+  /// For a peer that is going away for good — a revoked device — the queue is
+  /// not an optimisation any more, it is a leak. Deliberately NOT reachable
+  /// from anything that merely thinks a peer is unreachable: an absent peer
+  /// keeps its frames (that is what the back-pressure cap is for), only a
+  /// removed one loses them.
+  Future<int> dropPendingFramesFor(NodeId peer) async {
+    final List<OutboxFrame> pending;
+    try {
+      pending = await _storage.pendingOutboxFrames();
+    } catch (e) {
+      devLog(() => 'xVeil[durable]: could not read the outbox to drop: $e');
+      return 0;
+    }
+    var dropped = 0;
+    for (final frame in pending) {
+      if (frame.peerHex != peer.hex) continue;
+      _retireOutboxFrame(peer.hex, frame.frameId);
+      dropped++;
+    }
+    if (dropped > 0) {
+      devLog(
+        () =>
+            'xVeil[durable]: dropped $dropped queued frame(s) for '
+            '${peer.short} — it is no longer one of my devices',
+      );
+    }
+    return dropped;
+  }
+
+  /// Durable frames still held for [peerHex]. The back-pressure cap reads this.
+  int debugPendingFor(String peerHex) => _outbox.pendingFor(peerHex);
+
   /// Asked, on every outbound frame, to bring up a direct route toward the
   /// peer — the P2P ladder that until now only calls ever ran, which is why a
   /// conversation had no direct session to use and every message went through

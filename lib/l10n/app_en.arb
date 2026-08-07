@@ -1,21 +1,18 @@
 {
   "@@locale": "en",
   "appName": "xVeil",
-
   "actionContinue": "Continue",
   "actionBack": "Back",
   "actionCancel": "Cancel",
   "actionDone": "Done",
   "actionCopy": "Copy",
   "actionUnderstood": "I understand",
-
   "preparingTitle": "Setting up your node",
   "preparingBody": "Provisioning your identity on this device. This can take a little while — please wait.",
   "preparingFirstRunTitle": "Creating this identity",
   "preparingFirstRunBody": "A one-time setup that can take up to a minute (a proof-of-work that makes the identity hard to forge). It only runs the first time — switching to it later is instant.",
   "preparingUnlockTitle": "Opening your container",
   "preparingUnlockBody": "Deriving your key and decrypting on this device — this is deliberately slow to resist guessing. Please wait a moment.",
-
   "onboardWelcomeTitle": "Welcome to xVeil",
   "onboardWelcomeBody": "A decentralized, censorship-resistant messenger. No phone number. No central server. Your identity and your messages stay with you.",
   "onboardChooseTitle": "Set up your identity",
@@ -28,35 +25,28 @@
   "onboardLinkDevice": "Link to a device you already use",
   "onboardLinkDeviceSub": "No recovery phrase needed — approve this device from the one you already have",
   "onboardLinkDeviceBody": "This device gets a temporary identity of its own so it can reach the network. Once you approve it from your existing device, it joins your identity and the temporary one stops mattering. Keep your recovery phrase where it is — you will not be asked for it here.",
-
   "onboardSetupFailed": "Could not create the encrypted container. Check that there is free space on the device and try again.",
-
   "sshConfirmHostTitle": "Is this the right server?",
   "sshConfirmHostBody": "This is the first connection to {host}, so there is nothing to compare its identity against yet. Check the fingerprint below against the one the server shows — on the server itself, not over this connection. If they differ, someone is sitting between you and it.",
   "sshConfirmHostHint": "Run this on the server: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub",
   "sshConfirmHostAccept": "It matches, continue",
   "sshHostNotConfirmed": "Connection cancelled: the server identity was not confirmed.",
-
   "storageUnavailableTitle": "Secure storage is unavailable",
   "storageUnavailableBody": "xVeil could not load the component that encrypts everything it stores. It will not start without it: continuing would mean a password that protects nothing and data that disappears when the app closes.",
   "storageUnavailableAction": "This build is damaged or incomplete. Install xVeil again from the release page. Nothing that was already stored on this device has been touched.",
-
   "startupFailedTitle": "xVeil could not start",
   "startupFailedBody": "Something went wrong while the app was setting itself up, before any of your data was touched. Nothing was opened, nothing was written and nothing was sent.",
   "startupFailedAction": "Close xVeil and open it again. If it keeps happening, reinstall it from the release page.",
-
   "recoveryTitle": "Save your recovery phrase",
   "recoveryBody": "These 24 words ARE your identity. Anyone with them controls it; lose them and it is gone forever. Write them on paper and store them somewhere safe. Never store them online or photograph them.",
   "recoveryConfirm": "I have written down my recovery phrase",
   "recoveryPlaceholderWarning": "These are PLACEHOLDER words. The identity generator is unavailable in this build, so the identity is being minted randomly and these words restore nothing. Do not write them down as a backup.",
-
   "storageTitle": "How should we store your data?",
   "storageHiddenTitle": "Hidden space (recommended)",
   "storageHiddenBody": "Your chats and keys live in a deniable encrypted container. An adversary who seizes your device cannot prove the data even exists.",
   "storagePlainTitle": "Plain storage",
   "storagePlainBody": "Faster to set up, but the existence of your data is visible to anyone who inspects the device.",
   "storagePlainWarning": "Not recommended for high-risk users. Choose this only if deniability is not a concern for you.",
-
   "lockTitle": "Unlock xVeil",
   "lockPasswordHint": "Enter your password",
   "lockUnlock": "Unlock",
@@ -68,14 +58,12 @@
   "lockWipeTypePrompt": "To confirm permanent deletion, type this phrase exactly:",
   "lockWipePhrase": "I understand the consequences",
   "lockWipeConfirm": "Delete forever",
-
   "navChats": "Chats",
   "navCommunities": "Communities",
   "navFeed": "Feed",
   "navNetwork": "Network",
   "navSettings": "Settings",
   "navCalls": "Calls",
-
   "callLogEmpty": "No calls yet",
   "callLogEmptyHint": "Calls you make and receive on any of your devices will appear here",
   "callOutcomeMissed": "Missed",
@@ -83,7 +71,6 @@
   "callOutcomeCancelled": "Cancelled",
   "callOutcomeBusy": "Busy",
   "callOutcomeFailed": "Failed",
-
   "spaceCreateTitle": "New community",
   "spaceCreateAction": "Create",
   "spaceNameHint": "Community name",
@@ -179,7 +166,13 @@
   "spacePostCommentsEmpty": "No comments yet",
   "spacePostCommentsEmptyHint": "Start a discussion about this publication.",
   "spacePostCommentsCount": "{count, plural, =0{No comments} one{1 comment} other{{count} comments}}",
-  "@spacePostCommentsCount": {"placeholders": {"count": {"type": "int"}}},
+  "@spacePostCommentsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "spacePostCommentHint": "Write a comment…",
   "spacePostCommentSend": "Send comment",
   "spacePostCommentReply": "Reply",
@@ -198,7 +191,13 @@
   "spacePostCommentBlockAuthorBody": "Their posts, comments, mentions and direct messages will be hidden on this identity. They will not be notified.",
   "spacePostCommentParentUnavailable": "Original comment deleted or hidden",
   "spacePostCommentReplyingTo": "Replying to {author}",
-  "@spacePostCommentReplyingTo": {"placeholders": {"author": {"type": "String"}}},
+  "@spacePostCommentReplyingTo": {
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
   "spacePostCommentCancelReply": "Cancel reply",
   "spacePostCommentFailed": "Could not publish this comment",
   "spacePostCommentTooLong": "The comment is too large to encrypt and send.",
@@ -235,14 +234,32 @@
   "spaceDiscoveryIdle": "Search by name, or paste an exact node_id from a trusted source.",
   "spaceDiscoverySearching": "Searching verified public communities",
   "spaceDiscoveryResults": "{count, plural, one{1 verified community} other{{count} verified communities}}",
-  "@spaceDiscoveryResults": {"placeholders": {"count": {"type": "int"}}},
+  "@spaceDiscoveryResults": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "spaceDiscoveryNoVerifiedResults": "No public community reached verified holder quorum.",
   "spaceDiscoveryUnavailable": "Public discovery is unavailable. Check the connection and try again.",
   "spaceDiscoveryPartialQuorum": "A matching announcement was found, but it does not yet have enough independent verified holders.",
   "spaceDiscoveryPosts": "{count, plural, =0{No publications} one{1 publication} other{{count} publications}}",
-  "@spaceDiscoveryPosts": {"placeholders": {"count": {"type": "int"}}},
+  "@spaceDiscoveryPosts": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "spaceDiscoverySources": "{count, plural, one{1 verified source} other{{count} verified sources}}",
-  "@spaceDiscoverySources": {"placeholders": {"count": {"type": "int"}}},
+  "@spaceDiscoverySources": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "spacePublicSubscribe": "Subscribe",
   "spaceCommentNotificationsSetting": "Discussion notifications",
   "spaceCommentNotificationsSettingHint": "Choose which new comments alert this device.",
@@ -276,7 +293,13 @@
   "spaceDeleteAction": "Delete community",
   "spaceDeleteHint": "Starts a 7-day recovery period before physical cleanup.",
   "spaceRecoveryUntil": "Recovery is available until {date}",
-  "@spaceRecoveryUntil": {"placeholders": {"date": {"type": "String"}}},
+  "@spaceRecoveryUntil": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
   "spaceArchiveTitle": "Archive community?",
   "spaceArchiveConfirm": "This creates an owner-signed boundary and makes the community read-only on every device. You can restore it later.",
   "spaceArchiveAction": "Archive",
@@ -284,14 +307,26 @@
   "spaceRestoreConfirm": "New content will start in a fresh signed lifecycle epoch. Archived history remains available.",
   "spaceRestoreAction": "Restore",
   "spaceMembers": "{count, plural, =1{1 member} other{{count} members}}",
-  "@spaceMembers": {"placeholders": {"count": {"type": "int"}}},
+  "@spaceMembers": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "spaceMemberAdd": "Invite member",
   "spaceNoContactsToAdd": "All accepted contacts are already members",
   "spaceInviteSent": "Invitation sent. Membership and keys stay private until they accept.",
   "spaceInvitesTitle": "Invitations",
   "spaceSecretInviteTitle": "Secret community",
   "spaceInviteFrom": "From {peer}",
-  "@spaceInviteFrom": {"placeholders": {"peer": {"type": "String"}}},
+  "@spaceInviteFrom": {
+    "placeholders": {
+      "peer": {
+        "type": "String"
+      }
+    }
+  },
   "spaceInviteAccept": "Accept",
   "spaceInviteDecline": "Decline",
   "spaceInviteJoining": "Accepted · waiting for verified membership",
@@ -302,7 +337,13 @@
   "spaceJoinRequestSent": "Request sent. The community will appear after signed approval.",
   "spaceJoinRequestsTitle": "Join requests",
   "spaceJoinRequestFrom": "Request from {peer}",
-  "@spaceJoinRequestFrom": {"placeholders": {"peer": {"type": "String"}}},
+  "@spaceJoinRequestFrom": {
+    "placeholders": {
+      "peer": {
+        "type": "String"
+      }
+    }
+  },
   "spaceJoinRequestPending": "Waiting for approval",
   "spaceJoinRequestApproved": "Approved · receiving verified membership",
   "spaceJoinRequestDeclined": "Declined",
@@ -311,7 +352,13 @@
   "spaceMembershipActive": "Active member",
   "spaceMembershipSuspended": "Membership suspended",
   "spaceMembershipSuspendedUntil": "Membership suspended until {until}",
-  "@spaceMembershipSuspendedUntil": {"placeholders": {"until": {"type": "String"}}},
+  "@spaceMembershipSuspendedUntil": {
+    "placeholders": {
+      "until": {
+        "type": "String"
+      }
+    }
+  },
   "spaceMembershipLeft": "No longer a member",
   "spaceMembershipBanned": "Membership banned",
   "spaceJoinDismiss": "Dismiss",
@@ -368,16 +415,49 @@
   "spacePolicyAuditAccess": "Access policy",
   "spacePolicyAuditRetention": "Retention policy",
   "spacePolicyAuditAccessSummary": "Revision {revision} · {roles} roles · {groups} groups · {assignments} direct assignments",
-  "@spacePolicyAuditAccessSummary": {"placeholders": {"revision": {"type": "int"}, "roles": {"type": "int"}, "groups": {"type": "int"}, "assignments": {"type": "int"}}},
+  "@spacePolicyAuditAccessSummary": {
+    "placeholders": {
+      "revision": {
+        "type": "int"
+      },
+      "roles": {
+        "type": "int"
+      },
+      "groups": {
+        "type": "int"
+      },
+      "assignments": {
+        "type": "int"
+      }
+    }
+  },
   "spacePolicyAuditSignedBy": "Signed by {author}",
-  "@spacePolicyAuditSignedBy": {"placeholders": {"author": {"type": "String"}}},
+  "@spacePolicyAuditSignedBy": {
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
   "spacePolicyAuditScopeSpace": "Entire community",
   "spacePolicyAuditScopeChannel": "Channel {channel}",
-  "@spacePolicyAuditScopeChannel": {"placeholders": {"channel": {"type": "String"}}},
+  "@spacePolicyAuditScopeChannel": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
   "spacePolicyAuditRetentionInherit": "inherits the community policy",
   "spacePolicyAuditRetentionForever": "keeps history",
   "spacePolicyAuditRetentionDays": "removes after {days} days",
-  "@spacePolicyAuditRetentionDays": {"placeholders": {"days": {"type": "int"}}},
+  "@spacePolicyAuditRetentionDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
   "spacePolicyAuditMediaOnly": "media only",
   "spaceRecentActionsTitle": "Recent actions",
   "spaceRecentActionsHint": "Signed administrative history. You see what your rights allow.",
@@ -385,27 +465,93 @@
   "spaceRecentActionsWithheld": "Event unavailable",
   "spaceRecentActionsWithheldHint": "Something happened here that your rights do not cover.",
   "spaceRecentActionsBy": "by {author}",
-  "@spaceRecentActionsBy": {"placeholders": {"author": {"type": "String"}}},
+  "@spaceRecentActionsBy": {
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionMemberAdded": "Added {member}",
-  "@spaceActionMemberAdded": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionMemberAdded": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionMemberRemoved": "Removed {member}",
-  "@spaceActionMemberRemoved": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionMemberRemoved": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionMemberLeft": "{member} left",
-  "@spaceActionMemberLeft": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionMemberLeft": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionRoleChanged": "Changed the role of {member}",
-  "@spaceActionRoleChanged": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionRoleChanged": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionOwnershipTransferred": "Handed ownership to {member}",
-  "@spaceActionOwnershipTransferred": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionOwnershipTransferred": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionMemberMuted": "Muted {member}",
-  "@spaceActionMemberMuted": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionMemberMuted": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionMemberUnmuted": "Unmuted {member}",
-  "@spaceActionMemberUnmuted": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionMemberUnmuted": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionMemberBanned": "Banned {member}",
-  "@spaceActionMemberBanned": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionMemberBanned": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionModerationApplied": "Moderated {member}",
-  "@spaceActionModerationApplied": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionModerationApplied": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionModerationRevoked": "Lifted a moderation action on {member}",
-  "@spaceActionModerationRevoked": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionModerationRevoked": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionChannelCreated": "Created a channel",
   "spaceActionChannelUpdated": "Changed a channel",
   "spaceActionSpaceRenamed": "Renamed the community",
@@ -413,7 +559,13 @@
   "spaceActionSpaceProfileMediaChanged": "Changed the avatar or cover",
   "spaceActionRulesPublished": "Published new rules",
   "spaceActionRulesAccepted": "{member} accepted the rules",
-  "@spaceActionRulesAccepted": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionRulesAccepted": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionAccessPolicyChanged": "Changed roles and access",
   "spaceActionRetentionChanged": "Changed the retention policy",
   "spaceActionSpaceArchived": "Archived the community",
@@ -425,18 +577,54 @@
   "spaceActionEncryptionRotated": "Rotated the encryption key",
   "spaceActionCheckpointRecorded": "Recorded a control checkpoint",
   "spaceActionAuthorityWithdrawn": "Withdrew {member}'s authority retroactively",
-  "@spaceActionAuthorityWithdrawn": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionAuthorityWithdrawn": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionAuthorityReturned": "Returned {member}'s authority",
-  "@spaceActionAuthorityReturned": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionAuthorityReturned": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionOther": "Performed an administrative action",
   "spaceActionDetailChannel": "Channel “{channel}”",
-  "@spaceActionDetailChannel": {"placeholders": {"channel": {"type": "String"}}},
+  "@spaceActionDetailChannel": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionDetailNewName": "New name: {name}",
-  "@spaceActionDetailNewName": {"placeholders": {"name": {"type": "String"}}},
+  "@spaceActionDetailNewName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionDetailRole": "Role: {role}",
-  "@spaceActionDetailRole": {"placeholders": {"role": {"type": "String"}}},
+  "@spaceActionDetailRole": {
+    "placeholders": {
+      "role": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionDetailModeration": "Action: {action}",
-  "@spaceActionDetailModeration": {"placeholders": {"action": {"type": "String"}}},
+  "@spaceActionDetailModeration": {
+    "placeholders": {
+      "action": {
+        "type": "String"
+      }
+    }
+  },
   "spaceAccessDelegatedHint": "You can manage only roles below your current permission ceiling. Your own roles and peer managers are locked.",
   "spaceAccessEmpty": "No custom roles yet. Built-in community roles continue to apply.",
   "spaceAccessRoles": "Custom roles",
@@ -493,21 +681,57 @@
   "spaceMemberDemote": "Make member",
   "spaceMemberRemove": "Remove from community",
   "spaceMemberRemoveConfirm": "Remove {member} and rotate access keys?",
-  "@spaceMemberRemoveConfirm": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceMemberRemoveConfirm": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceMemberBan": "Block in community",
   "spaceMemberBanConfirm": "Permanently block {member}? Their membership will be revoked and protected access keys will be rotated. The signed action remains in the moderation history and can be appealed.",
-  "@spaceMemberBanConfirm": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceMemberBanConfirm": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceMemberTransferOwnership": "Transfer ownership",
   "spaceMemberTransferOwnershipConfirm": "Transfer ownership to {member}? You will become an administrator, and only the new owner can transfer it back.",
-  "@spaceMemberTransferOwnershipConfirm": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceMemberTransferOwnershipConfirm": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceAuthorityWithdraw": "Withdraw past authority",
   "spaceAuthorityReturn": "Return authority",
   "spaceAuthorityWithdrawConfirm": "From which point should {member}'s decisions stop counting? Blocks and mutes they applied after it are undone. Deleted content and key rotations cannot be brought back.",
-  "@spaceAuthorityWithdrawConfirm": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceAuthorityWithdrawConfirm": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceAuthorityWithdrawSinceHours": "{hours, plural, one{The last hour} other{The last {hours} hours}}",
-  "@spaceAuthorityWithdrawSinceHours": {"placeholders": {"hours": {"type": "int"}}},
+  "@spaceAuthorityWithdrawSinceHours": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
   "spaceAuthorityWithdrawSinceDays": "{days, plural, one{The last day} other{The last {days} days}}",
-  "@spaceAuthorityWithdrawSinceDays": {"placeholders": {"days": {"type": "int"}}},
+  "@spaceAuthorityWithdrawSinceDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
   "spaceAuthorityWithdrawSinceAlways": "Everything they ever decided",
   "spaceRenameTitle": "Rename community",
   "spaceRenameAction": "Rename",
@@ -517,7 +741,13 @@
   "spaceOwnerLeaveHint": "Transfer ownership to another member before leaving the community.",
   "spaceReplicationTitle": "Copy redistribution",
   "spaceReplicationNeighbors": "Distribute through {count} nearby members",
-  "@spaceReplicationNeighbors": {"placeholders": {"count": {"type": "int"}}},
+  "@spaceReplicationNeighbors": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "spaceReplicationHint": "Copies are held by members allowed to distribute content. More of them means better availability and recovery, at the cost of traffic here.",
   "spaceYou": "You",
   "feedEmpty": "Your feed is empty",
@@ -543,7 +773,6 @@
   "feedFilterTimeCustom": "Custom date and time",
   "feedFilterCommunitiesTitle": "Communities",
   "feedFilterAllCommunities": "All communities",
-
   "chatsEmpty": "No conversations yet",
   "chatsEmptyHint": "Start a new chat to begin messaging",
   "chatNewMessageHint": "Message",
@@ -596,13 +825,25 @@
   "groupConvertAction": "Convert",
   "groupSyncNeighborsTitle": "Chat synchronization",
   "groupSyncNeighborsLabel": "XOR neighbours: {count}",
-  "@groupSyncNeighborsLabel": { "placeholders": { "count": { "type": "int" } } },
+  "@groupSyncNeighborsLabel": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "groupSyncNeighborsHint": "How many XOR-closest members this device connects to for chat history. More neighbours improve redundancy but use more traffic. This setting is local to this device.",
   "groupRenameTitle": "Rename group",
   "groupRenameAction": "Rename",
   "groupRenameDenied": "You don't have permission to rename this group",
   "groupMembers": "{count, plural, =1{1 member} other{{count} members}}",
-  "@groupMembers": { "placeholders": { "count": { "type": "int" } } },
+  "@groupMembers": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "groupReply": "Reply",
   "groupAddMember": "Add",
   "groupMute": "Mute",
@@ -632,17 +873,35 @@
   "stickerPackDownload": "Download",
   "stickerPackInstall": "Install",
   "stickerImported": "{count, plural, =1{1 sticker added} other{{count} stickers added}}",
-  "@stickerImported": { "placeholders": { "count": { "type": "int" } } },
+  "@stickerImported": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "stickerPackChooseTarget": "Add to which pack?",
   "stickerPackNew": "New pack…",
   "stickerPackNameHint": "Pack name",
   "stickerPackRename": "Rename",
   "stickerPackDelete": "Delete pack",
   "stickerPackDeleteConfirm": "Delete \"{name}\" and its stickers?",
-  "@stickerPackDeleteConfirm": { "placeholders": { "name": { "type": "String" } } },
+  "@stickerPackDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "stickerPackUnsigned": "Unsigned pack",
   "stickerPackSignedBy": "Signed by {author}",
-  "@stickerPackSignedBy": { "placeholders": { "author": { "type": "String" } } },
+  "@stickerPackSignedBy": {
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
   "stickerPackBadSignature": "Signature check failed — pack not installed",
   "chatVnoteDenied": "Camera or microphone access denied",
   "chatVoiceRecordFailed": "Couldn't record — try again",
@@ -692,11 +951,29 @@
   "cloudUsageByDevice": "By device",
   "cloudUsageThisDevice": "this device",
   "cloudUsageItems": "{count, plural, =0{no items} =1{1 item} other{{count} items}}",
-  "@cloudUsageItems": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudUsageItems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudUsageNotHeldHere": "{count, plural, =0{everything is here} =1{1 item is not held here} other{{count} items are not held here}}",
-  "@cloudUsageNotHeldHere": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudUsageNotHeldHere": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudReplicas": "{count, plural, =0{no verified copies} =1{1 verified copy} other{{count} verified copies}}",
-  "@cloudReplicas": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudReplicas": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudDownload": "Download to this device",
   "cloudExport": "Save to a file…",
   "cloudExportDone": "File saved",
@@ -720,7 +997,13 @@
   "cloudVerify": "Verify and repair",
   "cloudVerifyOk": "Local cloud files passed verification",
   "cloudRepairStarted": "Repair requested for {count} damaged files",
-  "@cloudRepairStarted": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudRepairStarted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudDelete": "Delete",
   "cloudDeleteTitle": "Delete from your cloud?",
   "cloudDeleteBody": "The item will disappear from every linked device. This device keeps it in the trash until you empty it.",
@@ -730,8 +1013,14 @@
   "cloudTrashRestore": "Restore",
   "cloudTrashDeleteForever": "Delete forever",
   "cloudTrashEmptyAction": "Empty trash",
-  "cloudTrashRestored": "Restored \u201c{name}\u201d",
-  "@cloudTrashRestored": { "placeholders": { "name": { "type": "String" } } },
+  "cloudTrashRestored": "Restored “{name}”",
+  "@cloudTrashRestored": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "cloudTrashEmptied": "Trash emptied",
   "cloudSharedEmpty": "No files in this shared folder yet",
   "cloudSharedAddFile": "Add a file from your cloud",
@@ -755,7 +1044,13 @@
   "cloudFolderRename": "Rename folder",
   "cloudFolderDelete": "Delete folder",
   "cloudFolderDeleteTitle": "Delete folder \"{name}\"?",
-  "@cloudFolderDeleteTitle": { "placeholders": { "name": { "type": "String" } } },
+  "@cloudFolderDeleteTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "cloudFolderDeleteBody": "Everything inside moves up to the nearest remaining folder. Nothing is deleted from your cloud.",
   "cloudMoveFolder": "Move folder",
   "cloudStorageRoot": "Storage",
@@ -777,7 +1072,13 @@
   "cloudFolderFileFailed": "Could not download the file",
   "cloudFolderEmpty": "This folder is empty",
   "cloudFolderItems": "{count, plural, =0{empty} =1{1 item} other{{count} items}}",
-  "@cloudFolderItems": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudFolderItems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudMoveToFolder": "Move to folder",
   "cloudMoveToRoot": "Storage root",
   "cloudFolderMoved": "Document moved",
@@ -794,9 +1095,21 @@
   "cloudSortByDate": "By date",
   "cloudSortBySize": "By size",
   "cloudSelectedCount": "{count} selected",
-  "@cloudSelectedCount": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudBulkDeleteTitle": "Delete {count, plural, =1{1 item} other{{count} items}} from your cloud?",
-  "@cloudBulkDeleteTitle": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudBulkDeleteTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudFolderEmptyHint": "Notes and files you create here will stay in this folder.",
   "cloudSingleCopy": "single copy",
   "cloudNoteNew": "New note",
@@ -818,10 +1131,22 @@
   "cloudNoteUseRemote": "Use cloud version",
   "cloudNoteSaveMerged": "Save merged version",
   "cloudNoteBranches": "{count, plural, =1{1 version} other{{count} offline versions}} preserved",
-  "@cloudNoteBranches": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudNoteBranches": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudNoteReviewBranches": "Review versions",
   "cloudNoteVersion": "Preserved version {number}",
-  "@cloudNoteVersion": { "placeholders": { "number": { "type": "int" } } },
+  "@cloudNoteVersion": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
   "cloudNoteBranchesUnavailable": "Download every preserved version before merging",
   "cloudNoteMergeReady": "Merge prepared — save the note to resolve every version",
   "cloudAttachment": "Attachment",
@@ -873,7 +1198,13 @@
   "trayLock": "Lock",
   "trayQuit": "Quit",
   "trayUnread": "{count} unread",
-  "@trayUnread": { "placeholders": { "count": { "type": "String" } } },
+  "@trayUnread": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
   "chatListDelete": "Delete chat",
   "chatDeleteChatTitle": "Delete this chat?",
   "chatDeleteChatBody": "The conversation and all its messages are erased from this device. The other person is not notified.",
@@ -895,7 +1226,11 @@
   "retentionCustom": "Custom…",
   "retentionCustomN": "Custom ({days} days)",
   "@retentionCustomN": {
-    "placeholders": { "days": { "type": "int" } }
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
   },
   "retentionCustomTitle": "Delete after (days)",
   "retentionDaysSuffix": "days",
@@ -912,9 +1247,21 @@
   "notificationMuteNone": "Nothing",
   "notificationMuteNoneHint": "Silence all alerts, including mentions",
   "notificationMuteCurrentMentionsOnly": "Mentions only until {until}",
-  "@notificationMuteCurrentMentionsOnly": { "placeholders": { "until": { "type": "String" } } },
+  "@notificationMuteCurrentMentionsOnly": {
+    "placeholders": {
+      "until": {
+        "type": "String"
+      }
+    }
+  },
   "notificationMuteCurrentNone": "Muted until {until}",
-  "@notificationMuteCurrentNone": { "placeholders": { "until": { "type": "String" } } },
+  "@notificationMuteCurrentNone": {
+    "placeholders": {
+      "until": {
+        "type": "String"
+      }
+    }
+  },
   "chatMenuMarkRead": "Mark as read",
   "chatMenuArchive": "Archive",
   "chatMenuUnarchive": "Unarchive",
@@ -934,7 +1281,13 @@
   "chatSignatureVerified": "Authorship verified",
   "chatSignatureRefused": "The author declined to sign",
   "chatSignatureFailed": "Signature did not verify",
-  "@signatureAskTitle": { "placeholders": { "who": { "type": "String" } } },
+  "@signatureAskTitle": {
+    "placeholders": {
+      "who": {
+        "type": "String"
+      }
+    }
+  },
   "signatureAskTitle": "{who} asks you to confirm you wrote the message below",
   "signatureAskConfirm": "Sign",
   "settingsSignaturePolicy": "Signature requests",
@@ -1030,11 +1383,23 @@
   "chatFileLabel": "File",
   "chatForwarded": "Forwarded",
   "chatYou": "you",
-  "@chatForwardedFrom": { "placeholders": { "name": { "type": "String" } } },
+  "@chatForwardedFrom": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "chatForwardedFrom": "Forwarded from {name}",
   "chatForwardTo": "Forward to",
   "chatForwardNoTargets": "No accepted contacts to forward to",
-  "@chatMsgDeleteSelectedBody": { "placeholders": { "count": { "type": "int" } } },
+  "@chatMsgDeleteSelectedBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "chatMsgDeleteSelectedBody": "Delete {count} selected message(s)?",
   "dirIncoming": "Received",
   "dirOutgoing": "Sent",
@@ -1044,23 +1409,39 @@
   "msgStatusFailed": "Failed",
   "identityPickerTitle": "Choose an identity",
   "identityPickerSubtitle": "This vault holds several identities — pick one to act as.",
-
   "networkTitle": "Overlay network",
   "networkStatusConnected": "Connected",
   "networkStatusConnecting": "Connecting…",
   "networkStatusOffline": "Offline",
   "networkPeers": "{count} peers",
-  "@networkPeers": { "placeholders": { "count": { "type": "int" } } },
-
+  "@networkPeers": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "settingsTitle": "Settings",
   "settingsIdentity": "Identity",
   "settingsStorage": "Storage & spaces",
   "settingsStorageCompact": "Compact storage",
   "settingsStorageCompactBody": "Reclaim unused space — the app re-opens. Keeps ONLY the unlocked space: any other hidden identity in this container is discarded.",
   "settingsStorageReclaimable": "{size} of it can be reclaimed by compacting",
-  "@settingsStorageReclaimable": { "placeholders": { "size": { "type": "String" } } },
+  "@settingsStorageReclaimable": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "settingsStorageBloatTitle": "Compacting would free about {size}",
-  "@settingsStorageBloatTitle": { "placeholders": { "size": { "type": "String" } } },
+  "@settingsStorageBloatTitle": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "settingsStorageBloatBody": "Most of this file is padding left over from earlier writes — normal for this storage, but it never shrinks on its own. Compact it when convenient.",
   "settingsStorageCompactDone": "Reclaimed",
   "settingsStorageCompactFailed": "Couldn't compact storage",
@@ -1154,16 +1535,13 @@
   "decoyCreated": "Decoy access created.",
   "decoyPickOne": "Select at least one identity.",
   "decoyClash": "That password is already in use — choose a different one.",
-
   "languageSystem": "System default",
   "languageRussian": "Русский",
   "languageEnglish": "English",
-
   "chatRequestTitle": "This contact wants to connect",
   "actionAccept": "Accept",
   "actionBlock": "Block",
   "actionOpen": "Open",
-
   "inviteAddContact": "Add a contact",
   "inviteShowToContact": "Show this to your contact",
   "inviteTooLarge": "invite too large",
@@ -1183,11 +1561,9 @@
   "scanTorchOff": "Turn torch off",
   "inviteAddButton": "Add contact",
   "inviteInvalid": "That is not a valid xVeil invite",
-
   "networkRouteTitle": "Route traffic (Proxy / VPN)",
   "networkRouteSubActive": "Routing active",
   "networkRouteSubIdle": "Route your traffic through veil",
-
   "routeTitle": "Route traffic",
   "routeSocks5Title": "Route my traffic (SOCKS5)",
   "routeSocks5Hint": "Bind a local SOCKS5 proxy and tunnel its traffic through veil to an exit node. Point a browser or system proxy at it to evade censorship and hide your location.",
@@ -1199,7 +1575,13 @@
   "routeExitNodeInvalid": "Must be a 64-character hex node id",
   "routeNeedExit": "Set an exit node id to route through",
   "routeProxyAddress": "Point your apps / browser at {addr}",
-  "@routeProxyAddress": { "placeholders": { "addr": { "type": "String" } } },
+  "@routeProxyAddress": {
+    "placeholders": {
+      "addr": {
+        "type": "String"
+      }
+    }
+  },
   "routeServeTitle": "Be an exit node",
   "routeServeHint": "Let other peers route their traffic out to the internet through this node. More exits make the network more censorship-resistant — but traffic will appear to originate from this device.",
   "routeAllowPrivate": "Allow private networks (advanced)",
@@ -1273,8 +1655,13 @@
   "networkNodesTitle": "My nodes",
   "networkNodesSub": "Add a node over SSH, run ogate/oproxy",
   "networkNodesSubCount": "{count} nodes",
-  "@networkNodesSubCount": { "placeholders": { "count": { "type": "int" } } },
-
+  "@networkNodesSubCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "nodesTitle": "My nodes",
   "nodesEmpty": "No nodes yet",
   "nodesEmptyHint": "Add a server you run as an exit / relay — then route your traffic through it from “Route traffic”.",
@@ -1341,9 +1728,21 @@
   "provisionSourceCustom": "Custom link",
   "provisionReleaseLoading": "Loading the latest release from GitHub…",
   "provisionReleaseLoaded": "Loaded GitHub release {tag}",
-  "@provisionReleaseLoaded": { "placeholders": { "tag": { "type": "String" } } },
+  "@provisionReleaseLoaded": {
+    "placeholders": {
+      "tag": {
+        "type": "String"
+      }
+    }
+  },
   "provisionReleaseError": "Could not auto-fill from GitHub: {error}. You can enter both values manually.",
-  "@provisionReleaseError": { "placeholders": { "error": { "type": "String" } } },
+  "@provisionReleaseError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "provisionReleaseUrl": "veil-cli release URL",
   "provisionReleaseHint": "Filled automatically from the official veilnetwork/veil GitHub release. Choose Custom link to override it.",
   "provisionCustomReleaseHint": "Enter a direct HTTPS link to your binary. You must also supply its SHA-256 below.",
@@ -1359,16 +1758,34 @@
   "provisionTransportWsHint": "Plain WebSocket. No certificate, so it survives an HTTP proxy but not an observer — put it behind a TLS front, or prefer wss.",
   "provisionTransportWssHint": "Secure WebSocket listener, protected by the shared TLS certificate below.",
   "provisionTransportPort": "{transport} port",
-  "@provisionTransportPort": { "placeholders": { "transport": { "type": "String" } } },
+  "@provisionTransportPort": {
+    "placeholders": {
+      "transport": {
+        "type": "String"
+      }
+    }
+  },
   "provisionTransportNetwork": "Network protocol: {protocol}",
-  "@provisionTransportNetwork": { "placeholders": { "protocol": { "type": "String" } } },
+  "@provisionTransportNetwork": {
+    "placeholders": {
+      "protocol": {
+        "type": "String"
+      }
+    }
+  },
   "provisionTransportCommon": "Shared transport settings",
   "provisionTransportCommonHint": "These values apply to every selected incoming transport.",
   "provisionAdvertiseHost": "Public host / IP (optional)",
   "provisionAdvertiseHostHint": "The same public address is advertised for every selected transport; each one keeps its own port.",
   "provisionTlsShared": "TLS certificate",
   "provisionTlsSharedHint": "Used by: {transports}. Choose how the certificate is supplied to every selected TLS transport.",
-  "@provisionTlsSharedHint": { "placeholders": { "transports": { "type": "String" } } },
+  "@provisionTlsSharedHint": {
+    "placeholders": {
+      "transports": {
+        "type": "String"
+      }
+    }
+  },
   "provisionTlsMode": "Certificate source",
   "provisionTlsModeExisting": "Existing files",
   "provisionTlsModeAutomatic": "Automatic",
@@ -1388,9 +1805,21 @@
   "provisionTlsKey": "Remote TLS private-key path",
   "provisionTlsCa": "Remote TLS CA path (optional)",
   "provisionComponentUrl": "{component} release URL",
-  "@provisionComponentUrl": { "placeholders": { "component": { "type": "String" } } },
+  "@provisionComponentUrl": {
+    "placeholders": {
+      "component": {
+        "type": "String"
+      }
+    }
+  },
   "provisionComponentSha": "{component} SHA-256",
-  "@provisionComponentSha": { "placeholders": { "component": { "type": "String" } } },
+  "@provisionComponentSha": {
+    "placeholders": {
+      "component": {
+        "type": "String"
+      }
+    }
+  },
   "provisionScriptLabel": "Runs on the server as root — review before running:",
   "provisionPskMissing": "Deployment PSK isn't bundled in this build, so the node can't join the network. Provisioning is unavailable.",
   "provisionRun": "Run over SSH",
@@ -1400,14 +1829,24 @@
   "provisionAddedPeer": "Added the server to the peer list",
   "provisionPeerFailed": "Could not add the server as a peer: {reason}",
   "@provisionPeerFailed": {
-    "placeholders": { "reason": { "type": "String" } }
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
   },
   "provisionAddedProxy": "Added the oproxy exit to the proxy list",
-  "provisionProxyNeedsNodeId": "oproxy installed, but the server reported no node id \u2014 cannot add it to the proxy list",
+  "provisionProxyNeedsNodeId": "oproxy installed, but the server reported no node id — cannot add it to the proxy list",
   "provisionSavedNodeId": "Saved the node id reported by the server",
   "nodeSshConnect": "Connect over SSH",
   "sshDialogTitle": "SSH to {host}",
-  "@sshDialogTitle": { "placeholders": { "host": { "type": "String" } } },
+  "@sshDialogTitle": {
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
   "sshUsePassword": "Password",
   "sshUseKey": "Private key",
   "sshPasswordLabel": "Password",
@@ -1431,15 +1870,39 @@
   "sshCredentialRequired": "Enter a password or private key",
   "sshCredentialsSaving": "Saving…",
   "sshCredentialsSaveFailed": "Could not save SSH credentials: {error}",
-  "@sshCredentialsSaveFailed": { "placeholders": { "error": { "type": "String" } } },
+  "@sshCredentialsSaveFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "sshKeyGenerationFailed": "Could not generate the key: {error}",
-  "@sshKeyGenerationFailed": { "placeholders": { "error": { "type": "String" } } },
+  "@sshKeyGenerationFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "sshConnectRun": "Connect & check",
   "sshConnecting": "Connecting…",
   "sshDone": "Done (exit {code})",
-  "@sshDone": { "placeholders": { "code": { "type": "String" } } },
+  "@sshDone": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
   "sshError": "Failed: {err}",
-  "@sshError": { "placeholders": { "err": { "type": "String" } } },
+  "@sshError": {
+    "placeholders": {
+      "err": {
+        "type": "String"
+      }
+    }
+  },
   "nodeCheckReachable": "Check reachability",
   "nodeChecking": "Checking…",
   "nodeReachable": "Reachable",
@@ -1457,7 +1920,6 @@
   "callBatteryAllowTitle": "Keep calls alive in the background?",
   "callBatteryAllowBody": "Some phones stop a call when you switch away from xVeil. Allow it to ignore battery optimization so backgrounded calls keep running.",
   "networkBackgroundLater": "Later",
-
   "peersTitle": "Connected peers",
   "peersSectionActive": "Active",
   "peersSectionInactive": "Inactive",
@@ -1481,12 +1943,29 @@
   "peerDirUnknown": "Unknown",
   "timeJustNow": "just now",
   "timeMinutesAgo": "{n}m ago",
-  "@timeMinutesAgo": { "placeholders": { "n": { "type": "int" } } },
+  "@timeMinutesAgo": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "timeHoursAgo": "{n}h ago",
-  "@timeHoursAgo": { "placeholders": { "n": { "type": "int" } } },
+  "@timeHoursAgo": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "timeDaysAgo": "{n}d ago",
-  "@timeDaysAgo": { "placeholders": { "n": { "type": "int" } } },
-
+  "@timeDaysAgo": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "peersAddAction": "Add peer",
   "peersAddTitle": "Add a peer by link",
   "peersAddHint": "Paste a veil:bootstrap link. A node produces its own with `veil-cli bootstrap invite`; a deployed server saves it here automatically.",
@@ -1494,18 +1973,33 @@
   "peersAddPaste": "Paste",
   "peersAddInvalid": "Not a bootstrap link: {reason}",
   "@peersAddInvalid": {
-    "placeholders": { "reason": { "type": "String" } }
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
   },
   "peersAddNoTransport": "This link carries an identity but no address, so there is nothing to dial. Use it to add a contact instead.",
   "peersAddNoNode": "The node is not running yet",
   "peersAddDone": "Peer added",
   "peersAddFailed": "Could not add the peer: {reason}",
   "@peersAddFailed": {
-    "placeholders": { "reason": { "type": "String" } }
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
   },
   "peersAddResolved": "node {nodeId}… via {transport}",
   "@peersAddResolved": {
-    "placeholders": { "nodeId": { "type": "String" }, "transport": { "type": "String" } }
+    "placeholders": {
+      "nodeId": {
+        "type": "String"
+      },
+      "transport": {
+        "type": "String"
+      }
+    }
   },
   "peersShareAction": "Share entry nodes",
   "peersShareTitle": "Share entry nodes",
@@ -1516,18 +2010,21 @@
   "peersShareScanHint": "Have your friend scan this or open the link in xVeil",
   "peerActiveBadge": "active",
   "peersImported": "Added {n} entry nodes",
-  "@peersImported": { "placeholders": { "n": { "type": "int" } } },
-
+  "@peersImported": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "onboardRepeatPassword": "Repeat password",
   "onboardPasswordTitle": "Set a password",
   "onboardPasswordSubtitle": "This password unlocks your space on this device. There is no reset.",
   "onboardPasswordTooShort": "Use at least 6 characters",
   "onboardPasswordMismatch": "Passwords do not match",
   "recoveryPhraseHint": "Enter your recovery phrase, words separated by spaces",
-
   "securityCenterTooltip": "Security",
   "securityCenterTitle": "Security & network",
-
   "callStartTooltip": "Call",
   "callAudio": "Audio call",
   "callVideo": "Video call",
@@ -1606,18 +2103,48 @@
   "nicknameFree": "Available",
   "nicknameMineVerdict": "Already yours",
   "nicknameTakenWeight": "Taken — protection weight {weight}",
-  "@nicknameTakenWeight": {"placeholders": {"weight": {"type": "String"}}},
+  "@nicknameTakenWeight": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
   "nicknameClaim": "Claim name",
   "nicknameMiningLabel": "Mining proof-of-work…",
   "nicknameMiningStats": "weight {weight} / {target} · {hashes} hashes",
-  "@nicknameMiningStats": {"placeholders": {"weight": {"type": "String"}, "target": {"type": "String"}, "hashes": {"type": "String"}}},
+  "@nicknameMiningStats": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "hashes": {
+        "type": "String"
+      }
+    }
+  },
   "nicknamePublishing": "Publishing…",
   "nicknameOwnedTitle": "Your name",
   "nicknameWeightExplain": "Protection weight is the cumulative proof-of-work pinned to the name — the value shown is the live network weight. Taking the name over requires strictly more work; Reinforce raises that price.",
   "nicknameOwnedTakenOver": "The name was taken over with heavier work (rival weight {weight}). Reinforce wins it back by mining strictly more.",
-  "@nicknameOwnedTakenOver": {"placeholders": {"weight": {"type": "String"}}},
+  "@nicknameOwnedTakenOver": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
   "nicknameOwnedWeight": "Protection weight {weight}",
-  "@nicknameOwnedWeight": {"placeholders": {"weight": {"type": "String"}}},
+  "@nicknameOwnedWeight": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
   "nicknameTopUp": "Reinforce (mine more)",
   "nicknameClaimed": "Name published",
   "newChatPeerOrNickname": "Node id (hex) or @name",
@@ -1651,7 +2178,13 @@
   "devicesExpiredToken": "This setup code has expired",
   "devicesRevoke": "Revoke device",
   "devicesRevokeTitle": "Revoke {device}?",
-  "@devicesRevokeTitle": {"placeholders": {"device": {"type": "String"}}},
+  "@devicesRevokeTitle": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
   "devicesOperationFailed": "Could not complete device linking",
   "devicesCancelPending": "Cancel waiting",
   "devicesRecoverySection": "All devices lost",
@@ -1669,21 +2202,66 @@
   "devicesFreshRegistryRequired": "Recovery requires a fresh device registry",
   "actionReject": "Reject",
   "cloudDocumentInvites": "Shared document invitations ({count})",
-  "@cloudDocumentInvites": {"placeholders": {"count": {"type": "int"}}},
+  "@cloudDocumentInvites": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudDocumentInviteFrom": "Invitation from {sender}",
-  "@cloudDocumentInviteFrom": {"placeholders": {"sender": {"type": "String"}}},
+  "@cloudDocumentInviteFrom": {
+    "placeholders": {
+      "sender": {
+        "type": "String"
+      }
+    }
+  },
   "cloudDocumentInviteKind": "Encrypted {kind} document · inactive until accepted",
-  "@cloudDocumentInviteKind": {"placeholders": {"kind": {"type": "String"}}},
+  "@cloudDocumentInviteKind": {
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      }
+    }
+  },
   "cloudDocumentAdopted": "Shared document added",
   "cloudDocumentAdoptFailed": "The invitation could not be verified",
   "cloudDocumentRejected": "Invitation removed",
   "cloudSharedNew": "New shared document",
   "cloudSharedDocuments": "Shared documents ({count})",
-  "@cloudSharedDocuments": {"placeholders": {"count": {"type": "int"}}},
+  "@cloudSharedDocuments": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudSharedDocument": "Shared {kind} · {id}",
-  "@cloudSharedDocument": {"placeholders": {"kind": {"type": "String"}, "id": {"type": "String"}}},
+  "@cloudSharedDocument": {
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      },
+      "id": {
+        "type": "String"
+      }
+    }
+  },
   "cloudSharedMembers": "{count} members · epoch {epoch} · {role}",
-  "@cloudSharedMembers": {"placeholders": {"count": {"type": "int"}, "epoch": {"type": "int"}, "role": {"type": "String"}}},
+  "@cloudSharedMembers": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "epoch": {
+        "type": "int"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
   "cloudSharedPickContact": "Invite an accepted contact",
   "cloudSharedRole": "Document role",
   "cloudSharedRoleOwner": "Owner",
@@ -1695,7 +2273,13 @@
   "cloudSharedAddMember": "Add member",
   "cloudSharedRevoke": "Revoke access",
   "cloudSharedRevokeTitle": "Revoke access for {member}?",
-  "@cloudSharedRevokeTitle": {"placeholders": {"member": {"type": "String"}}},
+  "@cloudSharedRevokeTitle": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "cloudSharedRotate": "Rotate encryption key",
   "cloudSharedRotateTitle": "Rotate the document key for every member?",
   "cloudSharedCompact": "Compact history",
@@ -1753,7 +2337,13 @@
   "cloudEventLocation": "Location",
   "cloudCollectionDelete": "Delete",
   "cloudCollectionDeleteTitle": "Delete \"{title}\"?",
-  "@cloudCollectionDeleteTitle": {"placeholders": {"title": {"type": "String"}}},
+  "@cloudCollectionDeleteTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "cloudCollectionSaved": "Change saved and queued",
   "cloudCollectionFailed": "Could not update this shared collection",
   "cloudCollectionInvalidRange": "The event must end after it starts",
@@ -1762,14 +2352,32 @@
   "spaceRulesEmpty": "This community has not published rules yet.",
   "spaceRulesPublish": "Publish rules",
   "spaceRulesPublishVersion": "Publish rules version {version}",
-  "@spaceRulesPublishVersion": {"placeholders": {"version": {"type": "int"}}},
+  "@spaceRulesPublishVersion": {
+    "placeholders": {
+      "version": {
+        "type": "int"
+      }
+    }
+  },
   "spaceRulesFullText": "Full rules",
   "spaceRulesSummary": "Short summary",
   "spaceRulesEffectiveDate": "Effective date",
   "spaceRulesEffective": "Effective {date}",
-  "@spaceRulesEffective": {"placeholders": {"date": {"type": "String"}}},
+  "@spaceRulesEffective": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
   "spaceRulesVersion": "Version {version}",
-  "@spaceRulesVersion": {"placeholders": {"version": {"type": "int"}}},
+  "@spaceRulesVersion": {
+    "placeholders": {
+      "version": {
+        "type": "int"
+      }
+    }
+  },
   "spaceRulesAccept": "Accept rules",
   "spaceRulesAccepted": "Rules accepted",
   "spaceRulesAcceptanceRequired": "Please review and accept the current rules",
@@ -1801,7 +2409,13 @@
   "spaceModerationTemporaryBan": "Temporary ban",
   "spaceModerationPermanentBan": "Permanent ban",
   "spaceModerationUntil": "Until {date}",
-  "@spaceModerationUntil": {"placeholders": {"date": {"type": "String"}}},
+  "@spaceModerationUntil": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
   "spaceModerationAppealsTitle": "Moderation appeals",
   "spaceModerationAppealAction": "Appeal",
   "spaceModerationAppealDialogTitle": "Appeal moderation action",
@@ -1812,7 +2426,13 @@
   "spaceModerationAppealRevoked": "Action revoked after review",
   "spaceModerationAppealAcknowledged": "Appeal accepted; removed content cannot be restored",
   "spaceModerationAppealFrom": "Appeal from {node}",
-  "@spaceModerationAppealFrom": {"placeholders": {"node": {"type": "String"}}},
+  "@spaceModerationAppealFrom": {
+    "placeholders": {
+      "node": {
+        "type": "String"
+      }
+    }
+  },
   "spaceModerationAppealReview": "Review appeal",
   "spaceModerationAppealDecisionReason": "Decision explanation",
   "spaceModerationAppealDecisionReject": "Uphold action",
@@ -1833,7 +2453,13 @@
   "spaceAbuseReportSent": "Report sent to moderators",
   "spaceAbuseReportsTitle": "Reports",
   "spaceAbuseReportFrom": "Report from {node}",
-  "@spaceAbuseReportFrom": {"placeholders": {"node": {"type": "String"}}},
+  "@spaceAbuseReportFrom": {
+    "placeholders": {
+      "node": {
+        "type": "String"
+      }
+    }
+  },
   "spaceAbuseReportPost": "Publication",
   "spaceAbuseReportComment": "Comment",
   "spaceAbuseReportOpenContent": "Open content",
@@ -1877,11 +2503,23 @@
   "folderSyncCloudRoot": "Storage root",
   "folderSyncBusy": "Syncing…",
   "folderSyncDeleteWarning": "Deleting a file here deletes it in Storage too.",
-  "@folderSyncRefused": { "placeholders": { "reason": { "type": "String" } } },
+  "@folderSyncRefused": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
   "settingsCopyErrors": "Copy error report",
   "settingsCopyErrorsHint": "A JSON summary of recent failures: error types and code locations only — no error text, contacts or identity.",
   "settingsCopyErrorsDone": "Error report copied ({count, plural, =0{no failures recorded} =1{1 failure} other{{count} failures}})",
-  "@settingsCopyErrorsDone": { "placeholders": { "count": { "type": "int" } } },
+  "@settingsCopyErrorsDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "errorLoadFailed": "Couldn't load this",
   "errorLoadFailedHint": "The details are in Settings → Copy error report.",
   "voiceModelDownload": "Download the speech model",
@@ -1894,7 +2532,13 @@
   "voiceModelTitle": "Speech model",
   "voiceModelResume": "Continue downloading",
   "voiceModelResumeAt": "{percent}% already downloaded",
-  "@voiceModelResumeAt": { "placeholders": { "percent": { "type": "int" } } },
+  "@voiceModelResumeAt": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
   "voiceModelCancel": "Stop",
   "identityDamagedTitle": "This space opened, but its identity is damaged",
   "identityDamagedBody": "Your password was right — the container unlocked. What it holds where your identity should be cannot be read. This app will not go on and act as if you were someone new.",
@@ -1902,5 +2546,22 @@
   "identityDamagedBack": "Back to the lock screen",
   "backupNotExcludedTitle": "This device may be copying your data into its backup",
   "backupNotExcludedBody": "xVeil asks the system to keep its container out of iCloud and computer backups. On this device that did not take effect ({reason}). Your data stays encrypted, but a backup could show that this app holds an identity, and a copy of it could be attacked away from your phone. Turning off backup for xVeil in the system settings closes it.",
-  "@backupNotExcludedBody": { "placeholders": { "reason": { "type": "String" } } }
+  "@backupNotExcludedBody": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesLastSeen": "Last seen {when}",
+  "@devicesLastSeen": {
+    "description": "Subtitle under a linked device: how long ago it was last heard from, so a device that is gone for good can be recognised and unlinked.",
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesNeverSeen": "Never seen since this device was linked",
+  "devicesAwayLong": "Away a long time — consider unlinking"
 }

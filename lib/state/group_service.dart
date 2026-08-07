@@ -16760,6 +16760,30 @@ class GroupService {
     NodeId device, {
     required SovereignGroupSigner sovereign,
   }) async {
+    final ok = await _revokeDevice(device, sovereign: sovereign);
+    // A revoked device is never coming back to this group, so whatever is still
+    // queued for it is dead weight — on the stand a wiped device held 3473
+    // frames and 9.56 MB of undelivered snapshots. Only on SUCCESS: if the
+    // revoke failed the device is still a member and still owes that state.
+    if (ok) {
+      try {
+        await onMemberRevoked?.call(device);
+      } catch (_) {
+        // Tidy-up must never turn a completed revoke into a failure.
+      }
+    }
+    return ok;
+  }
+
+  /// Told when a device has really been removed, so the transport layer can let
+  /// go of anything it was still holding for it. Wired by the provider; null in
+  /// tests that do not care.
+  Future<void> Function(NodeId device)? onMemberRevoked;
+
+  Future<bool> _revokeDevice(
+    NodeId device, {
+    required SovereignGroupSigner sovereign,
+  }) async {
     final hex = await deviceGroupIdHex();
     if (hex == null) return false;
     final old = await load(NodeId.fromHex(hex));
