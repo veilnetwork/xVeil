@@ -594,4 +594,35 @@ void main() {
       reason: 'replication resumes once the backlog has cleared',
     );
   });
+
+  test('the cap holds on the FIRST snapshot after a restart', () async {
+    // The counter behind the cap is refreshed by the outbox flush, which first
+    // runs up to one interval after the service starts. The replication burst
+    // it exists to bound — `nudgeGroupSyncAll` — happens AT start-up, inside
+    // that window. Unseeded, the cap read zero and waved through exactly the
+    // batch it is there to stop, which is why the live stand showed no
+    // suppression at all on a restart.
+    //
+    // This is the near miss, not the obvious case: a queue that is ALREADY
+    // full, and a service that has not flushed yet.
+    final s = await sender(a, [b]);
+    // Fill the store directly, so nothing has updated any in-memory counter.
+    for (var i = 0; i < 300; i++) {
+      await s.storage.enqueueOutboxFrame(
+        'grp:aa11:pre$i:${b.hex}',
+        b.hex,
+        WireEnvelope.groupEntry('pre-existing-$i').encode(),
+      );
+    }
+    final before = (await s.storage.pendingOutboxFrames()).length;
+    expect(before, greaterThanOrEqualTo(300));
+
+    await s.messaging.sendGroupSnapshot(b, 'aa11', 'the-first-one-after-boot');
+
+    expect(
+      (await s.storage.pendingOutboxFrames()).length,
+      before,
+      reason: 'the very first snapshot after a restart must already be capped',
+    );
+  });
 }
