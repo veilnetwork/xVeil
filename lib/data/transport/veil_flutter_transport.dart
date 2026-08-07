@@ -10,6 +10,7 @@ import 'package:veil_flutter/veil_ffi.dart' hide SenderProvenance;
 
 import '../../core/ids.dart';
 import '../../core/log.dart';
+import 'frame_fragments.dart';
 import '../../state/mailbox_orchestrator.dart';
 import '../../state/mailbox_service.dart';
 import 'relay_key_cache.dart';
@@ -566,11 +567,32 @@ class VeilFlutterTransport
         data: payload,
       );
     }
-    return _app.send(
-      dstNodeId: dst.bytes,
-      dstAppId: chatAppIdFor(dst),
-      dstEndpointId: veilChatEndpointId,
-      data: payload,
+    // A direct app frame above roughly 1.6 KB never arrives, and nothing says
+    // so — this call returns OK as soon as the local node accepts the IPC
+    // write, and the frame dies past that point. See [frame_fragments.dart]
+    // for the measurement. Split here so every caller (chat text, content
+    // chunks, group snapshots, device sync) is delivered rather than each one
+    // discovering the limit for itself.
+    //
+    // The anonymous lane above is deliberately NOT fragmented: it is sealed
+    // into onion cells whose own budget veil already splits against, and a
+    // second layer of splitting here would fight it.
+    final frames = fragmentFrame(payload);
+    if (frames.length > 1) {
+      devLog(
+        () =>
+            'xVeil[frag]: split ${payload.length}B into ${frames.length} '
+            'frames dst=${dst.short}',
+      );
+    }
+    return Future.forEach<Uint8List>(
+      frames,
+      (frame) => _app.send(
+        dstNodeId: dst.bytes,
+        dstAppId: chatAppIdFor(dst),
+        dstEndpointId: veilChatEndpointId,
+        data: frame,
+      ),
     );
   }
 
@@ -744,15 +766,26 @@ class VeilFlutterTransport
   static SenderProvenance _provenanceOf(IncomingMessage message) =>
       SenderProvenance.fromWire(message.provenance.wireByte);
 
+  /// Holds the pieces of frames [send] had to split. Whole payloads pass
+  /// through it untouched, so nothing but an oversized frame pays for it.
+  final FragmentReassembler _reassembler = FragmentReassembler();
+
   @override
-  Stream<InboundMessage> messages() => _app.messages().map(
-    (message) => InboundMessage(
-      src: NodeId(message.srcNodeId),
-      payload: message.data,
-      replyId: message.replyId,
-      provenance: _provenanceOf(message),
-    ),
-  );
+  Stream<InboundMessage> messages() => _app.messages().expand((message) {
+    final src = NodeId(message.srcNodeId);
+    final payload = _reassembler.accept(src, message.data);
+    // Still missing pieces: emit nothing rather than hand a half-payload to a
+    // decoder that would read it as a corrupt message.
+    if (payload == null) return const Iterable<InboundMessage>.empty();
+    return [
+      InboundMessage(
+        src: src,
+        payload: payload,
+        replyId: message.replyId,
+        provenance: _provenanceOf(message),
+      ),
+    ];
+  });
 
   @override
   Stream<InboundMessage> realtimeMessages() =>
