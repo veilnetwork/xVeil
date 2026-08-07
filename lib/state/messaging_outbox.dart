@@ -160,7 +160,7 @@ class _MessagingOutbox {
     recordQueued(
       frameId,
       peer.hex,
-      callSignal: frameId.startsWith('call:') || frameId.startsWith('gcall:'),
+      callSignal: _MessagingMailboxDelivery.isCallSignalId(frameId),
     );
     if (earlyLive != null) {
       _sendingUnpersisted.remove(unpersistedKey);
@@ -181,7 +181,7 @@ class _MessagingOutbox {
       unawaited(tryLive());
     }
     _owner._stashInBackground(peer, frameId, wire);
-    if ((frameId.startsWith('call:') || frameId.startsWith('gcall:')) &&
+    if (_MessagingMailboxDelivery.isCallSignalId(frameId) &&
         liveSender != null) {
       _scheduleFastCallRedrive(peer, frameId, wire, liveSender);
     }
@@ -254,10 +254,13 @@ class _MessagingOutbox {
     }
     for (final frame in pending) {
       if (_retireExpiredTransient(frame)) continue;
-      final isCallSignal =
-          frame.frameId.startsWith('call:') ||
-          frame.frameId.startsWith('gcall:');
       // Media pauses unrelated maintenance, but never call lifecycle recovery.
+      // The same predicate the deposit gate uses, so the two cannot disagree —
+      // this loop used to carve call signals out of the pause and then hand
+      // them to a deposit that re-checked the pause and dropped them.
+      final isCallSignal = _MessagingMailboxDelivery.isCallSignalId(
+        frame.frameId,
+      );
       if (_owner.backgroundStashPaused && !isCallSignal) continue;
       final peer = NodeId.fromHex(frame.peerHex);
       final Contact? contact;

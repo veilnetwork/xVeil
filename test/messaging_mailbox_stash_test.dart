@@ -582,4 +582,59 @@ void main() {
       );
     },
   );
+
+  test('a call offer is deposited even though the call itself paused '
+      'background deposits', () async {
+    // CallService sets `backgroundStashPaused` for the whole life of a call
+    // (`status != ended`) so bulk sealing does not steal CPU from media. The
+    // offer that STARTS the call is sent inside that window, and the deposit
+    // gate used to drop it: the flush loop exempted call signals from the
+    // pause, then handed them to a deposit that re-checked the pause and
+    // returned.
+    //
+    // Measured on the stand with the live path down: nine live re-drives over
+    // 75s, not one deposit, ring timeout, and the offer deposited 170ms AFTER
+    // the caller had given up — so the callee rang a call that no longer
+    // existed, while a plain text on the same broken path arrived in 15s.
+    await mA.acceptContact(b);
+    sink.stashed.clear();
+    tA.throwOnSend = true; // the live leg goes nowhere, as after a node reboot
+    mA.backgroundStashPaused = true; // what placing a call does
+
+    await mA.sendDurable(
+      b,
+      'call:test-call-id:offer',
+      WireEnvelope.callSignal(
+        jsonEncode({'type': 'offer', 'callId': 'test-call-id'}),
+      ),
+    );
+    await pumpEventQueue();
+
+    expect(
+      sink.stashed.any((s) => s.$1 == b),
+      isTrue,
+      reason:
+          'the offer must reach the mailbox while the call is dialing — '
+          'it is useless once the ring window has passed',
+    );
+  });
+
+  test('ordinary traffic still yields to a call', () async {
+    // The exemption above is for call control only. A plain message sent while
+    // a call is up must still wait for the outbox flush rather than seal and
+    // fan out against the media path — that is what the pause is for.
+    await mA.acceptContact(b);
+    sink.stashed.clear();
+    mA.backgroundStashPaused = true;
+
+    await mA.sendText(b, 'not urgent');
+    await pumpEventQueue();
+
+    expect(
+      sink.stashed,
+      isEmpty,
+      reason:
+          'a chat message must not deposit while a call has paused deposits',
+    );
+  });
 }
