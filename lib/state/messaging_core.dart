@@ -1255,6 +1255,19 @@ class MessagingService {
   void debugRetireOutboxFrame(String peerHex, String frameId) =>
       _retireOutboxFrame(peerHex, frameId);
 
+  /// Put [payload] on the LIVE leg once, with nothing behind it — no outbox
+  /// entry, no retry, no mailbox deposit.
+  ///
+  /// This exists because every measurement of the live leg through an ordinary
+  /// send is a measurement of the outbox: a frame that the live leg loses is
+  /// re-driven seconds later and finally carried by the mailbox, and the
+  /// conversation gains its message either way. Reading "it arrived" off the
+  /// message count therefore says nothing about which leg carried it — the
+  /// mistake that cost a whole evening. One shot, no safety net, so a loss is
+  /// visible as a loss.
+  Future<void> debugLiveSendOnce(NodeId peer, Uint8List payload) =>
+      _send(peer, payload);
+
   /// Storage key holding when [peerHex] was last authenticated-heard-from.
   static String _lastSeenKey(String peerHex) => 'peer_seen:$peerHex';
 
