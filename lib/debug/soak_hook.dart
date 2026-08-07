@@ -23,6 +23,7 @@ import '../state/thumbnail.dart' show makeRgbaThumbB64, makeInlineImageB64;
 import '../domain/group_message.dart' show MediaObject;
 
 import '../data/transport/veil_flutter_transport.dart';
+import '../data/transport/wire_envelope.dart';
 import '../domain/call_signal.dart';
 import '../domain/chat.dart';
 import '../domain/content_manifest.dart' show ContentManifest;
@@ -6660,17 +6661,46 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       // that was simply away.
       final kinds = <String, int>{};
       var bytes = 0;
+      // A replication frame id embeds the snapshot digest:
+      //   grp:<group>:<digest>:<dst>          one whole snapshot
+      //   grpc:grp:<group>:<digest>:<dst>:<i> one chunk of one snapshot
+      // Counting DISTINCT digests separates "one peer was away while the group
+      // changed a hundred times" from "something emitted one absurd snapshot" —
+      // a depth alone cannot tell those apart, and they are different defects.
+      final transfers = <String>{};
+      final ages = <int>[];
+      final now = DateTime.now().millisecondsSinceEpoch;
       for (final OutboxFrame frame in frames) {
-        final kind = frame.frameId.split(':').first;
+        final parts = frame.frameId.split(':');
+        final kind = parts.first;
         kinds[kind] = (kinds[kind] ?? 0) + 1;
         bytes += frame.wire.length;
+        if (kind == 'grp' && parts.length >= 4) {
+          transfers.add('${parts[1]}:${parts[2]}');
+        } else if (kind == 'grpc' && parts.length >= 6) {
+          transfers.add('${parts[2]}:${parts[3]}');
+        }
+        try {
+          final sentAt = WireEnvelope.decode(frame.wire).sentAtMs;
+          if (sentAt != null) ages.add(now - sentAt);
+        } catch (_) {
+          // A frame we cannot decode still counts toward depth; it just has no
+          // age to report.
+        }
       }
+      ages.sort();
       peers.add({
         'peer': peerHex,
         'short': peerHex.length >= 8 ? peerHex.substring(0, 8) : peerHex,
         'pending': frames.length,
         'kinds': kinds,
         'bytes': bytes,
+        'snapshots': transfers.length,
+        if (ages.isNotEmpty) ...{
+          'ageMinNewestMs': ages.first,
+          'ageMaxOldestMs': ages.last,
+          'ageMedianMs': ages[ages.length ~/ 2],
+        },
       });
     });
     peers.sort(
