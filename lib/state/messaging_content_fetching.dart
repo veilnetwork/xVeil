@@ -64,9 +64,25 @@ class _MessagingContentFetching {
 
   void touch(String contentId) => _activity[contentId] = _owner._now();
 
+  /// Durable frame id for "please send me the missing chunks of this content".
+  ///
+  /// Stable per content, so however often the re-request timer fires the outbox
+  /// holds ONE row for it — the same shape the endpoint shares use. The bitmap
+  /// persisted is therefore the first one, which asks for a superset of what is
+  /// still missing later: asking for a chunk we already have costs one chunk,
+  /// asking for none costs the whole transfer.
+  static String reRequestFrameId(String contentId) => 'creq:$contentId';
+
   _ActiveContentFetch? take(String contentId) {
     _activity.remove(contentId);
-    return _entries.remove(contentId);
+    final fetch = _entries.remove(contentId);
+    if (fetch != null) {
+      // Done, discarded or stale — either way stop asking. This is the single
+      // removal point for a fetch, which is why the retire belongs here rather
+      // than at each of its callers.
+      _owner._retireOutboxFrame(fetch.peer.hex, reRequestFrameId(contentId));
+    }
+    return fetch;
   }
 
   Future<_ActiveContentFetch?> discard(String contentId) async {
@@ -122,13 +138,25 @@ class _MessagingContentFetching {
             'pieces $pieces ($remaining/${fetch.manifest.pieceCount} unverified) '
             '-> ${fetch.peer.short}',
       );
+      // DURABLE, not a bare live send.
+      //
+      // This was `_send` — live only, no offline path at all — while every
+      // other control frame toward the same peer was being deposited at their
+      // mailbox. So a transfer whose holder was not directly reachable stalled
+      // forever: the receiver asked every 20 s, the request never left the
+      // machine in any form that could arrive, and the sender sat waiting to be
+      // asked. Reproduced on the stand: a 120 KB file, 8 re-requests over 140 s,
+      // not one of them seen by the holder, while `p2p:ep:` and `ack:` frames to
+      // that same peer deposited fine.
       unawaited(
-        _owner._send(
+        _owner.sendDurable(
           fetch.peer,
+          reRequestFrameId(fetch.manifest.contentId),
           pieceRequestEnvelope(
             contentId: fetch.manifest.contentId,
             bitmaps: bitmaps,
-          ).encode(),
+          ),
+          awaitLive: false,
         ),
       );
     }
