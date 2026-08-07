@@ -195,17 +195,17 @@ class FragmentReassembler {
     if (fragment == null) return frame;
     _expire();
     final key = '${src.hex}/${fragment.key}';
-    final set = _sets.putIfAbsent(key, () {
-      if (_sets.length >= maxSets) _dropOldest();
-      return _PendingSet(fragment.total, _now());
-    });
-    if (set.total != fragment.total) {
-      // Two different payloads whose ids collided, or a corrupted header. The
-      // newer claim wins: an id is derived from content, so the one that keeps
-      // arriving is the one worth assembling.
-      _sets[key] = _PendingSet(fragment.total, _now());
+    var target = _sets[key];
+    // Evict BEFORE inserting, never from inside the insert: mutating the map
+    // while it is being written to is undefined.
+    if (target == null && _sets.length >= maxSets) _dropOldest();
+    if (target == null || target.total != fragment.total) {
+      // Absent, or two different payloads whose ids collided / a corrupted
+      // header. The newer claim wins: an id is derived from content, so the
+      // one that keeps arriving is the one worth assembling.
+      target = _PendingSet(fragment.total, _now());
+      _sets[key] = target;
     }
-    final target = _sets[key]!;
     target.parts[fragment.index] = Uint8List.fromList(fragment.data);
     target.touchedAt = _now();
     if (target.parts.length != target.total) return null;
