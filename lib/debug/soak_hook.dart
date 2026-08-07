@@ -991,6 +991,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/send_message':
           await _sendMessage(req);
           return;
+        case '/live_send':
+          await _liveSend(req);
+          return;
         case '/nickname_claim':
           await _nicknameClaim(req);
           return;
@@ -5794,6 +5797,60 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
             if (m.seq != null) 'seq': m.seq,
           },
       ],
+    });
+  }
+
+  /// Put `count` payloads of `bytes` each on the LIVE leg, once each, with no
+  /// outbox entry behind them.
+  ///
+  /// The instrument this investigation was missing. An ordinary send that the
+  /// live leg drops is re-driven by the outbox and finally carried by the
+  /// mailbox, so the conversation gains its message whatever the live leg did
+  /// — and "the message arrived" was read as "the live leg works" for hours.
+  /// Here nothing catches a loss, so the receiver's INBOUND count over the
+  /// same window IS the live leg's delivery rate at that size.
+  Future<void> _liveSend(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peerHex = req.uri.queryParameters['peer']?.trim();
+    if (peerHex == null || peerHex.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'missing peer'}, status: 400);
+    }
+    final NodeId peer;
+    try {
+      peer = NodeId.fromHex(peerHex);
+    } catch (e) {
+      return _json(req, {'ok': false, 'error': '$e'}, status: 400);
+    }
+    final bytes = int.tryParse(req.uri.queryParameters['bytes'] ?? '') ?? 512;
+    final count = int.tryParse(req.uri.queryParameters['n'] ?? '') ?? 1;
+    final gapMs = int.tryParse(req.uri.queryParameters['gap'] ?? '') ?? 500;
+    final svc = ref.read(messagingServiceProvider);
+    var sent = 0;
+    final errors = <String>[];
+    for (var i = 0; i < count; i++) {
+      // Distinct first byte per attempt so the receiver's log can tell which
+      // ones landed, not merely how many.
+      final payload = Uint8List(bytes);
+      for (var j = 0; j < bytes; j++) {
+        payload[j] = (i * 7 + j) & 0xff;
+      }
+      try {
+        await svc.debugLiveSendOnce(peer, payload);
+        sent += 1;
+      } catch (e) {
+        errors.add('$i: $e');
+      }
+      if (i + 1 < count && gapMs > 0) {
+        await Future<void>.delayed(Duration(milliseconds: gapMs));
+      }
+    }
+    return _json(req, {
+      'ok': true,
+      'peer': peer.hex,
+      'bytes': bytes,
+      'requested': count,
+      'sent': sent,
+      'errors': errors,
     });
   }
 
