@@ -229,6 +229,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     unawaited(service.ingestGroupEntryFromStranger(peer, bundleJson));
   };
   messaging.allowStrangerGroupSync = service.allowStrangerGroupSync;
+  // A revoked device stops owing state, so stop holding it for it.
+  service.onMemberRevoked = (device) => messaging.dropPendingFramesFor(device);
   unawaited(service.nudgeGroupSyncAll());
 
   // Multi-device mirror emit: bytes remain lazy content references.

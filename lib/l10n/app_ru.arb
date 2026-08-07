@@ -1,21 +1,18 @@
 {
   "@@locale": "ru",
   "appName": "xVeil",
-
   "actionContinue": "Продолжить",
   "actionBack": "Назад",
   "actionCancel": "Отмена",
   "actionDone": "Готово",
   "actionCopy": "Копировать",
   "actionUnderstood": "Понятно",
-
   "preparingTitle": "Настраиваем ваш узел",
   "preparingBody": "Создаём идентичность на этом устройстве. Это может занять некоторое время — пожалуйста, подождите.",
   "preparingFirstRunTitle": "Создаём личность",
   "preparingFirstRunBody": "Разовая настройка — может занять до минуты (proof-of-work, чтобы личность нельзя было подделать). Выполняется только при первом запуске; дальнейшие переключения мгновенны.",
   "preparingUnlockTitle": "Открываем хранилище",
   "preparingUnlockBody": "Выводим ключ и расшифровываем на этом устройстве — намеренно медленно, чтобы противостоять подбору. Подождите немного.",
-
   "onboardWelcomeTitle": "Добро пожаловать в xVeil",
   "onboardWelcomeBody": "Децентрализованный мессенджер, устойчивый к цензуре. Без номера телефона. Без центрального сервера. Ваша личность и переписка остаются только у вас.",
   "onboardChooseTitle": "Настройка личности",
@@ -28,35 +25,28 @@
   "onboardLinkDevice": "Привязать к устройству, которым вы уже пользуетесь",
   "onboardLinkDeviceSub": "Фраза восстановления не нужна — подтвердите это устройство с того, что уже есть",
   "onboardLinkDeviceBody": "Это устройство получит собственную временную личность, чтобы выйти в сеть. Как только вы подтвердите его со старого устройства, оно войдёт в вашу личность, а временная перестанет что-либо значить. Фразу восстановления оставьте там, где она лежит — здесь её не спросят.",
-
   "onboardSetupFailed": "Не удалось создать зашифрованный контейнер. Проверьте, есть ли на устройстве свободное место, и попробуйте ещё раз.",
-
   "sshConfirmHostTitle": "Это тот самый сервер?",
   "sshConfirmHostBody": "Это первое подключение к {host}, поэтому сверить его личность пока не с чем. Сравните отпечаток ниже с тем, что показывает сам сервер — на сервере, а не по этому соединению. Если они разные, между вами кто-то есть.",
   "sshConfirmHostHint": "Выполните на сервере: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub",
   "sshConfirmHostAccept": "Совпадает, продолжить",
   "sshHostNotConfirmed": "Подключение отменено: личность сервера не подтверждена.",
-
   "storageUnavailableTitle": "Защищённое хранилище недоступно",
   "storageUnavailableBody": "xVeil не смог загрузить компонент, который шифрует всё, что хранит. Без него приложение не запустится: иначе пароль ничего не защищал бы, а данные исчезали бы при закрытии.",
   "storageUnavailableAction": "Сборка повреждена или неполна. Установите xVeil заново со страницы релизов. То, что уже сохранено на этом устройстве, не тронуто.",
-
   "startupFailedTitle": "xVeil не смог запуститься",
   "startupFailedBody": "Что-то пошло не так, пока приложение готовилось к работе, — до того, как оно коснулось ваших данных. Ничего не открывалось, не записывалось и не отправлялось.",
   "startupFailedAction": "Закройте xVeil и откройте снова. Если это повторяется, установите его заново со страницы релизов.",
-
   "recoveryTitle": "Сохраните фразу восстановления",
   "recoveryBody": "Эти 24 слова — и есть ваша личность. Любой, у кого они есть, управляет ею; потеряете — восстановить будет невозможно. Запишите их на бумаге и храните в надёжном месте. Никогда не храните их в сети и не фотографируйте.",
   "recoveryConfirm": "Я записал(а) фразу восстановления",
   "recoveryPlaceholderWarning": "Это слова-ЗАГЛУШКИ. Генератор личности в этой сборке недоступен, поэтому личность создаётся случайно, и эти слова ничего не восстановят. Не записывайте их как резервную копию.",
-
   "storageTitle": "Как хранить ваши данные?",
   "storageHiddenTitle": "Скрытое пространство (рекомендуется)",
   "storageHiddenBody": "Переписка и ключи хранятся в зашифрованном контейнере с правдоподобным отрицанием. Противник, изъявший устройство, не сможет доказать, что данные вообще существуют.",
   "storagePlainTitle": "Открытое хранение",
   "storagePlainBody": "Быстрее настроить, но факт существования ваших данных виден любому, кто осмотрит устройство.",
   "storagePlainWarning": "Не рекомендуется пользователям с высоким риском. Выбирайте только если отрицаемость для вас не важна.",
-
   "lockTitle": "Разблокировать xVeil",
   "lockPasswordHint": "Введите пароль",
   "lockUnlock": "Разблокировать",
@@ -68,14 +58,12 @@
   "lockWipeTypePrompt": "Чтобы подтвердить безвозвратное удаление, введите точно эту фразу:",
   "lockWipePhrase": "я понимаю последствия",
   "lockWipeConfirm": "Удалить навсегда",
-
   "navChats": "Чаты",
   "navCommunities": "Сообщества",
   "navFeed": "Лента",
   "navNetwork": "Сеть",
   "navSettings": "Настройки",
   "navCalls": "Звонки",
-
   "callLogEmpty": "Пока нет звонков",
   "callLogEmptyHint": "Здесь появятся звонки, сделанные и принятые на любом из ваших устройств",
   "callOutcomeMissed": "Пропущенный",
@@ -83,7 +71,6 @@
   "callOutcomeCancelled": "Отменён",
   "callOutcomeBusy": "Занято",
   "callOutcomeFailed": "Не удался",
-
   "spaceCreateTitle": "Новое сообщество",
   "spaceCreateAction": "Создать",
   "spaceNameHint": "Название сообщества",
@@ -179,7 +166,13 @@
   "spacePostCommentsEmpty": "Комментариев пока нет",
   "spacePostCommentsEmptyHint": "Начните обсуждение этой публикации.",
   "spacePostCommentsCount": "{count, plural, =0{Нет комментариев} one{{count} комментарий} few{{count} комментария} many{{count} комментариев} other{{count} комментария}}",
-  "@spacePostCommentsCount": {"placeholders": {"count": {"type": "int"}}},
+  "@spacePostCommentsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "spacePostCommentHint": "Напишите комментарий…",
   "spacePostCommentSend": "Отправить комментарий",
   "spacePostCommentReply": "Ответить",
@@ -198,7 +191,13 @@
   "spacePostCommentBlockAuthorBody": "Его публикации, комментарии, упоминания и личные сообщения будут скрыты для этой личности. Автор не узнает о блокировке.",
   "spacePostCommentParentUnavailable": "Исходный комментарий удалён или скрыт",
   "spacePostCommentReplyingTo": "Ответ для {author}",
-  "@spacePostCommentReplyingTo": {"placeholders": {"author": {"type": "String"}}},
+  "@spacePostCommentReplyingTo": {
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
   "spacePostCommentCancelReply": "Отменить ответ",
   "spacePostCommentFailed": "Не удалось опубликовать комментарий",
   "spacePostCommentTooLong": "Комментарий слишком большой для шифрования и отправки.",
@@ -235,14 +234,32 @@
   "spaceDiscoveryIdle": "Ищите по названию или вставьте точный node_id из доверенного источника.",
   "spaceDiscoverySearching": "Ищу проверенные публичные сообщества",
   "spaceDiscoveryResults": "{count, plural, one{{count} проверенное сообщество} few{{count} проверенных сообщества} many{{count} проверенных сообществ} other{{count} проверенного сообщества}}",
-  "@spaceDiscoveryResults": {"placeholders": {"count": {"type": "int"}}},
+  "@spaceDiscoveryResults": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "spaceDiscoveryNoVerifiedResults": "Нет публичных сообществ с подтверждённым кворумом распространителей.",
   "spaceDiscoveryUnavailable": "Публичный поиск недоступен. Проверьте соединение и повторите попытку.",
   "spaceDiscoveryPartialQuorum": "Найдено подходящее объявление, но у него пока недостаточно независимых проверенных распространителей.",
   "spaceDiscoveryPosts": "{count, plural, =0{Нет публикаций} one{{count} публикация} few{{count} публикации} many{{count} публикаций} other{{count} публикации}}",
-  "@spaceDiscoveryPosts": {"placeholders": {"count": {"type": "int"}}},
+  "@spaceDiscoveryPosts": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "spaceDiscoverySources": "{count, plural, one{{count} проверенный источник} few{{count} проверенных источника} many{{count} проверенных источников} other{{count} проверенного источника}}",
-  "@spaceDiscoverySources": {"placeholders": {"count": {"type": "int"}}},
+  "@spaceDiscoverySources": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "spacePublicSubscribe": "Подписаться",
   "spaceCommentNotificationsSetting": "Уведомления об обсуждениях",
   "spaceCommentNotificationsSettingHint": "Выберите, о каких новых комментариях уведомлять на этом устройстве.",
@@ -276,7 +293,13 @@
   "spaceDeleteAction": "Удалить сообщество",
   "spaceDeleteHint": "Запускает 7-дневный период восстановления перед физической очисткой.",
   "spaceRecoveryUntil": "Восстановление доступно до {date}",
-  "@spaceRecoveryUntil": {"placeholders": {"date": {"type": "String"}}},
+  "@spaceRecoveryUntil": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
   "spaceArchiveTitle": "Архивировать сообщество?",
   "spaceArchiveConfirm": "Будет создана подписанная владельцем граница, после которой сообщество станет доступно только для чтения на всех устройствах. Его можно восстановить позже.",
   "spaceArchiveAction": "Архивировать",
@@ -284,14 +307,26 @@
   "spaceRestoreConfirm": "Новый контент начнёт отдельную подписанную эпоху. Архивная история останется доступна.",
   "spaceRestoreAction": "Восстановить",
   "spaceMembers": "{count, plural, one{{count} участник} few{{count} участника} other{{count} участников}}",
-  "@spaceMembers": {"placeholders": {"count": {"type": "int"}}},
+  "@spaceMembers": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "spaceMemberAdd": "Пригласить участника",
   "spaceNoContactsToAdd": "Все принятые контакты уже участвуют",
   "spaceInviteSent": "Приглашение отправлено. Состав и ключи останутся закрыты до принятия.",
   "spaceInvitesTitle": "Приглашения",
   "spaceSecretInviteTitle": "Секретное сообщество",
   "spaceInviteFrom": "От {peer}",
-  "@spaceInviteFrom": {"placeholders": {"peer": {"type": "String"}}},
+  "@spaceInviteFrom": {
+    "placeholders": {
+      "peer": {
+        "type": "String"
+      }
+    }
+  },
   "spaceInviteAccept": "Принять",
   "spaceInviteDecline": "Отклонить",
   "spaceInviteJoining": "Принято · ожидается проверенное членство",
@@ -302,7 +337,13 @@
   "spaceJoinRequestSent": "Заявка отправлена. Сообщество появится после подписанного подтверждения.",
   "spaceJoinRequestsTitle": "Заявки на вступление",
   "spaceJoinRequestFrom": "Заявка от {peer}",
-  "@spaceJoinRequestFrom": {"placeholders": {"peer": {"type": "String"}}},
+  "@spaceJoinRequestFrom": {
+    "placeholders": {
+      "peer": {
+        "type": "String"
+      }
+    }
+  },
   "spaceJoinRequestPending": "Ожидает подтверждения",
   "spaceJoinRequestApproved": "Одобрено · получаем проверенное членство",
   "spaceJoinRequestDeclined": "Отклонено",
@@ -311,7 +352,13 @@
   "spaceMembershipActive": "Участие активно",
   "spaceMembershipSuspended": "Участие приостановлено",
   "spaceMembershipSuspendedUntil": "Участие приостановлено до {until}",
-  "@spaceMembershipSuspendedUntil": {"placeholders": {"until": {"type": "String"}}},
+  "@spaceMembershipSuspendedUntil": {
+    "placeholders": {
+      "until": {
+        "type": "String"
+      }
+    }
+  },
   "spaceMembershipLeft": "Вы больше не участник",
   "spaceMembershipBanned": "Участие заблокировано",
   "spaceJoinDismiss": "Скрыть",
@@ -368,16 +415,49 @@
   "spacePolicyAuditAccess": "Политика доступа",
   "spacePolicyAuditRetention": "Политика хранения",
   "spacePolicyAuditAccessSummary": "Ревизия {revision} · ролей: {roles} · групп: {groups} · прямых назначений: {assignments}",
-  "@spacePolicyAuditAccessSummary": {"placeholders": {"revision": {"type": "int"}, "roles": {"type": "int"}, "groups": {"type": "int"}, "assignments": {"type": "int"}}},
+  "@spacePolicyAuditAccessSummary": {
+    "placeholders": {
+      "revision": {
+        "type": "int"
+      },
+      "roles": {
+        "type": "int"
+      },
+      "groups": {
+        "type": "int"
+      },
+      "assignments": {
+        "type": "int"
+      }
+    }
+  },
   "spacePolicyAuditSignedBy": "Подписал: {author}",
-  "@spacePolicyAuditSignedBy": {"placeholders": {"author": {"type": "String"}}},
+  "@spacePolicyAuditSignedBy": {
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
   "spacePolicyAuditScopeSpace": "Всё сообщество",
   "spacePolicyAuditScopeChannel": "Канал {channel}",
-  "@spacePolicyAuditScopeChannel": {"placeholders": {"channel": {"type": "String"}}},
+  "@spacePolicyAuditScopeChannel": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
   "spacePolicyAuditRetentionInherit": "наследует политику сообщества",
   "spacePolicyAuditRetentionForever": "хранит историю",
   "spacePolicyAuditRetentionDays": "удаляет через {days} дн.",
-  "@spacePolicyAuditRetentionDays": {"placeholders": {"days": {"type": "int"}}},
+  "@spacePolicyAuditRetentionDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
   "spacePolicyAuditMediaOnly": "только медиа",
   "spaceRecentActionsTitle": "Последние действия",
   "spaceRecentActionsHint": "Подписанная история управления. Видно ровно то, что позволяют ваши права.",
@@ -385,27 +465,93 @@
   "spaceRecentActionsWithheld": "Событие недоступно",
   "spaceRecentActionsWithheldHint": "Здесь что-то произошло, но ваших прав на это не хватает.",
   "spaceRecentActionsBy": "автор: {author}",
-  "@spaceRecentActionsBy": {"placeholders": {"author": {"type": "String"}}},
+  "@spaceRecentActionsBy": {
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionMemberAdded": "Участник добавлен: {member}",
-  "@spaceActionMemberAdded": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionMemberAdded": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionMemberRemoved": "Участник удалён: {member}",
-  "@spaceActionMemberRemoved": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionMemberRemoved": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionMemberLeft": "Выход из сообщества: {member}",
-  "@spaceActionMemberLeft": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionMemberLeft": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionRoleChanged": "Изменена роль: {member}",
-  "@spaceActionRoleChanged": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionRoleChanged": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionOwnershipTransferred": "Передано владение: {member}",
-  "@spaceActionOwnershipTransferred": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionOwnershipTransferred": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionMemberMuted": "Участник заглушён: {member}",
-  "@spaceActionMemberMuted": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionMemberMuted": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionMemberUnmuted": "Заглушение снято: {member}",
-  "@spaceActionMemberUnmuted": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionMemberUnmuted": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionMemberBanned": "Участник забанен: {member}",
-  "@spaceActionMemberBanned": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionMemberBanned": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionModerationApplied": "Модерация: {member}",
-  "@spaceActionModerationApplied": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionModerationApplied": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionModerationRevoked": "Мера модерации снята: {member}",
-  "@spaceActionModerationRevoked": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionModerationRevoked": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionChannelCreated": "Создан канал",
   "spaceActionChannelUpdated": "Изменён канал",
   "spaceActionSpaceRenamed": "Сообщество переименовано",
@@ -413,7 +559,13 @@
   "spaceActionSpaceProfileMediaChanged": "Изменены аватар или обложка",
   "spaceActionRulesPublished": "Опубликованы новые правила",
   "spaceActionRulesAccepted": "Правила приняты: {member}",
-  "@spaceActionRulesAccepted": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionRulesAccepted": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionAccessPolicyChanged": "Изменены роли и доступ",
   "spaceActionRetentionChanged": "Изменена политика хранения",
   "spaceActionSpaceArchived": "Сообщество архивировано",
@@ -425,18 +577,54 @@
   "spaceActionEncryptionRotated": "Ключ шифрования обновлён",
   "spaceActionCheckpointRecorded": "Записана контрольная точка",
   "spaceActionAuthorityWithdrawn": "Права участника {member} отозваны задним числом",
-  "@spaceActionAuthorityWithdrawn": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionAuthorityWithdrawn": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionAuthorityReturned": "Права участника {member} возвращены",
-  "@spaceActionAuthorityReturned": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceActionAuthorityReturned": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionOther": "Административное действие",
   "spaceActionDetailChannel": "Канал «{channel}»",
-  "@spaceActionDetailChannel": {"placeholders": {"channel": {"type": "String"}}},
+  "@spaceActionDetailChannel": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionDetailNewName": "Новое название: {name}",
-  "@spaceActionDetailNewName": {"placeholders": {"name": {"type": "String"}}},
+  "@spaceActionDetailNewName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionDetailRole": "Роль: {role}",
-  "@spaceActionDetailRole": {"placeholders": {"role": {"type": "String"}}},
+  "@spaceActionDetailRole": {
+    "placeholders": {
+      "role": {
+        "type": "String"
+      }
+    }
+  },
   "spaceActionDetailModeration": "Мера: {action}",
-  "@spaceActionDetailModeration": {"placeholders": {"action": {"type": "String"}}},
+  "@spaceActionDetailModeration": {
+    "placeholders": {
+      "action": {
+        "type": "String"
+      }
+    }
+  },
   "spaceAccessDelegatedHint": "Можно управлять только ролями ниже текущего потолка прав. Собственные роли и равные управляющие защищены.",
   "spaceAccessEmpty": "Пользовательских ролей пока нет. Встроенные роли сообщества продолжают действовать.",
   "spaceAccessRoles": "Пользовательские роли",
@@ -493,21 +681,57 @@
   "spaceMemberDemote": "Сделать участником",
   "spaceMemberRemove": "Исключить из сообщества",
   "spaceMemberRemoveConfirm": "Исключить {member} и сменить ключи доступа?",
-  "@spaceMemberRemoveConfirm": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceMemberRemoveConfirm": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceMemberBan": "Заблокировать в сообществе",
   "spaceMemberBanConfirm": "Бессрочно заблокировать {member}? Участие будет отозвано, а ключи защищённого доступа сменены. Подписанное действие останется в истории модерации, и его можно обжаловать.",
-  "@spaceMemberBanConfirm": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceMemberBanConfirm": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceMemberTransferOwnership": "Передать владение",
   "spaceMemberTransferOwnershipConfirm": "Передать владение пользователю {member}? Вы станете администратором, и вернуть владение сможет только новый владелец.",
-  "@spaceMemberTransferOwnershipConfirm": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceMemberTransferOwnershipConfirm": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceAuthorityWithdraw": "Отозвать права задним числом",
   "spaceAuthorityReturn": "Вернуть права",
   "spaceAuthorityWithdrawConfirm": "С какого момента решения участника {member} перестают действовать? Блокировки и заглушения, применённые после него, отменяются. Удалённое содержимое и смены ключей вернуть нельзя.",
-  "@spaceAuthorityWithdrawConfirm": {"placeholders": {"member": {"type": "String"}}},
+  "@spaceAuthorityWithdrawConfirm": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "spaceAuthorityWithdrawSinceHours": "{hours, plural, one{За последний час} few{За последние {hours} часа} many{За последние {hours} часов} other{За последние {hours} часа}}",
-  "@spaceAuthorityWithdrawSinceHours": {"placeholders": {"hours": {"type": "int"}}},
+  "@spaceAuthorityWithdrawSinceHours": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
   "spaceAuthorityWithdrawSinceDays": "{days, plural, one{За последний день} few{За последние {days} дня} many{За последние {days} дней} other{За последние {days} дня}}",
-  "@spaceAuthorityWithdrawSinceDays": {"placeholders": {"days": {"type": "int"}}},
+  "@spaceAuthorityWithdrawSinceDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
   "spaceAuthorityWithdrawSinceAlways": "Все решения за всё время",
   "spaceRenameTitle": "Переименовать сообщество",
   "spaceRenameAction": "Переименовать",
@@ -517,7 +741,13 @@
   "spaceOwnerLeaveHint": "Перед выходом из сообщества передайте владение другому участнику.",
   "spaceReplicationTitle": "Распространение копий",
   "spaceReplicationNeighbors": "Распространять через {count} ближайших участников",
-  "@spaceReplicationNeighbors": {"placeholders": {"count": {"type": "int"}}},
+  "@spaceReplicationNeighbors": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "spaceReplicationHint": "Копии хранят участники с правом распространять содержимое. Чем их больше, тем выше доступность и надёжность восстановления, но и трафика больше.",
   "spaceYou": "Вы",
   "feedEmpty": "Лента пока пуста",
@@ -543,7 +773,6 @@
   "feedFilterTimeCustom": "Произвольные дата и время",
   "feedFilterCommunitiesTitle": "Сообщества",
   "feedFilterAllCommunities": "Все сообщества",
-
   "chatsEmpty": "Пока нет переписок",
   "chatsEmptyHint": "Начните новый чат, чтобы написать сообщение",
   "chatNewMessageHint": "Сообщение",
@@ -596,13 +825,25 @@
   "groupConvertAction": "Преобразовать",
   "groupSyncNeighborsTitle": "Синхронизация чата",
   "groupSyncNeighborsLabel": "XOR-соседей: {count}",
-  "@groupSyncNeighborsLabel": { "placeholders": { "count": { "type": "int" } } },
+  "@groupSyncNeighborsLabel": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "groupSyncNeighborsHint": "Со сколькими ближайшими по XOR участниками это устройство связывается для синхронизации истории. Больше соседей повышает надёжность, но расходует больше трафика. Настройка локальна для этого устройства.",
   "groupRenameTitle": "Переименовать группу",
   "groupRenameAction": "Переименовать",
   "groupRenameDenied": "Нет прав переименовать эту группу",
   "groupMembers": "{count, plural, one{{count} участник} few{{count} участника} other{{count} участников}}",
-  "@groupMembers": { "placeholders": { "count": { "type": "int" } } },
+  "@groupMembers": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "groupReply": "Ответить",
   "groupAddMember": "Добавить",
   "groupMute": "Заглушить",
@@ -632,17 +873,35 @@
   "stickerPackDownload": "Скачать",
   "stickerPackInstall": "Установить",
   "stickerImported": "{count, plural, one{Добавлен {count} стикер} few{Добавлено {count} стикера} other{Добавлено {count} стикеров}}",
-  "@stickerImported": { "placeholders": { "count": { "type": "int" } } },
+  "@stickerImported": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "stickerPackChooseTarget": "В какой пак добавить?",
   "stickerPackNew": "Новый пак…",
   "stickerPackNameHint": "Название пака",
   "stickerPackRename": "Переименовать",
   "stickerPackDelete": "Удалить пак",
   "stickerPackDeleteConfirm": "Удалить «{name}» и его стикеры?",
-  "@stickerPackDeleteConfirm": { "placeholders": { "name": { "type": "String" } } },
+  "@stickerPackDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "stickerPackUnsigned": "Пак без подписи",
   "stickerPackSignedBy": "Подписал {author}",
-  "@stickerPackSignedBy": { "placeholders": { "author": { "type": "String" } } },
+  "@stickerPackSignedBy": {
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
   "stickerPackBadSignature": "Подпись не сошлась — пак не установлен",
   "chatVnoteDenied": "Нет доступа к камере или микрофону",
   "chatVoiceRecordFailed": "Не удалось записать — попробуйте ещё раз",
@@ -692,11 +951,29 @@
   "cloudUsageByDevice": "По устройствам",
   "cloudUsageThisDevice": "это устройство",
   "cloudUsageItems": "{count, plural, =0{нет объектов} one{{count} объект} few{{count} объекта} other{{count} объектов}}",
-  "@cloudUsageItems": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudUsageItems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudUsageNotHeldHere": "{count, plural, =0{всё здесь} one{{count} объект здесь не хранится} few{{count} объекта здесь не хранятся} other{{count} объектов здесь не хранятся}}",
-  "@cloudUsageNotHeldHere": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudUsageNotHeldHere": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudReplicas": "{count, plural, =0{нет проверенных копий} one{{count} проверенная копия} few{{count} проверенные копии} other{{count} проверенных копий}}",
-  "@cloudReplicas": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudReplicas": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudDownload": "Загрузить на устройство",
   "cloudExport": "Сохранить в файл…",
   "cloudExportDone": "Файл сохранён",
@@ -720,7 +997,13 @@
   "cloudVerify": "Проверить и восстановить",
   "cloudVerifyOk": "Локальные файлы облака прошли проверку",
   "cloudRepairStarted": "Запрошено восстановление повреждённых файлов: {count}",
-  "@cloudRepairStarted": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudRepairStarted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudDelete": "Удалить",
   "cloudDeleteTitle": "Удалить из облака?",
   "cloudDeleteBody": "Элемент исчезнет со всех связанных устройств. На этом устройстве он останется в корзине, пока вы её не очистите.",
@@ -731,7 +1014,13 @@
   "cloudTrashDeleteForever": "Удалить навсегда",
   "cloudTrashEmptyAction": "Очистить корзину",
   "cloudTrashRestored": "Восстановлено: «{name}»",
-  "@cloudTrashRestored": { "placeholders": { "name": { "type": "String" } } },
+  "@cloudTrashRestored": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "cloudTrashEmptied": "Корзина очищена",
   "cloudSharedEmpty": "В общей папке пока нет файлов",
   "cloudSharedAddFile": "Добавить файл из облака",
@@ -755,7 +1044,13 @@
   "cloudFolderRename": "Переименовать папку",
   "cloudFolderDelete": "Удалить папку",
   "cloudFolderDeleteTitle": "Удалить папку «{name}»?",
-  "@cloudFolderDeleteTitle": { "placeholders": { "name": { "type": "String" } } },
+  "@cloudFolderDeleteTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "cloudFolderDeleteBody": "Всё вложенное поднимется к ближайшей оставшейся папке. Из облака ничего не удалится.",
   "cloudMoveFolder": "Переместить папку",
   "cloudStorageRoot": "Хранилище",
@@ -777,7 +1072,13 @@
   "cloudFolderFileFailed": "Не удалось скачать файл",
   "cloudFolderEmpty": "Папка пуста",
   "cloudFolderItems": "{count, plural, =0{пусто} one{{count} объект} few{{count} объекта} other{{count} объектов}}",
-  "@cloudFolderItems": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudFolderItems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudMoveToFolder": "Переместить в папку",
   "cloudMoveToRoot": "Корень хранилища",
   "cloudFolderMoved": "Документ перемещён",
@@ -794,9 +1095,21 @@
   "cloudSortByDate": "По дате",
   "cloudSortBySize": "По размеру",
   "cloudSelectedCount": "Выбрано: {count}",
-  "@cloudSelectedCount": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudBulkDeleteTitle": "Удалить из облака {count, plural, one{{count} объект} few{{count} объекта} other{{count} объектов}}?",
-  "@cloudBulkDeleteTitle": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudBulkDeleteTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudFolderEmptyHint": "Созданные здесь заметки и файлы останутся в этой папке.",
   "cloudSingleCopy": "единственная копия",
   "cloudNoteNew": "Новая заметка",
@@ -818,10 +1131,22 @@
   "cloudNoteUseRemote": "Использовать версию из облака",
   "cloudNoteSaveMerged": "Сохранить объединённую версию",
   "cloudNoteBranches": "{count, plural, one{Сохранена {count} версия} few{Сохранены {count} офлайн-версии} other{Сохранено {count} офлайн-версий}}",
-  "@cloudNoteBranches": { "placeholders": { "count": { "type": "int" } } },
+  "@cloudNoteBranches": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudNoteReviewBranches": "Сверить версии",
   "cloudNoteVersion": "Сохранённая версия {number}",
-  "@cloudNoteVersion": { "placeholders": { "number": { "type": "int" } } },
+  "@cloudNoteVersion": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
   "cloudNoteBranchesUnavailable": "Перед объединением загрузите все сохранённые версии",
   "cloudNoteMergeReady": "Объединение подготовлено — сохраните заметку, чтобы разрешить все версии",
   "cloudAttachment": "Вложение",
@@ -894,7 +1219,11 @@
   "retentionCustom": "Произвольно…",
   "retentionCustomN": "Произвольно ({days} дн.)",
   "@retentionCustomN": {
-    "placeholders": { "days": { "type": "int" } }
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
   },
   "retentionCustomTitle": "Удалять через (дней)",
   "retentionDaysSuffix": "дн.",
@@ -911,9 +1240,21 @@
   "notificationMuteNone": "Ничего",
   "notificationMuteNoneHint": "Не уведомлять ни о чём, включая упоминания",
   "notificationMuteCurrentMentionsOnly": "Только упоминания до {until}",
-  "@notificationMuteCurrentMentionsOnly": { "placeholders": { "until": { "type": "String" } } },
+  "@notificationMuteCurrentMentionsOnly": {
+    "placeholders": {
+      "until": {
+        "type": "String"
+      }
+    }
+  },
   "notificationMuteCurrentNone": "Без уведомлений до {until}",
-  "@notificationMuteCurrentNone": { "placeholders": { "until": { "type": "String" } } },
+  "@notificationMuteCurrentNone": {
+    "placeholders": {
+      "until": {
+        "type": "String"
+      }
+    }
+  },
   "chatMenuMarkRead": "Пометить прочитанным",
   "chatMenuArchive": "В архив",
   "chatMenuUnarchive": "Из архива",
@@ -933,7 +1274,13 @@
   "chatSignatureVerified": "Авторство подтверждено",
   "chatSignatureRefused": "Автор отказался подписывать",
   "chatSignatureFailed": "Подпись не прошла проверку",
-  "@signatureAskTitle": { "placeholders": { "who": { "type": "String" } } },
+  "@signatureAskTitle": {
+    "placeholders": {
+      "who": {
+        "type": "String"
+      }
+    }
+  },
   "signatureAskTitle": "{who} просит подтвердить, что сообщение ниже написали вы",
   "signatureAskConfirm": "Подписать",
   "settingsSignaturePolicy": "Запросы подписи",
@@ -1029,11 +1376,23 @@
   "chatFileLabel": "Файл",
   "chatForwarded": "Переслано",
   "chatYou": "вы",
-  "@chatForwardedFrom": { "placeholders": { "name": { "type": "String" } } },
+  "@chatForwardedFrom": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "chatForwardedFrom": "Переслано от {name}",
   "chatForwardTo": "Переслать в",
   "chatForwardNoTargets": "Нет принятых контактов для пересылки",
-  "@chatMsgDeleteSelectedBody": { "placeholders": { "count": { "type": "int" } } },
+  "@chatMsgDeleteSelectedBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "chatMsgDeleteSelectedBody": "Удалить {count} выбранных сообщений?",
   "dirIncoming": "Получено",
   "dirOutgoing": "Отправлено",
@@ -1043,23 +1402,39 @@
   "msgStatusFailed": "Не доставлено",
   "identityPickerTitle": "Выберите личность",
   "identityPickerSubtitle": "В этом хранилище несколько личностей — выберите, от какой действовать.",
-
   "networkTitle": "Оверлей-сеть",
   "networkStatusConnected": "Подключено",
   "networkStatusConnecting": "Подключение…",
   "networkStatusOffline": "Не в сети",
   "networkPeers": "{count} узлов",
-  "@networkPeers": { "placeholders": { "count": { "type": "int" } } },
-
+  "@networkPeers": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "settingsTitle": "Настройки",
   "settingsIdentity": "Личность",
   "settingsStorage": "Хранилище и пространства",
   "settingsStorageCompact": "Сжать хранилище",
   "settingsStorageCompactBody": "Освободить неиспользуемое место — приложение переоткроется. Сохраняется ТОЛЬКО разблокированное пространство: любая другая скрытая личность в этом контейнере будет потеряна.",
   "settingsStorageReclaimable": "из них {size} вернёт сжатие",
-  "@settingsStorageReclaimable": { "placeholders": { "size": { "type": "String" } } },
+  "@settingsStorageReclaimable": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "settingsStorageBloatTitle": "Сжатие освободит примерно {size}",
-  "@settingsStorageBloatTitle": { "placeholders": { "size": { "type": "String" } } },
+  "@settingsStorageBloatTitle": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "settingsStorageBloatBody": "Большая часть файла — padding от прошлых записей. Для этого хранилища это нормально, но сам по себе файл не уменьшится. Сожмите его, когда будет удобно.",
   "settingsStorageCompactDone": "Освобождено",
   "settingsStorageCompactFailed": "Не удалось сжать хранилище",
@@ -1153,16 +1528,13 @@
   "decoyCreated": "Ложный доступ создан.",
   "decoyPickOne": "Выберите хотя бы одну личность.",
   "decoyClash": "Этот пароль уже занят — выберите другой.",
-
   "languageSystem": "Системный",
   "languageRussian": "Русский",
   "languageEnglish": "English",
-
   "chatRequestTitle": "Контакт хочет связаться с вами",
   "actionAccept": "Принять",
   "actionBlock": "Заблокировать",
   "actionOpen": "Открыть",
-
   "inviteAddContact": "Добавить контакт",
   "inviteShowToContact": "Покажите это собеседнику",
   "inviteTooLarge": "инвайт слишком большой",
@@ -1182,11 +1554,9 @@
   "scanTorchOff": "Выключить подсветку",
   "inviteAddButton": "Добавить контакт",
   "inviteInvalid": "Это не похоже на инвайт xVeil",
-
   "networkRouteTitle": "Маршрутизация трафика (Proxy / VPN)",
   "networkRouteSubActive": "Маршрутизация включена",
   "networkRouteSubIdle": "Пустить трафик через veil",
-
   "routeTitle": "Маршрутизация трафика",
   "routeSocks5Title": "Маршрутизировать мой трафик (SOCKS5)",
   "routeSocks5Hint": "Поднять локальный SOCKS5-прокси и пустить его трафик через veil на выходной узел. Направьте на него браузер или системный прокси, чтобы обходить цензуру и скрывать своё местоположение.",
@@ -1198,7 +1568,13 @@
   "routeExitNodeInvalid": "Нужен node id из 64 hex-символов",
   "routeNeedExit": "Укажите node id выходного узла для маршрутизации",
   "routeProxyAddress": "Направьте приложения / браузер на {addr}",
-  "@routeProxyAddress": { "placeholders": { "addr": { "type": "String" } } },
+  "@routeProxyAddress": {
+    "placeholders": {
+      "addr": {
+        "type": "String"
+      }
+    }
+  },
   "routeServeTitle": "Быть выходным узлом",
   "routeServeHint": "Разрешить другим узлам выходить в интернет через этот узел. Больше выходных узлов — устойчивее сеть к цензуре, но трафик будет выглядеть исходящим с этого устройства.",
   "routeAllowPrivate": "Разрешить приватные сети (продвинутое)",
@@ -1272,8 +1648,13 @@
   "networkNodesTitle": "Мои узлы",
   "networkNodesSub": "Добавить узел по SSH, запустить ogate/oproxy",
   "networkNodesSubCount": "Узлов: {count}",
-  "@networkNodesSubCount": { "placeholders": { "count": { "type": "int" } } },
-
+  "@networkNodesSubCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "nodesTitle": "Мои узлы",
   "nodesEmpty": "Пока нет узлов",
   "nodesEmptyHint": "Добавьте сервер, который держите как выходной узел / реле — и пускайте через него трафик из «Маршрутизация трафика».",
@@ -1340,9 +1721,21 @@
   "provisionSourceCustom": "Своя ссылка",
   "provisionReleaseLoading": "Загружаю последний релиз с GitHub…",
   "provisionReleaseLoaded": "Загружен GitHub-релиз {tag}",
-  "@provisionReleaseLoaded": { "placeholders": { "tag": { "type": "String" } } },
+  "@provisionReleaseLoaded": {
+    "placeholders": {
+      "tag": {
+        "type": "String"
+      }
+    }
+  },
   "provisionReleaseError": "Не удалось заполнить с GitHub: {error}. Оба значения можно указать вручную.",
-  "@provisionReleaseError": { "placeholders": { "error": { "type": "String" } } },
+  "@provisionReleaseError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "provisionReleaseUrl": "URL релиза veil-cli",
   "provisionReleaseHint": "Заполняется автоматически из официального GitHub-релиза veilnetwork/veil. Для замены выберите «Своя ссылка».",
   "provisionCustomReleaseHint": "Укажите прямую HTTPS-ссылку на свой бинарник и его SHA-256 в поле ниже.",
@@ -1358,16 +1751,34 @@
   "provisionTransportWsHint": "Обычный WebSocket. Без сертификата: проходит через HTTP-прокси, но не скрывает содержимое от наблюдателя — ставьте за TLS-фронтом либо берите wss.",
   "provisionTransportWssHint": "Защищённый WebSocket-листенер с общим TLS-сертификатом ниже.",
   "provisionTransportPort": "Порт {transport}",
-  "@provisionTransportPort": { "placeholders": { "transport": { "type": "String" } } },
+  "@provisionTransportPort": {
+    "placeholders": {
+      "transport": {
+        "type": "String"
+      }
+    }
+  },
   "provisionTransportNetwork": "Сетевой протокол: {protocol}",
-  "@provisionTransportNetwork": { "placeholders": { "protocol": { "type": "String" } } },
+  "@provisionTransportNetwork": {
+    "placeholders": {
+      "protocol": {
+        "type": "String"
+      }
+    }
+  },
   "provisionTransportCommon": "Общие настройки транспортов",
   "provisionTransportCommonHint": "Эти значения относятся ко всем выбранным входящим транспортам.",
   "provisionAdvertiseHost": "Публичный хост / IP (необязательно)",
   "provisionAdvertiseHostHint": "Один публичный адрес объявляется для всех выбранных транспортов; порт у каждого свой.",
   "provisionTlsShared": "TLS-сертификат",
   "provisionTlsSharedHint": "Используется для: {transports}. Выберите, как предоставить сертификат всем выбранным TLS-транспортам.",
-  "@provisionTlsSharedHint": { "placeholders": { "transports": { "type": "String" } } },
+  "@provisionTlsSharedHint": {
+    "placeholders": {
+      "transports": {
+        "type": "String"
+      }
+    }
+  },
   "provisionTlsMode": "Источник сертификата",
   "provisionTlsModeExisting": "Существующие файлы",
   "provisionTlsModeAutomatic": "Автоматически",
@@ -1387,9 +1798,21 @@
   "provisionTlsKey": "Путь приватного TLS-ключа на сервере",
   "provisionTlsCa": "Путь TLS CA на сервере (необязательно)",
   "provisionComponentUrl": "URL релиза {component}",
-  "@provisionComponentUrl": { "placeholders": { "component": { "type": "String" } } },
+  "@provisionComponentUrl": {
+    "placeholders": {
+      "component": {
+        "type": "String"
+      }
+    }
+  },
   "provisionComponentSha": "SHA-256 для {component}",
-  "@provisionComponentSha": { "placeholders": { "component": { "type": "String" } } },
+  "@provisionComponentSha": {
+    "placeholders": {
+      "component": {
+        "type": "String"
+      }
+    }
+  },
   "provisionScriptLabel": "Выполнится на сервере под root — проверьте перед запуском:",
   "provisionPskMissing": "PSK развёртывания не вшит в эту сборку — узел не сможет войти в сеть. Развёртывание недоступно.",
   "provisionRun": "Выполнить по SSH",
@@ -1399,14 +1822,24 @@
   "provisionAddedPeer": "Сервер добавлен в список пиров",
   "provisionPeerFailed": "Не удалось добавить сервер в пиры: {reason}",
   "@provisionPeerFailed": {
-    "placeholders": { "reason": { "type": "String" } }
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
   },
   "provisionAddedProxy": "oproxy-выход добавлен в список прокси",
   "provisionProxyNeedsNodeId": "oproxy установлен, но сервер не сообщил node id — в список прокси его не добавить",
   "provisionSavedNodeId": "node id, сообщённый сервером, сохранён",
   "nodeSshConnect": "Подключиться по SSH",
   "sshDialogTitle": "SSH к {host}",
-  "@sshDialogTitle": { "placeholders": { "host": { "type": "String" } } },
+  "@sshDialogTitle": {
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
   "sshUsePassword": "Пароль",
   "sshUseKey": "Приватный ключ",
   "sshPasswordLabel": "Пароль",
@@ -1430,15 +1863,39 @@
   "sshCredentialRequired": "Введите пароль или приватный ключ",
   "sshCredentialsSaving": "Сохранение…",
   "sshCredentialsSaveFailed": "Не удалось сохранить SSH-реквизиты: {error}",
-  "@sshCredentialsSaveFailed": { "placeholders": { "error": { "type": "String" } } },
+  "@sshCredentialsSaveFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "sshKeyGenerationFailed": "Не удалось сгенерировать ключ: {error}",
-  "@sshKeyGenerationFailed": { "placeholders": { "error": { "type": "String" } } },
+  "@sshKeyGenerationFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "sshConnectRun": "Подключиться и проверить",
   "sshConnecting": "Подключение…",
   "sshDone": "Готово (код {code})",
-  "@sshDone": { "placeholders": { "code": { "type": "String" } } },
+  "@sshDone": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
   "sshError": "Ошибка: {err}",
-  "@sshError": { "placeholders": { "err": { "type": "String" } } },
+  "@sshError": {
+    "placeholders": {
+      "err": {
+        "type": "String"
+      }
+    }
+  },
   "nodeCheckReachable": "Проверить доступность",
   "nodeChecking": "Проверяем…",
   "nodeReachable": "Доступен",
@@ -1456,7 +1913,6 @@
   "callBatteryAllowTitle": "Не прерывать звонки в фоне?",
   "callBatteryAllowBody": "Некоторые телефоны останавливают звонок, когда вы уходите из xVeil. Разрешите игнорировать оптимизацию батареи, чтобы звонки продолжались в фоне.",
   "networkBackgroundLater": "Позже",
-
   "peersTitle": "Подключённые узлы",
   "peersSectionActive": "Активные",
   "peersSectionInactive": "Неактивные",
@@ -1480,12 +1936,29 @@
   "peerDirUnknown": "Неизвестно",
   "timeJustNow": "только что",
   "timeMinutesAgo": "{n} мин назад",
-  "@timeMinutesAgo": { "placeholders": { "n": { "type": "int" } } },
+  "@timeMinutesAgo": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "timeHoursAgo": "{n} ч назад",
-  "@timeHoursAgo": { "placeholders": { "n": { "type": "int" } } },
+  "@timeHoursAgo": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "timeDaysAgo": "{n} дн назад",
-  "@timeDaysAgo": { "placeholders": { "n": { "type": "int" } } },
-
+  "@timeDaysAgo": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "peersAddAction": "Добавить пир",
   "peersAddTitle": "Добавление пира по ссылке",
   "peersAddHint": "Вставьте ссылку veil:bootstrap. Узел выдаёт свою командой `veil-cli bootstrap invite`; развёрнутый сервер сохраняется сюда сам.",
@@ -1493,18 +1966,33 @@
   "peersAddPaste": "Вставить",
   "peersAddInvalid": "Это не ссылка bootstrap: {reason}",
   "@peersAddInvalid": {
-    "placeholders": { "reason": { "type": "String" } }
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
   },
   "peersAddNoTransport": "В ссылке есть личность, но нет адреса — набирать нечего. Такую ссылку добавляют как контакт.",
   "peersAddNoNode": "Узел ещё не запущен",
   "peersAddDone": "Пир добавлен",
   "peersAddFailed": "Не удалось добавить пир: {reason}",
   "@peersAddFailed": {
-    "placeholders": { "reason": { "type": "String" } }
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
   },
   "peersAddResolved": "узел {nodeId}… через {transport}",
   "@peersAddResolved": {
-    "placeholders": { "nodeId": { "type": "String" }, "transport": { "type": "String" } }
+    "placeholders": {
+      "nodeId": {
+        "type": "String"
+      },
+      "transport": {
+        "type": "String"
+      }
+    }
   },
   "peersShareAction": "Поделиться узлами входа",
   "peersShareTitle": "Поделиться узлами входа",
@@ -1515,18 +2003,21 @@
   "peersShareScanHint": "Пусть собеседник отсканирует это или откроет ссылку в xVeil",
   "peerActiveBadge": "активен",
   "peersImported": "Добавлено узлов входа: {n}",
-  "@peersImported": { "placeholders": { "n": { "type": "int" } } },
-
+  "@peersImported": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "onboardRepeatPassword": "Повторите пароль",
   "onboardPasswordTitle": "Придумайте пароль",
   "onboardPasswordSubtitle": "Этот пароль открывает ваше пространство на этом устройстве. Сброса нет.",
   "onboardPasswordTooShort": "Минимум 6 символов",
   "onboardPasswordMismatch": "Пароли не совпадают",
   "recoveryPhraseHint": "Введите фразу восстановления, слова через пробел",
-
   "securityCenterTooltip": "Безопасность",
   "securityCenterTitle": "Безопасность и сеть",
-
   "callStartTooltip": "Позвонить",
   "callAudio": "Аудиозвонок",
   "callVideo": "Видеозвонок",
@@ -1605,18 +2096,48 @@
   "nicknameFree": "Свободно",
   "nicknameMineVerdict": "Уже ваше",
   "nicknameTakenWeight": "Занято — вес защиты {weight}",
-  "@nicknameTakenWeight": {"placeholders": {"weight": {"type": "String"}}},
+  "@nicknameTakenWeight": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
   "nicknameClaim": "Занять имя",
   "nicknameMiningLabel": "Майнинг доказательства работы…",
   "nicknameMiningStats": "вес {weight} / {target} · {hashes} хешей",
-  "@nicknameMiningStats": {"placeholders": {"weight": {"type": "String"}, "target": {"type": "String"}, "hashes": {"type": "String"}}},
+  "@nicknameMiningStats": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "hashes": {
+        "type": "String"
+      }
+    }
+  },
   "nicknamePublishing": "Публикация…",
   "nicknameOwnedTitle": "Ваше имя",
   "nicknameWeightExplain": "Вес защиты — суммарное доказательство работы (PoW), закреплённое за именем: показан актуальный вес из сети. Чтобы перехватить имя, нужно вычислить строго больше — «Усилить» повышает цену перехвата.",
   "nicknameOwnedTakenOver": "Имя перехвачено более тяжёлой работой (вес соперника {weight}). «Усилить» вернёт имя, намайнив строго больше.",
-  "@nicknameOwnedTakenOver": {"placeholders": {"weight": {"type": "String"}}},
+  "@nicknameOwnedTakenOver": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
   "nicknameOwnedWeight": "Вес защиты {weight}",
-  "@nicknameOwnedWeight": {"placeholders": {"weight": {"type": "String"}}},
+  "@nicknameOwnedWeight": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
   "nicknameTopUp": "Усилить (майнить ещё)",
   "nicknameClaimed": "Имя опубликовано",
   "newChatPeerOrNickname": "Node id (hex) или @имя",
@@ -1650,7 +2171,13 @@
   "devicesExpiredToken": "Срок действия кода истёк",
   "devicesRevoke": "Отозвать устройство",
   "devicesRevokeTitle": "Отозвать {device}?",
-  "@devicesRevokeTitle": {"placeholders": {"device": {"type": "String"}}},
+  "@devicesRevokeTitle": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
   "devicesOperationFailed": "Не удалось завершить привязку устройства",
   "devicesCancelPending": "Отменить ожидание",
   "devicesRecoverySection": "Если потеряны все устройства",
@@ -1668,21 +2195,66 @@
   "devicesFreshRegistryRequired": "Для восстановления нужен чистый реестр устройств",
   "actionReject": "Отклонить",
   "cloudDocumentInvites": "Приглашения в общие документы ({count})",
-  "@cloudDocumentInvites": {"placeholders": {"count": {"type": "int"}}},
+  "@cloudDocumentInvites": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudDocumentInviteFrom": "Приглашение от {sender}",
-  "@cloudDocumentInviteFrom": {"placeholders": {"sender": {"type": "String"}}},
+  "@cloudDocumentInviteFrom": {
+    "placeholders": {
+      "sender": {
+        "type": "String"
+      }
+    }
+  },
   "cloudDocumentInviteKind": "Зашифрованный документ {kind} · неактивен до принятия",
-  "@cloudDocumentInviteKind": {"placeholders": {"kind": {"type": "String"}}},
+  "@cloudDocumentInviteKind": {
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      }
+    }
+  },
   "cloudDocumentAdopted": "Общий документ добавлен",
   "cloudDocumentAdoptFailed": "Не удалось проверить приглашение",
   "cloudDocumentRejected": "Приглашение удалено",
   "cloudSharedNew": "Новый общий документ",
   "cloudSharedDocuments": "Общие документы ({count})",
-  "@cloudSharedDocuments": {"placeholders": {"count": {"type": "int"}}},
+  "@cloudSharedDocuments": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudSharedDocument": "Общий документ {kind} · {id}",
-  "@cloudSharedDocument": {"placeholders": {"kind": {"type": "String"}, "id": {"type": "String"}}},
+  "@cloudSharedDocument": {
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      },
+      "id": {
+        "type": "String"
+      }
+    }
+  },
   "cloudSharedMembers": "Участников: {count} · эпоха {epoch} · {role}",
-  "@cloudSharedMembers": {"placeholders": {"count": {"type": "int"}, "epoch": {"type": "int"}, "role": {"type": "String"}}},
+  "@cloudSharedMembers": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "epoch": {
+        "type": "int"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
   "cloudSharedPickContact": "Пригласить принятый контакт",
   "cloudSharedRole": "Роль в документе",
   "cloudSharedRoleOwner": "Владелец",
@@ -1694,7 +2266,13 @@
   "cloudSharedAddMember": "Добавить участника",
   "cloudSharedRevoke": "Отозвать доступ",
   "cloudSharedRevokeTitle": "Отозвать доступ у {member}?",
-  "@cloudSharedRevokeTitle": {"placeholders": {"member": {"type": "String"}}},
+  "@cloudSharedRevokeTitle": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
   "cloudSharedRotate": "Сменить ключ шифрования",
   "cloudSharedRotateTitle": "Сменить ключ документа для всех участников?",
   "cloudSharedCompact": "Сжать историю",
@@ -1752,7 +2330,13 @@
   "cloudEventLocation": "Место",
   "cloudCollectionDelete": "Удалить",
   "cloudCollectionDeleteTitle": "Удалить «{title}»?",
-  "@cloudCollectionDeleteTitle": {"placeholders": {"title": {"type": "String"}}},
+  "@cloudCollectionDeleteTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "cloudCollectionSaved": "Изменение сохранено и поставлено в отправку",
   "cloudCollectionFailed": "Не удалось изменить общую коллекцию",
   "cloudCollectionInvalidRange": "Событие должно закончиться после начала",
@@ -1761,14 +2345,32 @@
   "spaceRulesEmpty": "Сообщество пока не опубликовало правила.",
   "spaceRulesPublish": "Опубликовать правила",
   "spaceRulesPublishVersion": "Опубликовать правила, версия {version}",
-  "@spaceRulesPublishVersion": {"placeholders": {"version": {"type": "int"}}},
+  "@spaceRulesPublishVersion": {
+    "placeholders": {
+      "version": {
+        "type": "int"
+      }
+    }
+  },
   "spaceRulesFullText": "Полный текст правил",
   "spaceRulesSummary": "Краткая сводка",
   "spaceRulesEffectiveDate": "Дата вступления в силу",
   "spaceRulesEffective": "Вступают в силу {date}",
-  "@spaceRulesEffective": {"placeholders": {"date": {"type": "String"}}},
+  "@spaceRulesEffective": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
   "spaceRulesVersion": "Версия {version}",
-  "@spaceRulesVersion": {"placeholders": {"version": {"type": "int"}}},
+  "@spaceRulesVersion": {
+    "placeholders": {
+      "version": {
+        "type": "int"
+      }
+    }
+  },
   "spaceRulesAccept": "Принять правила",
   "spaceRulesAccepted": "Правила приняты",
   "spaceRulesAcceptanceRequired": "Ознакомьтесь и примите актуальные правила",
@@ -1800,7 +2402,13 @@
   "spaceModerationTemporaryBan": "Временная блокировка",
   "spaceModerationPermanentBan": "Бессрочная блокировка",
   "spaceModerationUntil": "До {date}",
-  "@spaceModerationUntil": {"placeholders": {"date": {"type": "String"}}},
+  "@spaceModerationUntil": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
   "spaceModerationAppealsTitle": "Апелляции по модерации",
   "spaceModerationAppealAction": "Обжаловать",
   "spaceModerationAppealDialogTitle": "Обжаловать действие модерации",
@@ -1811,7 +2419,13 @@
   "spaceModerationAppealRevoked": "Действие отменено после рассмотрения",
   "spaceModerationAppealAcknowledged": "Апелляция принята; удалённый материал восстановить нельзя",
   "spaceModerationAppealFrom": "Апелляция от {node}",
-  "@spaceModerationAppealFrom": {"placeholders": {"node": {"type": "String"}}},
+  "@spaceModerationAppealFrom": {
+    "placeholders": {
+      "node": {
+        "type": "String"
+      }
+    }
+  },
   "spaceModerationAppealReview": "Рассмотреть апелляцию",
   "spaceModerationAppealDecisionReason": "Обоснование решения",
   "spaceModerationAppealDecisionReject": "Оставить действие в силе",
@@ -1832,7 +2446,13 @@
   "spaceAbuseReportSent": "Жалоба отправлена модераторам",
   "spaceAbuseReportsTitle": "Жалобы",
   "spaceAbuseReportFrom": "Жалоба от {node}",
-  "@spaceAbuseReportFrom": {"placeholders": {"node": {"type": "String"}}},
+  "@spaceAbuseReportFrom": {
+    "placeholders": {
+      "node": {
+        "type": "String"
+      }
+    }
+  },
   "spaceAbuseReportPost": "Публикация",
   "spaceAbuseReportComment": "Комментарий",
   "spaceAbuseReportOpenContent": "Открыть материал",
@@ -1873,11 +2493,23 @@
   "folderSyncCloudRoot": "Корень Хранилища",
   "folderSyncBusy": "Синхронизация…",
   "folderSyncDeleteWarning": "Удаление файла здесь удалит его и в Хранилище.",
-  "@folderSyncRefused": { "placeholders": { "reason": { "type": "String" } } },
+  "@folderSyncRefused": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
   "settingsCopyErrors": "Скопировать отчёт об ошибках",
   "settingsCopyErrorsHint": "Сводка последних сбоев в JSON: только типы ошибок и места в коде — без текста ошибок, контактов и личности.",
   "settingsCopyErrorsDone": "Отчёт скопирован ({count, plural, =0{сбоев не записано} one{{count} сбой} few{{count} сбоя} other{{count} сбоев}})",
-  "@settingsCopyErrorsDone": { "placeholders": { "count": { "type": "int" } } },
+  "@settingsCopyErrorsDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "errorLoadFailed": "Не удалось загрузить",
   "errorLoadFailedHint": "Подробности — в Настройках, «Скопировать отчёт об ошибках».",
   "voiceModelDownload": "Скачать модель распознавания",
@@ -1890,7 +2522,13 @@
   "voiceModelTitle": "Модель распознавания",
   "voiceModelResume": "Продолжить скачивание",
   "voiceModelResumeAt": "{percent}% уже скачано",
-  "@voiceModelResumeAt": { "placeholders": { "percent": { "type": "int" } } },
+  "@voiceModelResumeAt": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
   "voiceModelCancel": "Остановить",
   "identityDamagedTitle": "Пространство открылось, но личность в нём повреждена",
   "identityDamagedBody": "Пароль верный — контейнер разблокировался. Но то, что лежит на месте вашей личности, прочитать не удаётся. Приложение не станет продолжать так, будто вы новый человек.",
@@ -1898,5 +2536,14 @@
   "identityDamagedBack": "Вернуться к экрану блокировки",
   "backupNotExcludedTitle": "Это устройство может копировать ваши данные в резервную копию",
   "backupNotExcludedBody": "xVeil просит систему не класть свой контейнер в iCloud и в резервные копии на компьютере. На этом устройстве это не сработало ({reason}). Данные остаются зашифрованными, но по резервной копии видно, что в приложении есть личность, а саму копию можно спокойно вскрывать вдали от телефона. Отключите резервное копирование для xVeil в настройках системы.",
-  "@backupNotExcludedBody": { "placeholders": { "reason": { "type": "String" } } }
+  "@backupNotExcludedBody": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesLastSeen": "Последний раз на связи {when}",
+  "devicesNeverSeen": "Ни разу не выходило на связь",
+  "devicesAwayLong": "Давно не появлялось — возможно, стоит отвязать"
 }

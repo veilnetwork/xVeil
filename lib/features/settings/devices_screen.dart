@@ -5,7 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../core/format.dart';
 import '../../core/ids.dart';
+import '../../state/messaging_providers.dart';
 import '../../data/veil_stack.dart';
 import '../../data/transport/bootstrap_invite.dart';
 import '../../domain/device_link.dart';
@@ -46,6 +48,16 @@ class DevicesScreen extends ConsumerStatefulWidget {
 
 class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   List<NodeId> _members = const [];
+
+  /// When each linked device was last heard from, authenticated. Null means
+  /// never — which for a member of the device group says it has not been seen
+  /// since it was linked.
+  Map<String, DateTime?> _lastSeen = const {};
+
+  /// Past this, a device is worth a nudge toward unlinking: it is long enough
+  /// that a phone in a drawer over a holiday does not trip it, and short enough
+  /// that a handset replaced months ago is obvious.
+  static const _awayIsLong = Duration(days: 30);
   bool _loading = true;
   bool _hasSovereignBundle = false;
   bool _hasDeviceGroup = false;
@@ -60,6 +72,29 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _reload());
   }
 
+  /// Subtitle for a linked device: how long it has been away, and a nudge when
+  /// that is long enough to be worth acting on.
+  ///
+  /// This exists because a member list alone cannot tell "my other phone" from
+  /// a handset wiped months ago that still collects every state change — on the
+  /// stand one such device had 3473 undelivered frames against it.
+  Widget _awayLine(BuildContext context, AppL10n l, NodeId device) {
+    final seen = _lastSeen[device.hex];
+    if (seen == null) {
+      return Text(
+        '${device.short} · ${l.devicesNeverSeen}',
+        style: TextStyle(color: Theme.of(context).colorScheme.error),
+      );
+    }
+    final away = DateTime.now().difference(seen);
+    final line = '${device.short} · ${l.devicesLastSeen(formatAgo(away))}';
+    if (away < _awayIsLong) return Text(line);
+    return Text(
+      '$line\n${l.devicesAwayLong}',
+      style: TextStyle(color: Theme.of(context).colorScheme.error),
+    );
+  }
+
   Future<void> _reload() async {
     final svc = ref.read(groupServiceProvider);
     final gidHex = await svc?.deviceGroupIdHex();
@@ -68,10 +103,17 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
         : await svc?.stateOf(NodeId.fromHex(gidHex));
     final hasBundle = await svc?.localSovereignBundle() != null;
     final credentialKind = await svc?.sovereignCredentialKind();
+    final members = [...?state?.members.values.map((m) => m.nodeId)]
+      ..sort((a, b) => a.hex.compareTo(b.hex));
+    final messaging = ref.read(messagingServiceProvider);
+    final seen = <String, DateTime?>{};
+    for (final m in members) {
+      seen[m.hex] = await messaging.lastSeen(m);
+    }
     if (!mounted) return;
     setState(() {
-      _members = [...?state?.members.values.map((m) => m.nodeId)]
-        ..sort((a, b) => a.hex.compareTo(b.hex));
+      _lastSeen = seen;
+      _members = members;
       _hasSovereignBundle = hasBundle;
       _hasDeviceGroup = gidHex != null;
       _credentialKind = credentialKind;
@@ -239,7 +281,9 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                 title: Text(
                   device == self ? l.devicesThisDevice : device.short,
                 ),
-                subtitle: device == self ? Text(device.short) : null,
+                subtitle: device == self
+                    ? Text(device.short)
+                    : _awayLine(context, l, device),
                 trailing: device == self
                     ? const Icon(Icons.check)
                     : IconButton(

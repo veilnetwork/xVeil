@@ -5990,4 +5990,16 @@ class AppL10nRu extends AppL10n {
   String backupNotExcludedBody(String reason) {
     return 'xVeil просит систему не класть свой контейнер в iCloud и в резервные копии на компьютере. На этом устройстве это не сработало ($reason). Данные остаются зашифрованными, но по резервной копии видно, что в приложении есть личность, а саму копию можно спокойно вскрывать вдали от телефона. Отключите резервное копирование для xVeil в настройках системы.';
   }
+
+  @override
+  String devicesLastSeen(String when) {
+    return 'Последний раз на связи $when';
+  }
+
+  @override
+  String get devicesNeverSeen => 'Ни разу не выходило на связь';
+
+  @override
+  String get devicesAwayLong =>
+      'Давно не появлялось — возможно, стоит отвязать';
 }

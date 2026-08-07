@@ -10577,6 +10577,24 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'xVeil asks the system to keep its container out of iCloud and computer backups. On this device that did not take effect ({reason}). Your data stays encrypted, but a backup could show that this app holds an identity, and a copy of it could be attacked away from your phone. Turning off backup for xVeil in the system settings closes it.'**
   String backupNotExcludedBody(String reason);
+
+  /// Subtitle under a linked device: how long ago it was last heard from, so a device that is gone for good can be recognised and unlinked.
+  ///
+  /// In en, this message translates to:
+  /// **'Last seen {when}'**
+  String devicesLastSeen(String when);
+
+  /// No description provided for @devicesNeverSeen.
+  ///
+  /// In en, this message translates to:
+  /// **'Never seen since this device was linked'**
+  String get devicesNeverSeen;
+
+  /// No description provided for @devicesAwayLong.
+  ///
+  /// In en, this message translates to:
+  /// **'Away a long time — consider unlinking'**
+  String get devicesAwayLong;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
