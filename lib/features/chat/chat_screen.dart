@@ -52,6 +52,7 @@ import '../../state/voice_play_controller.dart';
 import '../../state/voice_record_controller.dart';
 import 'voice_waveform.dart';
 import 'camera_capture_screen.dart';
+import 'blurred_thumb.dart';
 import 'cancelable_download_progress.dart';
 import 'composer_expression_panel.dart';
 import 'custom_emoji_controller.dart';

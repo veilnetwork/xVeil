@@ -854,19 +854,7 @@ class _VideoPreviewBox extends StatelessWidget {
             alignment: Alignment.center,
             fit: StackFit.expand,
             children: [
-              ImageFiltered(
-                imageFilter: ui.ImageFilter.blur(
-                  sigmaX: 2.5,
-                  sigmaY: 2.5,
-                  tileMode: TileMode.decal,
-                ),
-                child: Image.memory(
-                  thumb,
-                  fit: BoxFit.cover,
-                  filterQuality: FilterQuality.medium,
-                  gaplessPlayback: true,
-                ),
-              ),
+              BlurredThumb(bytes: thumb, boxWidth: 260),
               Center(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -1046,6 +1034,26 @@ class _ImagePreviewState extends ConsumerState<_ImagePreview> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // The blurred placeholder gives way to the photo as a fade, not a cut.
+    // These are two different subtrees, so a plain rebuild swapped them in one
+    // frame — the picture appeared to snap into focus out of nowhere. Keyed on
+    // "do we have the bytes yet", which is exactly the moment worth animating.
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      // Cross-fade in place: the default lays the outgoing child out again and
+      // the fixed-size preview box would jump.
+      layoutBuilder: (current, previous) => Stack(
+        alignment: Alignment.center,
+        children: <Widget>[...previous, ?current],
+      ),
+      child: KeyedSubtree(
+        key: ValueKey<bool>(_resolved != null),
+        child: _content(context, scheme),
+      ),
+    );
+  }
+
+  Widget _content(BuildContext context, ColorScheme scheme) {
     return Builder(
       builder: (context) {
         // First load → spinner. Loaded-but-absent (not in store) → a
@@ -1089,19 +1097,7 @@ class _ImagePreviewState extends ConsumerState<_ImagePreview> {
                     children: [
                       // The micro-thumb upscaled; the blur hides the pixels
                       // (Telegram-style) and reads as "loading", not "final".
-                      ImageFiltered(
-                        imageFilter: ui.ImageFilter.blur(
-                          sigmaX: 2.5,
-                          sigmaY: 2.5,
-                          tileMode: TileMode.decal,
-                        ),
-                        child: Image.memory(
-                          thumb,
-                          fit: BoxFit.cover,
-                          filterQuality: FilterQuality.medium,
-                          gaplessPlayback: true,
-                        ),
-                      ),
+                      BlurredThumb(bytes: thumb, boxWidth: 260),
                       // Download affordance over the preview (Center keeps it
                       // intrinsic-sized under StackFit.expand).
                       Center(
