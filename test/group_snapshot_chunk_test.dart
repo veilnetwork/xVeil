@@ -625,4 +625,48 @@ void main() {
       reason: 'the very first snapshot after a restart must already be capped',
     );
   });
+
+  test('the cap releases queued STATE but never an event frame', () async {
+    // Once we have decided not to queue more state for a peer, the state
+    // already queued is equally moot — the peer asks for what it is missing
+    // when it returns. Events are different: an ack or a call signal that is
+    // dropped is gone, nothing recomputes it. On the stand this is the
+    // difference between letting go of 9.6 MB and losing a message receipt.
+    final s = await sender(a, [b]);
+    for (var i = 0; i < 300; i++) {
+      await s.storage.enqueueOutboxFrame(
+        'grp:aa11:pre$i:${b.hex}',
+        b.hex,
+        WireEnvelope.groupEntry('pre-$i').encode(),
+      );
+    }
+    // One of each kind of event frame, alongside the state.
+    await s.storage.enqueueOutboxFrame(
+      'call:c1:offer',
+      b.hex,
+      WireEnvelope.callSignal('{}').encode(),
+    );
+    await s.storage.enqueueOutboxFrame(
+      'p2p:ep:1',
+      b.hex,
+      WireEnvelope.p2pEndpoints('{}').encode(),
+    );
+
+    await s.messaging.sendGroupSnapshot(b, 'aa11', 'trips-the-cap');
+    await pumpEventQueue();
+
+    final left = (await s.storage.pendingOutboxFrames())
+        .map((f) => f.frameId)
+        .toSet();
+    expect(
+      left.where((id) => id.startsWith('grp:')),
+      isEmpty,
+      reason: 'replicated state is released',
+    );
+    expect(
+      left,
+      containsAll(<String>['call:c1:offer', 'p2p:ep:1']),
+      reason: 'events are NOT — nothing recomputes those',
+    );
+  });
 }

@@ -101,6 +101,11 @@ class _MessagingReplication {
             '${_owner._outbox.pendingFor(dst.hex)} frames already undelivered. '
             'It will get the current state by asking, when it is back.',
       );
+      // And let the queued state go with it. Having decided not to add more,
+      // keeping what is already there buys nothing: the same ask that makes
+      // the refusal safe also makes these redundant. Event frames are left
+      // alone — see `dropReplicationBacklogFor`.
+      unawaited(_owner.dropReplicationBacklogFor(dst));
     }
     return true;
   }

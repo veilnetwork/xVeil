@@ -1331,6 +1331,56 @@ class MessagingService {
     return dropped;
   }
 
+  /// Frame families that carry replicated STATE, as opposed to events.
+  ///
+  /// Only these are safe to abandon for a peer that has stopped listening: a
+  /// returning device recomputes state by asking. An ack, a call signal or an
+  /// endpoint share is an event — losing one loses it for good.
+  static bool _isReplicationFrame(String frameId) =>
+      frameId.startsWith('grp:') ||
+      frameId.startsWith('grpc:') ||
+      frameId.startsWith('doc:') ||
+      frameId.startsWith('docc:');
+
+  /// Let go of replicated state queued for a peer that has stopped listening.
+  ///
+  /// Called when the back-pressure cap trips, and justified by the same fact:
+  /// once we have decided not to queue MORE state for a peer, the state already
+  /// queued is equally moot, because the peer will ask for what it is missing
+  /// when it comes back (`nudgeGroupSyncAll`, every app start). Keeping it only
+  /// pays for a container that grows and a flush that walks it — on the stand,
+  /// 9.6 MB and 3473 frames against a device wiped four days earlier.
+  ///
+  /// Deliberately narrower than [dropPendingFramesFor]: that one is for a
+  /// device removed from the group and drops everything. This one runs while
+  /// the peer is still a member, so it touches STATE only and leaves every
+  /// event frame alone.
+  Future<int> dropReplicationBacklogFor(NodeId peer) async {
+    final List<OutboxFrame> pending;
+    try {
+      pending = await _storage.pendingOutboxFrames();
+    } catch (e) {
+      devLog(() => 'xVeil[durable]: could not read the outbox to trim: $e');
+      return 0;
+    }
+    var dropped = 0;
+    for (final frame in pending) {
+      if (frame.peerHex != peer.hex) continue;
+      if (!_isReplicationFrame(frame.frameId)) continue;
+      _retireOutboxFrame(peer.hex, frame.frameId);
+      dropped++;
+    }
+    if (dropped > 0) {
+      devLog(
+        () =>
+            'xVeil[durable]: let go of $dropped replicated-state frame(s) for '
+            '${peer.short} — it has not acknowledged any of them, and it will '
+            'ask for the current state when it is back',
+      );
+    }
+    return dropped;
+  }
+
   /// Durable frames still held for [peerHex]. The back-pressure cap reads this.
   int debugPendingFor(String peerHex) => _outbox.pendingFor(peerHex);
 
