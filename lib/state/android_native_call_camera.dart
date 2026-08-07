@@ -20,6 +20,15 @@ class AndroidNativeCameraPreview {
   });
 
   final int textureId;
+
+  /// The size the TEXTURE has, not the size the sensor captures.
+  ///
+  /// The two differ whenever the sensor is mounted at 90/270: Flutter's
+  /// external-texture renderer applies the SurfaceTexture producer matrix, so
+  /// the texture arrives upright with the sensor's axes already swapped. The
+  /// platform side reports the swapped pair for exactly this reason — laying an
+  /// upright texture out at the sensor's landscape size is what squashed the
+  /// self-view (2026-08-07).
   final int width;
   final int height;
   final int rotation;
