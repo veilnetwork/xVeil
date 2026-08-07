@@ -35,6 +35,16 @@ import '../../core/log.dart';
 /// pair of devices and the one network it was measured on.
 const int kMaxFrameBytes = 1200;
 
+/// Gap left between the fragments of one payload.
+///
+/// Frames sent back to back to the same peer do not survive — measured: one
+/// 1481 B frame arrives, three consecutive 1200 B frames produce not a single
+/// arrival, with small frames flowing normally in the same window. Separate
+/// messages sent in a burst DO eventually arrive, but only on their outbox
+/// retries, which are spaced seconds apart; fragments have no retry of their
+/// own, so a burst loses them for good.
+const Duration kFragmentPacing = Duration(milliseconds: 120);
+
 /// `'XVF1'` — marks a frame as carrying a fragment rather than a whole payload.
 const List<int> kFragmentMagic = [0x58, 0x56, 0x46, 0x31];
 
@@ -208,6 +218,12 @@ class FragmentReassembler {
     }
     target.parts[fragment.index] = Uint8List.fromList(fragment.data);
     target.touchedAt = _now();
+    devLog(
+      () =>
+          'xVeil[frag]: fragment ${fragment.index + 1}/${fragment.total} '
+          '(${fragment.data.length}B) of $key — '
+          '${target!.parts.length}/${target.total} held',
+    );
     if (target.parts.length != target.total) return null;
     _sets.remove(key);
     return target.join();
