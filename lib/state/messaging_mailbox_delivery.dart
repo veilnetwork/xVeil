@@ -106,10 +106,48 @@ class _MessagingMailboxDelivery {
   static String _short(String peerHex) =>
       peerHex.length >= 8 ? peerHex.substring(0, 8) : peerHex;
 
+  /// Whether [id] is call lifecycle control — an offer, answer or cancel whose
+  /// only value is inside the ring window.
+  ///
+  /// This lives here, next to the admission gate that has to know it, rather
+  /// than only at the flush loop that used to ask. See [stashInBackground].
+  static bool isCallSignalId(String id) =>
+      id.startsWith('call:') || id.startsWith('gcall:');
+
   /// Admit at most one background seal/fanout. Skipped ids stay durable and
   /// are reconsidered on the next flush, avoiding CPU bursts during calls.
+  ///
+  /// CALL CONTROL IS EXEMPT, and that is the whole point of this method rather
+  /// than an inline check. A call sets [paused] for its entire life
+  /// (`CallService`: paused = status != ended), so while a call is dialing every
+  /// deposit is suppressed — including the deposit of that call's own offer.
+  /// The flush loop already carved call signals out of the pause and then
+  /// handed them straight to this method, which re-checked `_paused` and
+  /// dropped them anyway: the exemption was two lines away from the decision.
+  ///
+  /// Measured on the stand, 2026-08-07, with the live path broken by a node
+  /// reboot: nine live re-drives over 75s, not one deposit, `ring timeout`, and
+  /// the offer finally deposited 170ms AFTER the call had given up — so the
+  /// callee rang for a call that no longer existed. A plain text message on the
+  /// same broken path arrived in 15s, because nothing had paused its deposit.
+  ///
+  /// The capacity gate is waived too: call control is a handful of small frames
+  /// bounded by the number of live calls, and being dropped is worse for it
+  /// than being queued behind a bulk seal.
   void stashInBackground(NodeId peer, String id, Uint8List wire) {
-    if (_paused || _inFlight.length >= _maxBackgroundStashes) return;
+    if (isCallSignalId(id)) {
+      unawaited(maybeStash(peer, id, wire));
+      return;
+    }
+    if (_paused || _inFlight.length >= _maxBackgroundStashes) {
+      devLog(
+        () =>
+            'xVeil[send]: stash DEFERRED dst=${peer.short} id=$id — '
+            '${_paused ? "a call has paused background deposits" : "another "
+                      "deposit is in flight"}; the outbox flush reconsiders it',
+      );
+      return;
+    }
     unawaited(maybeStash(peer, id, wire));
   }
 
