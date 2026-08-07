@@ -975,7 +975,7 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
       controller.cancel();
       return;
     }
-    final recording = ref.read(vnoteRecordControllerProvider).isRecording;
+    final recording = ref.read(vnoteRecordControllerProvider).isCapturing;
     if (_type != SpacePostType.shortVideo && recording) {
       controller.cancel();
     }
@@ -1016,7 +1016,7 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
 
   void _cancelVnoteRecording() {
     if (_ownsVnoteRecording ||
-        ref.read(vnoteRecordControllerProvider).isRecording) {
+        ref.read(vnoteRecordControllerProvider).isCapturing) {
       ref.read(vnoteRecordControllerProvider.notifier).cancel();
     }
     _ownsVnoteRecording = false;
@@ -1361,7 +1361,7 @@ class _PostComposerDialogState extends ConsumerState<_PostComposerDialog> {
                   widget.onRecordVnote != null) ...[
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: _ownsVnoteRecording && vnoteRecording.isRecording
+                  child: _ownsVnoteRecording && vnoteRecording.isCapturing
                       ? _vnoteRecordingCard(context, l, vnoteRecording)
                       : OutlinedButton.icon(
                           key: const ValueKey('space-post-record-vnote'),
