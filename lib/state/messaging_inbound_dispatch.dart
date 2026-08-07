@@ -86,6 +86,11 @@ extension _MessagingInboundDispatch on MessagingService {
     // this one is gated on provenance rather than on `m.src` alone.
     if (m.provenance.isAuthenticated) {
       _mailboxDelivery.notePeerReachable(m.src.hex);
+      // The same evidence answers a different question: when was this peer last
+      // really here. Gated on provenance for the same reason — an unauthenticated
+      // `src` is a name the sender wrote, and a device that has been gone for
+      // months must not look present because somebody claimed its id.
+      unawaited(notePeerSeen(m.src));
     }
 
     // ── X/V-01: the name is not the sender ────────────────────────────────
