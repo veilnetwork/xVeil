@@ -59,11 +59,17 @@ Future<ProviderContainer> _container(_FakePlayer? player) async {
   final storage = FakeHvContainer().storage();
   await storage.open(password: 'pw', createIfMissing: true);
   // A voice blob under a known key so loadFile returns bytes.
-  await storage.storeFile('vkey', Uint8List.fromList([1, 2, 3]), name: 'v.opus');
-  return ProviderContainer(overrides: [
-    singleSpaceStorageProvider.overrideWithValue(storage),
-    voicePlayerFactoryProvider.overrideWithValue((_) async => player),
-  ]);
+  await storage.storeFile(
+    'vkey',
+    Uint8List.fromList([1, 2, 3]),
+    name: 'v.opus',
+  );
+  return ProviderContainer(
+    overrides: [
+      singleSpaceStorageProvider.overrideWithValue(storage),
+      voicePlayerFactoryProvider.overrideWithValue((_) async => player),
+    ],
+  );
 }
 
 void main() {
@@ -153,29 +159,92 @@ void main() {
     expect(await p.positionMs(), 2000);
   });
 
-  test('toggleBytes plays in-hand bytes (group inline clip, no file key)',
-      () async {
+  test(
+    'toggleBytes plays in-hand bytes (group inline clip, no file key)',
+    () async {
+      final p = _FakePlayer();
+      final c = await _container(p);
+      addTearDown(c.dispose);
+      final ctrl = c.read(voicePlayControllerProvider.notifier);
+
+      await ctrl.toggleBytes('a:0', Uint8List.fromList([9, 9, 9]));
+      expect(p.started, isTrue);
+      expect(c.read(voicePlayControllerProvider).isActive('a:0'), isTrue);
+      expect(c.read(voicePlayControllerProvider).durationMs, 2000);
+
+      // Same clip id: pause / resume, exactly like the file-key path.
+      await ctrl.toggleBytes('a:0', Uint8List.fromList([9, 9, 9]));
+      expect(c.read(voicePlayControllerProvider).isPlaying('a:0'), isFalse);
+      await ctrl.toggleBytes('a:0', Uint8List.fromList([9, 9, 9]));
+      expect(c.read(voicePlayControllerProvider).isPlaying('a:0'), isTrue);
+    },
+  );
+
+  test('progress fraction is position/duration clamped', () {
+    const s = VoicePlayState(playingId: 'm', positionMs: 500, durationMs: 2000);
+    expect(s.progress, 0.25);
+    const over = VoicePlayState(
+      playingId: 'm',
+      positionMs: 5000,
+      durationMs: 2000,
+    );
+    expect(over.progress, 1.0);
+  });
+
+  test('touching the bar of a clip that is not playing yet starts it AT that '
+      'point rather than doing nothing', () async {
+    // seekTo alone refuses an inactive clip, which is what made the waveform
+    // look dead: the only way to reach the middle of a voice message was to
+    // play it from the start and wait.
     final p = _FakePlayer();
     final c = await _container(p);
     addTearDown(c.dispose);
     final ctrl = c.read(voicePlayControllerProvider.notifier);
 
-    await ctrl.toggleBytes('a:0', Uint8List.fromList([9, 9, 9]));
-    expect(p.started, isTrue);
-    expect(c.read(voicePlayControllerProvider).isActive('a:0'), isTrue);
-    expect(c.read(voicePlayControllerProvider).durationMs, 2000);
+    expect(c.read(voicePlayControllerProvider).isActive('m1'), isFalse);
+    await ctrl.seekOrStart('m1', 'vkey', 0.5);
 
-    // Same clip id: pause / resume, exactly like the file-key path.
-    await ctrl.toggleBytes('a:0', Uint8List.fromList([9, 9, 9]));
-    expect(c.read(voicePlayControllerProvider).isPlaying('a:0'), isFalse);
-    await ctrl.toggleBytes('a:0', Uint8List.fromList([9, 9, 9]));
-    expect(c.read(voicePlayControllerProvider).isPlaying('a:0'), isTrue);
+    final s = c.read(voicePlayControllerProvider);
+    expect(s.isActive('m1'), isTrue, reason: 'it must start playing');
+    expect(s.positionMs, 1000, reason: 'and start at the point touched');
+    expect(await p.positionMs(), 1000, reason: 'the player really sought');
   });
 
-  test('progress fraction is position/duration clamped', () {
-    const s = VoicePlayState(playingId: 'm', positionMs: 500, durationMs: 2000);
-    expect(s.progress, 0.25);
-    const over = VoicePlayState(playingId: 'm', positionMs: 5000, durationMs: 2000);
-    expect(over.progress, 1.0);
+  test('scrubbing an already-playing clip does not restart it', () async {
+    // A drag sends many samples. The first may have to start the clip; the
+    // rest must be plain seeks, or every drag pixel would stack another load.
+    final p = _FakePlayer();
+    final c = await _container(p);
+    addTearDown(c.dispose);
+    final ctrl = c.read(voicePlayControllerProvider.notifier);
+
+    await ctrl.toggle('m1', 'vkey');
+    final firstPlayer = p.started;
+    await ctrl.seekOrStart('m1', 'vkey', 0.25);
+    await ctrl.seekTo('m1', 0.75);
+
+    final s = c.read(voicePlayControllerProvider);
+    expect(s.isActive('m1'), isTrue);
+    expect(
+      s.paused,
+      isFalse,
+      reason: 'seeking must not pause, as toggle would',
+    );
+    expect(s.positionMs, 1500);
+    expect(p.disposed, isFalse, reason: 'the running player was reused');
+    expect(firstPlayer, isTrue);
+  });
+
+  test('a fraction outside the clip is clamped, not thrown', () async {
+    final p = _FakePlayer();
+    final c = await _container(p);
+    addTearDown(c.dispose);
+    final ctrl = c.read(voicePlayControllerProvider.notifier);
+
+    await ctrl.toggle('m1', 'vkey');
+    await ctrl.seekTo('m1', 1.4);
+    expect(c.read(voicePlayControllerProvider).positionMs, 2000);
+    await ctrl.seekTo('m1', -0.3);
+    expect(c.read(voicePlayControllerProvider).positionMs, 0);
   });
 }

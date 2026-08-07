@@ -562,28 +562,46 @@ class _VoiceBubble extends ConsumerWidget {
                             color: onBubble.withValues(alpha: 0.5),
                           ),
                         )
-                      // Tap anywhere on the waveform of the ACTIVE clip to seek to
-                      // that fraction of the clip.
+                      // Touch anywhere on the waveform to hear that moment —
+                      // tap to jump, drag to scrub. Enabled as soon as the clip
+                      // is downloaded rather than only while it is the active
+                      // one: a bar that ignores every touch until you have
+                      // already played the message from the start reads as not
+                      // being a control at all.
                       : LayoutBuilder(
-                          builder: (context, box) => GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTapDown: active && box.maxWidth > 0
-                                ? (d) => ref
-                                      .read(
-                                        voicePlayControllerProvider.notifier,
-                                      )
-                                      .seekTo(
-                                        messageId,
-                                        d.localPosition.dx / box.maxWidth,
-                                      )
-                                : null,
-                            child: VoiceWaveform(
-                              bars: bars,
-                              progress: active ? play.progress : 0,
-                              playedColor: onBubble,
-                              unplayedColor: onBubble.withValues(alpha: 0.4),
-                            ),
-                          ),
+                          builder: (context, box) {
+                            final can = downloaded && box.maxWidth > 0;
+                            double at(Offset p) => p.dx / box.maxWidth;
+                            final notifier = ref.read(
+                              voicePlayControllerProvider.notifier,
+                            );
+                            // Start-if-needed on the first touch only; every
+                            // later drag sample is a plain seek, so dragging
+                            // cannot stack load attempts on top of each other.
+                            void begin(Offset p) => unawaited(
+                              notifier.seekOrStart(messageId, fileKey, at(p)),
+                            );
+                            void move(Offset p) =>
+                                unawaited(notifier.seekTo(messageId, at(p)));
+                            return GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTapDown: can
+                                  ? (d) => begin(d.localPosition)
+                                  : null,
+                              onHorizontalDragStart: can
+                                  ? (d) => begin(d.localPosition)
+                                  : null,
+                              onHorizontalDragUpdate: can
+                                  ? (d) => move(d.localPosition)
+                                  : null,
+                              child: VoiceWaveform(
+                                bars: bars,
+                                progress: active ? play.progress : 0,
+                                playedColor: onBubble,
+                                unplayedColor: onBubble.withValues(alpha: 0.4),
+                              ),
+                            );
+                          },
                         ),
                 ),
               ),
