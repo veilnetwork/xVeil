@@ -87,6 +87,10 @@ class _Harness {
   final List<String> joined = [];
   DateTime now = DateTime.utc(2026, 7, 18, 12);
 
+  /// Contacts the boot-time announce should reach.
+  List<NodeId> accepted = const [];
+  Object? acceptedError;
+
   late final P2PEndpointService svc = P2PEndpointService(
     messaging,
     localAllowsP2P: (_) async => allows,
@@ -104,6 +108,11 @@ class _Harness {
     listenTransports: listenTransports == null
         ? null
         : () async => listenTransports!,
+    acceptedPeers: () async {
+      final err = acceptedError;
+      if (err != null) throw err;
+      return accepted;
+    },
     attemptHolePunch: injectPunch
         ? (peer) async {
             punchCalls.add(peer);
@@ -244,33 +253,30 @@ void main() {
     expect(h.svc.knownEndpoints(peer), isEmpty);
   });
 
-  test(
-    'inbound frame: an endpoint naming a THIRD party is never dialed, the '
-    "peer's own endpoint after it still is",
-    () async {
-      final h = _Harness();
-      final peer = _peer(2);
-      final foreign = _inviteUri(77, host: '192.168.1.66');
-      final own = _inviteUri(2);
-      // An ACCEPTED contact — transport admission proves only that — offers a
-      // stranger's identity/address first, then its own.
-      h.messaging.onP2PEndpoints!(
-        peer,
-        jsonEncode({
-          'v': 1,
-          'ts': 1,
-          'e': [foreign, own],
-        }),
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      // The foreign candidate was skipped, not merely deferred; the peer's own
-      // candidate was still redeemed (skip must not abort the whole dial).
-      expect(h.joined, [own]);
-      h.admitted = true;
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-      expect(h.joined, [own]);
-    },
-  );
+  test('inbound frame: an endpoint naming a THIRD party is never dialed, the '
+      "peer's own endpoint after it still is", () async {
+    final h = _Harness();
+    final peer = _peer(2);
+    final foreign = _inviteUri(77, host: '192.168.1.66');
+    final own = _inviteUri(2);
+    // An ACCEPTED contact — transport admission proves only that — offers a
+    // stranger's identity/address first, then its own.
+    h.messaging.onP2PEndpoints!(
+      peer,
+      jsonEncode({
+        'v': 1,
+        'ts': 1,
+        'e': [foreign, own],
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    // The foreign candidate was skipped, not merely deferred; the peer's own
+    // candidate was still redeemed (skip must not abort the whole dial).
+    expect(h.joined, [own]);
+    h.admitted = true;
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    expect(h.joined, [own]);
+  });
 
   test(
     'inbound frame: an unparseable endpoint is dropped, not dialed',
@@ -346,39 +352,39 @@ void main() {
 
   // ── Strict call-time dial ladder (real-P2P Stage B) ──────────────────────
 
+  test('ensureReady admitted short-circuits before any dial or punch, and '
+      'force-reshares with a reshare request', () async {
+    final h = _Harness(injectPunch: true)..admitted = true;
+    final peer = _peer(8);
+    expect(await h.svc.ensureReady(peer), isTrue);
+    // Neither the host dial nor the punch runs when a session already exists.
+    expect(h.joined, isEmpty);
+    expect(h.punchCalls, isEmpty);
+    expect(h.svc.lastFallbackReason(peer), isNull);
+    // The forced reshare is unawaited — let it flush, then assert it went out
+    // with the mutual reshare-request flag set.
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(h.messaging.sentEndpoints, hasLength(1));
+    final body = jsonDecode(h.messaging.sentEndpoints.single.$2) as Map;
+    expect(body['r'], 1);
+  });
+
   test(
-    'ensureReady admitted short-circuits before any dial or punch, and '
-    'force-reshares with a reshare request',
+    'ensureReady force-reshares at call time even inside the throttle',
     () async {
-      final h = _Harness(injectPunch: true)..admitted = true;
-      final peer = _peer(8);
-      expect(await h.svc.ensureReady(peer), isTrue);
-      // Neither the host dial nor the punch runs when a session already exists.
-      expect(h.joined, isEmpty);
-      expect(h.punchCalls, isEmpty);
-      expect(h.svc.lastFallbackReason(peer), isNull);
-      // The forced reshare is unawaited — let it flush, then assert it went out
-      // with the mutual reshare-request flag set.
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      final h = _Harness(injectPunch: true);
+      final peer = _peer(9);
+      // Prime the throttle: a normal share was just sent.
+      await h.svc.maybeShare(peer);
       expect(h.messaging.sentEndpoints, hasLength(1));
-      final body = jsonDecode(h.messaging.sentEndpoints.single.$2) as Map;
+      // A call-time ensureReady must reshare anyway (bypass throttle) and mark
+      // the frame so the peer reshares too — the Stage B one-sided-exchange fix.
+      await h.svc.ensureReady(peer, budget: const Duration(milliseconds: 1));
+      expect(h.messaging.sentEndpoints.length, greaterThanOrEqualTo(2));
+      final body = jsonDecode(h.messaging.sentEndpoints.last.$2) as Map;
       expect(body['r'], 1);
     },
   );
-
-  test('ensureReady force-reshares at call time even inside the throttle', () async {
-    final h = _Harness(injectPunch: true);
-    final peer = _peer(9);
-    // Prime the throttle: a normal share was just sent.
-    await h.svc.maybeShare(peer);
-    expect(h.messaging.sentEndpoints, hasLength(1));
-    // A call-time ensureReady must reshare anyway (bypass throttle) and mark
-    // the frame so the peer reshares too — the Stage B one-sided-exchange fix.
-    await h.svc.ensureReady(peer, budget: const Duration(milliseconds: 1));
-    expect(h.messaging.sentEndpoints.length, greaterThanOrEqualTo(2));
-    final body = jsonDecode(h.messaging.sentEndpoints.last.$2) as Map;
-    expect(body['r'], 1);
-  });
 
   test(
     'ensureReady runs the explicit punch before relay and records the reason',
@@ -416,74 +422,91 @@ void main() {
     expect(h.svc.lastFallbackReason(peer), isNull);
   });
 
-  test('ensureReady skips the punch when the host/LAN dial admits first', () async {
-    final h = _Harness(injectPunch: true, admitOnJoin: true);
-    final peer = _peer(12);
-    // The peer shared a dialable endpoint; redeeming it "brings the session up".
-    h.messaging.onP2PEndpoints!(
-      peer,
-      jsonEncode({
-        'v': 1,
-        'ts': 1,
-        'e': [_inviteUri(12)],
-      }),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-    // admitOnJoin already flipped admitted via the inbound dial; ensureReady
-    // must short-circuit at rung 1 without ever reaching the punch.
-    final ok = await h.svc.ensureReady(peer);
-    expect(ok, isTrue);
-    expect(h.punchCalls, isEmpty);
-  });
+  test(
+    'ensureReady skips the punch when the host/LAN dial admits first',
+    () async {
+      final h = _Harness(injectPunch: true, admitOnJoin: true);
+      final peer = _peer(12);
+      // The peer shared a dialable endpoint; redeeming it "brings the session up".
+      h.messaging.onP2PEndpoints!(
+        peer,
+        jsonEncode({
+          'v': 1,
+          'ts': 1,
+          'e': [_inviteUri(12)],
+        }),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      // admitOnJoin already flipped admitted via the inbound dial; ensureReady
+      // must short-circuit at rung 1 without ever reaching the punch.
+      final ok = await h.svc.ensureReady(peer);
+      expect(ok, isTrue);
+      expect(h.punchCalls, isEmpty);
+    },
+  );
 
-  test('ensureReady without a punch adapter falls back to relay cleanly', () async {
-    // No punch injected (loopback/dev stack): the ladder ends at relay with a
-    // generic reason, never throwing.
-    final h = _Harness(injectPunch: false);
-    final peer = _peer(13);
-    final ok = await h.svc.ensureReady(
-      peer,
-      budget: const Duration(milliseconds: 1),
-    );
-    expect(ok, isFalse);
-    expect(h.punchCalls, isEmpty);
-    expect(h.svc.lastFallbackReason(peer), 'direct session unavailable');
-  });
+  test(
+    'ensureReady without a punch adapter falls back to relay cleanly',
+    () async {
+      // No punch injected (loopback/dev stack): the ladder ends at relay with a
+      // generic reason, never throwing.
+      final h = _Harness(injectPunch: false);
+      final peer = _peer(13);
+      final ok = await h.svc.ensureReady(
+        peer,
+        budget: const Duration(milliseconds: 1),
+      );
+      expect(ok, isFalse);
+      expect(h.punchCalls, isEmpty);
+      expect(h.svc.lastFallbackReason(peer), 'direct session unavailable');
+    },
+  );
 
-  test('inbound frame with reshare request forces a reply past the throttle', () async {
-    final h = _Harness();
-    final peer = _peer(14);
-    h.admitted = true; // isolate the reply path from dial loops
-    // Prime the throttle with a normal share.
-    await h.svc.maybeShare(peer);
-    expect(h.messaging.sentEndpoints, hasLength(1));
-    // A throttled frame (no 'r') within the window: reply is suppressed.
-    h.messaging.onP2PEndpoints!(
-      peer,
-      jsonEncode({
-        'v': 1,
-        'ts': 10,
-        'e': ['veil:bootstrap?pk=AAAA&t=tcp://192.168.1.9:9000&a=ed25519&nc=BB'],
-      }),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 30));
-    expect(h.messaging.sentEndpoints, hasLength(1), reason: 'throttled reply');
-    // A reshare-requested frame forces a fresh reply despite the throttle.
-    h.messaging.onP2PEndpoints!(
-      peer,
-      jsonEncode({
-        'v': 1,
-        'ts': 11,
-        'r': 1,
-        'e': ['veil:bootstrap?pk=AAAA&t=tcp://192.168.1.9:9000&a=ed25519&nc=BB'],
-      }),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 30));
-    expect(h.messaging.sentEndpoints, hasLength(2), reason: 'forced reply');
-    // The forced reply does NOT re-request a reshare (settles in one round).
-    final reply = jsonDecode(h.messaging.sentEndpoints.last.$2) as Map;
-    expect(reply.containsKey('r'), isFalse);
-  });
+  test(
+    'inbound frame with reshare request forces a reply past the throttle',
+    () async {
+      final h = _Harness();
+      final peer = _peer(14);
+      h.admitted = true; // isolate the reply path from dial loops
+      // Prime the throttle with a normal share.
+      await h.svc.maybeShare(peer);
+      expect(h.messaging.sentEndpoints, hasLength(1));
+      // A throttled frame (no 'r') within the window: reply is suppressed.
+      h.messaging.onP2PEndpoints!(
+        peer,
+        jsonEncode({
+          'v': 1,
+          'ts': 10,
+          'e': [
+            'veil:bootstrap?pk=AAAA&t=tcp://192.168.1.9:9000&a=ed25519&nc=BB',
+          ],
+        }),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(
+        h.messaging.sentEndpoints,
+        hasLength(1),
+        reason: 'throttled reply',
+      );
+      // A reshare-requested frame forces a fresh reply despite the throttle.
+      h.messaging.onP2PEndpoints!(
+        peer,
+        jsonEncode({
+          'v': 1,
+          'ts': 11,
+          'r': 1,
+          'e': [
+            'veil:bootstrap?pk=AAAA&t=tcp://192.168.1.9:9000&a=ed25519&nc=BB',
+          ],
+        }),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(h.messaging.sentEndpoints, hasLength(2), reason: 'forced reply');
+      // The forced reply does NOT re-request a reshare (settles in one round).
+      final reply = jsonDecode(h.messaging.sentEndpoints.last.$2) as Map;
+      expect(reply.containsKey('r'), isFalse);
+    },
+  );
 }
 
 /// The messaging warm — the link that gives a CONVERSATION a direct route.
@@ -499,7 +522,8 @@ void _messagingWarmTests() {
     expect(
       h.messaging.sentEndpoints,
       isEmpty,
-      reason: 'a conversation with no per-contact opt-in must not so much as '
+      reason:
+          'a conversation with no per-contact opt-in must not so much as '
           'share an endpoint — that address is the whole privacy cost',
     );
     expect(h.joined, isEmpty);
@@ -523,7 +547,8 @@ void _messagingWarmTests() {
     expect(
       h.messaging.sentEndpoints,
       isEmpty,
-      reason: 'already direct — re-running the ladder would reshare endpoints '
+      reason:
+          'already direct — re-running the ladder would reshare endpoints '
           'on a schedule the peer never asked for',
     );
   });
@@ -542,7 +567,8 @@ void _messagingWarmTests() {
     expect(
       h.messaging.sentEndpoints,
       hasLength(afterFirst),
-      reason: 'every ack, receipt and message goes through the same call — the '
+      reason:
+          'every ack, receipt and message goes through the same call — the '
           'ladder must not follow each one',
     );
 
@@ -558,5 +584,62 @@ void _messagingWarmTests() {
     await h.svc.warmForMessaging(_peer(0x25));
     await h.svc.warmForMessaging(_peer(0x26));
     expect(h.messaging.sentEndpoints, hasLength(2));
+  });
+
+  group('a node boot tells contacts where we moved to', () {
+    // A reboot never comes back on the same port — `_teardownRealStack`
+    // alternates the listen offset on purpose — so every peer's cached
+    // endpoint for us is wrong the moment we return. Nothing else says so:
+    // warmForMessaging returns early while ANY live session exists (the relay
+    // one does), and the call path only reshares once a call is already being
+    // placed, which is too late to help it.
+    test('every accepted contact is told, past the share throttle', () async {
+      final h = _Harness();
+      h.accepted = [_peer(1), _peer(2), _peer(3)];
+      // Pretend we already shared with one of them a moment ago: the throttle
+      // must not silence the announce, because the address really changed.
+      await h.svc.maybeShare(_peer(2));
+      h.messaging.sentEndpoints.clear();
+
+      await h.svc.announceLocalEndpoints();
+
+      expect(
+        h.messaging.sentEndpoints.map((e) => e.$1).toSet(),
+        {_peer(1), _peer(2), _peer(3)},
+        reason: 'a throttled contact still has a stale address for us',
+      );
+      // And each asks for theirs back — their view of us is symmetric.
+      for (final (_, body) in h.messaging.sentEndpoints) {
+        expect((jsonDecode(body) as Map)['r'], 1);
+      }
+    });
+
+    test('a loopback bind announces nothing', () async {
+      final h = _Harness(lanListen: false);
+      h.accepted = [_peer(1)];
+      await h.svc.announceLocalEndpoints();
+      expect(h.messaging.sentEndpoints, isEmpty);
+    });
+
+    test('a denied contact is not told', () async {
+      final h = _Harness(allows: false);
+      h.accepted = [_peer(1)];
+      await h.svc.announceLocalEndpoints();
+      expect(h.messaging.sentEndpoints, isEmpty);
+    });
+
+    test('the burst is bounded on a large roster', () async {
+      final h = _Harness();
+      h.accepted = [for (var i = 1; i <= 40; i++) _peer(i)];
+      await h.svc.announceLocalEndpoints(max: 5);
+      expect(h.messaging.sentEndpoints, hasLength(5));
+    });
+
+    test('a storage failure is not fatal', () async {
+      final h = _Harness();
+      h.acceptedError = StateError('container closed');
+      await h.svc.announceLocalEndpoints();
+      expect(h.messaging.sentEndpoints, isEmpty);
+    });
   });
 }
