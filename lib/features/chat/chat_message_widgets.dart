@@ -777,7 +777,12 @@ class _VoiceBubble extends ConsumerWidget {
         padding: const EdgeInsets.only(top: 6),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 260),
-          child: Text(text, style: style),
+          // Selectable, so the transcript can be taken out of the bubble the
+          // way any other text can. It is the one thing on a voice message a
+          // person is likely to want to quote, search or paste elsewhere, and
+          // a plain Text offered no way to reach it at all. Selection brings
+          // the platform's own Copy / Select all with it.
+          child: SelectableText(text, style: style),
         ),
       );
     }
