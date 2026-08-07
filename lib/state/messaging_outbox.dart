@@ -27,6 +27,33 @@ class _MessagingOutbox {
   /// next to the hundreds of frames the cap it feeds is measured in.
   final Map<String, int> _pendingByPeer = {};
 
+  /// Whether [_pendingByPeer] has ever been filled from the store.
+  ///
+  /// It matters at start-up and nowhere else. The counter is refreshed by
+  /// [flush], which first runs up to one interval after the service starts —
+  /// and the replication burst that this counter exists to bound
+  /// (`nudgeGroupSyncAll`) happens AT start-up, inside that window. Left
+  /// unseeded the cap would read zero and wave through exactly the batch it is
+  /// there to stop.
+  bool _pendingSeeded = false;
+
+  /// Fill the per-peer counts from the store if [flush] has not yet done it.
+  Future<void> ensurePendingCounted() async {
+    if (_pendingSeeded) return;
+    try {
+      final pending = await _owner._storage.pendingOutboxFrames();
+      _pendingByPeer.clear();
+      for (final frame in pending) {
+        _pendingByPeer[frame.peerHex] =
+            (_pendingByPeer[frame.peerHex] ?? 0) + 1;
+      }
+      _pendingSeeded = true;
+    } catch (_) {
+      // Unreadable store: leave it unseeded and try again next time rather
+      // than pretending every queue is empty for the rest of the session.
+    }
+  }
+
   /// Pending durable frames held for [peerHex] as of the last [flush].
   int pendingFor(String peerHex) => _pendingByPeer[peerHex] ?? 0;
 
@@ -292,6 +319,7 @@ class _MessagingOutbox {
     for (final frame in pending) {
       _pendingByPeer[frame.peerHex] = (_pendingByPeer[frame.peerHex] ?? 0) + 1;
     }
+    _pendingSeeded = true;
     for (final frame in pending) {
       if (_retireExpiredTransient(frame)) continue;
       // Media pauses unrelated maintenance, but never call lifecycle recovery.
