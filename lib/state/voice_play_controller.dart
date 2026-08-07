@@ -192,6 +192,12 @@ class VoicePlayController extends Notifier<VoicePlayState> {
 
   static const Duration _pollEvery = Duration(milliseconds: 100);
 
+  /// How close to the duration counts as the end. A platform player stops a
+  /// frame or two short of the declared length, and the poll only samples every
+  /// [_pollEvery], so an exact comparison would never match and the clip would
+  /// stay "playing" after it had finished.
+  static const int _endSlackMs = 150;
+
   @override
   VoicePlayState build() {
     ref.onDispose(_teardown);
@@ -286,6 +292,11 @@ class VoicePlayController extends Notifier<VoicePlayState> {
     state = state.copyWith(speed: _speed);
   }
 
+  /// Run one poll now. The end-of-clip decision lives in there and is worth
+  /// testing without waiting on a real 100 ms timer.
+  @visibleForTesting
+  Future<void> debugTick() => _tick();
+
   Future<void> _tick() async {
     final p = _player;
     if (p == null || _ticking) return;
@@ -293,9 +304,19 @@ class VoicePlayController extends Notifier<VoicePlayState> {
     try {
       final pos = await p.positionMs();
       if (!identical(p, _player)) return; // player switched mid-await
-      state = state.copyWith(positionMs: pos);
-      // The platform player reports not-playing at end-of-clip → reset to idle.
-      if (!p.isPlaying && !state.paused) {
+      // Duration can land after start on the platform player; keep it fresh,
+      // because the end check below has nothing to compare against without it.
+      final dur = p.durationMs > 0 ? p.durationMs : state.durationMs;
+      state = state.copyWith(positionMs: pos, durationMs: dur);
+      // END of the clip — and only that.
+      //
+      // This used to be `!p.isPlaying` alone. That is also true for the moment
+      // after a seek, while the platform player re-primes at the new position,
+      // so touching the middle of a clip played the first instant and then the
+      // next tick declared it finished and reset everything. The predicate has
+      // to be the actual end condition: at the end AND stopped there.
+      final atEnd = dur > 0 && pos >= dur - _endSlackMs;
+      if (atEnd && !p.isPlaying && !state.paused) {
         _stopPlayer();
         state = const VoicePlayState();
       }

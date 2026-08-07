@@ -23,6 +23,13 @@ class _FakePlayer implements VoicePlayer {
     _pos = _dur;
   }
 
+  /// What a platform player looks like for a moment after a seek: parked at the
+  /// new position and not yet playing again.
+  void stallAt(int ms) {
+    _playing = false;
+    _pos = ms;
+  }
+
   @override
   Future<bool> start() async {
     started = startOk;
@@ -247,4 +254,60 @@ void main() {
     await ctrl.seekTo('m1', -0.3);
     expect(c.read(voicePlayControllerProvider).positionMs, 0);
   });
+
+  test(
+    'a player that is briefly not playing MID-clip has not finished',
+    () async {
+      // The end check used to be `!isPlaying` alone, which is also true while the
+      // platform player re-primes after a seek. Touching the middle of a clip
+      // therefore played an instant and then the next poll declared it over and
+      // reset everything — reported from the phone as "gives sound and jumps
+      // straight to the end".
+      final p = _FakePlayer();
+      final c = await _container(p);
+      addTearDown(c.dispose);
+      final ctrl = c.read(voicePlayControllerProvider.notifier);
+
+      await ctrl.toggle('m1', 'vkey');
+      await ctrl.seekTo('m1', 0.5);
+      p.stallAt(1000); // seeked to the middle, not playing yet
+      await ctrl.debugTick();
+
+      final s = c.read(voicePlayControllerProvider);
+      expect(s.isActive('m1'), isTrue, reason: 'the clip is mid-way, not over');
+      expect(s.positionMs, 1000);
+      expect(p.disposed, isFalse, reason: 'the player must not be torn down');
+    },
+  );
+
+  test('reaching the end still ends it', () async {
+    final p = _FakePlayer();
+    final c = await _container(p);
+    addTearDown(c.dispose);
+    final ctrl = c.read(voicePlayControllerProvider.notifier);
+
+    await ctrl.toggle('m1', 'vkey');
+    p.finish();
+    await ctrl.debugTick();
+
+    expect(c.read(voicePlayControllerProvider).playingId, isNull);
+    expect(p.disposed, isTrue);
+  });
+
+  test(
+    'a clip stopped just short of its length still counts as finished',
+    () async {
+      // Platform players park a frame or two before the declared duration.
+      final p = _FakePlayer();
+      final c = await _container(p);
+      addTearDown(c.dispose);
+      final ctrl = c.read(voicePlayControllerProvider.notifier);
+
+      await ctrl.toggle('m1', 'vkey');
+      p.stallAt(2000 - 60); // 60 ms short of the 2000 ms clip
+      await ctrl.debugTick();
+
+      expect(c.read(voicePlayControllerProvider).playingId, isNull);
+    },
+  );
 }
