@@ -56,11 +56,15 @@ class P2PEndpointService {
     required this._listenScheme,
     required this._lanListenEnabled,
     Future<List<String>> Function()? localAddresses,
+    Future<List<NodeId>> Function()? acceptedPeers,
     this._listenTransports,
     this._attemptHolePunch,
     DateTime Function()? now,
   }) : _localAddresses = localAddresses ?? _defaultLocalAddresses,
+       _acceptedPeers = acceptedPeers ?? _noPeers,
        _now = now ?? DateTime.now;
+
+  static Future<List<NodeId>> _noPeers() async => const [];
 
   final MessagingService _messaging;
   final Future<bool> Function(NodeId peer) _localAllowsP2P;
@@ -76,6 +80,10 @@ class P2PEndpointService {
   final int Function() _listenPort;
   final String Function() _listenScheme;
   final bool Function() _lanListenEnabled;
+
+  /// Contacts to tell when our own address changes. Injected rather than read
+  /// from storage here so the service stays a pure negotiator.
+  final Future<List<NodeId>> Function() _acceptedPeers;
   final Future<List<String>> Function() _localAddresses;
 
   /// Explicit call-path hole punch (real-P2P Stage B). Runs one bounded
@@ -186,6 +194,51 @@ class P2PEndpointService {
     await _messaging.sendP2PEndpoints(peer, body, sentAtMs: ts);
   }
 
+  /// Tell every accepted contact where to find us, because we just moved.
+  ///
+  /// A node reboot — the anonymity switch, an identity change, a routing change
+  /// — does not come back on the same port: `_teardownRealStack` alternates the
+  /// listen offset deliberately, so the next boot never rebinds a port still in
+  /// lingering teardown. Every peer's cached endpoint for us is therefore wrong
+  /// the moment we come back, and nothing used to say so. They found out only
+  /// when something else happened to run the ladder, and until then a direct
+  /// route could not be dialed in either direction.
+  ///
+  /// Nothing else fills this gap. [warmForMessaging] returns early when
+  /// [_admitted] is true, and admitted means "some live session exists" — which
+  /// it does, over the relay — so the conversation path never reshares. The
+  /// call path does force a reshare, but only once a call is already being
+  /// placed, which is exactly when there is no time left to recover.
+  ///
+  /// Forced past the share throttle, since the address really did change.
+  /// [requestReshare] because the peer's own view is symmetric: it wants ours,
+  /// we want its. [max] bounds the boot burst on a large roster; the rest keep
+  /// the ordinary path (a share on their next ladder run).
+  Future<void> announceLocalEndpoints({int max = 32}) async {
+    if (!_lanListenEnabled()) return; // loopback bind — nothing dialable
+    final List<NodeId> peers;
+    try {
+      peers = await _acceptedPeers();
+    } catch (e) {
+      devLog(() => 'xVeil[p2p]: could not list contacts to announce to: $e');
+      return;
+    }
+    if (peers.isEmpty) return;
+    devLog(
+      () =>
+          'xVeil[p2p]: announcing our endpoints to '
+          '${peers.length > max ? max : peers.length} contact(s) after node boot',
+    );
+    for (final peer in peers.take(max)) {
+      try {
+        await maybeShare(peer, force: true, requestReshare: true);
+      } catch (e) {
+        // One unreachable contact must not stop the rest being told.
+        devLog(() => 'xVeil[p2p]: announce to ${peer.short} failed: $e');
+      }
+    }
+  }
+
   /// Messaging entry to the ladder — the reason a conversation can ever get a
   /// direct route at all. [ensureReady] is the CALL path: it must answer now,
   /// so the caller waits on it. A chat must not wait on anything, so this is
@@ -212,11 +265,17 @@ class P2PEndpointService {
       // Already direct — nothing to warm, and re-running the ladder here would
       // reshare endpoints on a schedule the peer never asked for.
       if (await _admitted(peer)) return;
-      devLog(() => 'xVeil[p2p]: messaging warm — running the ladder for '
-          '${peer.short}');
+      devLog(
+        () =>
+            'xVeil[p2p]: messaging warm — running the ladder for '
+            '${peer.short}',
+      );
       final ok = await ensureReady(peer);
-      devLog(() => 'xVeil[p2p]: messaging warm for ${peer.short} '
-          '${ok ? "got a direct session" : "stayed on the relay path"}');
+      devLog(
+        () =>
+            'xVeil[p2p]: messaging warm for ${peer.short} '
+            '${ok ? "got a direct session" : "stayed on the relay path"}',
+      );
     } catch (e) {
       // Best-effort by construction: the conversation is already delivering
       // over the mailbox, and a warm that throws must not touch that.
@@ -606,6 +665,14 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
     listenScheme: () => stack.listenScheme,
     lanListenEnabled: () => stack.lanListen,
     listenTransports: transport.listenTransports,
+    acceptedPeers: () async {
+      final conversations = await ref.read(storageProvider).loadConversations();
+      final seen = <String>{};
+      return [
+        for (final c in conversations)
+          if (c.peer.canMessage && seen.add(c.peer.nodeId.hex)) c.peer.nodeId,
+      ];
+    },
     attemptHolePunch: (peer) async {
       final status = await transport.attemptP2PHolePunch(peer);
       return (
@@ -617,7 +684,11 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
   // The link that gives a CONVERSATION a direct route. Without it the ladder
   // exists but nothing in messaging ever calls it, which is exactly the state
   // this replaces.
-  messaging.prepareDirectRoute = (peer) => unawaited(svc.warmForMessaging(peer));
+  messaging.prepareDirectRoute = (peer) =>
+      unawaited(svc.warmForMessaging(peer));
+  // This provider is rebuilt by a node boot (it watches the real stack), and a
+  // boot is exactly when our listen port changes under everyone. Tell them.
+  unawaited(svc.announceLocalEndpoints());
   ref.onDispose(() {
     messaging.prepareDirectRoute = null;
     svc.dispose();
