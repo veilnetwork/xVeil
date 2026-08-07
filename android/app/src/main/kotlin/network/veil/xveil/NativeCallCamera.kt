@@ -262,19 +262,33 @@ class NativeCallCamera(
                                     captureSession = session
                                     session.setRepeatingRequest(request.build(), null, cameraHandler)
                                     running = true
+                                    // The SurfaceTexture path already applies
+                                    // the producer transform matrix in
+                                    // Flutter's external-texture renderer, so
+                                    // the texture ARRIVES upright and the
+                                    // preview rotation Dart should apply is
+                                    // zero. SENSOR_ORIENTATION is still
+                                    // required by the separate ImageReader/YUV
+                                    // path above; applying it again in Dart
+                                    // rotates the self-preview onto its side.
+                                    //
+                                    // But an upright texture has the sensor's
+                                    // axes SWAPPED, and these width/height are
+                                    // the size Dart lays the texture out at.
+                                    // Reporting the sensor size with a rotation
+                                    // of zero told Dart to put a portrait image
+                                    // in a landscape box, which is what
+                                    // squashed the self-view on the phone.
+                                    // Report the size the texture actually has.
+                                    val previewSwapsAxes =
+                                        sensorRotation == 90 || sensorRotation == 270
                                     finish(
                                         mapOf(
                                             "textureId" to entry.id(),
-                                            "width" to size.width,
-                                            "height" to size.height,
-                                            // The SurfaceTexture path already
-                                            // applies the producer transform
-                                            // matrix in Flutter's external-
-                                            // texture renderer. SENSOR_ORIENTATION
-                                            // is still required by the separate
-                                            // ImageReader/YUV path above, but
-                                            // applying it again in Dart rotates
-                                            // the self-preview onto its side.
+                                            "width" to
+                                                if (previewSwapsAxes) size.height else size.width,
+                                            "height" to
+                                                if (previewSwapsAxes) size.width else size.height,
                                             "previewRotation" to 0,
                                             "mirror" to mirror,
                                             "fps" to fpsRange.upper,
