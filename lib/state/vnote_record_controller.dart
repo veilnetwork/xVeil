@@ -61,6 +61,15 @@ class NativeVnoteRecorder implements VnoteRecorder {
   /// frame still gets pushed.
   static const Duration _firstFrameGrace = Duration(seconds: 2);
 
+  /// A moment to get ready, counted from the first frame the person can see.
+  ///
+  /// Recording the instant the camera is ready gives no chance to compose
+  /// yourself — the opening of every note is the half-second of raising the
+  /// phone. Frames pushed during this window reach the preview and nothing
+  /// else (the native encoder drops them until the clip starts), so it costs a
+  /// live round preview and no recorded footage.
+  static const Duration _getReadyWindow = Duration(seconds: 1);
+
   @override
   Future<bool> start() async {
     // Elsewhere the recorder owns its own camera, so the clip and the capture
@@ -78,15 +87,12 @@ class NativeVnoteRecorder implements VnoteRecorder {
     // picture until the first frame finally landed.
     final cam = AndroidCameraCapture();
     _cam = cam;
-    final firstFrame = Completer<bool>();
-    var clipStarted = false;
+    final firstFrame = Completer<void>();
     final opened = await cam.start((y, u, v, w, h) {
       if (_cam != cam) return;
-      if (!clipStarted) {
-        clipStarted = _rec.start();
-        if (!firstFrame.isCompleted) firstFrame.complete(clipStarted);
-        if (!clipStarted) return;
-      }
+      if (!firstFrame.isCompleted) firstFrame.complete();
+      // Before the clip starts these only reach the preview; the native
+      // encoder drops them until `start()` stamps the clock.
       _rec.pushFrame(y, u, v, w, h);
     });
     if (!opened) {
@@ -94,19 +100,22 @@ class NativeVnoteRecorder implements VnoteRecorder {
       devLog(() => 'xVeil[vnote]: android camera start failed — audio-only');
       return _rec.start();
     }
-    return firstFrame.future.timeout(
+    // A camera that opens and then delivers nothing must not leave the record
+    // button dead: fall through and record what we can.
+    var sawFrame = true;
+    await firstFrame.future.timeout(
       _firstFrameGrace,
       onTimeout: () {
-        if (clipStarted) return true;
-        clipStarted = _rec.start();
+        sawFrame = false;
         devLog(
           () =>
               'xVeil[vnote]: no camera frame in '
               '${_firstFrameGrace.inMilliseconds}ms — recording without video',
         );
-        return clipStarted;
       },
     );
+    if (sawFrame) await Future<void>.delayed(_getReadyWindow);
+    return _rec.start();
   }
 
   @override
@@ -149,7 +158,9 @@ final cameraPermissionProvider = Provider<CameraPermissionRequest>(
   (ref) => MacMediaPermissions.requestCamera,
 );
 
-enum VnoteRecordPhase { idle, recording, denied, error }
+/// `preparing` is the camera warming up and the person getting ready: the
+/// preview is live, the clip has not started, and nothing is being kept yet.
+enum VnoteRecordPhase { idle, preparing, recording, denied, error }
 
 class VnoteRecordState {
   const VnoteRecordState({
@@ -163,6 +174,13 @@ class VnoteRecordState {
   final double level;
 
   bool get isRecording => phase == VnoteRecordPhase.recording;
+
+  /// Capture is underway in either sense — the gate for "do not start a second
+  /// one" and for "the composer is busy". Distinct from [isRecording], which
+  /// answers the narrower question of whether anything is being KEPT.
+  bool get isCapturing =>
+      phase == VnoteRecordPhase.preparing ||
+      phase == VnoteRecordPhase.recording;
 
   VnoteRecordState copyWith({
     VnoteRecordPhase? phase,
@@ -195,10 +213,15 @@ class VnoteRecordController extends Notifier<VnoteRecordState> {
     return const VnoteRecordState();
   }
 
-  /// Request mic + camera (both needed) and begin capturing. No-op if already
-  /// recording.
+  /// Request mic + camera (both needed) and begin capturing. No-op if capture
+  /// is already underway.
+  ///
+  /// The recorder's own `start()` now spans the camera opening plus a moment
+  /// to get ready, so the poll timer and the `preparing` phase are armed BEFORE
+  /// awaiting it — otherwise the composer would sit on a dead frame for a
+  /// second with nothing to show and no sign that anything was happening.
   Future<void> start() async {
-    if (state.isRecording) return;
+    if (state.isCapturing) return;
     final micOk = await ref.read(micPermissionProvider)();
     final camOk = await ref.read(cameraPermissionProvider)();
     if (!micOk || !camOk) {
@@ -206,25 +229,39 @@ class VnoteRecordController extends Notifier<VnoteRecordState> {
       return;
     }
     final rec = ref.read(vnoteRecorderFactoryProvider)();
-    if (rec == null || !await rec.start()) {
-      rec?.dispose();
-      devLog(() => 'xVeil[vnote]: recorder start failed');
+    if (rec == null) {
+      devLog(() => 'xVeil[vnote]: recorder unavailable');
       state = const VnoteRecordState(phase: VnoteRecordPhase.error);
       return;
     }
     _rec = rec;
     preview.value = null;
-    state = const VnoteRecordState(phase: VnoteRecordPhase.recording);
+    state = const VnoteRecordState(phase: VnoteRecordPhase.preparing);
     _poll = Timer.periodic(_pollEvery, (_) => _tick());
+    if (!await rec.start()) {
+      // cancel(), not _teardown(): the latter belongs to provider disposal and
+      // disposes `preview`, which outlives any one recording.
+      cancel();
+      devLog(() => 'xVeil[vnote]: recorder start failed');
+      state = const VnoteRecordState(phase: VnoteRecordPhase.error);
+      return;
+    }
+    // A cancel during the get-ready window already tore this down; do not
+    // resurrect it into recording.
+    if (_rec != rec) return;
+    state = state.copyWith(phase: VnoteRecordPhase.recording);
   }
 
   void _tick() {
     final rec = _rec;
     if (rec == null) return;
-    final elapsed = rec.elapsedMs;
-    state = state.copyWith(elapsedMs: elapsed, level: rec.level);
+    // The preview runs in BOTH phases — showing it is the whole point of the
+    // get-ready window.
     final f = rec.frame();
     if (f != null) preview.value = f;
+    if (!state.isRecording) return;
+    final elapsed = rec.elapsedMs;
+    state = state.copyWith(elapsedMs: elapsed, level: rec.level);
     if (elapsed >= maxDuration.inMilliseconds) {
       unawaited(_autoStop());
     }
@@ -246,8 +283,15 @@ class VnoteRecordController extends Notifier<VnoteRecordState> {
   }
 
   /// Stop capture and return the finished note (null if empty/not recording).
+  ///
+  /// Letting go during the get-ready window is a cancel, not a zero-length
+  /// note: nothing has been kept yet. Returning early WITHOUT tearing down
+  /// would leave the camera and the recorder running with no UI attached.
   VnoteClip? stop() {
-    if (!state.isRecording) return null;
+    if (!state.isRecording) {
+      if (state.isCapturing) cancel();
+      return null;
+    }
     final clip = _finish();
     state = const VnoteRecordState();
     return clip;

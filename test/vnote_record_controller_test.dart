@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,8 +17,14 @@ class _FakeRecorder implements VnoteRecorder {
   int elapsed = 0;
   int framesServed = 0;
 
+  /// Held open to model the real recorder, whose `start()` spans the camera
+  /// opening plus the get-ready window.
+  Completer<void>? gate;
+
   @override
   Future<bool> start() async {
+    final g = gate;
+    if (g != null) await g.future;
     started = startOk;
     return startOk;
   }
@@ -158,5 +165,80 @@ void main() {
     final ctrl = c.read(vnoteRecordControllerProvider.notifier);
     await ctrl.start();
     expect(ctrl.stop(), isNull);
+  });
+
+  group('the get-ready window', () {
+    // The recorder's start() now spans the camera opening plus a second to
+    // compose yourself. The composer must show the round preview through all
+    // of it — arming the phase and the poll only after start() returns would
+    // leave a dead frame and no sign anything was happening.
+    test('the preview runs while preparing, and nothing is kept yet', () async {
+      final rec = _FakeRecorder()..gate = Completer<void>();
+      final c = _container(recorder: rec);
+      addTearDown(c.dispose);
+      final ctrl = c.read(vnoteRecordControllerProvider.notifier);
+
+      final starting = ctrl.start();
+      await pumpEventQueue();
+
+      final s = c.read(vnoteRecordControllerProvider);
+      expect(s.phase, VnoteRecordPhase.preparing);
+      expect(s.isRecording, isFalse, reason: 'nothing is being kept yet');
+      expect(s.isCapturing, isTrue, reason: 'but the composer IS busy');
+
+      // The poll is already running, so the preview has a source.
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      expect(rec.framesServed, greaterThan(0));
+      expect(ctrl.preview.value, isNotNull);
+
+      rec.gate!.complete();
+      await starting;
+      expect(
+        c.read(vnoteRecordControllerProvider).phase,
+        VnoteRecordPhase.recording,
+      );
+    });
+
+    test('a second start while preparing is a no-op', () async {
+      final rec = _FakeRecorder()..gate = Completer<void>();
+      final c = _container(recorder: rec);
+      addTearDown(c.dispose);
+      final ctrl = c.read(vnoteRecordControllerProvider.notifier);
+
+      final first = ctrl.start();
+      await pumpEventQueue();
+      await ctrl.start(); // must not build a second recorder
+      expect(
+        c.read(vnoteRecordControllerProvider).phase,
+        VnoteRecordPhase.preparing,
+      );
+      rec.gate!.complete();
+      await first;
+      expect(rec.disposed, isFalse);
+    });
+
+    test('letting go while preparing cancels instead of yielding a clip',
+        () async {
+      // Nothing has been recorded, so there is no note to hand back — but the
+      // camera and recorder must not be left running either.
+      final rec = _FakeRecorder()..gate = Completer<void>();
+      final c = _container(recorder: rec);
+      addTearDown(c.dispose);
+      final ctrl = c.read(vnoteRecordControllerProvider.notifier);
+
+      final starting = ctrl.start();
+      await pumpEventQueue();
+      expect(ctrl.stop(), isNull);
+      expect(rec.disposed, isTrue, reason: 'the recorder must be torn down');
+      expect(c.read(vnoteRecordControllerProvider).phase, VnoteRecordPhase.idle);
+
+      rec.gate!.complete();
+      await starting;
+      expect(
+        c.read(vnoteRecordControllerProvider).phase,
+        VnoteRecordPhase.idle,
+        reason: 'a cancelled start must not resurrect into recording',
+      );
+    });
   });
 }
