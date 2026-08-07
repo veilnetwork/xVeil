@@ -56,10 +56,7 @@ class _WavVoicePlayer implements VoicePlayer {
     try {
       // Already decoded in RAM and small (a voice message), so it is handed
       // over as an in-memory source rather than read from anywhere.
-      final url = await server.serve(
-        bytesRangeSource(wav),
-        name: 'voice.wav',
-      );
+      final url = await server.serve(bytesRangeSource(wav), name: 'voice.wav');
       final c = VideoPlayerController.networkUrl(url);
       await c.initialize();
       return _WavVoicePlayer._(server, c);
@@ -173,15 +170,15 @@ class VoicePlayState {
     int? durationMs,
     bool? paused,
     double? speed,
-  }) =>
-      VoicePlayState(
-        playingId:
-            identical(playingId, _unset) ? this.playingId : playingId as String?,
-        positionMs: positionMs ?? this.positionMs,
-        durationMs: durationMs ?? this.durationMs,
-        paused: paused ?? this.paused,
-        speed: speed ?? this.speed,
-      );
+  }) => VoicePlayState(
+    playingId: identical(playingId, _unset)
+        ? this.playingId
+        : playingId as String?,
+    positionMs: positionMs ?? this.positionMs,
+    durationMs: durationMs ?? this.durationMs,
+    paused: paused ?? this.paused,
+    speed: speed ?? this.speed,
+  );
 
   static const Object _unset = Object();
 }
@@ -212,7 +209,9 @@ class VoicePlayController extends Notifier<VoicePlayState> {
       _toggle(messageId, () async => bytes);
 
   Future<void> _toggle(
-      String messageId, Future<Uint8List?> Function() load) async {
+    String messageId,
+    Future<Uint8List?> Function() load,
+  ) async {
     if (state.isActive(messageId)) {
       // Same clip: pause/resume.
       if (state.paused) {
@@ -258,6 +257,27 @@ class VoicePlayController extends Notifier<VoicePlayState> {
     state = state.copyWith(positionMs: ms);
   }
 
+  /// Seek within [messageId], loading and starting it first when it is not the
+  /// clip currently in the player.
+  ///
+  /// [seekTo] alone refuses an inactive clip, which made the waveform look
+  /// dead: touching a voice message you had not played yet did nothing at all,
+  /// and the only way to reach a point in the middle was to start from the
+  /// beginning and wait. Pointing at a moment is the way people ask to hear it.
+  Future<void> seekOrStart(
+    String messageId,
+    String fileKey,
+    double fraction,
+  ) async {
+    if (!state.isActive(messageId)) {
+      await toggle(messageId, fileKey);
+      // Load or decode can fail, and toggle reports that by leaving the clip
+      // inactive; seeking a player that never started would be a no-op anyway.
+      if (!state.isActive(messageId)) return;
+    }
+    await seekTo(messageId, fraction);
+  }
+
   /// Cycle playback speed (1.0 → 1.5 → 2.0 → 1.0), applied live.
   void cycleSpeed() {
     final i = kVoiceSpeeds.indexOf(_speed);
@@ -300,5 +320,5 @@ class VoicePlayController extends Notifier<VoicePlayState> {
 
 final voicePlayControllerProvider =
     NotifierProvider<VoicePlayController, VoicePlayState>(
-  VoicePlayController.new,
-);
+      VoicePlayController.new,
+    );
