@@ -254,7 +254,9 @@ class _MessageComposerState extends ConsumerState<MessageComposer> {
       );
     }
     final vnoteRec = ref.watch(vnoteRecordControllerProvider);
-    if (vnoteRec.isRecording) {
+    // isCapturing, not isRecording: the get-ready window is when the person
+    // most needs to see the round preview and the "hold on" state.
+    if (vnoteRec.isCapturing) {
       return SafeArea(
         top: false,
         child: Padding(
