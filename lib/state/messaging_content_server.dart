@@ -61,13 +61,32 @@ extension _MessagingContentServer on MessagingService {
       );
     }
     _servingNow.add(req.contentId);
+    // The serve runs detached, so its failure has nowhere to be returned TO —
+    // and with no line logged on a successful chunk either, a serve that threw
+    // on its first read looked exactly like one that delivered every byte:
+    // "-> serving" and then silence, whichever happened. Say which.
+    final total = gaps.values.fold<int>(
+      0,
+      (a, b) => a + (b?.length ?? m.chunkCount(0)),
+    );
     unawaited(
-      _serveChunks(
-        peer,
-        m,
-        served.source,
-        gaps,
-      ).whenComplete(() => _servingNow.remove(req.contentId)),
+      _serveChunks(peer, m, served.source, gaps)
+          .then(
+            (_) => devLog(
+              () =>
+                  'xVeil[content]: serve DONE ${req.contentId.substring(0, 12)} '
+                  '— $total chunks -> ${peer.short}',
+            ),
+          )
+          .catchError((Object e, StackTrace s) {
+            devLog(
+              () =>
+                  'xVeil[content]: serve FAILED '
+                  '${req.contentId.substring(0, 12)} -> ${peer.short} '
+                  'after $total chunks queued: $e',
+            );
+          })
+          .whenComplete(() => _servingNow.remove(req.contentId)),
     );
   }
 
