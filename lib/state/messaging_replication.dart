@@ -68,6 +68,43 @@ class _MessagingReplication {
         })
       >{};
 
+  /// Stop feeding a destination whose durable queue is not draining.
+  ///
+  /// Replication fans every change out to every member, so a member that never
+  /// acknowledges accumulates one batch per change with no end. Measured on the
+  /// stand: 3473 frames and 9.56 MB queued to a linked device that had been
+  /// wiped four days earlier, and growing at every app start.
+  ///
+  /// This DROPS NOTHING — it declines to add more — and it does not weaken the
+  /// guarantee that two devices reach the same state. That guarantee never came
+  /// from this queue: a device that comes back asks what it is missing
+  /// (`nudgeGroupSyncAll` runs for every group at every app start) and the
+  /// sender recomputes the answer against that device's own frontier. The queue
+  /// is an optimisation for a peer that is briefly away, and below the cap
+  /// nothing about it changes.
+  ///
+  /// Says so out loud, once the queue crosses the line and then at most once a
+  /// minute per peer: a subsystem that has quietly stopped replicating is
+  /// indistinguishable from one with nothing to say.
+  bool _backedUp(NodeId dst, String what) {
+    if (!_owner._outbox.replicationBackedUpFor(dst.hex)) return false;
+    final now = _owner._now();
+    final last = _backlogLoggedAt[dst.hex];
+    if (last == null || now.difference(last) >= const Duration(minutes: 1)) {
+      _backlogLoggedAt[dst.hex] = now;
+      devLog(
+        () =>
+            'xVeil[group]: NOT queueing a $what for ${dst.short} — '
+            '${_owner._outbox.pendingFor(dst.hex)} frames already undelivered. '
+            'It will get the current state by asking, when it is back.',
+      );
+    }
+    return true;
+  }
+
+  /// Last backlog complaint per peer, so the line above is a signal not a spam.
+  final Map<String, DateTime> _backlogLoggedAt = {};
+
   /// Ship a group snapshot to [dst] durably (direct fanout; keyed per group so
   /// a later snapshot of the SAME group supersedes an un-acked earlier one).
   Future<void> sendGroupSnapshot(
@@ -75,6 +112,7 @@ class _MessagingReplication {
     String groupIdHex,
     String bundleJson,
   ) async {
+    if (_backedUp(dst, 'group snapshot')) return;
     final bytes = Uint8List.fromList(utf8.encode(bundleJson));
     // Three things belong in this id, and two of them were missing.
     //
@@ -129,6 +167,7 @@ class _MessagingReplication {
     String documentIdHex,
     String frameJson,
   ) async {
+    if (_backedUp(dst, 'document frame')) return;
     final bytes = Uint8List.fromList(utf8.encode(frameJson));
     // Content digest + destination, for exactly the reasons spelled out in
     // [sendGroupSnapshot]: a document frame also fans out to every recipient,

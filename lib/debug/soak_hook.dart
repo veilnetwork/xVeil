@@ -2098,6 +2098,27 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final gid = NodeId.fromHex(hex);
     final bundle = await svc.load(gid);
     final st = await svc.stateOf(gid);
+    final messaging = ref.read(messagingServiceProvider);
+    final now = DateTime.now();
+    final members = <Map<String, dynamic>>[];
+    for (final m in (st?.members ?? {}).values) {
+      if (bundle?.manifest.isSovereignDevice == true &&
+          m.nodeId == bundle?.manifest.owner) {
+        continue;
+      }
+      // How long a device has been away is what tells you it is safe to unlink
+      // — a member list alone cannot distinguish "my other phone" from "a
+      // handset wiped in August that still collects every snapshot".
+      final seen = await messaging.lastSeen(m.nodeId);
+      members.add({
+        'id': m.nodeId.hex,
+        'short': m.nodeId.short,
+        'role': m.role.name,
+        'lastSeenMs': seen?.millisecondsSinceEpoch,
+        'awayMs': seen == null ? null : now.difference(seen).inMilliseconds,
+        'queued': messaging.debugPendingFor(m.nodeId.hex),
+      });
+    }
     return _json(req, {
       'ok': true,
       'deviceGroup': hex,
@@ -2106,12 +2127,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           ? bundle!.manifest.owner.hex
           : null,
       'epoch': st?.epoch,
-      'members': [
-        for (final m in (st?.members ?? {}).values)
-          if (bundle?.manifest.isSovereignDevice != true ||
-              m.nodeId != bundle?.manifest.owner)
-            {'id': m.nodeId.hex, 'short': m.nodeId.short, 'role': m.role.name},
-      ],
+      'members': members,
     });
   }
 

@@ -19,6 +19,39 @@ class _MessagingOutbox {
 
   final Set<String> _seenFrames = {};
 
+  /// Pending durable frames per peer, so a caller can ask how backed up a
+  /// destination is without reading the whole outbox.
+  ///
+  /// Rebuilt from the authoritative list on every [flush] and adjusted in
+  /// between, so it can lag by at most one flush interval — which is nothing
+  /// next to the hundreds of frames the cap it feeds is measured in.
+  final Map<String, int> _pendingByPeer = {};
+
+  /// Pending durable frames held for [peerHex] as of the last [flush].
+  int pendingFor(String peerHex) => _pendingByPeer[peerHex] ?? 0;
+
+  /// How many undelivered replication frames one peer may hold before we stop
+  /// queueing more for it.
+  ///
+  /// Replication fans a snapshot out to every member, so a member that never
+  /// acks accumulates one batch per change, forever. Measured on the stand:
+  /// 3473 frames and 9.56 MB queued to a device that had been wiped four days
+  /// earlier, growing with every app start.
+  ///
+  /// NOTHING IS DROPPED and convergence is not weakened. A device that returns
+  /// asks what it is missing — `nudgeGroupSyncAll` runs for every group at
+  /// every app start — and the sender recomputes the answer against that
+  /// device's own frontier. The queue was never the mechanism that brings two
+  /// devices to the same state; it is only an optimisation for a peer that is
+  /// briefly away, and this bounds it. Below the cap the behaviour is
+  /// unchanged, so a device away for a day still finds everything waiting.
+  static const _replicationBacklogCap = 256;
+
+  /// Whether replication to [peerHex] should pause because its queue is not
+  /// draining. See [_replicationBacklogCap].
+  bool replicationBackedUpFor(String peerHex) =>
+      pendingFor(peerHex) >= _replicationBacklogCap;
+
   /// Frames whose live leg has gone out but whose durable row is not written
   /// yet, and the subset of those the peer already acknowledged.
   ///
@@ -157,6 +190,7 @@ class _MessagingOutbox {
       ]);
     }
     await _owner._storage.enqueueOutboxFrame(frameId, peer.hex, wire);
+    _pendingByPeer[peer.hex] = (_pendingByPeer[peer.hex] ?? 0) + 1;
     recordQueued(
       frameId,
       peer.hex,
@@ -251,6 +285,12 @@ class _MessagingOutbox {
       pending = await _owner._storage.pendingOutboxFrames();
     } catch (_) {
       return;
+    }
+    // The authoritative count, once per cycle. Everything between cycles only
+    // adjusts it.
+    _pendingByPeer.clear();
+    for (final frame in pending) {
+      _pendingByPeer[frame.peerHex] = (_pendingByPeer[frame.peerHex] ?? 0) + 1;
     }
     for (final frame in pending) {
       if (_retireExpiredTransient(frame)) continue;
@@ -438,6 +478,12 @@ class _MessagingOutbox {
     _fastCallRetryTimers.remove(frameId)?.cancel();
     _owner._mailboxDelivery.removeStashed(frameId);
     _liveBackoff.remove(_key(peerHex, frameId));
+    final left = (_pendingByPeer[peerHex] ?? 0) - 1;
+    if (left > 0) {
+      _pendingByPeer[peerHex] = left;
+    } else {
+      _pendingByPeer.remove(peerHex);
+    }
     unawaited(_owner._storage.ackOutboxFrame(frameId, fromPeerHex: peerHex));
   }
 
