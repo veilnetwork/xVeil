@@ -147,6 +147,13 @@ extension _MessagingContentServer on MessagingService {
         if (c >= 0 && c < n) coords.add((p: p, c: c));
       }
     }
+    // A serve that is merely SLOW looks exactly like a healthy one in the log:
+    // "-> serving" and, a long time later, "DONE". Splitting its cost between
+    // reading the bytes and putting them on the wire is what says whether a
+    // slow transfer is this machine's disk or the network — the difference
+    // between tuning the batch and chasing the node.
+    final sw = Stopwatch()..start();
+    var readMicros = 0, sendMicros = 0;
     for (var i = 0; i < coords.length; i += _contentServeBatch) {
       // Stop a long serve the receiver has ABANDONED: if it stopped re-requesting
       // (its fetch completed / went stale), our [_serving] freshness goes stale
@@ -179,21 +186,23 @@ extension _MessagingContentServer on MessagingService {
         final cstart = p * m.pieceSize + c * cb;
         final clen = (c * cb + cb <= plen) ? cb : plen - c * cb;
         Uint8List? data;
+        final readAt = sw.elapsedMicroseconds;
         try {
           // Bounded so a read that never returns names ITSELF. The serve was
           // seen to stop dead inside a batch — no chunk out, no DONE, no
           // FAILED — and with both the read and the send unbounded there was
           // no way to say which of them was holding it.
-          data = await (source != null
-                  ? source.read(cstart, clen)
-                  : _storage.readFileRange(m.contentId, cstart, clen))
-              .timeout(
-                _serveStepTimeout,
-                onTimeout: () => throw TimeoutException(
-                  'serve READ stuck p$p c$c',
-                  _serveStepTimeout,
-                ),
-              );
+          data =
+              await (source != null
+                      ? source.read(cstart, clen)
+                      : _storage.readFileRange(m.contentId, cstart, clen))
+                  .timeout(
+                    _serveStepTimeout,
+                    onTimeout: () => throw TimeoutException(
+                      'serve READ stuck p$p c$c',
+                      _serveStepTimeout,
+                    ),
+                  );
         } catch (e) {
           devLog(
             () =>
@@ -201,8 +210,10 @@ extension _MessagingContentServer on MessagingService {
                 '${m.contentId.substring(0, 12)} p$p c$c: $e',
           );
         }
+        readMicros += sw.elapsedMicroseconds - readAt;
         if (data != null) batch.add((p: p, c: c, data: data));
       }
+      final sendAt = sw.elapsedMicroseconds;
       await Future.wait([
         for (final ch in batch)
           _sendChunkBounded(
@@ -216,10 +227,18 @@ extension _MessagingContentServer on MessagingService {
             ).encode(),
           ),
       ]);
+      sendMicros += sw.elapsedMicroseconds - sendAt;
       await Future<void>.delayed(
         _contentPacing,
       ); // anti-burst pace between batches
     }
+    devLog(
+      () =>
+          'xVeil[content]: serve TIMING ${m.contentId.substring(0, 12)} — '
+          '${coords.length} chunks in ${sw.elapsedMilliseconds}ms '
+          '(read ${readMicros ~/ 1000}ms, send ${sendMicros ~/ 1000}ms, '
+          'batch $_contentServeBatch)',
+    );
   }
 
   /// Bound on ONE step of a serve — a single chunk read, or a single chunk
