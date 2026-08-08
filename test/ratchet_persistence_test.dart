@@ -9,7 +9,8 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
-import 'package:xveil/domain/chat.dart' show Message;
+import 'package:xveil/domain/chat.dart' show Contact, ContactStatus, Message;
+import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/ratchet_persistence.dart';
 
@@ -1240,6 +1241,118 @@ void main() {
       // `size_t` is unsigned; a negative here means the out-slot was read as a
       // signed type of the wrong width, which is the same class of mistake.
       expect(() => dirtyKeysFrom(buffer(32), -1, 32), throwsStateError);
+    });
+  });
+
+  group('serving a file does not pay a container write per chunk', () {
+    // The ratchet write goes to the same container worker the serve reads its
+    // chunks through. Measured on a phone: the write is 8 ms, but queued behind
+    // the serve's own I/O it stalled for SECONDS — fifty times over, which is
+    // the whole of a 200 KB file taking a minute. A chunk is a fire-and-forget
+    // datagram and reports success to nobody, so the promise the write keeps is
+    // owed once, at the end of the serve — not once per chunk.
+    late _FakeRatchetNode nA, nB;
+    late _FakeTransport tA, tB;
+    late HiddenVolumeStorage sA, sB;
+    late MessagingService mA, mB;
+    final writesA = <String>[];
+
+    setUp(() async {
+      writesA.clear();
+      nA = _FakeRatchetNode();
+      nB = _FakeRatchetNode();
+      final storeA = FakeKvLogStore();
+      final storeB = FakeKvLogStore();
+      sA = _OrderedStorage(
+        ({required Uint8List password, required bool create}) => storeA,
+        writesA,
+      );
+      sB = HiddenVolumeStorage(
+        ({required Uint8List password, required bool create}) => storeB,
+      );
+      await sA.open(password: 'a', createIfMissing: true);
+      await sB.open(password: 'b', createIfMissing: true);
+      tA = _FakeTransport(
+        _node(1),
+        onSend: (dst) => nA.seal(_convKey(local: 1, peerNode: 2)),
+      );
+      tB = _FakeTransport(_node(2));
+      tA.peer = tB;
+      tB.peer = tA;
+      mA = MessagingService(tA, sA, contentPacing: Duration.zero)
+        ..ratchet = RatchetPersistence(native: nA, storage: sA)
+        ..start();
+      mB = MessagingService(tB, sB, contentPacing: Duration.zero)
+        ..ratchet = RatchetPersistence(native: nB, storage: sB)
+        ..start();
+      await sA.upsertContact(
+        Contact(nodeId: _node(2), status: ContactStatus.accepted),
+      );
+      await sB.upsertContact(
+        Contact(nodeId: _node(1), status: ContactStatus.accepted),
+      );
+    });
+
+    tearDown(() async {
+      await mA.dispose();
+      await mB.dispose();
+    });
+
+    test('the chunks of one serve share a single write, and it lands before '
+        'the serve is finished', () async {
+      final data = Uint8List.fromList(
+        List.generate(64 * 1024, (i) => (i * 31 + 7) & 0xff),
+      );
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      final cid = ContentManifest.fromBytes('serve.bin', data).contentId;
+      await mA.sendFileStreaming(
+        _node(2),
+        'serve.bin',
+        data.length,
+        (o, l) async => Uint8List.sublistView(data, o, o + l),
+        close: () async {},
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      final sendWrites = writesA.where((e) => e == 'ratchet').length;
+      await mB.downloadContent(_node(1), cid);
+
+      // Wait for B to hold it — the serve is over by then.
+      final deadline = DateTime.now().add(const Duration(seconds: 20));
+      while (DateTime.now().isBefore(deadline)) {
+        if (await sB.hasFile(cid)) break;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(await sB.hasFile(cid), isTrue, reason: 'sanity: the file arrived');
+
+      final serveWrites =
+          writesA.where((e) => e == 'ratchet').length - sendWrites;
+      // 64 KiB is many chunks; one write for the lot is the point.
+      expect(
+        serveWrites,
+        lessThanOrEqualTo(4),
+        reason:
+            'the serve made \$serveWrites container writes — one per chunk '
+            'is what queued behind its own reads and cost seconds each',
+      );
+      // The count alone cannot say the serve's OWN keys landed — acks and
+      // receives write too, so a serve that never flushed would still see
+      // writes go by. Compare the stored chain against the live one instead:
+      // if the final write was skipped, the container is behind by every chunk
+      // this serve sent.
+      final key = _convKey(local: 1, peerNode: 2);
+      final live = _FakeConversation.decode(nA.export(key)!)!.sent;
+      final storedBlob = await sA.loadRatchetState(key);
+      expect(storedBlob, isNotNull, reason: 'nothing was stored for the peer');
+      final stored = _FakeConversation.decode(storedBlob!)!.sent;
+      expect(
+        stored,
+        live,
+        reason:
+            'the serve finished with the container $live vs $stored behind '
+            '— the keys those chunks burned exist only in RAM',
+      );
     });
   });
 }

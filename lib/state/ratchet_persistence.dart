@@ -180,13 +180,19 @@ class RatchetPersistence {
     // A pass count, not a while(true): a store that somehow kept re-marking
     // would spin here forever, on the send path, holding a message.
     for (var pass = 0; pass < _maxDrainPasses; pass++) {
+      final step = Stopwatch()..start();
       final batch = _native.peekDirty(_dirtyBatch);
+      final peekMs = step.elapsedMilliseconds;
       if (batch.keys.isEmpty) return written;
       // BEFORE the save. The prune it may do is "drop what belongs to a
       // device we are not", and running it after would have to be careful not
       // to delete the entry this very pass just wrote.
+      final noteAt = step.elapsedMilliseconds;
       await _noteLocalInstance(batch.keys.first);
+      final noteMs = step.elapsedMilliseconds - noteAt;
+      final exportAt = step.elapsedMilliseconds;
       final entries = exportRatchetStates(_native, batch.keys);
+      final exportMs = step.elapsedMilliseconds - exportAt;
       if (entries.isNotEmpty) {
         final saveAt = Stopwatch()..start();
         await _storage.saveRatchetStates(entries);
@@ -194,11 +200,18 @@ class RatchetPersistence {
         // the critical path of a file serve — 50 chunks, 50 flushes. Measured
         // at ~8 ms each, which is what ruled the container OUT as the reason a
         // 200 KB file takes 21 s.
-        devLog(
-          () =>
-              'xVeil[ratchet]: flush wrote ${entries.length} in '
-              '${saveAt.elapsedMilliseconds}ms',
-        );
+        // Only a pass that really was slow: a flush's write is 8 ms, yet the
+        // transaction around it was measured stalling for seconds. Say which
+        // step held it — a peek and an export cross into veil, and the note
+        // reads a setting out of the same container the write goes to.
+        if (step.elapsedMilliseconds >= 200) {
+          devLog(
+            () =>
+                'xVeil[ratchet]: flush STEP peek ${peekMs}ms note ${noteMs}ms '
+                'export ${exportMs}ms save ${saveAt.elapsedMilliseconds}ms '
+                'wrote ${entries.length}',
+          );
+        }
         written += entries.length;
       }
       // veil marks a conversation changed when it DROPS one too — aged out
