@@ -736,7 +736,8 @@ class MessagingService {
       await ratchet.flush();
     } catch (e) {
       devLog(
-        () => 'xVeil[ratchet]: DEGRADED — $why flush FAILED: $e. The '
+        () =>
+            'xVeil[ratchet]: DEGRADED — $why flush FAILED: $e. The '
             'conversations it covered are still marked and the next flush '
             'retries them; until one succeeds the container is behind veil.',
       );
@@ -1285,8 +1286,7 @@ class MessagingService {
     final now = _now().millisecondsSinceEpoch;
     _lastSeenMs[peer.hex] = now;
     final written = _lastSeenWrittenMs[peer.hex];
-    if (written != null &&
-        now - written < _lastSeenWriteEvery.inMilliseconds) {
+    if (written != null && now - written < _lastSeenWriteEvery.inMilliseconds) {
       return;
     }
     _lastSeenWrittenMs[peer.hex] = now;
