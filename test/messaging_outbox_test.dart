@@ -1024,4 +1024,67 @@ void main() {
       );
     },
   );
+
+  test(
+    'a queue for a peer that stopped answering bounds itself, and only its '
+    'STATE is given up',
+    () async {
+      // A device going away is ordinary. It must not leave an unbounded,
+      // permanent backlog behind it — measured before this: 177 frames for one
+      // unlinked device, with a healthy peer's traffic waiting in line. And it
+      // must not cost anything a user typed: state is recomputed on the way
+      // back, an event is not.
+      // Anchored to the REAL clock: frames are stamped by storage with
+      // DateTime.now(), so a fake base of its own would make every age
+      // negative and the test would pass or fail for the wrong reason.
+      var clock = DateTime.now();
+      final c = _id(9);
+      final sC = HiddenVolumeStorage(_memOpener());
+      await sC.open(password: 'c', createIfMissing: true);
+      final tC = _FakeTransport(c);
+      tC.peer = tB;
+      final wasBpeer = tB.peer;
+      tB.peer = tC;
+      final mC = MessagingService(tC, sC, now: () => clock)..start();
+      addTearDown(() {
+        tB.peer = wasBpeer;
+        return mC.dispose();
+      });
+      // An ACCEPTED contact: frames for a stranger are cleaned by an unrelated
+      // rule, and a test built on one would prove nothing about retention.
+      await mC.sendRequest(b, 'hi');
+      await _pump();
+      await mB.acceptContact(c);
+      await _pump();
+      // From here the peer simply stops answering, which is the case at issue.
+      tC.online = false;
+
+      final gone = b;
+      await sC.enqueueOutboxFrame('grpc:snapshot', gone.hex, Uint8List(4));
+      await sC.enqueueOutboxFrame('msg-typed-by-a-human', gone.hex, Uint8List(4));
+      final queued = (await sC.pendingOutboxFrames())
+          .map((f) => f.frameId)
+          .toSet();
+      expect(queued.contains('grpc:snapshot'), isTrue);
+      expect(queued.contains('msg-typed-by-a-human'), isTrue);
+
+      // Well past the horizon, with the peer never answering.
+      clock = clock.add(const Duration(hours: 7));
+      await mC.flushOutbox();
+      await _pump();
+
+      final left = await sC.pendingOutboxFrames();
+      final ids = left.map((f) => f.frameId).toSet();
+      expect(
+        ids.contains('grpc:snapshot'),
+        isFalse,
+        reason: 'stale replication state must not be kept forever',
+      );
+      expect(
+        ids.contains('msg-typed-by-a-human'),
+        isTrue,
+        reason: 'an event is user data — age is never a reason to drop it',
+      );
+    },
+  );
 }
