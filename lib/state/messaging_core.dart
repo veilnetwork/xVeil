@@ -604,6 +604,7 @@ class MessagingService {
     NodeId dst,
     Uint8List payload, {
     bool wantReply = false,
+    bool deferRatchetWrite = false,
   }) async {
     devLog(
       () =>
@@ -636,7 +637,18 @@ class MessagingService {
     // here once instead of at the dozen call sites that reach it — and it
     // happens BEFORE the caller is told the send finished, which is the whole
     // of the contract.
-    await _persistRatchet('send');
+    // Serving a file is one send per CHUNK, and the ratchet write that follows
+    // each one goes to the same container worker the serve is already reading
+    // its chunks through. The write is 8 ms; queued behind the serve's own I/O
+    // it was measured stalling for SECONDS, fifty times over — which is the
+    // whole of a 200 KB file taking a minute.
+    //
+    // A chunk is a fire-and-forget datagram: nothing is reported to anyone when
+    // one leaves, so there is no promise to keep per chunk. The serve makes the
+    // write once, when it finishes, and only then is anything treated as done.
+    // Every other caller — a message, an ack, a control frame — still pays it
+    // inline, because those DO report success to someone.
+    if (!deferRatchetWrite) await _persistRatchet('send');
     final totalMs = sw.elapsedMilliseconds;
     if (totalMs >= 50) {
       devLog(
