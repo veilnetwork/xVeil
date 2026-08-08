@@ -2857,7 +2857,13 @@ class HiddenVolumeStorage implements Storage {
       final peer = decoded['p'];
       final wire = decoded['w'];
       if (id is! String || peer is! String || wire is! String) return null;
-      return OutboxFrame(frameId: id, peerHex: peer, wire: base64.decode(wire));
+      final stamped = decoded['t'];
+      return OutboxFrame(
+        frameId: id,
+        peerHex: peer,
+        wire: base64.decode(wire),
+        enqueuedAtMs: stamped is int ? stamped : null,
+      );
     } catch (_) {
       return null;
     }
@@ -2975,11 +2981,16 @@ class HiddenVolumeStorage implements Storage {
       frameId: frameId,
       peerHex: peerHex,
       wire: ownedWire,
+      enqueuedAtMs: DateTime.now().millisecondsSinceEpoch,
     );
+    final enqueuedAtMs = DateTime.now().millisecondsSinceEpoch;
     final payload = jsonEncode({
       'id': frameId,
       'p': peerHex,
       'w': base64.encode(ownedWire),
+      // Stamped so retention can reason about AGE instead of guessing from
+      // failure counts. Additive: a reader without it sees the old shape.
+      't': enqueuedAtMs,
     });
     final logId = await _commitAtNextLogId(
       (logId) => [
@@ -3039,6 +3050,9 @@ class HiddenVolumeStorage implements Storage {
               frameId: item.frame.frameId,
               peerHex: item.frame.peerHex,
               wire: Uint8List.fromList(item.frame.wire),
+              // Carried through the copy: dropping it here would hand every
+              // reader "unknown age" and quietly disable age-based retention.
+              enqueuedAtMs: item.frame.enqueuedAtMs,
             ),
         ];
       });
