@@ -431,11 +431,29 @@ extension _MessagingContentPull on MessagingService {
     String cid,
     Iterable<NodeId> peers,
   ) async {
-    final sources = await _eligibleStreamSources(
+    final sourceList = await _eligibleStreamSources(
       _orderedPullPeers(preferred, peers),
       contentId: cid,
     );
-    for (final peer in sources) {
+    // Race the first few, then fall back to one at a time.
+    //
+    // Asking each holder in turn and waiting it out costs the full first-byte
+    // bound per dead one — up to 8 s, measured at 2.6 s on a live transfer
+    // where the announcing device could not serve and the next one could. That
+    // wait is pure latency: the answer was one hop away the whole time.
+    //
+    // Bounded on purpose. Racing EVERY candidate is what the sibling path does,
+    // but a probe opens a stream, and the comment on `_readManifestHeader` is
+    // explicit that one can perturb the shared onion driver — so the fan-out
+    // stays small and the long tail stays sequential.
+    final sources = sourceList.toList(growable: false);
+    final fanned = sources.take(_manifestProbeFanout);
+    final raced = await _raceManifestHeaders(fanned, cid);
+    if (raced != null) {
+      _rememberOfferedManifest(raced.$1, raced.$2);
+      return raced.$2;
+    }
+    for (final peer in sources.skip(_manifestProbeFanout)) {
       final m = await _readManifestHeader(peer, cid);
       if (m == null) continue;
       _rememberOfferedManifest(peer, m);
@@ -443,6 +461,12 @@ extension _MessagingContentPull on MessagingService {
     }
     return null;
   }
+
+  /// How many holders a manifest probe asks at once before going one by one.
+  ///
+  /// Small: each one opens a stream, and the win is already taken by the second
+  /// candidate — a dead first holder is the case this exists for, not a swarm.
+  static const _manifestProbeFanout = 3;
 
   Future<ContentManifest?> _readManifestHeader(NodeId peer, String cid) async {
     final stream = await _openInitialPullStream(peer, cid);
