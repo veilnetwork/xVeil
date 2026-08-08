@@ -490,7 +490,25 @@ def _linux(release: bool) -> list[Step]:
     steps.append(
         Step(
             "flutter bundle",
-            argv=["flutter", "build", "linux", "--release" if release else "--debug"],
+            argv=[
+                "flutter",
+                "build",
+                "linux",
+                "--release" if release else "--debug",
+                # Same pass-through the macOS and Android paths already have.
+                # Without it a Linux build comes up MUTE: the hook is compiled
+                # out, no port answers, no runtime key is written, and a node
+                # that never bootstrapped looks exactly the same from outside —
+                # which is where the search then goes. The Android path had
+                # this same gap until 948adbb; this is the third host and the
+                # last one that was missing it.
+                *(
+                    ["--dart-define=XVEIL_DEBUG_HOOK=true"]
+                    if os.environ.get("XVEIL_DEBUG_HOOK", "").lower()
+                    in ("1", "true", "yes")
+                    else []
+                ),
+            ],
         )
     )
     return steps
