@@ -2849,6 +2849,45 @@ class HiddenVolumeStorage implements Storage {
   static Uint8List _outboxIndexKey(String frameId) =>
       Uint8List.fromList(crypto.sha256.convert(utf8.encode(frameId)).bytes);
 
+  /// Whether a stored outbox record already carries its queue time.
+  static bool _payloadCarriesStamp(Uint8List payload) {
+    try {
+      final decoded = jsonDecode(utf8.decode(payload));
+      return decoded is Map && decoded['t'] is int;
+    } catch (_) {
+      return true; // undecodable: leave it alone rather than rewrite blind
+    }
+  }
+
+  /// Give rows written before stamping a queue time, once.
+  ///
+  /// Runs after the load rather than inside it: the load is on the critical
+  /// path and this is bookkeeping. Each rewrite is the same commit an enqueue
+  /// performs — a fresh log entry plus an index update — so a crash midway
+  /// leaves every frame either as it was or stamped, never missing.
+  Future<void> _stampLegacyOutboxFrames(List<OutboxFrame> frames) async {
+    for (final frame in frames) {
+      try {
+        final payload = jsonEncode({
+          'id': frame.frameId,
+          'p': frame.peerHex,
+          'w': base64.encode(frame.wire),
+          't': frame.enqueuedAtMs ?? DateTime.now().millisecondsSinceEpoch,
+        });
+        final logId = await _commitAtNextLogId(
+          (logId) => [
+            AppendLogOp(Ns.outbox, logId, _sk(payload)),
+            PutOp(Ns.outboxIndex, _outboxIndexKey(frame.frameId), _sk('$logId')),
+          ],
+        );
+        _outboxById[frame.frameId] = (frame: frame, logId: logId);
+      } catch (_) {
+        // Best-effort: an unstamped frame is still bounded by the age its
+        // decode gave it for this run, and the next start tries again.
+      }
+    }
+  }
+
   static OutboxFrame? _decodePendingOutboxPayload(Uint8List payload) {
     try {
       final decoded = jsonDecode(utf8.decode(payload));
@@ -2862,7 +2901,14 @@ class HiddenVolumeStorage implements Storage {
         frameId: id,
         peerHex: peer,
         wire: base64.decode(wire),
-        enqueuedAtMs: stamped is int ? stamped : null,
+        // A row written before stamping has no time of its own. Reading it as
+        // "queued now" starts its clock at this load instead of leaving it
+        // immortal — nothing is dropped early, and a backlog inherited from an
+        // older build stops being permanent. Ages from load rather than from
+        // the original queueing, which errs on the side of keeping.
+        enqueuedAtMs: stamped is int
+            ? stamped
+            : DateTime.now().millisecondsSinceEpoch,
       );
     } catch (_) {
       return null;
@@ -2872,6 +2918,7 @@ class HiddenVolumeStorage implements Storage {
   Future<void> _loadIndexedOutboxCritical() async {
     final keys = await _as.kvKeys(Ns.outboxIndex);
     final badKeys = <Uint8List>[];
+    final unstamped = <OutboxFrame>[];
     final loaded = <String, ({OutboxFrame frame, int logId})>{};
     for (final key in keys) {
       try {
@@ -2891,6 +2938,13 @@ class HiddenVolumeStorage implements Storage {
           continue;
         }
         loaded[frame.frameId] = (frame: frame, logId: logId!);
+        // A row from before stamping carries no time of its own. Decoding gave
+        // it "now", which bounds it — but only until the next start, and a
+        // backlog that resets its own clock on every launch is immortal again.
+        // Write the stamp back so the clock starts once and stays started.
+        if (!_payloadCarriesStamp(payload!)) {
+          unstamped.add(frame);
+        }
       } catch (_) {
         badKeys.add(key);
       }
@@ -2899,6 +2953,10 @@ class HiddenVolumeStorage implements Storage {
       ..clear()
       ..addAll(loaded);
     _outboxLoaded = true;
+    if (unstamped.isNotEmpty) {
+      // Detached on purpose: bookkeeping must not delay the unlock path.
+      _stampLegacyOutboxFrames(unstamped).ignore();
+    }
     if (badKeys.isNotEmpty) {
       try {
         await _commitBatched([
