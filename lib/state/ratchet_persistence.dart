@@ -148,16 +148,32 @@ class RatchetPersistence {
   /// holding are gone.
   ///
   /// Returns how many conversations were written.
-  Future<int> flush() => _exclusive(() async {
-    try {
-      final written = await _flush();
-      _degraded = false;
-      return written;
-    } catch (_) {
-      _degraded = true;
-      rethrow;
-    }
-  });
+  Future<int> flush() {
+    // A send waits for this before it reports success, and it was measured
+    // STALLING for five seconds at a time during a file serve while the write
+    // itself takes 8 ms. Waiting behind another transaction and doing the work
+    // are different defects with different fixes, so time them apart.
+    final waited = Stopwatch()..start();
+    return _exclusive(() async {
+      final gateMs = waited.elapsedMilliseconds;
+      final work = Stopwatch()..start();
+      try {
+        final written = await _flush();
+        _degraded = false;
+        if (gateMs + work.elapsedMilliseconds >= 50) {
+          devLog(
+            () =>
+                'xVeil[ratchet]: flush SLOW gate ${gateMs}ms work '
+                '${work.elapsedMilliseconds}ms wrote $written',
+          );
+        }
+        return written;
+      } catch (_) {
+        _degraded = true;
+        rethrow;
+      }
+    });
+  }
 
   Future<int> _flush() async {
     var written = 0;
