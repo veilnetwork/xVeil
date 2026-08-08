@@ -74,28 +74,13 @@ class _MessagingOutbox {
   /// unchanged, so a device away for a day still finds everything waiting.
   static const _replicationBacklogCap = 256;
 
-  /// Consecutive flush passes a peer may fail before its replication backlog
-  /// is given up.
-  ///
-  /// The cap above only fires while something is still TRYING to replicate to
-  /// that peer — so it never fires for the case that actually piles up: a
-  /// device that is simply gone. Nothing new is queued for it, nothing drains,
-  /// and its frames sit in the shared queue forever. Measured: 109 group-sync
-  /// frames against an unlinked device, below the cap and therefore invisible
-  /// to it, with a healthy peer's content re-requests waiting behind them.
-  ///
-  /// Consecutive failed passes are the age signal the frames themselves do not
-  /// carry — an OutboxFrame has no timestamp, only an id, a peer and bytes.
-  /// At the flush cadence this is tens of minutes of total silence, which no
-  /// briefly-backgrounded peer produces.
-  ///
-  /// Safe for the same reason the cap is: replication state is recomputed
-  /// against the returning device's own frontier by `nudgeGroupSyncAll` at
-  /// every app start. The queue was never what makes two devices converge.
-  static const _replicationGiveUpAfterFailedPasses = 20;
-
-  /// Consecutive flush passes each peer has failed, in memory only.
-  final Map<String, int> _failedPasses = {};
+  // A "give up after N failed passes" rule lived here and was removed: it
+  // counted a pass as failed only when the send THREW, and this send never
+  // does — it returns as soon as the local node takes the frame, so an
+  // unreachable peer is indistinguishable from a reachable one at that point.
+  // The rule was inert against the very case it was written for (measured: 177
+  // frames for a gone device, zero give-ups in nine minutes). Age is the only
+  // honest signal, and it lives in `_retireStaleReplication`.
 
   /// Whether replication to [peerHex] should pause because its queue is not
   /// draining. See [_replicationBacklogCap].
@@ -355,13 +340,9 @@ class _MessagingOutbox {
     // One failure is enough to know the rest will fail the same way in the
     // same pass. The next pass tries again from scratch, so nothing is
     // abandoned — only the pile-up is.
-    final failedThisPass = <String>{};
-    final seenThisPass = <String>{};
     for (final frame in pending) {
-      seenThisPass.add(frame.peerHex);
       if (_retireExpiredTransient(frame)) continue;
       if (_retireStaleReplication(frame)) continue;
-      if (failedThisPass.contains(frame.peerHex)) continue;
       // Media pauses unrelated maintenance, but never call lifecycle recovery.
       // The same predicate the deposit gate uses, so the two cannot disagree —
       // this loop used to carve call signals out of the pause and then hand
@@ -440,31 +421,11 @@ class _MessagingOutbox {
       try {
         await _owner._send(peer, frame.wire);
       } catch (_) {
-        // Best-effort — but remember, so this peer's remaining frames do not
-        // each pay the same failure again before the pass ends.
-        failedThisPass.add(frame.peerHex);
+        // Best-effort. Note this is NOT a delivery signal: the send returns as
+        // soon as the local node takes the frame, so an unreachable peer looks
+        // exactly like a reachable one from here. Retention therefore reasons
+        // about AGE, never about whether this threw.
       }
-    }
-    // A peer that took something this pass is alive; one that failed the whole
-    // pass adds to its silence. Peers with nothing queued are not counted
-    // either way — absence is not failure.
-    for (final peerHex in seenThisPass) {
-      if (failedThisPass.contains(peerHex)) {
-        _failedPasses[peerHex] = (_failedPasses[peerHex] ?? 0) + 1;
-      } else {
-        _failedPasses.remove(peerHex);
-      }
-    }
-    for (final entry in _failedPasses.entries.toList(growable: false)) {
-      if (entry.value < _replicationGiveUpAfterFailedPasses) continue;
-      _failedPasses.remove(entry.key);
-      devLog(
-        () =>
-            'xVeil[durable]: giving up the replication backlog for '
-            '${entry.key.substring(0, 8)} — ${entry.value} passes with nothing '
-            'accepted; a returning device is re-synced from its own frontier',
-      );
-      unawaited(_owner.dropReplicationBacklogFor(NodeId.fromHex(entry.key)));
     }
   }
 
