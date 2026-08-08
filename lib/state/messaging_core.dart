@@ -619,17 +619,32 @@ class MessagingService {
     // side, so calling it from the single egress point is a map lookup per
     // frame. A conversation with no opt-in never reaches the network here.
     prepareDirectRoute?.call(dst);
+    // veil's own FFI timer says no send call takes 50 ms, yet a serve pays
+    // ~600 ms per chunk. Time the transport call from THIS side: what is left
+    // over is the glue between the two — the isolate a send is wrapped in.
+    // Only meaningful with one send in flight; with two, each await absorbs
+    // the other's waiting and both numbers inflate.
+    final sw = Stopwatch()..start();
     if (_anonymous && wantReply) {
       await _transport.sendWithReply(dst, payload);
     } else {
       await _transport.send(dst, payload, anonymous: _anonymous);
     }
+    final transportMs = sw.elapsedMilliseconds;
     // The send advanced our sending chain, and nothing else will ever mention
     // the key it burned. This is the single egress point, so the write happens
     // here once instead of at the dozen call sites that reach it — and it
     // happens BEFORE the caller is told the send finished, which is the whole
     // of the contract.
     await _persistRatchet('send');
+    final totalMs = sw.elapsedMilliseconds;
+    if (totalMs >= 50) {
+      devLog(
+        () =>
+            'xVeil[send]: SLOW ${totalMs}ms = transport ${transportMs}ms + '
+            'ratchet ${totalMs - transportMs}ms bytes=${payload.length}',
+      );
+    }
   }
 
   /// Send a delivery ACK for [id] back to the sender of inbound [m]. When [m]
