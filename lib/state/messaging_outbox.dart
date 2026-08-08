@@ -320,8 +320,22 @@ class _MessagingOutbox {
       _pendingByPeer[frame.peerHex] = (_pendingByPeer[frame.peerHex] ?? 0) + 1;
     }
     _pendingSeeded = true;
+    // Peers whose live send already failed THIS pass.
+    //
+    // The queue is one flat list walked in order, so a peer that cannot be
+    // reached costs an attempt for every frame it holds — and a device that
+    // was unlinked keeps its whole backlog forever. Measured: 117 frames
+    // pending, 109 of them group-sync to a device that no longer exists, while
+    // content re-requests to a HEALTHY peer sat behind them and the transfer
+    // they belonged to never moved.
+    //
+    // One failure is enough to know the rest will fail the same way in the
+    // same pass. The next pass tries again from scratch, so nothing is
+    // abandoned — only the pile-up is.
+    final failedThisPass = <String>{};
     for (final frame in pending) {
       if (_retireExpiredTransient(frame)) continue;
+      if (failedThisPass.contains(frame.peerHex)) continue;
       // Media pauses unrelated maintenance, but never call lifecycle recovery.
       // The same predicate the deposit gate uses, so the two cannot disagree —
       // this loop used to carve call signals out of the pause and then hand
@@ -400,7 +414,9 @@ class _MessagingOutbox {
       try {
         await _owner._send(peer, frame.wire);
       } catch (_) {
-        // Best-effort.
+        // Best-effort — but remember, so this peer's remaining frames do not
+        // each pay the same failure again before the pass ends.
+        failedThisPass.add(frame.peerHex);
       }
     }
   }
