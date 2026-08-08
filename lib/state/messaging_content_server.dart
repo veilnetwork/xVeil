@@ -71,6 +71,23 @@ extension _MessagingContentServer on MessagingService {
     );
     unawaited(
       _serveChunks(peer, m, served.source, gaps)
+          // A serve that never finishes holds [_servingNow] forever, and every
+          // later request for this content is answered with "a serve is already
+          // in flight, skipping" — so one hung serve stops the transfer for
+          // good, while ordinary messages to the same peer keep flowing and
+          // hide it. Observed exactly so: "-> serving", then not one chunk, no
+          // DONE, no FAILED, and a 240 KB file that never arrived in 180 s.
+          //
+          // The bound is deliberately generous — it is a stuck-serve release,
+          // not a throughput limit — and the receiver re-requests anyway, so
+          // the cost of releasing early is one repeated window.
+          .timeout(
+            MessagingService._serveAbandonTimeout,
+            onTimeout: () => throw TimeoutException(
+              'serve made no progress',
+              MessagingService._serveAbandonTimeout,
+            ),
+          )
           .then(
             (_) => devLog(
               () =>
