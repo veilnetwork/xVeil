@@ -232,6 +232,9 @@ extension _MessagingContentServer on MessagingService {
         _contentPacing,
       ); // anti-burst pace between batches
     }
+    // The chunks deferred their ratchet writes; discharge them once, here,
+    // before this serve counts as finished.
+    await _persistRatchet('serve');
     devLog(
       () =>
           'xVeil[content]: serve TIMING ${m.contentId.substring(0, 12)} — '
@@ -256,7 +259,7 @@ extension _MessagingContentServer on MessagingService {
   /// One chunk on the wire, bounded, so a send that never returns is reported
   /// as a stuck SEND rather than as a serve that silently stopped.
   Future<void> _sendChunkBounded(NodeId peer, Uint8List wire) =>
-      _send(peer, wire).timeout(
+      _send(peer, wire, deferRatchetWrite: true).timeout(
         _serveStepTimeout,
         onTimeout: () =>
             throw TimeoutException('serve SEND stuck', _serveStepTimeout),
