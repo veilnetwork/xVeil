@@ -180,9 +180,20 @@ extension _MessagingContentServer on MessagingService {
         final clen = (c * cb + cb <= plen) ? cb : plen - c * cb;
         Uint8List? data;
         try {
-          data = source != null
-              ? await source.read(cstart, clen)
-              : await _storage.readFileRange(m.contentId, cstart, clen);
+          // Bounded so a read that never returns names ITSELF. The serve was
+          // seen to stop dead inside a batch — no chunk out, no DONE, no
+          // FAILED — and with both the read and the send unbounded there was
+          // no way to say which of them was holding it.
+          data = await (source != null
+                  ? source.read(cstart, clen)
+                  : _storage.readFileRange(m.contentId, cstart, clen))
+              .timeout(
+                _serveStepTimeout,
+                onTimeout: () => throw TimeoutException(
+                  'serve READ stuck p$p c$c',
+                  _serveStepTimeout,
+                ),
+              );
         } catch (e) {
           devLog(
             () =>
@@ -194,7 +205,7 @@ extension _MessagingContentServer on MessagingService {
       }
       await Future.wait([
         for (final ch in batch)
-          _send(
+          _sendChunkBounded(
             peer,
             pieceChunkEnvelope(
               contentId: m.contentId,
@@ -210,6 +221,27 @@ extension _MessagingContentServer on MessagingService {
       ); // anti-burst pace between batches
     }
   }
+
+  /// Bound on ONE step of a serve — a single chunk read, or a single chunk
+  /// send.
+  ///
+  /// The outer abandon timeout stops a hung serve from costing the file, but
+  /// it cannot say WHAT hung: the loop reads and sends with nothing bounding
+  /// either, so a stall inside a batch looks the same whichever half caused
+  /// it. These name themselves instead.
+  ///
+  /// Generous: a step this slow is already pathological, and the receiver
+  /// re-requests whatever a released serve leaves behind.
+  static const _serveStepTimeout = Duration(seconds: 15);
+
+  /// One chunk on the wire, bounded, so a send that never returns is reported
+  /// as a stuck SEND rather than as a serve that silently stopped.
+  Future<void> _sendChunkBounded(NodeId peer, Uint8List wire) =>
+      _send(peer, wire).timeout(
+        _serveStepTimeout,
+        onTimeout: () =>
+            throw TimeoutException('serve SEND stuck', _serveStepTimeout),
+      );
 
   bool _beginStreamServe(String cid, {int? limit}) {
     final maxActive = (limit ?? _streamRangeParallelism).clamp(
