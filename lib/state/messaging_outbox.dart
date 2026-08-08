@@ -360,6 +360,7 @@ class _MessagingOutbox {
     for (final frame in pending) {
       seenThisPass.add(frame.peerHex);
       if (_retireExpiredTransient(frame)) continue;
+      if (_retireStaleReplication(frame)) continue;
       if (failedThisPass.contains(frame.peerHex)) continue;
       // Media pauses unrelated maintenance, but never call lifecycle recovery.
       // The same predicate the deposit gate uses, so the two cannot disagree —
@@ -465,6 +466,40 @@ class _MessagingOutbox {
       );
       unawaited(_owner.dropReplicationBacklogFor(NodeId.fromHex(entry.key)));
     }
+  }
+
+  /// How long a queued REPLICATION frame is worth keeping.
+  ///
+  /// State only, and only state: a group snapshot this old has been overtaken
+  /// by the sender's own newer state anyway, and a device that comes back is
+  /// re-synced from its own frontier by `nudgeGroupSyncAll` at every app
+  /// start. Event frames are user data and are never dropped by age — a peer
+  /// away for a day must still find them waiting, which is the entire contract
+  /// of a durable queue.
+  static const _replicationMaxAge = Duration(hours: 6);
+
+  /// Drop a replication frame that has been queued past [_replicationMaxAge].
+  ///
+  /// This is what stops the pile-up at the source rather than reacting to it:
+  /// a peer that stops accepting no longer leaves an unbounded, permanent
+  /// backlog behind it. Frames written before stamping carry no time at all,
+  /// and an unknown age is treated as "keep" — a migration is no reason to
+  /// throw anything away.
+  bool _retireStaleReplication(OutboxFrame frame) {
+    if (!MessagingService._isReplicationFrame(frame.frameId)) return false;
+    final at = frame.enqueuedAtMs;
+    if (at == null) return false;
+    final age = _owner._now().difference(
+      DateTime.fromMillisecondsSinceEpoch(at),
+    );
+    if (age <= _replicationMaxAge) return false;
+    devLog(
+      () =>
+          'xVeil[durable]: dropping stale replication fid=${frame.frameId} '
+          'dst=${frame.peerHex.substring(0, 8)} age=${age.inMinutes}m',
+    );
+    _owner._retireOutboxFrame(frame.peerHex, frame.frameId);
+    return true;
   }
 
   bool _retireExpiredTransient(OutboxFrame frame) {

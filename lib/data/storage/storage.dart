@@ -578,6 +578,7 @@ class OutboxFrame {
     required this.frameId,
     required this.peerHex,
     required this.wire,
+    this.enqueuedAtMs,
   });
 
   /// Caller-chosen id (e.g. `sigreq:<msgId>`); also the ack key.
@@ -588,4 +589,12 @@ class OutboxFrame {
 
   /// The exact bytes to (re-)send / (re-)stash.
   final Uint8List wire;
+
+  /// When this frame was queued, if the record carries it.
+  ///
+  /// `null` for rows written before frames were stamped. Age-based retention
+  /// must therefore treat null as "unknown", never as "ancient" — the whole
+  /// point of the queue is that a peer away for a day still finds its frames,
+  /// and a migration is no reason to drop them.
+  final int? enqueuedAtMs;
 }
