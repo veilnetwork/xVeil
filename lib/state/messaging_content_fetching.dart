@@ -25,6 +25,21 @@ class _MessagingContentFetching {
   final Set<Future<void>> _pendingCloses = {};
   Timer? _timer;
 
+  /// How long after the LAST arriving chunk we treat a burst as finished.
+  ///
+  /// A serve that ends short leaves the receiver already knowing which chunks
+  /// are missing, yet the periodic tick made it sit on that knowledge for up to
+  /// [MessagingService._contentReRequestInterval]. Asking as soon as the flow
+  /// goes quiet turns that wait into this delay.
+  ///
+  /// It is a QUIESCENCE trigger, not a second timer: it is only ever armed by an
+  /// arriving chunk, so a burst still in flight keeps pushing it back, and a
+  /// peer that sends nothing at all never arms it — for a dead peer the periodic
+  /// tick remains the sole driver, exactly as before.
+  static const _quiescentDelay = Duration(seconds: 2);
+
+  final Map<String, Timer> _quiescent = {};
+
   int get count => _entries.length;
 
   bool contains(String contentId) => _entries.containsKey(contentId);
@@ -62,7 +77,24 @@ class _MessagingContentFetching {
     _activity[contentId] = _owner._now();
   }
 
-  void touch(String contentId) => _activity[contentId] = _owner._now();
+  void touch(String contentId) {
+    _activity[contentId] = _owner._now();
+    _armQuiescent(contentId);
+  }
+
+  /// Re-arm the "burst went quiet" one-shot for this content.
+  void _armQuiescent(String contentId) {
+    _quiescent.remove(contentId)?.cancel();
+    _quiescent[contentId] = Timer(_quiescentDelay, () {
+      _quiescent.remove(contentId);
+      final fetch = _entries[contentId];
+      if (fetch == null) return; // completed or discarded while we waited
+      unawaited(_reRequestOne(fetch));
+    });
+  }
+
+  void _cancelQuiescent(String contentId) =>
+      _quiescent.remove(contentId)?.cancel();
 
   /// Durable frame id for "please send me the missing chunks of this content".
   ///
@@ -75,6 +107,7 @@ class _MessagingContentFetching {
 
   _ActiveContentFetch? take(String contentId) {
     _activity.remove(contentId);
+    _cancelQuiescent(contentId);
     final fetch = _entries.remove(contentId);
     if (fetch != null) {
       // Done, discarded or stale — either way stop asking. This is the single
@@ -120,51 +153,64 @@ class _MessagingContentFetching {
       _timer = null;
       return;
     }
-    for (final fetch in _entries.values) {
-      // Window the re-request to a few unverified pieces and ask for only their
-      // missing chunks. This keeps both the request and sender burst bounded.
-      final pieces = fetch.xfer.nextUnverifiedPieces(
-        MessagingService._reRequestPieceWindow,
-      );
-      if (pieces.isEmpty) continue;
-      final bitmaps = {
-        for (final piece in pieces) piece: fetch.xfer.missingChunkBitmap(piece),
-      };
-      final remaining = fetch.xfer.missingPieces().length;
-      devLog(
-        () =>
-            'xVeil[content]: re-request '
-            '${fetch.manifest.contentId.substring(0, 12)} — chunk-granular over '
-            'pieces $pieces ($remaining/${fetch.manifest.pieceCount} unverified) '
-            '-> ${fetch.peer.short}',
-      );
-      // DURABLE, not a bare live send.
-      //
-      // This was `_send` — live only, no offline path at all — while every
-      // other control frame toward the same peer was being deposited at their
-      // mailbox. So a transfer whose holder was not directly reachable stalled
-      // forever: the receiver asked every 20 s, the request never left the
-      // machine in any form that could arrive, and the sender sat waiting to be
-      // asked. Reproduced on the stand: a 120 KB file, 8 re-requests over 140 s,
-      // not one of them seen by the holder, while `p2p:ep:` and `ack:` frames to
-      // that same peer deposited fine.
-      unawaited(
-        _owner.sendDurable(
-          fetch.peer,
-          reRequestFrameId(fetch.manifest.contentId),
-          pieceRequestEnvelope(
-            contentId: fetch.manifest.contentId,
-            bitmaps: bitmaps,
-          ),
-          awaitLive: false,
-        ),
-      );
+    for (final fetch in _entries.values.toList(growable: false)) {
+      await _reRequestOne(fetch);
     }
+  }
+
+  /// Ask [fetch]'s holder for the chunks this side is still missing.
+  ///
+  /// Driven by two things: the periodic tick, and a burst going quiet. Both land
+  /// on the same durable frame id, so however often they fire the outbox keeps
+  /// ONE row per content rather than a queue of stale bitmaps.
+  Future<void> _reRequestOne(_ActiveContentFetch fetch) async {
+    // Window the re-request to a few unverified pieces and ask for only their
+    // missing chunks. This keeps both the request and sender burst bounded.
+    final pieces = fetch.xfer.nextUnverifiedPieces(
+      MessagingService._reRequestPieceWindow,
+    );
+    if (pieces.isEmpty) return;
+    final bitmaps = {
+      for (final piece in pieces) piece: fetch.xfer.missingChunkBitmap(piece),
+    };
+    final remaining = fetch.xfer.missingPieces().length;
+    devLog(
+      () =>
+          'xVeil[content]: re-request '
+          '${fetch.manifest.contentId.substring(0, 12)} — chunk-granular over '
+          'pieces $pieces ($remaining/${fetch.manifest.pieceCount} unverified) '
+          '-> ${fetch.peer.short}',
+    );
+    // DURABLE, not a bare live send.
+    //
+    // This was `_send` — live only, no offline path at all — while every
+    // other control frame toward the same peer was being deposited at their
+    // mailbox. So a transfer whose holder was not directly reachable stalled
+    // forever: the receiver asked every 20 s, the request never left the
+    // machine in any form that could arrive, and the sender sat waiting to be
+    // asked. Reproduced on the stand: a 120 KB file, 8 re-requests over 140 s,
+    // not one of them seen by the holder, while `p2p:ep:` and `ack:` frames to
+    // that same peer deposited fine.
+    unawaited(
+      _owner.sendDurable(
+        fetch.peer,
+        reRequestFrameId(fetch.manifest.contentId),
+        pieceRequestEnvelope(
+          contentId: fetch.manifest.contentId,
+          bitmaps: bitmaps,
+        ),
+        awaitLive: false,
+      ),
+    );
   }
 
   Future<void> clear() async {
     _timer?.cancel();
     _timer = null;
+    for (final timer in _quiescent.values) {
+      timer.cancel();
+    }
+    _quiescent.clear();
     final sinks = Set<_FetchSink>.identity();
     for (final fetch in _entries.values) {
       if (fetch.sink != null) sinks.add(fetch.sink!);
