@@ -172,7 +172,17 @@ class RatchetPersistence {
       await _noteLocalInstance(batch.keys.first);
       final entries = exportRatchetStates(_native, batch.keys);
       if (entries.isNotEmpty) {
+        final saveAt = Stopwatch()..start();
         await _storage.saveRatchetStates(entries);
+        // Every send flushes before it reports success, so this write sits on
+        // the critical path of a file serve — 50 chunks, 50 flushes. Measured
+        // at ~8 ms each, which is what ruled the container OUT as the reason a
+        // 200 KB file takes 21 s.
+        devLog(
+          () =>
+              'xVeil[ratchet]: flush wrote ${entries.length} in '
+              '${saveAt.elapsedMilliseconds}ms',
+        );
         written += entries.length;
       }
       // veil marks a conversation changed when it DROPS one too — aged out
@@ -250,7 +260,8 @@ class RatchetPersistence {
     }
     final forgotten = await _storage.forgetRatchetStates(doomed);
     devLog(
-      () => 'xVeil[ratchet]: forgot ${doomed.length} conversation(s) '
+      () =>
+          'xVeil[ratchet]: forgot ${doomed.length} conversation(s) '
           'with ${peer.short} ($forgotten stored)',
     );
     return doomed.length;
@@ -324,9 +335,8 @@ class RatchetPersistence {
     return true;
   }
 
-  static String _hex(Uint8List bytes) => [
-    for (final b in bytes) b.toRadixString(16).padLeft(2, '0'),
-  ].join();
+  static String _hex(Uint8List bytes) =>
+      [for (final b in bytes) b.toRadixString(16).padLeft(2, '0')].join();
 
   /// Enough passes to drain any plausible dirty list at [_dirtyBatch] a time,
   /// and few enough that a pathological one cannot hang a send.
