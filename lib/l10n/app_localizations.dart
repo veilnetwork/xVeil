@@ -5934,6 +5934,36 @@ abstract class AppL10n {
   /// **'Compact automatically when the container bloats. Enable ONLY if no other hidden identity lives in this container — compaction keeps just the unlocked space.'**
   String get settingsStorageAutoCompactBody;
 
+  /// No description provided for @settingsCompactOffer.
+  ///
+  /// In en, this message translates to:
+  /// **'Offer to compact'**
+  String get settingsCompactOffer;
+
+  /// No description provided for @settingsCompactOfferHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Notice when a lot of the container is dead padding and offer to reclaim it. The offer asks for every identity’s password first, so nothing hidden is lost.'**
+  String get settingsCompactOfferHint;
+
+  /// No description provided for @settingsCompactOfferPeriod.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask no more often than'**
+  String get settingsCompactOfferPeriod;
+
+  /// No description provided for @settingsCompactOfferThreshold.
+  ///
+  /// In en, this message translates to:
+  /// **'Only when this much would come back'**
+  String get settingsCompactOfferThreshold;
+
+  /// No description provided for @settingsCompactOfferDays.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 day} other{{count} days}}'**
+  String settingsCompactOfferDays(int count);
+
   /// No description provided for @settingsStorageLeanPadding.
   ///
   /// In en, this message translates to:

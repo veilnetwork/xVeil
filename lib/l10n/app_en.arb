@@ -1443,6 +1443,18 @@
   "settingsStorageCompactFailed": "Couldn't compact storage",
   "settingsStorageAutoCompact": "Auto-compact on unlock",
   "settingsStorageAutoCompactBody": "Compact automatically when the container bloats. Enable ONLY if no other hidden identity lives in this container — compaction keeps just the unlocked space.",
+  "settingsCompactOffer": "Offer to compact",
+  "settingsCompactOfferHint": "Notice when a lot of the container is dead padding and offer to reclaim it. The offer asks for every identity’s password first, so nothing hidden is lost.",
+  "settingsCompactOfferPeriod": "Ask no more often than",
+  "settingsCompactOfferThreshold": "Only when this much would come back",
+  "settingsCompactOfferDays": "{count, plural, =1{1 day} other{{count} days}}",
+  "@settingsCompactOfferDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "settingsStorageLeanPadding": "Save storage space",
   "settingsStorageLeanPaddingBody": "Enabled by default: future writes use less padding, so the container grows much less. Turn off for stronger size-change masking. Applies after the app reopens.",
   "settingsStoragePasswordHint": "Your password",

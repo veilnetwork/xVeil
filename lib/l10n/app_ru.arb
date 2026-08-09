@@ -1436,6 +1436,18 @@
   "settingsStorageCompactFailed": "Не удалось сжать хранилище",
   "settingsStorageAutoCompact": "Авто-сжатие при разблокировке",
   "settingsStorageAutoCompactBody": "Сжимать автоматически, когда контейнер раздувается. Включайте ТОЛЬКО если в этом контейнере нет других скрытых личностей — сжатие сохраняет лишь разблокированное пространство.",
+  "settingsCompactOffer": "Предлагать сжатие",
+  "settingsCompactOfferHint": "Замечать, когда большая часть контейнера — мёртвая набивка, и предлагать её вернуть. Предложение сначала спрашивает пароли всех личностей, поэтому ничего скрытого не теряется.",
+  "settingsCompactOfferPeriod": "Спрашивать не чаще",
+  "settingsCompactOfferThreshold": "Только если вернётся хотя бы",
+  "settingsCompactOfferDays": "{count, plural, one{{count} день} few{{count} дня} other{{count} дней}}",
+  "@settingsCompactOfferDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "settingsStorageLeanPadding": "Экономить место",
   "settingsStorageLeanPaddingBody": "Включено по умолчанию: будущие записи используют меньше padding, поэтому контейнер растет намного меньше. Отключите для более сильной маскировки изменения размера. Применится после переоткрытия приложения.",
   "settingsStoragePasswordHint": "Ваш пароль",
