@@ -3,3 +3,4 @@
 navChats
 spacePostTypeAudio
 spaceAccessScopeRoles
+chatFormatSpoiler
