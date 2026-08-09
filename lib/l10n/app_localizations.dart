@@ -3600,6 +3600,18 @@ abstract class AppL10n {
   /// **'Transcribing…'**
   String get chatVoiceTranscribing;
 
+  /// No description provided for @chatVoiceTranscribeAs.
+  ///
+  /// In en, this message translates to:
+  /// **'Read in another language…'**
+  String get chatVoiceTranscribeAs;
+
+  /// No description provided for @chatVoiceTranscribeLanguage.
+  ///
+  /// In en, this message translates to:
+  /// **'Language'**
+  String get chatVoiceTranscribeLanguage;
+
   /// No description provided for @chatVoiceTranscribeFailed.
   ///
   /// In en, this message translates to:

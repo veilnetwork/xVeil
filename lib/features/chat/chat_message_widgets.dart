@@ -798,7 +798,20 @@ class _VoiceBubble extends ConsumerWidget {
           // person is likely to want to quote, search or paste elsewhere, and
           // a plain Text offered no way to reach it at all. Selection brings
           // the platform's own Copy / Select all with it.
-          child: SelectableText(text, style: style),
+          // Same gesture on the finished text: a transcript that came out as
+          // nonsense is exactly when someone wants to name the language, and
+          // by then the button that offered it is gone.
+          child: GestureDetector(
+            onLongPress: () => _pickTranscriptLanguage(
+              context,
+              ref,
+              messageId: messageId,
+              fileKey: fileKey,
+              senderLang: sidecar?.lang,
+              current: entry.lang,
+            ),
+            child: SelectableText(text, style: style),
+          ),
         ),
       );
     }
@@ -810,6 +823,17 @@ class _VoiceBubble extends ConsumerWidget {
         onTap: () => ref
             .read(transcriptionControllerProvider.notifier)
             .transcribe(messageId, fileKey, senderLang: sidecar?.lang),
+        // The guess is right most of the time and wrong in exactly the cases a
+        // person notices: a note in a language neither the sender's tag nor
+        // this device announces. Long-press says which language to read it as.
+        onLongPress: () => _pickTranscriptLanguage(
+          context,
+          ref,
+          messageId: messageId,
+          fileKey: fileKey,
+          senderLang: sidecar?.lang,
+          current: entry?.lang,
+        ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -829,6 +853,100 @@ class _VoiceBubble extends ConsumerWidget {
 
   static String _speedLabel(double s) =>
       s == s.roundToDouble() ? s.toStringAsFixed(0) : s.toStringAsFixed(1);
+}
+
+/// Languages offered when a person asks to read a voice note as something
+/// other than what was guessed.
+///
+/// Whisper's model is multilingual, so this is a choice of PROMPT, not a
+/// download: the same file reads back differently depending on what it is told
+/// to expect. Native names, because a list of languages is the one list a
+/// reader can navigate without knowing the app's language.
+const _transcriptLanguages = <(String, String)>[
+  ('ru', 'Русский'),
+  ('en', 'English'),
+  ('uk', 'Українська'),
+  ('be', 'Беларуская'),
+  ('kk', 'Қазақша'),
+  ('de', 'Deutsch'),
+  ('fr', 'Français'),
+  ('es', 'Español'),
+  ('pt', 'Português'),
+  ('it', 'Italiano'),
+  ('pl', 'Polski'),
+  ('tr', 'Türkçe'),
+  ('ar', 'العربية'),
+  ('fa', 'فارسی'),
+  ('he', 'עברית'),
+  ('hi', 'हिन्दी'),
+  ('zh', '中文'),
+  ('ja', '日本語'),
+  ('ko', '한국어'),
+  ('vi', 'Tiếng Việt'),
+  ('id', 'Bahasa Indonesia'),
+  ('nl', 'Nederlands'),
+  ('sv', 'Svenska'),
+  ('cs', 'Čeština'),
+];
+
+/// Ask which language to read a clip as, then transcribe in it.
+Future<void> _pickTranscriptLanguage(
+  BuildContext context,
+  WidgetRef ref, {
+  required String messageId,
+  required String fileKey,
+  String? senderLang,
+  String? current,
+}) async {
+  final l = AppL10n.of(context);
+  final chosen = await showModalBottomSheet<String>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (sheet) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                l.chatVoiceTranscribeLanguage,
+                style: Theme.of(sheet).textTheme.titleSmall,
+              ),
+            ),
+          ),
+          Flexible(
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: _transcriptLanguages.length,
+              itemBuilder: (_, i) {
+                final (code, name) = _transcriptLanguages[i];
+                return ListTile(
+                  dense: true,
+                  title: Text(name),
+                  trailing: code == current
+                      ? const Icon(Icons.check, size: 18)
+                      : null,
+                  onTap: () => Navigator.of(sheet).pop(code),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (chosen == null) return;
+  await ref
+      .read(transcriptionControllerProvider.notifier)
+      .transcribe(
+        messageId,
+        fileKey,
+        senderLang: senderLang,
+        chosenLang: chosen,
+      );
 }
 
 /// Video message with an embedded preview frame: the media-box rendering

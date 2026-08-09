@@ -2090,6 +2090,12 @@ class AppL10nRu extends AppL10n {
   String get chatVoiceTranscribing => 'Расшифровка…';
 
   @override
+  String get chatVoiceTranscribeAs => 'Прочитать на другом языке…';
+
+  @override
+  String get chatVoiceTranscribeLanguage => 'Язык';
+
+  @override
   String get chatVoiceTranscribeFailed => 'Не удалось расшифровать';
 
   @override

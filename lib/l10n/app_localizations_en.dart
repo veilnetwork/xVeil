@@ -2066,6 +2066,12 @@ class AppL10nEn extends AppL10n {
   String get chatVoiceTranscribing => 'Transcribing…';
 
   @override
+  String get chatVoiceTranscribeAs => 'Read in another language…';
+
+  @override
+  String get chatVoiceTranscribeLanguage => 'Language';
+
+  @override
   String get chatVoiceTranscribeFailed => 'Couldn\'t transcribe';
 
   @override

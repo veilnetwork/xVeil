@@ -42,9 +42,20 @@ final transcriptionNativeReadyProvider = FutureProvider<bool>((ref) async {
 enum TranscriptPhase { none, running, done, failed }
 
 class TranscriptEntry {
-  const TranscriptEntry({this.phase = TranscriptPhase.none, this.text});
+  const TranscriptEntry({
+    this.phase = TranscriptPhase.none,
+    this.text,
+    this.lang,
+  });
   final TranscriptPhase phase;
   final String? text;
+
+  /// The language this text was produced in.
+  ///
+  /// Kept so asking again in another language is possible at all: without it a
+  /// finished transcript looks the same whichever language made it, and the
+  /// "already done" guard would refuse every retry.
+  final String? lang;
 
   bool get isRunning => phase == TranscriptPhase.running;
   bool get isDone => phase == TranscriptPhase.done;
@@ -54,7 +65,16 @@ class TranscriptionController extends Notifier<Map<String, TranscriptEntry>> {
   @override
   Map<String, TranscriptEntry> build() => const {};
 
-  static String _cacheKey(String fileKey) => 'voice.transcript.v2:$fileKey';
+  /// Cached per (clip, language): the same clip read as Russian and as English
+  /// are two different answers, and keying only by the clip meant the second
+  /// request handed back the first one's text.
+  static String _cacheKey(String fileKey, String lang) =>
+      'voice.transcript.v3:$lang:$fileKey';
+
+  /// Pre-language cache, still read so transcripts made before this keep
+  /// showing instead of silently vanishing on update.
+  static String _legacyCacheKey(String fileKey) =>
+      'voice.transcript.v2:$fileKey';
 
   /// The language to transcribe in. whisper's auto-detect is unreliable on the
   /// small quantized model (it silently returns empty), so we use the user's
@@ -72,16 +92,26 @@ class TranscriptionController extends Notifier<Map<String, TranscriptEntry>> {
   /// Load a previously-cached transcript for this clip into state (called when
   /// the bubble first renders a downloaded voice message). No-op if already
   /// loaded or nothing cached.
-  Future<void> loadCached(String messageId, String fileKey) async {
+  Future<void> loadCached(
+    String messageId,
+    String fileKey, {
+    String? senderLang,
+  }) async {
     if (state.containsKey(messageId)) return;
+    final lang = effectiveLang(senderLang: senderLang);
     try {
-      final cached = await ref
-          .read(storageProvider)
-          .getSetting(_cacheKey(fileKey));
+      final store = ref.read(storageProvider);
+      final cached =
+          await store.getSetting(_cacheKey(fileKey, lang)) ??
+          await store.getSetting(_legacyCacheKey(fileKey));
       if (cached != null) {
         _set(
           messageId,
-          TranscriptEntry(phase: TranscriptPhase.done, text: cached),
+          TranscriptEntry(
+            phase: TranscriptPhase.done,
+            text: cached,
+            lang: lang,
+          ),
         );
       }
     } catch (_) {
@@ -89,16 +119,35 @@ class TranscriptionController extends Notifier<Map<String, TranscriptEntry>> {
     }
   }
 
+  /// Which language a transcription would run in, given what is known.
+  ///
+  /// A person's explicit pick wins over everything: auto-detect is unreliable
+  /// on the quantized model and the sender's own tag can be wrong (a note
+  /// recorded in another language, or a device whose locale is not the tongue
+  /// its owner speaks). Then the sender's tag — a note is in the SENDER's
+  /// language — and finally this device's.
+  static String effectiveLang({String? chosen, String? senderLang}) {
+    if (chosen != null && chosen.isNotEmpty) return chosen;
+    if (senderLang != null && senderLang.isNotEmpty) return senderLang;
+    return _lang();
+  }
+
   /// Transcribe the clip [fileKey] and cache the result. [senderLang] (from the
   /// message's sidecar) is preferred over the local device language — a note is
   /// in the SENDER's language. No-op while already running or done.
+  /// [chosenLang] is a person's explicit pick and overrides everything. Asking
+  /// again in a DIFFERENT language re-runs; asking again in the same one does
+  /// not, so the button stays cheap.
   Future<void> transcribe(
     String messageId,
     String fileKey, {
     String? senderLang,
+    String? chosenLang,
   }) async {
+    final lang = effectiveLang(chosen: chosenLang, senderLang: senderLang);
     final cur = entryFor(messageId);
-    if (cur.isRunning || cur.isDone) return;
+    if (cur.isRunning) return;
+    if (cur.isDone && cur.lang == lang) return;
     _set(messageId, const TranscriptEntry(phase: TranscriptPhase.running));
     try {
       final bytes = await ref.read(storageProvider).loadFile(fileKey);
@@ -106,9 +155,6 @@ class TranscriptionController extends Notifier<Map<String, TranscriptEntry>> {
         _set(messageId, const TranscriptEntry(phase: TranscriptPhase.failed));
         return;
       }
-      final lang = (senderLang != null && senderLang.isNotEmpty)
-          ? senderLang
-          : _lang();
       final text = await ref.read(voiceTranscriberProvider)(bytes, lang: lang);
       if (text == null) {
         _set(messageId, const TranscriptEntry(phase: TranscriptPhase.failed));
@@ -119,12 +165,17 @@ class TranscriptionController extends Notifier<Map<String, TranscriptEntry>> {
       // Transcribe button stays available to retry across sessions.
       if (text.isNotEmpty) {
         try {
-          await ref.read(storageProvider).putSetting(_cacheKey(fileKey), text);
+          await ref
+              .read(storageProvider)
+              .putSetting(_cacheKey(fileKey, lang), text);
         } catch (e) {
           devLog(() => 'xVeil[transcript]: cache write failed: $e');
         }
       }
-      _set(messageId, TranscriptEntry(phase: TranscriptPhase.done, text: text));
+      _set(
+        messageId,
+        TranscriptEntry(phase: TranscriptPhase.done, text: text, lang: lang),
+      );
     } catch (e) {
       devLog(() => 'xVeil[transcript]: transcribe failed: $e');
       _set(messageId, const TranscriptEntry(phase: TranscriptPhase.failed));
