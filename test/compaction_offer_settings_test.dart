@@ -170,4 +170,31 @@ void main() {
     );
     expect(probe.subordinates, isEmpty);
   });
+
+  test('changing your mind puts the app back, not into limbo', () async {
+    // The dialog asks for several passwords, so the most likely outcome is a
+    // person deciding not to bother. Teardown has already happened by then —
+    // session down, node stopped, container closed — and nothing else will
+    // reopen it. A cancel that forgets leaves the app locked out of its own
+    // storage with no error to explain why.
+    final c = await _open();
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+
+    await ctrl.beginCompactionCollection();
+    // The store is closed now: a probe with the RIGHT password still opens it,
+    // which is the whole reason the teardown happens first.
+    expect((await ctrl.probeCompactionIdentity('pw')).opened, isTrue);
+
+    await ctrl.cancelCompactionCollection('pw');
+    // Assert a WRITE, not a read. Reading settings swallows failure and answers
+    // with defaults, so it succeeds on a closed store too — the first version
+    // of this test passed with the cancel gutted to a no-op, which is the exact
+    // near-miss this comment exists to prevent. A write has nowhere to hide.
+    await ctrl.setCompactionOfferSettings(
+      const CompactionOfferSettings(period: Duration(days: 7)),
+    );
+    expect((await ctrl.compactionOfferSettings()).period,
+        const Duration(days: 7));
+  });
 }
