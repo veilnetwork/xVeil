@@ -106,9 +106,7 @@ class _MessagingContentAvailability {
       }
     });
     for (final peer in sources) {
-      unawaited(
-        _owner._send(peer, contentReofferEnvelope(contentId).encode()),
-      );
+      unawaited(_owner._send(peer, contentReofferEnvelope(contentId).encode()));
     }
     return ContentDownloadResult.requestedReoffer;
   }
@@ -225,7 +223,7 @@ class _MessagingContentAvailability {
       peer,
     ]);
     if (manifest == null) return false;
-    await _owner._surfaceFileOffer(peer, manifest);
+    await _owner._surfaceFileOffer(peer, manifest, route: 'stream');
     devLog(
       () =>
           'xVeil[content]: offer stream-materialized '
