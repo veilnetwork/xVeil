@@ -604,6 +604,62 @@ class AppController extends Notifier<AppState> {
     );
   }
 
+  /// What a password opens in this container — for the screen that collects
+  /// them before a compaction.
+  ///
+  /// MUST be called with the store CLOSED. A live session holds the container
+  /// under `LOCK_EX`, so this cannot verify a password while the app is running
+  /// normally; the offer tears the session down once and probes inside that
+  /// window. Called with the store open it answers `opened: false`, which reads
+  /// as "wrong password" and would be a lie — so the caller owns the teardown
+  /// and this says so rather than guessing.
+  ///
+  /// Returns what the container ACTUALLY knows. A node id is deliberately not
+  /// among it: a space does not carry one (see [CompactionRoster]). What is
+  /// here is what a person can recognise their identity by — the name it shows,
+  /// and, for a master, the labels of everything that would come with it.
+  Future<
+    ({
+      bool opened,
+      bool isMaster,
+      String? displayName,
+      String? username,
+      List<String> subordinates,
+    })
+  >
+  probeCompactionIdentity(String password) async {
+    const closed = (
+      opened: false,
+      isMaster: false,
+      displayName: null,
+      username: null,
+      subordinates: <String>[],
+    );
+    final storage = ref.read(storageProvider);
+    if (!await storage.open(password: password)) return closed;
+    try {
+      // A roster-bearing space is a master: unlocking it brings everything it
+      // lists, which is the whole reason one password can cover several
+      // identities.
+      final roster = await storage.loadRoster();
+      final profile = await storage.loadProfile();
+      return (
+        opened: true,
+        isMaster: roster != null,
+        displayName: profile?.displayName,
+        username: profile?.username,
+        subordinates: <String>[for (final e in roster ?? const <RosterEntry>[]) e.label],
+      );
+    } catch (_) {
+      // A damaged record is not an identity we may claim to have found. Audit
+      // XV-13: reading this as "not a master" once let a bind proceed on a
+      // space nobody could read.
+      return closed;
+    } finally {
+      await storage.close();
+    }
+  }
+
   Future<({int before, int after})> _compactKeeping({
     required List<Uint8List> passwords,
     required String reopenWith,
