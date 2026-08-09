@@ -567,10 +567,25 @@ class AppController extends Notifier<AppState> {
       phase: AppPhase.preparingNode,
       preparingReason: PreparingReason.unlocking,
     );
-    await _teardownSession();
-    await _teardownRealStack();
-    await ref.read(storageProvider).close(); // release the LOCK_EX
+    await _boundedTeardown('session teardown', _teardownSession);
+    await _boundedTeardown('node teardown', _teardownRealStack);
+    // release the LOCK_EX
+    final released = await _boundedTeardown(
+      'store close',
+      () => ref.read(storageProvider).close(),
+    );
     try {
+      // `compact_known` opens the container under LOCK_EX and BLOCKS for it.
+      // Starting it while our own handle is still open means waiting on a lock
+      // only we could release — no progress, no CPU, no temp file, and a screen
+      // that says "opening the store" until the app is killed. That is exactly
+      // what a device reported. Refuse instead, and say why.
+      if (!released) {
+        throw StateError(
+          'the container did not close in ${_teardownBudget.inSeconds}s, so '
+          'compaction would wait forever on a lock we still hold',
+        );
+      }
       await hv.compactKnownAsync(path, [
         Uint8List.fromList(utf8.encode(password)),
       ], dylibPath: _hvDylibPath());
@@ -585,6 +600,38 @@ class AppController extends Notifier<AppState> {
       await ref.read(storageProvider).putSetting(_lastCompactSizeKey, '$after');
     } catch (_) {}
     return (before: before, after: after);
+  }
+
+  /// How long any single teardown step gets before compaction stops waiting on
+  /// it. Generous: these are real shutdowns, not formalities.
+  static const Duration _teardownBudget = Duration(seconds: 15);
+
+  /// Run a teardown step under a deadline; report whether it FINISHED.
+  ///
+  /// Every step here waits on something that can stop answering — messaging
+  /// teardown quiesces its lanes and flushes the ratchet over IPC, the node
+  /// stop crosses FFI, the store close waits on its worker. None of them had a
+  /// bound, so one wedged step held the whole chain, and the caller with it.
+  /// The result is reported rather than swallowed because for the store close
+  /// it decides whether compaction may start at all.
+  Future<bool> _boundedTeardown(
+    String what,
+    Future<void> Function() step,
+  ) async {
+    try {
+      await step().timeout(_teardownBudget);
+      return true;
+    } on TimeoutException {
+      devLog(
+        () =>
+            'xVeil[compact]: $what did not finish in '
+            '${_teardownBudget.inSeconds}s — abandoned',
+      );
+      return false;
+    } catch (e) {
+      devLog(() => 'xVeil[compact]: $what failed: $e');
+      return false;
+    }
   }
 
   /// What the storage-maintenance UI needs in order to tell the user whether
