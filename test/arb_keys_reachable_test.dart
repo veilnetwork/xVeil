@@ -126,7 +126,6 @@ const _knownUnreachable = {
   'newChatPeerOrNickname',
   'nicknameOwnedTitle',
   'nodeOperationSuccess',
-  'peersShareSelectOne',
   'provisionNeedUrl',
   'routeExitNodeHint',
   'routeRestartNode',
