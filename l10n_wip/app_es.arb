@@ -1418,7 +1418,6 @@
     }
   },
   "settingsTitle": "Ajustes",
-  "settingsIdentity": "Identidad",
   "settingsStorage": "Almacenamiento y espacios",
   "settingsStorageCompact": "Compactar el almacenamiento",
   "settingsStorageCompactBody": "Recupera espacio sin usar; la aplicación se reabre. Conserva SOLO el espacio desbloqueado: cualquier otra identidad oculta de este contenedor se descarta.",
@@ -1446,7 +1445,6 @@
   "settingsStorageLeanPadding": "Ahorrar espacio de almacenamiento",
   "settingsStorageLeanPaddingBody": "Activado de forma predeterminada: las escrituras futuras usan menos relleno, así que el contenedor crece mucho menos. Desactívalo para enmascarar mejor los cambios de tamaño. Se aplica cuando la aplicación se reabre.",
   "settingsStoragePasswordHint": "Tu contraseña",
-  "settingsNetwork": "Red y nodos",
   "settingsAppearance": "Apariencia",
   "settingsAbout": "Acerca de",
   "settingsLanguage": "Idioma",

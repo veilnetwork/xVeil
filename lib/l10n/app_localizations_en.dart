@@ -3315,9 +3315,6 @@ class AppL10nEn extends AppL10n {
   String get settingsTitle => 'Settings';
 
   @override
-  String get settingsIdentity => 'Identity';
-
-  @override
   String get settingsStorage => 'Storage & spaces';
 
   @override
@@ -3363,9 +3360,6 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get settingsStoragePasswordHint => 'Your password';
-
-  @override
-  String get settingsNetwork => 'Network & nodes';
 
   @override
   String get settingsAppearance => 'Appearance';

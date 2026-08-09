@@ -5868,12 +5868,6 @@ abstract class AppL10n {
   /// **'Settings'**
   String get settingsTitle;
 
-  /// No description provided for @settingsIdentity.
-  ///
-  /// In en, this message translates to:
-  /// **'Identity'**
-  String get settingsIdentity;
-
   /// No description provided for @settingsStorage.
   ///
   /// In en, this message translates to:
@@ -5951,12 +5945,6 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Your password'**
   String get settingsStoragePasswordHint;
-
-  /// No description provided for @settingsNetwork.
-  ///
-  /// In en, this message translates to:
-  /// **'Network & nodes'**
-  String get settingsNetwork;
 
   /// No description provided for @settingsAppearance.
   ///
