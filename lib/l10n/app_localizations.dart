@@ -5958,6 +5958,72 @@ abstract class AppL10n {
   /// **'Only when this much would come back'**
   String get settingsCompactOfferThreshold;
 
+  /// No description provided for @compactOfferTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Reclaim storage space?'**
+  String get compactOfferTitle;
+
+  /// No description provided for @compactOfferBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This container is {now}, and about {after} of it is live data. Compacting rewrites it without the dead padding.'**
+  String compactOfferBody(String now, String after);
+
+  /// No description provided for @compactOfferApprox.
+  ///
+  /// In en, this message translates to:
+  /// **'At least this much — other identities in this container are counted as dead until you unlock them below.'**
+  String get compactOfferApprox;
+
+  /// No description provided for @compactOfferPasswordsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the password of EVERY identity in this container. Anything left unlocked here is deleted by the compaction.'**
+  String get compactOfferPasswordsHint;
+
+  /// No description provided for @compactOfferPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Identity password'**
+  String get compactOfferPassword;
+
+  /// No description provided for @compactOfferAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock and keep'**
+  String get compactOfferAdd;
+
+  /// No description provided for @compactOfferUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'That password does not open anything here'**
+  String get compactOfferUnknown;
+
+  /// No description provided for @compactOfferAlready.
+  ///
+  /// In en, this message translates to:
+  /// **'Already on the list'**
+  String get compactOfferAlready;
+
+  /// No description provided for @compactOfferKeeping.
+  ///
+  /// In en, this message translates to:
+  /// **'Will be kept'**
+  String get compactOfferKeeping;
+
+  /// No description provided for @compactOfferWithMaster.
+  ///
+  /// In en, this message translates to:
+  /// **'with {count} more under it'**
+  String compactOfferWithMaster(int count);
+
+  /// No description provided for @compactOfferRun.
+  ///
+  /// In en, this message translates to:
+  /// **'Compact now'**
+  String get compactOfferRun;
+
   /// No description provided for @settingsCompactOfferDays.
   ///
   /// In en, this message translates to:

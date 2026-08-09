@@ -3369,6 +3369,45 @@ class AppL10nEn extends AppL10n {
       'Only when this much would come back';
 
   @override
+  String get compactOfferTitle => 'Reclaim storage space?';
+
+  @override
+  String compactOfferBody(String now, String after) {
+    return 'This container is $now, and about $after of it is live data. Compacting rewrites it without the dead padding.';
+  }
+
+  @override
+  String get compactOfferApprox =>
+      'At least this much — other identities in this container are counted as dead until you unlock them below.';
+
+  @override
+  String get compactOfferPasswordsHint =>
+      'Enter the password of EVERY identity in this container. Anything left unlocked here is deleted by the compaction.';
+
+  @override
+  String get compactOfferPassword => 'Identity password';
+
+  @override
+  String get compactOfferAdd => 'Unlock and keep';
+
+  @override
+  String get compactOfferUnknown => 'That password does not open anything here';
+
+  @override
+  String get compactOfferAlready => 'Already on the list';
+
+  @override
+  String get compactOfferKeeping => 'Will be kept';
+
+  @override
+  String compactOfferWithMaster(int count) {
+    return 'with $count more under it';
+  }
+
+  @override
+  String get compactOfferRun => 'Compact now';
+
+  @override
   String settingsCompactOfferDays(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

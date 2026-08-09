@@ -3403,6 +3403,45 @@ class AppL10nRu extends AppL10n {
   String get settingsCompactOfferThreshold => 'Только если вернётся хотя бы';
 
   @override
+  String get compactOfferTitle => 'Освободить место в хранилище?';
+
+  @override
+  String compactOfferBody(String now, String after) {
+    return 'Контейнер занимает $now, из них живых данных примерно $after. Сжатие перепишет его без мёртвой набивки.';
+  }
+
+  @override
+  String get compactOfferApprox =>
+      'Не менее этого — другие личности контейнера считаются мёртвыми, пока вы не откроете их ниже.';
+
+  @override
+  String get compactOfferPasswordsHint =>
+      'Введите пароль КАЖДОЙ личности в этом контейнере. Всё, что здесь не открыто, сжатие удалит.';
+
+  @override
+  String get compactOfferPassword => 'Пароль личности';
+
+  @override
+  String get compactOfferAdd => 'Открыть и сохранить';
+
+  @override
+  String get compactOfferUnknown => 'Этот пароль здесь ничего не открывает';
+
+  @override
+  String get compactOfferAlready => 'Уже в списке';
+
+  @override
+  String get compactOfferKeeping => 'Будут сохранены';
+
+  @override
+  String compactOfferWithMaster(int count) {
+    return 'и ещё $count под ней';
+  }
+
+  @override
+  String get compactOfferRun => 'Сжать';
+
+  @override
   String settingsCompactOfferDays(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
