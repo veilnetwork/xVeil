@@ -568,6 +568,46 @@ class AppController extends Notifier<AppState> {
     if (!canCompactStorage) {
       throw StateError('compaction is single-identity only');
     }
+    return _compactKeeping(
+      passwords: [Uint8List.fromList(utf8.encode(password))],
+      reopenWith: password,
+    );
+  }
+
+  /// Compact a container that holds SEVERAL identities, keeping every one on
+  /// the roster.
+  ///
+  /// `compact_known` keeps exactly the spaces whose passwords it is given and
+  /// drops the rest, which is why [compactStorage] refuses to run with one
+  /// password on a multi-identity container: it would be a deletion wearing the
+  /// name of maintenance. Give it every password and the same call becomes
+  /// safe — so the restriction was never about compaction, only about how many
+  /// passwords the screen had collected.
+  ///
+  /// The roster deduplicates: an identity reachable through two masters is
+  /// listed once, and one master password that opens several subordinates is
+  /// passed once. [reopenWith] is the password this device unlocks with
+  /// afterwards, which is the one the person is already using.
+  Future<({int before, int after})> compactStorageKeeping({
+    required CompactionRoster roster,
+    required String reopenWith,
+  }) async {
+    if (roster.length == 0) {
+      throw StateError('compaction with an empty roster would delete every '
+          'identity in the container');
+    }
+    return _compactKeeping(
+      passwords: [
+        for (final bytes in roster.passwords()) Uint8List.fromList(bytes),
+      ],
+      reopenWith: reopenWith,
+    );
+  }
+
+  Future<({int before, int after})> _compactKeeping({
+    required List<Uint8List> passwords,
+    required String reopenWith,
+  }) async {
     final path = ref.read(deniableBootProvider)!.storePath!;
     final before = await File(path).length();
     state = state.copyWith(
@@ -593,11 +633,9 @@ class AppController extends Notifier<AppState> {
           'compaction would wait forever on a lock we still hold',
         );
       }
-      await hv.compactKnownAsync(path, [
-        Uint8List.fromList(utf8.encode(password)),
-      ], dylibPath: _hvDylibPath());
+      await hv.compactKnownAsync(path, passwords, dylibPath: _hvDylibPath());
     } finally {
-      await unlock(password); // always reopen
+      await unlock(reopenWith); // always reopen
     }
     final after = await File(path).length();
     // Remember the post-compaction size: the auto-compact trigger compares the
