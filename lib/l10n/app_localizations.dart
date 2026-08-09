@@ -3408,18 +3408,6 @@ abstract class AppL10n {
   /// **'No contacts left to add'**
   String get groupNoContactsToAdd;
 
-  /// No description provided for @groupAttachImage.
-  ///
-  /// In en, this message translates to:
-  /// **'Send image'**
-  String get groupAttachImage;
-
-  /// No description provided for @groupSendSticker.
-  ///
-  /// In en, this message translates to:
-  /// **'Send sticker'**
-  String get groupSendSticker;
-
   /// No description provided for @groupImageOnly.
   ///
   /// In en, this message translates to:
@@ -3431,30 +3419,6 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Image too large to send inline'**
   String get groupImageTooLarge;
-
-  /// No description provided for @groupVnoteRecord.
-  ///
-  /// In en, this message translates to:
-  /// **'Record video note'**
-  String get groupVnoteRecord;
-
-  /// No description provided for @groupVoiceRecord.
-  ///
-  /// In en, this message translates to:
-  /// **'Record voice message'**
-  String get groupVoiceRecord;
-
-  /// No description provided for @groupVoiceStop.
-  ///
-  /// In en, this message translates to:
-  /// **'Stop and send'**
-  String get groupVoiceStop;
-
-  /// No description provided for @groupVoiceMessage.
-  ///
-  /// In en, this message translates to:
-  /// **'Voice message'**
-  String get groupVoiceMessage;
 
   /// No description provided for @groupVoiceTooLong.
   ///
