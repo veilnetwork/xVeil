@@ -33,16 +33,65 @@ class _MessagingPeerSync {
   /// everyone. Waiting is our own business; we are the only ones who can count
   /// how long we have waited.
   static const _holeGiveUpRounds = 6;
-  final Map<String, (String, int)> _holeStreak = {};
 
-  /// Let a reconnect beacon immediately and bound session-scoped throttle maps.
+  /// …or this long, whichever comes first.
+  ///
+  /// Counting ROUNDS alone tied the give-up to how often we beacon, and that
+  /// made the beacon cadence unchangeable: any throttle stretched the wait for
+  /// a hole nobody can fill, so the re-shipping storm those rounds exist to
+  /// stop came back. Waiting is measured in time, not in how often we happen to
+  /// ask, and a wall-clock rule lets the cadence be chosen for what it costs.
+  ///
+  /// Two minutes is what six rounds at the base interval already meant, so a
+  /// peer answering normally sees no change.
+  static const _holeGiveUpAfter = Duration(minutes: 2);
+
+  /// Per (peer, author): the hole's signature, how many beacons have named it
+  /// unmoved, and when we first saw it.
+  final Map<String, (String, int, DateTime)> _holeStreak = {};
+
+  /// Let a reconnect beacon immediately and bound session-scoped throttle maps
+  /// — except for peers that have stopped answering.
+  ///
+  /// Clearing their timestamp too made the escalation in [_send] unreachable:
+  /// the interval is consulted only when a last-sent time EXISTS, so every
+  /// reconnect beaconed the whole contact list at once no matter how long a
+  /// peer had been silent. Reconnects land about once a minute on an idle node
+  /// and each beacon is a sealed send that persists ~1 KB of ratchet state,
+  /// permanently, because the container never reuses a slot.
+  ///
+  /// Measured on the stand: 46 beacons in five idle minutes to nine contacts,
+  /// ten times what their own backoff had earned — about 1.4 MB per contact
+  /// per day, LINEAR in the roster. At a thousand contacts that is 1.4 GB a
+  /// day of garbage, and ten thousand sealed sends per reconnect is a CPU and
+  /// network storm besides. The cost has to follow the peers being reconciled,
+  /// not the size of the address book.
+  ///
+  /// A reconnect says WE came back. It says nothing about a peer that was
+  /// already not answering, and beaconing it sooner does not make it likelier
+  /// to reply — its own escalation (20 s → 10 min) is the right cadence and
+  /// this is what lets it run.
   void resetSession() {
-    _lastSentAt.clear();
+    _lastSentAt.removeWhere(
+      (peerHex, _) => (_unanswered[peerHex] ?? 0) < _reconnectStreakLimit,
+    );
     _lastActedAt.clear();
   }
 
+  /// Unanswered beacons after which a reconnect alone stops being a reason to
+  /// beacon immediately.
+  ///
+  /// Not zero: the streak counts SENDS and any authenticated inbound clears it,
+  /// so a peer that is answering normally sits at one or two between rounds,
+  /// and those are exactly the peers a reconnect should catch up with.
+  static const _reconnectStreakLimit = 3;
+
   /// Any authenticated inbound proves that the peer is answering again.
   void noteInbound(NodeId peer) => _unanswered.remove(peer.hex);
+
+  /// Are we still waiting on a hole from this peer?
+  bool _awaitingHoleFrom(String peerHex) =>
+      _holeStreak.keys.any((k) => k.startsWith('$peerHex|'));
 
   /// Send a gap-fill beacon over the live path. Offline peers beacon when they
   /// return, so this intentionally does not create a mailbox deposit.
@@ -53,9 +102,19 @@ class _MessagingPeerSync {
     final streak = _unanswered[peer.hex] ?? 0;
     var interval = _sendInterval * (1 << (streak > 5 ? 5 : streak));
     if (interval > _backoffCap) interval = _backoffCap;
-    if (!force && last != null && now.difference(last) < interval) return;
-    _lastSentAt[peer.hex] = now;
-    _unanswered[peer.hex] = streak + 1;
+    final throttled =
+        !force && last != null && now.difference(last) < interval;
+    // A throttled peer we are WAITING ON still has its stuck hole judged: the
+    // give-up used to be a side effect of sending, so any cadence change
+    // stretched it and brought back the re-shipping storm it exists to stop.
+    // Judging costs the reads below; sending costs a sealed frame and ~1 KB of
+    // permanent ratchet state, and it is the second one that scales with the
+    // roster. For a throttled peer with nothing outstanding, neither happens.
+    if (throttled && !_awaitingHoleFrom(peer.hex)) return;
+    if (!throttled) {
+      _lastSentAt[peer.hex] = now;
+      _unanswered[peer.hex] = streak + 1;
+    }
 
     // Declare the prefix of our stream that no longer exists at the source.
     // Persisting it locally first keeps our own high-water and holes honest.
@@ -82,6 +141,7 @@ class _MessagingPeerSync {
       if (ownFloor > 0) 'fl': {selfHex: ownFloor},
       'ep': now.millisecondsSinceEpoch,
     });
+    if (throttled) return; // judged above; the wire frame is what we skip
     devLog(
       () =>
           'xVeil[sync]: -> ${peer.short} hw=${sync.highWater} '
@@ -116,18 +176,20 @@ class _MessagingPeerSync {
       final key = '${peer.hex}|$author';
       final signature = '${first.$1}-${first.$2}';
       final previous = _holeStreak[key];
-      final rounds = (previous != null && previous.$1 == signature)
-          ? previous.$2 + 1
-          : 1;
-      if (rounds < _holeGiveUpRounds) {
-        _holeStreak[key] = (signature, rounds);
+      final unmoved = previous != null && previous.$1 == signature;
+      final rounds = unmoved ? previous.$2 + 1 : 1;
+      final firstSeenAt = unmoved ? previous.$3 : DateTime.now();
+      final waited = DateTime.now().difference(firstSeenAt);
+      if (rounds < _holeGiveUpRounds && waited < _holeGiveUpAfter) {
+        _holeStreak[key] = (signature, rounds, firstSeenAt);
         continue;
       }
       _holeStreak.remove(key);
       devLog(
         () =>
             'xVeil[sync]: giving up on hole ${first.$1}-${first.$2} of '
-            '${author.substring(0, 8)} after $rounds beacons — flooring past it',
+            '${author.substring(0, 8)} after $rounds beacons / '
+            '${waited.inSeconds}s — flooring past it',
       );
       await _owner._storage.applyAuthorSyncFloor(peer.hex, author, first.$2);
       changed = true;
