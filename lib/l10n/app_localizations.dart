@@ -6504,18 +6504,6 @@ abstract class AppL10n {
   /// **'System default'**
   String get languageSystem;
 
-  /// No description provided for @languageRussian.
-  ///
-  /// In en, this message translates to:
-  /// **'Русский'**
-  String get languageRussian;
-
-  /// No description provided for @languageEnglish.
-  ///
-  /// In en, this message translates to:
-  /// **'English'**
-  String get languageEnglish;
-
   /// No description provided for @chatRequestTitle.
   ///
   /// In en, this message translates to:

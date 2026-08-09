@@ -3704,12 +3704,6 @@ class AppL10nRu extends AppL10n {
   String get languageSystem => 'Системный';
 
   @override
-  String get languageRussian => 'Русский';
-
-  @override
-  String get languageEnglish => 'English';
-
-  @override
   String get chatRequestTitle => 'Контакт хочет связаться с вами';
 
   @override
