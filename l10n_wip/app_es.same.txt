@@ -6,8 +6,6 @@ spaceAccessScopeRoles
 chatFormatSpoiler
 chatHistoryOriginal
 msgInfoId
-languageRussian
-languageEnglish
 networkStatusError
 peerFieldNodeId
 callSettingsAudio
