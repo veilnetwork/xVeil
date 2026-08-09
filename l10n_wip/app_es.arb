@@ -1443,6 +1443,18 @@
   "settingsStorageCompactFailed": "No se pudo compactar el almacenamiento",
   "settingsStorageAutoCompact": "Compactar automáticamente al desbloquear",
   "settingsStorageAutoCompactBody": "Compacta automáticamente cuando el contenedor se infla. Actívalo SOLO si en este contenedor no vive ninguna otra identidad oculta: la compactación conserva únicamente el espacio desbloqueado.",
+  "settingsCompactOffer": "Ofrecer compactar",
+  "settingsCompactOfferHint": "Avisa cuando gran parte del contenedor es relleno muerto y ofrece recuperarlo. La oferta pide antes la contraseña de cada identidad, así que no se pierde nada oculto.",
+  "settingsCompactOfferPeriod": "Preguntar no más a menudo que",
+  "settingsCompactOfferThreshold": "Solo si se recuperaría al menos",
+  "settingsCompactOfferDays": "{count, plural, =1{1 día} other{{count} días}}",
+  "@settingsCompactOfferDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "settingsStorageLeanPadding": "Ahorrar espacio de almacenamiento",
   "settingsStorageLeanPaddingBody": "Activado de forma predeterminada: las escrituras futuras usan menos relleno, así que el contenedor crece mucho menos. Desactívalo para enmascarar mejor los cambios de tamaño. Se aplica cuando la aplicación se reabre.",
   "settingsStoragePasswordHint": "Tu contraseña",

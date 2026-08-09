@@ -3355,6 +3355,31 @@ class AppL10nEn extends AppL10n {
       'Compact automatically when the container bloats. Enable ONLY if no other hidden identity lives in this container — compaction keeps just the unlocked space.';
 
   @override
+  String get settingsCompactOffer => 'Offer to compact';
+
+  @override
+  String get settingsCompactOfferHint =>
+      'Notice when a lot of the container is dead padding and offer to reclaim it. The offer asks for every identity’s password first, so nothing hidden is lost.';
+
+  @override
+  String get settingsCompactOfferPeriod => 'Ask no more often than';
+
+  @override
+  String get settingsCompactOfferThreshold =>
+      'Only when this much would come back';
+
+  @override
+  String settingsCompactOfferDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count days',
+      one: '1 day',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get settingsStorageLeanPadding => 'Save storage space';
 
   @override

@@ -3390,6 +3390,31 @@ class AppL10nRu extends AppL10n {
       'Сжимать автоматически, когда контейнер раздувается. Включайте ТОЛЬКО если в этом контейнере нет других скрытых личностей — сжатие сохраняет лишь разблокированное пространство.';
 
   @override
+  String get settingsCompactOffer => 'Предлагать сжатие';
+
+  @override
+  String get settingsCompactOfferHint =>
+      'Замечать, когда большая часть контейнера — мёртвая набивка, и предлагать её вернуть. Предложение сначала спрашивает пароли всех личностей, поэтому ничего скрытого не теряется.';
+
+  @override
+  String get settingsCompactOfferPeriod => 'Спрашивать не чаще';
+
+  @override
+  String get settingsCompactOfferThreshold => 'Только если вернётся хотя бы';
+
+  @override
+  String settingsCompactOfferDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count дней',
+      few: '$count дня',
+      one: '$count день',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get settingsStorageLeanPadding => 'Экономить место';
 
   @override
