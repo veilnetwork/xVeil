@@ -100,6 +100,12 @@ void main() {
 ///  * a message for a rule that does not exist — `groupVoiceTooLong` describes
 ///    a refusal, and nothing in the app enforces a group voice-clip limit, so
 ///    the question is whether the LIMIT is missing rather than the string;
+///  * `spaceRenameDenied` is BLOCKED, not forgotten. The rename button only
+///    appears with the permission, and if it is revoked in between,
+///    `renameGroup` answers with a bare bool — so the screen cannot tell a
+///    denial from a network failure and says the honest generic thing. Wiring
+///    this string in would mean claiming "no permission" for a dropped
+///    connection. It needs a richer result first;
 ///  * one-off labels a refactor left behind (`chatFileSave`, `sshDone`,
 ///    `chatListDelete`, …). These want checking one at a time: a duplicate of
 ///    a label the screen already uses can go, but "More actions" or "Delete
