@@ -819,33 +819,40 @@ class _VoiceBubble extends ConsumerWidget {
     final failed = entry?.phase == TranscriptPhase.failed;
     return Padding(
       padding: const EdgeInsets.only(top: 4),
-      child: InkWell(
-        onTap: () => ref
-            .read(transcriptionControllerProvider.notifier)
-            .transcribe(messageId, fileKey, senderLang: sidecar?.lang),
-        // The guess is right most of the time and wrong in exactly the cases a
-        // person notices: a note in a language neither the sender's tag nor
-        // this device announces. Long-press says which language to read it as.
-        onLongPress: () => _pickTranscriptLanguage(
-          context,
-          ref,
-          messageId: messageId,
-          fileKey: fileKey,
-          senderLang: sidecar?.lang,
-          current: entry?.lang,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.subtitles_outlined, size: 15, color: muted),
-            const SizedBox(width: 4),
-            Text(
-              failed ? l.chatVoiceTranscribeFailed : l.chatVoiceTranscribe,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: failed ? Theme.of(context).colorScheme.error : muted,
+      // The long-press below is the only way to choose a language, and a
+      // gesture with nothing naming it is a feature nobody finds. The tooltip
+      // is that name — on desktop it appears on hover, on a phone on the same
+      // long press that opens the chooser.
+      child: Tooltip(
+        message: l.chatVoiceTranscribeAs,
+        child: InkWell(
+          onTap: () => ref
+              .read(transcriptionControllerProvider.notifier)
+              .transcribe(messageId, fileKey, senderLang: sidecar?.lang),
+          // The guess is right most of the time and wrong in exactly the cases a
+          // person notices: a note in a language neither the sender's tag nor
+          // this device announces. Long-press says which language to read it as.
+          onLongPress: () => _pickTranscriptLanguage(
+            context,
+            ref,
+            messageId: messageId,
+            fileKey: fileKey,
+            senderLang: sidecar?.lang,
+            current: entry?.lang,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.subtitles_outlined, size: 15, color: muted),
+              const SizedBox(width: 4),
+              Text(
+                failed ? l.chatVoiceTranscribeFailed : l.chatVoiceTranscribe,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: failed ? Theme.of(context).colorScheme.error : muted,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
