@@ -1977,28 +1977,10 @@ class AppL10nRu extends AppL10n {
   String get groupNoContactsToAdd => 'Нет контактов для добавления';
 
   @override
-  String get groupAttachImage => 'Отправить картинку';
-
-  @override
-  String get groupSendSticker => 'Отправить стикер';
-
-  @override
   String get groupImageOnly => 'Выберите файл изображения';
 
   @override
   String get groupImageTooLarge => 'Картинка слишком большая для инлайна';
-
-  @override
-  String get groupVnoteRecord => 'Записать кружок';
-
-  @override
-  String get groupVoiceRecord => 'Записать голосовое';
-
-  @override
-  String get groupVoiceStop => 'Остановить и отправить';
-
-  @override
-  String get groupVoiceMessage => 'Голосовое сообщение';
 
   @override
   String get groupVoiceTooLong =>

@@ -1955,28 +1955,10 @@ class AppL10nEn extends AppL10n {
   String get groupNoContactsToAdd => 'No contacts left to add';
 
   @override
-  String get groupAttachImage => 'Send image';
-
-  @override
-  String get groupSendSticker => 'Send sticker';
-
-  @override
   String get groupImageOnly => 'Pick an image file';
 
   @override
   String get groupImageTooLarge => 'Image too large to send inline';
-
-  @override
-  String get groupVnoteRecord => 'Record video note';
-
-  @override
-  String get groupVoiceRecord => 'Record voice message';
-
-  @override
-  String get groupVoiceStop => 'Stop and send';
-
-  @override
-  String get groupVoiceMessage => 'Voice message';
 
   @override
   String get groupVoiceTooLong =>
