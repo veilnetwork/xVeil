@@ -6,3 +6,5 @@ spaceAccessScopeRoles
 chatFormatSpoiler
 chatHistoryOriginal
 msgInfoId
+languageRussian
+languageEnglish
