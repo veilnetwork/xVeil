@@ -21,6 +21,21 @@ class StorageWriteCensus {
   static final Map<int, int> opsByNamespace = {};
   static final Map<int, int> bytesByNamespace = {};
 
+  /// Ratchet flushes by the reason their caller gave.
+  ///
+  /// The namespace tally says the ratchet is 99% of idle writing; it cannot say
+  /// WHICH path asks for it, and that decides whether the churn is even fixable
+  /// — the receive path writes before its ack on purpose (the ack stops the
+  /// sender retransmitting, so a delayed write can lose a key nobody will send
+  /// again), while a serve or a periodic caller carries no such promise.
+  static final Map<String, int> ratchetFlushesByReason = {};
+
+  static void noteRatchetFlush(String why) {
+    if (!kDebugMode) return;
+    since ??= DateTime.now();
+    ratchetFlushesByReason[why] = (ratchetFlushesByReason[why] ?? 0) + 1;
+  }
+
   /// Wall-clock of the first record since the last [reset] — turns the totals
   /// into a rate, which is the only form in which idle churn means anything.
   static DateTime? since;
@@ -51,6 +66,7 @@ class StorageWriteCensus {
     commits = 0;
     opsByNamespace.clear();
     bytesByNamespace.clear();
+    ratchetFlushesByReason.clear();
     since = null;
   }
 
@@ -94,6 +110,7 @@ class StorageWriteCensus {
       'seconds': seconds,
       'opsByNamespace': ops,
       'payloadBytesByNamespace': bytes,
+      'ratchetFlushesByReason': Map<String, int>.from(ratchetFlushesByReason),
       'totalOps': ops.values.fold(0, (a, b) => a + b),
       'totalPayloadBytes': bytes.values.fold(0, (a, b) => a + b),
     };

@@ -760,7 +760,7 @@ class MessagingService {
     final ratchet = this.ratchet;
     if (ratchet == null) return;
     try {
-      await ratchet.flush();
+      await ratchet.flush(why: why);
     } catch (e) {
       devLog(
         () =>
