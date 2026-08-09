@@ -140,7 +140,11 @@ class _StickerPackCardState extends ConsumerState<_StickerPackCard> {
             width: 48,
             height: 48,
             child: thumb != null
-                ? Image.memory(thumb, fit: BoxFit.contain)
+                ? Image.memory(
+                    thumb,
+                    fit: BoxFit.contain,
+                    gaplessPlayback: true,
+                  )
                 : Icon(
                     Icons.sticky_note_2_outlined,
                     color: scheme.onSurfaceVariant,
@@ -319,7 +323,11 @@ class _StickerContentState extends ConsumerState<_StickerContent> {
         if (thumb != null)
           ImageFiltered(
             imageFilter: ui.ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-            child: Image.memory(thumb, fit: BoxFit.contain),
+            child: Image.memory(
+              thumb,
+              fit: BoxFit.contain,
+              gaplessPlayback: true,
+            ),
           )
         else
           ColoredBox(
@@ -416,6 +424,14 @@ class _VnoteBubble extends ConsumerWidget {
                             thumb,
                             fit: BoxFit.cover,
                             filterQuality: FilterQuality.low,
+                            // The chat list rebuilds often, and every rebuild
+                            // makes a fresh provider for these bytes: without
+                            // this the poster BLANKS while it decodes again,
+                            // which reads as a circle strobing on its own —
+                            // reported as "flickering like filming one screen
+                            // with another", and only while at rest, because a
+                            // playing note paints a decoded frame it holds.
+                            gaplessPlayback: true,
                           )
                         else
                           ColoredBox(color: scheme.surfaceContainerHighest),
@@ -1399,7 +1415,7 @@ class _FullscreenImage extends StatelessWidget {
         child: InteractiveViewer(
           minScale: 0.5,
           maxScale: 5,
-          child: Image.memory(bytes),
+          child: Image.memory(bytes, gaplessPlayback: true),
         ),
       ),
     );
