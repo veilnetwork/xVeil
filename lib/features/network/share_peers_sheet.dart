@@ -100,6 +100,17 @@ class _SharePeersSheetState extends ConsumerState<SharePeersSheet> {
                 icon: const Icon(Icons.qr_code_2),
                 label: Text(l.peersShareGenerate),
               ),
+              // Disabling the button is the right guard — better than accepting
+              // a tap and then complaining — but on its own it only says "no",
+              // never why. This is the why, and it was already written.
+              if (selected.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    l.peersShareSelectOne,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
             ],
           );
         },
