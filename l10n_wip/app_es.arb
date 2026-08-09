@@ -1941,10 +1941,10 @@
   "peerStateClosed": "Desconectado",
   "peerStateUnknown": "Desconocido",
   "peerDirInbound": "Entrante",
-  "peerDirOutbound": "Outbound",
-  "peerDirUnknown": "Unknown",
-  "timeJustNow": "just now",
-  "timeMinutesAgo": "{n}m ago",
+  "peerDirOutbound": "Saliente",
+  "peerDirUnknown": "Desconocida",
+  "timeJustNow": "ahora mismo",
+  "timeMinutesAgo": "hace {n} min",
   "@timeMinutesAgo": {
     "placeholders": {
       "n": {
@@ -1952,7 +1952,7 @@
       }
     }
   },
-  "timeHoursAgo": "{n}h ago",
+  "timeHoursAgo": "hace {n} h",
   "@timeHoursAgo": {
     "placeholders": {
       "n": {
@@ -1960,7 +1960,7 @@
       }
     }
   },
-  "timeDaysAgo": "{n}d ago",
+  "timeDaysAgo": "hace {n} d",
   "@timeDaysAgo": {
     "placeholders": {
       "n": {
@@ -1968,12 +1968,12 @@
       }
     }
   },
-  "peersAddAction": "Add peer",
-  "peersAddTitle": "Add a peer by link",
-  "peersAddHint": "Paste a veil:bootstrap link. A node produces its own with `veil-cli bootstrap invite`; a deployed server saves it here automatically.",
-  "peersAddFieldLabel": "Bootstrap link",
-  "peersAddPaste": "Paste",
-  "peersAddInvalid": "Not a bootstrap link: {reason}",
+  "peersAddAction": "Añadir un par",
+  "peersAddTitle": "Añadir un par mediante un enlace",
+  "peersAddHint": "Pega un enlace veil:bootstrap. Un nodo genera el suyo con `veil-cli bootstrap invite`; un servidor ya desplegado lo guarda aquí automáticamente.",
+  "peersAddFieldLabel": "Enlace de arranque",
+  "peersAddPaste": "Pegar",
+  "peersAddInvalid": "No es un enlace de arranque: {reason}",
   "@peersAddInvalid": {
     "placeholders": {
       "reason": {
@@ -1981,10 +1981,10 @@
       }
     }
   },
-  "peersAddNoTransport": "This link carries an identity but no address, so there is nothing to dial. Use it to add a contact instead.",
-  "peersAddNoNode": "The node is not running yet",
-  "peersAddDone": "Peer added",
-  "peersAddFailed": "Could not add the peer: {reason}",
+  "peersAddNoTransport": "Este enlace lleva una identidad, pero ninguna dirección, así que no hay adónde llamar. Úsalo para añadir un contacto en su lugar.",
+  "peersAddNoNode": "El nodo todavía no está en marcha",
+  "peersAddDone": "Par añadido",
+  "peersAddFailed": "No se pudo añadir el par: {reason}",
   "@peersAddFailed": {
     "placeholders": {
       "reason": {
@@ -1992,7 +1992,7 @@
       }
     }
   },
-  "peersAddResolved": "node {nodeId}… via {transport}",
+  "peersAddResolved": "nodo {nodeId}… vía {transport}",
   "@peersAddResolved": {
     "placeholders": {
       "nodeId": {
@@ -2003,15 +2003,15 @@
       }
     }
   },
-  "peersShareAction": "Share entry nodes",
-  "peersShareTitle": "Share entry nodes",
-  "peersShareSubtitle": "Pick nodes to give a friend working entry points to the network — useful if the default seeds are blocked where they are. This shares ONLY these nodes, never your identity.",
-  "peersShareNone": "No known entry nodes to share",
-  "peersShareSelectOne": "Select at least one node",
-  "peersShareGenerate": "Generate link",
-  "peersShareScanHint": "Have your friend scan this or open the link in xVeil",
-  "peerActiveBadge": "active",
-  "peersImported": "Added {n} entry nodes",
+  "peersShareAction": "Compartir nodos de entrada",
+  "peersShareTitle": "Compartir nodos de entrada",
+  "peersShareSubtitle": "Elige nodos para darle a alguien puntos de entrada que funcionen: útil si donde está bloquean las semillas predeterminadas. Esto comparte SOLO esos nodos, nunca tu identidad.",
+  "peersShareNone": "No hay nodos de entrada conocidos que compartir",
+  "peersShareSelectOne": "Selecciona al menos un nodo",
+  "peersShareGenerate": "Generar el enlace",
+  "peersShareScanHint": "Pídele que lo escanee o que abra el enlace en xVeil",
+  "peerActiveBadge": "activo",
+  "peersImported": "Se añadieron {n} nodos de entrada",
   "@peersImported": {
     "placeholders": {
       "n": {
@@ -2019,50 +2019,50 @@
       }
     }
   },
-  "onboardRepeatPassword": "Repeat password",
-  "onboardPasswordTitle": "Set a password",
-  "onboardPasswordSubtitle": "This password unlocks your space on this device. There is no reset.",
-  "onboardPasswordTooShort": "Use at least 6 characters",
-  "onboardPasswordMismatch": "Passwords do not match",
-  "recoveryPhraseHint": "Enter your recovery phrase, words separated by spaces",
-  "securityCenterTooltip": "Security",
-  "securityCenterTitle": "Security & network",
-  "callStartTooltip": "Call",
-  "callAudio": "Audio call",
-  "callVideo": "Video call",
-  "callScreen": "Screen share",
-  "callIncoming": "Incoming call",
-  "callDialing": "Calling…",
-  "callConnecting": "Connecting…",
-  "callActive": "In call",
-  "callAccept": "Accept",
-  "callDecline": "Decline",
-  "callEnd": "End call",
-  "callCancel": "Cancel",
-  "callEnded": "Call ended",
-  "callMicOn": "Mic on",
-  "callMicOff": "Mic off",
-  "callCameraOn": "Camera on",
-  "callCameraOff": "Camera off",
-  "callDevices": "Devices",
+  "onboardRepeatPassword": "Repite la contraseña",
+  "onboardPasswordTitle": "Elige una contraseña",
+  "onboardPasswordSubtitle": "Esta contraseña abre tu espacio en este dispositivo. No hay forma de restablecerla.",
+  "onboardPasswordTooShort": "Usa al menos 6 caracteres",
+  "onboardPasswordMismatch": "Las contraseñas no coinciden",
+  "recoveryPhraseHint": "Escribe tu frase de recuperación, con las palabras separadas por espacios",
+  "securityCenterTooltip": "Seguridad",
+  "securityCenterTitle": "Seguridad y red",
+  "callStartTooltip": "Llamar",
+  "callAudio": "Llamada de voz",
+  "callVideo": "Videollamada",
+  "callScreen": "Compartir la pantalla",
+  "callIncoming": "Llamada entrante",
+  "callDialing": "Llamando…",
+  "callConnecting": "Conectando…",
+  "callActive": "En llamada",
+  "callAccept": "Aceptar",
+  "callDecline": "Rechazar",
+  "callEnd": "Colgar",
+  "callCancel": "Cancelar",
+  "callEnded": "Llamada finalizada",
+  "callMicOn": "Micrófono activado",
+  "callMicOff": "Micrófono silenciado",
+  "callCameraOn": "Cámara activada",
+  "callCameraOff": "Cámara apagada",
+  "callDevices": "Dispositivos",
   "callSettingsAudio": "Audio",
-  "callSettingsVideo": "Video",
-  "callAudioOutput": "Audio output",
-  "callSpeaker": "Speaker",
-  "callEarpiece": "Phone earpiece",
-  "callCameras": "Cameras",
-  "callMicrophones": "Microphones",
-  "callScreens": "Screens",
-  "callDisplays": "Displays",
-  "callWindows": "Windows",
-  "callNoCaptureDevices": "No capture devices available",
-  "callDeviceSwitchFailed": "Could not switch device",
-  "callSwitchCamera": "Switch camera",
-  "callScreenOn": "Sharing screen",
-  "callScreenOff": "Share screen",
-  "callScreenWaiting": "Waiting for shared screen…",
-  "callScreenPermissionRequired": "Allow Screen Recording for xveil in System Settings, then try again",
-  "callOpenScreenSettings": "Open Settings",
+  "callSettingsVideo": "Vídeo",
+  "callAudioOutput": "Salida de audio",
+  "callSpeaker": "Altavoz",
+  "callEarpiece": "Auricular del teléfono",
+  "callCameras": "Cámaras",
+  "callMicrophones": "Micrófonos",
+  "callScreens": "Pantallas",
+  "callDisplays": "Monitores",
+  "callWindows": "Ventanas",
+  "callNoCaptureDevices": "No hay dispositivos de captura disponibles",
+  "callDeviceSwitchFailed": "No se pudo cambiar de dispositivo",
+  "callSwitchCamera": "Cambiar de cámara",
+  "callScreenOn": "Compartiendo la pantalla",
+  "callScreenOff": "Compartir la pantalla",
+  "callScreenWaiting": "Esperando la pantalla compartida…",
+  "callScreenPermissionRequired": "Permite la grabación de pantalla para xveil en los Ajustes del sistema y vuelve a intentarlo",
+  "callOpenScreenSettings": "Abrir los Ajustes",
   "groupCallOngoing": "Group call in progress",
   "groupCallJoinAction": "Join",
   "callVideoPaused": "Video paused",
