@@ -124,4 +124,19 @@ void main() {
       isNull,
     );
   });
+
+  test('compacting with an empty roster is refused, not attempted', () async {
+    // compact_known KEEPS the spaces it is given passwords for and drops every
+    // other one. An empty roster is therefore not a no-op: it is "delete every
+    // identity in this container", and it must never reach the FFI.
+    final c = await _open();
+    addTearDown(c.dispose);
+    await expectLater(
+      c.read(appControllerProvider.notifier).compactStorageKeeping(
+        roster: CompactionRoster(),
+        reopenWith: 'pw',
+      ),
+      throwsA(isA<StateError>()),
+    );
+  });
 }
