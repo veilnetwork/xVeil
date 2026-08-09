@@ -17,6 +17,7 @@ import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/serve_source.dart';
 import '../data/storage/storage.dart' show OutboxFrame;
+import '../data/storage/storage_write_census.dart';
 import 'package:veil_media/veil_media.dart';
 
 import '../state/thumbnail.dart' show makeRgbaThumbB64, makeInlineImageB64;
@@ -1011,6 +1012,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/compact':
           await _compact(req);
+          return;
+        case '/storage_writes':
+          await _storageWrites(req);
           return;
         case '/settings_keys':
           await _settingsKeys(req);
@@ -6015,6 +6019,29 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'hasFile': await storage.hasFile(cid),
       'namespaces': await storage.namespaceCounts(),
     });
+  }
+
+  /// What the app has committed since the last reset, by namespace.
+  ///
+  /// `?reset=1` zeroes the tally first, so a measurement is "reset, wait,
+  /// read" and the numbers belong to that window alone. The container cannot
+  /// reuse a freed slot, so anything counted here is on disk until a repack —
+  /// which makes idle churn permanent, and worth naming.
+  Future<void> _storageWrites(HttpRequest req) async {
+    final params = await _mergedParams(req);
+    if (params['reset'] == '1' || params['reset'] == 'true') {
+      StorageWriteCensus.reset();
+      return _json(req, {'ok': true, 'reset': true});
+    }
+    final snap = StorageWriteCensus.snapshot();
+    int? fileBytes;
+    try {
+      final path = ref.read(deniableBootProvider)?.storePath;
+      if (path != null) fileBytes = await File(path).length();
+    } catch (_) {
+      /* size is a nicety; the tally is the point */
+    }
+    return _json(req, {'ok': true, ...snap, 'containerBytes': ?fileBytes});
   }
 
   Future<void> _compact(HttpRequest req) async {

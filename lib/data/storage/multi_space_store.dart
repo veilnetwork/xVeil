@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'async_kv_log_store.dart';
 import 'kv_log_store.dart';
+import 'storage_write_census.dart';
 
 /// Backing for several [KvLogStore] views over ONE container, open at once under
 /// a single lock (mirrors `HvMultiSpace`). Each space is addressed by a small
@@ -159,7 +160,12 @@ class AsyncMultiSpaceKvLogStore implements AsyncKvLogStore {
   final int _id;
 
   @override
-  Future<int> commit(List<KvLogOp> ops) => _backing.commit(_id, ops);
+  Future<int> commit(List<KvLogOp> ops) {
+    // Every space's writes funnel through here, so this is the one place that
+    // can say what the container is actually being asked to store. Debug-only.
+    StorageWriteCensus.record(ops);
+    return _backing.commit(_id, ops);
+  }
 
   @override
   Future<Uint8List?> get(int namespace, Uint8List key) =>

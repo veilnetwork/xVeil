@@ -7,6 +7,7 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'hv_kv_log_store.dart';
 import 'hv_native.dart';
 import 'kv_log_store.dart';
+import 'storage_write_census.dart';
 import 'worker_death.dart';
 import 'package:xveil/core/log.dart';
 
@@ -58,7 +59,11 @@ class SyncWrappedAsyncKvLogStore implements AsyncKvLogStore {
   final KvLogStore _inner;
 
   @override
-  Future<int> commit(List<KvLogOp> ops) async => _inner.commit(ops);
+  Future<int> commit(List<KvLogOp> ops) async {
+    StorageWriteCensus.record(ops);
+    return _inner.commit(ops);
+  }
+
   @override
   Future<Uint8List?> get(int namespace, Uint8List key) async =>
       _inner.get(namespace, key);
@@ -485,8 +490,12 @@ class WorkerKvLogStore implements AsyncKvLogStore {
   }
 
   @override
-  Future<int> commit(List<KvLogOp> ops) =>
-      _call<int>((reply) => _CommitReq(ops, reply));
+  Future<int> commit(List<KvLogOp> ops) {
+    // Counted on THIS side of the isolate boundary: the tally is read back
+    // through the debug hook, which runs here, not in the worker.
+    StorageWriteCensus.record(ops);
+    return _call<int>((reply) => _CommitReq(ops, reply));
+  }
   @override
   Future<Uint8List?> get(int namespace, Uint8List key) =>
       _call<Uint8List?>((reply) => _GetReq(namespace, key, reply));
