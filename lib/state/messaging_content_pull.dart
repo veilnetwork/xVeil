@@ -2256,7 +2256,7 @@ extension _MessagingContentPull on MessagingService {
   }) async {
     _contentAvailability.forgetOffer(m.contentId);
     if (surfaceOffer) {
-      await _surfaceFileOffer(peer, m);
+      await _surfaceFileOffer(peer, m, route: 'persisted');
     } else {
       devLog(
         () =>
@@ -2278,9 +2278,14 @@ extension _MessagingContentPull on MessagingService {
   /// content surfaces as a NEW message (A); a re-delivery of the SAME (deleted)
   /// event stays gone. The "downloaded" state is derived from hasFile(contentId),
   /// so no message rewrite is needed when the blob later lands.
-  Future<void> _surfaceFileOffer(NodeId peer, ContentManifest m) async {
+  Future<void> _surfaceFileOffer(
+    NodeId peer,
+    ContentManifest m, {
+    required String route,
+  }) async {
     await _surfaceFileOfferFields(
       peer,
+      route: route,
       contentId: m.contentId,
       name: m.name,
       size: m.size,
@@ -2293,6 +2298,12 @@ extension _MessagingContentPull on MessagingService {
 
   Future<void> _surfaceFileOfferFields(
     NodeId peer, {
+
+    /// Which arrival produced this row. Four different ones can, and the id a
+    /// row gets is `msgId ?? contentId` — so two arrivals that disagree about
+    /// carrying a msgId make TWO rows for one file, which is what a user saw
+    /// as a video note "sent twice", with the list reshuffling around them.
+    required String route,
     required String contentId,
     required String name,
     required int size,
@@ -2339,12 +2350,21 @@ extension _MessagingContentPull on MessagingService {
       // bound as every other wire stamp, not a bare fromMillisecondsSinceEpoch.
       timestamp: _wireSentAtMs(ts) ?? _now(),
     );
-    _emitIncoming(peer, '📎 $name', isFile: true, fileName: name, sidecar: thumb);
+    _emitIncoming(
+      peer,
+      '📎 $name',
+      isFile: true,
+      fileName: name,
+      sidecar: thumb,
+    );
     _signal();
     devLog(
       () =>
           'xVeil[content]: offered ${contentId.substring(0, 12)} as msg '
-          '${msgIdOrContent.substring(0, 8)} (${size}B) <- ${peer.short}',
+          '${msgIdOrContent.substring(0, 8)} seq=$seq via=$route '
+          '${msgId == null ? "(msgId ABSENT — the row is keyed by the content "
+                    "hash, so an arrival that HAS one becomes a SECOND row)" : ""}'
+          '(${size}B) <- ${peer.short}',
     );
   }
 }

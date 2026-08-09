@@ -28,7 +28,7 @@ extension _MessagingContentReceive on MessagingService {
     // Surface the file as an OFFER first — metadata only (name/size + the
     // contentId to fetch), NO blob yet — idempotent on the sender's per-send
     // msgId. The receiver decides whether to download (anti-spam + disk control).
-    await _surfaceFileOffer(peer, m);
+    await _surfaceFileOffer(peer, m, route: 'manifest');
 
     // We ALREADY hold these exact bytes (a re-offer / dedup) → the offer renders
     // as downloaded; ack so the sender flips sent->delivered.
@@ -218,6 +218,7 @@ extension _MessagingContentReceive on MessagingService {
     );
     await _surfaceFileOfferFields(
       peer,
+      route: 'ref',
       contentId: cid,
       name: ref.name,
       size: ref.size,
