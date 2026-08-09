@@ -133,7 +133,10 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
       final combined = [
         if (result.stdout.isNotEmpty) result.stdout.trimRight(),
         if (result.stderr.isNotEmpty) result.stderr.trimRight(),
-        'exit ${result.exitCode}',
+        // The one line in this blob that says whether the command WORKED, and
+        // it was the one line left in English. The string for it already
+        // existed; nothing used it.
+        l.sshDone('${result.exitCode}'),
         if (result.hostFingerprint.isNotEmpty)
           'host key: ${result.hostFingerprint}',
       ].join('\n');
