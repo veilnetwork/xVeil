@@ -166,6 +166,7 @@ class MultiIdentitySession {
     required int listenPortBase,
     Directory? blobRoot,
     Duration bootTimeout = _defaultBootTimeout,
+    Duration disposeBudget = _defaultDisposeBudget,
     List<BootstrapPeerCfg> bootstrapPeers = const [],
     String? obfs4Psk,
     List<String> udpReflectors = const [],
@@ -176,6 +177,7 @@ class MultiIdentitySession {
        _listenPortBase = listenPortBase,
        _blobRoot = blobRoot,
        _bootTimeout = bootTimeout,
+       _disposeBudget = disposeBudget,
        _bootstrapPeers = bootstrapPeers,
        _obfs4Psk = obfs4Psk,
        _udpReflectors = udpReflectors,
@@ -218,6 +220,9 @@ class MultiIdentitySession {
   /// Per-identity node-boot ceiling. Overridable so a test can exercise the
   /// LATE-arrival path without waiting three quarters of a minute for it.
   static const _defaultBootTimeout = Duration(seconds: 45);
+
+  /// Per-element teardown deadline — see [disposeAll] for why one exists.
+  static const _defaultDisposeBudget = Duration(seconds: 10);
   final Duration _bootTimeout;
 
   final _storages = <String, Storage>{};
@@ -361,26 +366,50 @@ class MultiIdentitySession {
   /// release the shared container LOCK_EX. Without this guard a single throwing
   /// dispose aborted the whole chain, left the lock held, and wedged the next
   /// unlock.
+  ///
+  /// A dispose that never RETURNS costs exactly what a throwing one did, and
+  /// only the throw was handled. Messaging teardown waits for the inbound lanes
+  /// to go quiet, for native serve/pull streams to join, and for a last ratchet
+  /// flush — all of which reach the node over IPC, and a node whose IPC is
+  /// wedged makes every one of them wait forever. Nodes are disposed AFTER
+  /// messaging, so the node then never stops, the lock is never released, and
+  /// whatever asked for the teardown waits behind it: storage compaction sat on
+  /// "opening the store" for half an hour with the repack not even begun, and
+  /// lock/wipe take this same path.
+  ///
+  /// So each element gets a deadline. Abandoning a hung dispose leaves its work
+  /// running, which is why the budget is generous — but a straggler that fails
+  /// its next write is recoverable (container writes are atomic per commit) and
+  /// a container that never unlocks again is not.
+  final Duration _disposeBudget;
+
+  Future<void> _bounded(String what, Future<void> Function() step) async {
+    try {
+      await step().timeout(_disposeBudget);
+    } on TimeoutException {
+      devLog(
+        () =>
+            'xVeil[all-online]: $what did not finish in '
+            '${_disposeBudget.inSeconds}s — abandoned so the rest of the '
+            'teardown can still release the container lock',
+      );
+    } catch (_) {
+      /* keep tearing down */
+    }
+  }
+
   Future<void> disposeAll() async {
     for (final m in _messaging.values) {
-      try {
-        await m.dispose();
-      } catch (_) {
-        /* keep tearing down */
-      }
+      await _bounded('messaging dispose', m.dispose);
     }
     for (final n in _nodes.values) {
-      try {
-        await n.dispose();
-      } catch (_) {
-        /* keep tearing down */
-      }
+      await _bounded('node dispose', n.dispose);
     }
     _messaging.clear();
     _nodes.clear();
     _storages.clear();
     try {
-      await _backing.close();
+      await _backing.close().timeout(_disposeBudget);
     } catch (e) {
       // Best-effort by design — one identity's failed teardown must not cost
       // the rest — but no longer SILENT: the backing now says when the
