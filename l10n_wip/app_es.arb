@@ -1447,6 +1447,34 @@
   "settingsCompactOfferHint": "Avisa cuando gran parte del contenedor es relleno muerto y ofrece recuperarlo. La oferta pide antes la contraseña de cada identidad, así que no se pierde nada oculto.",
   "settingsCompactOfferPeriod": "Preguntar no más a menudo que",
   "settingsCompactOfferThreshold": "Solo si se recuperaría al menos",
+  "compactOfferTitle": "¿Recuperar espacio de almacenamiento?",
+  "compactOfferBody": "Este contenedor ocupa {now}, y unos {after} son datos vivos. Compactar lo reescribe sin el relleno muerto.",
+  "@compactOfferBody": {
+    "placeholders": {
+      "now": {
+        "type": "String"
+      },
+      "after": {
+        "type": "String"
+      }
+    }
+  },
+  "compactOfferApprox": "Al menos esto: las otras identidades del contenedor cuentan como muertas hasta que las abras abajo.",
+  "compactOfferPasswordsHint": "Introduce la contraseña de CADA identidad de este contenedor. Lo que no se abra aquí, la compactación lo elimina.",
+  "compactOfferPassword": "Contraseña de la identidad",
+  "compactOfferAdd": "Abrir y conservar",
+  "compactOfferUnknown": "Esa contraseña no abre nada aquí",
+  "compactOfferAlready": "Ya está en la lista",
+  "compactOfferKeeping": "Se conservarán",
+  "compactOfferWithMaster": "y {count} más bajo ella",
+  "@compactOfferWithMaster": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "compactOfferRun": "Compactar ahora",
   "settingsCompactOfferDays": "{count, plural, =1{1 día} other{{count} días}}",
   "@settingsCompactOfferDays": {
     "placeholders": {
