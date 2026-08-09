@@ -43,7 +43,19 @@ extension _MessagingContentReceive on MessagingService {
       return;
     }
     // Already pulling it (a re-advertise mid-download) → keep the latest identity.
+    //
+    // This was the one branch here that returned in SILENCE, and it is the one
+    // that decides a re-advertised offer will not start a download. On the
+    // stand a file sat undelivered while its offer was re-sent 94 times, and
+    // the log could not say whether the handler skipped it here, held it
+    // already, or fell through to the policy. Say it.
     if (_contentFetching.refreshManifest(peer, m)) {
+      devLog(
+        () =>
+            'xVeil[content]: ${m.contentId.substring(0, 12)} re-advertised '
+            'while a fetch is ALREADY ACTIVE <- ${peer.short} — refreshed, not '
+            'restarted',
+      );
       return;
     }
     // Retain the manifest so the user (or auto-download) can fetch on demand.
