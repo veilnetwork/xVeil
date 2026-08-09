@@ -350,6 +350,9 @@ class PrivacySettingsScreen extends ConsumerWidget {
                     dense: true,
                     title: Text(root, style: const TextStyle(fontSize: 12)),
                     trailing: IconButton(
+                      // Removing a folder narrows what an API token may send.
+                      // The icon alone never said which way it cut.
+                      tooltip: AppL10n.of(ctx).actionRemove,
                       icon: const Icon(Icons.remove_circle_outline),
                       onPressed: () => ctrl.setTokenFileRoots(tokenId, [
                         for (final other in token.fileRoots)
