@@ -1531,8 +1531,6 @@
   "decoyPickOne": "Выберите хотя бы одну личность.",
   "decoyClash": "Этот пароль уже занят — выберите другой.",
   "languageSystem": "Системный",
-  "languageRussian": "Русский",
-  "languageEnglish": "English",
   "chatRequestTitle": "Контакт хочет связаться с вами",
   "actionAccept": "Принять",
   "actionBlock": "Заблокировать",
