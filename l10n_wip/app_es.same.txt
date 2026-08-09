@@ -4,3 +4,5 @@ navChats
 spacePostTypeAudio
 spaceAccessScopeRoles
 chatFormatSpoiler
+chatHistoryOriginal
+msgInfoId
