@@ -1,0 +1,2569 @@
+{
+  "@@locale": "es",
+  "appName": "xVeil",
+  "actionContinue": "Continuar",
+  "actionBack": "Atrás",
+  "actionCancel": "Cancelar",
+  "actionDone": "Listo",
+  "actionCopy": "Copiar",
+  "actionUnderstood": "Entendido",
+  "preparingTitle": "Configurando tu nodo",
+  "preparingBody": "Preparando tu identidad en este dispositivo. Puede tardar un poco: espera, por favor.",
+  "preparingFirstRunTitle": "Creando esta identidad",
+  "preparingFirstRunBody": "Una configuración única que puede tardar hasta un minuto (una prueba de trabajo que hace difícil falsificar la identidad). Solo ocurre la primera vez: cambiar a ella más adelante es instantáneo.",
+  "preparingUnlockTitle": "Abriendo tu contenedor",
+  "preparingUnlockBody": "Derivando tu clave y descifrando en este dispositivo. Es lento a propósito, para resistir los intentos de adivinar la contraseña. Espera un momento.",
+  "onboardWelcomeTitle": "Te damos la bienvenida a xVeil",
+  "onboardWelcomeBody": "Un mensajero descentralizado y resistente a la censura. Sin número de teléfono. Sin servidor central. Tu identidad y tus mensajes se quedan contigo.",
+  "onboardChooseTitle": "Configura tu identidad",
+  "onboardCreateIdentity": "Crear una identidad nueva",
+  "onboardCreateIdentitySub": "Genera una clave soberana nueva en este dispositivo",
+  "onboardRestoreIdentity": "Restaurar con la frase de recuperación",
+  "onboardRestoreIdentitySub": "Usa tu frase de 24 palabras para recuperar una identidad existente",
+  "onboardRestoreBody": "Introduce la frase de recuperación de 24 palabras que anotaste al crear la identidad. Se recreará la misma identidad en este dispositivo.",
+  "onboardRestoreSubmit": "Restaurar",
+  "onboardLinkDevice": "Vincular a un dispositivo que ya usas",
+  "onboardLinkDeviceSub": "Sin frase de recuperación: aprueba este dispositivo desde el que ya tienes",
+  "onboardLinkDeviceBody": "Este dispositivo recibe una identidad temporal propia para poder llegar a la red. En cuanto lo apruebes desde tu dispositivo actual, se une a tu identidad y la temporal deja de importar. Guarda tu frase de recuperación donde está: aquí no se te pedirá.",
+  "onboardSetupFailed": "No se pudo crear el contenedor cifrado. Comprueba que haya espacio libre en el dispositivo e inténtalo de nuevo.",
+  "sshConfirmHostTitle": "¿Es este el servidor correcto?",
+  "sshConfirmHostBody": "Esta es la primera conexión con {host}, así que todavía no hay nada con lo que comparar su identidad. Comprueba la huella de abajo con la que muestra el servidor, en el propio servidor y no a través de esta conexión. Si no coinciden, alguien está en medio.",
+  "sshConfirmHostHint": "Ejecuta esto en el servidor: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub",
+  "sshConfirmHostAccept": "Coincide, continuar",
+  "sshHostNotConfirmed": "Conexión cancelada: no se confirmó la identidad del servidor.",
+  "storageUnavailableTitle": "El almacenamiento seguro no está disponible",
+  "storageUnavailableBody": "xVeil no pudo cargar el componente que cifra todo lo que guarda. No se iniciará sin él: continuar significaría una contraseña que no protege nada y datos que desaparecen al cerrar la aplicación.",
+  "storageUnavailableAction": "Esta versión está dañada o incompleta. Instala xVeil de nuevo desde la página de descargas. Nada de lo que ya estaba guardado en este dispositivo se ha tocado.",
+  "startupFailedTitle": "xVeil no pudo iniciarse",
+  "startupFailedBody": "Algo falló mientras la aplicación se preparaba, antes de tocar ninguno de tus datos. No se abrió nada, no se escribió nada y no se envió nada.",
+  "startupFailedAction": "Cierra xVeil y vuelve a abrirlo. Si sigue ocurriendo, reinstálalo desde la página de descargas.",
+  "recoveryTitle": "Guarda tu frase de recuperación",
+  "recoveryBody": "Estas 24 palabras SON tu identidad. Quien las tenga la controla; si las pierdes, se pierde para siempre. Escríbelas en papel y guárdalas en un lugar seguro. Nunca las guardes en internet ni les hagas una foto.",
+  "recoveryConfirm": "He anotado mi frase de recuperación",
+  "recoveryPlaceholderWarning": "Estas palabras son de RELLENO. El generador de identidades no está disponible en esta versión, así que la identidad se está creando al azar y estas palabras no restauran nada. No las anotes como copia de seguridad.",
+  "storageTitle": "¿Cómo quieres guardar tus datos?",
+  "storageHiddenTitle": "Espacio oculto (recomendado)",
+  "storageHiddenBody": "Tus chats y tus claves viven en un contenedor cifrado con negación plausible. Un adversario que se apodere de tu dispositivo no puede demostrar siquiera que los datos existen.",
+  "storagePlainTitle": "Almacenamiento normal",
+  "storagePlainBody": "Faster to set up, but the existence of your data is visible to anyone who inspects the device.",
+  "storagePlainWarning": "Not recommended for high-risk users. Choose this only if deniability is not a concern for you.",
+  "lockTitle": "Unlock xVeil",
+  "lockPasswordHint": "Enter your password",
+  "lockUnlock": "Unlock",
+  "lockWrong": "Wrong password",
+  "lockStartOver": "Start over",
+  "lockStartOverBody": "Set up a new identity on this device. Your existing data is not deleted, but you will need its password to reach it again. Continue?",
+  "lockWipe": "Clear all data",
+  "lockWipeBody": "This permanently deletes the container and EVERY identity inside it — including any hidden or decoy ones. This cannot be undone: without the container the data is unrecoverable, even with the right password.",
+  "lockWipeTypePrompt": "To confirm permanent deletion, type this phrase exactly:",
+  "lockWipePhrase": "I understand the consequences",
+  "lockWipeConfirm": "Delete forever",
+  "navChats": "Chats",
+  "navCommunities": "Communities",
+  "navFeed": "Feed",
+  "navNetwork": "Network",
+  "navSettings": "Settings",
+  "navCalls": "Calls",
+  "callLogEmpty": "No calls yet",
+  "callLogEmptyHint": "Calls you make and receive on any of your devices will appear here",
+  "callOutcomeMissed": "Missed",
+  "callOutcomeDeclined": "Declined",
+  "callOutcomeCancelled": "Cancelled",
+  "callOutcomeBusy": "Busy",
+  "callOutcomeFailed": "Failed",
+  "spaceCreateTitle": "New community",
+  "spaceCreateAction": "Create",
+  "spaceNameHint": "Community name",
+  "spaceDescriptionLabel": "Description",
+  "spaceDescriptionHint": "What this community is for",
+  "spaceDescriptionEditTitle": "Edit description",
+  "spaceProfileMediaTitle": "Community images",
+  "spaceProfileMediaEmpty": "No avatar or cover yet",
+  "spaceProfileMediaSet": "Avatar and cover are shared with members",
+  "spaceAvatarChange": "Change avatar",
+  "spaceCoverChange": "Change cover",
+  "spaceProfileMediaClear": "Remove images",
+  "spaceDescriptionSave": "Save description",
+  "spaceVisibilityLabel": "Visibility",
+  "spaceVisibilityPublic": "Public",
+  "spaceVisibilityPrivate": "Private",
+  "spaceVisibilitySecret": "Secret",
+  "spaceVisibilityPublicHint": "Posts may be shared publicly. If discovery is enabled, the allowlisted profile and signed public feed can appear in verified search.",
+  "spaceVisibilityPrivateHint": "Membership is by invitation and community content is encrypted for current members.",
+  "spaceVisibilitySecretHint": "Invitations hide the community name; content is encrypted and the community is never searchable.",
+  "spaceEmpty": "No communities yet",
+  "spaceOperationFailed": "Could not update the community. Check the network and try again.",
+  "spaceChannelsEmpty": "No channels in this community",
+  "spaceChannelCreateTitle": "New channel",
+  "spaceChannelNameHint": "Channel name",
+  "spaceChannelDescriptionHint": "Description (optional)",
+  "spaceChannelKind": "Channel type",
+  "spaceChannelText": "Text channel",
+  "spaceChannelVoice": "Voice channel",
+  "spaceChannelCategory": "Category",
+  "spaceChannelCategoryLabel": "Place in category",
+  "spaceChannelNoCategory": "Community root",
+  "spaceChannelAccess": "Access",
+  "spaceChannelAccessSpace": "All community members",
+  "spaceChannelAccessRestricted": "Restricted · admins only initially",
+  "spaceChannelAccessSecret": "Secret · admins only initially; NOT hidden yet — same protection as Restricted",
+  "spaceChannelHistory": "History for new members",
+  "spaceChannelHistoryFromJoin": "Only from the time they join",
+  "spaceChannelHistoryFull": "Full channel history",
+  "spaceChannelHistorySinceNow": "Messages from now on",
+  "spaceChannelManage": "Manage channel",
+  "spaceChannelEdit": "Edit channel",
+  "spaceChannelSave": "Save channel",
+  "spaceChannelArchive": "Archive channel",
+  "spaceChannelRestore": "Restore channel",
+  "spaceChannelMakeDefault": "Make default channel",
+  "spaceChannelArchived": "Archived",
+  "spaceChannelArchiveCategoryBlocked": "Move or archive the active channels in this category first.",
+  "spaceVoiceStartFailed": "Could not start or join this voice session.",
+  "spacePostsTitle": "Publications",
+  "spacePostsEmpty": "No publications yet",
+  "spacePostCreateTitle": "New publication",
+  "spacePostTitleHint": "Title (optional)",
+  "spacePostBodyHint": "Share an update with the community…",
+  "spacePostBlocks": "Blocks",
+  "spacePostBlockParagraph": "Paragraph",
+  "spacePostBlockHeading1": "Large heading",
+  "spacePostBlockHeading2": "Medium heading",
+  "spacePostBlockHeading3": "Small heading",
+  "spacePostBlockBulletList": "Bulleted list",
+  "spacePostBlockOrderedList": "Numbered list",
+  "spacePostBlockCode": "Code block",
+  "spacePostBlockDivider": "Divider",
+  "spacePostPreview": "Preview publication",
+  "spacePostContinueEditing": "Continue editing",
+  "spacePostPublish": "Publish",
+  "spacePostDraftHint": "Saved encrypted on this device. The draft is not shared until you publish it.",
+  "spacePostSchedule": "Schedule",
+  "spacePostScheduleClear": "Publish immediately instead",
+  "spacePostScheduleFuture": "Choose a time in the future.",
+  "spacePostScheduleDeviceHint": "Encrypted on this device and not shared before publication. If xVeil is closed or locked at that time, it will publish after the next unlock.",
+  "spacePostScheduledSuccess": "Publication scheduled",
+  "spacePostScheduledPublications": "Scheduled publications",
+  "spacePostScheduledFailed": "Not published. Review it and retry or cancel.",
+  "spacePostPublishNow": "Publish now",
+  "spacePostPublishedNow": "Publication published",
+  "spacePostCancelSchedule": "Cancel schedule",
+  "spacePostCancelScheduleTitle": "Cancel scheduled publication?",
+  "spacePostCancelScheduleBody": "The encrypted local copy of this scheduled publication will be removed.",
+  "spacePostScheduleCancelled": "Scheduled publication cancelled",
+  "spacePostMediaAttach": "Add media or file",
+  "spacePostMediaRejected": "Some files couldn't be attached",
+  "spacePostRecordVoice": "Record voice message",
+  "spacePostRecordShortVideo": "Record short video",
+  "spacePostUseRecording": "Use recording",
+  "spacePostEdit": "Edit publication",
+  "spacePostEdited": "Edited",
+  "spacePostPin": "Pin",
+  "spacePostUnpin": "Unpin",
+  "spacePostPinned": "Pinned",
+  "spacePostCommentsTitle": "Comments",
+  "spacePostCommentsOpen": "Open comments",
+  "spacePostCommentsEmpty": "No comments yet",
+  "spacePostCommentsEmptyHint": "Start a discussion about this publication.",
+  "spacePostCommentsCount": "{count, plural, =0{No comments} one{1 comment} other{{count} comments}}",
+  "@spacePostCommentsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spacePostCommentHint": "Write a comment…",
+  "spacePostCommentSend": "Send comment",
+  "spacePostCommentReply": "Reply",
+  "spacePostCommentEdit": "Edit",
+  "spacePostCommentEditing": "Editing comment",
+  "spacePostCommentCancelEdit": "Cancel editing",
+  "spacePostCommentSaveEdit": "Save changes",
+  "spacePostCommentEdited": "edited",
+  "spacePostCommentEditFailed": "Could not save the comment changes",
+  "spacePostCommentDelete": "Delete",
+  "spacePostCommentDeleteTitle": "Delete comment?",
+  "spacePostCommentDeleteBody": "The comment will disappear for members and, if it was public, from the public feed. This cannot be undone.",
+  "spaceModerationDeleteComment": "Remove comment",
+  "spacePostCommentBlockAuthor": "Block author",
+  "spacePostCommentBlockAuthorTitle": "Block this author?",
+  "spacePostCommentBlockAuthorBody": "Their posts, comments, mentions and direct messages will be hidden on this identity. They will not be notified.",
+  "spacePostCommentParentUnavailable": "Original comment deleted or hidden",
+  "spacePostCommentReplyingTo": "Replying to {author}",
+  "@spacePostCommentReplyingTo": {
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
+  "spacePostCommentCancelReply": "Cancel reply",
+  "spacePostCommentFailed": "Could not publish this comment",
+  "spacePostCommentTooLong": "The comment is too large to encrypt and send.",
+  "spacePostCommentReadOnly": "This discussion is read-only.",
+  "spacePostCommentPublic": "Visible in the public feed",
+  "spacePostCommentPublicHint": "Creates a separate author-signed public copy. Non-members can read it.",
+  "spacePostPublicReaction": "Add a public reaction",
+  "spacePostPublicDiscussionReadOnly": "Only comments and reactions their authors explicitly made public are shown.",
+  "feedPinnedTitle": "Pinned",
+  "feedRecentTitle": "Recent",
+  "spacePostDelete": "Delete publication",
+  "spacePostDeleteTitle": "Delete this publication?",
+  "spacePostDeleteBody": "A signed tombstone will remove it from the community feed on every synchronized member device. This cannot be undone.",
+  "spacePostTypePost": "Post",
+  "spacePostTypeArticle": "Article",
+  "spacePostTypeVideo": "Video",
+  "spacePostTypeShortVideo": "Short video",
+  "spacePostTypeAudio": "Audio",
+  "spacePostTypeVoiceMessage": "Voice message",
+  "spaceFeedEnable": "Show this community in Feed",
+  "spaceFeedDisable": "Hide this community from Feed",
+  "spaceSubscriptionSettings": "Feed and notifications",
+  "spaceFeedSetting": "Publications in the main Feed",
+  "spaceFeedSettingHint": "This changes only your combined Feed; you remain a community member.",
+  "spaceNotificationsSetting": "Publication notifications",
+  "spaceNotificationsSettingHint": "Alert on this device when a new community publication arrives.",
+  "spacePublicReadOnly": "Public subscription · read-only",
+  "spacePublicSnapshotStale": "Showing the last verified snapshot. Refresh needs a reachable verified holder.",
+  "spacePublicUnsubscribe": "Unsubscribe",
+  "spacePublicUnsubscribeConfirm": "Remove this public subscription and its offline snapshot from this device?",
+  "spaceDiscoveryAction": "Find public communities",
+  "spaceDiscoveryTitle": "Find public communities",
+  "spaceDiscoveryHint": "Name or exact node_id",
+  "spaceDiscoveryIdle": "Search by name, or paste an exact node_id from a trusted source.",
+  "spaceDiscoverySearching": "Searching verified public communities",
+  "spaceDiscoveryResults": "{count, plural, one{1 verified community} other{{count} verified communities}}",
+  "@spaceDiscoveryResults": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spaceDiscoveryNoVerifiedResults": "No public community reached verified holder quorum.",
+  "spaceDiscoveryUnavailable": "Public discovery is unavailable. Check the connection and try again.",
+  "spaceDiscoveryPartialQuorum": "A matching announcement was found, but it does not yet have enough independent verified holders.",
+  "spaceDiscoveryPosts": "{count, plural, =0{No publications} one{1 publication} other{{count} publications}}",
+  "@spaceDiscoveryPosts": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spaceDiscoverySources": "{count, plural, one{1 verified source} other{{count} verified sources}}",
+  "@spaceDiscoverySources": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spacePublicSubscribe": "Subscribe",
+  "spaceCommentNotificationsSetting": "Discussion notifications",
+  "spaceCommentNotificationsSettingHint": "Choose which new comments alert this device.",
+  "spaceCommentNotificationsAll": "All comments",
+  "spaceCommentNotificationsReplies": "Replies to me and comments on my posts",
+  "spaceCommentNotificationsNone": "Off",
+  "spaceHideRecommendationsSetting": "Do not recommend this community to me",
+  "spaceHideRecommendationsSettingHint": "Keep this community out of recommendation surfaces on this device.",
+  "spaceSettingsTitle": "Members and settings",
+  "spaceMembersTooltip": "Members and settings",
+  "spaceChannelRotateKey": "Replace the key",
+  "spaceChannelRotateKeyHint": "Same members, new key from now on",
+  "spaceChannelRotateKeyDone": "The channel has a new key",
+  "spaceRetentionTitle": "History retention",
+  "spaceRetentionSafetyHint": "Community policy and this device's local history are independent.",
+  "spaceRetentionGlobal": "Community policy",
+  "spaceRetentionGlobalHint": "Signed by the owner and enforced by every member.",
+  "spaceRetentionLocal": "On this device",
+  "spaceRetentionLocalHint": "Only hides local history; it never deletes content for other members.",
+  "spaceRetentionMediaOnly": "Delete only media",
+  "spaceRetentionMediaOnlyHint": "Keep message and publication text while expiring attachments after the selected period.",
+  "spaceRetentionMediaExpired": "Media removed by the retention policy",
+  "spaceActiveTitle": "Community is active",
+  "spaceActiveHint": "Members can publish, write in channels, and join voice rooms.",
+  "spaceArchivedTitle": "Community is archived",
+  "spaceArchivedHint": "History remains readable, but messages, posts, reactions, voice rooms, and settings are read-only.",
+  "spaceDeletedTitle": "Community is awaiting deletion",
+  "spaceDeletedHint": "Content is hidden and all activity is stopped. The owner can restore the community until the recovery period ends.",
+  "spaceDeleteTitle": "Delete community?",
+  "spaceDeleteConfirm": "The community will be recoverable for 7 days. After that, encrypted local copies are purged in the background and old snapshots cannot restore them.",
+  "spaceDeleteAction": "Delete community",
+  "spaceDeleteHint": "Starts a 7-day recovery period before physical cleanup.",
+  "spaceRecoveryUntil": "Recovery is available until {date}",
+  "@spaceRecoveryUntil": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceArchiveTitle": "Archive community?",
+  "spaceArchiveConfirm": "This creates an owner-signed boundary and makes the community read-only on every device. You can restore it later.",
+  "spaceArchiveAction": "Archive",
+  "spaceRestoreTitle": "Restore community?",
+  "spaceRestoreConfirm": "New content will start in a fresh signed lifecycle epoch. Archived history remains available.",
+  "spaceRestoreAction": "Restore",
+  "spaceMembers": "{count, plural, =1{1 member} other{{count} members}}",
+  "@spaceMembers": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spaceMemberAdd": "Invite member",
+  "spaceNoContactsToAdd": "All accepted contacts are already members",
+  "spaceInviteSent": "Invitation sent. Membership and keys stay private until they accept.",
+  "spaceInvitesTitle": "Invitations",
+  "spaceSecretInviteTitle": "Secret community",
+  "spaceInviteFrom": "From {peer}",
+  "@spaceInviteFrom": {
+    "placeholders": {
+      "peer": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceInviteAccept": "Accept",
+  "spaceInviteDecline": "Decline",
+  "spaceInviteJoining": "Accepted · waiting for verified membership",
+  "spaceJoinAction": "Join with link",
+  "spaceJoinDialogTitle": "Request to join a community",
+  "spaceJoinCodeHint": "Paste an xveil://space link",
+  "spaceJoinSafetyHint": "The link sends only a membership request. Channels, members and keys stay unavailable until an administrator approves it with a signed grant.",
+  "spaceJoinRequestSent": "Request sent. The community will appear after signed approval.",
+  "spaceJoinRequestsTitle": "Join requests",
+  "spaceJoinRequestFrom": "Request from {peer}",
+  "@spaceJoinRequestFrom": {
+    "placeholders": {
+      "peer": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceJoinRequestPending": "Waiting for approval",
+  "spaceJoinRequestApproved": "Approved · receiving verified membership",
+  "spaceJoinRequestDeclined": "Declined",
+  "spaceMembershipStatusTitle": "Membership status",
+  "spaceMembershipPending": "Membership pending",
+  "spaceMembershipActive": "Active member",
+  "spaceMembershipSuspended": "Membership suspended",
+  "spaceMembershipSuspendedUntil": "Membership suspended until {until}",
+  "@spaceMembershipSuspendedUntil": {
+    "placeholders": {
+      "until": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceMembershipLeft": "No longer a member",
+  "spaceMembershipBanned": "Membership banned",
+  "spaceJoinDismiss": "Dismiss",
+  "spaceJoinApprove": "Approve",
+  "spaceJoinDecline": "Decline",
+  "spaceJoinLinkTitle": "Public join link",
+  "spaceJoinLinkHint": "Anyone with this revocable link may request membership. The link never grants access by itself.",
+  "spaceJoinLinkCreate": "Create link",
+  "spaceJoinLinkCopy": "Copy link",
+  "spaceJoinLinkRevoke": "Revoke link",
+  "spaceJoinLinkCopied": "Join link copied",
+  "spaceJoinLinkRevoked": "Join link revoked",
+  "spaceRecommendationsTitle": "Recommendations",
+  "spaceRecommendationsHint": "Create a signed public campaign. Members can then recommend this community only to contacts they explicitly select.",
+  "spaceRecommendationCreate": "Create campaign",
+  "spaceRecommendationTextHint": "What members may send with the community card",
+  "spaceRecommendationShare": "Recommend community",
+  "spaceRecommendationSelectCampaign": "Choose a campaign",
+  "spaceRecommendationSelectContact": "Choose a recipient",
+  "spaceRecommendationRevoke": "Revoke campaign",
+  "spaceRecommendationSent": "Recommendation sent",
+  "spaceRecommendationDuplicate": "This campaign was already sent to that contact",
+  "spaceRecommendationRateLimited": "Recommendation limit reached. Try again later.",
+  "spaceRecommendationAlreadyMember": "This contact is already a member",
+  "spaceRecommendationEmpty": "No active recommendation campaigns",
+  "spaceRecommendationReceive": "Community recommendations",
+  "spaceRecommendationReceiveHint": "Allow accepted contacts to send community cards. Turning this off silently discards new recommendations.",
+  "spaceRecommendationPolicyEnabled": "Allow community recommendations",
+  "spaceRecommendationPolicyDisabled": "Community recommendations disabled",
+  "spaceRecommendationPolicyHint": "Signed community-wide setting. Anti-spam limits remain fixed and cannot be weakened.",
+  "spaceRecommendationSentAuditTitle": "Sent recommendations",
+  "spaceRecommendationSentAuditHint": "Local encrypted audit. Revoke removes the selected card from both sides.",
+  "spaceRecommendationSentAuditEmpty": "No recommendations sent from this device",
+  "spaceRecommendationSentTo": "Sent to {recipient}",
+  "@spaceRecommendationSentTo": {
+    "placeholders": {
+      "recipient": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceRecommendationSentRevoked": "revoked",
+  "spaceRecommendationSentRevoke": "Revoke sent recommendation",
+  "spacePolicyAuditRecommendations": "Recommendation policy",
+  "spaceRoleLabel": "Community role",
+  "spaceRoleOwner": "Owner",
+  "spaceRoleAdmin": "Administrator",
+  "spaceRoleMember": "Member",
+  "spaceAccessTitle": "Roles and access",
+  "spaceAccessHint": "Reusable permission sets, participant groups, and direct member roles. Every change is signed and audited.",
+  "spacePolicyAuditTitle": "Policy audit",
+  "spacePolicyAuditHint": "Signed access and retention changes. Entries cannot be edited or deleted.",
+  "spacePolicyAuditEmpty": "No policy changes have been signed yet.",
+  "spacePolicyAuditAccess": "Access policy",
+  "spacePolicyAuditRetention": "Retention policy",
+  "spacePolicyAuditAccessSummary": "Revision {revision} · {roles} roles · {groups} groups · {assignments} direct assignments",
+  "@spacePolicyAuditAccessSummary": {
+    "placeholders": {
+      "revision": {
+        "type": "int"
+      },
+      "roles": {
+        "type": "int"
+      },
+      "groups": {
+        "type": "int"
+      },
+      "assignments": {
+        "type": "int"
+      }
+    }
+  },
+  "spacePolicyAuditSignedBy": "Signed by {author}",
+  "@spacePolicyAuditSignedBy": {
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
+  "spacePolicyAuditScopeSpace": "Entire community",
+  "spacePolicyAuditScopeChannel": "Channel {channel}",
+  "@spacePolicyAuditScopeChannel": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
+  "spacePolicyAuditRetentionInherit": "inherits the community policy",
+  "spacePolicyAuditRetentionForever": "keeps history",
+  "spacePolicyAuditRetentionDays": "removes after {days} days",
+  "@spacePolicyAuditRetentionDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "spacePolicyAuditMediaOnly": "media only",
+  "spaceRecentActionsTitle": "Recent actions",
+  "spaceRecentActionsHint": "Signed administrative history. You see what your rights allow.",
+  "spaceRecentActionsEmpty": "Nothing has been done here yet.",
+  "spaceRecentActionsWithheld": "Event unavailable",
+  "spaceRecentActionsWithheldHint": "Something happened here that your rights do not cover.",
+  "spaceRecentActionsBy": "by {author}",
+  "@spaceRecentActionsBy": {
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionMemberAdded": "Added {member}",
+  "@spaceActionMemberAdded": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionMemberRemoved": "Removed {member}",
+  "@spaceActionMemberRemoved": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionMemberLeft": "{member} left",
+  "@spaceActionMemberLeft": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionRoleChanged": "Changed the role of {member}",
+  "@spaceActionRoleChanged": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionOwnershipTransferred": "Handed ownership to {member}",
+  "@spaceActionOwnershipTransferred": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionMemberMuted": "Muted {member}",
+  "@spaceActionMemberMuted": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionMemberUnmuted": "Unmuted {member}",
+  "@spaceActionMemberUnmuted": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionMemberBanned": "Banned {member}",
+  "@spaceActionMemberBanned": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionModerationApplied": "Moderated {member}",
+  "@spaceActionModerationApplied": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionModerationRevoked": "Lifted a moderation action on {member}",
+  "@spaceActionModerationRevoked": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionChannelCreated": "Created a channel",
+  "spaceActionChannelUpdated": "Changed a channel",
+  "spaceActionSpaceRenamed": "Renamed the community",
+  "spaceActionSpaceDescriptionChanged": "Changed the description",
+  "spaceActionSpaceProfileMediaChanged": "Changed the avatar or cover",
+  "spaceActionRulesPublished": "Published new rules",
+  "spaceActionRulesAccepted": "{member} accepted the rules",
+  "@spaceActionRulesAccepted": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionAccessPolicyChanged": "Changed roles and access",
+  "spaceActionRetentionChanged": "Changed the retention policy",
+  "spaceActionSpaceArchived": "Archived the community",
+  "spaceActionSpaceDeleted": "Deleted the community",
+  "spaceActionSpaceRestored": "Restored the community",
+  "spaceActionPostPinChanged": "Changed the pinned publication",
+  "spaceActionRecommendationCampaignChanged": "Changed a recommendation campaign",
+  "spaceActionRecommendationPolicyChanged": "Changed the recommendation policy",
+  "spaceActionEncryptionRotated": "Rotated the encryption key",
+  "spaceActionCheckpointRecorded": "Recorded a control checkpoint",
+  "spaceActionAuthorityWithdrawn": "Withdrew {member}'s authority retroactively",
+  "@spaceActionAuthorityWithdrawn": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionAuthorityReturned": "Returned {member}'s authority",
+  "@spaceActionAuthorityReturned": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionOther": "Performed an administrative action",
+  "spaceActionDetailChannel": "Channel “{channel}”",
+  "@spaceActionDetailChannel": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionDetailNewName": "New name: {name}",
+  "@spaceActionDetailNewName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionDetailRole": "Role: {role}",
+  "@spaceActionDetailRole": {
+    "placeholders": {
+      "role": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceActionDetailModeration": "Action: {action}",
+  "@spaceActionDetailModeration": {
+    "placeholders": {
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceAccessDelegatedHint": "You can manage only roles below your current permission ceiling. Your own roles and peer managers are locked.",
+  "spaceAccessEmpty": "No custom roles yet. Built-in community roles continue to apply.",
+  "spaceAccessRoles": "Custom roles",
+  "spaceAccessGroups": "Participant groups",
+  "spaceAccessRoleAdd": "Add role",
+  "spaceAccessRoleEdit": "Edit role",
+  "spaceAccessRoleDelete": "Delete role",
+  "spaceAccessRoleDeleteConfirm": "Delete the role “{name}”? Its assignments will be removed in the same signed change.",
+  "spaceAccessRoleName": "Role name",
+  "spaceAccessRolePermissions": "{count, plural, =1{1 permission} other{{count} permissions}}",
+  "spaceAccessRoleGrantSummary": "{permissions, plural, =1{1 permission} other{{permissions} permissions}} · {areas, plural, =1{1 area} other{{areas} areas}}",
+  "spaceAccessPermissionAreas": "Permission areas",
+  "spaceAccessAddArea": "Add another area",
+  "spaceAccessAddDenyArea": "Deny area",
+  "spaceAccessDenyScopeLabel": "Denied area",
+  "spaceAccessScopeLabel": "Area",
+  "spaceAccessScopeTarget": "Category or channel",
+  "spaceAccessScopeSpace": "Entire community",
+  "spaceAccessScopeCategory": "Category",
+  "spaceAccessScopeChannel": "Channel",
+  "spaceAccessScopePosts": "Publications",
+  "spaceAccessScopeModeration": "Moderation",
+  "spaceAccessScopeMembers": "Members",
+  "spaceAccessScopeRoles": "Roles",
+  "spaceAccessScopeSettings": "Settings",
+  "spaceAccessScopeEncryption": "Encryption",
+  "spaceAccessScopeStorage": "Storage",
+  "spaceAccessGroupAdd": "Add group",
+  "spaceAccessGroupEdit": "Edit group",
+  "spaceAccessGroupDelete": "Delete group",
+  "spaceAccessGroupDeleteConfirm": "Delete the participant group “{name}”?",
+  "spaceAccessGroupName": "Group name",
+  "spaceAccessGroupSummary": "{members, plural, =1{1 member} other{{members} members}} · {roles, plural, =1{1 role} other{{roles} roles}}",
+  "spaceAccessDirectRoles": "Assign custom roles",
+  "spaceAccessNoRoles": "Create a custom role before assigning it.",
+  "spacePermissionView": "View community",
+  "spacePermissionDistributeContent": "Distribute content",
+  "spacePermissionPublishMessages": "Publish messages",
+  "spacePermissionPublishPosts": "Publish posts",
+  "spacePermissionManagePosts": "Manage posts",
+  "spacePermissionManageRecommendations": "Manage recommendations",
+  "spacePermissionEnterVoice": "Join voice",
+  "spacePermissionManageMembers": "Manage members",
+  "spacePermissionManageRoles": "Manage roles",
+  "spacePermissionModerate": "Moderate",
+  "spacePermissionManageSettings": "Manage settings",
+  "spacePermissionManageEncryption": "Manage encryption",
+  "spacePermissionManageStorage": "Manage storage and retention",
+  "spacePermissionManageChannels": "Manage channels",
+  "spaceMemberMuted": "Cannot publish until unmuted",
+  "spaceMemberMute": "Restrict publishing",
+  "spaceMemberUnmute": "Allow publishing",
+  "spaceMemberPromote": "Make administrator",
+  "spaceMemberDemote": "Make member",
+  "spaceMemberRemove": "Remove from community",
+  "spaceMemberRemoveConfirm": "Remove {member} and rotate access keys?",
+  "@spaceMemberRemoveConfirm": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceMemberBan": "Block in community",
+  "spaceMemberBanConfirm": "Permanently block {member}? Their membership will be revoked and protected access keys will be rotated. The signed action remains in the moderation history and can be appealed.",
+  "@spaceMemberBanConfirm": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceMemberTransferOwnership": "Transfer ownership",
+  "spaceMemberTransferOwnershipConfirm": "Transfer ownership to {member}? You will become an administrator, and only the new owner can transfer it back.",
+  "@spaceMemberTransferOwnershipConfirm": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceAuthorityWithdraw": "Withdraw past authority",
+  "spaceAuthorityReturn": "Return authority",
+  "spaceAuthorityWithdrawConfirm": "From which point should {member}'s decisions stop counting? Blocks and mutes they applied after it are undone. Deleted content and key rotations cannot be brought back.",
+  "@spaceAuthorityWithdrawConfirm": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceAuthorityWithdrawSinceHours": "{hours, plural, one{The last hour} other{The last {hours} hours}}",
+  "@spaceAuthorityWithdrawSinceHours": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "spaceAuthorityWithdrawSinceDays": "{days, plural, one{The last day} other{The last {days} days}}",
+  "@spaceAuthorityWithdrawSinceDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "spaceAuthorityWithdrawSinceAlways": "Everything they ever decided",
+  "spaceRenameTitle": "Rename community",
+  "spaceRenameAction": "Rename",
+  "spaceRenameDenied": "You do not have permission to rename this community",
+  "spaceLeave": "Leave community",
+  "spaceLeaveConfirm": "You will lose access to its channels and publications. Protected keys will be rotated for the remaining members.",
+  "spaceOwnerLeaveHint": "Transfer ownership to another member before leaving the community.",
+  "spaceReplicationTitle": "Copy redistribution",
+  "spaceReplicationNeighbors": "Distribute through {count} nearby members",
+  "@spaceReplicationNeighbors": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "spaceReplicationHint": "Copies are held by members allowed to distribute content. More of them means better availability and recovery, at the cost of traffic here.",
+  "spaceYou": "You",
+  "feedEmpty": "Your feed is empty",
+  "feedEmptyHint": "Publications from enabled communities will appear here in chronological order.",
+  "feedPostHide": "Hide from Feed",
+  "feedPostHidden": "Publication hidden from your Feed",
+  "feedPostUndo": "Undo",
+  "feedPostHideFailed": "Could not update this Feed preference",
+  "feedFilterTitle": "Filter publications",
+  "feedFilterAll": "All",
+  "feedFilterApply": "Apply",
+  "feedFilterEmptyHint": "No publications match the selected filters.",
+  "feedFilterUpdateFailed": "Could not update the Feed filter",
+  "feedFilterMentionsOnly": "Only publications that mention me",
+  "feedFilterMentionsOnlyHint": "The canonical node_id is matched even when a contact name or DHT login is displayed.",
+  "feedFilterTypesTitle": "Publication type",
+  "feedFilterTimeTitle": "Publication time",
+  "feedFilterTimeAll": "Any time",
+  "feedFilterTimeHour": "Last hour",
+  "feedFilterTimeDay": "Last day",
+  "feedFilterTimeWeek": "Last week",
+  "feedFilterTimeMonth": "Last month",
+  "feedFilterTimeCustom": "Custom date and time",
+  "feedFilterCommunitiesTitle": "Communities",
+  "feedFilterAllCommunities": "All communities",
+  "chatsEmpty": "No conversations yet",
+  "chatsEmptyHint": "Start a new chat to begin messaging",
+  "chatNewMessageHint": "Message",
+  "chatSend": "Send",
+  "notificationNewMessage": "New message",
+  "notificationMention": "You were mentioned",
+  "notificationReply": "Reply",
+  "notificationReplyHint": "Message…",
+  "notificationsTitle": "Notifications",
+  "notificationsEnabled": "Show notifications",
+  "notificationsPreview": "Message preview",
+  "notificationsPreviewHidden": "Hidden (“new message”, no sender or text)",
+  "notificationsPreviewFull": "Full (sender and text)",
+  "mentionsTitle": "Mentions",
+  "mentionsOpenTooltip": "All mentions",
+  "mentionsEmpty": "No mentions yet",
+  "mentionsEmptyHint": "Messages, community posts and comments that mention you will appear here.",
+  "mentionsLoadFailed": "Could not load mentions",
+  "chatRequestSent": "Request sent — waiting for approval",
+  "chatRequestResend": "Send again",
+  "chatRequestCancel": "Cancel",
+  "chatRequestCancelTitle": "Cancel request?",
+  "chatRequestCancelBody": "Removes this request and conversation from your device. If it already reached them, they may have seen it.",
+  "chatBlockedContact": "You blocked this contact",
+  "chatRequestHint": "Write a connection request…",
+  "chatAttachTooltip": "Attach a file",
+  "chatVoiceHold": "Hold to record a voice message",
+  "chatVoiceSlideCancel": "Slide to cancel",
+  "chatVoiceReleaseCancel": "Release to cancel",
+  "chatVoiceMicDenied": "Microphone access denied",
+  "chatVoiceTooltip": "Voice message",
+  "chatVnoteTooltip": "Video message",
+  "attachmentPreviewPhoto": "Photo",
+  "attachmentPreviewVideo": "Video",
+  "attachmentPreviewSticker": "Sticker",
+  "stickerTitle": "Stickers",
+  "stickerImport": "Import from photos",
+  "groupCreateTitle": "New group chat",
+  "groupCreateAction": "Create",
+  "groupOperationFailed": "Could not update the group. Check the network and try again.",
+  "groupEncrypted": "End-to-end encrypted",
+  "groupEncryptionPending": "Encryption upgrade pending",
+  "groupNameHint": "Group chat name",
+  "groupEmpty": "No group chats yet",
+  "groupNoMessages": "No messages yet",
+  "groupMembersTooltip": "Members",
+  "groupSyncSettingsTooltip": "Chat synchronization",
+  "groupConvertToCommunity": "Convert to community",
+  "groupConvertConfirm": "This chat becomes a community with channels, publications and a feed. Members and history are kept. It moves to Communities. This cannot be undone.",
+  "groupConvertAction": "Convert",
+  "groupSyncNeighborsTitle": "Chat synchronization",
+  "groupSyncNeighborsLabel": "XOR neighbours: {count}",
+  "@groupSyncNeighborsLabel": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "groupSyncNeighborsHint": "How many XOR-closest members this device connects to for chat history. More neighbours improve redundancy but use more traffic. This setting is local to this device.",
+  "groupRenameTitle": "Rename group",
+  "groupRenameAction": "Rename",
+  "groupRenameDenied": "You don't have permission to rename this group",
+  "groupMembers": "{count, plural, =1{1 member} other{{count} members}}",
+  "@groupMembers": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "groupReply": "Reply",
+  "groupAddMember": "Add",
+  "groupMute": "Mute",
+  "groupUnmute": "Unmute",
+  "groupPromote": "Make admin",
+  "groupDemote": "Remove admin",
+  "groupRemove": "Remove from group",
+  "groupLeave": "Leave group",
+  "groupLeaveConfirm": "You will stop receiving this group's messages.",
+  "groupNoContactsToAdd": "No contacts left to add",
+  "groupAttachImage": "Send image",
+  "groupSendSticker": "Send sticker",
+  "groupImageOnly": "Pick an image file",
+  "groupImageTooLarge": "Image too large to send inline",
+  "groupVnoteRecord": "Record video note",
+  "groupVoiceRecord": "Record voice message",
+  "groupVoiceStop": "Stop and send",
+  "groupVoiceMessage": "Voice message",
+  "groupVoiceTooLong": "Voice message is too long to send in a group",
+  "reactorsTitle": "Reactions",
+  "reactorsYou": "You",
+  "settingsShowReactions": "Show reactions",
+  "settingsShowReactionsHint": "Reaction chips under messages and the quick-react bar in the message menu. Hiding is local only — reactions keep syncing.",
+  "stickerEmpty": "No stickers yet — import your own pictures",
+  "stickerSharePack": "Share pack",
+  "stickerPackTitle": "Sticker pack",
+  "stickerPackDownload": "Download",
+  "stickerPackInstall": "Install",
+  "stickerImported": "{count, plural, =1{1 sticker added} other{{count} stickers added}}",
+  "@stickerImported": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "stickerPackChooseTarget": "Add to which pack?",
+  "stickerPackNew": "New pack…",
+  "stickerPackNameHint": "Pack name",
+  "stickerPackRename": "Rename",
+  "stickerPackDelete": "Delete pack",
+  "stickerPackDeleteConfirm": "Delete \"{name}\" and its stickers?",
+  "@stickerPackDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "stickerPackUnsigned": "Unsigned pack",
+  "stickerPackSignedBy": "Signed by {author}",
+  "@stickerPackSignedBy": {
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
+  "stickerPackBadSignature": "Signature check failed — pack not installed",
+  "chatVnoteDenied": "Camera or microphone access denied",
+  "chatVoiceRecordFailed": "Couldn't record — try again",
+  "chatVoiceTranscribe": "Transcribe",
+  "chatVoiceTranscribing": "Transcribing…",
+  "chatVoiceTranscribeAs": "Read in another language…",
+  "chatVoiceTranscribeLanguage": "Language",
+  "chatVoiceTranscribeFailed": "Couldn't transcribe",
+  "chatFileSave": "Save",
+  "chatFileSaved": "File saved",
+  "chatFileSaveFailed": "Couldn't save the file",
+  "chatFileTooLarge": "File is too large",
+  "chatFileUnreadable": "Couldn't read the file",
+  "chatMsgEdit": "Edit",
+  "chatMsgDeleteForEveryone": "Delete for everyone",
+  "chatMsgDeleteForMe": "Delete for me",
+  "chatMsgCopy": "Copy text",
+  "chatMsgCopied": "Copied",
+  "chatLoadEarlier": "Load earlier messages",
+  "settingsChatPageSize": "Messages per page",
+  "settingsChatPageSizeHint": "How many recent messages a chat loads; older ones load on demand",
+  "settingsCloseToTray": "Close to tray",
+  "settingsCloseToTrayHint": "Closing the window hides it to the system tray and keeps running, so messages and notifications keep arriving. Off = closing quits.",
+  "navStorage": "Storage",
+  "navMenuTiles": "Menu",
+  "cloudTitle": "Personal cloud",
+  "cloudUnavailable": "Cloud sync is unavailable until the node is ready",
+  "cloudEmpty": "Your cloud is empty",
+  "cloudEmptyHint": "Files and notes are encrypted locally and replicated only between your own linked devices.",
+  "cloudAdd": "Add to cloud",
+  "cloudAddFile": "Add file",
+  "cloudAddNote": "New note",
+  "cloudImported": "File added to your cloud",
+  "cloudImportFailed": "Could not import the file",
+  "cloudLoadFailed": "Could not load the cloud index",
+  "cloudReplication": "Keep on this device",
+  "cloudModeAll": "Everything",
+  "cloudModeSelected": "Selected",
+  "cloudModeIndex": "Index only",
+  "cloudModeAllHint": "Automatically download every cloud item",
+  "cloudModeSelectedHint": "Automatically download selected items",
+  "cloudModeIndexHint": "Show the index and download only on demand",
+  "cloudLocal": "on this device",
+  "cloudRemote": "in cloud",
+  "cloudChangedElsewhere": "changed on another device",
+  "cloudUsage": "Storage used",
+  "cloudUsageOnThisDevice": "On this device",
+  "cloudUsageInCloud": "Everything in the index",
+  "cloudUsageByDevice": "By device",
+  "cloudUsageThisDevice": "this device",
+  "cloudUsageItems": "{count, plural, =0{no items} =1{1 item} other{{count} items}}",
+  "@cloudUsageItems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudUsageNotHeldHere": "{count, plural, =0{everything is here} =1{1 item is not held here} other{{count} items are not held here}}",
+  "@cloudUsageNotHeldHere": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudReplicas": "{count, plural, =0{no verified copies} =1{1 verified copy} other{{count} verified copies}}",
+  "@cloudReplicas": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudDownload": "Download to this device",
+  "cloudExport": "Save to a file…",
+  "cloudExportDone": "File saved",
+  "cloudExportFailed": "Could not save the file",
+  "cloudShare": "Share with contact",
+  "cloudShareTitle": "Share with",
+  "cloudNoContacts": "No accepted contacts to share with",
+  "cloudShared": "File shared",
+  "cloudShareFailed": "Could not share the file",
+  "cloudPublicLink": "Private link",
+  "cloudPublicCopy": "Copy link",
+  "cloudPublicCopied": "Private link copied",
+  "cloudPublicRevoke": "Revoke link",
+  "cloudPublicRevoked": "Link revoked; existing downloads cannot be erased",
+  "cloudPublicFailed": "Could not create the private link",
+  "cloudPublicImport": "Open private link",
+  "cloudPublicPasteHint": "Paste an xveil://cloud link",
+  "cloudPublicOpenFailed": "Could not open or verify the private link",
+  "cloudSelect": "Keep selected",
+  "cloudUnselect": "Stop keeping selected",
+  "cloudVerify": "Verify and repair",
+  "cloudVerifyOk": "Local cloud files passed verification",
+  "cloudRepairStarted": "Repair requested for {count} damaged files",
+  "@cloudRepairStarted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudDelete": "Delete",
+  "cloudDeleteTitle": "Delete from your cloud?",
+  "cloudDeleteBody": "The item will disappear from every linked device. This device keeps it in the trash until you empty it.",
+  "cloudTrash": "Trash",
+  "cloudTrashEmptyState": "The trash is empty",
+  "cloudTrashHint": "Deleted items stay on this device until the trash is emptied. Other devices already see them as gone.",
+  "cloudTrashRestore": "Restore",
+  "cloudTrashDeleteForever": "Delete forever",
+  "cloudTrashEmptyAction": "Empty trash",
+  "cloudTrashRestored": "Restored “{name}”",
+  "@cloudTrashRestored": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "cloudTrashEmptied": "Trash emptied",
+  "cloudSharedEmpty": "No files in this shared folder yet",
+  "cloudSharedAddFile": "Add a file from your cloud",
+  "cloudSharedAddEmpty": "No local cloud files available to share",
+  "cloudSharedFetch": "Download",
+  "cloudSharedFetchFailed": "Could not download the file",
+  "cloudPublicDirPublish": "Publish under my nickname",
+  "cloudPublicDirWarning": "Anyone who knows your nickname will see this folder and that it belongs to you. This is public and tied to your identity — unlike a one-off share link. New files you add to the folder become visible too.",
+  "cloudPublicDirConfirm": "Publish publicly",
+  "cloudPublicDirPublished": "Folder published under your nickname",
+  "cloudPublicDirFailed": "Could not publish the directory",
+  "cloudPublicDirOpen": "Open a public directory",
+  "cloudPublicDirNicknameHint": "nickname",
+  "cloudPublicDirResolve": "Open",
+  "cloudPublicDirNotFound": "No public directory for that nickname",
+  "cloudPublicDirUnpublish": "Stop publishing",
+  "cloudPublicDirUnpublished": "Directory unpublished",
+  "cloudNewFolder": "New folder",
+  "cloudFolderNameHint": "Folder name",
+  "cloudFolderCreate": "Create",
+  "cloudFolderRename": "Rename folder",
+  "cloudFolderDelete": "Delete folder",
+  "cloudFolderDeleteTitle": "Delete folder \"{name}\"?",
+  "@cloudFolderDeleteTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "cloudFolderDeleteBody": "Everything inside moves up to the nearest remaining folder. Nothing is deleted from your cloud.",
+  "cloudMoveFolder": "Move folder",
+  "cloudStorageRoot": "Storage",
+  "cloudFolderShare": "Share folder link",
+  "cloudFolderShareCreated": "Folder link copied",
+  "cloudFolderShareEmpty": "This folder has no downloaded files to share yet",
+  "cloudFolderShareFailed": "Could not create the folder link",
+  "cloudFolderShareExisting": "Folder link",
+  "cloudFolderShareRevoke": "Revoke link",
+  "cloudFolderShareRevoked": "Folder link revoked",
+  "cloudFolderShareRefresh": "Update shared contents",
+  "cloudFolderShareRefreshed": "Shared folder updated",
+  "cloudFolderOpen": "Open folder link",
+  "cloudFolderOpenHint": "Paste an xveil://cloud folder link",
+  "cloudFolderOpenTitle": "Shared folder",
+  "cloudFolderOpenFailed": "Could not open the folder link",
+  "cloudFolderFileDownload": "Download",
+  "cloudFolderFileDownloaded": "Saved to your cloud",
+  "cloudFolderFileFailed": "Could not download the file",
+  "cloudFolderEmpty": "This folder is empty",
+  "cloudFolderItems": "{count, plural, =0{empty} =1{1 item} other{{count} items}}",
+  "@cloudFolderItems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudMoveToFolder": "Move to folder",
+  "cloudMoveToRoot": "Storage root",
+  "cloudFolderMoved": "Document moved",
+  "cloudFolderFailed": "Could not update the folder",
+  "cloudRename": "Rename",
+  "cloudRenameHint": "File name",
+  "cloudRenameFailed": "Could not rename the file",
+  "cloudSearch": "Search",
+  "cloudSearchHint": "Search in storage",
+  "cloudSearchEmpty": "Nothing found",
+  "cloudSettings": "Cloud settings",
+  "cloudSort": "Sort",
+  "cloudSortByName": "By name",
+  "cloudSortByDate": "By date",
+  "cloudSortBySize": "By size",
+  "cloudSelectedCount": "{count} selected",
+  "@cloudSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudBulkDeleteTitle": "Delete {count, plural, =1{1 item} other{{count} items}} from your cloud?",
+  "@cloudBulkDeleteTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudFolderEmptyHint": "Notes and files you create here will stay in this folder.",
+  "cloudSingleCopy": "single copy",
+  "cloudNoteNew": "New note",
+  "cloudNoteEdit": "Edit note",
+  "cloudNoteTitleHint": "Title",
+  "cloudNotePreview": "Preview",
+  "cloudNoteEditAction": "Edit",
+  "cloudNoteBodyHint": "Write a private note…",
+  "cloudNoteSave": "Save",
+  "cloudNoteSaved": "Note saved",
+  "cloudNoteLoadFailed": "Could not load or verify the note",
+  "cloudNoteSaveFailed": "Could not save the note",
+  "cloudNoteTitleRequired": "Enter a title",
+  "cloudNoteTooLarge": "The note is too large (maximum 1 MiB)",
+  "cloudNoteConflictTitle": "This note changed on another device",
+  "cloudNoteConflictBody": "Review the current cloud version and merge it with your draft before saving.",
+  "cloudNoteRemoteVersion": "Current cloud version",
+  "cloudNoteYourDraft": "Your merged draft",
+  "cloudNoteUseRemote": "Use cloud version",
+  "cloudNoteSaveMerged": "Save merged version",
+  "cloudNoteBranches": "{count, plural, =1{1 version} other{{count} offline versions}} preserved",
+  "@cloudNoteBranches": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudNoteReviewBranches": "Review versions",
+  "cloudNoteVersion": "Preserved version {number}",
+  "@cloudNoteVersion": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudNoteBranchesUnavailable": "Download every preserved version before merging",
+  "cloudNoteMergeReady": "Merge prepared — save the note to resolve every version",
+  "cloudAttachment": "Attachment",
+  "cloudAttachmentMissing": "Attachment unavailable",
+  "cloudAttachmentGone": "This attachment is no longer in your cloud",
+  "cloudAttachmentInsert": "Attach a file",
+  "cloudAttachmentPick": "Attach from your cloud",
+  "cloudAttachmentUpload": "Upload a new file…",
+  "cloudAttachmentEmpty": "Nothing in your cloud to attach yet",
+  "cloudAttachmentFetched": "Attachment downloaded to this device",
+  "cloudAttachmentFetchFailed": "Could not download the attachment",
+  "settingsCatAccount": "Identities & account",
+  "settingsCatAccountHint": "Switch, add, manage, anonymity",
+  "settingsCatPrivacy": "Privacy",
+  "settingsCatPrivacyHint": "P2P policy, signature requests",
+  "settingsCatChats": "Chats & notifications",
+  "settingsCatChatsHint": "Notifications, background delivery, page size",
+  "settingsCatData": "Data & storage",
+  "settingsCatDataHint": "Container size, compaction, files",
+  "settingsCatAppearanceHint": "Language, folders panel",
+  "searchHint": "Search",
+  "searchMessagesSection": "Messages",
+  "searchNoResults": "No results",
+  "chatMsgPin": "Pin",
+  "chatMsgUnpin": "Unpin",
+  "chatPinnedLabel": "Pinned message",
+  "savedMessages": "Saved Messages",
+  "savedNoteHint": "Note to self…",
+  "chatFormatTooltip": "Formatting",
+  "chatFormatBold": "Bold",
+  "chatFormatItalic": "Italic",
+  "chatFormatUnderline": "Underline",
+  "chatFormatStrike": "Strikethrough",
+  "chatFormatCode": "Code",
+  "chatFormatSpoiler": "Spoiler",
+  "chatFormatQuote": "Quote",
+  "chatLinkCopied": "Link copied",
+  "chatCodeCopied": "Code copied",
+  "linkDialogTitle": "Open link?",
+  "linkOpen": "Open",
+  "linkCopy": "Copy",
+  "linkOpenFailed": "Couldn't open the link",
+  "p2pSelectedTitle": "Selected contacts",
+  "p2pSelectedHint": "Contacts allowed direct P2P under the \"Only selected\" policy. Turn one on to grant it; off follows the global policy.",
+  "p2pSelectedEmpty": "No accepted contacts yet",
+  "trayShow": "Show",
+  "trayHide": "Hide",
+  "trayIdentities": "Identities",
+  "trayLock": "Lock",
+  "trayQuit": "Quit",
+  "trayUnread": "{count} unread",
+  "@trayUnread": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "chatListDelete": "Delete chat",
+  "chatDeleteChatTitle": "Delete this chat?",
+  "chatDeleteChatBody": "The conversation and all its messages are erased from this device. The other person is not notified.",
+  "chatDeleteNotifyPeer": "Notify the other person",
+  "chatDeletedByPeer": "The other person deleted this chat on their device",
+  "chatEditTitle": "Edit message",
+  "chatEditSave": "Save",
+  "chatDeleteTitle": "Delete message?",
+  "chatDeleteForMeBody": "It is permanently erased from this device.",
+  "chatDeleteForEveryoneBody": "It is erased here and a delete request is sent to the other person — but they may already have seen or copied it.",
+  "chatDeleteConfirm": "Delete",
+  "chatEdited": "edited",
+  "chatMenuRetention": "Auto-delete",
+  "retentionUnlimited": "Never",
+  "retention7": "After 1 week",
+  "retention30": "After 1 month",
+  "retention90": "After 3 months",
+  "retention365": "After 1 year",
+  "retentionCustom": "Custom…",
+  "retentionCustomN": "Custom ({days} days)",
+  "@retentionCustomN": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "retentionCustomTitle": "Delete after (days)",
+  "retentionDaysSuffix": "days",
+  "retentionApplied": "Older messages will be deleted",
+  "chatMenuRename": "Rename",
+  "chatRenameTitle": "Local name",
+  "chatMenuPin": "Pin to top",
+  "chatMenuUnpin": "Unpin",
+  "chatMenuMute": "Mute notifications",
+  "chatMenuUnmute": "Unmute notifications",
+  "notificationMuteModeTitle": "What should still notify you?",
+  "notificationMuteMentionsOnly": "Mentions only",
+  "notificationMuteMentionsOnlyHint": "Silence new-message alerts, but notify when you are mentioned",
+  "notificationMuteNone": "Nothing",
+  "notificationMuteNoneHint": "Silence all alerts, including mentions",
+  "notificationMuteCurrentMentionsOnly": "Mentions only until {until}",
+  "@notificationMuteCurrentMentionsOnly": {
+    "placeholders": {
+      "until": {
+        "type": "String"
+      }
+    }
+  },
+  "notificationMuteCurrentNone": "Muted until {until}",
+  "@notificationMuteCurrentNone": {
+    "placeholders": {
+      "until": {
+        "type": "String"
+      }
+    }
+  },
+  "chatMenuMarkRead": "Mark as read",
+  "chatMenuArchive": "Archive",
+  "chatMenuUnarchive": "Unarchive",
+  "chatsArchiveSection": "Archive",
+  "chatMenuFolders": "Folders",
+  "chatsFolderAll": "All",
+  "chatsFolderNew": "New folder",
+  "chatsFolderName": "Folder name",
+  "chatsFolderRename": "Rename folder",
+  "chatsFolderDelete": "Delete folder",
+  "chatsFolderUnnamed": "Untitled",
+  "chatsFolderEmpty": "No chats in this folder",
+  "chatsFolderNoneYet": "No folders yet",
+  "chatMsgRequestSignature": "Request signature",
+  "chatSignatureRequested": "Signature requested",
+  "chatSignaturePending": "Awaiting the author's signature",
+  "chatSignatureVerified": "Authorship verified",
+  "chatSignatureRefused": "The author declined to sign",
+  "chatSignatureFailed": "Signature did not verify",
+  "@signatureAskTitle": {
+    "placeholders": {
+      "who": {
+        "type": "String"
+      }
+    }
+  },
+  "signatureAskTitle": "{who} asks you to confirm you wrote the message below",
+  "signatureAskConfirm": "Sign",
+  "settingsSignaturePolicy": "Signature requests",
+  "settingsSignaturePolicyHint": "How to answer when a contact asks you to prove you wrote a message",
+  "screenLockTitle": "Locked",
+  "settingsScreenLock": "Lock the screen in the background",
+  "settingsScreenLockHint": "Ask for the password again after the app has been away. Messages keep arriving and notifications keep working — only the screen is covered.",
+  "screenLockOff": "Off",
+  "screenLockImmediately": "Immediately",
+  "screenLockOneMinute": "After 1 minute",
+  "screenLockFiveMinutes": "After 5 minutes",
+  "screenLockFifteenMinutes": "After 15 minutes",
+  "settingsApiTitle": "Automation API",
+  "settingsApiHint": "Off. Local REST API for bots/scripts (localhost only)",
+  "settingsApiReadOnly": "Read-only",
+  "settingsApiReadOnlyHint": "Reads and events only — writes (send, calls) are refused",
+  "settingsApiAddToken": "Add token",
+  "settingsApiTokenName": "Token name (e.g. bot)",
+  "settingsApiFileFolders": "Allowed folders",
+  "settingsApiFileFoldersHint": "This token can send files only from these folders. With none, sending a local file is refused.",
+  "settingsApiFileFoldersNone": "No folders — local file sending is off",
+  "settingsApiAddFolder": "Add a folder",
+  "settingsApiRevoke": "Revoke",
+  "settingsApiToken": "API token",
+  "settingsApiCopyToken": "Copy token",
+  "settingsApiRegenerate": "Regenerate token",
+  "settingsApiTokenCopied": "Token copied",
+  "settingsCommunication": "Communication",
+  "settingsP2PPolicy": "P2P policy",
+  "settingsP2PPolicyHint": "Allows direct transport for calls, large media, files, and device-to-device exchange when both sides consent.",
+  "settingsP2PPolicyAnonymousHint": "P2P is disabled while this identity uses anonymous routing.",
+  "p2pPolicyAllowAll": "Allow everyone",
+  "p2pPolicyContacts": "Allow contacts",
+  "p2pPolicySelected": "Only selected contacts",
+  "p2pPolicyDenied": "Deny",
+  "signaturePolicyAsk": "Ask each time",
+  "signaturePolicyAuto": "Sign automatically",
+  "signaturePolicyRefuse": "Always refuse",
+  "settingsKeepNodeBackground": "Keep running in background",
+  "settingsKeepNodeBackgroundHint": "Keeps receiving messages when the app is minimised or the screen is off. Shows a persistent notification and uses more battery.",
+  "settingsFolderPanel": "Folders panel",
+  "settingsFolderPanelHint": "Where chat folders are shown",
+  "folderPanelLeft": "Left drawer",
+  "folderPanelRight": "Right drawer",
+  "folderPanelTop": "Top bar",
+  "mute30m": "30 minutes",
+  "mute1h": "1 hour",
+  "mute8h": "8 hours",
+  "mute3d": "3 days",
+  "mute1w": "1 week",
+  "mute1mo": "1 month",
+  "muteForever": "Until I turn it back on",
+  "muteCustom": "Custom…",
+  "muteCustomTitle": "Mute for how long?",
+  "muteHoursSuffix": "hours",
+  "chatMenuCommunicationSettings": "Communication settings",
+  "chatMenuP2P": "P2P connection",
+  "contactP2PFollowGlobal": "Follow global policy",
+  "contactP2PAllow": "Allow",
+  "contactP2PDeny": "Deny",
+  "contactP2PHint": "Allow lets messages and calls with this contact take a direct route: much faster, and it shows them your IP address. Anything else keeps the conversation on the relay path. Messages are delivered either way.",
+  "chatMenuAllowPeerDelete": "Let this contact delete at me",
+  "chatMenuAllowPeerDeleteHint": "When on, their unsend or clear removes your copy too. Off keeps your copies even if they delete for everyone.",
+  "chatMenuUnblock": "Unblock",
+  "chatMenuClearHistory": "Clear history",
+  "chatMenuDeleteConversation": "Delete conversation",
+  "chatClearHistoryTitle": "Clear history?",
+  "chatClearHistoryBody": "Every message in this chat is erased from this device. The contact stays, so you can keep messaging. The other person is not notified.",
+  "chatClearHistoryConfirm": "Clear",
+  "chatMsgInfo": "Message info",
+  "chatMsgHistory": "Edit history",
+  "chatHistoryEmpty": "No earlier versions",
+  "chatHistoryOriginal": "Original",
+  "chatHistoryEdited": "Edited",
+  "msgInfoId": "ID",
+  "msgInfoTime": "Time",
+  "msgInfoDirection": "Direction",
+  "msgInfoStatus": "Status",
+  "msgInfoFile": "File",
+  "msgInfoSize": "Size",
+  "msgInfoAuthor": "Author",
+  "msgInfoSeq": "Sequence",
+  "msgInfoEdited": "Edited",
+  "msgInfoYes": "Yes",
+  "chatMsgCopyMeta": "Copy with metadata",
+  "chatMsgReply": "Reply",
+  "chatMsgForward": "Forward",
+  "chatMsgSelect": "Select",
+  "chatMsgDelete": "Delete",
+  "chatMsgDeleteTitle": "Delete messages?",
+  "chatReplyingTo": "Replying to",
+  "chatQuoteUnavailable": "Quoted message",
+  "chatFileLabel": "File",
+  "chatForwarded": "Forwarded",
+  "chatYou": "you",
+  "@chatForwardedFrom": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "chatForwardedFrom": "Forwarded from {name}",
+  "chatForwardTo": "Forward to",
+  "chatForwardNoTargets": "No accepted contacts to forward to",
+  "@chatMsgDeleteSelectedBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatMsgDeleteSelectedBody": "Delete {count} selected message(s)?",
+  "dirIncoming": "Received",
+  "dirOutgoing": "Sent",
+  "msgStatusSending": "Sending…",
+  "msgStatusSent": "Sent",
+  "msgStatusDelivered": "Delivered",
+  "msgStatusFailed": "Failed",
+  "identityPickerTitle": "Choose an identity",
+  "identityPickerSubtitle": "This vault holds several identities — pick one to act as.",
+  "networkTitle": "Overlay network",
+  "networkStatusConnected": "Connected",
+  "networkStatusConnecting": "Connecting…",
+  "networkStatusOffline": "Offline",
+  "networkPeers": "{count} peers",
+  "@networkPeers": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsTitle": "Settings",
+  "settingsIdentity": "Identity",
+  "settingsStorage": "Storage & spaces",
+  "settingsStorageCompact": "Compact storage",
+  "settingsStorageCompactBody": "Reclaim unused space — the app re-opens. Keeps ONLY the unlocked space: any other hidden identity in this container is discarded.",
+  "settingsStorageReclaimable": "{size} of it can be reclaimed by compacting",
+  "@settingsStorageReclaimable": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsStorageBloatTitle": "Compacting would free about {size}",
+  "@settingsStorageBloatTitle": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsStorageBloatBody": "Most of this file is padding left over from earlier writes — normal for this storage, but it never shrinks on its own. Compact it when convenient.",
+  "settingsStorageCompactDone": "Reclaimed",
+  "settingsStorageCompactFailed": "Couldn't compact storage",
+  "settingsStorageAutoCompact": "Auto-compact on unlock",
+  "settingsStorageAutoCompactBody": "Compact automatically when the container bloats. Enable ONLY if no other hidden identity lives in this container — compaction keeps just the unlocked space.",
+  "settingsStorageLeanPadding": "Save storage space",
+  "settingsStorageLeanPaddingBody": "Enabled by default: future writes use less padding, so the container grows much less. Turn off for stronger size-change masking. Applies after the app reopens.",
+  "settingsStoragePasswordHint": "Your password",
+  "settingsNetwork": "Network & nodes",
+  "settingsAppearance": "Appearance",
+  "settingsAbout": "About",
+  "settingsLanguage": "Language",
+  "settingsLockNow": "Lock now",
+  "settingsSwitchIdentity": "Switch identity",
+  "settingsAddIdentity": "Add identity",
+  "settingsFiles": "Files",
+  "settingsFilesHint": "Auto-download limit & blocked types",
+  "fileSettingsTitle": "File downloads",
+  "fileAutoLimit": "Auto-download up to",
+  "fileAutoLimitHint": "Bigger files are offered — you choose whether to download.",
+  "fileAlwaysAsk": "Always ask",
+  "fileBlockedTitle": "Never auto-download these types",
+  "fileBlockedHint": "These always wait for your tap (e.g. apk, exe), even when small.",
+  "fileAddType": "Add type",
+  "fileTypeHint": "Extension, e.g. apk",
+  "fileDownloadTitle": "Download file",
+  "fileSaveEncrypted": "Encrypted storage",
+  "fileSaveEncryptedHint": "Kept in the app, encrypted on disk",
+  "fileSavePlain": "Save to disk (unencrypted)",
+  "fileSavePlainHint": "A plain file you choose — not protected",
+  "fileSavePlainWarn": "This file will be saved UNENCRYPTED on disk. Anyone with access to the device can read it. Continue?",
+  "fileSavePlainConfirm": "Save unencrypted",
+  "fileLargeMode": "Large files",
+  "fileLargeModeHint": "When you download a file too big for the hidden volume",
+  "fileLargeModeAsk": "Ask each time",
+  "fileCustomSize": "Custom…",
+  "fileSizeMb": "Size in MB",
+  "fileDownloading": "Downloading",
+  "fileRequestingResend": "Requesting the file from the sender…",
+  "fileResuming": "Resuming…",
+  "fileGoneAskResend": "The sender no longer has this file — ask them to send it again.",
+  "fileReofferFailed": "Couldn't get the file — ask the sender to re-send it.",
+  "addIdentityTitle": "Add identity",
+  "addIdentitySubtitle": "A new identity is hidden in the same file. The first time you add one, your current identity and the new one are managed by a master password you set below.",
+  "addIdentityCurrentName": "Name for your current identity",
+  "addIdentityNewName": "New identity name",
+  "addIdentityNewPassword": "New identity password",
+  "addIdentityMasterPassword": "Master password",
+  "addIdentityMasterHint": "Unlocks the identity chooser. Must be different from each identity's own password.",
+  "addIdentityCreate": "Create",
+  "addIdentityIncomplete": "Fill in every field.",
+  "addIdentityClash": "That master password is already used by an identity — choose a different one.",
+  "addIdentityWorking": "Setting up your new identity…\nThis can take a few seconds.",
+  "addIdentityAnonymous": "Route anonymously",
+  "addIdentityAnonymousHint": "Hide this identity's network activity through veil's overlay so it can't be linked to your other identities. Slower.",
+  "settingsKeepAllOnline": "Keep all identities online",
+  "settingsKeepAllOnlineHint": "Run every identity's node at once so switching is instant and none goes offline (the default). Turn off for strict unlinkability — an observer may link always-on identities by their shared device. Mark sensitive identities to route anonymously.",
+  "settingsPhraseStatusTitle": "Recovery phrase",
+  "settingsPhraseBackedHint": "This identity derives from its recovery phrase — the phrase you wrote down restores it.",
+  "settingsPhraseNoneHint": "This identity was created without a recovery phrase — a phrase cannot restore it. Keep the app data backed up by other means.",
+  "settingsAnonymousRouting": "Anonymous routing (onion)",
+  "settingsAnonymousEnabledHint": "now routes over onion — applies on its next start",
+  "settingsAnonymousDisabledHint": "no longer routes over onion — applies on its next start",
+  "settingsLazyMining": "Lazy mining (raise trust)",
+  "settingsLazyMiningEnabledHint": "grinds extra anti-sybil difficulty in the background — uses CPU; applies on its next start",
+  "settingsLazyMiningDisabledHint": "off — no background difficulty grind (recommended); applies on its next start",
+  "settingsManageIdentities": "Manage identities",
+  "manageTitle": "Manage identities",
+  "manageActive": "active",
+  "manageAnonOn": "Route anonymously",
+  "manageAnonOff": "Stop routing anonymously",
+  "manageBind": "Bind existing identity",
+  "manageBindHint": "Add an identity you already have to this master",
+  "manageBindBody": "Enter the identity's own password to add it to this master. The identity is shared, not copied — it stays reachable by its own password too.",
+  "manageBindPassword": "Identity password",
+  "manageBindLabel": "Name in this master",
+  "manageBindError": "Couldn't bind — wrong password, it's a master, or that name/identity is already here.",
+  "manageUnbind": "Unbind from this master",
+  "manageUnbindBody": "Removes this identity from this master only. Its space is NOT deleted — it still opens by its own password and from any other master that lists it.",
+  "manageUnbindLastError": "Can't unbind the last identity. Delete it, or clear all data, instead.",
+  "manageDelete": "Delete identity",
+  "manageDeleteBody": "Permanently and irreversibly erases this identity — its keys, contacts, messages and files are scrubbed from the container. This cannot be undone.",
+  "manageDeleteLastError": "Can't delete the last identity. Use 'Clear all data' to remove everything.",
+  "settingsDecoyMaster": "Set up decoy access",
+  "decoyTitle": "Decoy (duress) access",
+  "decoySubtitle": "A separate password that, under coercion, opens only the identities you tick below. Your real master and every other identity stay hidden.",
+  "decoyWarning": "Anyone you give this password to sees the FULL content of every identity you tick. Include only genuinely safe ones.",
+  "decoyPassword": "Duress password",
+  "decoyInclude": "Identities to show under duress",
+  "decoyCreate": "Create decoy access",
+  "decoyCreated": "Decoy access created.",
+  "decoyPickOne": "Select at least one identity.",
+  "decoyClash": "That password is already in use — choose a different one.",
+  "languageSystem": "System default",
+  "languageRussian": "Русский",
+  "languageEnglish": "English",
+  "chatRequestTitle": "This contact wants to connect",
+  "actionAccept": "Accept",
+  "actionBlock": "Block",
+  "actionOpen": "Open",
+  "inviteAddContact": "Add a contact",
+  "inviteShowToContact": "Show this to your contact",
+  "inviteTooLarge": "invite too large",
+  "inviteCopied": "Invite copied",
+  "inviteIsSelf": "That's your own invite — you can't add yourself.",
+  "inviteCopyMine": "Copy my invite",
+  "identityDetails": "Identity details",
+  "identityPublicKey": "public key",
+  "identityAlgo": "algorithm",
+  "invitePasteTheirs": "Paste their invite",
+  "inviteScanTooltip": "Scan QR with camera",
+  "scanTitle": "Scan invite",
+  "scanHint": "Point the camera at a contact's invite QR code",
+  "scanUnavailable": "Camera unavailable — paste the invite instead",
+  "scanNotInvite": "That QR is not an xVeil invite",
+  "scanTorchOn": "Turn torch on",
+  "scanTorchOff": "Turn torch off",
+  "inviteAddButton": "Add contact",
+  "inviteInvalid": "That is not a valid xVeil invite",
+  "networkRouteTitle": "Route traffic (Proxy / VPN)",
+  "networkRouteSubActive": "Routing active",
+  "networkRouteSubIdle": "Route your traffic through veil",
+  "routeTitle": "Route traffic",
+  "routeSocks5Title": "Route my traffic (SOCKS5)",
+  "routeSocks5Hint": "Bind a local SOCKS5 proxy and tunnel its traffic through veil to an exit node. Point a browser or system proxy at it to evade censorship and hide your location.",
+  "routeListenLabel": "Local SOCKS5 address",
+  "routeListenHint": "Loopback only (e.g. 127.0.0.1:1080) — keeps the proxy private to this device.",
+  "routeListenInvalid": "Use a loopback host:port, e.g. 127.0.0.1:1080",
+  "routeExitNodeLabel": "Exit node id (64-hex)",
+  "routeExitNodeHint": "node_id of an exit you trust — e.g. one of your own nodes from “My nodes”.",
+  "routeExitNodeInvalid": "Must be a 64-character hex node id",
+  "routeNeedExit": "Set an exit node id to route through",
+  "routeProxyAddress": "Point your apps / browser at {addr}",
+  "@routeProxyAddress": {
+    "placeholders": {
+      "addr": {
+        "type": "String"
+      }
+    }
+  },
+  "routeServeTitle": "Be an exit node",
+  "routeServeHint": "Let other peers route their traffic out to the internet through this node. More exits make the network more censorship-resistant — but traffic will appear to originate from this device.",
+  "routeAllowPrivate": "Allow private networks (advanced)",
+  "routeAllowPrivateHint": "Let the exit reach loopback / RFC1918 / link-local addresses. Leave OFF on any public exit — it prevents reaching internal services and cloud metadata endpoints.",
+  "routeAppliesNextStart": "Changes apply the next time the node starts.",
+  "routeRestartNode": "Restart node to apply now",
+  "vpnTitle": "System VPN",
+  "vpnHint": "Route device traffic through a veil exit. VPN starts its local SOCKS5 transport automatically; the separate SOCKS5 switch is only for direct proxy use.",
+  "vpnStatusRunning": "Packet tunnel active",
+  "vpnStatusStarting": "Starting packet tunnel…",
+  "vpnStatusStopping": "Stopping packet tunnel…",
+  "vpnStatusStopped": "Packet tunnel stopped",
+  "vpnStatusError": "Packet tunnel error",
+  "vpnStatusUnsupported": "Packet tunnel unavailable in this build",
+  "vpnUnsupportedDetail": "This platform build has no native packet-tunnel engine yet. SOCKS5 remains available; xVeil will not claim that a VPN is active.",
+  "vpnRouteMode": "Traffic selection",
+  "vpnRouteAll": "All traffic",
+  "vpnRouteInclude": "Only selected subnets",
+  "vpnRouteExclude": "All except selected subnets",
+  "vpnApplicationRouting": "Applications using VPN",
+  "vpnApplicationAll": "All applications",
+  "vpnApplicationOnlySelected": "Only selected applications",
+  "vpnApplicationOnlySelectedHint": "Only the selected Android applications enter the tunnel; all other applications use the normal network.",
+  "vpnApplicationUnsupported": "Per-application routing is available on Android. Consumer iOS/macOS VPNs do not expose the source application; Linux and Windows need a future process-routing backend.",
+  "vpnApplicationSelect": "Select apps",
+  "vpnApplicationNoneSelected": "Select at least one application",
+  "vpnApplicationSelectedCount": "{count} applications selected",
+  "vpnApplicationPickerTitle": "Applications using VPN",
+  "vpnApplicationPickerEmpty": "No launchable applications are visible to Android.",
+  "vpnApplicationSearchEmpty": "No applications match this search.",
+  "vpnApplicationLoadError": "Could not list applications: {error}",
+  "oproxyCatalogTitle": "oproxy exits",
+  "oproxyAddTitle": "Add oproxy",
+  "oproxyEditTitle": "Edit oproxy",
+  "oproxyName": "Name",
+  "oproxyEmpty": "Add at least one oproxy exit first.",
+  "oproxyNoDefault": "No default oproxy is configured",
+  "oproxyDefaultSummary": "Default chain: {count} exits",
+  "oproxyDefaultOrderTitle": "Default oproxy and fallbacks",
+  "oproxyDefaultOrderAction": "Configure default and fallbacks",
+  "oproxyPrimary": "Primary oproxy",
+  "oproxyUseDefault": "Use default chain",
+  "oproxyVpnRouteTitle": "Main VPN oproxy chain",
+  "oproxyRouteSummary": "{primary} + {fallbacks} fallbacks",
+  "oproxyAutoFailover": "Automatic oproxy failover",
+  "oproxyAutoFailoverHint": "New connections try the next exit when the primary cannot open a route. Existing connections stay on their current exit.",
+  "oproxyApplicationRoutesTitle": "Application oproxy routes",
+  "oproxyApplicationRoutesEmpty": "No applications are selected for this VPN.",
+  "oproxyApplicationRoutesCount": "{count} application overrides",
+  "vpnIncludedCidrs": "Included subnets",
+  "vpnExcludedCidrs": "Excluded subnets",
+  "vpnCidrsHint": "One IPv4 or IPv6 CIDR per line, e.g. 10.20.0.0/16",
+  "vpnCidrsInvalid": "Every route must be a valid IPv4 or IPv6 CIDR",
+  "vpnIncludedCountries": "Countries routed through VPN (GeoIP)",
+  "vpnExcludedCountries": "Countries bypassing VPN (GeoIP)",
+  "vpnCountriesHint": "Two-letter country codes separated by spaces or commas, e.g. KZ, RU. Uses the bundled IPdeny snapshot; GeoIP is approximate.",
+  "vpnCountriesInvalid": "Use two-letter country codes such as KZ",
+  "vpnRouteDns": "Route DNS through VPN",
+  "vpnRouteDnsHint": "Install the selected DNS servers on the tunnel interface to prevent resolver leaks.",
+  "vpnDnsServers": "DNS servers",
+  "vpnDnsHint": "One IPv4 or IPv6 address per line",
+  "vpnDnsInvalid": "Every DNS server must be an IP address",
+  "vpnAllowLan": "Allow local network",
+  "vpnAllowLanHint": "Keep private and link-local subnets reachable outside the tunnel.",
+  "vpnMtu": "Tunnel MTU",
+  "vpnMtuHint": "1280–9000; 1280 is safe across IPv4 and IPv6 paths",
+  "vpnMtuInvalid": "MTU must be between 1280 and 9000",
+  "vpnNeedsProxy": "Select a valid exit node first. VPN starts its SOCKS5 transport automatically.",
+  "vpnStart": "Start VPN",
+  "vpnStop": "Stop VPN",
+  "networkNodesTitle": "My nodes",
+  "networkNodesSub": "Add a node over SSH, run ogate/oproxy",
+  "networkNodesSubCount": "{count} nodes",
+  "@networkNodesSubCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "nodesTitle": "My nodes",
+  "nodesEmpty": "No nodes yet",
+  "nodesEmptyHint": "Add a server you run as an exit / relay — then route your traffic through it from “Route traffic”.",
+  "nodesAdd": "Add node",
+  "nodesAddChoiceTitle": "What kind of node are you adding?",
+  "nodesAddExisting": "Add an existing node",
+  "nodesAddExistingHint": "Register a node that is already installed and has a node id.",
+  "nodesAddExistingFieldsHint": "Required: label and node ID. SSH fields are optional and only needed to manage the server. A password or key can be saved below in xVeil's encrypted storage.",
+  "nodesBootstrapNew": "Bootstrap a new node over SSH",
+  "nodesBootstrapNewHint": "Install veil on a Linux server; its node id will be saved automatically.",
+  "nodesBootstrapFieldsHint": "Required: label, SSH host, and SSH user. The port defaults to 22. A password or key can be saved below; the node ID is saved after provisioning.",
+  "nodesBootstrapContinue": "Continue to provisioning",
+  "nodeEdit": "Edit node",
+  "nodeLabelLabel": "Label *",
+  "nodeLabelRequired": "Enter a label",
+  "nodeIdLabel": "Node ID (64 hex, optional)",
+  "nodeIdRequiredLabel": "Node ID (64 hex) *",
+  "nodeIdHintText": "The node's veil id — lets you route your traffic through it.",
+  "nodeIdInvalid": "Must be a 64-character hex node id",
+  "nodeIdRequired": "Enter the existing node's 64-character node id",
+  "nodeSshHostLabel": "SSH host (optional)",
+  "nodeSshHostRequiredLabel": "SSH host *",
+  "nodeSshHostRequired": "Enter the SSH host for the new server",
+  "nodeSshPortLabel": "SSH port (defaults to 22)",
+  "nodeSshUserLabel": "SSH user (optional)",
+  "nodeSshUserRequiredLabel": "SSH user *",
+  "nodeSshUserRequired": "Enter the SSH user for the new server",
+  "actionSave": "Save",
+  "nodeRemove": "Remove node",
+  "nodeRemoveConfirm": "Remove this node from your list? The remote server is not touched.",
+  "nodeUseAsExit": "Use as routing exit",
+  "nodeUseAsExitDone": "Set as your SOCKS5 routing exit",
+  "nodeNeedsNodeId": "Add the node id to route through this node",
+  "nodeProvision": "Provision veil node over SSH",
+  "nodeManage": "Manage node",
+  "nodeInventory": "Inspect installation and status",
+  "nodeInstallUpdate": "Install or update software",
+  "nodeServices": "Services",
+  "nodeAdvancedConfig": "Advanced configuration",
+  "nodeServiceStatus": "Status",
+  "nodeServiceStart": "Start",
+  "nodeServiceStop": "Stop",
+  "nodeServiceRestart": "Restart",
+  "nodeServiceEnable": "Enable and start",
+  "nodeServiceDisable": "Stop and disable",
+  "nodeConfigLoad": "Load from server",
+  "nodeConfigApply": "Validate, apply and restart",
+  "nodeConfigNotLoaded": "Load the current server config before editing it.",
+  "nodeUninstallSoftware": "Uninstall software (keep data)",
+  "nodeDebootstrap": "Debootstrap node (erase everything)",
+  "nodeDebootstrapConfirm": "This permanently deletes the remote node identity, state, configs and all veil/ogate/oproxy software. Type DELETE to continue.",
+  "nodeDebootstrapType": "Type DELETE",
+  "nodeOperationOutput": "Server output",
+  "nodeOperationRun": "Run command",
+  "nodeOperationSuccess": "Remote operation completed",
+  "nodeSelectServices": "Select services",
+  "provisionTitle": "Provision over SSH",
+  "provisionReleaseSection": "veil-cli release",
+  "provisionReleaseTarget": "Server architecture",
+  "provisionReleaseTargetX64": "x86_64 Linux (portable musl)",
+  "provisionReleaseTargetArm64": "ARM64 Linux (portable musl)",
+  "provisionReleaseRefresh": "Refresh GitHub fields",
+  "provisionSourceGithub": "GitHub release",
+  "provisionSourceCustom": "Custom link",
+  "provisionReleaseLoading": "Loading the latest release from GitHub…",
+  "provisionReleaseLoaded": "Loaded GitHub release {tag}",
+  "@provisionReleaseLoaded": {
+    "placeholders": {
+      "tag": {
+        "type": "String"
+      }
+    }
+  },
+  "provisionReleaseError": "Could not auto-fill from GitHub: {error}. You can enter both values manually.",
+  "@provisionReleaseError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "provisionReleaseUrl": "veil-cli release URL",
+  "provisionReleaseHint": "Filled automatically from the official veilnetwork/veil GitHub release. Choose Custom link to override it.",
+  "provisionCustomReleaseHint": "Enter a direct HTTPS link to your binary. You must also supply its SHA-256 below.",
+  "provisionSha256": "veil-cli SHA-256",
+  "provisionSha256Hint": "Required. The 64-hex SHA-256 published with that binary. Installation aborts on the server if the download does not match — this is what stops a tampered binary from running as root.",
+  "provisionRunExit": "Run as an exit (route my traffic through it)",
+  "provisionComponents": "Components",
+  "provisionTransports": "Incoming transports",
+  "provisionTransportObfs4TcpHint": "Obfuscated TCP listener for censorship-resistant peer connections.",
+  "provisionTransportTcpHint": "Plain TCP listener without transport encryption.",
+  "provisionTransportTlsHint": "TCP listener protected by the shared TLS certificate below.",
+  "provisionTransportQuicHint": "QUIC listener over UDP, protected by the shared TLS certificate below.",
+  "provisionTransportWsHint": "Plain WebSocket. No certificate, so it survives an HTTP proxy but not an observer — put it behind a TLS front, or prefer wss.",
+  "provisionTransportWssHint": "Secure WebSocket listener, protected by the shared TLS certificate below.",
+  "provisionTransportPort": "{transport} port",
+  "@provisionTransportPort": {
+    "placeholders": {
+      "transport": {
+        "type": "String"
+      }
+    }
+  },
+  "provisionTransportNetwork": "Network protocol: {protocol}",
+  "@provisionTransportNetwork": {
+    "placeholders": {
+      "protocol": {
+        "type": "String"
+      }
+    }
+  },
+  "provisionTransportCommon": "Shared transport settings",
+  "provisionTransportCommonHint": "These values apply to every selected incoming transport.",
+  "provisionAdvertiseHost": "Public host / IP (optional)",
+  "provisionAdvertiseHostHint": "The same public address is advertised for every selected transport; each one keeps its own port.",
+  "provisionTlsShared": "TLS certificate",
+  "provisionTlsSharedHint": "Used by: {transports}. Choose how the certificate is supplied to every selected TLS transport.",
+  "@provisionTlsSharedHint": {
+    "placeholders": {
+      "transports": {
+        "type": "String"
+      }
+    }
+  },
+  "provisionTlsMode": "Certificate source",
+  "provisionTlsModeExisting": "Existing files",
+  "provisionTlsModeAutomatic": "Automatic",
+  "provisionTlsModeSelfSigned": "Self-signed",
+  "provisionTlsAutomaticName": "Domain or IP (optional override)",
+  "provisionTlsAutomaticNameHint": "Leave empty to use the public host / IP above. A DNS name gets Let's Encrypt; an IP gets a self-signed certificate with an IP SAN.",
+  "provisionTlsLetsEncryptHint": "Let's Encrypt will be requested on the server. The domain must point to this server and inbound TCP port 80 must be open. Renewal is configured automatically.",
+  "provisionTlsIpHint": "An IP address cannot use the standard Let's Encrypt flow here. A self-signed certificate with this IP in its SAN will be generated on the server.",
+  "provisionTlsUnknownHint": "Enter a domain or IP here, or set the public host / IP above.",
+  "provisionTlsEmail": "Let's Encrypt account email",
+  "provisionTlsAgreeTerms": "I agree to the Let's Encrypt terms of service",
+  "provisionTlsSelfSignedName": "Domain or IP in the certificate",
+  "provisionTlsSelfSignedNameHint": "The value is written into the certificate's DNS or IP subject alternative name.",
+  "provisionTlsSelfSignedDays": "Validity in days (1–3650)",
+  "provisionTlsSelfSignedHint": "Clients must trust this self-signed certificate explicitly. Its private key is generated and kept on the server.",
+  "provisionTlsCert": "Remote TLS certificate path",
+  "provisionTlsKey": "Remote TLS private-key path",
+  "provisionTlsCa": "Remote TLS CA path (optional)",
+  "provisionComponentUrl": "{component} release URL",
+  "@provisionComponentUrl": {
+    "placeholders": {
+      "component": {
+        "type": "String"
+      }
+    }
+  },
+  "provisionComponentSha": "{component} SHA-256",
+  "@provisionComponentSha": {
+    "placeholders": {
+      "component": {
+        "type": "String"
+      }
+    }
+  },
+  "provisionScriptLabel": "Runs on the server as root — review before running:",
+  "provisionPskMissing": "Deployment PSK isn't bundled in this build, so the node can't join the network. Provisioning is unavailable.",
+  "provisionRun": "Run over SSH",
+  "provisionRunning": "Provisioning… (mining the identity can take a while)",
+  "provisionNeedUrl": "Enter an https release URL",
+  "provisionInvalidConfig": "Check the required release, transport, port, and TLS fields",
+  "provisionAddedPeer": "Added the server to the peer list",
+  "provisionPeerFailed": "Could not add the server as a peer: {reason}",
+  "@provisionPeerFailed": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "provisionAddedProxy": "Added the oproxy exit to the proxy list",
+  "provisionProxyNeedsNodeId": "oproxy installed, but the server reported no node id — cannot add it to the proxy list",
+  "provisionSavedNodeId": "Saved the node id reported by the server",
+  "nodeSshConnect": "Connect over SSH",
+  "sshDialogTitle": "SSH to {host}",
+  "@sshDialogTitle": {
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "sshUsePassword": "Password",
+  "sshUseKey": "Private key",
+  "sshPasswordLabel": "Password",
+  "sshKeyLabel": "Private key (PEM)",
+  "sshKeyPassphraseLabel": "Key passphrase (optional)",
+  "sshCredsNotSaved": "Credentials entered here are used once. Manage saved credentials in the node card.",
+  "sshCredentialsTitle": "SSH authentication",
+  "sshSavedPasswordLabel": "Saved SSH password (optional)",
+  "sshSavedPasswordHint": "Leave empty to remove the saved password.",
+  "sshCredentialsEncryptedHint": "The password and private key are stored only inside xVeil's encrypted container.",
+  "sshCredentialsEndpointCleared": "The SSH endpoint changed, so the saved password and key were cleared for safety.",
+  "sshGenerateEd25519": "Generate an Ed25519 key",
+  "sshRegenerateEd25519": "Generate a new Ed25519 key",
+  "sshSavedEd25519Title": "Saved Ed25519 key",
+  "sshPublicKeyLabel": "Add this line to ~/.ssh/authorized_keys on the server:",
+  "sshCopyPublicKey": "Copy public key",
+  "sshPublicKeyCopied": "Public key copied",
+  "sshRemoveSavedKey": "Remove saved key",
+  "sshUseSavedKeyHint": "Leave empty to use the saved Ed25519 key.",
+  "sshOtherKeyLabel": "Another private key (PEM, this time only)",
+  "sshCredentialRequired": "Enter a password or private key",
+  "sshCredentialsSaving": "Saving…",
+  "sshCredentialsSaveFailed": "Could not save SSH credentials: {error}",
+  "@sshCredentialsSaveFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "sshKeyGenerationFailed": "Could not generate the key: {error}",
+  "@sshKeyGenerationFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "sshConnectRun": "Connect & check",
+  "sshConnecting": "Connecting…",
+  "sshDone": "Done (exit {code})",
+  "@sshDone": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "sshError": "Failed: {err}",
+  "@sshError": {
+    "placeholders": {
+      "err": {
+        "type": "String"
+      }
+    }
+  },
+  "nodeCheckReachable": "Check reachability",
+  "nodeChecking": "Checking…",
+  "nodeReachable": "Reachable",
+  "nodeUnreachable": "Unreachable",
+  "networkExtTitle": "Extensions (Lua)",
+  "networkExtSub": "Load sandboxed add-ons",
+  "networkComingLater": "Coming in a later milestone",
+  "networkStatusError": "Error",
+  "networkBackgroundTitle": "Keep running in background",
+  "networkBackgroundHint": "Android only. Keeps the node — your proxy and incoming-message delivery — alive after you switch away from the app. Requires a persistent notification (so it's visible the app is running) and uses more battery.",
+  "networkBackgroundAllowTitle": "Allow background work",
+  "networkBackgroundAllowBody": "For messages to arrive while xVeil is in the background, allow it to run without battery restrictions. On some phones (e.g. Xiaomi, Samsung) you must ALSO enable “Autostart” / remove battery limits in the app's settings.",
+  "networkBackgroundAllowGrant": "Allow",
+  "networkBackgroundOpenSettings": "App settings",
+  "callBatteryAllowTitle": "Keep calls alive in the background?",
+  "callBatteryAllowBody": "Some phones stop a call when you switch away from xVeil. Allow it to ignore battery optimization so backgrounded calls keep running.",
+  "networkBackgroundLater": "Later",
+  "peersTitle": "Connected peers",
+  "peersSectionActive": "Active",
+  "peersSectionInactive": "Inactive",
+  "peersEmpty": "No peers yet",
+  "peersEmptyHint": "When your node connects to others, they appear here.",
+  "peerActiveNow": "active now",
+  "peerNeverSeen": "not yet connected",
+  "peerLastSeenLabel": "last active",
+  "peerDetailsTitle": "Peer details",
+  "peerFieldNodeId": "node_id",
+  "peerFieldTransport": "transport",
+  "peerFieldState": "state",
+  "peerFieldDirection": "direction",
+  "peerFieldLastSeen": "last active (seen by this device)",
+  "peerStateActive": "Active",
+  "peerStateConnecting": "Connecting",
+  "peerStateClosed": "Disconnected",
+  "peerStateUnknown": "Unknown",
+  "peerDirInbound": "Inbound",
+  "peerDirOutbound": "Outbound",
+  "peerDirUnknown": "Unknown",
+  "timeJustNow": "just now",
+  "timeMinutesAgo": "{n}m ago",
+  "@timeMinutesAgo": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "timeHoursAgo": "{n}h ago",
+  "@timeHoursAgo": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "timeDaysAgo": "{n}d ago",
+  "@timeDaysAgo": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "peersAddAction": "Add peer",
+  "peersAddTitle": "Add a peer by link",
+  "peersAddHint": "Paste a veil:bootstrap link. A node produces its own with `veil-cli bootstrap invite`; a deployed server saves it here automatically.",
+  "peersAddFieldLabel": "Bootstrap link",
+  "peersAddPaste": "Paste",
+  "peersAddInvalid": "Not a bootstrap link: {reason}",
+  "@peersAddInvalid": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "peersAddNoTransport": "This link carries an identity but no address, so there is nothing to dial. Use it to add a contact instead.",
+  "peersAddNoNode": "The node is not running yet",
+  "peersAddDone": "Peer added",
+  "peersAddFailed": "Could not add the peer: {reason}",
+  "@peersAddFailed": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "peersAddResolved": "node {nodeId}… via {transport}",
+  "@peersAddResolved": {
+    "placeholders": {
+      "nodeId": {
+        "type": "String"
+      },
+      "transport": {
+        "type": "String"
+      }
+    }
+  },
+  "peersShareAction": "Share entry nodes",
+  "peersShareTitle": "Share entry nodes",
+  "peersShareSubtitle": "Pick nodes to give a friend working entry points to the network — useful if the default seeds are blocked where they are. This shares ONLY these nodes, never your identity.",
+  "peersShareNone": "No known entry nodes to share",
+  "peersShareSelectOne": "Select at least one node",
+  "peersShareGenerate": "Generate link",
+  "peersShareScanHint": "Have your friend scan this or open the link in xVeil",
+  "peerActiveBadge": "active",
+  "peersImported": "Added {n} entry nodes",
+  "@peersImported": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "onboardRepeatPassword": "Repeat password",
+  "onboardPasswordTitle": "Set a password",
+  "onboardPasswordSubtitle": "This password unlocks your space on this device. There is no reset.",
+  "onboardPasswordTooShort": "Use at least 6 characters",
+  "onboardPasswordMismatch": "Passwords do not match",
+  "recoveryPhraseHint": "Enter your recovery phrase, words separated by spaces",
+  "securityCenterTooltip": "Security",
+  "securityCenterTitle": "Security & network",
+  "callStartTooltip": "Call",
+  "callAudio": "Audio call",
+  "callVideo": "Video call",
+  "callScreen": "Screen share",
+  "callIncoming": "Incoming call",
+  "callDialing": "Calling…",
+  "callConnecting": "Connecting…",
+  "callActive": "In call",
+  "callAccept": "Accept",
+  "callDecline": "Decline",
+  "callEnd": "End call",
+  "callCancel": "Cancel",
+  "callEnded": "Call ended",
+  "callMicOn": "Mic on",
+  "callMicOff": "Mic off",
+  "callCameraOn": "Camera on",
+  "callCameraOff": "Camera off",
+  "callDevices": "Devices",
+  "callSettingsAudio": "Audio",
+  "callSettingsVideo": "Video",
+  "callAudioOutput": "Audio output",
+  "callSpeaker": "Speaker",
+  "callEarpiece": "Phone earpiece",
+  "callCameras": "Cameras",
+  "callMicrophones": "Microphones",
+  "callScreens": "Screens",
+  "callDisplays": "Displays",
+  "callWindows": "Windows",
+  "callNoCaptureDevices": "No capture devices available",
+  "callDeviceSwitchFailed": "Could not switch device",
+  "callSwitchCamera": "Switch camera",
+  "callScreenOn": "Sharing screen",
+  "callScreenOff": "Share screen",
+  "callScreenWaiting": "Waiting for shared screen…",
+  "callScreenPermissionRequired": "Allow Screen Recording for xveil in System Settings, then try again",
+  "callOpenScreenSettings": "Open Settings",
+  "groupCallOngoing": "Group call in progress",
+  "groupCallJoinAction": "Join",
+  "callVideoPaused": "Video paused",
+  "callVideoWaiting": "Waiting for video…",
+  "callPathOnion": "Anonymous (onion)",
+  "callPathRelay": "Relayed",
+  "callPathP2P": "Direct (P2P)",
+  "callPathNoDirectSession": "no direct link",
+  "groupCallTitle": "Group call",
+  "groupCallIncoming": "Incoming group call",
+  "groupCallStartAudio": "Start group audio call",
+  "groupCallStartVideo": "Start group video call",
+  "groupCallBusy": "Another call is already active",
+  "groupCallLeave": "Leave call",
+  "groupCallEndEveryone": "End for everyone",
+  "groupCallMinimize": "Minimize group call",
+  "groupCallExpand": "Open group call",
+  "settingsNickname": "Nickname",
+  "settingsNicknameHint": "Claim an @name others can find you by",
+  "videoPlayError": "Could not play this video",
+  "videoPlayUnsupported": "This format can't be played here. On Linux only WebM (VP8) videos play.",
+  "emojiSearchHint": "Search emoji",
+  "chatEmojiTooltip": "Emoji",
+  "chatMoreActions": "More actions",
+  "composerCamera": "Camera",
+  "composerUploadPhoto": "Upload photo",
+  "composerUploadVideo": "Upload video",
+  "composerUploadFile": "Upload file",
+  "composerPoll": "Poll",
+  "composerLocation": "Location",
+  "composerPlanned": "Planned",
+  "composerGif": "GIF",
+  "composerGifLocal": "Choose GIF from device",
+  "composerGifPrivacy": "No external GIF search: your query never leaves xVeil.",
+  "composerCameraUnavailable": "Camera capture is unavailable on this device",
+  "nicknameTitle": "Nickname",
+  "nicknameIntro": "A nickname is a public @name on the veil network that resolves to this identity. Claiming costs proof-of-work: short names cost much more. A name can be taken over by strictly more work, so you can reinforce yours anytime.",
+  "nicknameFieldLabel": "Name (a–z, 0–9, _)",
+  "nicknameCheck": "Check availability",
+  "nicknameFree": "Available",
+  "nicknameMineVerdict": "Already yours",
+  "nicknameTakenWeight": "Taken — protection weight {weight}",
+  "@nicknameTakenWeight": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
+  "nicknameClaim": "Claim name",
+  "nicknameMiningLabel": "Mining proof-of-work…",
+  "nicknameMiningStats": "weight {weight} / {target} · {hashes} hashes",
+  "@nicknameMiningStats": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "hashes": {
+        "type": "String"
+      }
+    }
+  },
+  "nicknamePublishing": "Publishing…",
+  "nicknameOwnedTitle": "Your name",
+  "nicknameWeightExplain": "Protection weight is the cumulative proof-of-work pinned to the name — the value shown is the live network weight. Taking the name over requires strictly more work; Reinforce raises that price.",
+  "nicknameOwnedTakenOver": "The name was taken over with heavier work (rival weight {weight}). Reinforce wins it back by mining strictly more.",
+  "@nicknameOwnedTakenOver": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
+  "nicknameOwnedWeight": "Protection weight {weight}",
+  "@nicknameOwnedWeight": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
+  "nicknameTopUp": "Reinforce (mine more)",
+  "nicknameClaimed": "Name published",
+  "newChatPeerOrNickname": "Node id (hex) or @name",
+  "nicknameNotFound": "Name not found on the network",
+  "nicknameIsSelf": "That name points to you",
+  "nicknameOwnerChanged": "This name has changed owners on the network. The contact still points to the person you added.",
+  "settingsDevices": "My devices",
+  "settingsDevicesHint": "Link, review, or revoke devices that share this identity",
+  "devicesThisDevice": "This device",
+  "devicesNoGroup": "No other devices are linked yet",
+  "devicesLinkNew": "Link a new device",
+  "devicesJoinExisting": "Join an existing device",
+  "devicesPhrase": "Recovery phrase",
+  "devicesPhraseHint": "The phrase decrypts the sovereign key for this one action. It is not stored.",
+  "devicesRecoveryCode": "Recovery code",
+  "devicesRecoveryCodeHint": "The code decrypts the recovery certificate for this one action. It is not stored.",
+  "devicesTargetInvite": "New device invite",
+  "devicesTargetInviteHint": "Scan or paste the bootstrap invite shown by the new device",
+  "devicesShowMyInvite": "First, show this device invite to the existing device",
+  "devicesPrepare": "Prepare secure link",
+  "devicesAdoptionQrTitle": "Scan this on the new device",
+  "devicesAdoptionQrHint": "First scan this setup code there. Then return here and send the encrypted setup.",
+  "devicesSendSetup": "New device is ready — send setup",
+  "devicesSetupSent": "Encrypted setup sent",
+  "devicesJoinToken": "Setup code from existing device",
+  "devicesJoinTokenHint": "Scan or paste the device setup code",
+  "devicesWaitTitle": "Ready to receive",
+  "devicesWaitHint": "On the existing device, press “send setup”. This screen will finish automatically.",
+  "devicesJoined": "Device linked",
+  "devicesInvalidToken": "Invalid or mismatched device setup code",
+  "devicesExpiredToken": "This setup code has expired",
+  "devicesRevoke": "Revoke device",
+  "devicesRevokeTitle": "Revoke {device}?",
+  "@devicesRevokeTitle": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesOperationFailed": "Could not complete device linking",
+  "devicesCancelPending": "Cancel waiting",
+  "devicesRecoverySection": "All devices lost",
+  "devicesCreateRecovery": "Create recovery certificate",
+  "devicesCreateRecoveryHint": "Preserves the same sovereign node ID if every linked device is lost",
+  "devicesRecover": "Recover device registry",
+  "devicesRecoverHint": "Use a certificate and its separately stored recovery code on a fresh registry",
+  "devicesCertificate": "Recovery certificate",
+  "devicesCertificateHint": "Paste the complete xveil-recovery:v1 value",
+  "devicesCertificateReady": "Recovery certificate created",
+  "devicesCertificateWarning": "Anyone with both values controls your sovereign device identity. Store the certificate and code separately. The code is shown only now.",
+  "devicesCopyCertificate": "Copy certificate",
+  "devicesCopyCode": "Copy recovery code",
+  "devicesRecovered": "Device registry recovered with the same sovereign node ID",
+  "devicesFreshRegistryRequired": "Recovery requires a fresh device registry",
+  "actionReject": "Reject",
+  "cloudDocumentInvites": "Shared document invitations ({count})",
+  "@cloudDocumentInvites": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudDocumentInviteFrom": "Invitation from {sender}",
+  "@cloudDocumentInviteFrom": {
+    "placeholders": {
+      "sender": {
+        "type": "String"
+      }
+    }
+  },
+  "cloudDocumentInviteKind": "Encrypted {kind} document · inactive until accepted",
+  "@cloudDocumentInviteKind": {
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      }
+    }
+  },
+  "cloudDocumentAdopted": "Shared document added",
+  "cloudDocumentAdoptFailed": "The invitation could not be verified",
+  "cloudDocumentRejected": "Invitation removed",
+  "cloudSharedNew": "New shared document",
+  "cloudSharedDocuments": "Shared documents ({count})",
+  "@cloudSharedDocuments": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudSharedDocument": "Shared {kind} · {id}",
+  "@cloudSharedDocument": {
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      },
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "cloudSharedMembers": "{count} members · epoch {epoch} · {role}",
+  "@cloudSharedMembers": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "epoch": {
+        "type": "int"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
+  "cloudSharedPickContact": "Invite an accepted contact",
+  "cloudSharedRole": "Document role",
+  "cloudSharedRoleOwner": "Owner",
+  "cloudSharedRoleEditor": "Editor",
+  "cloudSharedRoleViewer": "Viewer",
+  "cloudSharedCreated": "Shared document created and invitation queued",
+  "cloudSharedFailed": "Could not update the shared document",
+  "cloudSharedPartial": "Saved locally, but delivery was not queued for every member",
+  "cloudSharedAddMember": "Add member",
+  "cloudSharedRevoke": "Revoke access",
+  "cloudSharedRevokeTitle": "Revoke access for {member}?",
+  "@cloudSharedRevokeTitle": {
+    "placeholders": {
+      "member": {
+        "type": "String"
+      }
+    }
+  },
+  "cloudSharedRotate": "Rotate encryption key",
+  "cloudSharedRotateTitle": "Rotate the document key for every member?",
+  "cloudSharedCompact": "Compact history",
+  "cloudSharedCompactTitle": "Ask current editors to confirm the exact synchronized state, then automatically replace the old encrypted history with a signed checkpoint? Offline editors will safely delay compaction. Current content, access and edit continuity are preserved.",
+  "cloudSharedResend": "Resend invitation",
+  "cloudSharedQueued": "Update queued",
+  "cloudRichTitle": "Shared note",
+  "cloudRichCollaborative": "Encrypted collaborative editing",
+  "cloudRichReadOnly": "Read-only access",
+  "cloudRichManage": "Members and access",
+  "cloudRichSave": "Save",
+  "cloudRichSaved": "Shared note saved and queued",
+  "cloudRichFailed": "The shared note could not be updated",
+  "cloudRichHint": "Write together…",
+  "cloudRichRemotePending": "A remote change arrived while you were editing. Saving preserves both changes.",
+  "cloudRichRecovered": "An offline edit survived a concurrent deletion and was recovered here.",
+  "cloudRichInvalid": "An authenticated but invalid edit was kept inert.",
+  "cloudRichDelete": "Delete visible version",
+  "cloudRichDeleteTitle": "Delete the version visible here?",
+  "cloudRichDeleteBody": "This deletion covers only changes already visible on this device. A concurrent offline edit is preserved and will reappear for review instead of being lost.",
+  "cloudRichDeleted": "Visible version deleted; concurrent edits remain recoverable",
+  "cloudRichBold": "Bold",
+  "cloudRichItalic": "Italic",
+  "cloudRichUnderline": "Underline",
+  "cloudRichStrike": "Strikethrough",
+  "cloudRichCode": "Inline code",
+  "cloudRichParagraph": "Paragraph",
+  "cloudRichHeading1": "Heading 1",
+  "cloudRichHeading2": "Heading 2",
+  "cloudRichQuote": "Quote",
+  "cloudRichBullet": "Bullet",
+  "cloudRichCodeBlock": "Code block",
+  "cloudSharedPickKind": "Shared document type",
+  "cloudKindNote": "Note",
+  "cloudKindTasks": "Task list",
+  "cloudKindCalendar": "Calendar",
+  "cloudKindFiles": "Shared folder",
+  "cloudTasksTitle": "Shared tasks",
+  "cloudCalendarTitle": "Shared calendar",
+  "cloudCollectionCollaborative": "Encrypted collaborative collection",
+  "cloudCollectionEmptyTasks": "No tasks yet",
+  "cloudCollectionEmptyEvents": "No events yet",
+  "cloudTaskAdd": "Add task",
+  "cloudTaskEdit": "Edit task",
+  "cloudTaskTitle": "Task",
+  "cloudTaskNotes": "Notes",
+  "cloudTaskDue": "Due date",
+  "cloudTaskNoDue": "No due date",
+  "cloudEventAdd": "Add event",
+  "cloudEventEdit": "Edit event",
+  "cloudEventTitle": "Event",
+  "cloudEventStart": "Starts",
+  "cloudEventEnd": "Ends",
+  "cloudEventAllDay": "All day",
+  "cloudEventLocation": "Location",
+  "cloudCollectionDelete": "Delete",
+  "cloudCollectionDeleteTitle": "Delete \"{title}\"?",
+  "@cloudCollectionDeleteTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "cloudCollectionSaved": "Change saved and queued",
+  "cloudCollectionFailed": "Could not update this shared collection",
+  "cloudCollectionInvalidRange": "The event must end after it starts",
+  "cloudCollectionInvalid": "An authenticated but invalid change was kept inert.",
+  "spaceRulesTitle": "Community rules",
+  "spaceRulesEmpty": "This community has not published rules yet.",
+  "spaceRulesPublish": "Publish rules",
+  "spaceRulesPublishVersion": "Publish rules version {version}",
+  "@spaceRulesPublishVersion": {
+    "placeholders": {
+      "version": {
+        "type": "int"
+      }
+    }
+  },
+  "spaceRulesFullText": "Full rules",
+  "spaceRulesSummary": "Short summary",
+  "spaceRulesEffectiveDate": "Effective date",
+  "spaceRulesEffective": "Effective {date}",
+  "@spaceRulesEffective": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceRulesVersion": "Version {version}",
+  "@spaceRulesVersion": {
+    "placeholders": {
+      "version": {
+        "type": "int"
+      }
+    }
+  },
+  "spaceRulesAccept": "Accept rules",
+  "spaceRulesAccepted": "Rules accepted",
+  "spaceRulesAcceptanceRequired": "Please review and accept the current rules",
+  "spaceRulesHistory": "Previous versions",
+  "spaceModerationTitle": "Moderation",
+  "spaceModerationEmpty": "No moderation actions have been recorded.",
+  "spaceModerationAdd": "New moderation action",
+  "spaceModerationTarget": "Member",
+  "spaceModerationAction": "Action",
+  "spaceModerationReason": "Reason",
+  "spaceModerationDuration": "Duration",
+  "spaceModerationNoExpiry": "Until revoked",
+  "spaceModerationOneHour": "1 hour",
+  "spaceModerationOneDay": "24 hours",
+  "spaceModerationOneWeek": "7 days",
+  "spaceModerationActive": "Active",
+  "spaceModerationExpired": "Expired",
+  "spaceModerationRevoked": "Revoked",
+  "spaceModerationRevoke": "Revoke action",
+  "spaceModerationRevokeReason": "Reason for revocation",
+  "spaceModerationWarning": "Warning",
+  "spaceModerationDeleteMessage": "Remove message",
+  "spaceModerationDeletePost": "Remove publication",
+  "spaceModerationRestrictPublishing": "Temporarily restrict publications",
+  "spaceModerationRestrictMessages": "Prevent sending messages",
+  "spaceModerationRestrictVoice": "Prevent joining voice channels",
+  "spaceModerationMute": "Mute messages and voice",
+  "spaceModerationTimeout": "Timeout",
+  "spaceModerationTemporaryBan": "Temporary ban",
+  "spaceModerationPermanentBan": "Permanent ban",
+  "spaceModerationUntil": "Until {date}",
+  "@spaceModerationUntil": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceModerationAppealsTitle": "Moderation appeals",
+  "spaceModerationAppealAction": "Appeal",
+  "spaceModerationAppealDialogTitle": "Appeal moderation action",
+  "spaceModerationAppealText": "Explain why this action should be reviewed",
+  "spaceModerationAppealSent": "Appeal sent",
+  "spaceModerationAppealPending": "Awaiting review",
+  "spaceModerationAppealRejected": "Appeal rejected",
+  "spaceModerationAppealRevoked": "Action revoked after review",
+  "spaceModerationAppealAcknowledged": "Appeal accepted; removed content cannot be restored",
+  "spaceModerationAppealFrom": "Appeal from {node}",
+  "@spaceModerationAppealFrom": {
+    "placeholders": {
+      "node": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceModerationAppealReview": "Review appeal",
+  "spaceModerationAppealDecisionReason": "Decision explanation",
+  "spaceModerationAppealDecisionReject": "Uphold action",
+  "spaceModerationAppealDecisionRevoke": "Revoke action",
+  "spaceModerationAppealDecisionAcknowledge": "Accept without restoration",
+  "spaceAbuseReportAction": "Report",
+  "spaceAbuseReportDialogTitle": "Report a violation",
+  "spaceAbuseReportCategory": "Report reason",
+  "spaceAbuseReportCategorySpam": "Spam or fraud",
+  "spaceAbuseReportCategoryHarassment": "Harassment or abuse",
+  "spaceAbuseReportCategoryViolence": "Violence or threats",
+  "spaceAbuseReportCategorySexualContent": "Sexual content",
+  "spaceAbuseReportCategoryIllegalContent": "Illegal content",
+  "spaceAbuseReportCategoryMisinformation": "Harmful misinformation",
+  "spaceAbuseReportCategoryOther": "Other",
+  "spaceAbuseReportDetails": "Details (optional)",
+  "spaceAbuseReportDetailsRequired": "Add details when choosing Other",
+  "spaceAbuseReportSent": "Report sent to moderators",
+  "spaceAbuseReportsTitle": "Reports",
+  "spaceAbuseReportFrom": "Report from {node}",
+  "@spaceAbuseReportFrom": {
+    "placeholders": {
+      "node": {
+        "type": "String"
+      }
+    }
+  },
+  "spaceAbuseReportPost": "Publication",
+  "spaceAbuseReportComment": "Comment",
+  "spaceAbuseReportOpenContent": "Open content",
+  "spaceAbuseReportReview": "Review report",
+  "spaceAbuseReportDecisionReason": "Decision explanation",
+  "spaceAbuseReportDecisionDismiss": "Dismiss report",
+  "spaceAbuseReportDecisionResolve": "Mark resolved",
+  "spaceAbuseReportDecisionRemove": "Remove content",
+  "spaceAbuseReportPending": "Awaiting review",
+  "spaceAbuseReportDismissed": "No violation found",
+  "spaceAbuseReportResolved": "Resolved",
+  "spaceAbuseReportRemoved": "Content removed",
+  "profileTitle": "Profiles",
+  "profileSettingsHint": "Run a separate installation from its own container",
+  "profileExplainer": "A profile is a separate installation: its own container, its own password, its own identities. Nothing is shared between profiles. Use one to keep a test build away from your real data.",
+  "profileDefaultName": "Default (production)",
+  "profileRunningNow": "Running now",
+  "profileChoiceNotSaved": "The choice could not be saved — the next launch will use the current profile",
+  "@profileChoiceNotSaved": {
+    "description": "Shown when the active-profile pointer file could not be written durably; the selection is not applied so the screen never claims a switch that will not happen."
+  },
+  "profileRestartRequired": "Restart xVeil to switch profile",
+  "profileSwitchNote": "The chosen profile is remembered and applies on the next launch. On desktop you can also pass --profile <name>; on a phone, set XVEIL_PROFILE before launch.",
+  "profileCreateTitle": "New profile",
+  "profileNameHint": "for example: testing",
+  "profileNameRule": "Lower-case letters, digits, dot, dash, underscore. Up to 32 characters.",
+  "profileRevealed": "Profiles unlocked",
+  "commonCreate": "Create",
+  "folderSyncTitle": "Folder sync",
+  "folderSyncHint": "Mirror a folder on this computer with a folder in Storage",
+  "folderSyncEmpty": "No folders are being mirrored yet.",
+  "folderSyncAdd": "Add a folder",
+  "folderSyncRunNow": "Sync now",
+  "folderSyncRemove": "Stop mirroring",
+  "folderSyncNever": "Not synced yet",
+  "folderSyncRefused": "Stopped: {reason}",
+  "folderSyncConflictsTitle": "Needs your decision",
+  "folderSyncConflictExplain": "This file changed here and in Storage at the same time. Nothing was overwritten. Choose which copy to keep, then sync again.",
+  "folderSyncKeepLocal": "Keep the one on this computer",
+  "folderSyncKeepCloud": "Keep the one in Storage",
+  "folderSyncCloudRoot": "Storage root",
+  "folderSyncBusy": "Syncing…",
+  "folderSyncDeleteWarning": "Deleting a file here deletes it in Storage too.",
+  "@folderSyncRefused": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsCopyErrors": "Copy error report",
+  "settingsCopyErrorsHint": "A JSON summary of recent failures: error types and code locations only — no error text, contacts or identity.",
+  "settingsCopyErrorsDone": "Error report copied ({count, plural, =0{no failures recorded} =1{1 failure} other{{count} failures}})",
+  "@settingsCopyErrorsDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "errorLoadFailed": "Couldn't load this",
+  "errorLoadFailedHint": "The details are in Settings → Copy error report.",
+  "voiceModelDownload": "Download the speech model",
+  "voiceModelSize": "57 MB, once for the whole app",
+  "voiceModelDownloading": "Downloading the speech model…",
+  "voiceModelFailed": "Download failed — tap to retry",
+  "voiceModelInstalled": "Speech model installed",
+  "voiceModelRemove": "Remove the speech model",
+  "voiceModelRemoveHint": "Frees 57 MB. Transcription stops working until you fetch it again.",
+  "voiceModelTitle": "Speech model",
+  "voiceModelResume": "Continue downloading",
+  "voiceModelResumeAt": "{percent}% already downloaded",
+  "@voiceModelResumeAt": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "voiceModelCancel": "Stop",
+  "identityDamagedTitle": "This space opened, but its identity is damaged",
+  "identityDamagedBody": "Your password was right — the container unlocked. What it holds where your identity should be cannot be read. This app will not go on and act as if you were someone new.",
+  "identityDamagedUntouched": "Nothing was changed or overwritten. Your data is still in the container exactly as it was found.",
+  "identityDamagedBack": "Back to the lock screen",
+  "backupNotExcludedTitle": "This device may be copying your data into its backup",
+  "backupNotExcludedBody": "xVeil asks the system to keep its container out of iCloud and computer backups. On this device that did not take effect ({reason}). Your data stays encrypted, but a backup could show that this app holds an identity, and a copy of it could be attacked away from your phone. Turning off backup for xVeil in the system settings closes it.",
+  "@backupNotExcludedBody": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesLastSeen": "Last seen {when}",
+  "@devicesLastSeen": {
+    "description": "Subtitle under a linked device: how long ago it was last heard from, so a device that is gone for good can be recognised and unlinked.",
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesNeverSeen": "Never seen since this device was linked",
+  "devicesAwayLong": "Away a long time — consider unlinking"
+}
