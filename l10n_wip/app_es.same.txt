@@ -1,3 +1,4 @@
 # Keys whose Spanish is the same word as the English. Listed so the progress
 # report can tell "already correct" from "not looked at yet".
 navChats
+spacePostTypeAudio
