@@ -243,6 +243,87 @@ void main() {
       );
     });
 
+    test('a peer whose counter RESTARTED below the watermark is still heard — '
+        'a clear covers what was sent before it, not a range forever', () async {
+      // What a user hit: cleared the history, and from then on nothing the
+      // phone sent ever appeared, while their own messages did. The peer's
+      // counter had come back lower than the ceiling the clear recorded (a
+      // reinstall, a restored container), so every message it sent afterwards
+      // sat at/below that ceiling — and a ceiling with no end date swallows
+      // them all. Measured on the stand: 67 writes, seq 277 through 307, every
+      // one accepted by storage and invisible in the chat.
+      await s.applyRemoteClear(conv, conv.hex, 7, {
+        conv.hex: 500,
+      }, selfHex: selfHex);
+
+      // A clear claims everything up to its own instant, so a message from the
+      // same millisecond is deliberately still covered. Step past it — that is
+      // what "sent afterwards" means.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      // The peer speaks again NOW, from a counter that restarted well below it.
+      await s.appendMessage(
+        Message(
+          id: 'after-reset',
+          conversationId: conv.hex,
+          direction: MessageDirection.incoming,
+          body: 'still here?',
+          timestamp: DateTime.now(),
+          status: MessageStatus.delivered,
+          author: conv.hex,
+          seq: 7,
+        ),
+      );
+
+      expect(
+        (await s.loadMessages(conv.hex)).map((m) => m.id),
+        contains('after-reset'),
+        reason:
+            'sent AFTER the clear, so no clear covers it — its seq being '
+            'below an old ceiling must not silence the conversation forever',
+      );
+    });
+
+    test('two clears are two facts, not one merged one: a message neither '
+        'covers survives', () async {
+      // An older clear with a HIGHER ceiling and a newer one with a LOWER
+      // ceiling (the peer's counter reset between them). Keeping the highest
+      // ceiling beside the latest time would invent a clear that never
+      // happened and swallow a message that belongs to neither.
+      await s.applyRemoteClear(conv, conv.hex, 7, {
+        conv.hex: 500,
+      }, selfHex: selfHex);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      final betweenClears = DateTime.now();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await s.applyRemoteClear(conv, conv.hex, 8, {
+        conv.hex: 300,
+      }, selfHex: selfHex);
+
+      // Sent after the first clear (so it survives that one) and numbered above
+      // the second's ceiling (so it survives that one too).
+      await s.appendMessage(
+        Message(
+          id: 'between',
+          conversationId: conv.hex,
+          direction: MessageDirection.incoming,
+          body: 'neither clear reaches me',
+          timestamp: betweenClears,
+          status: MessageStatus.delivered,
+          author: conv.hex,
+          seq: 400,
+        ),
+      );
+
+      expect(
+        (await s.loadMessages(conv.hex)).map((m) => m.id),
+        contains('between'),
+        reason:
+            'the highest ceiling and the latest time came from DIFFERENT '
+            'clears; neither of them covers this message',
+      );
+    });
+
     // "Clear for everyone" names BOTH authors on purpose — clearing only the
     // sender's half would leave the conversation half-standing, and the button
     // says what it does. What the sender may NOT do is reach past what our own
