@@ -84,12 +84,16 @@ void main() {
 /// Strings that were already unreachable when this gate was written
 /// (2026-08-10). Not an approval — a debt, recorded so it cannot grow.
 ///
-/// They fall into three groups, and each wants a different answer:
+/// Already paid down: the six group-composer duplicates, deleted once it was
+/// clear the group screen uses the SAME MessageComposer as a 1:1 chat and
+/// labels it with the chat keys.
+///
+/// What is left falls into three groups, and each wants a different answer:
 ///  * planned features whose text landed early (`networkExt*`,
 ///    `networkComingLater`);
-///  * group-chat strings whose screens reuse the 1:1 chat keys instead
-///    (`group*Record`, `groupAttachImage`, …), which is either a duplicate to
-///    delete or a screen that lost its labels;
+///  * a message for a rule that does not exist — `groupVoiceTooLong` describes
+///    a refusal, and nothing in the app enforces a group voice-clip limit, so
+///    the question is whether the LIMIT is missing rather than the string;
 ///  * one-off labels a refactor left behind (`settingsIdentity`,
 ///    `chatFileSave`, `sshDone`, …).
 const _knownUnreachable = {
@@ -105,14 +109,8 @@ const _knownUnreachable = {
   'devicesFreshRegistryRequired',
   'fileDownloadTitle',
   'folderSyncNever',
-  'groupAttachImage',
   'groupCallTitle',
   'groupEmpty',
-  'groupSendSticker',
-  'groupVnoteRecord',
-  'groupVoiceMessage',
-  'groupVoiceRecord',
-  'groupVoiceStop',
   'groupVoiceTooLong',
   'networkComingLater',
   'networkExtSub',
