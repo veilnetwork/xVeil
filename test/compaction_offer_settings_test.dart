@@ -139,4 +139,35 @@ void main() {
       throwsA(isA<StateError>()),
     );
   });
+
+  test('a wrong password opens nothing and claims nothing', () async {
+    // The screen shows an identity for every password that opened one. A probe
+    // that reported a name it did not read would put a stranger's identity on
+    // that list, and compaction keeps exactly what the list says.
+    final c = await _open();
+    addTearDown(c.dispose);
+    final probe = await c
+        .read(appControllerProvider.notifier)
+        .probeCompactionIdentity('not-the-password');
+    expect(probe.opened, isFalse);
+    expect(probe.isMaster, isFalse);
+    expect(probe.displayName, isNull);
+    expect(probe.username, isNull);
+    expect(probe.subordinates, isEmpty);
+  });
+
+  test('the right password opens, and a lone space is not a master', () async {
+    final c = await _open();
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    // The fixture container was created with this password and holds no roster.
+    final probe = await ctrl.probeCompactionIdentity('pw');
+    expect(probe.opened, isTrue);
+    expect(
+      probe.isMaster,
+      isFalse,
+      reason: 'no roster means nothing else comes with this password',
+    );
+    expect(probe.subordinates, isEmpty);
+  });
 }
