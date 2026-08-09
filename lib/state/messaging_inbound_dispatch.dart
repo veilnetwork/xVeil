@@ -269,7 +269,7 @@ extension _MessagingInboundDispatch on MessagingService {
         // latest text shows on first paint (no flash of the superseded text, and
         // the original body never hits the container — nothing to scrub).
         final body = pending?.body ?? env.body;
-        await _store(
+        final storedIncoming = await _store(
           m.src,
           MessageDirection.incoming,
           body,
@@ -283,6 +283,19 @@ extension _MessagingInboundDispatch on MessagingService {
           // both devices — the basis for gap detection. Null from an older sender
           // → storage allocates locally (no cross-device convergence for them).
           seq: env.seq,
+        );
+        // A message the peer sent, acked, and then not shown is the shape a
+        // user reported after clearing history. Everything before this point
+        // now says when it refuses; this says what the write actually produced
+        // and whether the conversation can see it afterwards, which is the one
+        // gap left between "received" and "in the chat".
+        final visibleNow = await _storage.loadMessages(m.src.hex);
+        devLog(
+          () =>
+              'xVeil[recv]: stored id=${storedIncoming.id} '
+              'seq=${storedIncoming.seq} author=${storedIncoming.author} — '
+              'conversation now holds ${visibleNow.length}, contains it: '
+              '${visibleNow.any((x) => x.id == storedIncoming.id)}',
         );
         _emitIncoming(m.src, body, isFile: false, messageId: id);
         if (id != null) {
