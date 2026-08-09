@@ -907,6 +907,8 @@
   "chatVoiceRecordFailed": "Не удалось записать — попробуйте ещё раз",
   "chatVoiceTranscribe": "Расшифровать",
   "chatVoiceTranscribing": "Расшифровка…",
+  "chatVoiceTranscribeAs": "Прочитать на другом языке…",
+  "chatVoiceTranscribeLanguage": "Язык",
   "chatVoiceTranscribeFailed": "Не удалось расшифровать",
   "chatFileSave": "Сохранить",
   "chatFileSaved": "Файл сохранён",
