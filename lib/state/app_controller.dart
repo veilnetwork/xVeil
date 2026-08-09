@@ -604,6 +604,38 @@ class AppController extends Notifier<AppState> {
     );
   }
 
+  /// Put the app into the state where passwords can be checked: session down,
+  /// node stopped, container closed. Answers whether the container really let
+  /// go of its lock.
+  ///
+  /// The screen that collects passwords cannot do this itself and must not try
+  /// to work around it: a live session holds `LOCK_EX`, so every probe would
+  /// answer "wrong password". One teardown, many probes, one compaction.
+  ///
+  /// Whoever calls this OWNS reopening. Cancel, an error, a closed dialog — all
+  /// of them have to reach [cancelCompactionCollection], or the app sits torn
+  /// down with no session and no explanation.
+  Future<bool> beginCompactionCollection() async {
+    state = state.copyWith(
+      phase: AppPhase.preparingNode,
+      preparingReason: PreparingReason.unlocking,
+    );
+    await _boundedTeardown('session teardown', _teardownSession);
+    await _boundedTeardown('node teardown', _teardownRealStack);
+    return _boundedTeardown(
+      'store close',
+      () => ref.read(storageProvider).close(),
+    );
+  }
+
+  /// Undo [beginCompactionCollection] without compacting.
+  ///
+  /// The one path this exists for is the person changing their mind, which is
+  /// the most likely outcome of a dialog that asks for several passwords. It
+  /// must leave them exactly where they were.
+  Future<void> cancelCompactionCollection(String reopenWith) =>
+      unlock(reopenWith);
+
   /// What a password opens in this container — for the screen that collects
   /// them before a compaction.
   ///
