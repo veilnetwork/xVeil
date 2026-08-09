@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../common/whisper_model_tile.dart';
+import 'compaction_offer_dialog.dart';
 import '../../domain/storage_compaction_policy.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
@@ -125,6 +126,43 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
     await _saveOffer(_offer.copyWith(thresholdBytes: chosen));
   }
 
+  /// The multi-identity path: ask for the password in hand, then let the offer
+  /// collect the rest. The manual button above cannot serve this container —
+  /// one password there would keep one space and delete the others — so this
+  /// is not a second way to do the same thing, it is the only safe way to do it
+  /// at all.
+  Future<void> _compactAll(AppL10n l) async {
+    final pw = await showDialog<String>(
+      context: context,
+      builder: (d) => CompactPasswordDialog(
+        title: l.compactOfferTitle,
+        hint: l.settingsStoragePasswordHint,
+        confirmLabel: l.actionContinue,
+        cancelLabel: l.actionCancel,
+      ),
+    );
+    if (pw == null || pw.isEmpty || !mounted) return;
+    final offer = await ref.read(appControllerProvider.notifier).compactionOffer();
+    if (offer == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final sizes = await showCompactionOffer(
+      context,
+      ref,
+      estimate: offer.estimate,
+      currentPassword: pw,
+    );
+    if (sizes == null) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          '${l.settingsStorageCompactDone}: '
+          '${fmtBytes(sizes.before)} → ${fmtBytes(sizes.after)}',
+        ),
+      ),
+    );
+    await _load();
+  }
+
   Future<void> _compact(AppL10n l) async {
     final pw = await showDialog<String>(
       context: context,
@@ -219,6 +257,14 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                       setState(() => _autoCompact = v);
                       ctrl.setAutoCompactEnabled(v);
                     },
+                  ),
+                if (!ctrl.canCompactStorage)
+                  ListTile(
+                    leading: const Icon(Icons.compress),
+                    title: Text(l.compactOfferTitle),
+                    subtitle: Text(l.compactOfferPasswordsHint),
+                    isThreeLine: true,
+                    onTap: () => _compactAll(l),
                   ),
                 SwitchListTile(
                   secondary: const Icon(Icons.notifications_active_outlined),
