@@ -220,12 +220,26 @@ extension _MessagingInboundDispatch on MessagingService {
         // Dedup re-sent messages (the sender's local outbox re-sends un-acked
         // ones): if we already have this id, just re-ack so they stop.
         if (id != null && await _hasMessage(m.src, id)) {
+          devLog(
+            () =>
+                'xVeil[recv]: message $id from ${m.src.short} DROPPED — already '
+                'stored (re-send); acked so the sender stops',
+          );
           await _ackTo(m, id, direct: true);
           return;
         }
         // Deniability: if we DELETED this message, a re-delivery must NOT
         // resurrect it. Re-ack so the sender stops re-sending, then drop.
         if (id != null && await _storage.isMessageDeleted(m.src.hex, id)) {
+          // Both of these answer the sender and keep nothing, which is exactly
+          // what "delivered, but the chat stayed empty" looks like from the
+          // outside. Reported by the user after clearing history: everything
+          // the peer sent afterwards was acked and never appeared.
+          devLog(
+            () =>
+                'xVeil[recv]: message $id from ${m.src.short} DROPPED — marked '
+                'deleted here; acked so the sender stops',
+          );
           await _ackTo(m, id, direct: true);
           return;
         }
