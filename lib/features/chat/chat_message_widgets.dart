@@ -345,6 +345,9 @@ class _StickerContentState extends ConsumerState<_StickerContent> {
         else if (widget.onDownload != null)
           Center(
             child: IconButton.filledTonal(
+              // An unnamed icon on top of a blurred thumbnail: nothing said
+              // whether it downloads, opens, or dismisses.
+              tooltip: AppL10n.of(context).fileDownloadTitle,
               onPressed: widget.onDownload,
               icon: const Icon(Icons.download),
             ),
