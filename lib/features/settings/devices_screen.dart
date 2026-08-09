@@ -715,6 +715,9 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
                 labelText: l.devicesTargetInvite,
                 helperText: l.devicesTargetInviteHint,
                 suffixIcon: IconButton(
+                  // The field says what to paste; the icon said nothing at all
+                  // — no hover hint, and nothing for a screen reader to read.
+                  tooltip: l.inviteScanTooltip,
                   icon: const Icon(Icons.qr_code_scanner),
                   onPressed: _busy ? null : _scan,
                 ),
@@ -931,6 +934,7 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
                 labelText: l.devicesJoinToken,
                 helperText: l.devicesJoinTokenHint,
                 suffixIcon: IconButton(
+                  tooltip: l.inviteScanTooltip,
                   icon: const Icon(Icons.qr_code_scanner),
                   onPressed: _busy ? null : _scan,
                 ),
