@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../common/whisper_model_tile.dart';
+import '../../domain/storage_compaction_policy.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
@@ -36,6 +37,10 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
   bool _leanPadding = true;
   bool _loaded = false;
 
+  /// The two knobs behind the compaction offer. Defaults until [_load] answers,
+  /// which is also what a container that will not open should show.
+  CompactionOfferSettings _offer = const CompactionOfferSettings();
+
   @override
   void initState() {
     super.initState();
@@ -48,14 +53,76 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
     final reclaim = await ctrl.storageReclaim();
     final autoCompact = await ctrl.autoCompactEnabled();
     final leanPadding = await ctrl.leanStoragePaddingEnabled();
+    final offer = await ctrl.compactionOfferSettings();
     if (!mounted) return;
     setState(() {
       _size = size;
       _reclaim = reclaim;
       _autoCompact = autoCompact;
       _leanPadding = leanPadding;
+      _offer = offer;
       _loaded = true;
     });
+  }
+
+  Future<void> _saveOffer(CompactionOfferSettings next) async {
+    setState(() => _offer = next);
+    await ref
+        .read(appControllerProvider.notifier)
+        .setCompactionOfferSettings(next);
+  }
+
+  /// Days between offers. The choices are the ones a person actually means —
+  /// "not more than weekly", not an arbitrary number typed into a box.
+  Future<void> _pickPeriod(AppL10n l) async {
+    const options = [1, 3, 7, 14, 30];
+    final chosen = await showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(l.settingsCompactOfferPeriod),
+        children: [
+          for (final days in options)
+            ListTile(
+              title: Text(l.settingsCompactOfferDays(days)),
+              trailing: _offer.period.inDays == days
+                  ? const Icon(Icons.check)
+                  : null,
+              onTap: () => Navigator.of(ctx).pop(days),
+            ),
+        ],
+      ),
+    );
+    if (chosen == null) return;
+    await _saveOffer(_offer.copyWith(period: Duration(days: chosen)));
+  }
+
+  Future<void> _pickThreshold(AppL10n l) async {
+    const options = [
+      256 << 20,
+      512 << 20,
+      1 << 30,
+      2 << 30,
+      5 << 30,
+      10 << 30,
+    ];
+    final chosen = await showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(l.settingsCompactOfferThreshold),
+        children: [
+          for (final bytes in options)
+            ListTile(
+              title: Text(fmtBytes(bytes)),
+              trailing: _offer.thresholdBytes == bytes
+                  ? const Icon(Icons.check)
+                  : null,
+              onTap: () => Navigator.of(ctx).pop(bytes),
+            ),
+        ],
+      ),
+    );
+    if (chosen == null) return;
+    await _saveOffer(_offer.copyWith(thresholdBytes: chosen));
   }
 
   Future<void> _compact(AppL10n l) async {
@@ -153,6 +220,28 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                       ctrl.setAutoCompactEnabled(v);
                     },
                   ),
+                SwitchListTile(
+                  secondary: const Icon(Icons.notifications_active_outlined),
+                  title: Text(l.settingsCompactOffer),
+                  subtitle: Text(l.settingsCompactOfferHint),
+                  isThreeLine: true,
+                  value: _offer.enabled,
+                  onChanged: (v) => _saveOffer(_offer.copyWith(enabled: v)),
+                ),
+                if (_offer.enabled) ...[
+                  ListTile(
+                    leading: const Icon(Icons.schedule_outlined),
+                    title: Text(l.settingsCompactOfferPeriod),
+                    trailing: Text(l.settingsCompactOfferDays(_offer.period.inDays)),
+                    onTap: () => _pickPeriod(l),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.data_usage_outlined),
+                    title: Text(l.settingsCompactOfferThreshold),
+                    trailing: Text(fmtBytes(_offer.thresholdBytes)),
+                    onTap: () => _pickThreshold(l),
+                  ),
+                ],
                 SwitchListTile(
                   secondary: const Icon(Icons.speed_outlined),
                   title: Text(l.settingsStorageLeanPadding),
