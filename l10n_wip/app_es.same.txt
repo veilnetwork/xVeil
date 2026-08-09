@@ -11,3 +11,5 @@ languageEnglish
 networkStatusError
 peerFieldNodeId
 callSettingsAudio
+chatEmojiTooltip
+composerGif
