@@ -3669,12 +3669,6 @@ class AppL10nEn extends AppL10n {
   String get languageSystem => 'System default';
 
   @override
-  String get languageRussian => 'Русский';
-
-  @override
-  String get languageEnglish => 'English';
-
-  @override
   String get chatRequestTitle => 'This contact wants to connect';
 
   @override

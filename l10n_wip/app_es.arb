@@ -1538,8 +1538,6 @@
   "decoyPickOne": "Selecciona al menos una identidad.",
   "decoyClash": "Esa contraseña ya está en uso: elige otra distinta.",
   "languageSystem": "Como el sistema",
-  "languageRussian": "Русский",
-  "languageEnglish": "English",
   "chatRequestTitle": "Este contacto quiere conectar contigo",
   "actionAccept": "Aceptar",
   "actionBlock": "Bloquear",
