@@ -27,6 +27,9 @@ class AppL10nRu extends AppL10n {
   String get actionCopy => 'Копировать';
 
   @override
+  String get actionRemove => 'Удалить';
+
+  @override
   String get actionUnderstood => 'Понятно';
 
   @override
