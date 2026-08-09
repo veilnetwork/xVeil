@@ -1418,7 +1418,6 @@
     }
   },
   "settingsTitle": "Settings",
-  "settingsIdentity": "Identity",
   "settingsStorage": "Storage & spaces",
   "settingsStorageCompact": "Compact storage",
   "settingsStorageCompactBody": "Reclaim unused space — the app re-opens. Keeps ONLY the unlocked space: any other hidden identity in this container is discarded.",
@@ -1446,7 +1445,6 @@
   "settingsStorageLeanPadding": "Save storage space",
   "settingsStorageLeanPaddingBody": "Enabled by default: future writes use less padding, so the container grows much less. Turn off for stronger size-change masking. Applies after the app reopens.",
   "settingsStoragePasswordHint": "Your password",
-  "settingsNetwork": "Network & nodes",
   "settingsAppearance": "Appearance",
   "settingsAbout": "About",
   "settingsLanguage": "Language",

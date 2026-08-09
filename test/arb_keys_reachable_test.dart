@@ -84,18 +84,25 @@ void main() {
 /// Strings that were already unreachable when this gate was written
 /// (2026-08-10). Not an approval — a debt, recorded so it cannot grow.
 ///
-/// Already paid down: the six group-composer duplicates, deleted once it was
-/// clear the group screen uses the SAME MessageComposer as a 1:1 chat and
-/// labels it with the chat keys.
+/// Already paid down: the six group-composer duplicates (the group screen uses
+/// the SAME MessageComposer as a 1:1 chat and labels it with the chat keys),
+/// and two section titles the category layout replaced.
 ///
 /// What is left falls into three groups, and each wants a different answer:
-///  * planned features whose text landed early (`networkExt*`,
-///    `networkComingLater`);
+///  * text kept ON PURPOSE for a row that was removed rather than shipped
+///    half-done — `networkExt*` and `networkComingLater`; see the comment in
+///    network_screen.dart, which explains that a chevron leading to a "coming
+///    later" snackbar reads as a feature that exists and is switched off. The
+///    strings stay so restoring the row costs one widget, not a translation
+///    round;
 ///  * a message for a rule that does not exist — `groupVoiceTooLong` describes
 ///    a refusal, and nothing in the app enforces a group voice-clip limit, so
 ///    the question is whether the LIMIT is missing rather than the string;
-///  * one-off labels a refactor left behind (`settingsIdentity`,
-///    `chatFileSave`, `sshDone`, …).
+///  * one-off labels a refactor left behind (`chatFileSave`, `sshDone`,
+///    `chatListDelete`, …). These want checking one at a time: a duplicate of
+///    a label the screen already uses can go, but "More actions" or "Delete
+///    chat" may be a control that lost its name rather than a string that lost
+///    its control — and those two mistakes need opposite fixes.
 const _knownUnreachable = {
   'actionUnderstood',
   'callScreens',
@@ -126,8 +133,6 @@ const _knownUnreachable = {
   'settingsApiReadOnlyHint',
   'settingsApiRegenerate',
   'settingsApiToken',
-  'settingsIdentity',
-  'settingsNetwork',
   'spaceAccessRolePermissions',
   'spaceMemberMute',
   'spaceRenameDenied',

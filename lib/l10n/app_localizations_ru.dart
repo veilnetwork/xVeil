@@ -3350,9 +3350,6 @@ class AppL10nRu extends AppL10n {
   String get settingsTitle => 'Настройки';
 
   @override
-  String get settingsIdentity => 'Личность';
-
-  @override
   String get settingsStorage => 'Хранилище и пространства';
 
   @override
@@ -3398,9 +3395,6 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get settingsStoragePasswordHint => 'Ваш пароль';
-
-  @override
-  String get settingsNetwork => 'Сеть и узлы';
 
   @override
   String get settingsAppearance => 'Оформление';
