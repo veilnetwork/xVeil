@@ -385,14 +385,14 @@
   "spaceRecommendationAlreadyMember": "Este contacto ya es miembro",
   "spaceRecommendationEmpty": "No hay campañas de recomendación activas",
   "spaceRecommendationReceive": "Recomendaciones de comunidades",
-  "spaceRecommendationReceiveHint": "Allow accepted contacts to send community cards. Turning this off silently discards new recommendations.",
-  "spaceRecommendationPolicyEnabled": "Allow community recommendations",
-  "spaceRecommendationPolicyDisabled": "Community recommendations disabled",
-  "spaceRecommendationPolicyHint": "Signed community-wide setting. Anti-spam limits remain fixed and cannot be weakened.",
-  "spaceRecommendationSentAuditTitle": "Sent recommendations",
-  "spaceRecommendationSentAuditHint": "Local encrypted audit. Revoke removes the selected card from both sides.",
-  "spaceRecommendationSentAuditEmpty": "No recommendations sent from this device",
-  "spaceRecommendationSentTo": "Sent to {recipient}",
+  "spaceRecommendationReceiveHint": "Permite que los contactos aceptados envíen tarjetas de comunidades. Si lo desactivas, las recomendaciones nuevas se descartan en silencio.",
+  "spaceRecommendationPolicyEnabled": "Permitir recomendaciones de comunidades",
+  "spaceRecommendationPolicyDisabled": "Recomendaciones de comunidades desactivadas",
+  "spaceRecommendationPolicyHint": "Ajuste firmado para toda la comunidad. Los límites antispam son fijos y no se pueden debilitar.",
+  "spaceRecommendationSentAuditTitle": "Recomendaciones enviadas",
+  "spaceRecommendationSentAuditHint": "Registro local cifrado. Revocar retira la tarjeta elegida en ambos lados.",
+  "spaceRecommendationSentAuditEmpty": "No se ha enviado ninguna recomendación desde este dispositivo",
+  "spaceRecommendationSentTo": "Enviada a {recipient}",
   "@spaceRecommendationSentTo": {
     "placeholders": {
       "recipient": {
@@ -400,21 +400,21 @@
       }
     }
   },
-  "spaceRecommendationSentRevoked": "revoked",
-  "spaceRecommendationSentRevoke": "Revoke sent recommendation",
-  "spacePolicyAuditRecommendations": "Recommendation policy",
-  "spaceRoleLabel": "Community role",
-  "spaceRoleOwner": "Owner",
-  "spaceRoleAdmin": "Administrator",
-  "spaceRoleMember": "Member",
-  "spaceAccessTitle": "Roles and access",
-  "spaceAccessHint": "Reusable permission sets, participant groups, and direct member roles. Every change is signed and audited.",
-  "spacePolicyAuditTitle": "Policy audit",
-  "spacePolicyAuditHint": "Signed access and retention changes. Entries cannot be edited or deleted.",
-  "spacePolicyAuditEmpty": "No policy changes have been signed yet.",
-  "spacePolicyAuditAccess": "Access policy",
-  "spacePolicyAuditRetention": "Retention policy",
-  "spacePolicyAuditAccessSummary": "Revision {revision} · {roles} roles · {groups} groups · {assignments} direct assignments",
+  "spaceRecommendationSentRevoked": "revocada",
+  "spaceRecommendationSentRevoke": "Revocar la recomendación enviada",
+  "spacePolicyAuditRecommendations": "Política de recomendaciones",
+  "spaceRoleLabel": "Rol en la comunidad",
+  "spaceRoleOwner": "Propietaria",
+  "spaceRoleAdmin": "Administrador",
+  "spaceRoleMember": "Miembro",
+  "spaceAccessTitle": "Roles y acceso",
+  "spaceAccessHint": "Conjuntos de permisos reutilizables, grupos de participantes y roles asignados directamente. Cada cambio se firma y queda auditado.",
+  "spacePolicyAuditTitle": "Auditoría de políticas",
+  "spacePolicyAuditHint": "Cambios firmados de acceso y conservación. Las entradas no se pueden editar ni borrar.",
+  "spacePolicyAuditEmpty": "Todavía no se ha firmado ningún cambio de política.",
+  "spacePolicyAuditAccess": "Política de acceso",
+  "spacePolicyAuditRetention": "Política de conservación",
+  "spacePolicyAuditAccessSummary": "Revisión {revision} · {roles} roles · {groups} grupos · {assignments} asignaciones directas",
   "@spacePolicyAuditAccessSummary": {
     "placeholders": {
       "revision": {
@@ -431,7 +431,7 @@
       }
     }
   },
-  "spacePolicyAuditSignedBy": "Signed by {author}",
+  "spacePolicyAuditSignedBy": "Firmado por {author}",
   "@spacePolicyAuditSignedBy": {
     "placeholders": {
       "author": {
@@ -439,8 +439,8 @@
       }
     }
   },
-  "spacePolicyAuditScopeSpace": "Entire community",
-  "spacePolicyAuditScopeChannel": "Channel {channel}",
+  "spacePolicyAuditScopeSpace": "Toda la comunidad",
+  "spacePolicyAuditScopeChannel": "Canal {channel}",
   "@spacePolicyAuditScopeChannel": {
     "placeholders": {
       "channel": {
@@ -448,9 +448,9 @@
       }
     }
   },
-  "spacePolicyAuditRetentionInherit": "inherits the community policy",
-  "spacePolicyAuditRetentionForever": "keeps history",
-  "spacePolicyAuditRetentionDays": "removes after {days} days",
+  "spacePolicyAuditRetentionInherit": "hereda la política de la comunidad",
+  "spacePolicyAuditRetentionForever": "conserva el historial",
+  "spacePolicyAuditRetentionDays": "elimina pasados {days} días",
   "@spacePolicyAuditRetentionDays": {
     "placeholders": {
       "days": {
@@ -458,13 +458,13 @@
       }
     }
   },
-  "spacePolicyAuditMediaOnly": "media only",
-  "spaceRecentActionsTitle": "Recent actions",
-  "spaceRecentActionsHint": "Signed administrative history. You see what your rights allow.",
-  "spaceRecentActionsEmpty": "Nothing has been done here yet.",
-  "spaceRecentActionsWithheld": "Event unavailable",
-  "spaceRecentActionsWithheldHint": "Something happened here that your rights do not cover.",
-  "spaceRecentActionsBy": "by {author}",
+  "spacePolicyAuditMediaOnly": "solo el contenido multimedia",
+  "spaceRecentActionsTitle": "Acciones recientes",
+  "spaceRecentActionsHint": "Historial administrativo firmado. Ves lo que permiten tus permisos.",
+  "spaceRecentActionsEmpty": "Aquí todavía no se ha hecho nada.",
+  "spaceRecentActionsWithheld": "Evento no disponible",
+  "spaceRecentActionsWithheldHint": "Aquí ocurrió algo que tus permisos no alcanzan a ver.",
+  "spaceRecentActionsBy": "por {author}",
   "@spaceRecentActionsBy": {
     "placeholders": {
       "author": {
@@ -472,7 +472,7 @@
       }
     }
   },
-  "spaceActionMemberAdded": "Added {member}",
+  "spaceActionMemberAdded": "Añadió a {member}",
   "@spaceActionMemberAdded": {
     "placeholders": {
       "member": {
@@ -480,7 +480,7 @@
       }
     }
   },
-  "spaceActionMemberRemoved": "Removed {member}",
+  "spaceActionMemberRemoved": "Expulsó a {member}",
   "@spaceActionMemberRemoved": {
     "placeholders": {
       "member": {
@@ -488,7 +488,7 @@
       }
     }
   },
-  "spaceActionMemberLeft": "{member} left",
+  "spaceActionMemberLeft": "{member} se marchó",
   "@spaceActionMemberLeft": {
     "placeholders": {
       "member": {
@@ -496,7 +496,7 @@
       }
     }
   },
-  "spaceActionRoleChanged": "Changed the role of {member}",
+  "spaceActionRoleChanged": "Cambió el rol de {member}",
   "@spaceActionRoleChanged": {
     "placeholders": {
       "member": {
@@ -504,7 +504,7 @@
       }
     }
   },
-  "spaceActionOwnershipTransferred": "Handed ownership to {member}",
+  "spaceActionOwnershipTransferred": "Cedió la propiedad a {member}",
   "@spaceActionOwnershipTransferred": {
     "placeholders": {
       "member": {
@@ -512,7 +512,7 @@
       }
     }
   },
-  "spaceActionMemberMuted": "Muted {member}",
+  "spaceActionMemberMuted": "Silenció a {member}",
   "@spaceActionMemberMuted": {
     "placeholders": {
       "member": {
@@ -520,7 +520,7 @@
       }
     }
   },
-  "spaceActionMemberUnmuted": "Unmuted {member}",
+  "spaceActionMemberUnmuted": "Dejó de silenciar a {member}",
   "@spaceActionMemberUnmuted": {
     "placeholders": {
       "member": {
@@ -528,7 +528,7 @@
       }
     }
   },
-  "spaceActionMemberBanned": "Banned {member}",
+  "spaceActionMemberBanned": "Vetó a {member}",
   "@spaceActionMemberBanned": {
     "placeholders": {
       "member": {
@@ -536,7 +536,7 @@
       }
     }
   },
-  "spaceActionModerationApplied": "Moderated {member}",
+  "spaceActionModerationApplied": "Moderó a {member}",
   "@spaceActionModerationApplied": {
     "placeholders": {
       "member": {
@@ -544,7 +544,7 @@
       }
     }
   },
-  "spaceActionModerationRevoked": "Lifted a moderation action on {member}",
+  "spaceActionModerationRevoked": "Levantó una medida de moderación sobre {member}",
   "@spaceActionModerationRevoked": {
     "placeholders": {
       "member": {
@@ -552,13 +552,13 @@
       }
     }
   },
-  "spaceActionChannelCreated": "Created a channel",
-  "spaceActionChannelUpdated": "Changed a channel",
-  "spaceActionSpaceRenamed": "Renamed the community",
-  "spaceActionSpaceDescriptionChanged": "Changed the description",
-  "spaceActionSpaceProfileMediaChanged": "Changed the avatar or cover",
-  "spaceActionRulesPublished": "Published new rules",
-  "spaceActionRulesAccepted": "{member} accepted the rules",
+  "spaceActionChannelCreated": "Creó un canal",
+  "spaceActionChannelUpdated": "Modificó un canal",
+  "spaceActionSpaceRenamed": "Cambió el nombre de la comunidad",
+  "spaceActionSpaceDescriptionChanged": "Cambió la descripción",
+  "spaceActionSpaceProfileMediaChanged": "Cambió el avatar o la portada",
+  "spaceActionRulesPublished": "Publicó reglas nuevas",
+  "spaceActionRulesAccepted": "{member} aceptó las reglas",
   "@spaceActionRulesAccepted": {
     "placeholders": {
       "member": {
@@ -566,17 +566,17 @@
       }
     }
   },
-  "spaceActionAccessPolicyChanged": "Changed roles and access",
-  "spaceActionRetentionChanged": "Changed the retention policy",
-  "spaceActionSpaceArchived": "Archived the community",
-  "spaceActionSpaceDeleted": "Deleted the community",
-  "spaceActionSpaceRestored": "Restored the community",
-  "spaceActionPostPinChanged": "Changed the pinned publication",
-  "spaceActionRecommendationCampaignChanged": "Changed a recommendation campaign",
-  "spaceActionRecommendationPolicyChanged": "Changed the recommendation policy",
-  "spaceActionEncryptionRotated": "Rotated the encryption key",
-  "spaceActionCheckpointRecorded": "Recorded a control checkpoint",
-  "spaceActionAuthorityWithdrawn": "Withdrew {member}'s authority retroactively",
+  "spaceActionAccessPolicyChanged": "Cambió los roles y el acceso",
+  "spaceActionRetentionChanged": "Cambió la política de conservación",
+  "spaceActionSpaceArchived": "Archivó la comunidad",
+  "spaceActionSpaceDeleted": "Eliminó la comunidad",
+  "spaceActionSpaceRestored": "Restauró la comunidad",
+  "spaceActionPostPinChanged": "Cambió la publicación fijada",
+  "spaceActionRecommendationCampaignChanged": "Modificó una campaña de recomendación",
+  "spaceActionRecommendationPolicyChanged": "Cambió la política de recomendaciones",
+  "spaceActionEncryptionRotated": "Rotó la clave de cifrado",
+  "spaceActionCheckpointRecorded": "Registró un punto de control",
+  "spaceActionAuthorityWithdrawn": "Retiró retroactivamente la autoridad de {member}",
   "@spaceActionAuthorityWithdrawn": {
     "placeholders": {
       "member": {
@@ -584,7 +584,7 @@
       }
     }
   },
-  "spaceActionAuthorityReturned": "Returned {member}'s authority",
+  "spaceActionAuthorityReturned": "Devolvió la autoridad a {member}",
   "@spaceActionAuthorityReturned": {
     "placeholders": {
       "member": {
@@ -592,8 +592,8 @@
       }
     }
   },
-  "spaceActionOther": "Performed an administrative action",
-  "spaceActionDetailChannel": "Channel “{channel}”",
+  "spaceActionOther": "Realizó una acción administrativa",
+  "spaceActionDetailChannel": "Canal «{channel}»",
   "@spaceActionDetailChannel": {
     "placeholders": {
       "channel": {
@@ -601,7 +601,7 @@
       }
     }
   },
-  "spaceActionDetailNewName": "New name: {name}",
+  "spaceActionDetailNewName": "Nombre nuevo: {name}",
   "@spaceActionDetailNewName": {
     "placeholders": {
       "name": {
@@ -609,7 +609,7 @@
       }
     }
   },
-  "spaceActionDetailRole": "Role: {role}",
+  "spaceActionDetailRole": "Rol: {role}",
   "@spaceActionDetailRole": {
     "placeholders": {
       "role": {
@@ -617,7 +617,7 @@
       }
     }
   },
-  "spaceActionDetailModeration": "Action: {action}",
+  "spaceActionDetailModeration": "Acción: {action}",
   "@spaceActionDetailModeration": {
     "placeholders": {
       "action": {
