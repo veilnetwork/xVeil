@@ -1710,26 +1710,26 @@
   "nodeServiceEnable": "Activar e iniciar",
   "nodeServiceDisable": "Detener y desactivar",
   "nodeConfigLoad": "Cargar desde el servidor",
-  "nodeConfigApply": "Validate, apply and restart",
-  "nodeConfigNotLoaded": "Load the current server config before editing it.",
-  "nodeUninstallSoftware": "Uninstall software (keep data)",
-  "nodeDebootstrap": "Debootstrap node (erase everything)",
-  "nodeDebootstrapConfirm": "This permanently deletes the remote node identity, state, configs and all veil/ogate/oproxy software. Type DELETE to continue.",
-  "nodeDebootstrapType": "Type DELETE",
-  "nodeOperationOutput": "Server output",
-  "nodeOperationRun": "Run command",
-  "nodeOperationSuccess": "Remote operation completed",
-  "nodeSelectServices": "Select services",
-  "provisionTitle": "Provision over SSH",
-  "provisionReleaseSection": "veil-cli release",
-  "provisionReleaseTarget": "Server architecture",
-  "provisionReleaseTargetX64": "x86_64 Linux (portable musl)",
-  "provisionReleaseTargetArm64": "ARM64 Linux (portable musl)",
-  "provisionReleaseRefresh": "Refresh GitHub fields",
-  "provisionSourceGithub": "GitHub release",
-  "provisionSourceCustom": "Custom link",
-  "provisionReleaseLoading": "Loading the latest release from GitHub…",
-  "provisionReleaseLoaded": "Loaded GitHub release {tag}",
+  "nodeConfigApply": "Validar, aplicar y reiniciar",
+  "nodeConfigNotLoaded": "Carga la configuración actual del servidor antes de editarla.",
+  "nodeUninstallSoftware": "Desinstalar el software (conservar los datos)",
+  "nodeDebootstrap": "Desinstalar por completo el nodo (borrarlo todo)",
+  "nodeDebootstrapConfirm": "Esto elimina de forma permanente la identidad del nodo remoto, su estado, sus configuraciones y todo el software de veil, ogate y oproxy. Escribe DELETE para continuar.",
+  "nodeDebootstrapType": "Escribe DELETE",
+  "nodeOperationOutput": "Salida del servidor",
+  "nodeOperationRun": "Ejecutar el comando",
+  "nodeOperationSuccess": "Operación remota completada",
+  "nodeSelectServices": "Seleccionar servicios",
+  "provisionTitle": "Instalar por SSH",
+  "provisionReleaseSection": "Versión de veil-cli",
+  "provisionReleaseTarget": "Arquitectura del servidor",
+  "provisionReleaseTargetX64": "Linux x86_64 (musl portátil)",
+  "provisionReleaseTargetArm64": "Linux ARM64 (musl portátil)",
+  "provisionReleaseRefresh": "Actualizar los campos de GitHub",
+  "provisionSourceGithub": "Versión de GitHub",
+  "provisionSourceCustom": "Enlace personalizado",
+  "provisionReleaseLoading": "Cargando la última versión desde GitHub…",
+  "provisionReleaseLoaded": "Versión de GitHub {tag} cargada",
   "@provisionReleaseLoaded": {
     "placeholders": {
       "tag": {
@@ -1737,7 +1737,7 @@
       }
     }
   },
-  "provisionReleaseError": "Could not auto-fill from GitHub: {error}. You can enter both values manually.",
+  "provisionReleaseError": "No se pudo rellenar automáticamente desde GitHub: {error}. Puedes escribir ambos valores a mano.",
   "@provisionReleaseError": {
     "placeholders": {
       "error": {
@@ -1745,21 +1745,21 @@
       }
     }
   },
-  "provisionReleaseUrl": "veil-cli release URL",
-  "provisionReleaseHint": "Filled automatically from the official veilnetwork/veil GitHub release. Choose Custom link to override it.",
-  "provisionCustomReleaseHint": "Enter a direct HTTPS link to your binary. You must also supply its SHA-256 below.",
-  "provisionSha256": "veil-cli SHA-256",
-  "provisionSha256Hint": "Required. The 64-hex SHA-256 published with that binary. Installation aborts on the server if the download does not match — this is what stops a tampered binary from running as root.",
-  "provisionRunExit": "Run as an exit (route my traffic through it)",
-  "provisionComponents": "Components",
-  "provisionTransports": "Incoming transports",
-  "provisionTransportObfs4TcpHint": "Obfuscated TCP listener for censorship-resistant peer connections.",
-  "provisionTransportTcpHint": "Plain TCP listener without transport encryption.",
-  "provisionTransportTlsHint": "TCP listener protected by the shared TLS certificate below.",
-  "provisionTransportQuicHint": "QUIC listener over UDP, protected by the shared TLS certificate below.",
-  "provisionTransportWsHint": "Plain WebSocket. No certificate, so it survives an HTTP proxy but not an observer — put it behind a TLS front, or prefer wss.",
-  "provisionTransportWssHint": "Secure WebSocket listener, protected by the shared TLS certificate below.",
-  "provisionTransportPort": "{transport} port",
+  "provisionReleaseUrl": "URL de la versión de veil-cli",
+  "provisionReleaseHint": "Se rellena automáticamente desde la versión oficial de GitHub de veilnetwork/veil. Elige «Enlace personalizado» para cambiarla.",
+  "provisionCustomReleaseHint": "Escribe un enlace HTTPS directo a tu binario. También tienes que indicar su SHA-256 abajo.",
+  "provisionSha256": "SHA-256 de veil-cli",
+  "provisionSha256Hint": "Obligatorio. El SHA-256 de 64 caracteres hexadecimales publicado junto a ese binario. Si la descarga no coincide, la instalación se aborta en el servidor: esto es lo que impide que un binario manipulado se ejecute como root.",
+  "provisionRunExit": "Funcionar como salida (enrutar mi tráfico por él)",
+  "provisionComponents": "Componentes",
+  "provisionTransports": "Transportes entrantes",
+  "provisionTransportObfs4TcpHint": "Escucha TCP ofuscada para conexiones entre pares resistentes a la censura.",
+  "provisionTransportTcpHint": "Escucha TCP simple, sin cifrado de transporte.",
+  "provisionTransportTlsHint": "Escucha TCP protegida por el certificado TLS compartido de abajo.",
+  "provisionTransportQuicHint": "Escucha QUIC sobre UDP, protegida por el certificado TLS compartido de abajo.",
+  "provisionTransportWsHint": "WebSocket sin cifrar. Sin certificado, así que sobrevive a un proxy HTTP pero no a un observador: ponlo detrás de un frontal TLS o usa mejor wss.",
+  "provisionTransportWssHint": "Escucha WebSocket segura, protegida por el certificado TLS compartido de abajo.",
+  "provisionTransportPort": "Puerto de {transport}",
   "@provisionTransportPort": {
     "placeholders": {
       "transport": {
@@ -1767,7 +1767,7 @@
       }
     }
   },
-  "provisionTransportNetwork": "Network protocol: {protocol}",
+  "provisionTransportNetwork": "Protocolo de red: {protocol}",
   "@provisionTransportNetwork": {
     "placeholders": {
       "protocol": {
@@ -1775,12 +1775,12 @@
       }
     }
   },
-  "provisionTransportCommon": "Shared transport settings",
-  "provisionTransportCommonHint": "These values apply to every selected incoming transport.",
-  "provisionAdvertiseHost": "Public host / IP (optional)",
-  "provisionAdvertiseHostHint": "The same public address is advertised for every selected transport; each one keeps its own port.",
-  "provisionTlsShared": "TLS certificate",
-  "provisionTlsSharedHint": "Used by: {transports}. Choose how the certificate is supplied to every selected TLS transport.",
+  "provisionTransportCommon": "Ajustes de transporte compartidos",
+  "provisionTransportCommonHint": "Estos valores se aplican a todos los transportes entrantes seleccionados.",
+  "provisionAdvertiseHost": "Host o IP pública (opcional)",
+  "provisionAdvertiseHostHint": "Se anuncia la misma dirección pública para todos los transportes seleccionados; cada uno conserva su propio puerto.",
+  "provisionTlsShared": "Certificado TLS",
+  "provisionTlsSharedHint": "Lo usan: {transports}. Elige cómo se le entrega el certificado a cada transporte TLS seleccionado.",
   "@provisionTlsSharedHint": {
     "placeholders": {
       "transports": {
@@ -1788,25 +1788,25 @@
       }
     }
   },
-  "provisionTlsMode": "Certificate source",
-  "provisionTlsModeExisting": "Existing files",
-  "provisionTlsModeAutomatic": "Automatic",
-  "provisionTlsModeSelfSigned": "Self-signed",
-  "provisionTlsAutomaticName": "Domain or IP (optional override)",
-  "provisionTlsAutomaticNameHint": "Leave empty to use the public host / IP above. A DNS name gets Let's Encrypt; an IP gets a self-signed certificate with an IP SAN.",
-  "provisionTlsLetsEncryptHint": "Let's Encrypt will be requested on the server. The domain must point to this server and inbound TCP port 80 must be open. Renewal is configured automatically.",
-  "provisionTlsIpHint": "An IP address cannot use the standard Let's Encrypt flow here. A self-signed certificate with this IP in its SAN will be generated on the server.",
-  "provisionTlsUnknownHint": "Enter a domain or IP here, or set the public host / IP above.",
-  "provisionTlsEmail": "Let's Encrypt account email",
-  "provisionTlsAgreeTerms": "I agree to the Let's Encrypt terms of service",
-  "provisionTlsSelfSignedName": "Domain or IP in the certificate",
-  "provisionTlsSelfSignedNameHint": "The value is written into the certificate's DNS or IP subject alternative name.",
-  "provisionTlsSelfSignedDays": "Validity in days (1–3650)",
-  "provisionTlsSelfSignedHint": "Clients must trust this self-signed certificate explicitly. Its private key is generated and kept on the server.",
-  "provisionTlsCert": "Remote TLS certificate path",
-  "provisionTlsKey": "Remote TLS private-key path",
-  "provisionTlsCa": "Remote TLS CA path (optional)",
-  "provisionComponentUrl": "{component} release URL",
+  "provisionTlsMode": "Origen del certificado",
+  "provisionTlsModeExisting": "Archivos existentes",
+  "provisionTlsModeAutomatic": "Automático",
+  "provisionTlsModeSelfSigned": "Autofirmado",
+  "provisionTlsAutomaticName": "Dominio o IP (sustitución opcional)",
+  "provisionTlsAutomaticNameHint": "Déjalo vacío para usar el host o la IP pública de arriba. Un nombre DNS obtiene Let's Encrypt; una IP obtiene un certificado autofirmado con un SAN de IP.",
+  "provisionTlsLetsEncryptHint": "Let's Encrypt se solicitará en el servidor. El dominio debe apuntar a este servidor y el puerto TCP 80 de entrada debe estar abierto. La renovación se configura automáticamente.",
+  "provisionTlsIpHint": "Una dirección IP no puede usar aquí el flujo estándar de Let's Encrypt. En el servidor se generará un certificado autofirmado con esta IP en su SAN.",
+  "provisionTlsUnknownHint": "Escribe aquí un dominio o una IP, o indica arriba el host o la IP pública.",
+  "provisionTlsEmail": "Correo de la cuenta de Let's Encrypt",
+  "provisionTlsAgreeTerms": "Acepto las condiciones del servicio de Let's Encrypt",
+  "provisionTlsSelfSignedName": "Dominio o IP del certificado",
+  "provisionTlsSelfSignedNameHint": "El valor se escribe en el nombre alternativo del sujeto (DNS o IP) del certificado.",
+  "provisionTlsSelfSignedDays": "Validez en días (1–3650)",
+  "provisionTlsSelfSignedHint": "Los clientes tienen que confiar en este certificado autofirmado de forma explícita. Su clave privada se genera y se queda en el servidor.",
+  "provisionTlsCert": "Ruta remota del certificado TLS",
+  "provisionTlsKey": "Ruta remota de la clave privada TLS",
+  "provisionTlsCa": "Ruta remota de la CA de TLS (opcional)",
+  "provisionComponentUrl": "URL de la versión de {component}",
   "@provisionComponentUrl": {
     "placeholders": {
       "component": {
@@ -1814,7 +1814,7 @@
       }
     }
   },
-  "provisionComponentSha": "{component} SHA-256",
+  "provisionComponentSha": "SHA-256 de {component}",
   "@provisionComponentSha": {
     "placeholders": {
       "component": {
@@ -1822,13 +1822,13 @@
       }
     }
   },
-  "provisionScriptLabel": "Runs on the server as root — review before running:",
-  "provisionPskMissing": "Deployment PSK isn't bundled in this build, so the node can't join the network. Provisioning is unavailable.",
-  "provisionRun": "Run over SSH",
-  "provisionRunning": "Provisioning… (mining the identity can take a while)",
-  "provisionNeedUrl": "Enter an https release URL",
-  "provisionInvalidConfig": "Check the required release, transport, port, and TLS fields",
-  "provisionAddedPeer": "Added the server to the peer list",
+  "provisionScriptLabel": "Se ejecuta en el servidor como root: revísalo antes de lanzarlo.",
+  "provisionPskMissing": "Esta versión no incluye la PSK de despliegue, así que el nodo no puede unirse a la red. La instalación no está disponible.",
+  "provisionRun": "Ejecutar por SSH",
+  "provisionRunning": "Instalando… (minar la identidad puede tardar un rato)",
+  "provisionNeedUrl": "Escribe una URL https de la versión",
+  "provisionInvalidConfig": "Revisa los campos obligatorios de versión, transporte, puerto y TLS",
+  "provisionAddedPeer": "Servidor añadido a la lista de pares",
   "provisionPeerFailed": "Could not add the server as a peer: {reason}",
   "@provisionPeerFailed": {
     "placeholders": {
