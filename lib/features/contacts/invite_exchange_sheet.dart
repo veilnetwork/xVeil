@@ -270,6 +270,7 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
               ),
               IconButton(
                 visualDensity: VisualDensity.compact,
+                tooltip: AppL10n.of(context).actionCopy,
                 icon: const Icon(Icons.copy, size: 16),
                 onPressed: () async {
                   await Clipboard.setData(ClipboardData(text: value));

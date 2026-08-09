@@ -86,7 +86,8 @@ void main() {
 ///
 /// Already paid down: the six group-composer duplicates (the group screen uses
 /// the SAME MessageComposer as a 1:1 chat and labels it with the chat keys),
-/// and two section titles the category layout replaced.
+/// two section titles the category layout replaced, and fileDownloadTitle,
+/// which turned out to be the right name for an unnamed download button.
 ///
 /// What is left falls into three groups, and each wants a different answer:
 ///  * text kept ON PURPOSE for a row that was removed rather than shipped
@@ -114,7 +115,6 @@ const _knownUnreachable = {
   'chatVoiceSlideCancel',
   'cloudNoteSaved',
   'devicesFreshRegistryRequired',
-  'fileDownloadTitle',
   'folderSyncNever',
   'groupCallTitle',
   'groupEmpty',
