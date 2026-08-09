@@ -292,6 +292,7 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
         actions: [
           if (_cameras.length > 1)
             IconButton(
+              tooltip: l.callSwitchCamera,
               onPressed: recording ? null : _switchCamera,
               icon: const Icon(Icons.cameraswitch_outlined),
             ),

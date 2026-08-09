@@ -6,6 +6,7 @@
   "actionCancel": "Отмена",
   "actionDone": "Готово",
   "actionCopy": "Копировать",
+  "actionRemove": "Удалить",
   "actionUnderstood": "Понятно",
   "preparingTitle": "Настраиваем ваш узел",
   "preparingBody": "Создаём идентичность на этом устройстве. Это может занять некоторое время — пожалуйста, подождите.",
