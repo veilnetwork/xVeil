@@ -412,6 +412,29 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
   }
 
   Future<void> _remove() async {
+    // This drops the node AND its saved SSH password or key, and it used to
+    // happen on a single tap — no question asked, nothing to undo. The
+    // sentence that should have been asked was already written and translated;
+    // it simply had no dialog to live in.
+    final l = AppL10n.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l.nodeRemove),
+        content: Text(l.nodeRemoveConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(l.nodeRemove),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     await ref.read(sshCredentialsRepositoryProvider).clear(widget.existing!.id);
     await ref.read(managedNodesProvider.notifier).remove(widget.existing!.id);
     if (mounted) Navigator.of(context).pop();
