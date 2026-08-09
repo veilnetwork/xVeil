@@ -2,3 +2,4 @@
 # report can tell "already correct" from "not looked at yet".
 navChats
 spacePostTypeAudio
+spaceAccessScopeRoles
