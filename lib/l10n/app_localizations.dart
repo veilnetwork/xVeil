@@ -133,6 +133,12 @@ abstract class AppL10n {
   /// **'Copy'**
   String get actionCopy;
 
+  /// No description provided for @actionRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get actionRemove;
+
   /// No description provided for @actionUnderstood.
   ///
   /// In en, this message translates to:

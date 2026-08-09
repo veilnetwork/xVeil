@@ -27,6 +27,9 @@ class AppL10nEn extends AppL10n {
   String get actionCopy => 'Copy';
 
   @override
+  String get actionRemove => 'Remove';
+
+  @override
   String get actionUnderstood => 'I understand';
 
   @override

@@ -6,6 +6,7 @@
   "actionCancel": "Cancelar",
   "actionDone": "Listo",
   "actionCopy": "Copiar",
+  "actionRemove": "Quitar",
   "actionUnderstood": "Entendido",
   "preparingTitle": "Configurando tu nodo",
   "preparingBody": "Preparando tu identidad en este dispositivo. Puede tardar un poco: espera, por favor.",
