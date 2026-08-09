@@ -173,6 +173,12 @@ class AppController extends Notifier<AppState> {
 
   Future<void> _bootstrap() async {
     final prefs = await ref.read(prefsProvider.future);
+    // Reading preferences is an async gap, and the controller can be disposed
+    // inside it — a window closed during launch, an identity switch that
+    // rebuilds the provider. Assigning state afterwards throws out of a future
+    // nobody awaits, which surfaces as an unhandled error rather than as
+    // anything a person could act on.
+    if (!ref.mounted) return;
     final onboarded = prefs.getBool(_onboardedKey()) ?? false;
     state = AppState(onboarded ? AppPhase.locked : AppPhase.onboarding);
   }
@@ -810,6 +816,53 @@ class AppController extends Notifier<AppState> {
     } catch (_) {
       /* an unrecorded offer asks again sooner; it never asks less */
     }
+  }
+
+  /// Whether to offer compaction now, and the figures the offer may quote.
+  ///
+  /// Unlike [storageReclaim], this does NOT go silent on a container holding
+  /// several identities. Silence was right for the old readout — it could only
+  /// overstate there, and the button it belonged to was unavailable anyway —
+  /// but the offer exists precisely to gather every identity's password, so
+  /// refusing to speak until there is only one would refuse the case it is for.
+  ///
+  /// The honesty lives in the estimate instead: it carries how many identities
+  /// it counted against how many the container is known to hold, and answers
+  /// `isExact` only when they match. A screen may quote a number when it has
+  /// one and say "at least" when it does not.
+  ///
+  /// Live bytes come from the slot RATIO rather than a chunk count, so nothing
+  /// here has to know the container's chunk size — a constant that lives in
+  /// Rust and would drift the day it changed.
+  Future<({CompactionOfferVerdict verdict, CompactionEstimate estimate})?>
+  compactionOffer({DateTime? now}) async {
+    final size = await containerSizeBytes();
+    if (size == null) return null;
+    final SlotUtilization? utilization;
+    try {
+      utilization = await ref.read(storageProvider).containerUtilization();
+    } catch (_) {
+      return null;
+    }
+    if (utilization == null) return null;
+    final estimate = CompactionEstimate(
+      fileBytes: size,
+      liveBytes: (size * utilization.liveFraction).round(),
+      identitiesCounted: 1,
+      // A lone space is one identity and we have just counted it. Under a
+      // master the roster says how many there are; without it the count is
+      // unknown, which `isExact` reports as "not exact" rather than guessing.
+      identitiesKnown: _masterKeys == null ? 1 : (_pendingRoster?.length ?? 0),
+    );
+    return (
+      verdict: compactionOfferVerdict(
+        estimate: estimate,
+        settings: await compactionOfferSettings(),
+        now: now ?? DateTime.now(),
+        lastOfferedAt: await lastCompactionOfferAt(),
+      ),
+      estimate: estimate,
+    );
   }
 
   Future<DateTime?> lastCompactionOfferAt() async {
