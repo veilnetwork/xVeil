@@ -5,6 +5,7 @@ import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/node/ratchet_ffi.dart';
 import '../data/storage/storage.dart';
+import '../data/storage/storage_write_census.dart';
 import '../data/veil_stack.dart' show RealVeilStack;
 
 /// Marker recording which of OUR devices the stored conversations belong to.
@@ -148,7 +149,12 @@ class RatchetPersistence {
   /// holding are gone.
   ///
   /// Returns how many conversations were written.
-  Future<int> flush() {
+  Future<int> flush({String why = 'unknown'}) {
+    // Debug-only, and tagged at the ENTRY rather than at the three call sites
+    // that are easy to find: a caller nobody grepped for shows up as 'unknown'
+    // instead of not showing up at all, which is the whole reason the idle
+    // churn had no owner.
+    StorageWriteCensus.noteRatchetFlush(why);
     // A send waits for this before it reports success, and it was measured
     // STALLING for five seconds at a time during a file serve while the write
     // itself takes 8 ms. Waiting behind another transaction and doing the work
