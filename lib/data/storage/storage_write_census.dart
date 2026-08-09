@@ -1,6 +1,16 @@
-import 'package:flutter/foundation.dart';
-
 import 'kv_log_store.dart';
+
+/// Debug build? Asked WITHOUT `package:flutter/foundation`: the headless daemon
+/// imports this storage layer and a test enforces that nothing it reaches
+/// touches Flutter. `kDebugMode` cost that invariant for one boolean.
+final bool _debugBuild = () {
+  var debug = false;
+  assert(() {
+    debug = true;
+    return true;
+  }());
+  return debug;
+}();
 
 /// Debug-only tally of what the app actually commits, by namespace.
 ///
@@ -13,7 +23,7 @@ import 'kv_log_store.dart';
 /// answer it — the file grew and no counter said why.
 ///
 /// Costs nothing outside a debug build: [record] compiles down to a
-/// `kDebugMode` check at every call site.
+/// `_debugBuild` check at every call site.
 class StorageWriteCensus {
   StorageWriteCensus._();
 
@@ -31,7 +41,7 @@ class StorageWriteCensus {
   static final Map<String, int> ratchetFlushesByReason = {};
 
   static void noteRatchetFlush(String why) {
-    if (!kDebugMode) return;
+    if (!_debugBuild) return;
     since ??= DateTime.now();
     ratchetFlushesByReason[why] = (ratchetFlushesByReason[why] ?? 0) + 1;
   }
@@ -41,7 +51,7 @@ class StorageWriteCensus {
   static DateTime? since;
 
   static void record(List<KvLogOp> ops) {
-    if (!kDebugMode) return;
+    if (!_debugBuild) return;
     since ??= DateTime.now();
     commits++;
     for (final op in ops) {
