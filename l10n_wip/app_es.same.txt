@@ -8,3 +8,5 @@ chatHistoryOriginal
 msgInfoId
 languageRussian
 languageEnglish
+networkStatusError
+peerFieldNodeId
