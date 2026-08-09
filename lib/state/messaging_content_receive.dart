@@ -38,8 +38,12 @@ extension _MessagingContentReceive on MessagingService {
             'xVeil[content]: ${m.contentId.substring(0, 12)} ALREADY HELD '
             '<- ${peer.short} (no re-download)',
       );
+      // No signal here: nothing on this side changed. The offer either just
+      // surfaced (and that path signals when it stores a row) or was already
+      // there. A holder re-advertises the same content repeatedly, so signalling
+      // per re-offer poked the chat list into a rebuild for a no-op — which is
+      // what a redraw with no visible cause looks like.
       await _send(peer, WireEnvelope.ack(m.msgId ?? m.contentId).encode());
-      _signal();
       return;
     }
     // Already pulling it (a re-advertise mid-download) → keep the latest identity.
