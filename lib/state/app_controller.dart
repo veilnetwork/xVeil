@@ -16,6 +16,7 @@ import '../data/storage/kv_log_store.dart' show SlotUtilization;
 import '../data/storage/on_disk_blob_store.dart';
 import '../data/storage/storage.dart';
 import '../data/veil_stack.dart';
+import '../domain/storage_compaction_policy.dart';
 import '../domain/identity.dart';
 import '../domain/p2p_policy.dart';
 import '../domain/roster.dart';
@@ -736,6 +737,89 @@ class AppController extends Notifier<AppState> {
     await ref
         .read(storageProvider)
         .putSetting(_autoCompactKey, enabled ? '1' : '0');
+  }
+
+  // ── The compaction OFFER: when to interrupt, and how much is worth it ──────
+  //
+  // Distinct from auto-compaction above. Auto-compaction acts without asking
+  // and therefore may only run where nothing can be lost; the offer asks, so it
+  // can be the default. Its two knobs and its "don't ask again yet" mark live
+  // in the container beside everything else the identity owns.
+
+  static const String _offerEnabledKey = 'storage.compact.offer.enabled.v1';
+  static const String _offerPeriodDaysKey = 'storage.compact.offer.days.v1';
+  static const String _offerThresholdKey = 'storage.compact.offer.bytes.v1';
+  static const String _offerLastShownKey = 'storage.compact.offer.shown.v1';
+
+  /// The person's two knobs, with the defaults they asked for: every 3 days,
+  /// and only when a gigabyte or more would come back.
+  Future<CompactionOfferSettings> compactionOfferSettings() async {
+    try {
+      final storage = ref.read(storageProvider);
+      final enabled = await storage.getSetting(_offerEnabledKey);
+      final days = int.tryParse(
+        await storage.getSetting(_offerPeriodDaysKey) ?? '',
+      );
+      final bytes = int.tryParse(
+        await storage.getSetting(_offerThresholdKey) ?? '',
+      );
+      return CompactionOfferSettings(
+        // Absent means default-on: the offer exists for the person who never
+        // opens these settings at all.
+        enabled: enabled != '0',
+        period: days != null && days > 0
+            ? Duration(days: days)
+            : CompactionOfferSettings.defaultPeriod,
+        thresholdBytes: bytes != null && bytes > 0
+            ? bytes
+            : CompactionOfferSettings.defaultThresholdBytes,
+      );
+    } catch (_) {
+      // Store not open yet — the defaults are the honest answer, not silence.
+      return const CompactionOfferSettings();
+    }
+  }
+
+  Future<void> setCompactionOfferSettings(
+    CompactionOfferSettings settings,
+  ) async {
+    final storage = ref.read(storageProvider);
+    await storage.putSetting(_offerEnabledKey, settings.enabled ? '1' : '0');
+    await storage.putSetting(
+      _offerPeriodDaysKey,
+      '${settings.period.inDays < 1 ? 1 : settings.period.inDays}',
+    );
+    await storage.putSetting(
+      _offerThresholdKey,
+      '${settings.thresholdBytes}',
+    );
+  }
+
+  /// Remember that the offer was SHOWN — not that compaction ran.
+  ///
+  /// Declining is an answer. Timing the next offer from the moment of asking is
+  /// what makes the period mean "don't pester me", which is what it is for.
+  Future<void> noteCompactionOffered({DateTime? at}) async {
+    try {
+      await ref
+          .read(storageProvider)
+          .putSetting(
+            _offerLastShownKey,
+            '${(at ?? DateTime.now()).millisecondsSinceEpoch}',
+          );
+    } catch (_) {
+      /* an unrecorded offer asks again sooner; it never asks less */
+    }
+  }
+
+  Future<DateTime?> lastCompactionOfferAt() async {
+    try {
+      final raw = await ref.read(storageProvider).getSetting(_offerLastShownKey);
+      final ms = int.tryParse(raw ?? '');
+      return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<bool> leanStoragePaddingEnabled() async {
