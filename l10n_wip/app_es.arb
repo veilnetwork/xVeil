@@ -1829,7 +1829,7 @@
   "provisionNeedUrl": "Escribe una URL https de la versión",
   "provisionInvalidConfig": "Revisa los campos obligatorios de versión, transporte, puerto y TLS",
   "provisionAddedPeer": "Servidor añadido a la lista de pares",
-  "provisionPeerFailed": "Could not add the server as a peer: {reason}",
+  "provisionPeerFailed": "No se pudo añadir el servidor como par: {reason}",
   "@provisionPeerFailed": {
     "placeholders": {
       "reason": {
@@ -1837,11 +1837,11 @@
       }
     }
   },
-  "provisionAddedProxy": "Added the oproxy exit to the proxy list",
-  "provisionProxyNeedsNodeId": "oproxy installed, but the server reported no node id — cannot add it to the proxy list",
-  "provisionSavedNodeId": "Saved the node id reported by the server",
-  "nodeSshConnect": "Connect over SSH",
-  "sshDialogTitle": "SSH to {host}",
+  "provisionAddedProxy": "Salida oproxy añadida a la lista de proxies",
+  "provisionProxyNeedsNodeId": "oproxy se instaló, pero el servidor no devolvió ningún identificador de nodo: no se puede añadir a la lista de proxies",
+  "provisionSavedNodeId": "Se guardó el identificador de nodo que devolvió el servidor",
+  "nodeSshConnect": "Conectar por SSH",
+  "sshDialogTitle": "SSH a {host}",
   "@sshDialogTitle": {
     "placeholders": {
       "host": {
@@ -1849,29 +1849,29 @@
       }
     }
   },
-  "sshUsePassword": "Password",
-  "sshUseKey": "Private key",
-  "sshPasswordLabel": "Password",
-  "sshKeyLabel": "Private key (PEM)",
-  "sshKeyPassphraseLabel": "Key passphrase (optional)",
-  "sshCredsNotSaved": "Credentials entered here are used once. Manage saved credentials in the node card.",
-  "sshCredentialsTitle": "SSH authentication",
-  "sshSavedPasswordLabel": "Saved SSH password (optional)",
-  "sshSavedPasswordHint": "Leave empty to remove the saved password.",
-  "sshCredentialsEncryptedHint": "The password and private key are stored only inside xVeil's encrypted container.",
-  "sshCredentialsEndpointCleared": "The SSH endpoint changed, so the saved password and key were cleared for safety.",
-  "sshGenerateEd25519": "Generate an Ed25519 key",
-  "sshRegenerateEd25519": "Generate a new Ed25519 key",
-  "sshSavedEd25519Title": "Saved Ed25519 key",
-  "sshPublicKeyLabel": "Add this line to ~/.ssh/authorized_keys on the server:",
-  "sshCopyPublicKey": "Copy public key",
-  "sshPublicKeyCopied": "Public key copied",
-  "sshRemoveSavedKey": "Remove saved key",
-  "sshUseSavedKeyHint": "Leave empty to use the saved Ed25519 key.",
-  "sshOtherKeyLabel": "Another private key (PEM, this time only)",
-  "sshCredentialRequired": "Enter a password or private key",
-  "sshCredentialsSaving": "Saving…",
-  "sshCredentialsSaveFailed": "Could not save SSH credentials: {error}",
+  "sshUsePassword": "Contraseña",
+  "sshUseKey": "Clave privada",
+  "sshPasswordLabel": "Contraseña",
+  "sshKeyLabel": "Clave privada (PEM)",
+  "sshKeyPassphraseLabel": "Frase de la clave (opcional)",
+  "sshCredsNotSaved": "Las credenciales que escribas aquí se usan una sola vez. Gestiona las credenciales guardadas en la ficha del nodo.",
+  "sshCredentialsTitle": "Autenticación SSH",
+  "sshSavedPasswordLabel": "Contraseña SSH guardada (opcional)",
+  "sshSavedPasswordHint": "Déjalo vacío para quitar la contraseña guardada.",
+  "sshCredentialsEncryptedHint": "La contraseña y la clave privada se guardan únicamente dentro del contenedor cifrado de xVeil.",
+  "sshCredentialsEndpointCleared": "El extremo SSH cambió, así que la contraseña y la clave guardadas se borraron por seguridad.",
+  "sshGenerateEd25519": "Generar una clave Ed25519",
+  "sshRegenerateEd25519": "Generar una clave Ed25519 nueva",
+  "sshSavedEd25519Title": "Clave Ed25519 guardada",
+  "sshPublicKeyLabel": "Añade esta línea al archivo ~/.ssh/authorized_keys del servidor:",
+  "sshCopyPublicKey": "Copiar la clave pública",
+  "sshPublicKeyCopied": "Clave pública copiada",
+  "sshRemoveSavedKey": "Quitar la clave guardada",
+  "sshUseSavedKeyHint": "Déjalo vacío para usar la clave Ed25519 guardada.",
+  "sshOtherKeyLabel": "Otra clave privada (PEM, solo esta vez)",
+  "sshCredentialRequired": "Escribe una contraseña o una clave privada",
+  "sshCredentialsSaving": "Guardando…",
+  "sshCredentialsSaveFailed": "No se pudieron guardar las credenciales SSH: {error}",
   "@sshCredentialsSaveFailed": {
     "placeholders": {
       "error": {
@@ -1879,7 +1879,7 @@
       }
     }
   },
-  "sshKeyGenerationFailed": "Could not generate the key: {error}",
+  "sshKeyGenerationFailed": "No se pudo generar la clave: {error}",
   "@sshKeyGenerationFailed": {
     "placeholders": {
       "error": {
@@ -1887,9 +1887,9 @@
       }
     }
   },
-  "sshConnectRun": "Connect & check",
-  "sshConnecting": "Connecting…",
-  "sshDone": "Done (exit {code})",
+  "sshConnectRun": "Conectar y comprobar",
+  "sshConnecting": "Conectando…",
+  "sshDone": "Hecho (salida {code})",
   "@sshDone": {
     "placeholders": {
       "code": {
@@ -1897,7 +1897,7 @@
       }
     }
   },
-  "sshError": "Failed: {err}",
+  "sshError": "Falló: {err}",
   "@sshError": {
     "placeholders": {
       "err": {
@@ -1905,42 +1905,42 @@
       }
     }
   },
-  "nodeCheckReachable": "Check reachability",
-  "nodeChecking": "Checking…",
-  "nodeReachable": "Reachable",
-  "nodeUnreachable": "Unreachable",
-  "networkExtTitle": "Extensions (Lua)",
-  "networkExtSub": "Load sandboxed add-ons",
-  "networkComingLater": "Coming in a later milestone",
+  "nodeCheckReachable": "Comprobar la accesibilidad",
+  "nodeChecking": "Comprobando…",
+  "nodeReachable": "Accesible",
+  "nodeUnreachable": "No accesible",
+  "networkExtTitle": "Extensiones (Lua)",
+  "networkExtSub": "Cargar complementos en un entorno aislado",
+  "networkComingLater": "Llegará en una fase posterior",
   "networkStatusError": "Error",
-  "networkBackgroundTitle": "Keep running in background",
-  "networkBackgroundHint": "Android only. Keeps the node — your proxy and incoming-message delivery — alive after you switch away from the app. Requires a persistent notification (so it's visible the app is running) and uses more battery.",
-  "networkBackgroundAllowTitle": "Allow background work",
-  "networkBackgroundAllowBody": "For messages to arrive while xVeil is in the background, allow it to run without battery restrictions. On some phones (e.g. Xiaomi, Samsung) you must ALSO enable “Autostart” / remove battery limits in the app's settings.",
-  "networkBackgroundAllowGrant": "Allow",
-  "networkBackgroundOpenSettings": "App settings",
-  "callBatteryAllowTitle": "Keep calls alive in the background?",
-  "callBatteryAllowBody": "Some phones stop a call when you switch away from xVeil. Allow it to ignore battery optimization so backgrounded calls keep running.",
-  "networkBackgroundLater": "Later",
-  "peersTitle": "Connected peers",
-  "peersSectionActive": "Active",
-  "peersSectionInactive": "Inactive",
-  "peersEmpty": "No peers yet",
-  "peersEmptyHint": "When your node connects to others, they appear here.",
-  "peerActiveNow": "active now",
-  "peerNeverSeen": "not yet connected",
-  "peerLastSeenLabel": "last active",
-  "peerDetailsTitle": "Peer details",
+  "networkBackgroundTitle": "Seguir funcionando en segundo plano",
+  "networkBackgroundHint": "Solo en Android. Mantiene vivo el nodo —tu proxy y la entrega de mensajes entrantes— después de que salgas de la aplicación. Requiere una notificación permanente (para que se vea que la aplicación está funcionando) y gasta más batería.",
+  "networkBackgroundAllowTitle": "Permitir el trabajo en segundo plano",
+  "networkBackgroundAllowBody": "Para que lleguen los mensajes con xVeil en segundo plano, permítele funcionar sin restricciones de batería. En algunos teléfonos (por ejemplo, Xiaomi o Samsung) TAMBIÉN tienes que activar el «Inicio automático» o quitar los límites de batería en los ajustes de la aplicación.",
+  "networkBackgroundAllowGrant": "Permitir",
+  "networkBackgroundOpenSettings": "Ajustes de la aplicación",
+  "callBatteryAllowTitle": "¿Mantener las llamadas en segundo plano?",
+  "callBatteryAllowBody": "Algunos teléfonos cortan la llamada cuando sales de xVeil. Permítele ignorar la optimización de batería para que las llamadas sigan en segundo plano.",
+  "networkBackgroundLater": "Más tarde",
+  "peersTitle": "Pares conectados",
+  "peersSectionActive": "Activos",
+  "peersSectionInactive": "Inactivos",
+  "peersEmpty": "Todavía no hay pares",
+  "peersEmptyHint": "Cuando tu nodo se conecte con otros, aparecerán aquí.",
+  "peerActiveNow": "activo ahora",
+  "peerNeverSeen": "todavía sin conectar",
+  "peerLastSeenLabel": "última actividad",
+  "peerDetailsTitle": "Detalles del par",
   "peerFieldNodeId": "node_id",
-  "peerFieldTransport": "transport",
-  "peerFieldState": "state",
-  "peerFieldDirection": "direction",
-  "peerFieldLastSeen": "last active (seen by this device)",
-  "peerStateActive": "Active",
-  "peerStateConnecting": "Connecting",
-  "peerStateClosed": "Disconnected",
-  "peerStateUnknown": "Unknown",
-  "peerDirInbound": "Inbound",
+  "peerFieldTransport": "transporte",
+  "peerFieldState": "estado",
+  "peerFieldDirection": "dirección",
+  "peerFieldLastSeen": "última actividad (según este dispositivo)",
+  "peerStateActive": "Activo",
+  "peerStateConnecting": "Conectando",
+  "peerStateClosed": "Desconectado",
+  "peerStateUnknown": "Desconocido",
+  "peerDirInbound": "Entrante",
   "peerDirOutbound": "Outbound",
   "peerDirUnknown": "Unknown",
   "timeJustNow": "just now",
