@@ -546,6 +546,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
             ),
           ),
           IconButton(
+            tooltip: AppL10n.of(context).actionCancel,
             icon: const Icon(Icons.close, size: 18),
             onPressed: () => setState(() => _replyTarget = null),
           ),
@@ -2221,6 +2222,9 @@ class _GroupRefImageState extends ConsumerState<_GroupRefImage> {
           ),
         if (_full == null && !downloading && widget.onFetch != null)
           IconButton.filledTonal(
+            // Same name the 1:1 chat gives the same button on the same blurred
+            // thumbnail — an icon there said nothing about what it would do.
+            tooltip: AppL10n.of(context).fileDownloadTitle,
             onPressed: widget.onFetch,
             icon: const Icon(Icons.download),
           ),
