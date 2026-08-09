@@ -1411,7 +1411,6 @@
     }
   },
   "settingsTitle": "Настройки",
-  "settingsIdentity": "Личность",
   "settingsStorage": "Хранилище и пространства",
   "settingsStorageCompact": "Сжать хранилище",
   "settingsStorageCompactBody": "Освободить неиспользуемое место — приложение переоткроется. Сохраняется ТОЛЬКО разблокированное пространство: любая другая скрытая личность в этом контейнере будет потеряна.",
@@ -1439,7 +1438,6 @@
   "settingsStorageLeanPadding": "Экономить место",
   "settingsStorageLeanPaddingBody": "Включено по умолчанию: будущие записи используют меньше padding, поэтому контейнер растет намного меньше. Отключите для более сильной маскировки изменения размера. Применится после переоткрытия приложения.",
   "settingsStoragePasswordHint": "Ваш пароль",
-  "settingsNetwork": "Сеть и узлы",
   "settingsAppearance": "Оформление",
   "settingsAbout": "О приложении",
   "settingsLanguage": "Язык",
