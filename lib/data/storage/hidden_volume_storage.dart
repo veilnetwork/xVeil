@@ -206,10 +206,7 @@ class HiddenVolumeStorage implements Storage {
     // No node id (audit XV-06). It is derivable from the node config in this
     // same space and nowhere else; a copy here was a cache that went stale on
     // the very first launch and stayed stale.
-    final json = jsonEncode({
-      'dn': profile.displayName,
-      'u': profile.username,
-    });
+    final json = jsonEncode({'dn': profile.displayName, 'u': profile.username});
     final bytes = _sk(json);
     final existing = await _as.get(Ns.settings, _sk('identity'));
     if (_bytesEqual(existing, bytes)) return;
@@ -777,7 +774,8 @@ class HiddenVolumeStorage implements Storage {
     return _fileSerialized(() async {
       final blobs = _blobs;
       final known = blobs == null ? null : await _odMeta(fileId);
-      final onDisk = blobs != null && (known != null || totalSize > _onDiskMinBytes);
+      final onDisk =
+          blobs != null && (known != null || totalSize > _onDiskMinBytes);
       if (onDisk) {
         return _storeFilePieceOnDisk(
           fileId,
@@ -971,10 +969,12 @@ class HiddenVolumeStorage implements Storage {
   @override
   Future<Uint8List?> loadRatchetState(Uint8List conversationKey) async {
     if (conversationKey.length != kRatchetKeyLen) return null;
-    final head = await _as.get(Ns.ratchet, _ratchetRecordKey(conversationKey, 0));
+    final head = await _as.get(
+      Ns.ratchet,
+      _ratchetRecordKey(conversationKey, 0),
+    );
     if (head == null || head.length < 4) return null;
-    final total =
-        (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
+    final total = (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
     if (total <= 0 || total > kRatchetMaxStateLen) return null;
     final out = Uint8List(total);
     var filled = 0;
@@ -990,7 +990,10 @@ class HiddenVolumeStorage implements Storage {
     take(head, 4);
     final chunks = _ratchetChunkCount(total);
     for (var i = 1; i < chunks; i++) {
-      final part = await _as.get(Ns.ratchet, _ratchetRecordKey(conversationKey, i));
+      final part = await _as.get(
+        Ns.ratchet,
+        _ratchetRecordKey(conversationKey, i),
+      );
       // A missing record means the run is incomplete. Half a session is a
       // session with the WRONG keys, so answer "nothing held" and let the
       // conversation re-key rather than importing a lie.
@@ -1054,7 +1057,9 @@ class HiddenVolumeStorage implements Storage {
       // as if they were its own, splicing bytes from two points in the chain.
       final priorChunks = await _ratchetStoredChunkCount(entry.conversationKey);
       for (var i = chunks; i < priorChunks; i++) {
-        ops.add(DeleteOp(Ns.ratchet, _ratchetRecordKey(entry.conversationKey, i)));
+        ops.add(
+          DeleteOp(Ns.ratchet, _ratchetRecordKey(entry.conversationKey, i)),
+        );
       }
       // Conversations are whole or absent: never let one straddle two commits,
       // however large it is, or a crash between them restores a session whose
@@ -1106,10 +1111,12 @@ class HiddenVolumeStorage implements Storage {
   /// Records currently stored for [conversationKey], read from its head
   /// record's length prefix (0 when nothing is held).
   Future<int> _ratchetStoredChunkCount(Uint8List conversationKey) async {
-    final head = await _as.get(Ns.ratchet, _ratchetRecordKey(conversationKey, 0));
+    final head = await _as.get(
+      Ns.ratchet,
+      _ratchetRecordKey(conversationKey, 0),
+    );
     if (head == null || head.length < 4) return 0;
-    final total =
-        (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
+    final total = (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
     if (total <= 0 || total > kRatchetMaxStateLen) return 0;
     return _ratchetChunkCount(total);
   }
@@ -2116,7 +2123,9 @@ class HiddenVolumeStorage implements Storage {
       if (entry.key == author) {
         bounded[entry.key] = entry.value;
       } else if (entry.key == selfHex) {
-        bounded[entry.key] = entry.value > ownCeiling ? ownCeiling : entry.value;
+        bounded[entry.key] = entry.value > ownCeiling
+            ? ownCeiling
+            : entry.value;
       }
     }
     // Gather scrub+tombstone ops BEFORE the clear row sets the fold watermark, so
@@ -2877,7 +2886,11 @@ class HiddenVolumeStorage implements Storage {
         final logId = await _commitAtNextLogId(
           (logId) => [
             AppendLogOp(Ns.outbox, logId, _sk(payload)),
-            PutOp(Ns.outboxIndex, _outboxIndexKey(frame.frameId), _sk('$logId')),
+            PutOp(
+              Ns.outboxIndex,
+              _outboxIndexKey(frame.frameId),
+              _sk('$logId'),
+            ),
           ],
         );
         _outboxById[frame.frameId] = (frame: frame, logId: logId);
@@ -3008,8 +3021,7 @@ class HiddenVolumeStorage implements Storage {
     if (obsolete.isEmpty) return;
     await _deleteOutboxLogIdsCritical(obsolete);
     devLog(
-      () =>
-          'xVeil[outbox]: removed ${obsolete.length} unindexed payload rows',
+      () => 'xVeil[outbox]: removed ${obsolete.length} unindexed payload rows',
     );
   }
 
@@ -3171,7 +3183,24 @@ class HiddenVolumeStorage implements Storage {
   // BORN-CLEARED: suppressed in the fold even if it arrives AFTER the clear (out
   // of order) — a per-message tombstone can't catch a not-yet-seen message, the
   // watermark can, which is what makes a propagated clear CONVERGE across devices.
-  final Map<String, Map<String, int>> _clearedWatermark = {};
+  /// Per conversation, per author: the cleared seq CEILING and WHEN the clear
+  /// that set it happened.
+  ///
+  /// The ceiling alone never expires: once a peer's counter sits at or below it
+  /// — after a reinstall, a restored container, any counter reset — every
+  /// message it sends afterwards is dropped at birth, silently, forever.
+  /// Reported by a user as "cleared the history and now nothing from the phone
+  /// arrives", and measured: 67 writes, seq 277 through 307, every one
+  /// swallowed, while this device's own rows from after the same clear stayed
+  /// visible. A clear means "everything sent before this moment", so the moment
+  /// is what bounds it.
+  ///
+  /// The two numbers are kept TOGETHER, per author, and never max-merged apart.
+  /// Two clears can disagree — an older one with a higher ceiling, a newer one
+  /// with a lower one after the peer's counter reset — and taking the highest
+  /// ceiling beside the latest time would invent a clear that never happened,
+  /// suppressing a message neither of them covers.
+  final Map<String, Map<String, ({int seq, int at})>> _clearedWatermark = {};
   int _scanFoldedUpTo = 0; // next log_id not yet folded into the state above
   List<Message>?
   _scanResult; // materialised; valid while _scanFoldedUpTo == nextId
@@ -3456,15 +3485,25 @@ class HiddenVolumeStorage implements Storage {
         final c = m['c'] as String?;
         final wmRaw = m['wm'];
         if (c != null && wmRaw is Map) {
-          final wm = _clearedWatermark.putIfAbsent(c, () => <String, int>{});
+          final at = m['t'] is int ? m['t'] as int : 0;
+          final wm = _clearedWatermark.putIfAbsent(
+            c,
+            () => <String, ({int seq, int at})>{},
+          );
           wmRaw.forEach((au, hw) {
-            if (au is String && hw is int && hw > (wm[au] ?? 0)) wm[au] = hw;
+            if (au is String && hw is int && hw > (wm[au]?.seq ?? 0)) {
+              wm[au] = (seq: hw, at: at);
+            }
           });
           for (final key in _scanOrder.toList()) {
             final msg = _scanById[key];
             if (msg == null || msg.conversationId != c) continue;
             final a = msg.author, s = msg.seq;
-            if (a != null && s != null && s <= (wm[a] ?? -1)) {
+            final cleared = a == null ? null : wm[a];
+            if (cleared != null &&
+                s != null &&
+                s <= cleared.seq &&
+                msg.timestamp.millisecondsSinceEpoch <= cleared.at) {
               _scanById.remove(key);
               _scanOrder.remove(key);
               _scanLogIds.remove(key);
@@ -3516,9 +3555,13 @@ class HiddenVolumeStorage implements Storage {
       // arm above already purged the ones folded before it.
       final pAu = m['au'] as String?;
       final pSq = m['sq'] as int?;
-      if (pAu != null &&
+      final pTs = m['t'];
+      final pCleared = pAu == null ? null : _clearedWatermark[c]?[pAu];
+      if (pCleared != null &&
           pSq != null &&
-          pSq <= (_clearedWatermark[c]?[pAu] ?? -1)) {
+          pSq <= pCleared.seq &&
+          pTs is int &&
+          pTs <= pCleared.at) {
         final dk = _msgKey(c, id);
         _scanById.remove(dk);
         _scanOrder.remove(dk);
