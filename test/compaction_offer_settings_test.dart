@@ -111,4 +111,17 @@ void main() {
       CompactionOfferVerdict.tooSoon,
     );
   });
+
+  test('asking before there is a container answers null, not an exception', () async {
+    // The settings screen and the unlock path can both reach this before a
+    // store exists. Silence is the only honest answer there — and it must be
+    // an answer, not a crash, because the offer is meant to be asked about
+    // freely rather than guarded by every caller.
+    final c = await _open();
+    addTearDown(c.dispose);
+    expect(
+      await c.read(appControllerProvider.notifier).compactionOffer(),
+      isNull,
+    );
+  });
 }
