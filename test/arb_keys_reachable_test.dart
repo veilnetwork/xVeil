@@ -135,6 +135,5 @@ const _knownUnreachable = {
   'spaceAccessRolePermissions',
   'spaceMemberMute',
   'spaceRenameDenied',
-  'sshDone',
   'voiceModelTitle',
 };
