@@ -30,10 +30,28 @@ import sys
 
 TEMPLATE = pathlib.Path("lib/l10n/app_en.arb")
 
-# Strings that are the same in every language. Without this list a brand name
-# counts as untranslated forever, and "how far along is this language" never
-# reaches 100% no matter how much work goes in.
+# Strings that are the same in EVERY language — the product's own name.
 IDENTICAL = {"appName"}
+
+
+def same_as_english(out_path):
+    """Keys this language deliberately leaves in English.
+
+    Some words simply coincide: "Chats" is already Spanish. Without somewhere
+    to say so they count as untranslated forever and the language never reads
+    as finished, which makes the progress number useless exactly when it starts
+    to matter. Per language, because the coincidence is per language — beside
+    the translation, as `<locale>.same.txt`, one key per line.
+    """
+    beside = out_path.with_suffix(".same.txt")
+    if not beside.exists():
+        return set()
+    with open(beside, encoding="utf-8") as f:
+        return {
+            line.strip()
+            for line in f
+            if line.strip() and not line.startswith("#")
+        }
 
 
 def load(path):
@@ -44,6 +62,7 @@ def load(path):
 def build(locale, out_path):
     template = load(TEMPLATE)
     existing = load(out_path) if out_path.exists() else {}
+    deliberate = IDENTICAL | same_as_english(out_path)
 
     result = collections.OrderedDict()
     result["@@locale"] = locale
@@ -59,7 +78,7 @@ def build(locale, out_path):
             result[key] = value
             continue
         prior = existing.get(key)
-        if key in IDENTICAL:
+        if key in deliberate:
             result[key] = value
             translated += 1
             continue
