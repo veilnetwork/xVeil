@@ -1440,6 +1440,34 @@
   "settingsCompactOfferHint": "Замечать, когда большая часть контейнера — мёртвая набивка, и предлагать её вернуть. Предложение сначала спрашивает пароли всех личностей, поэтому ничего скрытого не теряется.",
   "settingsCompactOfferPeriod": "Спрашивать не чаще",
   "settingsCompactOfferThreshold": "Только если вернётся хотя бы",
+  "compactOfferTitle": "Освободить место в хранилище?",
+  "compactOfferBody": "Контейнер занимает {now}, из них живых данных примерно {after}. Сжатие перепишет его без мёртвой набивки.",
+  "@compactOfferBody": {
+    "placeholders": {
+      "now": {
+        "type": "String"
+      },
+      "after": {
+        "type": "String"
+      }
+    }
+  },
+  "compactOfferApprox": "Не менее этого — другие личности контейнера считаются мёртвыми, пока вы не откроете их ниже.",
+  "compactOfferPasswordsHint": "Введите пароль КАЖДОЙ личности в этом контейнере. Всё, что здесь не открыто, сжатие удалит.",
+  "compactOfferPassword": "Пароль личности",
+  "compactOfferAdd": "Открыть и сохранить",
+  "compactOfferUnknown": "Этот пароль здесь ничего не открывает",
+  "compactOfferAlready": "Уже в списке",
+  "compactOfferKeeping": "Будут сохранены",
+  "compactOfferWithMaster": "и ещё {count} под ней",
+  "@compactOfferWithMaster": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "compactOfferRun": "Сжать",
   "settingsCompactOfferDays": "{count, plural, one{{count} день} few{{count} дня} other{{count} дней}}",
   "@settingsCompactOfferDays": {
     "placeholders": {
