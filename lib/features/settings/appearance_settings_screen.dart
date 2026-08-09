@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/ui_languages.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/folder_panel_controller.dart';
@@ -11,12 +12,11 @@ import '../../state/locale_controller.dart';
 class AppearanceSettingsScreen extends ConsumerWidget {
   const AppearanceSettingsScreen({super.key});
 
+  /// Each language names ITSELF, so the list needs no translation of its own —
+  /// see [languageEndonym]. "Follow the system" is the one entry that must be
+  /// translated, because it names a behaviour rather than a language.
   String _languageLabel(AppL10n l, Locale? locale) =>
-      switch (locale?.languageCode) {
-        'ru' => l.languageRussian,
-        'en' => l.languageEnglish,
-        _ => l.languageSystem,
-      };
+      locale == null ? l.languageSystem : languageEndonym(locale.toLanguageTag());
 
   String _folderPanelLabel(AppL10n l, FolderPanelPosition p) => switch (p) {
     FolderPanelPosition.left => l.folderPanelLeft,
@@ -54,6 +54,18 @@ class AppearanceSettingsScreen extends ConsumerWidget {
     AppL10n l,
   ) async {
     final current = ref.read(localeProvider) ?? #system;
+    // Built from what the app actually SHIPS, not from a list kept by hand:
+    // adding an ARB file is then the whole job of adding a language, and no
+    // build can offer one it cannot render. Locale objects rather than tags
+    // round-tripped through strings — the check mark compares against what the
+    // controller holds, and a rebuilt locale would drop a script subtag and
+    // quietly stop matching.
+    final offered = AppL10n.supportedLocales.toList()
+      ..sort(
+        (a, b) => languageEndonym(a.toLanguageTag())
+            .toLowerCase()
+            .compareTo(languageEndonym(b.toLanguageTag()).toLowerCase()),
+      );
     final choice = await showDialog<Object?>(
       context: context,
       builder: (context) => SimpleDialog(
@@ -61,8 +73,7 @@ class AppearanceSettingsScreen extends ConsumerWidget {
         children: [
           for (final entry in <(Object?, String)>[
             (#system, l.languageSystem),
-            (const Locale('ru'), l.languageRussian),
-            (const Locale('en'), l.languageEnglish),
+            for (final x in offered) (x, languageEndonym(x.toLanguageTag())),
           ])
             ListTile(
               title: Text(entry.$2),
