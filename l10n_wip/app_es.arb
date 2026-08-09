@@ -625,62 +625,62 @@
       }
     }
   },
-  "spaceAccessDelegatedHint": "You can manage only roles below your current permission ceiling. Your own roles and peer managers are locked.",
-  "spaceAccessEmpty": "No custom roles yet. Built-in community roles continue to apply.",
-  "spaceAccessRoles": "Custom roles",
-  "spaceAccessGroups": "Participant groups",
-  "spaceAccessRoleAdd": "Add role",
-  "spaceAccessRoleEdit": "Edit role",
-  "spaceAccessRoleDelete": "Delete role",
-  "spaceAccessRoleDeleteConfirm": "Delete the role “{name}”? Its assignments will be removed in the same signed change.",
-  "spaceAccessRoleName": "Role name",
-  "spaceAccessRolePermissions": "{count, plural, =1{1 permission} other{{count} permissions}}",
-  "spaceAccessRoleGrantSummary": "{permissions, plural, =1{1 permission} other{{permissions} permissions}} · {areas, plural, =1{1 area} other{{areas} areas}}",
-  "spaceAccessPermissionAreas": "Permission areas",
-  "spaceAccessAddArea": "Add another area",
-  "spaceAccessAddDenyArea": "Deny area",
-  "spaceAccessDenyScopeLabel": "Denied area",
-  "spaceAccessScopeLabel": "Area",
-  "spaceAccessScopeTarget": "Category or channel",
-  "spaceAccessScopeSpace": "Entire community",
-  "spaceAccessScopeCategory": "Category",
-  "spaceAccessScopeChannel": "Channel",
-  "spaceAccessScopePosts": "Publications",
-  "spaceAccessScopeModeration": "Moderation",
-  "spaceAccessScopeMembers": "Members",
+  "spaceAccessDelegatedHint": "Solo puedes gestionar roles por debajo de tu techo de permisos actual. Tus propios roles y los de otros gestores están bloqueados.",
+  "spaceAccessEmpty": "Todavía no hay roles personalizados. Los roles integrados de la comunidad siguen aplicándose.",
+  "spaceAccessRoles": "Roles personalizados",
+  "spaceAccessGroups": "Grupos de participantes",
+  "spaceAccessRoleAdd": "Añadir rol",
+  "spaceAccessRoleEdit": "Editar rol",
+  "spaceAccessRoleDelete": "Eliminar rol",
+  "spaceAccessRoleDeleteConfirm": "¿Eliminar el rol «{name}»? Sus asignaciones se retirarán en el mismo cambio firmado.",
+  "spaceAccessRoleName": "Nombre del rol",
+  "spaceAccessRolePermissions": "{count, plural, =1{1 permiso} other{{count} permisos}}",
+  "spaceAccessRoleGrantSummary": "{permissions, plural, =1{1 permiso} other{{permissions} permisos}} · {areas, plural, =1{1 área} other{{areas} áreas}}",
+  "spaceAccessPermissionAreas": "Áreas de permisos",
+  "spaceAccessAddArea": "Añadir otra área",
+  "spaceAccessAddDenyArea": "Denegar un área",
+  "spaceAccessDenyScopeLabel": "Área denegada",
+  "spaceAccessScopeLabel": "Área",
+  "spaceAccessScopeTarget": "Categoría o canal",
+  "spaceAccessScopeSpace": "Toda la comunidad",
+  "spaceAccessScopeCategory": "Categoría",
+  "spaceAccessScopeChannel": "Canal",
+  "spaceAccessScopePosts": "Publicaciones",
+  "spaceAccessScopeModeration": "Moderación",
+  "spaceAccessScopeMembers": "Miembros",
   "spaceAccessScopeRoles": "Roles",
-  "spaceAccessScopeSettings": "Settings",
-  "spaceAccessScopeEncryption": "Encryption",
-  "spaceAccessScopeStorage": "Storage",
-  "spaceAccessGroupAdd": "Add group",
-  "spaceAccessGroupEdit": "Edit group",
-  "spaceAccessGroupDelete": "Delete group",
-  "spaceAccessGroupDeleteConfirm": "Delete the participant group “{name}”?",
-  "spaceAccessGroupName": "Group name",
-  "spaceAccessGroupSummary": "{members, plural, =1{1 member} other{{members} members}} · {roles, plural, =1{1 role} other{{roles} roles}}",
-  "spaceAccessDirectRoles": "Assign custom roles",
-  "spaceAccessNoRoles": "Create a custom role before assigning it.",
-  "spacePermissionView": "View community",
-  "spacePermissionDistributeContent": "Distribute content",
-  "spacePermissionPublishMessages": "Publish messages",
-  "spacePermissionPublishPosts": "Publish posts",
-  "spacePermissionManagePosts": "Manage posts",
-  "spacePermissionManageRecommendations": "Manage recommendations",
-  "spacePermissionEnterVoice": "Join voice",
-  "spacePermissionManageMembers": "Manage members",
-  "spacePermissionManageRoles": "Manage roles",
-  "spacePermissionModerate": "Moderate",
-  "spacePermissionManageSettings": "Manage settings",
-  "spacePermissionManageEncryption": "Manage encryption",
-  "spacePermissionManageStorage": "Manage storage and retention",
-  "spacePermissionManageChannels": "Manage channels",
-  "spaceMemberMuted": "Cannot publish until unmuted",
-  "spaceMemberMute": "Restrict publishing",
-  "spaceMemberUnmute": "Allow publishing",
-  "spaceMemberPromote": "Make administrator",
-  "spaceMemberDemote": "Make member",
-  "spaceMemberRemove": "Remove from community",
-  "spaceMemberRemoveConfirm": "Remove {member} and rotate access keys?",
+  "spaceAccessScopeSettings": "Ajustes",
+  "spaceAccessScopeEncryption": "Cifrado",
+  "spaceAccessScopeStorage": "Almacenamiento",
+  "spaceAccessGroupAdd": "Añadir grupo",
+  "spaceAccessGroupEdit": "Editar grupo",
+  "spaceAccessGroupDelete": "Eliminar grupo",
+  "spaceAccessGroupDeleteConfirm": "¿Eliminar el grupo de participantes «{name}»?",
+  "spaceAccessGroupName": "Nombre del grupo",
+  "spaceAccessGroupSummary": "{members, plural, =1{1 miembro} other{{members} miembros}} · {roles, plural, =1{1 rol} other{{roles} roles}}",
+  "spaceAccessDirectRoles": "Asignar roles personalizados",
+  "spaceAccessNoRoles": "Crea un rol personalizado antes de asignarlo.",
+  "spacePermissionView": "Ver la comunidad",
+  "spacePermissionDistributeContent": "Distribuir contenido",
+  "spacePermissionPublishMessages": "Publicar mensajes",
+  "spacePermissionPublishPosts": "Publicar entradas",
+  "spacePermissionManagePosts": "Gestionar publicaciones",
+  "spacePermissionManageRecommendations": "Gestionar recomendaciones",
+  "spacePermissionEnterVoice": "Entrar en canales de voz",
+  "spacePermissionManageMembers": "Gestionar miembros",
+  "spacePermissionManageRoles": "Gestionar roles",
+  "spacePermissionModerate": "Moderar",
+  "spacePermissionManageSettings": "Gestionar ajustes",
+  "spacePermissionManageEncryption": "Gestionar el cifrado",
+  "spacePermissionManageStorage": "Gestionar almacenamiento y conservación",
+  "spacePermissionManageChannels": "Gestionar canales",
+  "spaceMemberMuted": "No puede publicar hasta que se le permita de nuevo",
+  "spaceMemberMute": "Restringir la publicación",
+  "spaceMemberUnmute": "Permitir publicar",
+  "spaceMemberPromote": "Hacer administrador",
+  "spaceMemberDemote": "Hacer miembro",
+  "spaceMemberRemove": "Expulsar de la comunidad",
+  "spaceMemberRemoveConfirm": "¿Expulsar a {member} y rotar las claves de acceso?",
   "@spaceMemberRemoveConfirm": {
     "placeholders": {
       "member": {
@@ -688,8 +688,8 @@
       }
     }
   },
-  "spaceMemberBan": "Block in community",
-  "spaceMemberBanConfirm": "Permanently block {member}? Their membership will be revoked and protected access keys will be rotated. The signed action remains in the moderation history and can be appealed.",
+  "spaceMemberBan": "Vetar en la comunidad",
+  "spaceMemberBanConfirm": "¿Vetar de forma permanente a {member}? Se revocará su pertenencia y se rotarán las claves de acceso protegidas. La acción firmada queda en el historial de moderación y se puede recurrir.",
   "@spaceMemberBanConfirm": {
     "placeholders": {
       "member": {
@@ -697,8 +697,8 @@
       }
     }
   },
-  "spaceMemberTransferOwnership": "Transfer ownership",
-  "spaceMemberTransferOwnershipConfirm": "Transfer ownership to {member}? You will become an administrator, and only the new owner can transfer it back.",
+  "spaceMemberTransferOwnership": "Transferir la propiedad",
+  "spaceMemberTransferOwnershipConfirm": "¿Transferir la propiedad a {member}? Pasarás a ser administrador, y solo la nueva propietaria podrá devolvértela.",
   "@spaceMemberTransferOwnershipConfirm": {
     "placeholders": {
       "member": {
@@ -706,9 +706,9 @@
       }
     }
   },
-  "spaceAuthorityWithdraw": "Withdraw past authority",
-  "spaceAuthorityReturn": "Return authority",
-  "spaceAuthorityWithdrawConfirm": "From which point should {member}'s decisions stop counting? Blocks and mutes they applied after it are undone. Deleted content and key rotations cannot be brought back.",
+  "spaceAuthorityWithdraw": "Retirar autoridad pasada",
+  "spaceAuthorityReturn": "Devolver la autoridad",
+  "spaceAuthorityWithdrawConfirm": "¿A partir de qué momento deben dejar de contar las decisiones de {member}? Los vetos y silencios que aplicó después se deshacen. El contenido eliminado y las rotaciones de claves no se pueden recuperar.",
   "@spaceAuthorityWithdrawConfirm": {
     "placeholders": {
       "member": {
@@ -716,7 +716,7 @@
       }
     }
   },
-  "spaceAuthorityWithdrawSinceHours": "{hours, plural, one{The last hour} other{The last {hours} hours}}",
+  "spaceAuthorityWithdrawSinceHours": "{hours, plural, one{La última hora} other{Las últimas {hours} horas}}",
   "@spaceAuthorityWithdrawSinceHours": {
     "placeholders": {
       "hours": {
@@ -724,7 +724,7 @@
       }
     }
   },
-  "spaceAuthorityWithdrawSinceDays": "{days, plural, one{The last day} other{The last {days} days}}",
+  "spaceAuthorityWithdrawSinceDays": "{days, plural, one{El último día} other{Los últimos {days} días}}",
   "@spaceAuthorityWithdrawSinceDays": {
     "placeholders": {
       "days": {
@@ -732,11 +732,11 @@
       }
     }
   },
-  "spaceAuthorityWithdrawSinceAlways": "Everything they ever decided",
-  "spaceRenameTitle": "Rename community",
-  "spaceRenameAction": "Rename",
-  "spaceRenameDenied": "You do not have permission to rename this community",
-  "spaceLeave": "Leave community",
+  "spaceAuthorityWithdrawSinceAlways": "Todo lo que haya decidido alguna vez",
+  "spaceRenameTitle": "Cambiar el nombre de la comunidad",
+  "spaceRenameAction": "Cambiar el nombre",
+  "spaceRenameDenied": "No tienes permiso para cambiar el nombre de esta comunidad",
+  "spaceLeave": "Salir de la comunidad",
   "spaceLeaveConfirm": "You will lose access to its channels and publications. Protected keys will be rotated for the remaining members.",
   "spaceOwnerLeaveHint": "Transfer ownership to another member before leaving the community.",
   "spaceReplicationTitle": "Copy redistribution",
