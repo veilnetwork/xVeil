@@ -135,6 +135,20 @@ CompactionOfferVerdict compactionOfferVerdict({
 ///    compacted ONCE — a repeated password is not a second space;
 ///  * unlocking a master brings its subordinates with it, and those arrive
 ///    without the person typing anything.
+/// Two constraints the collecting screen has to be built around, established
+/// by reading the code rather than assumed:
+///
+///  * A password can only be CHECKED against a closed container. The store is
+///    held under `LOCK_EX` while a session is up, which is why binding an
+///    existing identity to a master tears the session down before it opens the
+///    space by its own password. So passwords cannot be verified one at a time
+///    while the app runs normally: the offer must tear down ONCE, collect and
+///    verify inside that window, compact, and reopen.
+///  * A space does not carry its node id. The stored profile holds a display
+///    name and a claimed username; the node id is derived from the identity's
+///    key material when its node starts. Listing unlocked identities "by
+///    node_id" therefore needs that derivation, not a lookup — the number is
+///    not sitting in the container waiting to be read.
 class CompactionRoster {
   CompactionRoster();
 
