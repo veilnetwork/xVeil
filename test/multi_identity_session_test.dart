@@ -301,4 +301,48 @@ void main() {
     );
     expect(await alice.loadFile('big'), isNotNull);
   });
+
+  test('a teardown that never returns still releases the container', () async {
+    // Reported from a real device: storage compaction sat on "opening the
+    // store" for half an hour with the repack not begun — no temp file beside
+    // the container, the container still open, the node still running. The
+    // chain guarded every dispose against THROWING and nothing against
+    // hanging, and messaging teardown waits on the node over IPC. One wedged
+    // element held the LOCK_EX for the life of the process; lock and wipe take
+    // this same path.
+    var closed = false;
+    final session = MultiIdentitySession(
+      SyncWrappedAsyncMultiSpaceBacking(_ClosingFake(() => closed = true)),
+      runtimeDirBase: '/run',
+      listenPortBase: 9000,
+      disposeBudget: const Duration(milliseconds: 50),
+      boot: (spec, storage) async => IdentityNode(
+        transport: _FakeTransport(_nid(spec.spaceId + 100)),
+        // Never completes — the shape of an FFI stop waiting on a node that
+        // will not answer.
+        dispose: () => Completer<void>().future,
+      ),
+    );
+    await session.bootAll([_e('alice', 1), _e('bob', 2)]);
+
+    await session.disposeAll().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => fail('disposeAll never returned'),
+    );
+    expect(
+      closed,
+      isTrue,
+      reason: 'the lock must be released even when a dispose hangs',
+    );
+  });
+}
+
+/// Records that the shared container was closed — the fake is a no-op there,
+/// and closing IS the property under test.
+class _ClosingFake extends FakeMultiSpaceBacking {
+  _ClosingFake(this.onClose);
+  final void Function() onClose;
+
+  @override
+  void close() => onClose();
 }
