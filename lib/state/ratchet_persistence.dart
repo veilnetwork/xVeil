@@ -165,6 +165,7 @@ class RatchetPersistence {
       final work = Stopwatch()..start();
       try {
         final written = await _flush();
+        StorageWriteCensus.noteRatchetWritten(why, written);
         _degraded = false;
         if (gateMs + work.elapsedMilliseconds >= 50) {
           devLog(

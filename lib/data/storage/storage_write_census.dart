@@ -40,10 +40,31 @@ class StorageWriteCensus {
   /// again), while a serve or a periodic caller carries no such promise.
   static final Map<String, int> ratchetFlushesByReason = {};
 
+  /// Conversations each reason's flushes actually WROTE.
+  ///
+  /// The flush count alone was misleading: cutting beacon sends 46 → 36 left
+  /// the ratchet ops identical to the byte, which means most flushes write
+  /// nothing (no conversation was marked) and the volume belongs to whichever
+  /// few do. Counting calls and counting work apart is what tells those two
+  /// apart.
+  static final Map<String, int> ratchetWrittenByReason = {};
+
+  /// Flushes that found nothing to write, by reason — pure overhead.
+  static final Map<String, int> ratchetEmptyByReason = {};
+
   static void noteRatchetFlush(String why) {
     if (!_debugBuild) return;
     since ??= DateTime.now();
     ratchetFlushesByReason[why] = (ratchetFlushesByReason[why] ?? 0) + 1;
+  }
+
+  static void noteRatchetWritten(String why, int written) {
+    if (!_debugBuild) return;
+    if (written == 0) {
+      ratchetEmptyByReason[why] = (ratchetEmptyByReason[why] ?? 0) + 1;
+      return;
+    }
+    ratchetWrittenByReason[why] = (ratchetWrittenByReason[why] ?? 0) + written;
   }
 
   /// Wall-clock of the first record since the last [reset] — turns the totals
@@ -77,6 +98,8 @@ class StorageWriteCensus {
     opsByNamespace.clear();
     bytesByNamespace.clear();
     ratchetFlushesByReason.clear();
+    ratchetWrittenByReason.clear();
+    ratchetEmptyByReason.clear();
     since = null;
   }
 
@@ -121,6 +144,8 @@ class StorageWriteCensus {
       'opsByNamespace': ops,
       'payloadBytesByNamespace': bytes,
       'ratchetFlushesByReason': Map<String, int>.from(ratchetFlushesByReason),
+      'ratchetWrittenByReason': Map<String, int>.from(ratchetWrittenByReason),
+      'ratchetEmptyByReason': Map<String, int>.from(ratchetEmptyByReason),
       'totalOps': ops.values.fold(0, (a, b) => a + b),
       'totalPayloadBytes': bytes.values.fold(0, (a, b) => a + b),
     };
