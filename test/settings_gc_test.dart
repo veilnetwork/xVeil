@@ -120,6 +120,78 @@ void main() {
       expect(swept, 4);
     });
 
+    test('deleting a message takes its derived text with it, at once', () async {
+      // Not "eventually, when a sweep runs". The body is scrubbed in that
+      // commit; a readable copy of the same words surviving until the next
+      // sweep is the hole this closes.
+      await storage.appendMessage(
+        Message(
+          id: 'm-doomed',
+          conversationId: 'conv',
+          direction: MessageDirection.incoming,
+          body: 'voice',
+          timestamp: DateTime(2026, 7, 1),
+          fileContentId: 'cid-doomed',
+        ),
+      );
+      await storage.appendMessage(
+        Message(
+          id: 'm-keeps',
+          conversationId: 'conv',
+          direction: MessageDirection.incoming,
+          body: 'text',
+          timestamp: DateTime(2026, 7, 2),
+        ),
+      );
+      await storage.putSetting('msg.translation.v1:en:m-doomed', 'gone');
+      await storage.putSetting('msg.translation.v1:ru:m-doomed', 'тоже');
+      await storage.putSetting('msg.translation.v1:en:m-keeps', 'stays');
+      await storage.putSetting('voice.transcript.v3:en:cid-doomed', 'spoken');
+      await storage.putSetting('voice.transcript.v2:cid-doomed', 'legacy');
+
+      await storage.deleteMessage('conv', 'm-doomed');
+
+      final keys = await storage.settingsKeys();
+      // Every language of the deleted message, not just the one shown.
+      expect(keys, isNot(contains('set:msg.translation.v1:en:m-doomed')));
+      expect(keys, isNot(contains('set:msg.translation.v1:ru:m-doomed')));
+      expect(keys, isNot(contains('set:voice.transcript.v3:en:cid-doomed')));
+      expect(keys, isNot(contains('set:voice.transcript.v2:cid-doomed')));
+      // And nothing belonging to the message still on screen.
+      expect(keys, contains('set:msg.translation.v1:en:m-keeps'));
+      expect(
+        await storage.getSetting('msg.translation.v1:en:m-keeps'),
+        'stays',
+      );
+    });
+
+    test('a transcript another message still shows is not deleted', () async {
+      // Two messages naming the same content — a forward, a resend. The
+      // liveness question is exactly the one the blob purge already asks, so
+      // the transcript follows the blob rather than the message.
+      for (final id in ['m-one', 'm-two']) {
+        await storage.appendMessage(
+          Message(
+            id: id,
+            conversationId: 'conv',
+            direction: MessageDirection.incoming,
+            body: 'voice',
+            timestamp: DateTime(2026, 7, 1),
+            fileContentId: 'cid-shared',
+          ),
+        );
+      }
+      await storage.putSetting('voice.transcript.v3:en:cid-shared', 'spoken');
+
+      await storage.deleteMessage('conv', 'm-one');
+
+      expect(
+        await storage.settingsKeys(),
+        contains('set:voice.transcript.v3:en:cid-shared'),
+        reason: 'm-two still shows that voice message',
+      );
+    });
+
     test('a key shaped unlike its family is left alone, not guessed at',
         () async {
       // This loop's job is to delete. A malformed key is not evidence about

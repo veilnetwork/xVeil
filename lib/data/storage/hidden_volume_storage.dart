@@ -1766,10 +1766,25 @@ class HiddenVolumeStorage implements Storage {
     for (final blobId in purgeBlobIds) {
       blobOps.addAll(await _deleteContentBlobOps(blobId, blobNames));
     }
+    // Derived text, in the SAME commit as the tombstone. A transcript and a
+    // translation are this message's content in another form, so leaving them
+    // for the periodic sweep means the body is scrubbed while a readable copy
+    // of it stays — and a person who tapped delete expects deleted, not
+    // eventually. In one commit because a crash between two would leave
+    // exactly that gap.
+    //
+    // purgeBlobIds is already "no live reference remains", computed above for
+    // the blobs themselves, so a transcript of content another message still
+    // shows is not touched.
+    final derivedOps = await _derivedTextOps(
+      messageId: messageId,
+      deadContentIds: purgeBlobIds,
+    );
     await _as.commit([
       AppendLogOp(hit.namespace, hit.logId, _sk(tomb)),
       ...blobOps,
       ...editVoids,
+      ...derivedOps,
     ]);
     if (blobNames.isNotEmpty) {
       await _deleteBlobFiles(blobNames);
@@ -1800,6 +1815,56 @@ class HiddenVolumeStorage implements Storage {
         return _scanDeletedKeys.contains(_msgKey(conversationId, messageId)) ||
             _scanDeletedLegacyIds.contains(messageId);
       });
+
+  /// Delete ops for text DERIVED from a message: its translations, and the
+  /// transcripts of content that dies with it.
+  ///
+  /// Keyed by suffix rather than by prefix, because both families carry the
+  /// language BETWEEN the family name and the id
+  /// (`set:msg.translation.v1:<lang>:<id>`), so a prefix match cannot name one
+  /// without enumerating every language anyone might have chosen.
+  ///
+  /// Best effort: if the key listing fails, the periodic sweep still catches
+  /// these. Losing the eager removal is a delay; failing the delete over it
+  /// would be worse.
+  Future<List<KvLogOp>> _derivedTextOps({
+    required String messageId,
+    required Iterable<String> deadContentIds,
+  }) async {
+    if (messageId.isEmpty && deadContentIds.isEmpty) return const [];
+    final List<String> keys;
+    try {
+      keys = await settingsKeys();
+    } on Object {
+      return const [];
+    }
+    final dead = deadContentIds.toSet();
+    final ops = <KvLogOp>[];
+    for (final key in keys) {
+      if (!key.startsWith('set:')) continue;
+      final rest = key.substring('set:'.length);
+      String? id;
+      if (rest.startsWith('msg.translation.v1:')) {
+        final tail = rest.substring('msg.translation.v1:'.length);
+        final cut = tail.indexOf(':');
+        if (cut > 0 && tail.substring(cut + 1) == messageId) {
+          ops.add(DeleteOp(Ns.settings, _sk(key)));
+        }
+        continue;
+      }
+      if (rest.startsWith('voice.transcript.v3:')) {
+        final tail = rest.substring('voice.transcript.v3:'.length);
+        final cut = tail.indexOf(':');
+        if (cut > 0) id = tail.substring(cut + 1);
+      } else if (rest.startsWith('voice.transcript.v2:')) {
+        id = rest.substring('voice.transcript.v2:'.length);
+      }
+      if (id != null && id.isNotEmpty && dead.contains(id)) {
+        ops.add(DeleteOp(Ns.settings, _sk(key)));
+      }
+    }
+    return ops;
+  }
 
   /// Void-rewrite (reclaim) the retained k:edit rows of [conv]: when [targets]
   /// is null, every edit row in the conversation; otherwise only edits of those
