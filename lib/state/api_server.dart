@@ -888,17 +888,27 @@ class ApiServerController extends Notifier<ApiConfig> {
     // The bot event feed: incoming-message notices as JSON. `.map` on a
     // broadcast stream stays broadcast, so many WS clients can each subscribe.
     final events = _events(groupService, groupCalls);
-    _server = ApiServer(handler, events);
+    final server = ApiServer(handler, events);
+    _server = server;
     try {
-      await _server!.start(debugBindPort);
-      if (identityAtStart != _identityHex) {
-        await _server!.stop();
-        _server = null;
+      await server.start(debugBindPort);
+      // Decided on the LOCAL reference, never on the field. `_loadIdentity`
+      // runs outside this reconcile's serialization: it stops whatever the
+      // field holds — ours, still unbound, so a no-op — and nulls it, and then
+      // this bind completes. Reading `_server!` here therefore threw on null
+      // and the throw was swallowed below as "bind failed", leaving a socket
+      // bound to the old identity's tokens with nobody holding it: no later
+      // reconcile can find it, because the field it would look in is empty.
+      if (identityAtStart != _identityHex || !identical(_server, server)) {
+        await server.stop();
+        if (identical(_server, server)) _server = null;
         return;
       }
     } catch (e) {
       devLog(() => 'xVeil[api]: bind failed: $e');
-      _server = null;
+      // Bound-then-threw is possible; stopping an unbound server is a no-op.
+      await server.stop();
+      if (identical(_server, server)) _server = null;
     }
     _rewireWebhook(groupService);
   }
