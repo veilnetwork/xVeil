@@ -44,10 +44,24 @@ class _LogCompaction {
     ];
   }
 
+  /// Which rows survive a device-log compaction.
+  ///
+  /// [isMember] is required, and that is the fix for report9 X-18. Reads answer
+  /// from `_messagesOfBundle`, which keeps only authors who are members of the
+  /// CURRENT state; this pass judged a row by its signature alone. So a device
+  /// that had been revoked still competed for keys here, and when one of its
+  /// rows won, the honest row it beat was deleted from disk — while the winner
+  /// stayed invisible to every read. The key simply disappeared.
+  ///
+  /// The migration caller in `group_service.dart` already filtered its input
+  /// this way. Making the parameter required is what stops the two paths from
+  /// disagreeing again: the rule now lives with the pass rather than beside one
+  /// of its callers.
   List<GroupMessage> compactDeviceMessages(
     NodeId groupId,
-    List<GroupMessage> input,
-  ) {
+    List<GroupMessage> input, {
+    required bool Function(NodeId author) isMember,
+  }) {
     final latest =
         <
           (DeviceSyncKind, String),
@@ -69,7 +83,7 @@ class _LogCompaction {
     final nowMs = _owner._now();
     final valid = [
       for (final m in input)
-        if (_owner._validMessageFor(groupId, m)) m,
+        if (_owner._validMessageFor(groupId, m) && isMember(m.author)) m,
     ];
     final entries = [
       for (final m in valid)
@@ -177,8 +191,13 @@ class _LogCompaction {
       for (final e in b.control)
         if (_owner._validControlFor(b.manifest, e)) e,
     ];
+    final state = foldControlLog(
+      owner: b.manifest.owner,
+      entries: b.control,
+      verify: (e) => _owner._validControlFor(b.manifest, e),
+    ).state;
     final messages = b.manifest.name == GroupService.kDeviceGroupName
-        ? compactDeviceMessages(groupId, b.messages)
+        ? compactDeviceMessages(groupId, b.messages, isMember: state.isMember)
         : _owner._retainedMessageRows(b.manifest, b.messages);
     final reactions = await _compactReactions(b);
     final posts = _owner._retainedPostRows(groupId, b.posts);
