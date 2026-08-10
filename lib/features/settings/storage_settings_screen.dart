@@ -42,6 +42,13 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
   /// which is also what a container that will not open should show.
   CompactionOfferSettings _offer = const CompactionOfferSettings();
 
+  /// The new verdict and its figures, or null when there is nothing to say.
+  /// Replaces the old `worthCompacting` flag for deciding whether to nudge:
+  /// that one answered from fixed thresholds and only for a lone identity, so
+  /// it ignored the period and threshold the person chose and stayed silent on
+  /// exactly the containers this feature was built for.
+  ({CompactionOfferVerdict verdict, CompactionEstimate estimate})? _offerNow;
+
   @override
   void initState() {
     super.initState();
@@ -55,6 +62,13 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
     final autoCompact = await ctrl.autoCompactEnabled();
     final leanPadding = await ctrl.leanStoragePaddingEnabled();
     final offer = await ctrl.compactionOfferSettings();
+    final offerNow = await ctrl.compactionOffer();
+    // Mark it the moment it is SHOWN, not when it is acted on. Otherwise the
+    // period never starts, the nudge returns on every visit, and "ask no more
+    // often than" is a setting that changes nothing.
+    if (offerNow?.verdict == CompactionOfferVerdict.offer) {
+      await ctrl.noteCompactionOffered();
+    }
     if (!mounted) return;
     setState(() {
       _size = size;
@@ -62,6 +76,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
       _autoCompact = autoCompact;
       _leanPadding = leanPadding;
       _offer = offer;
+      _offerNow = offerNow;
       _loaded = true;
     });
   }
@@ -216,10 +231,15 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                 // The decision is made ONCE, in AppController; the screen only
                 // renders it. Re-deriving "is the file bloated?" from
                 // thresholds here is how the two would drift apart.
-                if (_reclaim?.worthCompacting ?? false)
+                if (_offerNow?.verdict == CompactionOfferVerdict.offer)
                   _BloatNudge(
-                    reclaimableBytes: _reclaim!.reclaimableBytes,
-                    onCompact: () => _compact(l),
+                    reclaimableBytes: _offerNow!.estimate.reclaimableBytes,
+                    // A container with more than one identity cannot take the
+                    // single-password path: it would keep one space and delete
+                    // the rest. Same nudge, the flow that fits.
+                    onCompact: () => ctrl.canCompactStorage
+                        ? _compact(l)
+                        : _compactAll(l),
                   ),
                 ListTile(
                   leading: const Icon(Icons.sd_storage_outlined),
