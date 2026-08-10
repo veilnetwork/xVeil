@@ -43,6 +43,7 @@ Future<void> tapAndSettle(WidgetTester tester, Finder target) async {
 class ScriptedController extends TranslationModelsController {
   final imports = <String>[];
   final removals = <String>[];
+  final exports = <String>[];
 
   /// What the next import pretends to be: a pair to install, or an error.
   TranslationPair? installs = const TranslationPair('ru', 'en');
@@ -74,6 +75,12 @@ class ScriptedController extends TranslationModelsController {
   }
 
   @override
+  Future<String?> exportPair(TranslationPair pair, String destination) async {
+    exports.add('${pair.id} -> $destination');
+    return destination;
+  }
+
+  @override
   Future<void> remove(TranslationPair pair) async {
     removals.add(pair.id);
     state = state.copyWith(
@@ -90,12 +97,16 @@ void main() {
   Future<void> pump(
     WidgetTester tester, {
     required Future<String?> Function() picker,
+    Future<String?> Function(String)? saver,
     Locale locale = const Locale('en'),
   }) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           translationBundlePickerProvider.overrideWithValue(picker),
+          translationBundleSaverProvider.overrideWithValue(
+            saver ?? (name) async => '/tmp/$name',
+          ),
           translationModelsControllerProvider.overrideWith(() => controller),
         ],
         child: MaterialApp(
@@ -176,6 +187,39 @@ void main() {
 
     expect(find.byIcon(Icons.delete_outline), findsNWidgets(2));
     expect(find.text('en → ru'), findsWidgets);
+  });
+
+  testWidgets('sharing writes the pair where the save dialog said', (
+    tester,
+  ) async {
+    String? asked;
+    await pump(
+      tester,
+      picker: () async => '/tmp/ru-en.veiltranslate',
+      saver: (name) async {
+        asked = name;
+        return '/tmp/out/$name';
+      },
+    );
+    await tapAndSettle(tester, find.text('Install from a file…'));
+
+    await tapAndSettle(tester, find.byIcon(Icons.ios_share));
+    // The suggested name is what the receiver recognises — a person should not
+    // have to know the extension to pass a model on.
+    expect(asked, 'ru-en.veiltranslate');
+    expect(controller.exports, equals(['ru-en -> /tmp/out/ru-en.veiltranslate']));
+  });
+
+  testWidgets('dismissing the save dialog writes nothing', (tester) async {
+    await pump(
+      tester,
+      picker: () async => '/tmp/ru-en.veiltranslate',
+      saver: (_) async => null,
+    );
+    await tapAndSettle(tester, find.text('Install from a file…'));
+    await tapAndSettle(tester, find.byIcon(Icons.ios_share));
+
+    expect(controller.exports, isEmpty);
   });
 
   testWidgets('the Russian layout keeps the action beside the title', (

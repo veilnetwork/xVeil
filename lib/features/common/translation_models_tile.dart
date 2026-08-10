@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/translation_model_store.dart';
+import '../../data/veil_bundle.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/translation_model_controller.dart';
 
@@ -61,10 +62,30 @@ class TranslationModelsTile extends ConsumerWidget {
             // trailing widget the width it asks for, and a Russian action
             // label crushed the title into a column on a real phone — the
             // same lesson the speech model tile paid for.
-            trailing: IconButton(
-              icon: const Icon(Icons.delete_outline),
-              tooltip: l.translationModelsRemove,
-              onPressed: () => notifier.remove(pair),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Passing a model on is the point of the whole exchange: a
+                // person who has one can give it to someone whose connection
+                // cannot fetch 79 MB, or who has none at all.
+                IconButton(
+                  icon: const Icon(Icons.ios_share),
+                  tooltip: l.translationModelsShare,
+                  onPressed: () async {
+                    final saver = ref.read(translationBundleSaverProvider);
+                    final destination = await saver(
+                      '${pair.id}$kTranslateBundleExt',
+                    );
+                    if (destination == null) return; // dismissed
+                    await notifier.exportPair(pair, destination);
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: l.translationModelsRemove,
+                  onPressed: () => notifier.remove(pair),
+                ),
+              ],
             ),
           ),
         ListTile(

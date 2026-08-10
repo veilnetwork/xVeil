@@ -10574,6 +10574,12 @@ abstract class AppL10n {
   /// **'Remove this language'**
   String get translationModelsRemove;
 
+  /// No description provided for @translationModelsShare.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as a file to send'**
+  String get translationModelsShare;
+
   /// No description provided for @translationModelsHint.
   ///
   /// In en, this message translates to:

@@ -6010,6 +6010,9 @@ class AppL10nEs extends AppL10n {
   String get translationModelsRemove => 'Eliminar este idioma';
 
   @override
+  String get translationModelsShare => 'Guardar como archivo para enviar';
+
+  @override
   String get translationModelsHint =>
       'Un archivo .veiltranslate por dirección. La traducción ocurre en este dispositivo.';
 

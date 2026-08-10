@@ -5936,6 +5936,9 @@ class AppL10nEn extends AppL10n {
   String get translationModelsRemove => 'Remove this language';
 
   @override
+  String get translationModelsShare => 'Save as a file to send';
+
+  @override
   String get translationModelsHint =>
       'One .veiltranslate file per direction. Translation happens on this device.';
 
