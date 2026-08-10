@@ -327,6 +327,53 @@ def _check_media_staged() -> None:
     )
 
 
+def _media_symbols_problem(*, bundle_path: str, abi: str) -> list[str]:
+    """Ask whether the engine INSIDE the APK exports what Dart looks up.
+
+    Reads the copy that will be installed, not the one in the source tree:
+    those differ exactly when it matters, because gradle packages whatever sits
+    in jniLibs/ and that directory is gitignored.
+
+    Three answers, deliberately not two — scripts/check-media-symbols.sh
+    separates "symbols are missing" (1) from "I could not read this file" (2),
+    and so does this. A host whose nm cannot open an aarch64 ELF has told us
+    nothing about the engine, and reporting that as a clean bill of health is
+    how a check earns being switched off. It prints NOT CHECKED instead, in the
+    spelling used for every other unasked question in this build.
+    """
+    import shutil
+    import subprocess
+    import tempfile
+    import zipfile
+
+    script = os.path.join(ROOT, "scripts", "check-media-symbols.sh")
+    if not os.path.isfile(script) or not shutil.which("bash"):
+        print(f"    {abi}: {_MEDIA_SO} symbols NOT CHECKED — needs bash and {script}")
+        return []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        extracted = os.path.join(tmp, _MEDIA_SO)
+        with zipfile.ZipFile(bundle_path) as bundle:
+            with bundle.open(f"lib/{abi}/{_MEDIA_SO}") as src:
+                with open(extracted, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+        done = subprocess.run(
+            ["bash", script, extracted],
+            capture_output=True,
+            text=True,
+            cwd=ROOT,
+        )
+
+    said = (done.stdout + done.stderr).strip().replace("\n", "\n      ")
+    if done.returncode == 0:
+        print(f"    {abi}: {_MEDIA_SO} exports everything Dart looks up")
+        return []
+    if done.returncode == 2:
+        print(f"    {abi}: {_MEDIA_SO} symbols NOT CHECKED — {said}")
+        return []
+    return [f"{abi}: {_MEDIA_SO} is stale or incomplete\n      {said}"]
+
+
 def _check_android_native_libs() -> None:
     """Verify the ARTIFACT, not the exit status.
 
@@ -357,6 +404,21 @@ def _check_android_native_libs() -> None:
             problems.append(f"{abi}: missing {', '.join(missing)}")
         else:
             print(f"    {abi}: {len(names)} native libs, all required ones present")
+            if abi == _MEDIA_ABI:
+                # Present is not the same as current. The media engine is a
+                # prebuilt nobody in an APK build rebuilds, so the stale one
+                # travels: it is in the APK, the app starts, and the first call
+                # into a symbol added since it was built dies at dlsym. That is
+                # not hypothetical on either count — the Linux copy in this tree
+                # was twelve commits behind (78 exported against 87 looked up),
+                # and a stale libhidden_volume_ffi.so shipped in every APK for
+                # three days while every gate was green.
+                #
+                # It survived because hidden_volume's bindings carry a checksum
+                # per method and refuse to open the container. The media engine
+                # has no such guard: it is plain dlsym, so the only place this
+                # can be caught is here, in the artifact.
+                problems.extend(_media_symbols_problem(bundle_path=apk, abi=abi))
         stray = [
             entry
             for entry in os.listdir(apk_dir)
