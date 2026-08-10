@@ -29,6 +29,60 @@ void main() {
     return file.path;
   }
 
+  group('the read is bounded', () {
+    // report9 X-04. Every check above is about WHO can read the file. None of
+    // them is about how big it is, and `readAsString` read whatever was there
+    // — so a correctly-owned 0600 file the operator pointed at by mistake
+    // became the daemon's heap before the start had even finished.
+    //
+    // A secret is a password, a phrase or a token. None of them is 4 KiB.
+    test('an oversized owner-only file is refused, not read', () async {
+      final path = await writeSecret(
+        'huge.txt',
+        'x' * (kSecretFileMaxBytes + 1),
+        '600',
+      );
+      await expectLater(
+        readSecretFile(path, 'password'),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('larger than'),
+          ),
+        ),
+      );
+    });
+
+    test('a secret exactly at the ceiling is still read', () async {
+      // The boundary in the other direction, so the refusal above cannot be
+      // satisfied by a reader that refuses everything.
+      final value = 'y' * kSecretFileMaxBytes;
+      final path = await writeSecret('atlimit.txt', value, '600');
+      expect(await readSecretFile(path, 'password'), value);
+    });
+
+    test('the Windows branch is bounded too', () async {
+      // It reads through a different arm of the same function, and that arm
+      // was the one with no coverage at all (audit X-10).
+      final path = await writeSecret(
+        'huge-win.txt',
+        'x' * (kSecretFileMaxBytes + 1),
+        '600',
+      );
+      await expectLater(
+        readSecretFile(
+          path,
+          'password',
+          isWindows: true,
+          acceptUnchecked: true,
+          warn: (_) {},
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+  });
+
   group('a platform that CAN check', () {
     test('an owner-only file is read', () async {
       final path = await writeSecret('ok', 'correct horse\n', '600');
