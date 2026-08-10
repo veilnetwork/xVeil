@@ -1820,15 +1820,6 @@ class AppL10nEn extends AppL10n {
   String get chatAttachTooltip => 'Attach a file';
 
   @override
-  String get chatVoiceHold => 'Hold to record a voice message';
-
-  @override
-  String get chatVoiceSlideCancel => 'Slide to cancel';
-
-  @override
-  String get chatVoiceReleaseCancel => 'Release to cancel';
-
-  @override
   String get chatVoiceMicDenied => 'Microphone access denied';
 
   @override
@@ -1870,9 +1861,6 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get groupNameHint => 'Group chat name';
-
-  @override
-  String get groupEmpty => 'No group chats yet';
 
   @override
   String get groupNoMessages => 'No messages yet';
@@ -3035,13 +3023,7 @@ class AppL10nEn extends AppL10n {
   String get settingsApiRevoke => 'Revoke';
 
   @override
-  String get settingsApiToken => 'API token';
-
-  @override
   String get settingsApiCopyToken => 'Copy token';
-
-  @override
-  String get settingsApiRegenerate => 'Regenerate token';
 
   @override
   String get settingsApiTokenCopied => 'Token copied';
