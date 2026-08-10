@@ -377,7 +377,21 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
     );
     setState(() => _saving = true);
     try {
-      await ref.read(managedNodesProvider.notifier).upsert(node);
+      // The registry write reports rather than throws, so it has to be
+      // CHECKED: this dialog used to pop with the node as if it were saved
+      // while the commit had failed, and the user found out at the next
+      // launch (report9 X-05).
+      final registryError = await ref
+          .read(managedNodesProvider.notifier)
+          .upsert(node);
+      if (registryError != null) {
+        if (!mounted) return;
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l.nodeRegistrySaveFailed(registryError))),
+        );
+        return;
+      }
       await ref
           .read(sshCredentialsRepositoryProvider)
           .save(node.id, _credentials);
@@ -436,8 +450,18 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
     );
     if (confirmed != true || !mounted) return;
     await ref.read(sshCredentialsRepositoryProvider).clear(widget.existing!.id);
-    await ref.read(managedNodesProvider.notifier).remove(widget.existing!.id);
-    if (mounted) Navigator.of(context).pop();
+    final registryError =
+        await ref.read(managedNodesProvider.notifier).remove(widget.existing!.id);
+    if (!mounted) return;
+    if (registryError != null) {
+      // Closing here would say the node is gone while it is still on disk and
+      // will be back at the next launch — with its credentials cleared.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.nodeRegistrySaveFailed(registryError))),
+      );
+      return;
+    }
+    Navigator.of(context).pop();
   }
 
   Future<void> _checkReachable() async {
