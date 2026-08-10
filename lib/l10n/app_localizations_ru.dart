@@ -1842,15 +1842,6 @@ class AppL10nRu extends AppL10n {
   String get chatAttachTooltip => 'Прикрепить файл';
 
   @override
-  String get chatVoiceHold => 'Удерживайте для записи голосового';
-
-  @override
-  String get chatVoiceSlideCancel => 'Проведите для отмены';
-
-  @override
-  String get chatVoiceReleaseCancel => 'Отпустите для отмены';
-
-  @override
   String get chatVoiceMicDenied => 'Доступ к микрофону запрещён';
 
   @override
@@ -1892,9 +1883,6 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get groupNameHint => 'Название группового чата';
-
-  @override
-  String get groupEmpty => 'Пока нет групповых чатов';
 
   @override
   String get groupNoMessages => 'Пока нет сообщений';
@@ -3070,13 +3058,7 @@ class AppL10nRu extends AppL10n {
   String get settingsApiRevoke => 'Отозвать';
 
   @override
-  String get settingsApiToken => 'Токен API';
-
-  @override
   String get settingsApiCopyToken => 'Копировать токен';
-
-  @override
-  String get settingsApiRegenerate => 'Сменить токен';
 
   @override
   String get settingsApiTokenCopied => 'Токен скопирован';
