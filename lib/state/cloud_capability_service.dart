@@ -441,7 +441,7 @@ class CloudCapabilityService {
         providerSlot,
       );
       hosted.listen();
-      _folderShares[_shareKey(capability.shareId)] = hosted;
+      await _installFolder(_shareKey(capability.shareId), hosted);
       // A STORED listing that will not seal must not cost the share its host.
       // It used to: the throw closed the endpoint and the row stayed in the
       // registry with nothing hosting it, so `refreshFolderShare` answered
@@ -549,7 +549,7 @@ class CloudCapabilityService {
         final hosted = _HostedShare(row, capability, endpoint, providerSlot);
         _listen(hosted);
         final shareKey = _shareKey(capability.shareId);
-        _shares[shareKey] = hosted;
+        await _install(shareKey, hosted);
         _rows[shareKey] = row;
         _capabilities[shareKey] = capability;
         try {
@@ -687,7 +687,7 @@ class CloudCapabilityService {
         );
         hosted.listen();
         final shareKey = _shareKey(capability.capability.shareId);
-        _folderShares[shareKey] = hosted;
+        await _installFolder(shareKey, hosted);
         _folderRows[shareKey] = row;
         _folderCaps[shareKey] = capability.capability;
         try {
@@ -1097,7 +1097,7 @@ class CloudCapabilityService {
       }
       final hosted = _HostedShare(row, capability, endpoint, providerSlot);
       _listen(hosted);
-      _shares[_shareKey(capability.shareId)] = hosted;
+      await _install(_shareKey(capability.shareId), hosted);
     } catch (_) {
       await endpoint?.close();
       rethrow;
@@ -1357,6 +1357,35 @@ class CloudCapabilityService {
     final result = _mutation.then((_) => body());
     _mutation = result.then<void>((_) {}, onError: (_) {});
     return result;
+  }
+
+  /// Install a hosted share, or close it if the service shut down while it was
+  /// being set up.
+  ///
+  /// Every registration here happens after awaits — a provider slot, an onion
+  /// registration, a listing seal — and `close` sweeps these maps exactly once.
+  /// Anything that lands afterwards is a live endpoint nobody will ever close:
+  /// it holds a provider slot and goes on answering, and no later reconcile
+  /// exists to notice, because the service is closed. Returns whether it was
+  /// installed; the caller's own bookkeeping is in-memory and going away with
+  /// the service, so a refusal needs no unwinding beyond this.
+  Future<bool> _install(String key, _HostedShare hosted) async {
+    if (_closed) {
+      await hosted.close();
+      return false;
+    }
+    _shares[key] = hosted;
+    return true;
+  }
+
+  /// The folder twin of [_install]. Same race, same answer.
+  Future<bool> _installFolder(String key, _HostedFolderShare hosted) async {
+    if (_closed) {
+      await hosted.close();
+      return false;
+    }
+    _folderShares[key] = hosted;
+    return true;
   }
 
   Future<void> close() async {
