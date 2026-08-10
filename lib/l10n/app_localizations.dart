@@ -4832,12 +4832,6 @@ abstract class AppL10n {
   /// **'{count} unread'**
   String trayUnread(String count);
 
-  /// No description provided for @chatListDelete.
-  ///
-  /// In en, this message translates to:
-  /// **'Delete chat'**
-  String get chatListDelete;
-
   /// No description provided for @chatDeleteChatTitle.
   ///
   /// In en, this message translates to:

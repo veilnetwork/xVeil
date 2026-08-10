@@ -2755,9 +2755,6 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
-  String get chatListDelete => 'Delete chat';
-
-  @override
   String get chatDeleteChatTitle => 'Delete this chat?';
 
   @override
