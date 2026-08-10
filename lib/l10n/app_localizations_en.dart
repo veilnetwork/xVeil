@@ -5886,6 +5886,13 @@ class AppL10nEn extends AppL10n {
       'Frees 57 MB. Transcription stops working until you fetch it again.';
 
   @override
+  String get voiceModelImport => 'Install from a file…';
+
+  @override
+  String get voiceModelImportHint =>
+      'A .veilaudio file, if someone has already downloaded it';
+
+  @override
   String get translationModels => 'Translation languages';
 
   @override
