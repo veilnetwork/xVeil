@@ -2007,11 +2007,28 @@ final class GroupApiAdapter {
     }
     final file = File(path);
     try {
-      if (!await file.exists()) {
+      // ONE open, not three. This used to call `exists()`, then `length()`,
+      // then open the name a third time — and a name pointed somewhere else
+      // between the second and the third produced an offer describing one
+      // file's SIZE while serving another file's BYTES. A receiver cannot tell
+      // that from an honest send: the manifest is internally consistent, so it
+      // accepts. The 1:1 send was fixed this way by audit X-02; this is the
+      // twin that kept the old shape (report9 #7).
+      //
+      // The remaining gap — between the API edge's authorization check and
+      // this open — is not closable from Dart: no `openat`, no `O_NOFOLLOW`.
+      // Unlike the 1:1 send there is not even a stamp to bracket it with,
+      // because a group offer is served on demand later rather than streamed
+      // here, so there is no "across the read" to compare.
+      final source = await veilOpenSourceForSend(file.absolute.path);
+      if (source == null) {
         return (error: 'source not found', contentId: null);
       }
-      final size = await file.length();
-      if (size <= 0) return (error: 'source is empty', contentId: null);
+      final size = source.size;
+      if (size <= 0) {
+        await source.close();
+        return (error: 'source is empty', contentId: null);
+      }
       final fallbackName = file.uri.pathSegments.isEmpty
           ? 'file'
           : file.uri.pathSegments.last;
@@ -2019,11 +2036,8 @@ final class GroupApiAdapter {
           ? requestedName!.trim()
           : fallbackName;
       if (name.length > 255) {
+        await source.close();
         return (error: 'file name too long', contentId: null);
-      }
-      final source = await veilSourceOpener(file.absolute.path);
-      if (source == null) {
-        return (error: 'source unreadable', contentId: null);
       }
       final cid = await registerContentSource(
         name,
