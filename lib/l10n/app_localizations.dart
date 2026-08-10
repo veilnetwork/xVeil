@@ -3168,24 +3168,6 @@ abstract class AppL10n {
   /// **'Attach a file'**
   String get chatAttachTooltip;
 
-  /// No description provided for @chatVoiceHold.
-  ///
-  /// In en, this message translates to:
-  /// **'Hold to record a voice message'**
-  String get chatVoiceHold;
-
-  /// No description provided for @chatVoiceSlideCancel.
-  ///
-  /// In en, this message translates to:
-  /// **'Slide to cancel'**
-  String get chatVoiceSlideCancel;
-
-  /// No description provided for @chatVoiceReleaseCancel.
-  ///
-  /// In en, this message translates to:
-  /// **'Release to cancel'**
-  String get chatVoiceReleaseCancel;
-
   /// No description provided for @chatVoiceMicDenied.
   ///
   /// In en, this message translates to:
@@ -3269,12 +3251,6 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Group chat name'**
   String get groupNameHint;
-
-  /// No description provided for @groupEmpty.
-  ///
-  /// In en, this message translates to:
-  /// **'No group chats yet'**
-  String get groupEmpty;
 
   /// No description provided for @groupNoMessages.
   ///
@@ -5334,23 +5310,11 @@ abstract class AppL10n {
   /// **'Revoke'**
   String get settingsApiRevoke;
 
-  /// No description provided for @settingsApiToken.
-  ///
-  /// In en, this message translates to:
-  /// **'API token'**
-  String get settingsApiToken;
-
   /// No description provided for @settingsApiCopyToken.
   ///
   /// In en, this message translates to:
   /// **'Copy token'**
   String get settingsApiCopyToken;
-
-  /// No description provided for @settingsApiRegenerate.
-  ///
-  /// In en, this message translates to:
-  /// **'Regenerate token'**
-  String get settingsApiRegenerate;
 
   /// No description provided for @settingsApiTokenCopied.
   ///
