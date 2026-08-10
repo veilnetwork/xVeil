@@ -5981,6 +5981,9 @@ class AppL10nEs extends AppL10n {
   String get modelBundleFailed => 'No se pudo instalar';
 
   @override
+  String get modelBundleMissing => 'el archivo no está en este dispositivo';
+
+  @override
   String get modelBundleTrust =>
       'Un modelo decide lo que esta aplicación dice que otros escribieron. Instálalo solo de alguien en quien confíes.';
 
