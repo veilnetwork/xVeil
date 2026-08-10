@@ -2536,6 +2536,8 @@
   "voiceModelInstalled": "Модель распознавания установлена",
   "voiceModelRemove": "Удалить модель распознавания",
   "voiceModelRemoveHint": "Освободит 57 МБ. Расшифровка перестанет работать, пока не скачаете снова.",
+  "voiceModelImport": "Установить из файла…",
+  "voiceModelImportHint": "Файл .veilaudio, если его уже кто-то скачал",
   "translationModels": "Языки перевода",
   "translationModelsNone": "Языки не установлены",
   "translationModelsImport": "Установить из файла…",

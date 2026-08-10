@@ -2,6 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:xveil/data/veil_bundle.dart';
+import 'package:xveil/data/translation_model_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/whisper_model_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -48,6 +52,12 @@ class _ScriptedStore implements WhisperModelStore {
 
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  /// Where a .veilaudio bundle installs to. Set by the tests that use it.
+  Directory? root;
+
+  @override
+  Future<Directory> modelDirectory() async => root!;
 }
 
 void main() {
@@ -281,4 +291,100 @@ void main() {
       expect(read().isBusy, isFalse);
     });
   });
+
+  group('installing from a .veilaudio file', () {
+    late Directory tmp;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('xveil-veilaudio');
+      store.root = Directory('${tmp.path}/support')..createSync();
+    });
+    tearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+
+    /// A bundle whose single file has [body] as its contents, and whose
+    /// manifest declares [claimedHash] — which may be a lie.
+    Future<File> speechBundle(List<int> body, {String? claimedHash}) async {
+      final src = Directory('${tmp.path}/src')..createSync();
+      File('${src.path}/${kSpeechFiles.single}').writeAsBytesSync(body);
+      final out = File('${tmp.path}/model.veilaudio');
+      await writeBundle(sourceDir: src, kind: kBundleSpeech, out: out);
+      if (claimedHash == null) return out;
+
+      // Rewrite the manifest's hash without touching the bytes, which is what
+      // a substitution looks like from the outside.
+      final raw = out.readAsBytesSync();
+      final manifestLength =
+          ByteData.sublistView(Uint8List.fromList(raw), 8, 12).getUint32(0);
+      final manifest = jsonDecode(utf8.decode(raw.sublist(12, 12 + manifestLength)))
+          as Map<String, dynamic>;
+      (manifest['files'] as List).single['sha256'] = claimedHash;
+      final newManifest = utf8.encode(jsonEncode(manifest));
+      final head = ByteData(4)..setUint32(0, newManifest.length);
+      final rebuilt = File('${tmp.path}/rewritten.veilaudio')
+        ..writeAsBytesSync([
+          ...raw.sublist(0, 8),
+          ...head.buffer.asUint8List(),
+          ...newManifest,
+          ...raw.sublist(12 + manifestLength),
+        ]);
+      return rebuilt;
+    }
+
+    test('a model that is not the one this build pins is refused', () async {
+      // The guarantee the translation import cannot offer: the right hash is
+      // KNOWN here, so a stranger's bundle is checked against what this build
+      // expects rather than against its own claim about itself.
+      final bundle = await speechBundle(utf8.encode('some other model'));
+      expect(await ctrl().importBundle(bundle.path), isFalse);
+      expect(read().phase, WhisperModelPhase.failed);
+      expect(read().error, contains('not the speech model'));
+      // And refused BEFORE writing 57 MiB.
+      expect(
+        File('${store.root!.path}/${kSpeechFiles.single}').existsSync(),
+        isFalse,
+      );
+    });
+
+    test('a bundle claiming the right hash but carrying other bytes is caught',
+        () async {
+      final bundle = await speechBundle(
+        utf8.encode('impostor'),
+        claimedHash: WhisperModelStore.expectedSha256,
+      );
+      expect(await ctrl().importBundle(bundle.path), isFalse);
+      expect(read().phase, WhisperModelPhase.failed);
+      // Past the declaration check, stopped by hashing the actual bytes.
+      expect(read().error, contains('hash'));
+      expect(
+        File('${store.root!.path}/${kSpeechFiles.single}').existsSync(),
+        isFalse,
+      );
+    });
+
+    test('a translation bundle offered as a speech model is refused', () async {
+      final src = Directory('${tmp.path}/pair')..createSync();
+      for (final name in kPairFiles) {
+        File('${src.path}/$name').writeAsStringSync(name);
+      }
+      final out = File('${tmp.path}/pair.veiltranslate');
+      await writeBundle(
+        sourceDir: src,
+        pair: const TranslationPair('ru', 'en'),
+        out: out,
+      );
+
+      expect(await ctrl().importBundle(out.path), isFalse);
+      expect(read().error, contains('not a speech model'));
+    });
+
+    test('a file that is not a bundle fails with a reason', () async {
+      final junk = File('${tmp.path}/holiday.jpg')..writeAsStringSync('nope');
+      expect(await ctrl().importBundle(junk.path), isFalse);
+      expect(read().phase, WhisperModelPhase.failed);
+      expect(read().error, isNotEmpty);
+    });
+  });
+
 }

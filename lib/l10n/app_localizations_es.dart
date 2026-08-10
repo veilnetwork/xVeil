@@ -5960,6 +5960,13 @@ class AppL10nEs extends AppL10n {
       'Libera 57 MB. La transcripción deja de funcionar hasta que vuelvas a descargarlo.';
 
   @override
+  String get voiceModelImport => 'Instalar desde un archivo…';
+
+  @override
+  String get voiceModelImportHint =>
+      'Un archivo .veilaudio, si alguien ya lo descargó';
+
+  @override
   String get translationModels => 'Idiomas de traducción';
 
   @override
