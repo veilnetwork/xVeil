@@ -10544,12 +10544,6 @@ abstract class AppL10n {
   /// **'Frees 57 MB. Transcription stops working until you fetch it again.'**
   String get voiceModelRemoveHint;
 
-  /// No description provided for @voiceModelTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Speech model'**
-  String get voiceModelTitle;
-
   /// No description provided for @voiceModelResume.
   ///
   /// In en, this message translates to:
@@ -10669,6 +10663,48 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'blocked'**
   String get chatListBlocked;
+
+  /// Relative time, under a minute. Shown inside a longer sentence.
+  ///
+  /// In en, this message translates to:
+  /// **'just now'**
+  String get agoJustNow;
+
+  /// Relative time in whole minutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 minute ago} other{{count} minutes ago}}'**
+  String agoMinutes(int count);
+
+  /// Relative time in whole hours.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 hour ago} other{{count} hours ago}}'**
+  String agoHours(int count);
+
+  /// Relative time in whole days.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 day ago} other{{count} days ago}}'**
+  String agoDays(int count);
+
+  /// Relative time in whole months (30-day approximation).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 month ago} other{{count} months ago}}'**
+  String agoMonths(int count);
+
+  /// Relative time in whole years.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 year ago} other{{count} years ago}}'**
+  String agoYears(int count);
+
+  /// Folder-sync row: when the last pass ran, as a relative time.
+  ///
+  /// In en, this message translates to:
+  /// **'Last synced {when}'**
+  String folderSyncLastPass(String when);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

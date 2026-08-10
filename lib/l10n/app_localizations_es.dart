@@ -6002,9 +6002,6 @@ class AppL10nEs extends AppL10n {
       'Libera 57 MB. La transcripción deja de funcionar hasta que vuelvas a descargarlo.';
 
   @override
-  String get voiceModelTitle => 'Modelo de voz';
-
-  @override
   String get voiceModelResume => 'Continuar la descarga';
 
   @override
@@ -6075,4 +6072,67 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get chatListBlocked => 'bloqueado';
+
+  @override
+  String get agoJustNow => 'ahora mismo';
+
+  @override
+  String agoMinutes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'hace $count minutos',
+      one: 'hace 1 minuto',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String agoHours(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'hace $count horas',
+      one: 'hace 1 hora',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String agoDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'hace $count días',
+      one: 'hace 1 día',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String agoMonths(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'hace $count meses',
+      one: 'hace 1 mes',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String agoYears(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'hace $count años',
+      one: 'hace 1 año',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String folderSyncLastPass(String when) {
+    return 'Sincronizado $when';
+  }
 }

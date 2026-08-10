@@ -2565,7 +2565,6 @@
   "voiceModelInstalled": "Speech model installed",
   "voiceModelRemove": "Remove the speech model",
   "voiceModelRemoveHint": "Frees 57 MB. Transcription stops working until you fetch it again.",
-  "voiceModelTitle": "Speech model",
   "voiceModelResume": "Continue downloading",
   "voiceModelResumeAt": "{percent}% already downloaded",
   "@voiceModelResumeAt": {
@@ -2631,5 +2630,63 @@
   "chatListBlocked": "blocked",
   "@chatListBlocked": {
     "description": "Chat-list row hint: this contact is blocked. Kept short."
+  },
+  "agoJustNow": "just now",
+  "@agoJustNow": {
+    "description": "Relative time, under a minute. Shown inside a longer sentence."
+  },
+  "agoMinutes": "{count, plural, =1{1 minute ago} other{{count} minutes ago}}",
+  "@agoMinutes": {
+    "description": "Relative time in whole minutes.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "agoHours": "{count, plural, =1{1 hour ago} other{{count} hours ago}}",
+  "@agoHours": {
+    "description": "Relative time in whole hours.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "agoDays": "{count, plural, =1{1 day ago} other{{count} days ago}}",
+  "@agoDays": {
+    "description": "Relative time in whole days.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "agoMonths": "{count, plural, =1{1 month ago} other{{count} months ago}}",
+  "@agoMonths": {
+    "description": "Relative time in whole months (30-day approximation).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "agoYears": "{count, plural, =1{1 year ago} other{{count} years ago}}",
+  "@agoYears": {
+    "description": "Relative time in whole years.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "folderSyncLastPass": "Last synced {when}",
+  "@folderSyncLastPass": {
+    "description": "Folder-sync row: when the last pass ran, as a relative time.",
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
   }
 }
