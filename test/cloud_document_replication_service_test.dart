@@ -2242,6 +2242,118 @@ void main() {
       await editorService.close();
     },
   );
+
+  /// Instant revocation is what `_closeMemberHostFor` exists for, and a
+  /// reconcile already in flight could undo it silently.
+  ///
+  /// The reconcile reads epoch N, then goes into `network.host` — an onion
+  /// registration, seconds in production. A revoke lands inside that window:
+  /// it saves epoch N+1 and tears the host down, finding NOTHING to tear down
+  /// because the new host is not in the map yet. The reconcile then finishes
+  /// and installs its host under the epoch-N key, and the member that was just
+  /// revoked goes on pulling bytes until the debounced reconcile catches up —
+  /// 300ms at best, and longer for as long as edits keep resetting it.
+  ///
+  /// The assertion is on the EPOCH rather than on the map being empty: the
+  /// revoke schedules its own reconcile, and a host legitimately re-appearing
+  /// under the NEW epoch is the correct outcome, not a failure.
+  test('a revoke during host setup cannot install the revoked epoch', () async {
+    final owner = _id(1);
+    final first = _id(2);
+    final second = _id(3);
+    final envelopes = CloudDocumentEnvelopeService(
+      LoopbackMailboxCrypto(senderForOpen: owner),
+    );
+    final store = await _openStore(FakeHvContainer());
+    final net = _MemberNet();
+    final files = _MemberStorage();
+    final service = CloudDocumentReplicationService(
+      localNodeId: owner,
+      ourCertVersion: 0,
+      store: store,
+      envelopes: envelopes,
+      sendFrame: (peer, documentId, json) async {},
+      signer: _Signer(owner, 1),
+      acceptedContact: (peer) async => peer == first || peer == second,
+      random: Random(701),
+      verifyRoot: (_) => true,
+      verifyControl: (_) => true,
+      verifyOperation: (_) => true,
+      verifyQuiescenceAck: (_) => true,
+      now: () => DateTime.fromMillisecondsSinceEpoch(9000),
+      memberContentNetwork: net.device(),
+      memberContentStorage: files,
+      memberProviderSlot: () async => 0,
+    );
+    addTearDown(service.close);
+
+    final documentId = (await service.createDocument(
+      kind: CloudDocumentKind.fileCollection,
+      codec: cloudFileCollectionCodecV1,
+    ))!.documentId;
+    final bytes = Uint8List.fromList([
+      for (var i = 0; i < 1500; i++) (i * 7) & 0xff,
+    ]);
+    final manifest = await ContentManifest.fromReader(
+      name: 'shared.bin',
+      size: bytes.length,
+      readRange: (offset, length) async =>
+          Uint8List.sublistView(bytes, offset, offset + length),
+      pieceSize: 1024,
+    );
+    files.files[manifest.contentId] = bytes;
+    expect(
+      await service.addSharedFolderFile(
+        documentId,
+        name: 'shared.bin',
+        contentId: manifest.contentId,
+        size: bytes.length,
+        manifest: jsonEncode(manifest.toJson()),
+      ),
+      isNotNull,
+    );
+    expect(
+      await service.grant(documentId, first, CloudDocumentRole.editor),
+      isNotNull,
+    );
+    expect(
+      await service.grant(documentId, second, CloudDocumentRole.editor),
+      isNotNull,
+    );
+
+    // Revoking the first member rotates the epoch AND tears the host down, so
+    // the next reconcile has to CREATE one — which is the path with the window
+    // in it. A reconcile that only re-keys an existing host never calls
+    // `network.host` and never races.
+    expect(await service.revoke(documentId, first), isNotNull);
+    expect(service.memberHostDiagnostics(), isEmpty);
+
+    net.holdHost = Completer<void>();
+    net.enteredHost = Completer<void>();
+    final inFlight = service.reconcileMemberHosting();
+    await net.enteredHost!.future.timeout(const Duration(seconds: 5));
+
+    // Now inside `network.host` with a plan built on the current epoch. This
+    // revoke rotates past it.
+    final revokedEpoch = (await store.load(
+      documentId,
+    ))!.localEpochKeys.keys.reduce((a, b) => a > b ? a : b);
+    expect(await service.revoke(documentId, second), isNotNull);
+
+    net.holdHost!.complete();
+    net.holdHost = null;
+    await inFlight;
+
+    final hosted = service.memberHostDiagnostics()[documentId];
+    expect(
+      hosted?.epoch,
+      isNot(revokedEpoch),
+      reason:
+          'the reconcile installed a host under epoch $revokedEpoch after that '
+          'epoch was revoked — the member removed by the revoke keeps its key '
+          'and its address, and instant revocation was not instant',
+    );
+  });
 }
 
 /// In-memory member folder file store.
@@ -2308,6 +2420,16 @@ class _MemberStorage implements CloudMemberFolderStoragePort {
 class _MemberNet implements CloudCapabilityNetworkPort {
   final endpoints = <_MemberNetEndpoint>[];
 
+  /// When set, `host` waits on it before returning — standing in for the
+  /// seconds a real onion registration takes, which is the window a revoke can
+  /// land in.
+  Completer<void>? holdHost;
+
+  /// Completes the first time `host` is entered while [holdHost] is set, so a
+  /// test can wait for the reconcile to actually be INSIDE the call rather
+  /// than guessing with a delay.
+  Completer<void>? enteredHost;
+
   /// providerSlot of every host() call, in order. All devices of an identity
   /// derive the same seed and alias, so this is the only field that tells two
   /// of them apart on the wire.
@@ -2328,6 +2450,12 @@ class _MemberNet implements CloudCapabilityNetworkPort {
   }) async {
     hostedSlots.add(providerSlot);
     hostedExtraSlots.add(extraProviderSlots);
+    final hold = holdHost;
+    if (hold != null) {
+      final entered = enteredHost;
+      if (entered != null && !entered.isCompleted) entered.complete();
+      await hold.future;
+    }
     final seed = Uint8List.fromList(identitySeed);
     identitySeed.fillRange(0, identitySeed.length, 0);
     final serviceKey = await CloudCapabilityCodec.onionServicePublicKeyFromSeed(
