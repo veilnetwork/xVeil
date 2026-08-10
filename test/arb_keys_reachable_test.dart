@@ -175,30 +175,39 @@ void main() {
 ///    later" snackbar reads as a feature that exists and is switched off. The
 ///    strings stay so restoring the row costs one widget, not a translation
 ///    round;
-///  * a message for a rule that does not exist — `groupVoiceTooLong` describes
-///    a refusal, and nothing in the app enforces a group voice-clip limit, so
-///    the question is whether the LIMIT is missing rather than the string;
+///  * a message for a rule that does not exist. `groupVoiceTooLong` asked
+///    whether the LIMIT was missing rather than the string, and the answer is
+///    that the limit went on purpose: a group voice clip is registered in the
+///    content store and the message carries only its reference, precisely so
+///    there is no inline clear-media fallback at any clip length. Length
+///    stopped mattering and the refusal outlived it. Gone, with
+///    `cloudNoteSaved` (the editor POPS on success — returning to a list with
+///    the note in it is the confirmation, and a notice it closes before
+///    showing is not) and `nodeOperationSuccess` (the SSH dialog already
+///    prints the output and the exit-code line);
 ///  * `spaceRenameDenied` is BLOCKED, not forgotten. The rename button only
 ///    appears with the permission, and if it is revoked in between,
 ///    `renameGroup` answers with a bare bool — so the screen cannot tell a
 ///    denial from a network failure and says the honest generic thing. Wiring
 ///    this string in would mean claiming "no permission" for a dropped
 ///    connection. It needs a richer result first;
-///  * one-off labels a refactor left behind (`chatFileSave`, `sshDone`,
-///    `chatListDelete`, …). These want checking one at a time: a duplicate of
-///    a label the screen already uses can go, but "More actions" or "Delete
-///    chat" may be a control that lost its name rather than a string that lost
-///    its control — and those two mistakes need opposite fixes.
+///  * one-off labels a refactor left behind. Checked one at a time, they
+///    turned out to want six different answers, which is why none of this was
+///    a sweep: a duplicate to delete, a control that lost its name, a control
+///    that lost its EXPLANATION, a gesture no screen reader announced, data
+///    that reached the screen and was never drawn, and one string that was
+///    simply WRONG about what its field accepts.
+///
+/// The last three settled here: `routeRestartNode` labels a button this screen
+/// does not have — it says "changes apply the next time the node starts",
+/// which is true, and restarting lives on the node screen; `callScreens`
+/// (plural) is a tab for several shared screens, and a call has one;
+/// `actionUnderstood` is an acknowledge button for a dialog that acknowledges
+/// with the platform's own OK. `devicesFreshRegistryRequired` was the
+/// opposite — a real answer being thrown away, see the recovery sheet.
 const _knownUnreachable = {
-  'actionUnderstood',
-  'callScreens',
-  'cloudNoteSaved',
-  'devicesFreshRegistryRequired',
-  'groupVoiceTooLong',
   'networkComingLater',
   'networkExtSub',
   'networkExtTitle',
-  'nodeOperationSuccess',
-  'routeRestartNode',
   'spaceRenameDenied',
 };

@@ -503,7 +503,16 @@ class _RecoveryImportSheetState extends State<_RecoveryImportSheet> {
   final _certificate = TextEditingController();
   final _code = TextEditingController();
   bool _busy = false;
-  bool _failed = false;
+
+  /// Why the last attempt failed, ready to show — not merely THAT it did.
+  ///
+  /// `gid == null` is a specific and fixable answer: this registry already
+  /// holds devices, and recovery wants a fresh one. It used to be thrown as a
+  /// StateError into a `catch (_)` that reported "Could not complete device
+  /// linking" — generic, and about the wrong operation, since the reader was
+  /// recovering rather than linking. The string that says the real thing sat
+  /// unused in both ARBs.
+  String? _failure;
 
   @override
   void dispose() {
@@ -514,11 +523,12 @@ class _RecoveryImportSheetState extends State<_RecoveryImportSheet> {
   }
 
   Future<void> _recover() async {
+    final l = AppL10n.of(context);
     final code = _code.text.trim();
     _code.clear();
     setState(() {
       _busy = true;
-      _failed = false;
+      _failure = null;
     });
     try {
       final certificate = SovereignRecoveryCertificate.parse(_certificate.text);
@@ -526,14 +536,21 @@ class _RecoveryImportSheetState extends State<_RecoveryImportSheet> {
         certificate.bytes,
         code,
       );
-      if (gid == null) throw StateError('fresh registry required');
+      if (gid == null) {
+        // Not an exception: it is the one outcome here the reader can act on,
+        // and throwing it into the catch below is what turned it into "could
+        // not complete device linking" — generic, and about the wrong
+        // operation.
+        if (mounted) setState(() => _failure = l.devicesFreshRegistryRequired);
+        return;
+      }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppL10n.of(context).devicesRecovered)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.devicesRecovered)));
       Navigator.of(context).pop(true);
     } catch (_) {
-      if (mounted) setState(() => _failed = true);
+      if (mounted) setState(() => _failure = l.devicesOperationFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -587,11 +604,11 @@ class _RecoveryImportSheetState extends State<_RecoveryImportSheet> {
               padding: EdgeInsets.only(top: 12),
               child: LinearProgressIndicator(),
             ),
-          if (_failed)
+          if (_failure != null)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: Text(
-                l.devicesOperationFailed,
+                _failure!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),

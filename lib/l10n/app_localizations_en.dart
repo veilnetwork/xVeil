@@ -30,9 +30,6 @@ class AppL10nEn extends AppL10n {
   String get actionRemove => 'Remove';
 
   @override
-  String get actionUnderstood => 'I understand';
-
-  @override
   String get preparingTitle => 'Setting up your node';
 
   @override
@@ -1938,10 +1935,6 @@ class AppL10nEn extends AppL10n {
   String get groupImageTooLarge => 'Image too large to send inline';
 
   @override
-  String get groupVoiceTooLong =>
-      'Voice message is too long to send in a group';
-
-  @override
   String get reactorsTitle => 'Reactions';
 
   @override
@@ -2540,9 +2533,6 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get cloudNoteSave => 'Save';
-
-  @override
-  String get cloudNoteSaved => 'Note saved';
 
   @override
   String get cloudNoteLoadFailed => 'Could not load or verify the note';
@@ -3813,9 +3803,6 @@ class AppL10nEn extends AppL10n {
       'Changes apply the next time the node starts.';
 
   @override
-  String get routeRestartNode => 'Restart node to apply now';
-
-  @override
   String get vpnTitle => 'System VPN';
 
   @override
@@ -4211,9 +4198,6 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get nodeOperationRun => 'Run command';
-
-  @override
-  String get nodeOperationSuccess => 'Remote operation completed';
 
   @override
   String get nodeSelectServices => 'Select services';
@@ -4868,9 +4852,6 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get callMicrophones => 'Microphones';
-
-  @override
-  String get callScreens => 'Screens';
 
   @override
   String get callDisplays => 'Displays';
