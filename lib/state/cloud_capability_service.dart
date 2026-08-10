@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
 import '../core/log.dart';
+import '../core/serve_admission.dart';
 import '../data/storage/storage.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/cloud.dart';
@@ -1135,40 +1136,54 @@ class CloudCapabilityService {
         requestNonce: request.nonce,
       );
       if (!_equal(expectedMac, request.mac)) return;
-      final length = CloudCapabilityCodec.chunkLength(
-        share.capability,
-        request.pieceIndex,
-        request.chunkIndex,
-      );
-      final offset =
-          request.pieceIndex * share.capability.manifest.pieceSize +
-          request.chunkIndex * CloudCapabilityCodec.publicChunkBytes;
-      final clear = await _storage.readFileRange(
-        share.row.contentId,
-        offset,
-        length,
-      );
-      if (clear == null || clear.length != length) return;
-      final sealed = await CloudCapabilityCodec.sealChunk(
-        capability: share.capability,
-        pieceIndex: request.pieceIndex,
-        chunkIndex: request.chunkIndex,
-        clear: clear,
-      );
-      final response = _PieceResponse(
-        shareId: share.capability.shareId,
-        pieceIndex: request.pieceIndex,
-        chunkIndex: request.chunkIndex,
-        nonce: request.nonce,
-        sealed: sealed,
-      ).encode();
-      await share.endpoint.sendAnonymous(
-        servicePublicKey: request.returnServicePublicKey,
-        targetAppId: request.returnAppId,
-        targetEndpointId: request.returnEndpointId,
-        data: response,
-      );
+      // AFTER the MAC, never before: a gate ahead of authorization lets anyone
+      // who can reach the endpoint fill the queue with garbage, and the
+      // authorized requests become the ones refused.
+      await share.admission.run(() => _answer(share, request));
     } catch (_) {}
+  }
+
+  /// Read the asked-for chunk, seal it, and send it back down a return circuit.
+  ///
+  /// Split out of [_serve] so the bounded part is exactly the expensive part.
+  /// Answering is what costs: the request is a couple of hundred bytes and the
+  /// reply is a full anonymous round trip, so an unbounded `unawaited` per
+  /// inbound datagram let one holder of a valid capability turn tiny requests
+  /// into as many onion circuits as it cared to ask for.
+  Future<void> _answer(_HostedShare share, _PieceRequest request) async {
+    final length = CloudCapabilityCodec.chunkLength(
+      share.capability,
+      request.pieceIndex,
+      request.chunkIndex,
+    );
+    final offset =
+        request.pieceIndex * share.capability.manifest.pieceSize +
+        request.chunkIndex * CloudCapabilityCodec.publicChunkBytes;
+    final clear = await _storage.readFileRange(
+      share.row.contentId,
+      offset,
+      length,
+    );
+    if (clear == null || clear.length != length) return;
+    final sealed = await CloudCapabilityCodec.sealChunk(
+      capability: share.capability,
+      pieceIndex: request.pieceIndex,
+      chunkIndex: request.chunkIndex,
+      clear: clear,
+    );
+    final response = _PieceResponse(
+      shareId: share.capability.shareId,
+      pieceIndex: request.pieceIndex,
+      chunkIndex: request.chunkIndex,
+      nonce: request.nonce,
+      sealed: sealed,
+    ).encode();
+    await share.endpoint.sendAnonymous(
+      servicePublicKey: request.returnServicePublicKey,
+      targetAppId: request.returnAppId,
+      targetEndpointId: request.returnEndpointId,
+      data: response,
+    );
   }
 
   Future<void> _saveCurrentRows() =>
@@ -1608,6 +1623,11 @@ class _HostedShare {
   final int providerSlot;
   StreamSubscription<Uint8List>? subscription;
 
+  /// Per share, not per service: a holder who floods can only crowd out the
+  /// share it was trusted with. One gate for the whole device would let that
+  /// holder starve every OTHER share the user is hosting.
+  final ServeAdmission admission = ServeAdmission();
+
   CloudPublicShare get public => CloudPublicShare(
     shareId: _shareKey(capability.shareId),
     itemId: row.itemId,
@@ -1624,6 +1644,9 @@ class _HostedShare {
   Future<void> stopAccepting() async {
     final current = subscription;
     subscription = null;
+    // Before the cancel: whoever is queued for a slot is woken and refused
+    // rather than left holding a request nobody will ever answer.
+    admission.close();
     await current?.cancel();
   }
 
