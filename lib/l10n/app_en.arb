@@ -2697,5 +2697,9 @@
   "chatTranslationShowOriginal": "Show original",
   "@chatTranslationShowOriginal": {
     "description": "Tap target that hides the translation and shows the original text"
+  },
+  "chatTranslateInto": "Translate into…",
+  "@chatTranslateInto": {
+    "description": "Title of the sheet that picks which language to translate a message into"
   }
 }
