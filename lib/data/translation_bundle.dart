@@ -87,12 +87,28 @@ class TranslationBundleException implements Exception {
 /// Throws [TranslationBundleException] with a reason a person could act on.
 /// Every check here has to survive a file chosen by someone else.
 Future<TranslationBundleInfo> inspectBundle(File bundle) async {
-  final length = await bundle.length();
+  // Every filesystem touch, not just the parsing. A file that has been moved,
+  // deleted or is unreadable throws PathNotFoundException or FileSystemException
+  // from dart:io, and those are NOT TranslationBundleException — so they went
+  // straight past installBundle's handler and out through the controller. A
+  // person picking a file that has since vanished got a crash where they
+  // should have got a sentence.
+  final int length;
+  try {
+    length = await bundle.length();
+  } on FileSystemException catch (e) {
+    throw TranslationBundleException('cannot read the file: ${e.osError?.message ?? e.message}');
+  }
   if (length < _magic.length + 4) {
     throw TranslationBundleException('not a .veiltranslate file (too short)');
   }
 
-  final head = await _read(bundle, 0, _magic.length + 4);
+  final Uint8List head;
+  try {
+    head = await _read(bundle, 0, _magic.length + 4);
+  } on FileSystemException catch (e) {
+    throw TranslationBundleException('cannot read the file: ${e.osError?.message ?? e.message}');
+  }
   for (var i = 0; i < _magic.length; i++) {
     if (head[i] != _magic[i]) {
       throw TranslationBundleException('not a .veiltranslate file (bad header)');
@@ -287,6 +303,10 @@ Future<TranslationBundleInstall> installBundle(
     }
     if (replacing) displaced.deleteSync(recursive: true);
     return TranslationBundleInstall.ok(destination.path, info.pair);
+  } on FileSystemException catch (e) {
+    return TranslationBundleInstall.failed(
+      'cannot read the file: ${e.osError?.message ?? e.message}',
+    );
   } on Object catch (error) {
     return TranslationBundleInstall.failed('$error');
   } finally {

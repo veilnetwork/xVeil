@@ -10,6 +10,8 @@
 // in its own isolate.
 import 'dart:io';
 
+import 'package:path_provider/path_provider.dart';
+
 import '../core/log.dart';
 import '../data/translation_model_store.dart';
 import 'translate_ffi.dart';
@@ -62,7 +64,7 @@ class TranslationEngines {
       devLog(() => 'xVeil[translate]: no native library, translation is off');
       return null;
     }
-    final dir = root ?? _rootFromEnvironment();
+    final dir = root ?? await defaultModelsRoot();
     if (dir == null || !dir.existsSync()) return null;
 
     final pairs = <String, Directory>{};
@@ -82,10 +84,26 @@ class TranslationEngines {
     return TranslationEngines._(dir, pairs, library);
   }
 
-  static Directory? _rootFromEnvironment() {
+  /// Where pairs live in a real build: beside the speech model, under the app
+  /// support root, in one directory so that removing translation entirely is
+  /// removing one tree.
+  ///
+  /// Without this the feature was dead outside a test: resolve() consulted the
+  /// environment variable and nothing else, so a shipped build had no models
+  /// directory to find models in. The override stays for pointing a desktop
+  /// build at converted pairs before any are published.
+  static Future<Directory?> defaultModelsRoot() async {
     final override = Platform.environment[rootEnv];
     if (override != null && override.isNotEmpty) return Directory(override);
-    return null;
+    try {
+      final support = await getApplicationSupportDirectory();
+      return Directory('${support.path}/${TranslationModelStore.dirName}');
+    } on Object {
+      // No platform channel (a plain unit test, a headless tool). Not an
+      // error: it means there is nowhere to look, which resolve() reports as
+      // "translation is unavailable".
+      return null;
+    }
   }
 
   /// Translate one message into [to].
