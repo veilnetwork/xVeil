@@ -539,6 +539,16 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
               ? l.provisionReleaseHint
               : l.provisionCustomReleaseHint,
           helperMaxLines: 3,
+          // Said at the FIELD, not later. `isSafeHttpsUrl` decides this and
+          // was only consulted deeper in, so a plain-http or malformed URL
+          // was accepted here and failed somewhere the user could not
+          // connect to what they had typed. The string for it was written
+          // and never attached.
+          errorText:
+              _releaseUrl.text.trim().isNotEmpty &&
+                  !NodeProvisionConfig.isSafeHttpsUrl(_releaseUrl.text.trim())
+              ? l.provisionNeedUrl
+              : null,
           border: const OutlineInputBorder(),
           isDense: true,
         ),
