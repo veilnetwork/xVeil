@@ -5134,9 +5134,6 @@ class AppL10nEs extends AppL10n {
   String get nicknameClaimed => 'Nombre publicado';
 
   @override
-  String get newChatPeerOrNickname => 'Identificador de nodo (hex) o @nombre';
-
-  @override
   String get nicknameNotFound => 'No se encontró el nombre en la red';
 
   @override
@@ -6115,4 +6112,7 @@ class AppL10nEs extends AppL10n {
   String folderSyncLastPass(String when) {
     return 'Sincronizado $when';
   }
+
+  @override
+  String get inviteAcceptsHint => 'Un enlace de invitación o @nombre';
 }

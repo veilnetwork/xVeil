@@ -5114,9 +5114,6 @@ class AppL10nRu extends AppL10n {
   String get nicknameClaimed => 'Имя опубликовано';
 
   @override
-  String get newChatPeerOrNickname => 'Node id (hex) или @имя';
-
-  @override
   String get nicknameNotFound => 'Имя не найдено в сети';
 
   @override
@@ -6100,4 +6097,7 @@ class AppL10nRu extends AppL10n {
   String folderSyncLastPass(String when) {
     return 'Синхронизировано $when';
   }
+
+  @override
+  String get inviteAcceptsHint => 'Ссылка-приглашение или @имя';
 }

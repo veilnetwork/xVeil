@@ -5070,9 +5070,6 @@ class AppL10nEn extends AppL10n {
   String get nicknameClaimed => 'Name published';
 
   @override
-  String get newChatPeerOrNickname => 'Node id (hex) or @name';
-
-  @override
   String get nicknameNotFound => 'Name not found on the network';
 
   @override
@@ -6039,4 +6036,7 @@ class AppL10nEn extends AppL10n {
   String folderSyncLastPass(String when) {
     return 'Last synced $when';
   }
+
+  @override
+  String get inviteAcceptsHint => 'An invite link, or @name';
 }

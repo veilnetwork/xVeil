@@ -226,6 +226,16 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
               maxLines: 3,
               decoration: InputDecoration(
                 hintText: 'veil:bootstrap?…',
+                // WHAT it takes. The hint shows one accepted form and the
+                // field takes three; a person holding an @name had no way to
+                // learn that from here, and pasting one bare got them
+                // "invalid invite" from the parser that never saw it.
+                //
+                // A bare node id is deliberately NOT listed: `_add` hands
+                // anything without a leading @ to the invite parser, which
+                // refuses it. The string that used to sit unused here
+                // promised exactly that, which is why it was not wired up.
+                helperText: l.inviteAcceptsHint,
                 errorText: _error,
                 suffixIcon: IconButton(
                   icon: const Icon(Icons.qr_code_scanner),

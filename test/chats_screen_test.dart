@@ -196,7 +196,7 @@ void main() {
 
     expect(
       tester.getSemantics(find.text('Alice')),
-      containsSemantics(onLongPressHint: l.chatMoreActions),
+      isSemantics(onLongPressHint: l.chatMoreActions),
       reason:
           'the long press is the only way to those actions and nothing '
           'announces it',
