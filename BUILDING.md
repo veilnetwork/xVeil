@@ -409,7 +409,7 @@ that can turn up incomplete:
 
 ```bash
 native/translate/build_veil_translate_macos.sh     # libveil_translate.dylib
-native/translate/build_veil_translate_android.sh   # jniLibs/arm64-v8a/, + libomp.so
+native/translate/build_veil_translate_android.sh   # android/app/src/main/jniLibs/arm64-v8a/ (+ libomp.so)
 native/translate/build_veil_translate_ios.sh       # libveil_translate.a
 ```
 
@@ -866,7 +866,7 @@ C ABI, чтобы перевод приезжал одним файлом, а н
 
 ```bash
 native/translate/build_veil_translate_macos.sh     # libveil_translate.dylib
-native/translate/build_veil_translate_android.sh   # jniLibs/arm64-v8a/, + libomp.so
+native/translate/build_veil_translate_android.sh   # android/app/src/main/jniLibs/arm64-v8a/ (+ libomp.so)
 native/translate/build_veil_translate_ios.sh       # libveil_translate.a
 ```
 
