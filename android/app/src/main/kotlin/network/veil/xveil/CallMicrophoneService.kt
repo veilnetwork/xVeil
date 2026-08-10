@@ -12,7 +12,6 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import android.util.Log
 import androidx.core.content.ContextCompat
 
 /**
@@ -49,7 +48,7 @@ class CallMicrophoneService : Service() {
         } catch (error: Exception) {
             // Revoked RECORD_AUDIO or a start-time restriction: the call keeps
             // running without the keep-alive grant instead of crashing.
-            Log.w(TAG, "startForeground failed: $error")
+            XVeilLog.w(this, TAG) { "startForeground failed: $error" }
             stopSelf()
         }
         return START_NOT_STICKY
@@ -110,7 +109,7 @@ class CallMicrophoneService : Service() {
                 Manifest.permission.RECORD_AUDIO,
             ) == PackageManager.PERMISSION_GRANTED
             if (!micGranted) {
-                Log.w(TAG, "not starting: RECORD_AUDIO not granted")
+                XVeilLog.w(context, TAG) { "not starting: RECORD_AUDIO not granted" }
                 return false
             }
             return try {
@@ -121,7 +120,7 @@ class CallMicrophoneService : Service() {
             } catch (error: Exception) {
                 // ForegroundServiceStartNotAllowedException when invoked from
                 // the background — the call proceeds without the grant.
-                Log.w(TAG, "startForegroundService failed: $error")
+                XVeilLog.w(context, TAG) { "startForegroundService failed: $error" }
                 false
             }
         }
