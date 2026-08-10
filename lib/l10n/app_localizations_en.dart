@@ -5975,4 +5975,28 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get devicesAwayLong => 'Away a long time — consider unlinking';
+
+  @override
+  String get callNotificationIncoming => 'Incoming xVeil call';
+
+  @override
+  String get callNotificationDialing => 'Calling with xVeil';
+
+  @override
+  String get callNotificationActive => 'xVeil call in progress';
+
+  @override
+  String get callNotificationGroupIncoming => 'Incoming xVeil group call';
+
+  @override
+  String get callNotificationGroup => 'xVeil group call';
+
+  @override
+  String get chatListWantsToConnect => 'wants to connect';
+
+  @override
+  String get chatListRequestSent => 'request sent';
+
+  @override
+  String get chatListBlocked => 'blocked';
 }

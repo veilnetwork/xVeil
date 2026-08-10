@@ -875,15 +875,19 @@ class _ConversationTile extends ConsumerWidget {
     final (String? hint, Color? hintColor) = isSaved
         ? (null, null)
         : switch (status) {
+            // These three were English in every build — the only user-visible
+            // text in the app that never went through the ARB at all, which is
+            // the mistake the reachability gate cannot see (it watches for
+            // keys with no call site, not call sites with no key).
             ContactStatus.pendingIncoming => (
-              '● wants to connect',
+              '● ${l.chatListWantsToConnect}',
               scheme.primary,
             ),
             ContactStatus.pendingOutgoing => (
-              'request sent',
+              l.chatListRequestSent,
               scheme.onSurfaceVariant,
             ),
-            ContactStatus.blocked => ('blocked', scheme.error),
+            ContactStatus.blocked => (l.chatListBlocked, scheme.error),
             ContactStatus.accepted => (null, null),
           };
 

@@ -6032,4 +6032,28 @@ class AppL10nRu extends AppL10n {
   @override
   String get devicesAwayLong =>
       'Давно не появлялось — возможно, стоит отвязать';
+
+  @override
+  String get callNotificationIncoming => 'Входящий вызов xVeil';
+
+  @override
+  String get callNotificationDialing => 'Вызов через xVeil';
+
+  @override
+  String get callNotificationActive => 'Идёт вызов xVeil';
+
+  @override
+  String get callNotificationGroupIncoming => 'Входящий групповой вызов xVeil';
+
+  @override
+  String get callNotificationGroup => 'Групповой вызов xVeil';
+
+  @override
+  String get chatListWantsToConnect => 'хочет связаться';
+
+  @override
+  String get chatListRequestSent => 'запрос отправлен';
+
+  @override
+  String get chatListBlocked => 'заблокирован';
 }
