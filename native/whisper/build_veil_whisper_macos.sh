@@ -15,6 +15,11 @@ set -euo pipefail
 WHISPER_SRC="${WHISPER_SRC:-$HOME/Projects/veilnetwork/whisper.cpp}"
 BUILD="${WHISPER_BUILD_DIR:-$WHISPER_SRC/build-mac}"
 SRCDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# One pin for all four platforms; see the long note in the file.
+# shellcheck source=native/whisper/whisper_pin.sh
+. "$SRCDIR/whisper_pin.sh"
+require_whisper_pin "$WHISPER_SRC"
 DEST="${1:-$SRCDIR/Frameworks}"
 mkdir -p "$DEST"
 

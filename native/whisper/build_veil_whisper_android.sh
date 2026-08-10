@@ -18,6 +18,11 @@ NDK="${ANDROID_NDK_HOME:-$HOME/Library/Android/sdk/ndk/26.3.11579264}"
 WHISPER_SRC="${WHISPER_SRC:-$HOME/Projects/veilnetwork/whisper.cpp}"
 BUILD="${WHISPER_BUILD_DIR:-$WHISPER_SRC/build-android}"
 SRCDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# One pin for all four platforms; see the long note in the file.
+# shellcheck source=native/whisper/whisper_pin.sh
+. "$SRCDIR/whisper_pin.sh"
+require_whisper_pin "$WHISPER_SRC"
 DEST="${1:-$SRCDIR/../../android/app/src/main/jniLibs/arm64-v8a}"
 mkdir -p "$DEST"
 
