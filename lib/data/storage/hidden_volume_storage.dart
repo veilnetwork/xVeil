@@ -2517,6 +2517,22 @@ class HiddenVolumeStorage implements Storage {
       return stored;
     }
 
+    // Live MESSAGE ids, for the families keyed by one. Collected separately
+    // from liveContent because the two answer different questions: an
+    // incomplete cloud index makes CONTENT retention unknowable, and says
+    // nothing about whether the message log folded.
+    //
+    // Null means unknown, and unknown retains — deleting a live person's
+    // translation is worse than keeping a dead one's.
+    Set<String>? liveMessages;
+    if (!wholesale) {
+      try {
+        liveMessages = {for (final m in await _scanLog()) m.id};
+      } on Object {
+        liveMessages = null;
+      }
+    }
+
     Set<String>? liveContent;
     if (!wholesale) {
       // Per-content bookkeeping is only reachable through a message that
@@ -2580,6 +2596,60 @@ class HiddenVolumeStorage implements Storage {
           final fn = meta?['fn'];
           if (fn is String) blobNames.add(fn);
           doomed.add(key);
+        }
+        continue;
+      }
+      // Derived text: a transcript or a translation is the message's own
+      // content in another form. The app scrubs a deleted event's body on
+      // purpose (EventKind.delete is body-less, and clearing history scrubs to
+      // a watermark) — and these survived it, so the text a person deleted
+      // stayed readable in the store for as long as the volume existed. They
+      // also grew without bound: one row per message ever transcribed or
+      // translated, and nothing ever removed one.
+      //
+      // A transcript is keyed by the CONTENT id, so it lives and dies with it
+      // exactly as `ondisk:` does. v3 carries the language between the prefix
+      // and the id; the v2 legacy key does not.
+      // `set:` because that is the prefix putSetting writes under, and
+      // settingsKeys() reports the stored key. Matching the bare family name
+      // here made every branch below unreachable — a fix that looked done and
+      // swept nothing.
+      const transcriptV3 = 'set:voice.transcript.v3:';
+      const transcriptV2 = 'set:voice.transcript.v2:';
+      final isV3 = key.startsWith(transcriptV3);
+      if (isV3 || key.startsWith(transcriptV2)) {
+        final rest = key.substring(
+          isV3 ? transcriptV3.length : transcriptV2.length,
+        );
+        String? cid;
+        if (isV3) {
+          final cut = rest.indexOf(':');
+          // A key shaped unlike its own family is left alone rather than
+          // guessed at: this loop's job is to delete, and a wrong guess here
+          // deletes something live.
+          if (cut > 0) cid = rest.substring(cut + 1);
+        } else {
+          cid = rest;
+        }
+        if (cid != null && cid.isNotEmpty) {
+          final unreferenced =
+              wholesale || (liveContent != null && !liveContent.contains(cid));
+          if (unreferenced && !await retainForGlobalCollector(cid)) {
+            doomed.add(key);
+          }
+        }
+        continue;
+      }
+      // `msg.translation.v1:<lang>:<messageId>` — keyed by the MESSAGE.
+      const translation = 'set:msg.translation.v1:';
+      if (key.startsWith(translation)) {
+        final rest = key.substring(translation.length);
+        final cut = rest.indexOf(':');
+        if (cut > 0) {
+          final messageId = rest.substring(cut + 1);
+          final unreferenced = wholesale ||
+              (liveMessages != null && !liveMessages.contains(messageId));
+          if (unreferenced) doomed.add(key);
         }
         continue;
       }
