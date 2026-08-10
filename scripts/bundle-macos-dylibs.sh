@@ -129,6 +129,22 @@ else
   echo "note: $VW absent — building without voice transcription"
 fi
 
+# On-device translation (CTranslate2 + SentencePiece) — OPTIONAL, built by
+# native/translate/build_veil_translate_macos.sh. Absent = no translation
+# (the provider resolves to null and the affordance never appears).
+#
+# It is here because a library nobody copies is a library the app cannot load:
+# the Android build had exactly this shape, staging beside its own script
+# instead of where the APK packages from, and every check still called the
+# engine fine.
+VT="$ROOT/native/translate/Frameworks/libveil_translate.dylib"
+if [ -f "$VT" ]; then
+  cp -f "$VT" "$APP/Contents/Frameworks/"
+  echo "bundled libveil_translate.dylib (message translation)"
+else
+  echo "note: $VT absent — building without message translation"
+fi
+
 # The ggml model whisper needs (~57MB) is NO LONGER BUNDLED BY DEFAULT: it does
 # not compress, so it dominated the download for a feature most people never
 # use. The app fetches it on demand and keeps it once for the whole app, in the
