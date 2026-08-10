@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import '../../core/log.dart';
 import '../../core/secret_wipe.dart';
 import '../native_libs.dart' show processLibFor;
 import 'node_controller.dart';
@@ -99,6 +100,10 @@ typedef _StartDeferredDart =
     Pointer<Void> Function(Pointer<Uint8>, int, bool, Pointer<Pointer<Utf8>>);
 typedef _StopNative = Void Function(Pointer<Void>);
 typedef _StopDart = void Function(Pointer<Void>);
+// int veil_node_stop_timeout(VeilNode*, uint64_t ms):
+//   0 the node's thread finished, 1 the budget passed and it was detached.
+typedef _StopTimeoutNative = Int32 Function(Pointer<Void>, Uint64);
+typedef _StopTimeoutDart = int Function(Pointer<Void>, int);
 typedef _FreeStrNative = Void Function(Pointer<Utf8>);
 typedef _FreeStrDart = void Function(Pointer<Utf8>);
 typedef _ConfigInitNative =
@@ -949,11 +954,32 @@ class EmbeddedNode {
     }
   }
 
-  void stop() {
-    if (_stopped) return;
+  /// Stop the node. Returns whether its thread actually finished.
+  ///
+  /// `false` means the budget passed and the native side DETACHED the thread:
+  /// the node may still hold its sockets and its network identity, and nothing
+  /// can be retried — the handle is consumed either way, so a second call with
+  /// the same pointer would be a double free (report9 X-17). The answer exists
+  /// so a caller can stop saying "locked" when it is not.
+  ///
+  /// The bounded entry point is looked up rather than assumed. A build running
+  /// against an older `libveilclient_ffi` has only the unbounded
+  /// `veil_node_stop`, and looking up a symbol that library does not export
+  /// fails at `dlsym` — a crash on the lock path, in exchange for a bound.
+  bool stop({Duration budget = const Duration(seconds: 10)}) {
+    if (_stopped) return true;
     _stopped = true;
-    final stopFn = _dl.lookupFunction<_StopNative, _StopDart>('veil_node_stop');
-    stopFn(_handle); // signals shutdown + joins the node thread
+    if (_dl.providesSymbol('veil_node_stop_timeout')) {
+      final boundedStop = _dl
+          .lookupFunction<_StopTimeoutNative, _StopTimeoutDart>(
+            'veil_node_stop_timeout',
+          );
+      return boundedStop(_handle, budget.inMilliseconds) == 0;
+    }
+    // Older library: the unbounded join is all there is. It returns when the
+    // node is down, so "finished" is the honest answer for this path.
+    _dl.lookupFunction<_StopNative, _StopDart>('veil_node_stop')(_handle);
+    return true;
   }
 }
 
@@ -1075,10 +1101,28 @@ class EmbeddedNodeController implements NodeController {
     // (VeilClient.setBackgroundMode), not the node-control FFI.
   }
 
+  /// True when the last [stop] left a node thread running behind it.
+  ///
+  /// The teardown that abandoned it cannot try again — see
+  /// [EmbeddedNode.stop] — so this is what the app has instead: a fact it can
+  /// report rather than a lock it can claim.
+  bool get lastStopWasAbandoned => _lastStopAbandoned;
+  bool _lastStopAbandoned = false;
+
   @override
   Future<void> stop() async {
-    _node?.stop();
+    final node = _node;
     _node = null;
+    if (node != null) {
+      _lastStopAbandoned = !node.stop();
+      if (_lastStopAbandoned) {
+        devLog(
+          () =>
+              'xVeil[node]: stop did not finish in its budget — the thread was '
+              'detached and the node may still hold its sockets',
+        );
+      }
+    }
     _emit(NodeStatus.stopped);
   }
 
