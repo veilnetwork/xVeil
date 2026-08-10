@@ -226,17 +226,25 @@ jobs:
           done
           [ "$ok" = 1 ] || { echo "::error::gclient sync failed after 6 attempts"; exit 1; }
 
-      # Same args as veil_media/android/build_libwebrtc_android_linux.sh, with
-      # --export-compile-commands added. That script omits it and then prints a
-      # line claiming the file exists; build_veil_media_so.sh reads call.cc's
-      # exact command out of that file and refuses to start without it, so the
-      # pair as shipped cannot actually run end to end. Done inline here rather
-      # than patched in the submodule, mirroring the linux job above.
+      # Same args as veil_media/android/build_libwebrtc_android_linux.sh, which
+      # now carries --export-compile-commands itself (it used to omit the flag
+      # and then print a line claiming the file existed; build_veil_media_so.sh
+      # reads call.cc's exact command out of that file and refuses to start
+      # without it). Kept inline here anyway, mirroring the linux job above.
+      #
+      # android_static_analysis="off" is what makes this finish rather than an
+      # optimisation — see the long note in that script. WebRTC's default hands
+      # the Java lint/ErrorProne/bytecode checks to a daemon that only exists
+      # under depot_tools' autoninja, so under plain ninja every
+      # *__validate_deps action dies on "AUTONINJA_BUILD_ID is not set" after
+      # fifteen minutes of real compiling. Chromium's docs say the mode does not
+      # work on bots. Those targets analyse WebRTC's Java SDK; this job wants
+      # libwebrtc.a, and the Java is neither linked nor shipped.
       - name: Build libwebrtc.a
         run: |
           set -euo pipefail
           cd "$WEBRTC_ROOT/src"
-          gn gen out/android-arm64 --export-compile-commands --args='target_os="android" target_cpu="arm64" is_debug=false is_component_build=false symbol_level=0 rtc_include_tests=false rtc_build_examples=false rtc_build_tools=false rtc_enable_protobuf=false rtc_use_h264=false enable_libaom=false rtc_include_opus=true treat_warnings_as_errors=false'
+          gn gen out/android-arm64 --export-compile-commands --args='target_os="android" target_cpu="arm64" is_debug=false is_component_build=false symbol_level=0 rtc_include_tests=false rtc_build_examples=false rtc_build_tools=false rtc_enable_protobuf=false rtc_use_h264=false enable_libaom=false rtc_include_opus=true treat_warnings_as_errors=false android_static_analysis="off"'
           test -f out/android-arm64/compile_commands.json \
             || { echo "::error::gn produced no compile_commands.json — the engine build reads call.cc's command from it"; exit 1; }
           ninja -C out/android-arm64 webrtc
