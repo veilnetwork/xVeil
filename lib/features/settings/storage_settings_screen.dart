@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../common/translation_models_tile.dart';
 import '../common/whisper_model_tile.dart';
 import 'compaction_offer_dialog.dart';
 import '../../domain/storage_compaction_policy.dart';
@@ -327,6 +328,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                   onTap: () => context.push('/file-settings'),
                 ),
                 const WhisperModelTile(),
+                const TranslationModelsTile(),
               ],
             ),
     );

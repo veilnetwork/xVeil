@@ -5960,6 +5960,28 @@ class AppL10nEs extends AppL10n {
       'Libera 57 MB. La transcripción deja de funcionar hasta que vuelvas a descargarlo.';
 
   @override
+  String get translationModels => 'Idiomas de traducción';
+
+  @override
+  String get translationModelsNone => 'No hay idiomas instalados';
+
+  @override
+  String get translationModelsImport => 'Instalar desde un archivo…';
+
+  @override
+  String get translationModelsImporting => 'Instalando…';
+
+  @override
+  String get translationModelsFailed => 'No se pudo instalar este archivo';
+
+  @override
+  String get translationModelsRemove => 'Eliminar este idioma';
+
+  @override
+  String get translationModelsHint =>
+      'Un archivo .veiltranslate por dirección. La traducción ocurre en este dispositivo.';
+
+  @override
   String get voiceModelResume => 'Continuar la descarga';
 
   @override

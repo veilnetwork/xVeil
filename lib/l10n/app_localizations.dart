@@ -10478,6 +10478,48 @@ abstract class AppL10n {
   /// **'Frees 57 MB. Transcription stops working until you fetch it again.'**
   String get voiceModelRemoveHint;
 
+  /// No description provided for @translationModels.
+  ///
+  /// In en, this message translates to:
+  /// **'Translation languages'**
+  String get translationModels;
+
+  /// No description provided for @translationModelsNone.
+  ///
+  /// In en, this message translates to:
+  /// **'No languages installed'**
+  String get translationModelsNone;
+
+  /// No description provided for @translationModelsImport.
+  ///
+  /// In en, this message translates to:
+  /// **'Install from a file…'**
+  String get translationModelsImport;
+
+  /// No description provided for @translationModelsImporting.
+  ///
+  /// In en, this message translates to:
+  /// **'Installing…'**
+  String get translationModelsImporting;
+
+  /// No description provided for @translationModelsFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'This file could not be installed'**
+  String get translationModelsFailed;
+
+  /// No description provided for @translationModelsRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove this language'**
+  String get translationModelsRemove;
+
+  /// No description provided for @translationModelsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'One .veiltranslate file per direction. Translation happens on this device.'**
+  String get translationModelsHint;
+
   /// No description provided for @voiceModelResume.
   ///
   /// In en, this message translates to:

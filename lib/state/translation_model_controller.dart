@@ -6,6 +6,7 @@
 // told to look again.
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
@@ -60,6 +61,26 @@ class TranslationModelsState {
         error: clearError ? null : (error ?? this.error),
         lastInstalled: lastInstalled ?? this.lastInstalled,
       );
+}
+
+/// How a path to a .veiltranslate is obtained. Injectable for the same reason
+/// the root is: a widget test cannot open a system file dialog, and a tile
+/// whose only path to being exercised is a human tapping it is a tile nobody
+/// exercises.
+///
+/// Null means the person dismissed the picker, which is not a failure.
+final translationBundlePickerProvider = Provider<Future<String?> Function()>(
+  (ref) => _pickBundle,
+);
+
+Future<String?> _pickBundle() async {
+  // No type filter: Android's document picker hides files whose extension it
+  // does not recognise, and .veiltranslate is not a type any system knows.
+  // Filtering here would leave a person staring at an empty picker.
+  final picked = await FilePicker.pickFiles(withData: false);
+  // firstOrNull, not single: an empty result list throws, and "the picker
+  // returned nothing" is a cancellation, not an error to crash on.
+  return picked?.files.firstOrNull?.path;
 }
 
 /// Where models live, injectable so a test drives this without a platform
