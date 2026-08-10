@@ -2553,6 +2553,7 @@
   "modelBundleInstalling": "Instalando…",
   "modelBundleInstalled": "Instalado",
   "modelBundleFailed": "No se pudo instalar",
+  "modelBundleMissing": "el archivo no está en este dispositivo",
   "modelBundleTrust": "Un modelo decide lo que esta aplicación dice que otros escribieron. Instálalo solo de alguien en quien confíes.",
   "voiceModelImport": "Instalar desde un archivo…",
   "voiceModelImportHint": "Un archivo .veilaudio, si alguien ya lo descargó",

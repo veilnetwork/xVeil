@@ -58,7 +58,13 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
     try {
       final bytes = await ref.read(storageProvider).loadFile(widget.fileKey);
       if (bytes == null) {
-        if (mounted) setState(() => _error = null);
+        // Silence here was a defect: tapping Install did nothing at all, with
+        // no error and no change, which reads as a dead button. It happens
+        // when the blob is gone — a cleared history, a store that never
+        // finished the download.
+        if (mounted) {
+          setState(() => _error = AppL10n.of(context).modelBundleMissing);
+        }
         return;
       }
       staged = await materialiseBundle(
