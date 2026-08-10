@@ -1,7 +1,7 @@
 // Installing and removing translation models: the decisions, without the UI.
 //
 // A model arrives as one .veiltranslate file — picked from disk, or received
-// in a chat. Everything about verifying it lives in translation_bundle.dart;
+// in a chat. Everything about verifying it lives in veil_bundle.dart;
 // what is here is what the app does about the result, and when the engine is
 // told to look again.
 import 'dart:io';
@@ -10,7 +10,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
-import '../data/translation_bundle.dart';
+import '../data/veil_bundle.dart';
 import '../data/translation_model_store.dart';
 import 'translation_controller.dart';
 import 'translation_engines.dart';
