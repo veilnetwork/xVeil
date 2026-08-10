@@ -190,6 +190,47 @@ void main() {
     });
   });
 
+  group('passing one on', () {
+    test('an exported pair installs on the other side, byte for byte', () async {
+      final t2 = build();
+      await settled(t2.container);
+      final notifier =
+          t2.container.read(translationModelsControllerProvider.notifier);
+      await notifier.importBundle((await bundle()).path);
+
+      final out = '${tmp.path}/handed-over.veiltranslate';
+      final written = await notifier.exportPair(
+        const TranslationPair('ru', 'en'),
+        out,
+      );
+      expect(written, out);
+
+      // The real guarantee: what came out installs, and the files match. An
+      // export that produced a file nobody could install would look identical
+      // from this side.
+      final theirs = Directory('${tmp.path}/theirs')..createSync();
+      final result = await installBundle(File(out), modelsRoot: theirs);
+      expect(result.succeeded, isTrue, reason: result.error);
+      for (final name in kPairFiles) {
+        expect(
+          File('${theirs.path}/ru-en/$name').readAsBytesSync(),
+          equals(File('${pairDir.path}/$name').readAsBytesSync()),
+          reason: name,
+        );
+      }
+    });
+
+    test('a direction that is not installed exports nothing', () async {
+      final t2 = build();
+      await settled(t2.container);
+      final written = await t2.container
+          .read(translationModelsControllerProvider.notifier)
+          .exportPair(const TranslationPair('de', 'fr'), '${tmp.path}/no.bundle');
+      expect(written, isNull);
+      expect(File('${tmp.path}/no.bundle').existsSync(), isFalse);
+    });
+  });
+
   group('removing', () {
     test('takes the pair and tells the engine', () async {
       final t = build();

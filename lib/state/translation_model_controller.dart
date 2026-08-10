@@ -83,6 +83,16 @@ Future<String?> _pickBundle() async {
   return picked?.files.firstOrNull?.path;
 }
 
+/// Where to write a model a person wants to pass on. Returns null when they
+/// dismiss the dialog, which is not a failure.
+///
+/// Injectable for the same reason the opener is: a widget test cannot open a
+/// system save panel.
+final translationBundleSaverProvider =
+    Provider<Future<String?> Function(String suggestedName)>(
+  (ref) => (name) => FilePicker.saveFile(fileName: name),
+);
+
 /// Where models live, injectable so a test drives this without a platform
 /// channel — the same shape as whisperModelStoreProvider, for the same reason.
 final translationModelsRootProvider = Provider<Future<Directory?> Function()>(
@@ -180,6 +190,30 @@ class TranslationModelsController extends Notifier<TranslationModelsState> {
     await refresh();
     _tellTheEngine();
     return true;
+  }
+
+  /// Write one installed direction out as a .veiltranslate.
+  ///
+  /// The point of the whole exchange: a person who has a model can give it to
+  /// someone whose connection cannot fetch 79 MB, or who has none. The file
+  /// then travels however they like — including as an ordinary attachment in a
+  /// chat, which the receiving side already turns into an install card.
+  ///
+  /// Returns the path written, or null if it could not be. The pair is read
+  /// from disk at this moment rather than from [state], because a pair removed
+  /// on another screen a second ago must not be exported from a stale list.
+  Future<String?> exportPair(TranslationPair pair, String destination) async {
+    final dir = await _root();
+    if (dir == null) return null;
+    final source = Directory('${dir.path}/${pair.id}');
+    if (!source.existsSync()) return null;
+    try {
+      await writeBundle(sourceDir: source, pair: pair, out: File(destination));
+      return destination;
+    } on Object catch (error) {
+      devLog(() => 'xVeil[translate]: export failed: $error');
+      return null;
+    }
   }
 
   /// Delete one direction and the space it takes.
