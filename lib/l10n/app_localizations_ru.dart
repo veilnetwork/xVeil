@@ -30,9 +30,6 @@ class AppL10nRu extends AppL10n {
   String get actionRemove => 'Удалить';
 
   @override
-  String get actionUnderstood => 'Понятно';
-
-  @override
   String get preparingTitle => 'Настраиваем ваш узел';
 
   @override
@@ -1959,10 +1956,6 @@ class AppL10nRu extends AppL10n {
   String get groupImageTooLarge => 'Картинка слишком большая для инлайна';
 
   @override
-  String get groupVoiceTooLong =>
-      'Голосовое слишком длинное для отправки в группу';
-
-  @override
   String get reactorsTitle => 'Реакции';
 
   @override
@@ -2572,9 +2565,6 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get cloudNoteSave => 'Сохранить';
-
-  @override
-  String get cloudNoteSaved => 'Заметка сохранена';
 
   @override
   String get cloudNoteLoadFailed =>
@@ -3848,9 +3838,6 @@ class AppL10nRu extends AppL10n {
       'Изменения применятся при следующем запуске узла.';
 
   @override
-  String get routeRestartNode => 'Перезапустить узел сейчас';
-
-  @override
   String get vpnTitle => 'Системный VPN';
 
   @override
@@ -4251,9 +4238,6 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get nodeOperationRun => 'Выполнить команду';
-
-  @override
-  String get nodeOperationSuccess => 'Операция на сервере завершена';
 
   @override
   String get nodeSelectServices => 'Выберите сервисы';
@@ -4912,9 +4896,6 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get callMicrophones => 'Микрофоны';
-
-  @override
-  String get callScreens => 'Экраны';
 
   @override
   String get callDisplays => 'Дисплеи';
