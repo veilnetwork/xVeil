@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/folder_sync_controller.dart';
+import '../common/relative_time.dart';
 
 /// Configure which local folders mirror which Storage folders, and answer the
 /// conflicts a pass could not decide.
@@ -88,10 +89,37 @@ class _PairCard extends ConsumerWidget {
           ListTile(
             leading: const Icon(Icons.sync_outlined),
             title: Text(view.pair.localPath),
-            subtitle: Text(
-              view.pair.cloudFolderId == null
-                  ? l.folderSyncCloudRoot
-                  : view.pair.cloudFolderId!,
+            // Where it mirrors to, and WHEN it last ran. The second line was
+            // missing entirely: `lastPassAtMs` was carried all the way into
+            // the view and never shown, and the string for the null case
+            // (`folderSyncNever`) sat unused in both ARB files. A mirror that
+            // never says when it last ran is one you cannot trust without
+            // opening the folder and looking.
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  view.pair.cloudFolderId == null
+                      ? l.folderSyncCloudRoot
+                      : view.pair.cloudFolderId!,
+                ),
+                Text(
+                  view.lastPassAtMs == null
+                      ? l.folderSyncNever
+                      : l.folderSyncLastPass(
+                          formatAgoL10n(
+                            l,
+                            DateTime.now().difference(
+                              DateTime.fromMillisecondsSinceEpoch(
+                                view.lastPassAtMs!,
+                              ),
+                            ),
+                          ),
+                        ),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
             ),
             trailing: IconButton(
               icon: const Icon(Icons.delete_outline),

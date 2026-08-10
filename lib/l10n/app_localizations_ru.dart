@@ -5984,9 +5984,6 @@ class AppL10nRu extends AppL10n {
       'Освободит 57 МБ. Расшифровка перестанет работать, пока не скачаете снова.';
 
   @override
-  String get voiceModelTitle => 'Модель распознавания';
-
-  @override
   String get voiceModelResume => 'Продолжить скачивание';
 
   @override
@@ -6056,4 +6053,72 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get chatListBlocked => 'заблокирован';
+
+  @override
+  String get agoJustNow => 'только что';
+
+  @override
+  String agoMinutes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count минут назад',
+      few: '$count минуты назад',
+      one: '$count минуту назад',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String agoHours(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count часов назад',
+      few: '$count часа назад',
+      one: '$count час назад',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String agoDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count дней назад',
+      few: '$count дня назад',
+      one: '$count день назад',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String agoMonths(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count месяцев назад',
+      few: '$count месяца назад',
+      one: '$count месяц назад',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String agoYears(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count лет назад',
+      few: '$count года назад',
+      one: '$count год назад',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String folderSyncLastPass(String when) {
+    return 'Синхронизировано $when';
+  }
 }

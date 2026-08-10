@@ -2557,7 +2557,6 @@
   "voiceModelInstalled": "Modelo de voz instalado",
   "voiceModelRemove": "Quitar el modelo de voz",
   "voiceModelRemoveHint": "Libera 57 MB. La transcripción deja de funcionar hasta que vuelvas a descargarlo.",
-  "voiceModelTitle": "Modelo de voz",
   "voiceModelResume": "Continuar la descarga",
   "voiceModelResumeAt": "{percent} % ya descargado",
   "@voiceModelResumeAt": {
@@ -2599,5 +2598,12 @@
   "callNotificationGroup": "Llamada grupal xVeil",
   "chatListWantsToConnect": "quiere conectar",
   "chatListRequestSent": "solicitud enviada",
-  "chatListBlocked": "bloqueado"
+  "chatListBlocked": "bloqueado",
+  "agoJustNow": "ahora mismo",
+  "agoMinutes": "{count, plural, =1{hace 1 minuto} other{hace {count} minutos}}",
+  "agoHours": "{count, plural, =1{hace 1 hora} other{hace {count} horas}}",
+  "agoDays": "{count, plural, =1{hace 1 día} other{hace {count} días}}",
+  "agoMonths": "{count, plural, =1{hace 1 mes} other{hace {count} meses}}",
+  "agoYears": "{count, plural, =1{hace 1 año} other{hace {count} años}}",
+  "folderSyncLastPass": "Sincronizado {when}"
 }

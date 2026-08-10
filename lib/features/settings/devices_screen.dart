@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import '../../core/format.dart';
 import '../../core/ids.dart';
 import '../../state/messaging_providers.dart';
 import '../../data/veil_stack.dart';
@@ -18,6 +17,7 @@ import '../../state/app_controller.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/providers.dart';
 import '../contacts/qr_scan_screen.dart';
+import '../common/relative_time.dart';
 
 /// Whether the onboarding hand-off should open the join sheet on THIS build.
 ///
@@ -62,6 +62,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   bool _hasSovereignBundle = false;
   bool _hasDeviceGroup = false;
   String? _credentialKind;
+
   /// The auto-open has fired. Guards against re-opening the sheet on every
   /// rebuild, and against re-opening it after the user closes it.
   bool _autoJoinFired = false;
@@ -87,7 +88,8 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       );
     }
     final away = DateTime.now().difference(seen);
-    final line = '${device.short} · ${l.devicesLastSeen(formatAgo(away))}';
+    final line =
+        '${device.short} · ${l.devicesLastSeen(formatAgoL10n(l, away))}';
     if (away < _awayIsLong) return Text(line);
     return Text(
       '$line\n${l.devicesAwayLong}',
