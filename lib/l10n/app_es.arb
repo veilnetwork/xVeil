@@ -635,7 +635,6 @@
   "spaceAccessRoleDelete": "Eliminar rol",
   "spaceAccessRoleDeleteConfirm": "¿Eliminar el rol «{name}»? Sus asignaciones se retirarán en el mismo cambio firmado.",
   "spaceAccessRoleName": "Nombre del rol",
-  "spaceAccessRolePermissions": "{count, plural, =1{1 permiso} other{{count} permisos}}",
   "spaceAccessRoleGrantSummary": "{permissions, plural, =1{1 permiso} other{{permissions} permisos}} · {areas, plural, =1{1 área} other{{areas} áreas}}",
   "spaceAccessPermissionAreas": "Áreas de permisos",
   "spaceAccessAddArea": "Añadir otra área",
@@ -2154,7 +2153,6 @@
     }
   },
   "nicknamePublishing": "Publicando…",
-  "nicknameOwnedTitle": "Tu nombre",
   "nicknameWeightExplain": "El peso de protección es la prueba de trabajo acumulada que sostiene el nombre; el valor mostrado es el peso actual en la red. Arrebatarlo exige estrictamente más trabajo, y reforzarlo sube ese precio.",
   "nicknameOwnedTakenOver": "Alguien se quedó con el nombre aportando más trabajo (peso rival {weight}). Refuérzalo para recuperarlo minando estrictamente más.",
   "@nicknameOwnedTakenOver": {
