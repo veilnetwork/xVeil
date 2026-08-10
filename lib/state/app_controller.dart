@@ -2419,14 +2419,25 @@ class AppController extends Notifier<AppState> {
   Future<void> _teardownRealStack() async {
     final stack = ref.read(realStackProvider);
     if (stack != null) {
-      await stack.dispose();
+      // Both of these happen BEFORE the dispose, and the order is the fix.
+      //
+      // `dispose` can be abandoned — `_boundedTeardown` gives it fifteen
+      // seconds — and everything after the await used to be skipped when it
+      // was. That left the provider holding a dying stack, and
+      // `_ensureRealStack` returns early on a non-null provider: the app then
+      // ran with no node while believing it had one. Worse, when the abandoned
+      // dispose finally returned it cleared the provider — by then possibly a
+      // NEW session's stack (report9 X-16).
+      //
+      // Clearing first also means the port offset must flip first, or a reboot
+      // during a hung dispose picks the port the dying node still holds and
+      // stalls ~90s on the bind. The port this node held is in lingering
+      // teardown; alternate between two ports well clear of the all-online
+      // range. The listen address is composed fresh per boot and exchanged
+      // in-band, so nothing persisted goes stale.
       ref.read(realStackProvider.notifier).state = null;
-      // The port this node held is now in lingering teardown — the NEXT boot
-      // must not rebind it or it can stall for ~90s (the same trap all-online
-      // avoids with its +1+i offsets). Alternate between two ports well clear
-      // of the all-online range. The listen address is composed fresh per
-      // boot and exchanged in-band, so nothing persisted goes stale.
       _oneActivePortOffset = _oneActivePortOffset == 0 ? 64 : 0;
+      await stack.dispose();
     }
   }
 

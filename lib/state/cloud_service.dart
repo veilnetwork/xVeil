@@ -130,19 +130,16 @@ class GroupCloudSyncPort implements CloudSyncPort {
 /// than damage.
 ///
 /// Throws [StateError] past [kMaterializedViewMaxBytes].
-Future<void> writeMaterializedView(
-  Storage storage,
-  String key,
-  String value,
-) => writeMaterializedViewWith(
-  key: key,
-  value: value,
-  getSetting: storage.getSetting,
-  putSetting: storage.putSetting,
-  storeFile: (fileId, bytes) =>
-      storage.storeFile(fileId, bytes, name: 'cloud-materialized-index'),
-  hasFile: storage.hasFile,
-);
+Future<void> writeMaterializedView(Storage storage, String key, String value) =>
+    writeMaterializedViewWith(
+      key: key,
+      value: value,
+      getSetting: storage.getSetting,
+      putSetting: storage.putSetting,
+      storeFile: (fileId, bytes) =>
+          storage.storeFile(fileId, bytes, name: 'cloud-materialized-index'),
+      hasFile: storage.hasFile,
+    );
 
 class CloudService {
   CloudService(
@@ -210,8 +207,19 @@ class CloudService {
 
   Future<void> _start() async {
     await _loadLocal();
+    // `close` sweeps once and sets the flag; everything below it is installed
+    // AFTER awaits. A close that lands in one of those windows cancelled
+    // subscriptions that did not exist yet, and this then went on to install
+    // them on a closed service: a sync feed and a content feed still calling
+    // into it, still scheduling reconciles, still writing (report9 X-15). The
+    // provider does exactly this — `unawaited(service.start())` with a
+    // `close()` on dispose — so an identity switch is the ordinary way in.
+    if (_closed) return;
     _sync.vouchForContent(thumbnailContentIds);
     await _reconcile();
+    if (_closed) return;
+    // No await between the check and the two `listen` calls, so the check is
+    // exact rather than hopeful.
     _syncSub = _sync.changes.listen((_) => _scheduleReconcile());
     _contentSub = contentReceived.listen((cid) {
       unawaited(_onContentReceived(cid));
@@ -590,88 +598,83 @@ class CloudService {
     required Future<Uint8List> Function(int offset, int length) readRange,
     Uint8List? thumbnail,
   }) async {
-      final manifest = await ContentManifest.fromReader(
+    final manifest = await ContentManifest.fromReader(
       name: name,
       size: size,
       readRange: readRange,
       pieceSize: ContentManifest.adaptivePieceSize(size),
       chunkBytes: _wireChunkBytes,
-      );
-      final manifestId = '$_manifestPrefix${manifest.contentId}';
-      var createdContent = false;
-      var createdManifest = false;
-      if (!await _storage.hasFile(manifest.contentId)) {
-        // The in-volume streamed layout spends one settings-index key per
-        // piece. On an aged store even a small file can then hit IndexFull.
-        // Below the existing atomically-deletable whole-blob ceiling, one
-        // bounded read (<= 3.8 MB) is both cheaper and more index-efficient.
-        // Larger objects stay piecewise and route to the encrypted on-disk
-        // tier, preserving the TB-scale RAM bound.
-        if (size <= kMaxStoredFileBytes) {
-          final bytes = await readRange(0, size);
-          if (!manifest.verifyWhole(bytes)) {
-            throw StateError('source changed while importing');
-          }
-          await _storage.storeFile(manifest.contentId, bytes, name: name);
-        } else {
-          for (var piece = 0; piece < manifest.pieceCount; piece++) {
-            final offset = piece * manifest.pieceSize;
-            final bytes = await readRange(
-              offset,
-              manifest.pieceLength(piece),
-            );
-            if (!manifest.verifyPiece(piece, bytes)) {
-              throw StateError('source changed while importing piece $piece');
-            }
-            await _storage.storeFilePiece(
-              manifest.contentId,
-              piece,
-              manifest.pieceCount,
-              manifest.pieceSize,
-              manifest.size,
-              bytes,
-              name: name,
-            );
-          }
+    );
+    final manifestId = '$_manifestPrefix${manifest.contentId}';
+    var createdContent = false;
+    var createdManifest = false;
+    if (!await _storage.hasFile(manifest.contentId)) {
+      // The in-volume streamed layout spends one settings-index key per
+      // piece. On an aged store even a small file can then hit IndexFull.
+      // Below the existing atomically-deletable whole-blob ceiling, one
+      // bounded read (<= 3.8 MB) is both cheaper and more index-efficient.
+      // Larger objects stay piecewise and route to the encrypted on-disk
+      // tier, preserving the TB-scale RAM bound.
+      if (size <= kMaxStoredFileBytes) {
+        final bytes = await readRange(0, size);
+        if (!manifest.verifyWhole(bytes)) {
+          throw StateError('source changed while importing');
         }
-        createdContent = true;
-      }
-      createdManifest = !await _storage.hasFile(manifestId);
-      await _storage.storeFile(
-        manifestId,
-        Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
-        name: 'cloud-manifest',
-      );
-      // Stored as its own content object, addressed by its own hash: two
-      // imports of the same picture then share one preview, and it travels
-      // by the same path as any other content instead of needing one of its
-      // own. Oversized input is dropped rather than stored — a "preview"
-      // that rivals the file it previews is not one.
-      String? thumbId;
-      if (thumbnail != null && thumbnail.isNotEmpty) {
-        if (thumbnail.length <= maxThumbnailBytes) {
-          final thumbManifest = ContentManifest.fromBytes('thumb', thumbnail);
-          if (!await _storage.hasFile(thumbManifest.contentId)) {
-            await _storage.storeFile(
-              thumbManifest.contentId,
-              thumbnail,
-              name: 'cloud-thumb',
-            );
+        await _storage.storeFile(manifest.contentId, bytes, name: name);
+      } else {
+        for (var piece = 0; piece < manifest.pieceCount; piece++) {
+          final offset = piece * manifest.pieceSize;
+          final bytes = await readRange(offset, manifest.pieceLength(piece));
+          if (!manifest.verifyPiece(piece, bytes)) {
+            throw StateError('source changed while importing piece $piece');
           }
-          // The manifest is not bookkeeping: the serving side refuses to hand
-          // out bytes it has no manifest for, so without this the preview is
-          // held here and silently never given to anyone — which is every
-          // device except the one that made it.
-          await _storage.storeFile(
-            '$_manifestPrefix${thumbManifest.contentId}',
-            Uint8List.fromList(
-              utf8.encode(jsonEncode(thumbManifest.toJson())),
-            ),
-            name: 'cloud-manifest',
+          await _storage.storeFilePiece(
+            manifest.contentId,
+            piece,
+            manifest.pieceCount,
+            manifest.pieceSize,
+            manifest.size,
+            bytes,
+            name: name,
           );
-          thumbId = thumbManifest.contentId;
         }
       }
+      createdContent = true;
+    }
+    createdManifest = !await _storage.hasFile(manifestId);
+    await _storage.storeFile(
+      manifestId,
+      Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+      name: 'cloud-manifest',
+    );
+    // Stored as its own content object, addressed by its own hash: two
+    // imports of the same picture then share one preview, and it travels
+    // by the same path as any other content instead of needing one of its
+    // own. Oversized input is dropped rather than stored — a "preview"
+    // that rivals the file it previews is not one.
+    String? thumbId;
+    if (thumbnail != null && thumbnail.isNotEmpty) {
+      if (thumbnail.length <= maxThumbnailBytes) {
+        final thumbManifest = ContentManifest.fromBytes('thumb', thumbnail);
+        if (!await _storage.hasFile(thumbManifest.contentId)) {
+          await _storage.storeFile(
+            thumbManifest.contentId,
+            thumbnail,
+            name: 'cloud-thumb',
+          );
+        }
+        // The manifest is not bookkeeping: the serving side refuses to hand
+        // out bytes it has no manifest for, so without this the preview is
+        // held here and silently never given to anyone — which is every
+        // device except the one that made it.
+        await _storage.storeFile(
+          '$_manifestPrefix${thumbManifest.contentId}',
+          Uint8List.fromList(utf8.encode(jsonEncode(thumbManifest.toJson()))),
+          name: 'cloud-manifest',
+        );
+        thumbId = thumbManifest.contentId;
+      }
+    }
     return (
       manifest: manifest,
       thumbId: thumbId,
