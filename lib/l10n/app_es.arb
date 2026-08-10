@@ -2595,5 +2595,9 @@
   "agoMonths": "{count, plural, =1{hace 1 mes} other{hace {count} meses}}",
   "agoYears": "{count, plural, =1{hace 1 año} other{hace {count} años}}",
   "folderSyncLastPass": "Sincronizado {when}",
-  "inviteAcceptsHint": "Un enlace de invitación o @nombre"
+  "inviteAcceptsHint": "Un enlace de invitación o @nombre",
+  "chatTranslate": "Traducir",
+  "chatTranslating": "Traduciendo…",
+  "chatTranslateFailed": "No se pudo traducir: toca para reintentar",
+  "chatTranslationShowOriginal": "Mostrar el original"
 }
