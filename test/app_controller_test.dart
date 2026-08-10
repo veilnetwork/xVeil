@@ -24,6 +24,7 @@ import 'package:xveil/state/vpn_controller.dart';
 import 'package:xveil/state/identity_scoped_prefs.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/state/translation_model_controller.dart';
 
 import 'support/fake_hv_container.dart';
 
@@ -1784,6 +1785,56 @@ void _wipeClearsPostureTests() {
         reason: '$key survived a wipe',
       );
     }
+  });
+
+  test('wipe takes the translation models, which name the languages you read',
+      () async {
+    // A stronger disclosure than the speech model's. Whisper's is a single
+    // generic file and says only that transcription was enabled; a translation
+    // model is one directory per DIRECTION, so what survived a wipe was a list
+    // of the languages this person reads — in plaintext directory names that
+    // need nothing unlocked to read.
+    SharedPreferences.setMockInitialValues(<String, Object>{'onboarded': true});
+
+    final dir = Directory.systemTemp.createTempSync('xveil_wipe_translate');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final store = File('${dir.path}/test.store')..writeAsStringSync('c');
+    final translateRoot = Directory('${dir.path}/translate')..createSync();
+    for (final id in ['ru-en', 'en-ru']) {
+      final pair = Directory('${translateRoot.path}/$id')..createSync();
+      File('${pair.path}/model.bin').writeAsStringSync('weights');
+    }
+
+    final container = FakeHvContainer();
+    final app = container.storage();
+    final c = ProviderContainer(
+      overrides: [
+        storageProvider.overrideWith((ref) => app),
+        translationModelsRootProvider.overrideWithValue(
+          () async => translateRoot,
+        ),
+        deniableBootProvider.overrideWithValue(
+          DeniableBootConfig(
+            runtimeDir: '${dir.path}/rt',
+            listenPort: 9001,
+            storePath: store.path,
+          ),
+        ),
+      ],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+
+    await ctrl.wipeContainers();
+
+    expect(
+      translateRoot.existsSync(),
+      isFalse,
+      reason: 'the directory names alone said which languages are read',
+    );
   });
 
   test('wipe takes the speech model and the OS tunnel down too', () async {
