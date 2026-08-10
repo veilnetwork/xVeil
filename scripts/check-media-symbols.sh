@@ -44,7 +44,12 @@ else
        "'symbols are missing', and the check refuses to report it as such." >&2
   exit 2
 fi
-awk '{print $NF}' "$tmp/raw" | grep '^veil_media_' | sort -u > "$tmp/exported"
+# `|| true` because no match is an ANSWER here, not an error. Without it
+# `set -e` plus `pipefail` kills the script on grep's exit 1 — silently, with
+# an empty report, and before the emptiness check below can say what happened.
+# That made the one case this script exists to describe ("this file is not the
+# engine") indistinguishable from a crash: exit 1, no output.
+awk '{print $NF}' "$tmp/raw" | { grep '^veil_media_' || true; } | sort -u > "$tmp/exported"
 # An empty export list means the tool ran and found nothing, which for a
 # library that is supposed to BE the engine is a broken artifact rather than a
 # long list of missing names.
