@@ -4613,6 +4613,11 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String nodeRegistrySaveFailed(String error) {
+    return 'Не удалось сохранить список узлов: $error';
+  }
+
+  @override
   String sshKeyGenerationFailed(String error) {
     return 'Не удалось сгенерировать ключ: $error';
   }

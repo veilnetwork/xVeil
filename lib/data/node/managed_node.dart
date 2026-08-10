@@ -92,17 +92,38 @@ class ManagedNode {
   static String encodeList(List<ManagedNode> nodes) =>
       jsonEncode([for (final n in nodes) n.toJson()]);
 
+  /// Decode the registry, QUARANTINING a record rather than the whole list.
+  ///
+  /// `fromJson` throws on a record with no `id`, and the throw used to escape
+  /// the comprehension into the outer catch — so one malformed entry returned
+  /// an EMPTY registry and every other node the user had configured vanished
+  /// from the screen. Nothing was lost on disk, which made it worse: the list
+  /// came back empty, the user re-added a node, and that write replaced the
+  /// whole key (report9 X-05).
+  ///
+  /// A record that cannot be read is skipped and the rest are kept. The outer
+  /// catch stays for the case that really is all-or-nothing: the string is not
+  /// JSON at all.
   static List<ManagedNode> decodeList(String? raw) {
     if (raw == null || raw.isEmpty) return const [];
+    final List<dynamic> decoded;
     try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return const [];
-      return [
-        for (final e in decoded)
-          if (e is Map<String, dynamic>) ManagedNode.fromJson(e),
-      ];
+      final parsed = jsonDecode(raw);
+      if (parsed is! List) return const [];
+      decoded = parsed;
     } catch (_) {
       return const [];
     }
+    final out = <ManagedNode>[];
+    for (final e in decoded) {
+      if (e is! Map<String, dynamic>) continue;
+      try {
+        out.add(ManagedNode.fromJson(e));
+      } catch (_) {
+        // One unreadable record costs its own entry and nothing else.
+        continue;
+      }
+    }
+    return out;
   }
 }

@@ -1910,6 +1910,15 @@
       }
     }
   },
+  "nodeRegistrySaveFailed": "The node list could not be saved: {error}",
+  "@nodeRegistrySaveFailed": {
+    "description": "Shown when the node registry could not be committed to encrypted storage; the change is not saved.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "sshKeyGenerationFailed": "Could not generate the key: {error}",
   "@sshKeyGenerationFailed": {
     "placeholders": {
