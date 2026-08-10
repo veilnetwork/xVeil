@@ -425,8 +425,19 @@ absent there — the provider returns null and no affordance appears.
 **iOS is built but not yet LINKED.** The archive exists and is verified, and
 the Dart side now resolves iOS symbols from the process image (where a static
 archive ends up) — but nothing adds `libveil_translate.a` to the Runner target,
-so those symbols are not in the image and translation stays unavailable. That
-is an Xcode project change, and it is the remaining step.
+so those symbols are not in the image and translation stays unavailable.
+
+The remaining step is that link, and it has a constraint worth knowing before
+starting: it must TOLERATE THE ARCHIVE BEING ABSENT. The obvious move — an
+`-force_load` entry in the Runner target's OTHER_LDFLAGS, the way PacketTunnel
+links libveilclient_ffi.a — breaks the build outright for anyone who has not
+produced the prebuilt, and translation is optional. veilclient can do it
+because it is mandatory. Two mechanisms that degrade instead: an .xcconfig
+written by a run-script phase that emits the flags only when the file exists,
+or making native/translate a proper plugin whose podspec vendors the library
+optionally. The `-force_load` itself is NOT optional in either case — nothing
+in the app's own code calls these symbols, so a plain link drops every one of
+them.
 
 Models are **not** bundled and none are published yet. Convert a pair with
 `native/translate/convert-model.sh <from> <to>` (needs a Python environment
@@ -889,8 +900,19 @@ native/translate/build_veil_translate_ios.sh       # libveil_translate.a
 **iOS собран, но ещё не слинкован.** Архив есть и проверен, и Dart-сторона
 теперь ищет символы iOS в образе процесса (куда и попадает статический архив),
 но `libveil_translate.a` никто не добавляет к цели Runner — значит символов в
-образе нет и перевод остаётся недоступным. Это правка Xcode-проекта, и она
-остаётся последним шагом.
+образе нет и перевод остаётся недоступным.
+
+Последним шагом остаётся эта линковка, и у неё есть ограничение, которое стоит
+знать заранее: она обязана **переживать отсутствие архива**. Очевидный ход —
+`-force_load` в `OTHER_LDFLAGS` цели Runner, как PacketTunnel линкует
+`libveilclient_ffi.a`, — ломает сборку начисто у всякого, кто прибилт не делал,
+а перевод необязателен. Для veilclient так можно, потому что он обязателен. Два
+механизма, которые деградируют вместо поломки: `.xcconfig`, который пишет
+скриптовая фаза и который выдаёт флаги только при наличии файла, либо
+оформление `native/translate` полноценным плагином с необязательной
+vendored-библиотекой в podspec. Сам `-force_load` необязательным не станет ни в
+одном из вариантов: код приложения эти символы не вызывает, поэтому обычная
+линковка выбросит их все.
 
 Модели **не** входят в сборку, и ни одна пока не опубликована. Пара
 конвертируется скриптом `native/translate/convert-model.sh <from> <to>` (нужно
