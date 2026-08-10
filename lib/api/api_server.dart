@@ -3447,13 +3447,14 @@ Stream<Uint8List> blobChunks(ApiBlobSource source, int start, int total) async* 
   var sent = 0;
   while (sent < total) {
     final want = total - sent;
-    final chunk = await source.read(
-      start + sent,
-      want < kBlobStreamChunkBytes ? want : kBlobStreamChunkBytes,
-    );
+    // Clamped against the HOP's cap, not against `want` — see the twin in
+    // `rangeChunks` for why that difference is the whole guarantee
+    // (report9 X-06).
+    final cap = want < kBlobStreamChunkBytes ? want : kBlobStreamChunkBytes;
+    final chunk = await source.read(start + sent, cap);
     if (chunk == null || chunk.isEmpty) throw BlobUnreadable(start + sent);
-    final take = chunk.length > want
-        ? Uint8List.sublistView(chunk, 0, want)
+    final take = chunk.length > cap
+        ? Uint8List.sublistView(chunk, 0, cap)
         : chunk;
     yield take;
     sent += take.length;
