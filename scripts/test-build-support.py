@@ -150,6 +150,22 @@ print("resolve() elsewhere")
 check("names pass through unchanged", bs.resolve("flutter"), "flutter")
 check("bash passes through unchanged", bs.resolve("bash"), "bash")
 
+print("the media symbol check runs through the same resolved bash")
+
+# builder.py grew a check that shells out on its own rather than through a
+# Step, so nothing resolved argv[0] for it. That is not a skipped check on
+# Windows, it is a WRONG one: the WSL launcher exits 1, and 1 is the code the
+# caller reads as "the engine is missing symbols" — so an Android release built
+# on Windows would fail, blaming a good engine and naming symbols nobody read.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import builder  # noqa: E402
+
+with FakeWindows({"bash": WSL_BASH, "git": GIT}, {GIT_BASH}):
+    argv = builder._symbol_check_argv("lib\\arm64-v8a\\libveil_media.so")
+check("the symbol check does not run the WSL launcher", argv[0], GIT_BASH)
+check("it still passes the script and the library", len(argv), 3)
+check("and the library is the last argument", argv[2], "lib\\arm64-v8a\\libveil_media.so")
+
 if failures:
     print(f"\nFAIL: {len(failures)} check(s): {', '.join(failures)}")
     sys.exit(1)
