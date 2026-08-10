@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../state/transcription_controller.dart';
+import '../../state/translation_model_controller.dart';
 import '../../state/whisper_model_controller.dart';
 
 /// The speech model: fetch it, see that it is here, give the space back.
@@ -64,26 +65,50 @@ class WhisperModelTile extends ConsumerWidget {
     // "download 57 MB" and "continue, 80% is already here" are different
     // decisions on mobile data.
     final resume = model.resumeFraction;
-    return ListTile(
-      leading: const Icon(Icons.graphic_eq_outlined),
-      title: Text(
-        failed
-            ? l.voiceModelFailed
-            : (resume != null ? l.voiceModelResume : l.voiceModelDownload),
-      ),
-      subtitle: Text(
-        resume != null
-            ? l.voiceModelResumeAt((resume * 100).round())
-            : l.voiceModelSize,
-      ),
-      trailing: const Icon(Icons.download_outlined),
-      onTap: () async {
-        final ok = await notifier.download();
-        if (ok) {
-          ref.invalidate(transcriptionAvailableProvider);
-          ref.invalidate(transcriptionNativeReadyProvider);
-        }
-      },
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ListTile(
+          leading: const Icon(Icons.graphic_eq_outlined),
+          title: Text(
+            failed
+                ? l.voiceModelFailed
+                : (resume != null ? l.voiceModelResume : l.voiceModelDownload),
+          ),
+          subtitle: Text(
+            resume != null
+                ? l.voiceModelResumeAt((resume * 100).round())
+                : l.voiceModelSize,
+          ),
+          trailing: const Icon(Icons.download_outlined),
+          onTap: () async {
+            final ok = await notifier.download();
+            if (ok) _tellTheRest(ref);
+          },
+        ),
+        // The second way in, for a person with no usable internet: someone
+        // else's copy, as a file. The bundle's hash is checked against the one
+        // this build pins, so accepting it from a stranger is safe in a way
+        // accepting a translation model is not.
+        ListTile(
+          leading: const Icon(Icons.folder_open),
+          title: Text(l.voiceModelImport),
+          subtitle: Text(l.voiceModelImportHint),
+          onTap: () async {
+            final path = await ref.read(translationBundlePickerProvider)();
+            if (path == null) return; // Dismissed; not a failure.
+            final ok = await notifier.importBundle(path);
+            if (ok) _tellTheRest(ref);
+          },
+        ),
+      ],
     );
+  }
+
+  /// Both providers cache "is transcription possible", and neither notices a
+  /// model appearing underneath it.
+  static void _tellTheRest(WidgetRef ref) {
+    ref.invalidate(transcriptionAvailableProvider);
+    ref.invalidate(transcriptionNativeReadyProvider);
   }
 }

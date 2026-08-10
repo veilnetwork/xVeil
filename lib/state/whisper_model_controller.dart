@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/veil_bundle.dart';
 import '../data/whisper_model_store.dart';
 import 'identity_scoped_prefs.dart';
 import 'providers.dart';
@@ -168,6 +170,75 @@ class WhisperModelController extends Notifier<WhisperModelState> {
       resumeFraction: await _pendingFraction(),
     );
     return false;
+  }
+
+  /// Install the speech model from a .veilaudio file — picked from disk, or
+  /// received in a chat — rather than fetched over the internet.
+  ///
+  /// This has a guarantee the translation import cannot offer: the right hash
+  /// is KNOWN. WhisperModelStore pins it, so a bundle from a stranger is
+  /// checked against what this build expects, not merely against its own
+  /// claim about itself. A substituted model carrying a manifest of its own
+  /// gets no further than the line below, and it gets there before 57 MiB have
+  /// been written.
+  Future<bool> importBundle(String path) async {
+    if (state.isBusy) return false;
+
+    final VeilBundleInfo info;
+    try {
+      info = await inspectBundle(File(path));
+    } on VeilBundleException catch (e) {
+      state = WhisperModelState(
+        phase: WhisperModelPhase.failed,
+        error: e.message,
+        resumeFraction: await _pendingFraction(),
+      );
+      return false;
+    }
+    if (info.kind != kBundleSpeech) {
+      state = WhisperModelState(
+        phase: WhisperModelPhase.failed,
+        error: 'this is a ${info.kind} bundle, not a speech model',
+        resumeFraction: await _pendingFraction(),
+      );
+      return false;
+    }
+    if (info.files.single.sha256 != WhisperModelStore.expectedSha256) {
+      state = WhisperModelState(
+        phase: WhisperModelPhase.failed,
+        error: 'this is not the speech model this build expects',
+        resumeFraction: await _pendingFraction(),
+      );
+      return false;
+    }
+
+    state = const WhisperModelState(phase: WhisperModelPhase.downloading);
+    final result = await installBundle(
+      File(path),
+      modelsRoot: await _store.modelDirectory(),
+      onProgress: (progress) {
+        if (ref.mounted && state.isBusy) {
+          state = WhisperModelState(
+            phase: WhisperModelPhase.downloading,
+            progress: progress,
+          );
+        }
+      },
+    );
+    if (!ref.mounted) return result.succeeded;
+    if (!result.succeeded) {
+      state = WhisperModelState(
+        phase: WhisperModelPhase.failed,
+        error: result.error,
+        resumeFraction: await _pendingFraction(),
+      );
+      return false;
+    }
+    // The transcriber caches the resolved path and would keep answering
+    // "no model" with one sitting right there.
+    WhisperTranscriber.forgetResolved();
+    await refresh();
+    return true;
   }
 
   /// Fetch the model in the background if it is missing.

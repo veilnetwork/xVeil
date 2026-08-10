@@ -5941,6 +5941,13 @@ class AppL10nRu extends AppL10n {
       'Освободит 57 МБ. Расшифровка перестанет работать, пока не скачаете снова.';
 
   @override
+  String get voiceModelImport => 'Установить из файла…';
+
+  @override
+  String get voiceModelImportHint =>
+      'Файл .veilaudio, если его уже кто-то скачал';
+
+  @override
   String get translationModels => 'Языки перевода';
 
   @override

@@ -2554,6 +2554,8 @@
   "voiceModelInstalled": "Speech model installed",
   "voiceModelRemove": "Remove the speech model",
   "voiceModelRemoveHint": "Frees 57 MB. Transcription stops working until you fetch it again.",
+  "voiceModelImport": "Install from a file…",
+  "voiceModelImportHint": "A .veilaudio file, if someone has already downloaded it",
   "translationModels": "Translation languages",
   "translationModelsNone": "No languages installed",
   "translationModelsImport": "Install from a file…",

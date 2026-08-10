@@ -51,6 +51,17 @@ class _ScriptedStore implements WhisperModelStore {
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// The download row, named rather than positional.
+///
+/// This used to be find.byType(ListTile) — fine when the tile had exactly one.
+/// It now has two, since the model can also be installed from a .veilaudio
+/// file, and `.first` would go on passing if the order were ever swapped while
+/// testing the wrong thing.
+Finder downloadRow(WidgetTester tester) => find.ancestor(
+      of: find.byIcon(Icons.download_outlined),
+      matching: find.byType(ListTile),
+    );
+
 void main() {
   late _ScriptedStore store;
 
@@ -90,7 +101,7 @@ void main() {
   testWidgets('tapping it actually starts the download', (tester) async {
     // The part a screenshot could never settle.
     await pump(tester);
-    await tester.tap(find.byType(ListTile));
+    await tester.tap(downloadRow(tester));
     await tester.pump();
     expect(store.downloads, 1);
   });
@@ -99,7 +110,7 @@ void main() {
     tester,
   ) async {
     await pump(tester);
-    await tester.tap(find.byType(ListTile));
+    await tester.tap(downloadRow(tester));
     await tester.pump();
     expect(find.text(l(tester).voiceModelDownloading), findsOneWidget);
     expect(find.text(l(tester).voiceModelDownload), findsNothing);
@@ -109,7 +120,7 @@ void main() {
     tester,
   ) async {
     await pump(tester);
-    await tester.tap(find.byType(ListTile));
+    await tester.tap(downloadRow(tester));
     store.pending!.complete(const WhisperModelDownload.ok('/tmp/m'));
     await tester.pump();
     await tester.pump();
@@ -138,7 +149,7 @@ void main() {
 
   testWidgets('a failed download says so and stays tappable', (tester) async {
     await pump(tester);
-    await tester.tap(find.byType(ListTile));
+    await tester.tap(downloadRow(tester));
     store.pending!.complete(
       const WhisperModelDownload.failed('server said 503'),
     );
@@ -146,7 +157,7 @@ void main() {
     await tester.pump();
 
     expect(find.text(l(tester).voiceModelFailed), findsOneWidget);
-    await tester.tap(find.byType(ListTile));
+    await tester.tap(downloadRow(tester));
     await tester.pump();
     expect(store.downloads, 2, reason: 'a retry is one tap away');
   });
@@ -187,7 +198,7 @@ void main() {
   testWidgets('while downloading there is a way to stop', (tester) async {
     // 57 MB on mobile data. Without this the only exit is leaving the app.
     await pump(tester);
-    await tester.tap(find.byType(ListTile));
+    await tester.tap(downloadRow(tester));
     await tester.pump();
     expect(find.text(l(tester).voiceModelCancel), findsOneWidget);
 

@@ -10478,6 +10478,18 @@ abstract class AppL10n {
   /// **'Frees 57 MB. Transcription stops working until you fetch it again.'**
   String get voiceModelRemoveHint;
 
+  /// No description provided for @voiceModelImport.
+  ///
+  /// In en, this message translates to:
+  /// **'Install from a file…'**
+  String get voiceModelImport;
+
+  /// No description provided for @voiceModelImportHint.
+  ///
+  /// In en, this message translates to:
+  /// **'A .veilaudio file, if someone has already downloaded it'**
+  String get voiceModelImportHint;
+
   /// No description provided for @translationModels.
   ///
   /// In en, this message translates to:
