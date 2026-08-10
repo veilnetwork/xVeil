@@ -21,6 +21,7 @@ import 'dart:io';
 import 'dart:math';
 
 import '../domain/range_source.dart';
+import 'package:flutter/foundation.dart';
 
 /// A parsed `Range: bytes=a-b` header against a body of [total] bytes:
 /// closed, half-open (`a-`) and suffix (`-n`) forms, clamped to the body.
@@ -64,6 +65,25 @@ String mediaMimeFor(String? name) {
 
 /// Serves ONE blob over loopback HTTP, in ranges, for the lifetime of a player.
 class LocalMediaServer {
+  /// Bumped by every [serve] and every [stop].
+  ///
+  /// `stop` sweeps what the field holds; `serve` binds and only then assigns.
+  /// A stop landing in that window found nothing to close, and serve then
+  /// published a listener nobody holds a reference to — an open loopback
+  /// socket for the life of the process, answering on a token `stop` had
+  /// already cleared (report9 X-12).
+  int _generation = 0;
+
+  /// Awaited once, between binding the socket and adopting it. Null in
+  /// production; a test uses it to hold that window open.
+  ///
+  /// The window cannot be produced any other way: a loopback bind finishes
+  /// before anything else in the test gets a turn, so the interleaving that
+  /// leaves a socket bound to nobody is unreachable by timing alone. Cleared
+  /// on use, so only the first bind waits.
+  @visibleForTesting
+  static Future<void>? debugBindGate;
+
   HttpServer? _server;
   RangeSource? _source;
   String _mime = 'application/octet-stream';
@@ -76,10 +96,24 @@ class LocalMediaServer {
   /// holds is released when the player closes rather than at the next GC.
   Future<Uri> serve(RangeSource source, {String? name}) async {
     await stop();
+    final generation = ++_generation;
     _source = source;
     _mime = mediaMimeFor(name);
     _token = _randomToken();
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final gate = debugBindGate;
+    if (gate != null) {
+      debugBindGate = null;
+      await gate;
+    }
+    if (generation != _generation) {
+      // Stopped — or replaced by another serve — while this was binding. The
+      // socket is ours and nobody else can reach it, so close it here; the
+      // source is NOT disposed, because whoever bumped the generation ran
+      // `stop` and already took it.
+      await server.close(force: true);
+      throw StateError('serving was stopped while the server was binding');
+    }
     _server = server;
     server.listen(_handle, onError: (_) {});
     return Uri.parse('http://127.0.0.1:${server.port}/m/$_token');
@@ -102,8 +136,7 @@ class LocalMediaServer {
       final range = parseRange(rangeHeader, total);
       if (rangeHeader != null && range == null && total > 0) {
         // A syntactically-valid but unsatisfiable range (start >= total).
-        final m =
-            RegExp(r'^bytes=(\d+)-').firstMatch(rangeHeader.trim());
+        final m = RegExp(r'^bytes=(\d+)-').firstMatch(rangeHeader.trim());
         if (m != null && (int.tryParse(m.group(1)!) ?? 0) >= total) {
           res.statusCode = HttpStatus.requestedRangeNotSatisfiable;
           res.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$total');
@@ -141,12 +174,15 @@ class LocalMediaServer {
       // Client hung up mid-stream (seek storms do this) — nothing to do.
       try {
         await res.close();
-      } catch (_) {/* already dead */}
+      } catch (_) {
+        /* already dead */
+      }
     }
   }
 
   /// Stop serving, release the source and its handle.
   Future<void> stop() async {
+    _generation++;
     final s = _server;
     final source = _source;
     _server = null;
