@@ -294,4 +294,106 @@ void main() {
       );
     });
   });
+
+  // The GROUP twin, guarded structurally rather than by racing.
+  //
+  // The 1:1 send is testable end-to-end above because it streams inline: the
+  // decoy can be swapped in and the offer inspected. A group send registers a
+  // source to be served on demand later, so there is no read to bracket and
+  // no moment to swap at — the window is between two syscalls inside the
+  // sender itself, and staging that deterministically is not possible.
+  //
+  // What CAN be stated exactly is the shape that removes the window: the size
+  // and the bytes come from one descriptor, so there is no second lookup to
+  // disagree with the first. That is a property of the source, and it is what
+  // this checks — for BOTH senders, so the twin cannot drift again (report9
+  // #7 found the group path still on the old three-lookup shape long after
+  // X-02 fixed the 1:1 one).
+  test('neither sender takes its size from a second lookup of the name', () {
+    // The 1:1 sender opens through `debugSourceOpener`, whose production
+    // value is the helper — asserted separately below, so the indirection
+    // cannot become a way around this guard.
+    const senders = <String, (String, String)>{
+      'lib/state/api_server.dart': (
+        'Future<String?> _sendFile(',
+        'debugSourceOpener',
+      ),
+      'lib/api/group_api_adapter.dart': (
+        'Future<({String? error, String? contentId})> sendFile(',
+        'veilOpenSourceForSend',
+      ),
+    };
+
+    expect(
+      File('lib/state/api_server.dart')
+          .readAsStringSync()
+          .replaceAll(RegExp(r'\s+'), ' '),
+      contains('debugSourceOpener = veilOpenSourceForSend'),
+      reason:
+          'the injectable opener no longer defaults to the single-descriptor '
+          'helper, so the guard below proves nothing about production',
+    );
+
+    for (final entry in senders.entries) {
+      final source = File(entry.key).readAsStringSync();
+      final start = source.indexOf(entry.value.$1);
+      expect(
+        start,
+        isNot(-1),
+        reason:
+            'the sender ${entry.value.$1} is gone from ${entry.key} — this '
+            'guard now checks nothing, which is worse than it failing',
+      );
+
+      // Brace-count the method body. A mis-parse makes this fail loudly; it
+      // cannot make it pass quietly.
+      // The body brace, not the first one: a record return type spells
+      // `({String? error, ...})` right there in the signature.
+      final asyncAt = source.indexOf('async {', start);
+      expect(
+        asyncAt,
+        isNot(-1),
+        reason: '${entry.value.$1} is no longer an async method',
+      );
+      final open = asyncAt + 'async '.length;
+      var depth = 0;
+      var end = -1;
+      for (var i = open; i < source.length; i++) {
+        if (source[i] == '{') depth++;
+        if (source[i] == '}') {
+          depth--;
+          if (depth == 0) {
+            end = i;
+            break;
+          }
+        }
+      }
+      expect(end, isNot(-1), reason: 'could not find the end of ${entry.value}');
+      final body = source.substring(open, end);
+
+      expect(
+        body,
+        contains(entry.value.$2),
+        reason:
+            '${entry.key}: the sender must open the path through the one '
+            'helper that hands back the size WITH the descriptor',
+      );
+      expect(
+        body,
+        isNot(contains('.length()')),
+        reason:
+            '${entry.key}: the size is coming from a second lookup of the '
+            'name. Between it and the open the name can mean another file, '
+            'and the offer then describes one file and serves another — the '
+            'one combination an honest receiver cannot detect',
+      );
+      expect(
+        body,
+        isNot(contains('.exists()')),
+        reason:
+            '${entry.key}: a third lookup of the name, and it proves nothing '
+            'the open does not prove better',
+      );
+    }
+  });
 }
