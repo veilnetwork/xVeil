@@ -715,8 +715,11 @@ class HeadlessRuntime {
   ///
   /// ONE open, for the reason spelled out on [veilOpenSourceForSend]: size and
   /// bytes have to come from the same descriptor or the offer can describe one
-  /// file while serving another. The stamp comparison across the read is
-  /// detection only — the offer is already out by the time it can fire.
+  /// file while serving another. [veilOpenPinnedSource] brackets that open with
+  /// an identity stamp on either side, so a name swapped between the API edge's
+  /// authorization and the open refuses before anything is offered (audit
+  /// X-01). The comparison across the READ stays detection only — the offer is
+  /// already out by the time it can fire.
   static Future<String?> _sendFile(
     MessagingService messaging,
     String toHex,
@@ -730,9 +733,10 @@ class HeadlessRuntime {
     } catch (_) {
       return 'invalid peer';
     }
-    final source = await veilOpenSourceForSend(path);
-    if (source == null) return 'source not found';
-    final before = await veilSourceStamp(path);
+    final opened = await veilOpenPinnedSource(path);
+    if (opened.refusal != null) return opened.refusal;
+    final source = opened.source!;
+    final before = opened.stamp;
     try {
       final cid = await messaging.sendFileStreaming(
         peer,

@@ -30,9 +30,13 @@ import 'package:xveil/state/providers.dart';
 //
 // One descriptor removes the disagreement. It does not remove the window
 // between the API edge's check and the open; nothing available in Dart does
-// (no `openat`, no `O_NOFOLLOW`, no `fstat`). That residue is DETECTED, by
-// comparing the file's stamp across the read, and reported — after the fact,
-// which is what "detection" means and all it means.
+// (no `openat`, no `O_NOFOLLOW`, no `fstat`).
+//
+// That residue is narrowed by `veilOpenPinnedSource`, which stamps the name's
+// identity on either side of the open and refuses before anything is offered
+// (audit X-01, covered by `send_source_pinning_test.dart`), and what is left
+// of it is DETECTED by comparing the stamp across the read — reported after
+// the fact, which is what "detection" means and all it means.
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
 
@@ -320,7 +324,7 @@ void main() {
       ),
       'lib/api/group_api_adapter.dart': (
         'Future<({String? error, String? contentId})> sendFile(',
-        'veilOpenSourceForSend',
+        'veilOpenPinnedSource',
       ),
     };
 
@@ -332,6 +336,19 @@ void main() {
       reason:
           'the injectable opener no longer defaults to the single-descriptor '
           'helper, so the guard below proves nothing about production',
+    );
+    // The senders open through `veilOpenPinnedSource` now, which is a wrapper.
+    // Without this the guard below would be satisfied by a wrapper that looked
+    // the name up twice inside itself — the very shape it exists to forbid,
+    // moved one call deeper.
+    expect(
+      File('lib/data/serve_source.dart')
+          .readAsStringSync()
+          .replaceAll(RegExp(r'\s+'), ' '),
+      contains('await (opener ?? veilOpenSourceForSend)(path)'),
+      reason:
+          'veilOpenPinnedSource no longer opens through the single-descriptor '
+          'helper, so routing the senders through it proves nothing',
     );
 
     for (final entry in senders.entries) {
