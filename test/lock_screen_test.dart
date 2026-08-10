@@ -8,6 +8,7 @@ import 'package:xveil/state/app_controller.dart';
 import 'dart:io';
 import 'package:xveil/data/whisper_model_store.dart';
 import 'package:xveil/state/whisper_model_controller.dart';
+import 'package:xveil/state/translation_model_controller.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({'onboarded': true}));
@@ -80,6 +81,11 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          // Same reason the speech store is overridden here: wipeContainers
+          // resolves the models directory through a platform channel, which a
+          // widget test does not have. This test is about the phrase gate, not
+          // about what a wipe removes.
+          translationModelsRootProvider.overrideWithValue(() async => null),
           whisperModelStoreProvider.overrideWithValue(
             WhisperModelStore(supportDirectory: () async => modelDir),
           ),

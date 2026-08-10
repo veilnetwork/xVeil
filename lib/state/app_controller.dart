@@ -30,6 +30,7 @@ import 'providers.dart';
 import 'screen_lock_controller.dart';
 import 'storage_preferences.dart';
 import 'vpn_controller.dart';
+import 'translation_model_controller.dart';
 import 'whisper_model_controller.dart';
 import 'package:xveil/core/log.dart';
 
@@ -2618,6 +2619,28 @@ class AppController extends Notifier<AppState> {
           .timeout(const Duration(seconds: 3));
     } catch (e) {
       devLog(() => 'xVeil[wipe]: failed to remove the speech model: $e');
+    }
+    // The translation models too, and for a STRONGER reason than the speech
+    // one. Whisper's model is a single generic file: its presence says the
+    // person enabled transcription. A translation model is one directory per
+    // DIRECTION, named `ru-en`, so what survives a wipe is a list of the
+    // languages they read — a fact about the person, not just about their use
+    // of the app, sitting in plaintext directory names that need nothing
+    // unlocked to read.
+    //
+    // Same bound and the same best-effort handling: resolving the support
+    // directory goes through a platform channel, and a wipe that hangs on an
+    // unresponsive plugin is worse than one that leaves a re-downloadable
+    // file behind.
+    try {
+      final root = await ref
+          .read(translationModelsRootProvider)()
+          .timeout(const Duration(seconds: 3));
+      if (root != null && root.existsSync()) {
+        root.deleteSync(recursive: true);
+      }
+    } catch (e) {
+      devLog(() => 'xVeil[wipe]: failed to remove translation models: $e');
     }
     state = const AppState(AppPhase.onboarding);
   }
