@@ -156,6 +156,24 @@ if(EXISTS "${VEIL_WHISPER_DIR}/libveil_whisper.so")
     COMPONENT Runtime)
 endif()
 
+# On-device translation (CTranslate2 + SentencePiece) — same shape as whisper
+# above: the wrapper built by native/translate/build_veil_translate_linux.sh
+# lands in the bundle's lib/, where native_libs.dart resolves it. Absent, the
+# translation affordance never appears.
+#
+# Written BEFORE that script exists, on purpose. Every other platform learned
+# this the expensive way in the same week: the Android library was built into a
+# directory the APK never reads, and macOS never copied the dylib at all — both
+# produced a library that was verified, correct, and unreachable. The EXISTS
+# guard makes this inert until there is something to install, and present the
+# moment there is.
+set(VEIL_TRANSLATE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../native/translate/linux")
+if(EXISTS "${VEIL_TRANSLATE_DIR}/libveil_translate.so")
+  install(FILES "${VEIL_TRANSLATE_DIR}/libveil_translate.so"
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    COMPONENT Runtime)
+endif()
+
 # The 57 MiB ggml model is NOT bundled by default — the app fetches it on
 # demand and keeps it once for the whole app. Bundling it stayed possible for
 # a build that must install without a network, and needs the same opt-in as
