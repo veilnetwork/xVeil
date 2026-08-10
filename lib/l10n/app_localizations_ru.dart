@@ -5962,6 +5962,9 @@ class AppL10nRu extends AppL10n {
   String get modelBundleFailed => 'Установить не удалось';
 
   @override
+  String get modelBundleMissing => 'файла нет на этом устройстве';
+
+  @override
   String get modelBundleTrust =>
       'Модель решает, что приложение скажет о чужих словах. Ставьте её только от того, кому доверяете.';
 
