@@ -14,13 +14,17 @@ final bool _debugBuild = () {
 
 /// Debug-only tally of what the app actually commits, by namespace.
 ///
-/// The container may never reuse a freed slot — a second write at one offset
-/// is not explicable by a decoy password, so the prohibition is a deniability
-/// property, not an oversight. The consequence is that EVERY write is
-/// permanent until a repack: a commit that changes nothing still costs its
-/// chunks forever. So "what is being written, and by whom" is the question
-/// behind both idle growth and per-message cost, and until now nothing could
-/// answer it — the file grew and no counter said why.
+/// A superseded chunk is not handed straight back to the writer, so the file
+/// grows and only a repack returns the space: a commit that changes nothing
+/// still costs its chunks until then.
+///
+/// (Retired slots ARE reused — see the note in kv_log_store.dart. An earlier
+/// version of this comment said they never are, which was a stale reading of a
+/// prohibition hidden-volume's DESIGN §9.1 explicitly lifted.)
+///
+/// So "what is being written, and by whom" is the question behind both idle
+/// growth and per-message cost, and until this existed nothing could answer it:
+/// the file grew and no counter said why.
 ///
 /// Costs nothing outside a debug build: [record] compiles down to a
 /// `_debugBuild` check at every call site.
