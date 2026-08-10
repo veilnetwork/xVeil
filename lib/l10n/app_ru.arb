@@ -2552,6 +2552,7 @@
   "translationModelsImporting": "Устанавливается…",
   "translationModelsFailed": "Этот файл установить не удалось",
   "translationModelsRemove": "Удалить этот язык",
+  "translationModelsShare": "Сохранить файлом, чтобы отправить",
   "translationModelsHint": "Один файл .veiltranslate на направление. Перевод выполняется на этом устройстве.",
   "voiceModelResume": "Продолжить скачивание",
   "voiceModelResumeAt": "{percent}% уже скачано",

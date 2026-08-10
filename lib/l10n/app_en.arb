@@ -2570,6 +2570,7 @@
   "translationModelsImporting": "Installing…",
   "translationModelsFailed": "This file could not be installed",
   "translationModelsRemove": "Remove this language",
+  "translationModelsShare": "Save as a file to send",
   "translationModelsHint": "One .veiltranslate file per direction. Translation happens on this device.",
   "voiceModelResume": "Continue downloading",
   "voiceModelResumeAt": "{percent}% already downloaded",

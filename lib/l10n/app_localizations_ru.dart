@@ -5991,6 +5991,9 @@ class AppL10nRu extends AppL10n {
   String get translationModelsRemove => 'Удалить этот язык';
 
   @override
+  String get translationModelsShare => 'Сохранить файлом, чтобы отправить';
+
+  @override
   String get translationModelsHint =>
       'Один файл .veiltranslate на направление. Перевод выполняется на этом устройстве.';
 
