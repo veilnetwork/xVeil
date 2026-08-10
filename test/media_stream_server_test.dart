@@ -1,6 +1,7 @@
 // Loopback media server (video epic): range grammar + a live loopback
 // round-trip with the exact request shapes ExoPlayer/AVPlayer issue.
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -30,61 +31,110 @@ void main() {
     expect(mediaMimeFor(null), 'application/octet-stream');
   });
 
-  test('serves full body, honors ranges, 416s past-the-end, guards token',
-      () async {
+  /// A stop that lands while the socket is binding must not leave it bound.
+  ///
+  /// `stop` sweeps what the field holds and `serve` binds before it assigns,
+  /// so a stop in that window found nothing to close and `serve` then
+  /// published a listener nobody holds a reference to: an open loopback socket
+  /// for the life of the process, answering on a token `stop` had already
+  /// cleared (report9 X-12).
+  ///
+  /// If the refusal is missing, `serve` resolves with a URL — and the check
+  /// below proves that URL is a LIVE orphan rather than merely reporting the
+  /// wrong exception type.
+  test('a stop while the socket is binding leaves nothing listening', () async {
     final srv = LocalMediaServer();
-    final bytes = Uint8List.fromList(List.generate(1000, (i) => i & 0xff));
-    final url = await srv.serve(bytesRangeSource(bytes), name: 'clip.mp4');
-    final client = HttpClient();
-    addTearDown(() async {
-      client.close(force: true);
-      await srv.stop();
-    });
+    final gate = Completer<void>();
+    LocalMediaServer.debugBindGate = gate.future;
+    addTearDown(() => LocalMediaServer.debugBindGate = null);
 
-    Future<HttpClientResponse> get(Uri u, {String? range}) async {
-      final req = await client.getUrl(u);
-      if (range != null) req.headers.set(HttpHeaders.rangeHeader, range);
-      return req.close();
-    }
-
-    // Full fetch.
-    var res = await get(url);
-    expect(res.statusCode, 200);
-    expect(res.headers.value('accept-ranges'), 'bytes');
-    expect(res.headers.contentType.toString(), startsWith('video/mp4'));
-    var body = (await res.fold(<int>[], (a, b) => a..addAll(b)));
-    expect(body.length, 1000);
-
-    // ExoPlayer-style open range.
-    res = await get(url, range: 'bytes=900-');
-    expect(res.statusCode, 206);
-    expect(res.headers.value('content-range'), 'bytes 900-999/1000');
-    body = (await res.fold(<int>[], (a, b) => a..addAll(b)));
-    expect(body.length, 100);
-    expect(body.first, 900 & 0xff);
-
-    // Closed range.
-    res = await get(url, range: 'bytes=10-19');
-    expect(res.statusCode, 206);
-    body = (await res.fold(<int>[], (a, b) => a..addAll(b)));
-    expect(body, List.generate(10, (i) => (10 + i) & 0xff));
-
-    // Unsatisfiable → 416.
-    res = await get(url, range: 'bytes=5000-');
-    expect(res.statusCode, 416);
-    expect(res.headers.value('content-range'), 'bytes */1000');
-
-    // Wrong token → 404 (a co-resident process can't fish the blob out).
-    res = await get(url.replace(path: '/m/deadbeef'));
-    expect(res.statusCode, 404);
-
-    // stop() kills the endpoint.
-    await srv.stop();
-    expect(
-      () => get(url).timeout(const Duration(seconds: 2)),
-      throwsA(anything),
+    final serving = srv.serve(
+      bytesRangeSource(Uint8List.fromList(List.filled(8, 1))),
+      name: 'clip.mp4',
     );
+    // Let serve reach the gate: bound, not yet adopted.
+    for (var i = 0; i < 4; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    await srv.stop();
+    gate.complete();
+
+    Uri? published;
+    try {
+      published = await serving;
+    } on StateError {
+      // The refusal — nothing was published, nothing is listening.
+    }
+    if (published != null) {
+      final socket = await Socket.connect(
+        '127.0.0.1',
+        published.port,
+      ).timeout(const Duration(seconds: 2));
+      await socket.close();
+      fail(
+        'stop() returned and a listener is still accepting on port '
+        '${published.port}: nothing holds it and nothing will close it',
+      );
+    }
   });
+
+  test(
+    'serves full body, honors ranges, 416s past-the-end, guards token',
+    () async {
+      final srv = LocalMediaServer();
+      final bytes = Uint8List.fromList(List.generate(1000, (i) => i & 0xff));
+      final url = await srv.serve(bytesRangeSource(bytes), name: 'clip.mp4');
+      final client = HttpClient();
+      addTearDown(() async {
+        client.close(force: true);
+        await srv.stop();
+      });
+
+      Future<HttpClientResponse> get(Uri u, {String? range}) async {
+        final req = await client.getUrl(u);
+        if (range != null) req.headers.set(HttpHeaders.rangeHeader, range);
+        return req.close();
+      }
+
+      // Full fetch.
+      var res = await get(url);
+      expect(res.statusCode, 200);
+      expect(res.headers.value('accept-ranges'), 'bytes');
+      expect(res.headers.contentType.toString(), startsWith('video/mp4'));
+      var body = (await res.fold(<int>[], (a, b) => a..addAll(b)));
+      expect(body.length, 1000);
+
+      // ExoPlayer-style open range.
+      res = await get(url, range: 'bytes=900-');
+      expect(res.statusCode, 206);
+      expect(res.headers.value('content-range'), 'bytes 900-999/1000');
+      body = (await res.fold(<int>[], (a, b) => a..addAll(b)));
+      expect(body.length, 100);
+      expect(body.first, 900 & 0xff);
+
+      // Closed range.
+      res = await get(url, range: 'bytes=10-19');
+      expect(res.statusCode, 206);
+      body = (await res.fold(<int>[], (a, b) => a..addAll(b)));
+      expect(body, List.generate(10, (i) => (10 + i) & 0xff));
+
+      // Unsatisfiable → 416.
+      res = await get(url, range: 'bytes=5000-');
+      expect(res.statusCode, 416);
+      expect(res.headers.value('content-range'), 'bytes */1000');
+
+      // Wrong token → 404 (a co-resident process can't fish the blob out).
+      res = await get(url.replace(path: '/m/deadbeef'));
+      expect(res.statusCode, 404);
+
+      // stop() kills the endpoint.
+      await srv.stop();
+      expect(
+        () => get(url).timeout(const Duration(seconds: 2)),
+        throwsA(anything),
+      );
+    },
+  );
 
   group('P0-5: the server streams instead of holding the item', () {
     test('a range request decrypts only that range', () async {
