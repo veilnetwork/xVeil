@@ -61,13 +61,19 @@ Stream<Uint8List> rangeChunks(
   var sent = 0;
   while (sent < total) {
     final want = total - sent;
-    final chunk = await source.read(
-      start + sent,
-      want < chunkBytes ? want : chunkBytes,
-    );
-    if (chunk == null || chunk.isEmpty) throw RangeSourceUnreadable(start + sent);
-    final take = chunk.length > want
-        ? Uint8List.sublistView(chunk, 0, want)
+    // The hop's cap, and the clamp below is against IT, not against `want`.
+    // Clamping to `want` kept the total honest and let a single hop through
+    // at whatever size an over-delivering reader chose, because early in a
+    // large walk `want` is the whole rest of the blob — so the promise
+    // above ("no hop exceeds the bound") held only for the last hop, which
+    // is the one nobody needed it for (report9 X-06).
+    final cap = want < chunkBytes ? want : chunkBytes;
+    final chunk = await source.read(start + sent, cap);
+    if (chunk == null || chunk.isEmpty) {
+      throw RangeSourceUnreadable(start + sent);
+    }
+    final take = chunk.length > cap
+        ? Uint8List.sublistView(chunk, 0, cap)
         : chunk;
     yield take;
     sent += take.length;
