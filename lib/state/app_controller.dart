@@ -10,6 +10,7 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import '../data/native_libs.dart';
 
+import '../data/node/embedded_node.dart';
 import '../data/node/node_controller.dart';
 import '../data/node/proxy_routing.dart';
 import '../data/storage/kv_log_store.dart' show SlotUtilization;
@@ -2438,6 +2439,36 @@ class AppController extends Notifier<AppState> {
       ref.read(realStackProvider.notifier).state = null;
       _oneActivePortOffset = _oneActivePortOffset == 0 ? 64 : 0;
       await stack.dispose();
+      // Did the node actually stop, or was the wait abandoned?
+      //
+      // The native stop is bounded now and detaches the thread when its budget
+      // runs out (report9 X-17). Nothing can retry it — the handle is consumed
+      // either way — so the only thing left to do with the answer is refuse to
+      // claim a lock the app does not have. A node that outlived its stop
+      // still holds its sockets and its network identity until the process
+      // exits, and the person is being told "locked".
+      //
+      // Type-checked rather than put on `NodeController`: that interface has
+      // eight implementers, five of them test doubles, and none of the others
+      // can abandon anything — for them the honest answer is a constant.
+      final controller = stack.controller;
+      if (controller is EmbeddedNodeController &&
+          controller.lastStopWasAbandoned) {
+        devLog(
+          () =>
+              'xVeil[lock]: the node did not stop within its budget — it may '
+              'still hold its sockets and its network identity',
+        );
+        errorJournal.record(
+          kind: 'node-stop-abandoned',
+          error: StateError(
+            'the node stop ran out of its budget and the thread was detached '
+            '— the app is presenting itself as locked while a node may still '
+            'be running',
+          ),
+          atMs: DateTime.now().millisecondsSinceEpoch,
+        );
+      }
     }
   }
 
