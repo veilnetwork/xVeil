@@ -635,7 +635,6 @@
   "spaceAccessRoleDelete": "Delete role",
   "spaceAccessRoleDeleteConfirm": "Delete the role “{name}”? Its assignments will be removed in the same signed change.",
   "spaceAccessRoleName": "Role name",
-  "spaceAccessRolePermissions": "{count, plural, =1{1 permission} other{{count} permissions}}",
   "spaceAccessRoleGrantSummary": "{permissions, plural, =1{1 permission} other{{permissions} permissions}} · {areas, plural, =1{1 area} other{{areas} areas}}",
   "spaceAccessPermissionAreas": "Permission areas",
   "spaceAccessAddArea": "Add another area",
@@ -2162,7 +2161,6 @@
     }
   },
   "nicknamePublishing": "Publishing…",
-  "nicknameOwnedTitle": "Your name",
   "nicknameWeightExplain": "Protection weight is the cumulative proof-of-work pinned to the name — the value shown is the live network weight. Taking the name over requires strictly more work; Reinforce raises that price.",
   "nicknameOwnedTakenOver": "The name was taken over with heavier work (rival weight {weight}). Reinforce wins it back by mining strictly more.",
   "@nicknameOwnedTakenOver": {
