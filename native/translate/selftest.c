@@ -72,6 +72,36 @@ int main(int argc, char** argv) {
     veil_translate_free(out);
   }
 
+  // A long message must not come back with its tail missing.
+  //
+  // The decode has to be bounded — an unbounded one turns a degenerate
+  // repetition loop into a hung UI — but a FIXED bound cuts honest text, and
+  // silently: nothing in a truncated translation says it was truncated. The
+  // bound is now four times this input, so the end of a long paragraph still
+  // arrives. The marker is in the LAST sentence on purpose.
+  {
+    char longer[4096];
+    longer[0] = '\0';
+    for (int i = 0; i < 24; i++) {
+      strcat(longer, "Это сообщение зашифровано и не покидает устройство. ");
+    }
+    strcat(longer, "Встретимся завтра у входа в метро.");
+
+    char* out = veil_translate(engine, longer);
+    if (out == NULL) {
+      fail("a long message translates", veil_translate_last_error(engine));
+    } else {
+      if (strstr(out, "subway") == NULL && strstr(out, "metro") == NULL) {
+        printf("        -> %.200s...\n", out);
+        fail("the END of a long message survives",
+             "the last sentence is missing — the decode was cut short");
+      } else {
+        ok("a long message keeps its tail");
+      }
+      veil_translate_free(out);
+    }
+  }
+
   char* blank = veil_translate(engine, "   ");
   if (blank == NULL) {
     fail("blank input is not an error", veil_translate_last_error(engine));
