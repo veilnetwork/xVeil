@@ -6108,4 +6108,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get chatTranslationShowOriginal => 'Mostrar el original';
+
+  @override
+  String get chatTranslateInto => 'Traducir a…';
 }

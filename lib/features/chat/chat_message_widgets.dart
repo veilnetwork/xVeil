@@ -2408,9 +2408,21 @@ class _TranslationRow extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SelectableText(
-              text,
-              style: Theme.of(context).textTheme.bodyMedium,
+            // Reachable after the fact too: a reading that came out wrong is
+            // exactly when someone wants to name the language, and by then the
+            // button that offered it is gone.
+            GestureDetector(
+              onLongPress: () => _pickTranslationLanguage(
+                context,
+                ref,
+                messageId: messageId,
+                body: body,
+                current: entry.to,
+              ),
+              child: SelectableText(
+                text,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
             ),
             InkWell(
               onTap: () => ref
@@ -2433,10 +2445,24 @@ class _TranslationRow extends ConsumerWidget {
     final failed = entry?.phase == TranslationPhase.failed;
     return Padding(
       padding: const EdgeInsets.only(top: 4),
-      child: InkWell(
+      // Same shape as the transcription affordance: tap reads it in this
+      // device's language, long-press says which language to read it AS. The
+      // guess is right most of the time and wrong exactly where a person
+      // notices — a thread in a language neither this device nor the sender
+      // announces.
+      child: Tooltip(
+        message: l.chatTranslateInto,
+        child: InkWell(
         onTap: () => ref
             .read(translationControllerProvider.notifier)
             .translate(messageId, body),
+        onLongPress: () => _pickTranslationLanguage(
+          context,
+          ref,
+          messageId: messageId,
+          body: body,
+          current: entry?.to,
+        ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -2450,7 +2476,69 @@ class _TranslationRow extends ConsumerWidget {
             ),
           ],
         ),
+        ),
       ),
     );
   }
+}
+
+/// Languages offered when a person asks to read a message as something other
+/// than what this device announces.
+///
+/// The same list the voice transcriber offers, and for the same reason: a list
+/// of languages is the one list a reader can navigate without already knowing
+/// the app's language, so the names are native.
+const _translationLanguages = _transcriptLanguages;
+
+Future<void> _pickTranslationLanguage(
+  BuildContext context,
+  WidgetRef ref, {
+  required String messageId,
+  required String body,
+  String? current,
+}) async {
+  final l = AppL10n.of(context);
+  final chosen = await showModalBottomSheet<String>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (sheet) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                l.chatTranslateInto,
+                style: Theme.of(sheet).textTheme.titleSmall,
+              ),
+            ),
+          ),
+          Flexible(
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: _translationLanguages.length,
+              itemBuilder: (_, i) {
+                final (code, name) = _translationLanguages[i];
+                return ListTile(
+                  dense: true,
+                  title: Text(name),
+                  trailing: code == current
+                      ? const Icon(Icons.check, size: 18)
+                      : null,
+                  onTap: () => Navigator.of(sheet).pop(code),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (chosen == null) return;
+  await ref
+      .read(translationControllerProvider.notifier)
+      .translate(messageId, body, to: chosen);
 }

@@ -10669,6 +10669,12 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Show original'**
   String get chatTranslationShowOriginal;
+
+  /// Title of the sheet that picks which language to translate a message into
+  ///
+  /// In en, this message translates to:
+  /// **'Translate into…'**
+  String get chatTranslateInto;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
