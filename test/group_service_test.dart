@@ -2287,7 +2287,8 @@ void main() {
     );
     final forwarded = jsonDecode(relayed.first.$2) as Map;
     expect(
-      (forwarded['g'] as List), hasLength(1),
+      (forwarded['g'] as List),
+      hasLength(1),
       reason: 'five copies in, five copies out to every neighbour',
     );
 
@@ -3173,91 +3174,89 @@ void main() {
   // below: an outsider gets nothing AND does not get us to do the work, while
   // a member who is not a contact — the case the stranger door exists for —
   // still gets its answer.
-  test(
-    'stranger sync REQUEST: a non-member is turned away at the door, a '
-    'member without any contact relationship is still answered',
-    () async {
-      Future<void> drain() async {
-        for (var i = 0; i < 6; i++) {
-          await Future<void>.delayed(const Duration(milliseconds: 5));
-        }
+  test('stranger sync REQUEST: a non-member is turned away at the door, a '
+      'member without any contact relationship is still answered', () async {
+    Future<void> drain() async {
+      for (var i = 0; i < 6; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
       }
+    }
 
-      final owner = _id(1);
-      final bob = _id(2);
-      final outsider = _id(9);
+    final owner = _id(1);
+    final bob = _id(2);
+    final outsider = _id(9);
 
-      final toWire = <String>[];
-      final s1 = FakeHvContainer().storage();
-      await s1.open(password: 'pw', createIfMissing: true);
-      final ownerSvc = GroupService(
-        s1,
-        _FakeSigner(owner),
-        send: (p, g, j) async => toWire.add(j),
-      );
-      final spaceId = await ownerSvc.createSpace(
-        'Open house',
-        visibility: SpaceVisibility.public,
-      );
-      await ownerSvc.addControlOp(
-        spaceId,
-        ControlOp.addMember,
-        target: bob,
-        role: GroupRole.member,
-      );
-      await drain();
-      final joinSnapshot = toWire.last;
+    final toWire = <String>[];
+    final s1 = FakeHvContainer().storage();
+    await s1.open(password: 'pw', createIfMissing: true);
+    final ownerSvc = GroupService(
+      s1,
+      _FakeSigner(owner),
+      send: (p, g, j) async => toWire.add(j),
+    );
+    final spaceId = await ownerSvc.createSpace(
+      'Open house',
+      visibility: SpaceVisibility.public,
+    );
+    await ownerSvc.addControlOp(
+      spaceId,
+      ControlOp.addMember,
+      target: bob,
+      role: GroupRole.member,
+    );
+    await drain();
+    final joinSnapshot = toWire.last;
 
-      final s2 = FakeHvContainer().storage();
-      await s2.open(password: 'pw', createIfMissing: true);
-      final bobSvc = GroupService(s2, _FakeSigner(bob), send: (p, g, j) async {});
-      expect(await bobSvc.ingestSnapshot(joinSnapshot), isTrue);
-      expect(
-        await ownerSvc.publishSpacePost(spaceId, body: 'members only'),
-        isNotNull,
-      );
-      await drain();
+    final s2 = FakeHvContainer().storage();
+    await s2.open(password: 'pw', createIfMissing: true);
+    final bobSvc = GroupService(s2, _FakeSigner(bob), send: (p, g, j) async {});
+    expect(await bobSvc.ingestSnapshot(joinSnapshot), isTrue);
+    expect(
+      await ownerSvc.publishSpacePost(spaceId, body: 'members only'),
+      isNotNull,
+    );
+    await drain();
 
-      final request = (await bobSvc.buildGroupSyncRequest(spaceId))!;
-      final requestJson = jsonEncode(request);
+    final request = (await bobSvc.buildGroupSyncRequest(spaceId))!;
+    final requestJson = jsonEncode(request);
 
-      // The outsider replays the very same well-formed request, which needs
-      // nothing but the public Space id and a transport session.
-      toWire.clear();
-      expect(
-        await ownerSvc.ingestGroupEntryFromStranger(outsider, requestJson),
-        isFalse,
-      );
-      expect(toWire, isEmpty, reason: 'nothing goes back to a non-member');
-      final afterOutsider = await ownerSvc.spaceObservabilitySnapshot();
-      expect(
-        afterOutsider.counters['aclDenied.reason.notMember'],
-        isNull,
-        reason: 'the request was refused at the stranger door — the handler '
-            'that records this was never entered at all',
-      );
-      expect(afterOutsider.counters['p2pBackfill.reason.notMember'], isNull);
+    // The outsider replays the very same well-formed request, which needs
+    // nothing but the public Space id and a transport session.
+    toWire.clear();
+    expect(
+      await ownerSvc.ingestGroupEntryFromStranger(outsider, requestJson),
+      isFalse,
+    );
+    expect(toWire, isEmpty, reason: 'nothing goes back to a non-member');
+    final afterOutsider = await ownerSvc.spaceObservabilitySnapshot();
+    expect(
+      afterOutsider.counters['aclDenied.reason.notMember'],
+      isNull,
+      reason:
+          'the request was refused at the stranger door — the handler '
+          'that records this was never entered at all',
+    );
+    expect(afterOutsider.counters['p2pBackfill.reason.notMember'], isNull);
 
-      // …and the door is not simply shut for everyone: Bob is a member per our
-      // own fold and holds no contact relationship with us, which is exactly
-      // the exchange the stranger path exists to carry.
-      expect(await ownerSvc.allowStrangerGroupSync(bob, spaceId.hex), isTrue);
-      expect(
-        await ownerSvc.ingestGroupEntryFromStranger(bob, requestJson),
-        isTrue,
-      );
-      expect(
-        toWire,
-        isNotEmpty,
-        reason: 'the legitimate member-to-member sync still gets its delta',
-      );
-      expect(await bobSvc.ingestSnapshot(toWire.last), isTrue);
-      expect(
-        (await bobSvc.postsOf(spaceId)).map((post) => post.body),
-        contains('members only'),
-      );
-    },
-  );
+    // …and the door is not simply shut for everyone: Bob is a member per our
+    // own fold and holds no contact relationship with us, which is exactly
+    // the exchange the stranger path exists to carry.
+    expect(await ownerSvc.allowStrangerGroupSync(bob, spaceId.hex), isTrue);
+    expect(
+      await ownerSvc.ingestGroupEntryFromStranger(bob, requestJson),
+      isTrue,
+    );
+    expect(
+      toWire,
+      isNotEmpty,
+      reason: 'the legitimate member-to-member sync still gets its delta',
+    );
+    expect(await bobSvc.ingestSnapshot(toWire.last), isTrue);
+    expect(
+      (await bobSvc.postsOf(spaceId)).map((post) => post.body),
+      contains('members only'),
+    );
+  });
 
   test(
     'a sync request is refused before the group is materialized, not after',
@@ -3322,7 +3321,8 @@ void main() {
         (await ownerSvc.spaceObservabilitySnapshot())
             .counters['aclDenied.reason.notMember'],
         1,
-        reason: 'reached through the handler directly, the refusal is still '
+        reason:
+            'reached through the handler directly, the refusal is still '
             'recorded — it just costs nothing now',
       );
 
@@ -3332,14 +3332,12 @@ void main() {
         ..['p'] = <String, Object>{}
         ..['pg'] = <String, Object>{}
         ..['c'] = <String, Object>{};
-      expect(
-        await ownerSvc.handleGroupSyncRequest(bob, bobRequest),
-        isTrue,
-      );
+      expect(await ownerSvc.handleGroupSyncRequest(bob, bobRequest), isTrue);
       expect(
         wallClockReads,
         greaterThan(0),
-        reason: 'the member DOES pay for the passes the outsider skipped — '
+        reason:
+            'the member DOES pay for the passes the outsider skipped — '
             'the counter is measuring real work, not nothing at all',
       );
       expect(toWire, isNotEmpty);
@@ -3471,8 +3469,10 @@ void main() {
 
     // One millisecond past it is not a clock reading any more, and the only
     // time the receiver actually knows is when the row arrived.
-    expect(groupMessageOrderAt(now + kMessageClockSkew.inMilliseconds + 1, now),
-        now);
+    expect(
+      groupMessageOrderAt(now + kMessageClockSkew.inMilliseconds + 1, now),
+      now,
+    );
     expect(
       groupMessageOrderAt(now + const Duration(days: 365).inMilliseconds, now),
       now,
@@ -3503,272 +3503,303 @@ void main() {
 
     final projected = message.withOrderedAt(1700000000000);
     expect(projected.orderedAtMs, 1700000000000);
-    expect(message.orderedAtMs, message.createdAtMs,
-        reason: 'a row with no receipt is ordered by its own claim');
-    expect(projected.createdAtMs, message.createdAtMs,
-        reason: "the author's signed word is left exactly as written");
-    expect(projected.canonicalBytes(), message.canonicalBytes(),
-        reason: 'byte-identical: a signature made before this still verifies');
-    expect(jsonEncode(projected.toJson()), jsonEncode(message.toJson()),
-        reason: 'nothing new reaches disk or the wire');
-    expect(groupMessageHash(projected), groupMessageHash(message),
-        reason: 'dedup, chain prev-hash and fork evidence are untouched');
+    expect(
+      message.orderedAtMs,
+      message.createdAtMs,
+      reason: 'a row with no receipt is ordered by its own claim',
+    );
+    expect(
+      projected.createdAtMs,
+      message.createdAtMs,
+      reason: "the author's signed word is left exactly as written",
+    );
+    expect(
+      projected.canonicalBytes(),
+      message.canonicalBytes(),
+      reason: 'byte-identical: a signature made before this still verifies',
+    );
+    expect(
+      jsonEncode(projected.toJson()),
+      jsonEncode(message.toJson()),
+      reason: 'nothing new reaches disk or the wire',
+    );
+    expect(
+      groupMessageHash(projected),
+      groupMessageHash(message),
+      reason: 'dedup, chain prev-hash and fork evidence are untouched',
+    );
     // The projection survives the copies the read path makes on the way out.
     expect(projected.withMediaHiddenByRetention().orderedAtMs, 1700000000000);
     expect(
       projected
           .withSignature(Uint8List(64), bob.bytes)
-          .withDecryptedContent(
-            const GroupMessageCleartext(body: 'decrypted'),
-          )
+          .withDecryptedContent(const GroupMessageCleartext(body: 'decrypted'))
           .orderedAtMs,
       1700000000000,
     );
   });
 
-  test(
-    'a group member stamping itself into the future owns the bottom of the '
-    'log, the chat-list row and the unread badge until that future arrives — '
-    'and the fix must not touch one signed byte',
-    () async {
-      Future<void> drain() async {
-        for (var i = 0; i < 6; i++) {
-          await Future<void>.delayed(const Duration(milliseconds: 5));
-        }
+  test('a group member stamping itself into the future owns the bottom of the '
+      'log, the chat-list row and the unread badge until that future arrives — '
+      'and the fix must not touch one signed byte', () async {
+    Future<void> drain() async {
+      for (var i = 0; i < 6; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
       }
+    }
 
-      final sent = <String>[];
-      final s1 = FakeHvContainer().storage();
-      await s1.open(password: 'pw', createIfMissing: true);
-      // Held clocks on both sides: this asserts an ORDER and an arrival
-      // moment, so it must not race DateTime.now. `_now()` is monotonic per
-      // service instance, so each side's stamps only ever move forward here.
-      final t0 = DateTime.utc(2026, 8, 3, 12).millisecondsSinceEpoch;
-      var wall = t0;
-      final ownerSvc = GroupService(
-        s1,
-        _FakeSigner(owner),
-        send: (p, g, j) async => sent.add(j),
-      )..debugWallClockMs = () => wall;
-      addTearDown(ownerSvc.dispose);
-      final gid = await ownerSvc.createGroup('G');
-      await ownerSvc.addControlOp(
+    final sent = <String>[];
+    final s1 = FakeHvContainer().storage();
+    await s1.open(password: 'pw', createIfMissing: true);
+    // Held clocks on both sides: this asserts an ORDER and an arrival
+    // moment, so it must not race DateTime.now. `_now()` is monotonic per
+    // service instance, so each side's stamps only ever move forward here.
+    final t0 = DateTime.utc(2026, 8, 3, 12).millisecondsSinceEpoch;
+    var wall = t0;
+    final ownerSvc = GroupService(
+      s1,
+      _FakeSigner(owner),
+      send: (p, g, j) async => sent.add(j),
+    )..debugWallClockMs = () => wall;
+    addTearDown(ownerSvc.dispose);
+    final gid = await ownerSvc.createGroup('G');
+    await ownerSvc.addControlOp(
+      gid,
+      ControlOp.addMember,
+      target: bob,
+      role: GroupRole.member,
+    );
+    await drain();
+    final s2 = FakeHvContainer().storage();
+    await s2.open(password: 'pw', createIfMissing: true);
+    // Bob back from a nap, a minute BEHIND the receiver.
+    var bobWall = t0 - 60000;
+    final bobSvc = GroupService(
+      s2,
+      _FakeSigner(bob),
+      send: (p, g, j) async => sent.add(j),
+    )..debugWallClockMs = () => bobWall;
+    addTearDown(bobSvc.dispose);
+    await bobSvc.ingestSnapshot(sent.last);
+    sent.clear();
+
+    await ownerSvc.postMessage(gid, 'mine');
+    // A stamp in the PAST is never touched: it cannot float above anything,
+    // and a device coming back must keep its own send time.
+    await bobSvc.postMessage(gid, 'a minute ago');
+    // Bob honestly a few minutes fast — exactly at the tolerated bound.
+    bobWall = t0 + kMessageClockSkew.inMilliseconds;
+    await bobSvc.postMessage(gid, 'nearly now');
+    // Bob claims to live in 2027. Nothing in the group can contradict a
+    // clock, and the signature over `ts` proves only who said it.
+    final hostileTs = t0 + const Duration(days: 365).inMilliseconds;
+    bobWall = hostileTs;
+    await bobSvc.postMessage(gid, 'from the future');
+    await drain();
+
+    wall = t0 + 1000;
+    for (final delta in sent) {
+      await ownerSvc.ingestSnapshot(delta);
+    }
+    await drain();
+
+    Future<List<String>> bodies() async =>
+        (await ownerSvc.messagesOf(gid)).map((m) => m.body).toList();
+    Future<GroupMessage> hostileRow() async => (await ownerSvc.messagesOf(
+      gid,
+    )).firstWhere((m) => m.body == 'from the future');
+
+    expect(
+      await bodies(),
+      ['a minute ago', 'mine', 'from the future', 'nearly now'],
+      reason:
+          'the 2027 row is ranked where it ARRIVED, and the honest rows '
+          'on both sides of the receiver clock keep their own send time',
+    );
+
+    // The stamp itself is untouched, and so is every byte the author signed:
+    // rewriting it (the 1:1 answer) would invalidate the signature over
+    // `canonicalBytes`, which includes `ts`, and take group admission with it.
+    final hostile = await hostileRow();
+    final landedAt = hostile.orderedAtMs;
+    expect(hostile.createdAtMs, hostileTs);
+    expect(
+      landedAt,
+      inInclusiveRange(wall, wall + 1000),
+      reason: 'ordered by the one time the receiver actually knows',
+    );
+    final storedRow = (await ownerSvc.load(
+      gid,
+    ))!.messages.firstWhere((m) => m.body == 'from the future');
+    expect(
+      storedRow.createdAtMs,
+      hostileTs,
+      reason: 'what is on disk is what bob signed',
+    );
+    expect(hostile.canonicalBytes(), storedRow.canonicalBytes());
+    expect(groupMessageHash(hostile), groupMessageHash(storedRow));
+    // Nothing local rides out on the wire either. The arrival moment is a
+    // number this receiver chose; shipping it would just be the same
+    // unauthenticated stamp under a second name.
+    final served =
+        jsonDecode(ownerSvc.snapshotJson((await ownerSvc.load(gid))!)) as Map;
+    expect(served.containsKey('mrx'), isFalse);
+    expect(
+      (served['g'] as List).firstWhere(
+        (row) => (row as Map)['body'] == 'from the future',
+      ),
+      storedRow.toJson(),
+      reason: 'served exactly as bob signed it, extra keys and all: none',
+    );
+
+    // The chat-list row: preview and recency both come off the last message,
+    // so before this the group sat at the top of Chats showing 'from the
+    // future' until 2027.
+    final listed = (await ownerSvc.listGroups()).single;
+    expect(listed.preview, 'nearly now');
+    expect(listed.lastTs, t0 + kMessageClockSkew.inMilliseconds);
+    expect(listed.lastTs, lessThan(hostileTs));
+
+    // The badge. `group.seen` is a LOCAL clock reading, so a row stamped
+    // into the future is newer than every watermark this device will ever
+    // write and the badge could not be cleared again — the mirror image of
+    // what the same stamp did to the 1:1 badge, which went permanently
+    // silent instead.
+    expect(await ownerSvc.unreadOf(gid), 3);
+    wall = t0 + const Duration(minutes: 10).inMilliseconds;
+    await ownerSvc.markGroupSeen(gid);
+    expect(
+      await ownerSvc.unreadOf(gid),
+      0,
+      reason: 'a member cannot pin the badge on by claiming to be in 2027',
+    );
+    expect((await ownerSvc.listGroups()).single.unread, 0);
+
+    // ONCE, on arrival. Peers re-ship whole snapshots on every reconnect, so
+    // this exact row comes back against a clock that has moved on; if the
+    // bound were re-derived then, the row would walk down the log on every
+    // sync instead of staying where it landed.
+    wall = t0 + const Duration(hours: 5).inMilliseconds;
+    for (final delta in sent) {
+      await ownerSvc.ingestSnapshot(delta);
+    }
+    await drain();
+    expect(
+      (await hostileRow()).orderedAtMs,
+      landedAt,
+      reason: 'stamped once on arrival; a re-ship must not restamp it',
+    );
+    expect(await bodies(), [
+      'a minute ago',
+      'mine',
+      'from the future',
+      'nearly now',
+    ]);
+    // ...and re-reading is a pure re-fold, never a re-stamp: the clock has
+    // moved another five hours between these two reads.
+    wall = t0 + const Duration(hours: 10).inMilliseconds;
+    expect((await hostileRow()).orderedAtMs, landedAt);
+    expect(await ownerSvc.unreadOf(gid), 0);
+
+    // It survives a reload from disk, so the arrival moment is persisted and
+    // not re-invented per process.
+    final reopened = GroupService(s1, _FakeSigner(owner))
+      ..debugWallClockMs = () => wall;
+    addTearDown(reopened.dispose);
+    expect(
+      (await reopened.messagesOf(
         gid,
-        ControlOp.addMember,
-        target: bob,
-        role: GroupRole.member,
-      );
-      await drain();
-      final s2 = FakeHvContainer().storage();
-      await s2.open(password: 'pw', createIfMissing: true);
-      // Bob back from a nap, a minute BEHIND the receiver.
-      var bobWall = t0 - 60000;
-      final bobSvc = GroupService(
-        s2,
-        _FakeSigner(bob),
-        send: (p, g, j) async => sent.add(j),
-      )..debugWallClockMs = () => bobWall;
-      addTearDown(bobSvc.dispose);
-      await bobSvc.ingestSnapshot(sent.last);
-      sent.clear();
+      )).firstWhere((m) => m.body == 'from the future').orderedAtMs,
+      landedAt,
+    );
+    expect(await reopened.unreadOf(gid), 0);
 
-      await ownerSvc.postMessage(gid, 'mine');
-      // A stamp in the PAST is never touched: it cannot float above anything,
-      // and a device coming back must keep its own send time.
-      await bobSvc.postMessage(gid, 'a minute ago');
-      // Bob honestly a few minutes fast — exactly at the tolerated bound.
-      bobWall = t0 + kMessageClockSkew.inMilliseconds;
-      await bobSvc.postMessage(gid, 'nearly now');
-      // Bob claims to live in 2027. Nothing in the group can contradict a
-      // clock, and the signature over `ts` proves only who said it.
-      final hostileTs = t0 + const Duration(days: 365).inMilliseconds;
-      bobWall = hostileTs;
-      await bobSvc.postMessage(gid, 'from the future');
-      await drain();
+    // A row already on disk from before this rule existed is bounded the
+    // next time a peer offers it, not left with its 2027 forever — which is
+    // why the arrival moment is recorded OUTSIDE the dedup below it. Stand
+    // in for that log by receiving everything on a device whose own clock
+    // already reads 2027, so nothing is recorded, then restarting it sane.
+    final wire = ownerSvc.snapshotJson((await ownerSvc.load(gid))!);
+    final s3 = FakeHvContainer().storage();
+    await s3.open(password: 'pw', createIfMissing: true);
+    final believed = GroupService(s3, _FakeSigner(owner))
+      ..debugWallClockMs = () => hostileTs;
+    addTearDown(believed.dispose);
+    expect(await believed.ingestSnapshot(wire), isTrue);
+    expect(
+      (await believed.messagesOf(
+        gid,
+      )).firstWhere((m) => m.body == 'from the future').orderedAtMs,
+      hostileTs,
+      reason: 'a device whose own clock says 2027 has no reason to doubt it',
+    );
+    var restartedWall = t0;
+    final restarted = GroupService(s3, _FakeSigner(owner))
+      ..debugWallClockMs = () => restartedWall;
+    addTearDown(restarted.dispose);
+    await restarted.ingestSnapshot(wire);
+    final rescued = (await restarted.messagesOf(
+      gid,
+    )).firstWhere((m) => m.body == 'from the future');
+    expect(rescued.createdAtMs, hostileTs);
+    expect(
+      rescued.orderedAtMs,
+      inInclusiveRange(t0, t0 + 1000),
+      reason: 'a duplicate the log already held is still bounded',
+    );
+    restartedWall = t0 + const Duration(hours: 5).inMilliseconds;
+    await restarted.ingestSnapshot(wire);
+    expect(
+      (await restarted.messagesOf(
+        gid,
+      )).firstWhere((m) => m.body == 'from the future').orderedAtMs,
+      rescued.orderedAtMs,
+      reason: 'the first observation is the only one that may set it',
+    );
 
-      wall = t0 + 1000;
-      for (final delta in sent) {
-        await ownerSvc.ingestSnapshot(delta);
-      }
-      await drain();
+    // The bound at the exact millisecond, against a receiver whose arrival
+    // moment is pinned: a FRESH service instance (so its monotonic `_now`
+    // starts from the held wall clock) taking ONE snapshot. Everything above
+    // sits comfortably inside or outside the tolerance; this is the pair
+    // that straddles it, one millisecond apart.
+    final bobAgain = GroupService(s2, _FakeSigner(bob));
+    addTearDown(bobAgain.dispose);
+    final tB = t0 + const Duration(days: 2).inMilliseconds;
+    var bobAgainWall = tB + kMessageClockSkew.inMilliseconds;
+    bobAgain.debugWallClockMs = () => bobAgainWall;
+    await bobAgain.postMessage(gid, 'at the bound', broadcast: false);
+    bobAgainWall += 1;
+    await bobAgain.postMessage(gid, 'one past it', broadcast: false);
+    final straddling = bobAgain.snapshotJson((await bobAgain.load(gid))!);
 
-      Future<List<String>> bodies() async =>
-          (await ownerSvc.messagesOf(gid)).map((m) => m.body).toList();
-      Future<GroupMessage> hostileRow() async =>
-          (await ownerSvc.messagesOf(gid))
-              .firstWhere((m) => m.body == 'from the future');
-
-      expect(
-        await bodies(),
-        ['a minute ago', 'mine', 'from the future', 'nearly now'],
-        reason: 'the 2027 row is ranked where it ARRIVED, and the honest rows '
-            'on both sides of the receiver clock keep their own send time',
-      );
-
-      // The stamp itself is untouched, and so is every byte the author signed:
-      // rewriting it (the 1:1 answer) would invalidate the signature over
-      // `canonicalBytes`, which includes `ts`, and take group admission with it.
-      final hostile = await hostileRow();
-      final landedAt = hostile.orderedAtMs;
-      expect(hostile.createdAtMs, hostileTs);
-      expect(landedAt, inInclusiveRange(wall, wall + 1000),
-          reason: 'ordered by the one time the receiver actually knows');
-      final storedRow = (await ownerSvc.load(gid))!.messages.firstWhere(
-        (m) => m.body == 'from the future',
-      );
-      expect(storedRow.createdAtMs, hostileTs,
-          reason: 'what is on disk is what bob signed');
-      expect(hostile.canonicalBytes(), storedRow.canonicalBytes());
-      expect(groupMessageHash(hostile), groupMessageHash(storedRow));
-      // Nothing local rides out on the wire either. The arrival moment is a
-      // number this receiver chose; shipping it would just be the same
-      // unauthenticated stamp under a second name.
-      final served =
-          jsonDecode(ownerSvc.snapshotJson((await ownerSvc.load(gid))!)) as Map;
-      expect(served.containsKey('mrx'), isFalse);
-      expect(
-        (served['g'] as List).firstWhere(
-          (row) => (row as Map)['body'] == 'from the future',
-        ),
-        storedRow.toJson(),
-        reason: 'served exactly as bob signed it, extra keys and all: none',
-      );
-
-      // The chat-list row: preview and recency both come off the last message,
-      // so before this the group sat at the top of Chats showing 'from the
-      // future' until 2027.
-      final listed = (await ownerSvc.listGroups()).single;
-      expect(listed.preview, 'nearly now');
-      expect(listed.lastTs, t0 + kMessageClockSkew.inMilliseconds);
-      expect(listed.lastTs, lessThan(hostileTs));
-
-      // The badge. `group.seen` is a LOCAL clock reading, so a row stamped
-      // into the future is newer than every watermark this device will ever
-      // write and the badge could not be cleared again — the mirror image of
-      // what the same stamp did to the 1:1 badge, which went permanently
-      // silent instead.
-      expect(await ownerSvc.unreadOf(gid), 3);
-      wall = t0 + const Duration(minutes: 10).inMilliseconds;
-      await ownerSvc.markGroupSeen(gid);
-      expect(await ownerSvc.unreadOf(gid), 0,
-          reason: 'a member cannot pin the badge on by claiming to be in 2027');
-      expect((await ownerSvc.listGroups()).single.unread, 0);
-
-      // ONCE, on arrival. Peers re-ship whole snapshots on every reconnect, so
-      // this exact row comes back against a clock that has moved on; if the
-      // bound were re-derived then, the row would walk down the log on every
-      // sync instead of staying where it landed.
-      wall = t0 + const Duration(hours: 5).inMilliseconds;
-      for (final delta in sent) {
-        await ownerSvc.ingestSnapshot(delta);
-      }
-      await drain();
-      expect((await hostileRow()).orderedAtMs, landedAt,
-          reason: 'stamped once on arrival; a re-ship must not restamp it');
-      expect(await bodies(), [
-        'a minute ago',
-        'mine',
-        'from the future',
-        'nearly now',
-      ]);
-      // ...and re-reading is a pure re-fold, never a re-stamp: the clock has
-      // moved another five hours between these two reads.
-      wall = t0 + const Duration(hours: 10).inMilliseconds;
-      expect((await hostileRow()).orderedAtMs, landedAt);
-      expect(await ownerSvc.unreadOf(gid), 0);
-
-      // It survives a reload from disk, so the arrival moment is persisted and
-      // not re-invented per process.
-      final reopened = GroupService(s1, _FakeSigner(owner))
-        ..debugWallClockMs = () => wall;
-      addTearDown(reopened.dispose);
-      expect(
-        (await reopened.messagesOf(gid))
-            .firstWhere((m) => m.body == 'from the future')
-            .orderedAtMs,
-        landedAt,
-      );
-      expect(await reopened.unreadOf(gid), 0);
-
-      // A row already on disk from before this rule existed is bounded the
-      // next time a peer offers it, not left with its 2027 forever — which is
-      // why the arrival moment is recorded OUTSIDE the dedup below it. Stand
-      // in for that log by receiving everything on a device whose own clock
-      // already reads 2027, so nothing is recorded, then restarting it sane.
-      final wire = ownerSvc.snapshotJson((await ownerSvc.load(gid))!);
-      final s3 = FakeHvContainer().storage();
-      await s3.open(password: 'pw', createIfMissing: true);
-      final believed = GroupService(s3, _FakeSigner(owner))
-        ..debugWallClockMs = () => hostileTs;
-      addTearDown(believed.dispose);
-      expect(await believed.ingestSnapshot(wire), isTrue);
-      expect(
-        (await believed.messagesOf(gid))
-            .firstWhere((m) => m.body == 'from the future')
-            .orderedAtMs,
-        hostileTs,
-        reason: 'a device whose own clock says 2027 has no reason to doubt it',
-      );
-      var restartedWall = t0;
-      final restarted = GroupService(s3, _FakeSigner(owner))
-        ..debugWallClockMs = () => restartedWall;
-      addTearDown(restarted.dispose);
-      await restarted.ingestSnapshot(wire);
-      final rescued = (await restarted.messagesOf(gid))
-          .firstWhere((m) => m.body == 'from the future');
-      expect(rescued.createdAtMs, hostileTs);
-      expect(rescued.orderedAtMs, inInclusiveRange(t0, t0 + 1000),
-          reason: 'a duplicate the log already held is still bounded');
-      restartedWall = t0 + const Duration(hours: 5).inMilliseconds;
-      await restarted.ingestSnapshot(wire);
-      expect(
-        (await restarted.messagesOf(gid))
-            .firstWhere((m) => m.body == 'from the future')
-            .orderedAtMs,
-        rescued.orderedAtMs,
-        reason: 'the first observation is the only one that may set it',
-      );
-
-      // The bound at the exact millisecond, against a receiver whose arrival
-      // moment is pinned: a FRESH service instance (so its monotonic `_now`
-      // starts from the held wall clock) taking ONE snapshot. Everything above
-      // sits comfortably inside or outside the tolerance; this is the pair
-      // that straddles it, one millisecond apart.
-      final bobAgain = GroupService(s2, _FakeSigner(bob));
-      addTearDown(bobAgain.dispose);
-      final tB = t0 + const Duration(days: 2).inMilliseconds;
-      var bobAgainWall = tB + kMessageClockSkew.inMilliseconds;
-      bobAgain.debugWallClockMs = () => bobAgainWall;
-      await bobAgain.postMessage(gid, 'at the bound', broadcast: false);
-      bobAgainWall += 1;
-      await bobAgain.postMessage(gid, 'one past it', broadcast: false);
-      final straddling = bobAgain.snapshotJson((await bobAgain.load(gid))!);
-
-      final s4 = FakeHvContainer().storage();
-      await s4.open(password: 'pw', createIfMissing: true);
-      final receiver = GroupService(s4, _FakeSigner(owner))
-        ..debugWallClockMs = () => tB;
-      addTearDown(receiver.dispose);
-      expect(await receiver.ingestSnapshot(straddling), isTrue);
-      final landed = {
-        for (final m in await receiver.messagesOf(gid)) m.body: m,
-      };
-      expect(landed['from the future']!.orderedAtMs, tB,
-          reason: 'the arrival moment of this ingest is exactly tB');
-      expect(
-        landed['at the bound']!.orderedAtMs,
-        tB + kMessageClockSkew.inMilliseconds,
-        reason: 'an author exactly at the tolerated skew is still believed',
-      );
-      expect(landed['one past it']!.orderedAtMs, tB,
-          reason: 'one millisecond further is not a clock reading any more');
-      expect(
-        (await receiver.messagesOf(gid)).map((m) => m.body).toList().sublist(2),
-        ['from the future', 'one past it', 'at the bound'],
-        reason: 'both bounded rows land at tB, below the believed one',
-      );
-    },
-  );
+    final s4 = FakeHvContainer().storage();
+    await s4.open(password: 'pw', createIfMissing: true);
+    final receiver = GroupService(s4, _FakeSigner(owner))
+      ..debugWallClockMs = () => tB;
+    addTearDown(receiver.dispose);
+    expect(await receiver.ingestSnapshot(straddling), isTrue);
+    final landed = {for (final m in await receiver.messagesOf(gid)) m.body: m};
+    expect(
+      landed['from the future']!.orderedAtMs,
+      tB,
+      reason: 'the arrival moment of this ingest is exactly tB',
+    );
+    expect(
+      landed['at the bound']!.orderedAtMs,
+      tB + kMessageClockSkew.inMilliseconds,
+      reason: 'an author exactly at the tolerated skew is still believed',
+    );
+    expect(
+      landed['one past it']!.orderedAtMs,
+      tB,
+      reason: 'one millisecond further is not a clock reading any more',
+    );
+    expect(
+      (await receiver.messagesOf(gid)).map((m) => m.body).toList().sublist(2),
+      ['from the future', 'one past it', 'at the bound'],
+      reason: 'both bounded rows land at tB, below the believed one',
+    );
+  });
 
   test(
     'mirror loop: msgMirror events fold + apply, deduped, deniability-safe',
@@ -5255,7 +5286,8 @@ void main() {
     expect(
       await stored(),
       containsAll(<String>['light', 'hostile-a', 'hostile-b']),
-      reason: 'the honest winner survives on disk; deferred rows are kept, '
+      reason:
+          'the honest winner survives on disk; deferred rows are kept, '
           'never resolved',
     );
 
@@ -5268,10 +5300,7 @@ void main() {
     // believed, so an honestly-skewed sibling loses no edit.
     await theme('skewed', wall + 60000);
     expect(await folded(), 'skewed');
-    await theme(
-      'beyond',
-      wall + kDeviceSyncClockSkew.inMilliseconds + 60000,
-    );
+    await theme('beyond', wall + kDeviceSyncClockSkew.inMilliseconds + 60000);
     expect(await folded(), 'skewed', reason: 'past the skew bound, deferred');
   });
 
@@ -5311,6 +5340,99 @@ void main() {
     expect((snap['c'] as List), isNotEmpty);
     expect((snap['g'] as List).length, 1, reason: 'carries the missed event');
   });
+
+  test(
+    'device-group compaction: a revoked device must not delete the honest row '
+    'it beat — reads filter by the current ACL, so the key would vanish',
+    () async {
+      // Reads answer from `_messagesOfBundle`, which keeps only authors who are
+      // members of the CURRENT state. Compaction judged a row by its signature
+      // alone, so a revoked device still competed for keys here: when its row
+      // won, the honest row it beat was deleted from disk, while the winner
+      // stayed invisible to every read (report9 X-18).
+      final primaryStorage = FakeHvContainer().storage();
+      await primaryStorage.open(password: 'pw', createIfMissing: true);
+      final primary = GroupService(primaryStorage, _FakeSigner(owner));
+      expect(
+        await primary.linkDevice(
+          bob,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      final gid = NodeId.fromHex((await primary.deviceGroupIdHex())!);
+
+      final siblingStorage = FakeHvContainer().storage();
+      await siblingStorage.open(password: 'pw', createIfMissing: true);
+      final sibling = GroupService(siblingStorage, _FakeSigner(bob));
+      expect(
+        await sibling.ingestSnapshot(
+          primary.snapshotJson((await primary.load(gid))!, recipient: bob),
+        ),
+        isTrue,
+      );
+      expect(await sibling.adoptDeviceGroup(gid), isTrue);
+
+      // Same key, and the sibling's row is NEWER — so on wall clock it wins.
+      const key = 'chat|contested';
+      Future<void> post(GroupService svc, int tsMs, String body) =>
+          svc.postDeviceEvent(
+            DeviceSyncEvent(
+              kind: DeviceSyncKind.msgMirror,
+              key: key,
+              tsMs: tsMs,
+              payload: {'peer': 'aa', 'dir': 'outgoing', 'body': body},
+            ),
+          );
+      await post(primary, 10, 'honest');
+      // A LATER row on another key, so the contested one is no longer this
+      // author's head. `heads` keeps every author's newest row for seq
+      // allocation, and with a single row per author both survive whatever the
+      // LWW says — which is why a first version of this test passed against
+      // the bug.
+      await primary.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgMirror,
+          key: 'chat|later',
+          tsMs: 30,
+          payload: const {'peer': 'bb', 'dir': 'outgoing', 'body': 'later'},
+        ),
+      );
+      await post(sibling, 20, 'from the device that is about to be revoked');
+      expect(
+        await primary.ingestSnapshot(
+          sibling.snapshotJson((await sibling.load(gid))!, recipient: owner),
+        ),
+        isTrue,
+      );
+
+      Future<List<String>> rowsFor(NodeId author) async => [
+        for (final m in (await primary.load(gid))!.messages)
+          if (m.author == author)
+            if (DeviceSyncEvent.fromBody(m.body) case final e?)
+              if (e.key == key) e.payload['body'] as String,
+      ];
+      expect(await rowsFor(owner), ['honest']);
+      expect(
+        await rowsFor(bob),
+        hasLength(1),
+        reason: 'the sibling row landed',
+      );
+
+      expect(await primary.revokeDevice(bob, sovereign: sovereign), isTrue);
+      await primary.compactStateLogs(gid);
+
+      expect(
+        await rowsFor(owner),
+        ['honest'],
+        reason:
+            'compaction let a revoked device win the key and deleted the row '
+            'that answers it — and the winner is filtered out of every read, '
+            'so the key is simply gone',
+      );
+    },
+  );
 
   test('isMyDevice: true only for current device-group members, and the '
       'cache invalidates on revoke (brick 4c mirror exclusion)', () async {
@@ -6656,9 +6778,7 @@ void main() {
         isNotNull,
       );
       final crafted =
-          jsonDecode(
-                memberSvc.snapshotJson((await memberSvc.load(spaceId))!),
-              )
+          jsonDecode(memberSvc.snapshotJson((await memberSvc.load(spaceId))!))
               as Map<String, dynamic>;
       var rewrote = 0;
       for (final row in crafted['p'] as List) {
@@ -6671,10 +6791,12 @@ void main() {
       ownerWall = t0 + 1000;
       expect(await ownerService.ingestSnapshot(jsonEncode(crafted)), isTrue);
       expect(
-        (await ownerService.load(spaceId))!.posts
-            .map((post) => post.publishedAtMs),
+        (await ownerService.load(
+          spaceId,
+        ))!.posts.map((post) => post.publishedAtMs),
         contains(hostileTs),
-        reason: 'a `published` a year past `created` is structurally valid and '
+        reason:
+            'a `published` a year past `created` is structurally valid and '
             'is stored exactly as signed',
       );
 
@@ -6701,18 +6823,30 @@ void main() {
           ))!.feed.posts.firstWhere((post) => post.body == body);
 
       await follow();
-      expect(await readerService.load(spaceId), isNull,
-          reason: 'a follower holds no membership authority, only a snapshot');
+      expect(
+        await readerService.load(spaceId),
+        isNull,
+        reason: 'a follower holds no membership authority, only a snapshot',
+      );
 
       final hostile = await followedPost('from the future');
-      expect(hostile.publishedAtMs, hostileTs,
-          reason: 'the publisher signed this and it is served as signed');
+      expect(
+        hostile.publishedAtMs,
+        hostileTs,
+        reason: 'the publisher signed this and it is served as signed',
+      );
       final landedAt = hostile.orderedAtMs;
-      expect(landedAt, inInclusiveRange(readerWall, readerWall + 1000),
-          reason: 'ordered by the one time the follower actually knows');
+      expect(
+        landedAt,
+        inInclusiveRange(readerWall, readerWall + 1000),
+        reason: 'ordered by the one time the follower actually knows',
+      );
       final honest = await followedPost('an honest one');
-      expect(honest.orderedAtMs, honest.publishedAtMs,
-          reason: 'an ordinary publication keeps its own word, untouched');
+      expect(
+        honest.orderedAtMs,
+        honest.publishedAtMs,
+        reason: 'an ordinary publication keeps its own word, untouched',
+      );
       expect(honest.publishedAtMs, inInclusiveRange(t0, t0 + 1000));
 
       // The badge. `markSpaceFeedSeen` takes the MAX cursor over the posts
@@ -6733,17 +6867,24 @@ void main() {
       );
       readerWall = t0 + 4000;
       await follow();
-      expect(await readerService.unreadSpacePosts(spaceId), 1,
-          reason: 'a publisher cannot retire a follower\'s badge by claiming '
-              'to be in 2027');
+      expect(
+        await readerService.unreadSpacePosts(spaceId),
+        1,
+        reason:
+            'a publisher cannot retire a follower\'s badge by claiming '
+            'to be in 2027',
+      );
       expect(
         (await readerService.unreadSpacePostViews(spaceId)).single.body,
         'a later honest one',
       );
       expect(
-        (await readerService.spaceFeed()).map((item) => item.post.body).toList(),
+        (await readerService.spaceFeed())
+            .map((item) => item.post.body)
+            .toList(),
         ['a later honest one', 'from the future', 'an honest one'],
-        reason: 'newest first, with the 2027 publication at the moment it was '
+        reason:
+            'newest first, with the 2027 publication at the moment it was '
             'actually handed over — not at the top forever',
       );
 
@@ -6765,10 +6906,15 @@ void main() {
       // is served.
       readerWall = t0 + const Duration(minutes: 16).inMilliseconds;
       await follow();
-      expect((await followedPost('from the future')).orderedAtMs, landedAt,
-          reason: 'bound on first sight; a refresh must not re-stamp it');
       expect(
-        (await readerService.spaceFeed()).map((item) => item.post.body).toList(),
+        (await followedPost('from the future')).orderedAtMs,
+        landedAt,
+        reason: 'bound on first sight; a refresh must not re-stamp it',
+      );
+      expect(
+        (await readerService.spaceFeed())
+            .map((item) => item.post.body)
+            .toList(),
         [
           'and another',
           'a later honest one',
@@ -6784,8 +6930,11 @@ void main() {
       );
       expect(snapshotBytes, isNotNull);
       final stored = jsonDecode(utf8.decode(snapshotBytes!)) as Map;
-      expect(stored['prx'], hasLength(1),
-          reason: 'one entry, for the one publication that needed bounding');
+      expect(
+        stored['prx'],
+        hasLength(1),
+        reason: 'one entry, for the one publication that needed bounding',
+      );
       expect((stored['prx'] as Map).values.single, landedAt);
       // Asked of the decoded KEYS, not of the serialized text: a signature is
       // base64 of random-looking bytes, so a substring search for a three-
@@ -6795,8 +6944,11 @@ void main() {
           ? node.containsKey(key) ||
                 node.values.any((value) => carriesKey(value, key))
           : node is List && node.any((value) => carriesKey(value, key));
-      expect(carriesKey(stored['package'], 'prx'), isFalse,
-          reason: 'nothing local is inside the bytes the publisher signed');
+      expect(
+        carriesKey(stored['package'], 'prx'),
+        isFalse,
+        reason: 'nothing local is inside the bytes the publisher signed',
+      );
       final snapshot = SpacePublicSubscriptionSnapshot.fromBytes(
         Uint8List.fromList(snapshotBytes),
       );
@@ -6808,12 +6960,19 @@ void main() {
         contains(hostileTs),
         reason: 'what is on disk is what the publisher signed',
       );
-      expect(snapshot.postReceipts, {
-        for (final entry in (stored['prx'] as Map).entries)
-          '${entry.key}': entry.value,
-      }, reason: 'the bound round-trips through the local file');
-      expect(stored.keys.toSet(), {'v', 'kind', 'verifiedAt', 'package', 'prx'},
-          reason: 'exactly one new local key, outside the verified package');
+      expect(
+        snapshot.postReceipts,
+        {
+          for (final entry in (stored['prx'] as Map).entries)
+            '${entry.key}': entry.value,
+        },
+        reason: 'the bound round-trips through the local file',
+      );
+      expect(
+        stored.keys.toSet(),
+        {'v', 'kind', 'verifiedAt', 'package', 'prx'},
+        reason: 'exactly one new local key, outside the verified package',
+      );
       // ...and it survives a restart, so it is persisted, not re-invented —
       // and is still accepted, so a local observation can never fail the
       // signature check the stored snapshot has to pass to be read back.
@@ -7293,7 +7452,8 @@ void main() {
       expect(
         grants,
         hasLength(2),
-        reason: 'a future-dated request must stay remembered for as long as it '
+        reason:
+            'a future-dated request must stay remembered for as long as it '
             'stays acceptable',
       );
     },
@@ -9747,8 +9907,7 @@ void main() {
     () async {
       final t0 = DateTime.utc(2026, 8, 3, 12).millisecondsSinceEpoch;
       final hostileTs = t0 + const Duration(days: 365).inMilliseconds;
-      String keyIdOf(NodeId channelId, int epoch) =>
-          '${channelId.hex}:$epoch';
+      String keyIdOf(NodeId channelId, int epoch) => '${channelId.hex}:$epoch';
 
       // The device that mints the epoch reads 2027 while it does so. Whether
       // that is a broken clock or a chosen number is exactly what nobody can
@@ -9798,7 +9957,8 @@ void main() {
             )
             .createdAtMs,
         greaterThanOrEqualTo(hostileTs),
-        reason: 'the epoch in service really does claim to have started in 2027',
+        reason:
+            'the epoch in service really does claim to have started in 2027',
       );
       final hostileKey = (await svc.load(
         spaceId,
@@ -9808,7 +9968,8 @@ void main() {
       expect(
         await svc.sweepStaleChannelKeys(),
         0,
-        reason: 'the key has only just entered service as far as this device '
+        reason:
+            'the key has only just entered service as far as this device '
             'can tell',
       );
 
@@ -9820,7 +9981,8 @@ void main() {
       expect(
         await svc.sweepStaleChannelKeys(),
         1,
-        reason: 'a key that has served its thirty days must be replaced, and '
+        reason:
+            'a key that has served its thirty days must be replaced, and '
             'this is the only assertion that can show a fail-OPEN closed: the '
             'absence of an error proves nothing here',
       );
@@ -9867,8 +10029,7 @@ void main() {
     () async {
       final t0 = DateTime.utc(2026, 8, 3, 12).millisecondsSinceEpoch;
       final ancient = t0 - const Duration(days: 3650).inMilliseconds;
-      String keyIdOf(NodeId channelId, int epoch) =>
-          '${channelId.hex}:$epoch';
+      String keyIdOf(NodeId channelId, int epoch) => '${channelId.hex}:$epoch';
 
       // This device's whole life reads 2016. Nothing in the Space can
       // contradict it, and every epoch it introduces carries that number.
@@ -9965,7 +10126,8 @@ void main() {
         expect(
           await bobSvc.sweepStaleChannelKeys(),
           0,
-          reason: 'round $round: a key that entered service here a moment ago '
+          reason:
+              'round $round: a key that entered service here a moment ago '
               'is not thirty days old because its author says so',
         );
         expect(
@@ -9976,9 +10138,10 @@ void main() {
           reason: 'round $round: and no epoch of this device\'s own was minted',
         );
         expect(
-          (await bobSvc.load(
-            spaceId,
-          ))!.localChannelEpochKeys[keyIdOf(channelId, servedEpoch)],
+          (await bobSvc.load(spaceId))!.localChannelEpochKeys[keyIdOf(
+            channelId,
+            servedEpoch,
+          )],
           servedKey,
           reason: 'round $round: the key in service is untouched',
         );
@@ -9994,7 +10157,10 @@ void main() {
       expect(await ownerSvc.postMessage(spaceId, 'unrelated traffic'), isTrue);
       expect(
         await bobSvc.ingestSnapshot(
-          ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!, recipient: bob),
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
         ),
         isTrue,
       );
@@ -10417,26 +10583,30 @@ void main() {
       expect(
         after.isMember(erin),
         isTrue,
-        reason: 'the removal was written with authority the owner has now '
+        reason:
+            'the removal was written with authority the owner has now '
             'declared void over that stretch of bob\'s chain, so it never '
             'happened and erin is in the Space',
       );
       expect(
         after.memberOf(dave)!.muted,
         isTrue,
-        reason: 'bob\'s honest silencing predates the line and stands — a '
+        reason:
+            'bob\'s honest silencing predates the line and stands — a '
             'withdrawal is not a pardon for everything its target ever did',
       );
       expect(
         after.isMember(frank),
         isFalse,
-        reason: 'carol was not named and nothing of hers moves, even though '
+        reason:
+            'carol was not named and nothing of hers moves, even though '
             'her row is later than the line',
       );
       expect(
         after.roleOf(bob),
         GroupRole.admin,
-        reason: 'withdrawing past authority is not the same statement as '
+        reason:
+            'withdrawing past authority is not the same statement as '
             'taking the role away going forward; that is a separate row',
       );
       final withdrawal = after.authorityWithdrawalFor(bob);
@@ -10578,14 +10748,16 @@ void main() {
       expect(
         after.isMember(erin),
         isTrue,
-        reason: 'a date the row chose for itself must not decide whether the '
+        reason:
+            'a date the row chose for itself must not decide whether the '
             'owner\'s line reaches it — this is the assertion the whole '
             'arrival-moment floor exists for',
       );
       expect(
         after.memberOf(dave)!.muted,
         isTrue,
-        reason: 'and the honest row that really was early is untouched, so '
+        reason:
+            'and the honest row that really was early is untouched, so '
             'the line is a line and not a blanket',
       );
       expect(after.authorityWithdrawalFor(bob)!.fromSeq, 0);
@@ -10657,7 +10829,10 @@ void main() {
       addTearDown(bobSvc.dispose);
       expect(
         await bobSvc.ingestSnapshot(
-          ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!, recipient: bob),
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
         ),
         isTrue,
       );
@@ -10713,7 +10888,8 @@ void main() {
       expect(
         carolBundle.controlReceipts,
         isNot(ownerBundle.controlReceipts),
-        reason: 'the premise: these devices genuinely disagree about when '
+        reason:
+            'the premise: these devices genuinely disagree about when '
             'these rows turned up',
       );
       expect(
@@ -10721,10 +10897,7 @@ void main() {
         {0},
         reason: 'and this one has no opinion about it at all',
       );
-      expect(
-        daveBundle.controlReceipts,
-        isNot(carolBundle.controlReceipts),
-      );
+      expect(daveBundle.controlReceipts, isNot(carolBundle.controlReceipts));
 
       String shape(GroupState state) => jsonEncode({
         'members': {
@@ -10748,13 +10921,15 @@ void main() {
       expect(
         (await daveSvc.stateOf(spaceId))!.isMember(erin),
         isTrue,
-        reason: 'and the shared answer is the withdrawn one, not a fold that '
+        reason:
+            'and the shared answer is the withdrawn one, not a fold that '
             'quietly skipped the boundary',
       );
       expect(
         (await daveSvc.stateOf(spaceId))!.memberOf(dave)!.muted,
         isFalse,
-        reason: 'both of bob\'s rows fall after this line, and a device with '
+        reason:
+            'both of bob\'s rows fall after this line, and a device with '
             'no arrival moments of its own reaches the same conclusion as one '
             'that watched them land',
       );
@@ -10862,7 +11037,8 @@ void main() {
       expect(
         restored.isMember(erin),
         isTrue,
-        reason: 'returning a role is not a statement that what was done '
+        reason:
+            'returning a role is not a statement that what was done '
             'without one was fine — the withdrawn removal stays withdrawn',
       );
 
@@ -10873,7 +11049,8 @@ void main() {
       expect(
         await second.addControlOp(spaceId, ControlOp.ban, target: frank),
         isTrue,
-        reason: 'bob\'s device must be able to continue a chain whose earlier '
+        reason:
+            'bob\'s device must be able to continue a chain whose earlier '
             'row was withdrawn, and must see the row it writes survive the '
             'fold — a client that cannot write again is a restoration in name '
             'only',
@@ -10883,7 +11060,8 @@ void main() {
       expect(
         (await ownerSvc.stateOf(spaceId))!.isMember(frank),
         isFalse,
-        reason: 'a returned moderator is a moderator; if the old ban was in '
+        reason:
+            'a returned moderator is a moderator; if the old ban was in '
             'fact deserved it costs one row to issue it again',
       );
 
@@ -10894,7 +11072,8 @@ void main() {
         await ownerSvc.setSpaceAuthorityBoundary(
           spaceId,
           bob,
-          effectiveFromMs: t0 + const Duration(hours: 4, minutes: 30).inMilliseconds,
+          effectiveFromMs:
+              t0 + const Duration(hours: 4, minutes: 30).inMilliseconds,
         ),
         isTrue,
       );
@@ -10909,184 +11088,183 @@ void main() {
     },
   );
 
-  test(
-    'only the owner may withdraw authority, never against the owner, and a '
-    'withdrawal does not undo a deleted message or a key rotation',
-    () async {
-      final t0 = DateTime.utc(2026, 8, 4, 8).millisecondsSinceEpoch;
-      final erin = _id(9);
-      final ownerStorage = FakeHvContainer().storage();
-      await ownerStorage.open(password: 'pw', createIfMissing: true);
-      final ownerSvc = GroupService(
-        ownerStorage,
-        _FakeSigner(owner),
-        epochService: GroupEpochService(
-          LoopbackMailboxCrypto(senderForOpen: owner),
-        ),
-      )..debugWallClockMs = () => t0;
-      addTearDown(ownerSvc.dispose);
-      final spaceId = await ownerSvc.createSpace('Limits');
-      for (final (member, role) in [
-        (bob, GroupRole.admin),
-        (carol, GroupRole.admin),
-        (erin, GroupRole.member),
-      ]) {
-        expect(
-          await ownerSvc.addControlOp(
-            spaceId,
-            ControlOp.addMember,
-            target: member,
-            role: role,
-          ),
-          isTrue,
-        );
-      }
-
-      // An admin is not allowed to reach backwards over another admin: this is
-      // the one operation that rewrites what already happened, and two of them
-      // pointed at each other is a way to unmake authority for the price of a
-      // control row.
-      final carolStorage = FakeHvContainer().storage();
-      await carolStorage.open(password: 'pw', createIfMissing: true);
-      final carolSvc = GroupService(carolStorage, _FakeSigner(carol))
-        ..debugWallClockMs = () => t0 + const Duration(hours: 1).inMilliseconds;
-      addTearDown(carolSvc.dispose);
+  test('only the owner may withdraw authority, never against the owner, and a '
+      'withdrawal does not undo a deleted message or a key rotation', () async {
+    final t0 = DateTime.utc(2026, 8, 4, 8).millisecondsSinceEpoch;
+    final erin = _id(9);
+    final ownerStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'pw', createIfMissing: true);
+    final ownerSvc = GroupService(
+      ownerStorage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    )..debugWallClockMs = () => t0;
+    addTearDown(ownerSvc.dispose);
+    final spaceId = await ownerSvc.createSpace('Limits');
+    for (final (member, role) in [
+      (bob, GroupRole.admin),
+      (carol, GroupRole.admin),
+      (erin, GroupRole.member),
+    ]) {
       expect(
-        await carolSvc.ingestSnapshot(
-          ownerSvc.snapshotJson(
-            (await ownerSvc.load(spaceId))!,
-            recipient: carol,
-          ),
-        ),
-        isTrue,
-      );
-      expect(
-        await carolSvc.setSpaceAuthorityBoundary(
+        await ownerSvc.addControlOp(
           spaceId,
-          bob,
-          effectiveFromMs: t0,
+          ControlOp.addMember,
+          target: member,
+          role: role,
         ),
-        isFalse,
-        reason: 'an admin holds no such thing',
+        isTrue,
       );
-      // Nor may the owner aim it at the owner: the boundary that cannot touch
-      // ownership is what keeps it from unmaking the authority that issued it.
-      expect(
-        await ownerSvc.setSpaceAuthorityBoundary(
-          spaceId,
-          owner,
-          effectiveFromMs: t0,
-        ),
-        isFalse,
-      );
+    }
 
-      // A removal by the revoked moderator rotated the key. The withdrawal
-      // puts erin back — and does NOT pretend the rotation never happened.
-      final bobStorage = FakeHvContainer().storage();
-      await bobStorage.open(password: 'pw', createIfMissing: true);
-      final bobSvc = GroupService(
-        bobStorage,
-        _FakeSigner(bob),
-        epochService: GroupEpochService(
-          LoopbackMailboxCrypto(senderForOpen: owner),
+    // An admin is not allowed to reach backwards over another admin: this is
+    // the one operation that rewrites what already happened, and two of them
+    // pointed at each other is a way to unmake authority for the price of a
+    // control row.
+    final carolStorage = FakeHvContainer().storage();
+    await carolStorage.open(password: 'pw', createIfMissing: true);
+    final carolSvc = GroupService(carolStorage, _FakeSigner(carol))
+      ..debugWallClockMs = () => t0 + const Duration(hours: 1).inMilliseconds;
+    addTearDown(carolSvc.dispose);
+    expect(
+      await carolSvc.ingestSnapshot(
+        ownerSvc.snapshotJson(
+          (await ownerSvc.load(spaceId))!,
+          recipient: carol,
         ),
-      )..debugWallClockMs = () => t0 + const Duration(hours: 2).inMilliseconds;
-      addTearDown(bobSvc.dispose);
-      expect(
-        await bobSvc.ingestSnapshot(
-          ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!, recipient: bob),
-        ),
-        isTrue,
-      );
-      expect(
-        await bobSvc.addControlOp(spaceId, ControlOp.ban, target: erin),
-        isTrue,
-      );
-      expect(
-        await ownerSvc.ingestSnapshot(
-          bobSvc.snapshotJson((await bobSvc.load(spaceId))!, recipient: owner),
-        ),
-        isTrue,
-      );
-      final banned = (await ownerSvc.stateOf(spaceId))!;
-      expect(banned.isMember(erin), isFalse);
-      final rotatedEpoch = banned.epoch;
+      ),
+      isTrue,
+    );
+    expect(
+      await carolSvc.setSpaceAuthorityBoundary(
+        spaceId,
+        bob,
+        effectiveFromMs: t0,
+      ),
+      isFalse,
+      reason: 'an admin holds no such thing',
+    );
+    // Nor may the owner aim it at the owner: the boundary that cannot touch
+    // ownership is what keeps it from unmaking the authority that issued it.
+    expect(
+      await ownerSvc.setSpaceAuthorityBoundary(
+        spaceId,
+        owner,
+        effectiveFromMs: t0,
+      ),
+      isFalse,
+    );
 
-      ownerSvc.debugWallClockMs = () =>
-          t0 + const Duration(hours: 3).inMilliseconds;
-      expect(
-        await ownerSvc.setSpaceAuthorityBoundary(
-          spaceId,
-          bob,
-          effectiveFromMs: t0 + const Duration(hours: 1).inMilliseconds,
-        ),
-        isTrue,
-      );
-      final after = (await ownerSvc.stateOf(spaceId))!;
-      expect(after.isMember(erin), isTrue);
-      expect(
-        after.epoch,
-        rotatedEpoch + 1,
-        reason: 'exactly one more than the removal left behind: the key '
-            'material reached every member the moment that row was published '
-            'and no later row recalls it, so the withdrawal keeps the count '
-            'and the follow-up rotation adds the one key erin can be given. '
-            'Un-counting the removal would leave every later descriptor in '
-            'this Space off by one, which is a whole line of rotations lost '
-            'to undo a single ban',
-      );
-      expect(
-        after.epochDescriptor,
-        isNotNull,
-        reason: 'and the Space still has a key a returning member can be '
-            'given, which is what the follow-up rotation is for',
-      );
-      // Another author's rotation, precomputed against the roster as it was
-      // before erin came back, must still land. This is the cascade the kept
-      // count and the relaxed recipient check exist to prevent.
-      final carolRotator = GroupService(
-        carolStorage,
-        _FakeSigner(carol),
-        epochService: GroupEpochService(
-          LoopbackMailboxCrypto(senderForOpen: owner),
-        ),
-      )..debugWallClockMs = () => t0 + const Duration(hours: 4).inMilliseconds;
-      addTearDown(carolRotator.dispose);
-      expect(
-        await carolRotator.ingestSnapshot(
-          ownerSvc.snapshotJson(
-            (await ownerSvc.load(spaceId))!,
-            recipient: carol,
-          ),
-        ),
-        isTrue,
-      );
-      expect(
-        await carolRotator.addControlOp(spaceId, ControlOp.rotateEpoch),
-        isTrue,
-      );
-      expect(
-        await ownerSvc.ingestSnapshot(
-          carolRotator.snapshotJson(
-            (await carolRotator.load(spaceId))!,
-            recipient: owner,
-          ),
-        ),
-        isTrue,
-      );
-      final rotated = (await ownerSvc.stateOf(spaceId))!;
-      expect(
-        rotated.epoch,
-        after.epoch + 1,
-        reason: 'an untouched moderator\'s rotation is not collateral damage',
-      );
-      expect(rotated.epochDescriptor, isNotNull);
+    // A removal by the revoked moderator rotated the key. The withdrawal
+    // puts erin back — and does NOT pretend the rotation never happened.
+    final bobStorage = FakeHvContainer().storage();
+    await bobStorage.open(password: 'pw', createIfMissing: true);
+    final bobSvc = GroupService(
+      bobStorage,
+      _FakeSigner(bob),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    )..debugWallClockMs = () => t0 + const Duration(hours: 2).inMilliseconds;
+    addTearDown(bobSvc.dispose);
+    expect(
+      await bobSvc.ingestSnapshot(
+        ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!, recipient: bob),
+      ),
+      isTrue,
+    );
+    expect(
+      await bobSvc.addControlOp(spaceId, ControlOp.ban, target: erin),
+      isTrue,
+    );
+    expect(
+      await ownerSvc.ingestSnapshot(
+        bobSvc.snapshotJson((await bobSvc.load(spaceId))!, recipient: owner),
+      ),
+      isTrue,
+    );
+    final banned = (await ownerSvc.stateOf(spaceId))!;
+    expect(banned.isMember(erin), isFalse);
+    final rotatedEpoch = banned.epoch;
 
-      await bobStorage.close();
-      await carolStorage.close();
-      await ownerStorage.close();
-    },
-  );
+    ownerSvc.debugWallClockMs = () =>
+        t0 + const Duration(hours: 3).inMilliseconds;
+    expect(
+      await ownerSvc.setSpaceAuthorityBoundary(
+        spaceId,
+        bob,
+        effectiveFromMs: t0 + const Duration(hours: 1).inMilliseconds,
+      ),
+      isTrue,
+    );
+    final after = (await ownerSvc.stateOf(spaceId))!;
+    expect(after.isMember(erin), isTrue);
+    expect(
+      after.epoch,
+      rotatedEpoch + 1,
+      reason:
+          'exactly one more than the removal left behind: the key '
+          'material reached every member the moment that row was published '
+          'and no later row recalls it, so the withdrawal keeps the count '
+          'and the follow-up rotation adds the one key erin can be given. '
+          'Un-counting the removal would leave every later descriptor in '
+          'this Space off by one, which is a whole line of rotations lost '
+          'to undo a single ban',
+    );
+    expect(
+      after.epochDescriptor,
+      isNotNull,
+      reason:
+          'and the Space still has a key a returning member can be '
+          'given, which is what the follow-up rotation is for',
+    );
+    // Another author's rotation, precomputed against the roster as it was
+    // before erin came back, must still land. This is the cascade the kept
+    // count and the relaxed recipient check exist to prevent.
+    final carolRotator = GroupService(
+      carolStorage,
+      _FakeSigner(carol),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    )..debugWallClockMs = () => t0 + const Duration(hours: 4).inMilliseconds;
+    addTearDown(carolRotator.dispose);
+    expect(
+      await carolRotator.ingestSnapshot(
+        ownerSvc.snapshotJson(
+          (await ownerSvc.load(spaceId))!,
+          recipient: carol,
+        ),
+      ),
+      isTrue,
+    );
+    expect(
+      await carolRotator.addControlOp(spaceId, ControlOp.rotateEpoch),
+      isTrue,
+    );
+    expect(
+      await ownerSvc.ingestSnapshot(
+        carolRotator.snapshotJson(
+          (await carolRotator.load(spaceId))!,
+          recipient: owner,
+        ),
+      ),
+      isTrue,
+    );
+    final rotated = (await ownerSvc.stateOf(spaceId))!;
+    expect(
+      rotated.epoch,
+      after.epoch + 1,
+      reason: 'an untouched moderator\'s rotation is not collateral damage',
+    );
+    expect(rotated.epochDescriptor, isNotNull);
+
+    await bobStorage.close();
+    await carolStorage.close();
+    await ownerStorage.close();
+  });
 
   test(
     'reactions: toggle on/off, aggregate, and survive snapshot round-trip',
@@ -13846,7 +14024,8 @@ void main() {
       expect(
         await bodies(),
         ['a minute ago', 'mine', 'from the future', 'nearly now'],
-        reason: 'the 2027 publication is ranked where it ARRIVED, and the '
+        reason:
+            'the 2027 publication is ranked where it ARRIVED, and the '
             'honest posts on both sides of the receiver clock keep their own '
             'publication time',
       );
@@ -13859,16 +14038,25 @@ void main() {
       final landedAt = hostile.orderedAtMs;
       expect(hostile.publishedAtMs, hostileTs);
       expect(hostile.createdAtMs, hostileTs);
-      expect(landedAt, inInclusiveRange(wall, wall + 1000),
-          reason: 'ordered by the one time the receiver actually knows');
-      final storedRow = (await ownerSvc.load(spaceId))!.posts.firstWhere(
-        (p) => p.publishedAtMs == hostileTs,
+      expect(
+        landedAt,
+        inInclusiveRange(wall, wall + 1000),
+        reason: 'ordered by the one time the receiver actually knows',
       );
-      expect(storedRow.publishedAtMs, hostileTs,
-          reason: 'what is on disk is what bob signed');
+      final storedRow = (await ownerSvc.load(
+        spaceId,
+      ))!.posts.firstWhere((p) => p.publishedAtMs == hostileTs);
+      expect(
+        storedRow.publishedAtMs,
+        hostileTs,
+        reason: 'what is on disk is what bob signed',
+      );
       expect(hostile.root.canonicalBytes(), storedRow.canonicalBytes());
-      expect(jsonEncode(hostile.root.toJson()), jsonEncode(storedRow.toJson()),
-          reason: 'dedup and the chain prev-hash still name the same row');
+      expect(
+        jsonEncode(hostile.root.toJson()),
+        jsonEncode(storedRow.toJson()),
+        reason: 'dedup and the chain prev-hash still name the same row',
+      );
       // Nothing local rides out on the wire either. The arrival moment is a
       // number this receiver chose; shipping it would just be the same
       // unauthenticated stamp under a second name.
@@ -13899,8 +14087,11 @@ void main() {
       // until that future arrived — the 1:1 `markRead` amplification exactly.
       // In groups the watermark is a local clock reading, so there the same
       // stamp pinned the badge permanently ON instead.
-      expect(await ownerSvc.unreadSpacePosts(spaceId), 3,
-          reason: "own posts are read-neutral, bob's three are not");
+      expect(
+        await ownerSvc.unreadSpacePosts(spaceId),
+        3,
+        reason: "own posts are read-neutral, bob's three are not",
+      );
       wall = t0 + const Duration(minutes: 10).inMilliseconds;
       await ownerSvc.markSpaceFeedSeen(spaceId);
       expect(await ownerSvc.unreadSpacePosts(spaceId), 0);
@@ -13908,12 +14099,14 @@ void main() {
       // the 2027 publish left this one's last stamp in 2027 — a genuinely
       // honest follow-up has to come from a service that never claimed it.
       sent.clear();
-      final bobHonest = GroupService(
-        s2,
-        _FakeSigner(bob),
-        send: (p, g, j) async => sent.add(j),
-      )..debugWallClockMs =
-          () => t0 + const Duration(minutes: 20).inMilliseconds;
+      final bobHonest =
+          GroupService(
+              s2,
+              _FakeSigner(bob),
+              send: (p, g, j) async => sent.add(j),
+            )
+            ..debugWallClockMs = () =>
+                t0 + const Duration(minutes: 20).inMilliseconds;
       addTearDown(bobHonest.dispose);
       expect(
         await bobHonest.publishSpacePost(spaceId, body: 'an honest new post'),
@@ -13925,9 +14118,13 @@ void main() {
         await ownerSvc.ingestSnapshot(delta);
       }
       await drain();
-      expect(await ownerSvc.unreadSpacePosts(spaceId), 1,
-          reason: 'a publisher cannot retire the badge by claiming to be in '
-              '2027: the watermark it wrote is bounded to its arrival');
+      expect(
+        await ownerSvc.unreadSpacePosts(spaceId),
+        1,
+        reason:
+            'a publisher cannot retire the badge by claiming to be in '
+            '2027: the watermark it wrote is bounded to its arrival',
+      );
       expect(
         (await ownerSvc.unreadSpacePostViews(spaceId)).single.body,
         'an honest new post',
@@ -13952,9 +14149,9 @@ void main() {
       Future<List<String>> pageThrough(int limit) =>
           pageThroughOn(ownerSvc, limit);
 
-      final whole = (await ownerSvc.spaceFeed(limit: 200))
-          .map((item) => item.post.body)
-          .toList();
+      final whole = (await ownerSvc.spaceFeed(
+        limit: 200,
+      )).map((item) => item.post.body).toList();
       expect(
         whole,
         [
@@ -13964,15 +14161,20 @@ void main() {
           'mine',
           'a minute ago',
         ],
-        reason: 'newest first, and the 2027 publication sits at its arrival '
+        reason:
+            'newest first, and the 2027 publication sits at its arrival '
             'moment — below every honest post published after it landed, and '
             'above the two that predate it',
       );
       expect(whole.toSet(), hasLength(5), reason: 'no post is listed twice');
       for (final limit in [1, 2, 3, 4, 5, 6]) {
-        expect(await pageThrough(limit), whole,
-            reason: 'paging at $limit must reproduce the single-shot Feed '
-                'exactly — no post skipped, none repeated');
+        expect(
+          await pageThrough(limit),
+          whole,
+          reason:
+              'paging at $limit must reproduce the single-shot Feed '
+              'exactly — no post skipped, none repeated',
+        );
       }
 
       // ONCE, on arrival. Peers re-ship whole snapshots on every reconnect, so
@@ -13984,8 +14186,11 @@ void main() {
       final reship = bobSvc.snapshotJson((await bobSvc.load(spaceId))!);
       await ownerSvc.ingestSnapshot(reship);
       await drain();
-      expect((await hostileRow()).orderedAtMs, landedAt,
-          reason: 'stamped once on arrival; a re-ship must not restamp it');
+      expect(
+        (await hostileRow()).orderedAtMs,
+        landedAt,
+        reason: 'stamped once on arrival; a re-ship must not restamp it',
+      );
       // ...and re-reading is a pure re-fold, never a re-stamp: the clock has
       // moved another five hours between these two reads.
       wall = t0 + const Duration(hours: 10).inMilliseconds;
@@ -13998,9 +14203,9 @@ void main() {
         ..debugWallClockMs = () => wall;
       addTearDown(reopened.dispose);
       expect(
-        (await reopened.postsOf(spaceId))
-            .firstWhere((p) => p.body == 'from the future')
-            .orderedAtMs,
+        (await reopened.postsOf(
+          spaceId,
+        )).firstWhere((p) => p.body == 'from the future').orderedAtMs,
         landedAt,
       );
       expect(await reopened.unreadSpacePosts(spaceId), 1);
@@ -14018,9 +14223,9 @@ void main() {
       addTearDown(believed.dispose);
       expect(await believed.ingestSnapshot(wire), isTrue);
       expect(
-        (await believed.postsOf(spaceId))
-            .firstWhere((p) => p.body == 'from the future')
-            .orderedAtMs,
+        (await believed.postsOf(
+          spaceId,
+        )).firstWhere((p) => p.body == 'from the future').orderedAtMs,
         hostileTs,
         reason: 'a device whose own clock says 2027 has no reason to doubt it',
       );
@@ -14033,14 +14238,17 @@ void main() {
         spaceId,
       )).firstWhere((p) => p.body == 'from the future');
       expect(rescued.publishedAtMs, hostileTs);
-      expect(rescued.orderedAtMs, inInclusiveRange(t0, t0 + 1000),
-          reason: 'a duplicate the log already held is still bounded');
+      expect(
+        rescued.orderedAtMs,
+        inInclusiveRange(t0, t0 + 1000),
+        reason: 'a duplicate the log already held is still bounded',
+      );
       restartedWall = t0 + const Duration(hours: 5).inMilliseconds;
       await restarted.ingestSnapshot(wire);
       expect(
-        (await restarted.postsOf(spaceId))
-            .firstWhere((p) => p.body == 'from the future')
-            .orderedAtMs,
+        (await restarted.postsOf(
+          spaceId,
+        )).firstWhere((p) => p.body == 'from the future').orderedAtMs,
         rescued.orderedAtMs,
         reason: 'the first observation is the only one that may set it',
       );
@@ -14083,15 +14291,21 @@ void main() {
       final landed = {
         for (final p in await receiver.postsOf(spaceId)) p.body: p,
       };
-      expect(landed['from the future']!.orderedAtMs, tB,
-          reason: 'the arrival moment of this ingest is exactly tB');
+      expect(
+        landed['from the future']!.orderedAtMs,
+        tB,
+        reason: 'the arrival moment of this ingest is exactly tB',
+      );
       expect(
         landed['at the bound']!.orderedAtMs,
         tB + kSpacePublicClockSkew.inMilliseconds,
         reason: 'a publisher exactly at the tolerated skew is still believed',
       );
-      expect(landed['one past it']!.orderedAtMs, tB,
-          reason: 'one millisecond further is not a clock reading any more');
+      expect(
+        landed['one past it']!.orderedAtMs,
+        tB,
+        reason: 'one millisecond further is not a clock reading any more',
+      );
       expect(
         (await receiver.postsOf(spaceId)).map((p) => p.body).toList(),
         [
@@ -14102,7 +14316,8 @@ void main() {
           'one past it',
           'at the bound',
         ],
-        reason: 'both bounded posts land on the SAME millisecond tB and still '
+        reason:
+            'both bounded posts land on the SAME millisecond tB and still '
             'order deterministically below the believed one — two rows that '
             'compared equal would be dropped or repeated by paging',
       );
@@ -14136,12 +14351,18 @@ void main() {
       await drain();
       final newestIsHostile = (await ownerSvc.postsOf(spaceId)).last;
       expect(newestIsHostile.body, 'newest and from 2027');
-      expect(newestIsHostile.publishedAtMs, hostileTs + 1000,
-          reason: 'still exactly what bob signed');
+      expect(
+        newestIsHostile.publishedAtMs,
+        hostileTs + 1000,
+        reason: 'still exactly what bob signed',
+      );
       final chatsRow = (await ownerSvc.listSpaces()).single;
       expect(chatsRow.lastTs, newestIsHostile.orderedAtMs);
-      expect(chatsRow.lastTs, inInclusiveRange(wall, wall + 1000),
-          reason: 'Chats shows when the row ARRIVED, not the year it claims');
+      expect(
+        chatsRow.lastTs,
+        inInclusiveRange(wall, wall + 1000),
+        reason: 'Chats shows when the row ARRIVED, not the year it claims',
+      );
       expect(chatsRow.lastTs, lessThan(hostileTs));
 
       // And the OTHER half of that row: which source wins it. A Space carries
@@ -14159,22 +14380,23 @@ void main() {
       );
       final withMessage = (await ownerSvc.listSpaces()).single;
       expect(withMessage.preview, 'newer than any publication');
-      expect(withMessage.lastTs, inInclusiveRange(wall, wall + 1000),
-          reason: 'a message newer than every publication wins the row, and a '
-              'publisher must not be able to outbid it with a claimed year');
+      expect(
+        withMessage.lastTs,
+        inInclusiveRange(wall, wall + 1000),
+        reason:
+            'a message newer than every publication wins the row, and a '
+            'publisher must not be able to outbid it with a claimed year',
+      );
       // Same thing said as the Feed says it: a strict total order, so one
       // item per page walks all six exactly once.
-      expect(
-        await pageThroughOn(receiver, 1),
-        [
-          'at the bound',
-          'one past it',
-          'from the future',
-          'an honest new post',
-          'nearly now',
-          'a minute ago',
-        ],
-      );
+      expect(await pageThroughOn(receiver, 1), [
+        'at the bound',
+        'one past it',
+        'from the future',
+        'an honest new post',
+        'nearly now',
+        'a minute ago',
+      ]);
     },
   );
 
@@ -14314,7 +14536,8 @@ void main() {
       expect(
         publication,
         isNotNull,
-        reason: 'one member signing itself into 2027 must not be able to take '
+        reason:
+            'one member signing itself into 2027 must not be able to take '
             'the whole Space off public discovery — that is a member denying '
             'service to the owner, and to everyone who could have found it',
       );
@@ -14373,9 +14596,9 @@ void main() {
       );
       expect(futureRow.publishedAtMs, greaterThanOrEqualTo(hostileTs));
       expect(
-        (await ownerSvc.postsOf(spaceId))
-            .firstWhere((post) => post.body == 'from the future')
-            .orderedAtMs,
+        (await ownerSvc.postsOf(
+          spaceId,
+        )).firstWhere((post) => post.body == 'from the future').orderedAtMs,
         lessThan(hostileTs),
         reason: 'and 0a27cb2 still holds: it is RANKED where it arrived',
       );
@@ -14393,7 +14616,8 @@ void main() {
       expect(
         publication.feed.manifest.updatedAtMs,
         aheadCreated,
-        reason: 'an honest stamp inside the tolerance is kept exactly as its '
+        reason:
+            'an honest stamp inside the tolerance is kept exactly as its '
             'author wrote it, so this is exclusion of the impossible and not a '
             'clamp of everything ahead',
       );
@@ -14401,7 +14625,8 @@ void main() {
       expect(
         descriptor.issuedAtMs,
         lessThanOrEqualTo(wall + kSpacePublicClockSkew.inMilliseconds),
-        reason: 'exactly what the wire format demands of `issuedAt`, and what '
+        reason:
+            'exactly what the wire format demands of `issuedAt`, and what '
             'a folded 2027 stamp used to make impossible',
       );
 
@@ -14496,9 +14721,9 @@ void main() {
         await ownerSvc.ingestSnapshot(delta);
       }
       await drain();
-      final leaveEntry = (await ownerSvc.load(spaceId))!.control.singleWhere(
-        (entry) => entry.op == ControlOp.leave,
-      );
+      final leaveEntry = (await ownerSvc.load(
+        spaceId,
+      ))!.control.singleWhere((entry) => entry.op == ControlOp.leave);
       expect(leaveEntry.author, bob);
       expect(leaveEntry.createdAtMs, greaterThanOrEqualTo(hostileTs));
 
@@ -14508,13 +14733,15 @@ void main() {
       expect(
         after,
         isNotNull,
-        reason: 'a member walking out with a 2027 stamp must not end the '
+        reason:
+            'a member walking out with a 2027 stamp must not end the '
             "Space's public presence",
       );
       expect(
         after!.discovery.descriptor.revision,
         before!.discovery.descriptor.revision + 1,
-        reason: 'the leave is accepted, counted and hashed into the control '
+        reason:
+            'the leave is accepted, counted and hashed into the control '
             'head — only its claim about the clock is ignored',
       );
       expect(
@@ -15937,7 +16164,8 @@ void main() {
       expect(
         await svc.spaceRetentionHistoryOf(spaceId),
         hasLength(1),
-        reason: 'the 2027 revision is signed and accepted and simply has not '
+        reason:
+            'the 2027 revision is signed and accepted and simply has not '
             'happened yet as far as this clock is concerned — deferring it is '
             'right, and the destructive policy is still the one in force',
       );
@@ -15977,20 +16205,23 @@ void main() {
       expect(
         history.last.activatedAtMs,
         lessThan(hostileTs),
-        reason: 'the correction keeps its own stamp instead of being dragged '
+        reason:
+            'the correction keeps its own stamp instead of being dragged '
             'up to the floor an unbelievable row would have set',
       );
       expect(
         await bodies(),
         contains('third'),
-        reason: 'and it takes effect NOW: an unbelievable stamp is left out of '
+        reason:
+            'and it takes effect NOW: an unbelievable stamp is left out of '
             'the timeline instead of raising the floor under every honest '
             'revision behind it',
       );
       expect(
         await postBodies(),
         contains('post three'),
-        reason: 'and the same on the publication side, which reads the OTHER '
+        reason:
+            'and the same on the publication side, which reads the OTHER '
             'builder — a fix in one of the two is half a fix',
       );
       expect(
@@ -16041,7 +16272,8 @@ void main() {
       expect(
         await svc.spaceRetentionHistoryOf(spaceId),
         isEmpty,
-        reason: 'a stamp no clock here could have produced is not in the '
+        reason:
+            'a stamp no clock here could have produced is not in the '
             'timeline at all, so it cannot carry anything with it',
       );
       expect(
@@ -16057,7 +16289,8 @@ void main() {
       expect(
         later.single.activatedAtMs,
         greaterThanOrEqualTo(hostileTs),
-        reason: 'when its own time arrives it applies exactly as its author '
+        reason:
+            'when its own time arrives it applies exactly as its author '
             'wrote it — excluded means postponed, never dropped',
       );
 
@@ -16824,226 +17057,223 @@ void main() {
     },
   );
 
-  test(
-    'a moderator dating its action into the future used to retire its '
-    "target's right of appeal at every reviewer at once",
-    () async {
-      final t0 = DateTime.utc(2026, 8, 3, 12).millisecondsSinceEpoch;
-      final hostileTs = t0 + const Duration(days: 365).inMilliseconds;
+  test('a moderator dating its action into the future used to retire its '
+      "target's right of appeal at every reviewer at once", () async {
+    final t0 = DateTime.utc(2026, 8, 3, 12).millisecondsSinceEpoch;
+    final hostileTs = t0 + const Duration(days: 365).inMilliseconds;
 
-      final ownerStorage = FakeHvContainer().storage();
-      final modStorage = FakeHvContainer().storage();
-      final bobStorage = FakeHvContainer().storage();
-      await ownerStorage.open(password: 'pw', createIfMissing: true);
-      await modStorage.open(password: 'pw', createIfMissing: true);
-      await bobStorage.open(password: 'pw', createIfMissing: true);
+    final ownerStorage = FakeHvContainer().storage();
+    final modStorage = FakeHvContainer().storage();
+    final bobStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'pw', createIfMissing: true);
+    await modStorage.open(password: 'pw', createIfMissing: true);
+    await bobStorage.open(password: 'pw', createIfMissing: true);
 
-      // The reviewer is the Space owner and its clock is honest; the harm is
-      // not something the moderator does to its own copy.
-      var ownerWall = t0;
-      final decisions = <String>[];
-      final ownerSvc = GroupService(
-        ownerStorage,
-        _FakeSigner(owner),
-        sendSpaceModerationAppealDecision:
-            (peer, appealId, decisionJson) async =>
-                decisions.add(decisionJson),
-      )..debugWallClockMs = () => ownerWall;
-      // The moderator reads 2027.
-      final modSvc = GroupService(modStorage, _FakeSigner(carol))
-        ..debugWallClockMs = () => hostileTs;
-      final captured = <String>[];
-      var bobWall = t0;
-      final bobSvc = GroupService(
-        bobStorage,
-        _FakeSigner(bob),
-        sendSpaceModerationAppeal: (peer, appealId, appealJson) async =>
-            captured.add(appealJson),
-      )..debugWallClockMs = () => bobWall;
-      addTearDown(ownerSvc.dispose);
-      addTearDown(modSvc.dispose);
-      addTearDown(bobSvc.dispose);
+    // The reviewer is the Space owner and its clock is honest; the harm is
+    // not something the moderator does to its own copy.
+    var ownerWall = t0;
+    final decisions = <String>[];
+    final ownerSvc = GroupService(
+      ownerStorage,
+      _FakeSigner(owner),
+      sendSpaceModerationAppealDecision: (peer, appealId, decisionJson) async =>
+          decisions.add(decisionJson),
+    )..debugWallClockMs = () => ownerWall;
+    // The moderator reads 2027.
+    final modSvc = GroupService(modStorage, _FakeSigner(carol))
+      ..debugWallClockMs = () => hostileTs;
+    final captured = <String>[];
+    var bobWall = t0;
+    final bobSvc = GroupService(
+      bobStorage,
+      _FakeSigner(bob),
+      sendSpaceModerationAppeal: (peer, appealId, appealJson) async =>
+          captured.add(appealJson),
+    )..debugWallClockMs = () => bobWall;
+    addTearDown(ownerSvc.dispose);
+    addTearDown(modSvc.dispose);
+    addTearDown(bobSvc.dispose);
 
-      final spaceId = await ownerSvc.createSpace('Appeal denial');
-      for (final member in [bob, carol]) {
-        expect(
-          await ownerSvc.addControlOp(
-            spaceId,
-            ControlOp.addMember,
-            target: member,
-            role: GroupRole.member,
-          ),
-          isTrue,
-        );
-      }
+    final spaceId = await ownerSvc.createSpace('Appeal denial');
+    for (final member in [bob, carol]) {
       expect(
         await ownerSvc.addControlOp(
           spaceId,
-          ControlOp.setRole,
-          target: carol,
-          role: GroupRole.admin,
+          ControlOp.addMember,
+          target: member,
+          role: GroupRole.member,
         ),
         isTrue,
       );
-      Future<void> handTo(GroupService target, NodeId recipient) async {
-        expect(
-          await target.ingestSnapshot(
-            ownerSvc.snapshotJson(
-              (await ownerSvc.load(spaceId))!,
-              recipient: recipient,
-            ),
-          ),
-          isTrue,
-        );
-      }
-
-      await handTo(modSvc, carol);
-      final actionId = await modSvc.moderateSpace(
+    }
+    expect(
+      await ownerSvc.addControlOp(
         spaceId,
-        kind: SpaceModerationKind.restrictMessages,
-        target: bob,
-        scope: SpaceModerationScope.space,
-        reason: 'dated a year out',
-      );
-      expect(actionId, isNotNull);
+        ControlOp.setRole,
+        target: carol,
+        role: GroupRole.admin,
+      ),
+      isTrue,
+    );
+    Future<void> handTo(GroupService target, NodeId recipient) async {
       expect(
-        await ownerSvc.ingestSnapshot(
-          modSvc.snapshotJson((await modSvc.load(spaceId))!, recipient: owner),
-        ),
-        isTrue,
-      );
-      await handTo(bobSvc, bob);
-
-      final candidate =
-          (await bobSvc.appealableSpaceModerationActions()).single;
-      expect(candidate.record.actionId, actionId);
-      expect(
-        candidate.record.action.createdAtMs,
-        greaterThanOrEqualTo(hostileTs),
-        reason: 'the action really does claim to have been taken in 2027, and '
-            "nothing about the moderator's signature says otherwise",
-      );
-
-      expect(
-        await bobSvc.appealSpaceModeration(
-          spaceId,
-          actionId!,
-          text: 'This was a mistake.',
-        ),
-        isTrue,
-      );
-      expect(captured, hasLength(1));
-      final sent = SpaceModerationAppeal.fromJson(jsonDecode(captured.single))!;
-      expect(
-        sent.createdAtMs,
-        lessThanOrEqualTo(bobWall + kSpacePublicClockSkew.inMilliseconds),
-        reason: "the appellant signs its OWN clock; the moderator's number is "
-            'not folded into it',
-      );
-      expect(sent.createdAtMs, lessThan(hostileTs));
-
-      // Delivery takes a moment, and the reviewer's clock has moved on by the
-      // time it lands. This is what tells "the action's stamp is excluded from
-      // the comparison" apart from "the action's stamp is clamped to now",
-      // which reads as equivalent and rejects every appeal that took any time
-      // at all to arrive.
-      ownerWall = t0 + const Duration(seconds: 30).inMilliseconds;
-      expect(
-        await ownerSvc.receiveSpaceModerationAppeal(bob, captured.single),
-        isTrue,
-        reason: 'one number, chosen by the person being appealed against, must '
-            'not be able to make the appeal unacceptable to its reviewer',
-      );
-      final incoming = await ownerSvc.incomingSpaceModerationAppeals(
-        spaceId: spaceId,
-        pendingOnly: true,
-      );
-      expect(incoming, hasLength(1));
-      expect(incoming.single.appeal.appellant, bob);
-      expect(
-        incoming.single.receivedAtMs,
-        lessThan(hostileTs),
-        reason: "and the reviewer's inbox is not sorted by 2027 either",
-      );
-
-      // The decision has to be able to come back, which is the second place an
-      // appeal's own stamp is weighed against a number from somewhere else:
-      // the appellant refuses a decision dated before its appeal.
-      expect(
-        await ownerSvc.decideSpaceModerationAppeal(
-          incoming.single.appeal.appealId,
-          outcome: SpaceModerationAppealOutcome.rejected,
-          reason: 'reviewed and upheld',
-        ),
-        isTrue,
-      );
-      expect(decisions, hasLength(1));
-      bobWall = ownerWall + 5000;
-      expect(
-        await bobSvc.receiveSpaceModerationAppealDecision(
-          owner,
-          decisions.single,
-        ),
-        isTrue,
-      );
-      expect(
-        (await bobSvc.outgoingSpaceModerationAppeals()).single.decision?.outcome,
-        SpaceModerationAppealOutcome.rejected,
-      );
-
-      // One-sided, like the rest of this series: an honest moderator a few
-      // minutes fast is believed, and appealing its action still works.
-      final honestModSvc = GroupService(modStorage, _FakeSigner(carol))
-        ..debugWallClockMs = () =>
-            t0 + const Duration(minutes: 3).inMilliseconds;
-      addTearDown(honestModSvc.dispose);
-      expect(
-        await honestModSvc.ingestSnapshot(
+        await target.ingestSnapshot(
           ownerSvc.snapshotJson(
             (await ownerSvc.load(spaceId))!,
-            recipient: carol,
+            recipient: recipient,
           ),
         ),
         isTrue,
       );
-      final honestAction = await honestModSvc.moderateSpace(
-        spaceId,
-        kind: SpaceModerationKind.mute,
-        target: bob,
-        scope: SpaceModerationScope.space,
-        reason: 'honestly a little fast',
-      );
-      expect(honestAction, isNotNull);
-      expect(
-        await ownerSvc.ingestSnapshot(
-          honestModSvc.snapshotJson(
-            (await honestModSvc.load(spaceId))!,
-            recipient: owner,
-          ),
-        ),
-        isTrue,
-      );
-      await handTo(bobSvc, bob);
-      captured.clear();
-      expect(
-        await bobSvc.appealSpaceModeration(
-          spaceId,
-          honestAction!,
-          text: 'And this one too.',
-        ),
-        isTrue,
-      );
-      ownerWall += 1000;
-      expect(
-        await ownerSvc.receiveSpaceModerationAppeal(bob, captured.single),
-        isTrue,
-      );
+    }
 
-      await bobStorage.close();
-      await modStorage.close();
-      await ownerStorage.close();
-    },
-  );
+    await handTo(modSvc, carol);
+    final actionId = await modSvc.moderateSpace(
+      spaceId,
+      kind: SpaceModerationKind.restrictMessages,
+      target: bob,
+      scope: SpaceModerationScope.space,
+      reason: 'dated a year out',
+    );
+    expect(actionId, isNotNull);
+    expect(
+      await ownerSvc.ingestSnapshot(
+        modSvc.snapshotJson((await modSvc.load(spaceId))!, recipient: owner),
+      ),
+      isTrue,
+    );
+    await handTo(bobSvc, bob);
+
+    final candidate = (await bobSvc.appealableSpaceModerationActions()).single;
+    expect(candidate.record.actionId, actionId);
+    expect(
+      candidate.record.action.createdAtMs,
+      greaterThanOrEqualTo(hostileTs),
+      reason:
+          'the action really does claim to have been taken in 2027, and '
+          "nothing about the moderator's signature says otherwise",
+    );
+
+    expect(
+      await bobSvc.appealSpaceModeration(
+        spaceId,
+        actionId!,
+        text: 'This was a mistake.',
+      ),
+      isTrue,
+    );
+    expect(captured, hasLength(1));
+    final sent = SpaceModerationAppeal.fromJson(jsonDecode(captured.single))!;
+    expect(
+      sent.createdAtMs,
+      lessThanOrEqualTo(bobWall + kSpacePublicClockSkew.inMilliseconds),
+      reason:
+          "the appellant signs its OWN clock; the moderator's number is "
+          'not folded into it',
+    );
+    expect(sent.createdAtMs, lessThan(hostileTs));
+
+    // Delivery takes a moment, and the reviewer's clock has moved on by the
+    // time it lands. This is what tells "the action's stamp is excluded from
+    // the comparison" apart from "the action's stamp is clamped to now",
+    // which reads as equivalent and rejects every appeal that took any time
+    // at all to arrive.
+    ownerWall = t0 + const Duration(seconds: 30).inMilliseconds;
+    expect(
+      await ownerSvc.receiveSpaceModerationAppeal(bob, captured.single),
+      isTrue,
+      reason:
+          'one number, chosen by the person being appealed against, must '
+          'not be able to make the appeal unacceptable to its reviewer',
+    );
+    final incoming = await ownerSvc.incomingSpaceModerationAppeals(
+      spaceId: spaceId,
+      pendingOnly: true,
+    );
+    expect(incoming, hasLength(1));
+    expect(incoming.single.appeal.appellant, bob);
+    expect(
+      incoming.single.receivedAtMs,
+      lessThan(hostileTs),
+      reason: "and the reviewer's inbox is not sorted by 2027 either",
+    );
+
+    // The decision has to be able to come back, which is the second place an
+    // appeal's own stamp is weighed against a number from somewhere else:
+    // the appellant refuses a decision dated before its appeal.
+    expect(
+      await ownerSvc.decideSpaceModerationAppeal(
+        incoming.single.appeal.appealId,
+        outcome: SpaceModerationAppealOutcome.rejected,
+        reason: 'reviewed and upheld',
+      ),
+      isTrue,
+    );
+    expect(decisions, hasLength(1));
+    bobWall = ownerWall + 5000;
+    expect(
+      await bobSvc.receiveSpaceModerationAppealDecision(
+        owner,
+        decisions.single,
+      ),
+      isTrue,
+    );
+    expect(
+      (await bobSvc.outgoingSpaceModerationAppeals()).single.decision?.outcome,
+      SpaceModerationAppealOutcome.rejected,
+    );
+
+    // One-sided, like the rest of this series: an honest moderator a few
+    // minutes fast is believed, and appealing its action still works.
+    final honestModSvc = GroupService(modStorage, _FakeSigner(carol))
+      ..debugWallClockMs = () => t0 + const Duration(minutes: 3).inMilliseconds;
+    addTearDown(honestModSvc.dispose);
+    expect(
+      await honestModSvc.ingestSnapshot(
+        ownerSvc.snapshotJson(
+          (await ownerSvc.load(spaceId))!,
+          recipient: carol,
+        ),
+      ),
+      isTrue,
+    );
+    final honestAction = await honestModSvc.moderateSpace(
+      spaceId,
+      kind: SpaceModerationKind.mute,
+      target: bob,
+      scope: SpaceModerationScope.space,
+      reason: 'honestly a little fast',
+    );
+    expect(honestAction, isNotNull);
+    expect(
+      await ownerSvc.ingestSnapshot(
+        honestModSvc.snapshotJson(
+          (await honestModSvc.load(spaceId))!,
+          recipient: owner,
+        ),
+      ),
+      isTrue,
+    );
+    await handTo(bobSvc, bob);
+    captured.clear();
+    expect(
+      await bobSvc.appealSpaceModeration(
+        spaceId,
+        honestAction!,
+        text: 'And this one too.',
+      ),
+      isTrue,
+    );
+    ownerWall += 1000;
+    expect(
+      await ownerSvc.receiveSpaceModerationAppeal(bob, captured.single),
+      isTrue,
+    );
+
+    await bobStorage.close();
+    await modStorage.close();
+    await ownerStorage.close();
+  });
 
   test(
     'moderation appeal routes to the current owner after transfer',
