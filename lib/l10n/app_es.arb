@@ -2546,6 +2546,8 @@
   "voiceModelInstalled": "Modelo de voz instalado",
   "voiceModelRemove": "Quitar el modelo de voz",
   "voiceModelRemoveHint": "Libera 57 MB. La transcripción deja de funcionar hasta que vuelvas a descargarlo.",
+  "voiceModelImport": "Instalar desde un archivo…",
+  "voiceModelImportHint": "Un archivo .veilaudio, si alguien ya lo descargó",
   "translationModels": "Idiomas de traducción",
   "translationModelsNone": "No hay idiomas instalados",
   "translationModelsImport": "Instalar desde un archivo…",

@@ -64,7 +64,12 @@ class WhisperModelStore {
   );
 
   Future<File> _target() async =>
-      File('${(await _supportDirectory()).path}/$fileName');
+      File('${(await modelDirectory()).path}/$fileName');
+
+  /// Where the model file lives. Public because a .veilaudio bundle is
+  /// installed into it, and an importer that guessed the directory would be a
+  /// second answer to a question this class already answers.
+  Future<Directory> modelDirectory() => _supportDirectory();
 
   /// The installed model, or null. Cheap: a size check, not a hash — the hash
   /// was verified before the file was ever given this name.
