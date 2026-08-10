@@ -70,6 +70,18 @@ const String kBundleSpeech = 'speech';
 
 const List<String> kVeilBundleKinds = [kBundleTranslate, kBundleSpeech];
 
+/// The file extension each kind travels under.
+///
+/// Here, beside the kinds, because two copies of a name is how the exporter
+/// and the receiver end up disagreeing about what a file is called — and a
+/// bundle nobody recognises is a bundle nobody installs.
+const String kTranslateBundleExt = '.veiltranslate';
+const String kSpeechBundleExt = '.veilaudio';
+const Map<String, String> kBundleExtensions = {
+  kBundleTranslate: kTranslateBundleExt,
+  kBundleSpeech: kSpeechBundleExt,
+};
+
 /// What a speech bundle may contain. Named here rather than imported from the
 /// whisper store so that the READER — which parses input from a stranger —
 /// does not depend on the app's model layer.

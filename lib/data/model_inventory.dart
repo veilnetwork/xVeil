@@ -42,7 +42,7 @@ class ModelOffer {
 
   /// A stable name for the file that carries it.
   String get suggestedFileName =>
-      pair == null ? 'speech.veilaudio' : '${pair!.id}.veiltranslate';
+      '${pair?.id ?? kind}${kBundleExtensions[kind]}';
 
   /// What goes on the wire when a contact asks what is available. Deliberately
   /// small and deliberately incomplete: no paths, no hashes, nothing about
