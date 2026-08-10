@@ -1,11 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path_provider/path_provider.dart';
 
-import '../core/log.dart';
+import 'pinned_download.dart';
+export 'pinned_download.dart' show sha256OfFileStreaming;
 
 /// The speech model, fetched on demand instead of shipped in the build.
 ///
@@ -121,99 +120,23 @@ class WhisperModelStore {
     bool Function()? isCancelled,
     Uri? from,
   }) async {
-    final file = await _target();
-    final part = File('${file.path}.part');
-    final client = _httpClient();
-    client.connectionTimeout = stallTimeout;
-    try {
-      var have = part.existsSync() ? part.lengthSync() : 0;
-      if (have >= expectedBytes) {
-        // A complete-looking leftover: verify it rather than fetch it again.
-        have = 0;
-        part.deleteSync();
-      }
-      final request = await client.getUrl(from ?? Uri.parse(downloadUrl));
-      if (have > 0) {
-        request.headers.set(HttpHeaders.rangeHeader, 'bytes=$have-');
-      }
-      final response = await request.close();
-
-      final resuming = response.statusCode == HttpStatus.partialContent;
-      if (response.statusCode != HttpStatus.ok && !resuming) {
-        return WhisperModelDownload.failed(
-          'server said ${response.statusCode}',
-        );
-      }
-      if (!resuming && have > 0) {
-        // Range ignored: the body starts from zero. The file is opened in
-        // truncating mode below, so nothing is spliced either way — what this
-        // fixes is the COUNT. Leaving it at the leftover size would report a
-        // download starting at 40% and then overshooting 100%, on a transfer
-        // that is in fact starting over.
-        devLog(() => 'xVeil[whisper]: server ignored Range, restarting');
-        have = 0;
-      }
-
-      final sink = part.openWrite(
-        mode: resuming ? FileMode.writeOnlyAppend : FileMode.writeOnly,
-      );
-      var received = have;
-      var cancelled = false;
-      try {
-        await for (final chunk in response.timeout(stallTimeout)) {
-          if (isCancelled != null && isCancelled()) {
-            cancelled = true;
-            break;
-          }
-          sink.add(chunk);
-          received += chunk.length;
-          if (onProgress != null) {
-            onProgress(
-              received >= expectedBytes ? 1 : received / expectedBytes,
-            );
-          }
-        }
-      } finally {
-        await sink.close();
-      }
-      if (cancelled) {
-        // The partial file stays: this is a pause, not a discard.
-        devLog(() => 'xVeil[whisper]: download cancelled at $received bytes');
-        return const WhisperModelDownload.cancelled();
-      }
-
-      // Size first: it is the cheap half of the same question, and a short
-      // body is the common failure while wrong content is the rare one.
-      final onDisk = part.existsSync() ? part.lengthSync() : 0;
-      if (onDisk != expectedBytes) {
-        part.deleteSync();
-        return WhisperModelDownload.failed(
-          'expected $expectedBytes bytes, got $onDisk',
-        );
-      }
-      // Hash the finished FILE rather than the download stream: a resumed
-      // download is half bytes this process never saw, so digesting the stream
-      // would only cover the tail.
-      //
-      // Read in chunks, though. `readAsBytesSync` pulled all ~57 MiB into the
-      // heap at once, on whatever isolate this runs — a spike big enough to
-      // matter on the low-end devices this model exists for, and synchronous
-      // besides (audit XV-21). The digest is identical either way.
-      final actual = await sha256OfFileStreaming(part);
-      if (actual != expectedSha256) {
-        part.deleteSync();
-        return WhisperModelDownload.failed('checksum mismatch');
-      }
-      part.renameSync(file.path);
-      devLog(() => 'xVeil[whisper]: model installed ($onDisk bytes)');
-      return WhisperModelDownload.ok(file.path);
-    } on Object catch (error) {
-      // Keep the partial bytes: this is what makes the next attempt a resume.
-      // Only verification deletes them, above.
-      return WhisperModelDownload.failed('$error');
-    } finally {
-      client.close(force: true);
-    }
+    final result = await fetchPinned(
+      target: await _target(),
+      artifact: const PinnedArtifact(
+        url: downloadUrl,
+        bytes: expectedBytes,
+        sha256: expectedSha256,
+      ),
+      httpClient: _httpClient,
+      stallTimeout: stallTimeout,
+      logTag: 'whisper',
+      onProgress: onProgress,
+      isCancelled: isCancelled,
+      from: from,
+    );
+    if (result.wasCancelled) return const WhisperModelDownload.cancelled();
+    if (result.succeeded) return WhisperModelDownload.ok(result.path!);
+    return WhisperModelDownload.failed(result.error);
   }
 }
 
@@ -238,34 +161,4 @@ class WhisperModelDownload {
 }
 
 
-/// SHA-256 of a file, read in chunks rather than loaded whole.
-///
-/// Same digest as `sha256.convert(file.readAsBytesSync())`, without holding
-/// the file in memory — which for the speech model is ~57 MiB (audit XV-21).
-@visibleForTesting
-Future<String> sha256OfFileStreaming(File file) async {
-  final sink = _DigestSink();
-  final input = sha256.startChunkedConversion(sink);
-  await for (final chunk in file.openRead()) {
-    input.add(chunk);
-  }
-  input.close();
-  final digest = sink.digest;
-  if (digest == null) {
-    // Unreachable: `close` always emits exactly one digest. Surfaced rather
-    // than defaulted, because a silent empty hash would read as "mismatch"
-    // and delete a file that was fine.
-    throw StateError('sha256 chunked conversion produced no digest');
-  }
-  return digest.toString();
-}
 
-class _DigestSink implements Sink<Digest> {
-  Digest? digest;
-
-  @override
-  void add(Digest data) => digest = data;
-
-  @override
-  void close() {}
-}
