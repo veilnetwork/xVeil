@@ -30,6 +30,23 @@ import 'video_frame_view.dart';
 /// incoming announce can ring while the user is outside the group chat. The
 /// surface deliberately renders the actual participant projection maintained
 /// by [GroupCallService]; no synthetic roster is inferred from group members.
+/// What to call a room at the top of a call: its name, or the plain fact that
+/// this is a group call — never a hex id.
+///
+/// The overlay used `groupId.short` when the name was missing, and `state` is
+/// also null while the lookup is in flight, so the id was not just the
+/// fallback for an unnamed room: it flashed on the first frame of EVERY call
+/// before the name arrived. Neither case is something a person in a call can
+/// act on, and the string for saying it plainly sat unused in both ARBs.
+///
+/// A function rather than three lines inside a `FutureBuilder` because that is
+/// the difference between a rule that can be asserted and one that needs the
+/// whole app mounted around a live call to look at.
+String groupCallTitleFor(AppL10n l, String? groupName) {
+  final name = groupName?.trim();
+  return name == null || name.isEmpty ? l.groupCallTitle : name;
+}
+
 class GroupCallOverlay extends ConsumerStatefulWidget {
   const GroupCallOverlay({super.key});
 
@@ -141,10 +158,7 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
         future: groups.stateOf(call.groupId),
         builder: (context, snapshot) {
           final state = snapshot.data;
-          final name = state?.name.trim();
-          final title = name == null || name.isEmpty
-              ? call.groupId.short
-              : name;
+          final title = groupCallTitleFor(AppL10n.of(context), state?.name);
           final role = state?.roleOf(groups.selfId);
           final isAdmin = role != null && role.rank >= GroupRole.admin.rank;
           final media = calls.mediaController;

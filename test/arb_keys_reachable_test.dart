@@ -160,6 +160,14 @@ void main() {
 /// Wiring the string up would have promised something the field refuses. The
 /// field did need to say what it takes, so it does now, accurately.
 ///
+/// `groupCallTitle` was a hex id wearing a title. The overlay used
+/// `groupId.short` whenever the room had no name — and `stateOf` is a future,
+/// so that id also flashed on the first frame of EVERY call before the name
+/// arrived. The rule now lives in `groupCallTitleFor`, which is a function
+/// rather than three lines inside a `FutureBuilder` because that is the
+/// difference between something assertable and something needing the whole
+/// app mounted around a live call to look at.
+///
 /// What is left falls into three groups, and each wants a different answer:
 ///  * text kept ON PURPOSE for a row that was removed rather than shipped
 ///    half-done — `networkExt*` and `networkComingLater`; see the comment in
@@ -186,7 +194,6 @@ const _knownUnreachable = {
   'callScreens',
   'cloudNoteSaved',
   'devicesFreshRegistryRequired',
-  'groupCallTitle',
   'groupVoiceTooLong',
   'networkComingLater',
   'networkExtSub',

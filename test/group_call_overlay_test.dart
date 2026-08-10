@@ -54,6 +54,37 @@ Widget _host(GroupCallRoomView child) => MaterialApp(
 );
 
 void main() {
+  // What the room is called at the top of a call. It used to be `groupId.short`
+  // whenever the name was missing — and `stateOf` is a future, so that hex id
+  // was not only the fallback for an unnamed room: it flashed on the first
+  // frame of EVERY call, before the name arrived. Neither is something a
+  // person in a call can act on.
+  testWidgets('an unnamed room is called a group call, never a hex id', (
+    tester,
+  ) async {
+    late AppL10n l;
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        home: Builder(
+          builder: (context) {
+            l = AppL10n.of(context);
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Named: the name wins, trimmed.
+    expect(groupCallTitleFor(l, '  Field lab  '), 'Field lab');
+    // Unnamed, blank, or still loading — the same honest answer for all three.
+    expect(groupCallTitleFor(l, null), l.groupCallTitle);
+    expect(groupCallTitleFor(l, ''), l.groupCallTitle);
+    expect(groupCallTitleFor(l, '   '), l.groupCallTitle);
+  });
+
   testWidgets('ringing group room exposes roster and accept/decline only', (
     tester,
   ) async {
