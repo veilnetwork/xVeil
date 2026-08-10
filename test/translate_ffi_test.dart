@@ -69,6 +69,25 @@ void main() {
     });
   });
 
+  group('the process image', () {
+    test('asking for it does not crash, and does not claim availability',
+        () async {
+      // iOS links the archive INTO Runner, so there is no file to open and
+      // asking for a .dylib by name finds nothing — the sentinel routes to the
+      // process image instead. This host has no veil_translate symbols in its
+      // process, so the right answer is null: the symbol check decides, not the
+      // fact that a handle came back.
+      expect(openTranslateLibrary(path: kProcessImage), isNull);
+
+      final engine = await TranslateEngine.open(
+        '/nonexistent/model',
+        libraryPath: kProcessImage,
+      );
+      expect(engine, isNull);
+      expect(TranslateEngine.lastOpenError, isNotEmpty);
+    });
+  });
+
   group('when the engine stops answering', () {
     test('a request that is never answered gives up, it does not hang', () async {
       // The worker isolate can die — a native fault, an uncaught error, a

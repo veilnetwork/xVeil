@@ -422,6 +422,12 @@ one is attached and `VEIL_TRANSLATE_TEST_MODEL` names a model directory.
 upstream on both; only the wrapper script is missing. Translation is simply
 absent there — the provider returns null and no affordance appears.
 
+**iOS is built but not yet LINKED.** The archive exists and is verified, and
+the Dart side now resolves iOS symbols from the process image (where a static
+archive ends up) — but nothing adds `libveil_translate.a` to the Runner target,
+so those symbols are not in the image and translation stays unavailable. That
+is an Xcode project change, and it is the remaining step.
+
 Models are **not** bundled and none are published yet. Convert a pair with
 `native/translate/convert-model.sh <from> <to>` (needs a Python environment
 with `ctranslate2`, `transformers` and `torch`; ~870 MB of wheels, host-side
@@ -879,6 +885,12 @@ native/translate/build_veil_translate_ios.sh       # libveil_translate.a
 **Linux и Windows пока не собраны.** Сам движок апстрим поддерживает на обеих;
 не хватает только скрипта обёртки. Перевод там просто отсутствует — провайдер
 возвращает null, и интерфейс не появляется.
+
+**iOS собран, но ещё не слинкован.** Архив есть и проверен, и Dart-сторона
+теперь ищет символы iOS в образе процесса (куда и попадает статический архив),
+но `libveil_translate.a` никто не добавляет к цели Runner — значит символов в
+образе нет и перевод остаётся недоступным. Это правка Xcode-проекта, и она
+остаётся последним шагом.
 
 Модели **не** входят в сборку, и ни одна пока не опубликована. Пара
 конвертируется скриптом `native/translate/convert-model.sh <from> <to>` (нужно
