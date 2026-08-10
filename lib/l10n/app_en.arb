@@ -1196,7 +1196,6 @@
       }
     }
   },
-  "chatListDelete": "Delete chat",
   "chatDeleteChatTitle": "Delete this chat?",
   "chatDeleteChatBody": "The conversation and all its messages are erased from this device. The other person is not notified.",
   "chatDeleteNotifyPeer": "Notify the other person",

@@ -143,6 +143,16 @@ void main() {
 /// carries is inside `spaceAccessRoleGrantSummary`, which the row uses, since
 /// areas were added beside it.
 ///
+/// `chatMoreActions` names a gesture, which is a fourth kind again. A
+/// conversation's actions are behind a long press and a right-click with
+/// nothing on screen saying so, and a screen reader announced the row as a
+/// plain tap target — so for its users those actions did not exist. It is the
+/// row's `onLongPressHint` now, which is what VoiceOver and TalkBack read out
+/// for that gesture, and it changes nothing visually.
+///
+/// `chatListDelete` ("Delete chat") is deleted: the sheet says "Delete
+/// conversation" and uses `chatMenuDeleteConversation` for it.
+///
 /// What is left falls into three groups, and each wants a different answer:
 ///  * text kept ON PURPOSE for a row that was removed rather than shipped
 ///    half-done — `networkExt*` and `networkComingLater`; see the comment in
@@ -167,8 +177,6 @@ void main() {
 const _knownUnreachable = {
   'actionUnderstood',
   'callScreens',
-  'chatListDelete',
-  'chatMoreActions',
   'cloudNoteSaved',
   'devicesFreshRegistryRequired',
   'groupCallTitle',
