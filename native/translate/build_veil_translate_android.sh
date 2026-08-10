@@ -30,7 +30,16 @@ CT2_SRC="${CT2_SRC:-$HOME/Projects/veilnetwork/CTranslate2}"
 SPM_SRC="${SPM_SRC:-$HOME/Projects/veilnetwork/sentencepiece}"
 CT2_DIST="${CT2_DIST:-$CT2_SRC/dist/android-arm64-v8a-static}"
 SPM_BUILD="${SPM_BUILD:-$SPM_SRC/build-android-arm64}"
-DEST="${1:-$SRCDIR/jniLibs/arm64-v8a}"
+# Straight into the APK's own jniLibs, which is where gradle packages from —
+# the same place the whisper wrapper lands. Staging beside this script instead
+# built a library the app could never load: gradle takes
+# android/app/src/main/jniLibs/<abi>/ and nothing else, so translation would
+# have been absent on Android while every check here said the engine was fine.
+#
+# The device selftest below hid it, too: it pushes the files over adb and runs
+# them directly, so it proved the library works and said nothing about whether
+# the APK carries it.
+DEST="${1:-$SRCDIR/../../android/app/src/main/jniLibs/arm64-v8a}"
 
 TC="$NDK/toolchains/llvm/prebuilt"
 HOST="$(ls "$TC" 2>/dev/null | head -1)"
@@ -100,8 +109,12 @@ echo "exports $exported veil_translate_* entry points"
 # The selftest is an Android binary; running it needs a device. Built either
 # way, because a build that produces an unrunnable test still tells us the ABI
 # links.
+# Into the temp directory, NOT beside the library: DEST is now the APK's own
+# jniLibs, and a test binary sitting in the app's source tree is one careless
+# `git add -A` away from being committed — and one AGP packaging rule away
+# from shipping.
 "$CLANGXX" --target="aarch64-linux-android$API" "$SRCDIR/selftest.c" \
-  -I"$SRCDIR" -L"$DEST" -lveil_translate -o "$DEST/selftest"
+  -I"$SRCDIR" -L"$DEST" -lveil_translate -o "$TMP/selftest"
 
 MODEL="${VEIL_TRANSLATE_TEST_MODEL:-}"
 if [ -z "$MODEL" ] || ! command -v adb >/dev/null || [ -z "$(adb devices | sed -n '2p')" ]; then
@@ -114,7 +127,7 @@ fi
 echo "==> selftest on device"
 remote=/data/local/tmp/veil-translate
 adb shell "rm -rf $remote && mkdir -p $remote/model" >/dev/null
-adb push "$DEST/libveil_translate.so" "$DEST/libomp.so" "$DEST/selftest" "$remote/" >/dev/null
+adb push "$DEST/libveil_translate.so" "$DEST/libomp.so" "$TMP/selftest" "$remote/" >/dev/null
 for f in "$MODEL"/*; do adb push "$f" "$remote/model/" >/dev/null; done
 adb shell "cd $remote && chmod 755 selftest && LD_LIBRARY_PATH=$remote ./selftest model; echo DEVICE_RC=\$?" \
   | tee "$TMP/device.log"
