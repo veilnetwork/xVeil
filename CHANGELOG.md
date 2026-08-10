@@ -62,6 +62,33 @@ checklist at the bottom of this entry.
 
 ### Added
 
+- **Messages translate on the device, by button.** No text leaves the machine
+  and nothing is sent to a service: the engine is CTranslate2 running an
+  OPUS-MT model, and the result is kept in the ENCRYPTED store so a second look
+  costs nothing and the translation never lands in plaintext. Translation
+  appears only when a model for that direction is actually installed — an
+  affordance that cannot work is not shown.
+- **Language models install from a file, and can be passed on.** A direction
+  travels as one `.veiltranslate`; the speech model travels as one
+  `.veilaudio`. Either can be picked from disk or received in a chat, where it
+  becomes an install card rather than an anonymous download. Settings can write
+  an installed direction back out as a file, so a person whose connection
+  cannot fetch 79 MB — or who has none — can get one from someone who has it.
+- **A model is installed whole or not at all, and is verified before it is.**
+  A language pair is five files; four of them plus a missing tokeniser is not
+  a partial model but one that would translate into nonsense the moment the
+  fifth arrived from a different pair. Every file's size and SHA-256 are
+  checked against the manifest before anything becomes visible, the container
+  carries no paths, and nothing is compressed — so a file from a stranger
+  cannot write outside where it belongs or expand into anything.
+
+  For the SPEECH model the check is stronger, because the right hash is known:
+  a bundle is compared against what this build expects, not merely against its
+  own claim about itself. For a translation model there is no such pin, so
+  every install card says plainly that a model decides what the app claims
+  another person wrote, and that its hashes prove integrity and not
+  provenance.
+
 - **Link a new device without minting a phrase it will never own.** A second
   device joining an existing device group no longer walks the create-identity
   wizard first.

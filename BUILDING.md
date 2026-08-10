@@ -383,6 +383,52 @@ routes for the tunnel lifetime, and exits after rollback. Verify a fresh
 extracted bundle and the VPN start/stop rollback on a clean Windows machine
 before distribution.
 
+### On-device translation
+
+Message translation runs locally on CTranslate2 with an OPUS-MT model. Upstream
+CTranslate2 does not support Android or iOS — the request has been open since
+2024 — so the engine is built from the fork at
+`https://github.com/veilnetwork/CTranslate2`, whose `mobile/` scripts add
+nothing but the right flags. No C++ was changed to make it build; see
+`mobile/README.md` there for which defaults are wrong for a phone and why.
+
+Prerequisites, both out-of-repo checkouts beside this one:
+
+- `CTranslate2` (the fork) — `mobile/build-android.sh`, `mobile/build-ios.sh`,
+  and for the host a static build with `BUILD_SHARED_LIBS=OFF`.
+- `sentencepiece` — the tokeniser. Cross-compiling it needs
+  `SPM_PROTOC_EXECUTABLE` pointing at a protoc that runs on the BUILD machine;
+  without it the build makes a protoc for the target and tries to run it here,
+  which fails as an unexplained "Error 126". iOS additionally needs
+  `native/translate/cmake/ios_shim.cmake` injected with
+  `CMAKE_PROJECT_INCLUDE_BEFORE`.
+
+Then build the wrapper — one library holding the engine, the tokeniser and a
+small C ABI, so a translation feature arrives as one file rather than a set
+that can turn up incomplete:
+
+```bash
+native/translate/build_veil_translate_macos.sh     # libveil_translate.dylib
+native/translate/build_veil_translate_android.sh   # jniLibs/arm64-v8a/, + libomp.so
+native/translate/build_veil_translate_ios.sh       # libveil_translate.a
+```
+
+Each verifies what it produced — architecture, exported entry points, and for
+iOS the PLATFORM, because a macOS archive is arm64 too and fails only on a
+device. The Android script also runs its selftest ON a connected phone when
+one is attached and `VEIL_TRANSLATE_TEST_MODEL` names a model directory.
+
+**Linux and Windows are not built yet.** The engine itself is supported
+upstream on both; only the wrapper script is missing. Translation is simply
+absent there — the provider returns null and no affordance appears.
+
+Models are **not** bundled and none are published yet. Convert a pair with
+`native/translate/convert-model.sh <from> <to>` (needs a Python environment
+with `ctranslate2`, `transformers` and `torch`; ~870 MB of wheels, host-side
+only). It prints the catalogue entry — real sizes and SHA-256 read back from
+the files it just wrote. A person installs a converted pair from Settings, or
+receives one in a chat as a `.veiltranslate`.
+
 ### Verification
 
 Fast Flutter checks:
@@ -793,6 +839,53 @@ Copy-Item third_party\veil\target\release\veilclient_ffi.dll `
 это тот же `xveil.exe`, она владеет маршрутами ActiveStore до остановки и
 завершается после rollback. Перед публикацией проверьте свежераспакованный
 каталог и полный start/stop rollback VPN на чистой Windows-машине.
+
+### Перевод на устройстве
+
+Перевод сообщений работает локально на CTranslate2 с моделью OPUS-MT. Апстрим
+CTranslate2 не поддерживает Android и iOS — запрос висит с 2024 года, — поэтому
+движок собирается из форка `https://github.com/veilnetwork/CTranslate2`, чьи
+скрипты в `mobile/` не добавляют ничего, кроме верных флагов. Ни строки C++ ради
+сборки менять не пришлось; какие умолчания неверны для телефона и почему —
+в `mobile/README.md` там же.
+
+Что нужно рядом, двумя отдельными чекаутами:
+
+- `CTranslate2` (форк) — `mobile/build-android.sh`, `mobile/build-ios.sh`, а для
+  хоста статическая сборка с `BUILD_SHARED_LIBS=OFF`.
+- `sentencepiece` — токенизатор. Кросс-сборке нужен `SPM_PROTOC_EXECUTABLE` с
+  путём к protoc, который запускается на СБОРОЧНОЙ машине; без него сборка
+  делает protoc под целевую платформу и пытается запустить его здесь, падая
+  необъяснимой «Error 126». Для iOS дополнительно нужен
+  `native/translate/cmake/ios_shim.cmake`, подставленный через
+  `CMAKE_PROJECT_INCLUDE_BEFORE`.
+
+Затем соберите обёртку — одну библиотеку с движком, токенизатором и небольшим
+C ABI, чтобы перевод приезжал одним файлом, а не набором, который может
+оказаться неполным:
+
+```bash
+native/translate/build_veil_translate_macos.sh     # libveil_translate.dylib
+native/translate/build_veil_translate_android.sh   # jniLibs/arm64-v8a/, + libomp.so
+native/translate/build_veil_translate_ios.sh       # libveil_translate.a
+```
+
+Каждый проверяет то, что произвёл: архитектуру, экспортируемые точки входа, а
+для iOS ещё и ПЛАТФОРМУ — потому что macOS-архив тоже arm64 и падает только на
+устройстве. Андроидный скрипт вдобавок гоняет самопроверку НА подключённом
+телефоне, если он подключён и `VEIL_TRANSLATE_TEST_MODEL` указывает на каталог
+модели.
+
+**Linux и Windows пока не собраны.** Сам движок апстрим поддерживает на обеих;
+не хватает только скрипта обёртки. Перевод там просто отсутствует — провайдер
+возвращает null, и интерфейс не появляется.
+
+Модели **не** входят в сборку, и ни одна пока не опубликована. Пара
+конвертируется скриптом `native/translate/convert-model.sh <from> <to>` (нужно
+питон-окружение с `ctranslate2`, `transformers` и `torch`; около 870 МБ колёс,
+только на хосте). Он печатает запись каталога — настоящие размеры и SHA-256,
+прочитанные из только что записанных файлов. Сконвертированную пару человек
+ставит из настроек или получает в переписке файлом `.veiltranslate`.
 
 ### Проверка
 
