@@ -14,20 +14,6 @@ import '../core/log.dart';
 import '../data/translation_model_store.dart';
 import 'translate_ffi.dart';
 
-/// The files a directory must hold before it is treated as a pair.
-///
-/// All five, because four of them plus a missing target.spm is not a partial
-/// model, it is a model that opens and translates into nonsense if the missing
-/// piece is ever filled in from a different pair. The store checks sizes
-/// against a pinned catalogue; this checks presence, which is all that can be
-/// known about a directory somebody placed by hand.
-const List<String> kPairFiles = [
-  'model.bin',
-  'config.json',
-  'shared_vocabulary.json',
-  'source.spm',
-  'target.spm',
-];
 
 class TranslationEngines {
   TranslationEngines._(this._root, this._pairs, this._libraryPath);
