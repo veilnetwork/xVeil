@@ -18,6 +18,38 @@ import '../core/posix_file_facts.dart';
 /// far past any legitimate value and far below anything worth worrying about.
 const int kSharedSecretFileMaxBytes = 4096;
 
+/// Ceiling on a PRIVATE secret read from a file — a container password, a
+/// recovery phrase, an API token.
+///
+/// The longest of the three is a 24-word phrase, some two hundred bytes. The
+/// same 4 KiB is far past any of them and far below anything worth worrying
+/// about.
+const int kSecretFileMaxBytes = 4096;
+
+/// Read at most [maxBytes] of [path], bounded at the STREAM.
+///
+/// The bound is not a `length()` taken beforehand, and that is the whole
+/// point: a file can grow between the measurement and the read, so a
+/// pre-measured limit bounds a number rather than an allocation. Reading one
+/// byte past the ceiling also keeps "exactly at the limit" and "over it"
+/// distinguishable without reading any more than that.
+///
+/// Returns bytes rather than a string so each caller keeps its own decode:
+/// the shared path tolerates malformed UTF-8, the private one must not.
+Future<Uint8List> _readBounded(String path, String label, int maxBytes) async {
+  final buffer = BytesBuilder(copy: false);
+  await for (final chunk in File(path).openRead(0, maxBytes + 1)) {
+    buffer.add(chunk);
+  }
+  final bytes = buffer.takeBytes();
+  if (bytes.length > maxBytes) {
+    throw StateError(
+      '$label file $path is larger than $maxBytes bytes — refusing to read it.',
+    );
+  }
+  return bytes;
+}
+
 /// Read a SHARED deployment secret — one every participant already holds — from
 /// [path], with a type check and a ceiling and nothing else.
 ///
@@ -54,18 +86,7 @@ Future<String> readSharedSecretFile(
       '$label file $path is not a regular file ($type) — refusing to read it.',
     );
   }
-  // One byte past the ceiling, so "exactly at the limit" and "over it" are
-  // distinguishable without reading any more than that.
-  final buffer = BytesBuilder(copy: false);
-  await for (final chunk in File(path).openRead(0, maxBytes + 1)) {
-    buffer.add(chunk);
-  }
-  final bytes = buffer.takeBytes();
-  if (bytes.length > maxBytes) {
-    throw StateError(
-      '$label file $path is larger than $maxBytes bytes — refusing to read it.',
-    );
-  }
+  final bytes = await _readBounded(path, label, maxBytes);
   final value = utf8.decode(bytes, allowMalformed: true).trim();
   if (value.isEmpty) throw StateError('$label file is empty');
   return value;
@@ -255,7 +276,13 @@ Future<String> readSecretFile(
   // read, look again, and refuse if it is not the same object. A secret that
   // might be somebody else's planted file is worse than no secret.
   if (before != null) {
-    final value = (await File(path).readAsString()).trim();
+    // Bounded, and bounded at the stream. A correctly-owned 0600 file is not
+    // necessarily a SMALL one, and `readAsString` read whatever was there —
+    // so a secret file the operator points at by mistake became the daemon's
+    // heap before any of the checks below got to run (report9 X-04).
+    final value = utf8
+        .decode(await _readBounded(path, label, kSecretFileMaxBytes))
+        .trim();
     final after = posixLstat(path);
     if (after == null ||
         !before.sameObjectAs(after) ||
@@ -275,7 +302,9 @@ Future<String> readSecretFile(
   // write the file — but it is what these platforms had, and nothing here makes
   // it worse.
   final beforeStat = await File(path).stat();
-  final value = (await File(path).readAsString()).trim();
+  final value = utf8
+      .decode(await _readBounded(path, label, kSecretFileMaxBytes))
+      .trim();
   final afterStat = await File(path).stat();
   if (beforeStat.type != afterStat.type ||
       beforeStat.mode != afterStat.mode ||
