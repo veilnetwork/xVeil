@@ -18,6 +18,7 @@ import 'cloud_capability_service.dart' show cloudProviderSlotFor;
 import 'cloud_document_providers.dart';
 import 'group_epoch_service.dart';
 import 'group_service.dart';
+import 'messaging_core.dart';
 import 'messaging_providers.dart';
 import 'providers.dart';
 
@@ -181,7 +182,6 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     },
     spaceDiscoveryTransport: NativeSpaceDiscoveryTransport(signer.selfId),
   );
-  ref.onDispose(() => unawaited(service.dispose()));
   // Member content hosting: give every device of this identity its own
   // provider slot. The host seed and alias come from documentId + epochKey, so
   // they are identical on all of them and the slot is the only thing keeping
@@ -231,6 +231,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   messaging.allowStrangerGroupSync = service.allowStrangerGroupSync;
   // A revoked device stops owing state, so stop holding it for it.
   service.onMemberRevoked = (device) => messaging.dropPendingFramesFor(device);
+  messaging.groupBindingsOwner = service;
   unawaited(service.nudgeGroupSyncAll());
 
   // Multi-device mirror emit: bytes remain lazy content references.
@@ -285,7 +286,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   };
 
   // Multi-device mirror apply: idempotent, content bytes remain opt-in.
-  service.deviceIncoming.listen((message) {
+  final deviceMirror = service.deviceIncoming.listen((message) {
     final event = DeviceSyncEvent.fromBody(message.body);
     if (event == null || event.kind != DeviceSyncKind.msgMirror) return;
     final peerHex = event.payload['peer'];
@@ -320,5 +321,59 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       ),
     );
   });
+  ref.onDispose(() {
+    // Detach before disposing, and only what is still ours.
+    //
+    // In all-online the messaging service belongs to one identity and lives for
+    // the whole session; THIS provider is rebuilt for the active identity and
+    // disposed on every switch. Its callbacks used to stay attached, so the
+    // next frame arriving on the old identity's pipeline was handed to a
+    // disposed group service: it could still write storage and then throw on a
+    // closed controller, with durable frames already acknowledged and
+    // deduplicated by then.
+    //
+    // Guarded by the owner token because dispose order is not something to bet
+    // on: if a newer build has already installed its own callbacks on this same
+    // service, clearing them here would break the identity that just became
+    // active. `_detachGroupBindings` is a no-op in that case.
+    _detachGroupBindings(messaging, service);
+    unawaited(deviceMirror.cancel());
+    unawaited(service.dispose());
+  });
   return service;
 });
+
+/// Clear the group-layer callbacks [service] installed on [messaging].
+///
+/// A no-op unless [service] is still the owner: a newer build may already have
+/// rebound this same messaging service to its own group service, and clearing
+/// those would silence the identity that just became active.
+///
+/// Every `messaging.<callback> =` in [groupServiceProvider] has its counterpart
+/// here, and `group_bindings_detached_test` fails if one grows without the
+/// other — a binding that outlives its service is invisible until a frame
+/// arrives for it.
+void _detachGroupBindings(MessagingService messaging, GroupService service) {
+  if (!identical(messaging.groupBindingsOwner, service)) return;
+  messaging.groupBindingsOwner = null;
+  messaging.onGroupEntry = null;
+  messaging.onSpaceInvite = null;
+  messaging.onSpaceInviteDecision = null;
+  messaging.onSpaceJoinRequest = null;
+  messaging.onSpaceJoinDecision = null;
+  messaging.onSpaceModerationAppeal = null;
+  messaging.onSpaceModerationAppealDecision = null;
+  messaging.onSpaceAbuseReport = null;
+  messaging.onSpaceAbuseReportDecision = null;
+  messaging.onSpaceRecommendation = null;
+  messaging.onGroupContentRequest = null;
+  messaging.onGroupContentReceipt = null;
+  messaging.onSpacePublicFeedRequest = null;
+  messaging.onSpacePublicFeedChunk = null;
+  messaging.onSpacePublicMediaGrantRequest = null;
+  messaging.onGroupContentVerifiedSources = null;
+  messaging.onGroupCallSignal = null;
+  messaging.onGroupEntryFromStranger = null;
+  messaging.allowStrangerGroupSync = null;
+  messaging.onMessageStored = null;
+}
