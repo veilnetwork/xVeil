@@ -87,6 +87,14 @@ class _Network implements CloudCapabilityNetworkPort {
   final sent = <Uint8List>[];
   Completer<void>? nextCloseGate;
 
+  /// Holds `host` open, standing in for the seconds a real onion registration
+  /// takes — the window in which a close can land.
+  Completer<void>? hostGate;
+
+  /// Completes when `host` is first entered while [hostGate] is set, so a test
+  /// can wait for the call to be INSIDE rather than guess with a delay.
+  Completer<void>? enteredHost;
+
   @override
   Future<CloudCapabilityEndpointPort> host({
     required Uint8List identitySeed,
@@ -103,6 +111,12 @@ class _Network implements CloudCapabilityNetworkPort {
       crypto.sha256.convert(utf8.encode(alias)).bytes,
     );
     identitySeed.fillRange(0, identitySeed.length, 0);
+    final gate = hostGate;
+    if (gate != null) {
+      final entered = enteredHost;
+      if (entered != null && !entered.isCompleted) entered.complete();
+      await gate.future;
+    }
     final endpoint = _Endpoint(
       serviceKey,
       appId,
@@ -1186,5 +1200,95 @@ void main() {
       await f.storage.close();
       await downloaderStorage.close();
     });
+  });
+
+  /// A close that lands while `start` is re-hosting must not leave a live
+  /// endpoint behind.
+  ///
+  /// `close` sweeps the hosted-share maps exactly once and then sets the flag.
+  /// Every registration happens after awaits — a provider slot, an onion
+  /// registration — so a `start` already inside `network.host` came back and
+  /// wrote its host into a map nobody will read again: a registration that goes
+  /// on answering, holds its provider slot, and has no reconcile left to notice
+  /// it, because the service is closed.
+  ///
+  /// The assertion is on the ENDPOINT rather than on the service's maps: the
+  /// map is private and, more to the point, an orphan is only harmful because
+  /// it stays live on the network.
+  test('closing while start re-hosts leaves no endpoint open', () async {
+    final backend = _SyncBackend();
+    final container = FakeHvContainer();
+    final storage = container.storage();
+    await storage.open(password: 'a', createIfMissing: true);
+    final bytes = Uint8List.fromList(List.generate(64, (i) => i * 3));
+    final manifest = ContentManifest.fromBytes('orphan.bin', bytes);
+    await storage.storeFile(manifest.contentId, bytes);
+    await storage.storeFile(
+      'mf:${manifest.contentId}',
+      Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+    );
+
+    // A share persisted by one run of the app is what the next run re-hosts.
+    final first = CloudCapabilityService(
+      storage,
+      _Network(),
+      sync: _SyncPort(backend, 1),
+      now: () => DateTime(2030),
+      random: _Random(),
+    );
+    expect(
+      await first.createShare(
+        CloudItem(
+          id: 'orphan-item',
+          kind: CloudItemKind.file,
+          name: manifest.name,
+          contentId: manifest.contentId,
+          size: bytes.length,
+          createdAtMs: 1,
+          modifiedAtMs: 1,
+          revision: 1,
+          deleted: false,
+        ),
+      ),
+      isNotNull,
+    );
+    await first.close();
+
+    final net = _Network();
+    final second = CloudCapabilityService(
+      storage,
+      net,
+      sync: _SyncPort(backend, 2),
+      now: () => DateTime(2030),
+      random: _Random(),
+    );
+    net.hostGate = Completer<void>();
+    net.enteredHost = Completer<void>();
+    final starting = second.start();
+    await net.enteredHost!.future.timeout(const Duration(seconds: 5));
+
+    // Inside `network.host`, with the row already read and the host about to
+    // be registered.
+    await second.close();
+    net.hostGate!.complete();
+    net.hostGate = null;
+    await starting.catchError((_) {});
+
+    expect(
+      net.endpoints,
+      isNotEmpty,
+      reason:
+          'no re-host was attempted, so this proves nothing — the persisted '
+          'share stopped being re-hosted on start and the test needs fixing',
+    );
+    expect(
+      net.endpoints.where((endpoint) => !endpoint.closed),
+      isEmpty,
+      reason:
+          'start finished after close and left a live onion registration: it '
+          'keeps answering, keeps its provider slot, and nothing will ever '
+          'close it because the service it belongs to is gone',
+    );
+    await storage.close();
   });
 }
