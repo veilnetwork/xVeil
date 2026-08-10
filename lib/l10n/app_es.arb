@@ -2546,6 +2546,13 @@
   "voiceModelInstalled": "Modelo de voz instalado",
   "voiceModelRemove": "Quitar el modelo de voz",
   "voiceModelRemoveHint": "Libera 57 MB. La transcripción deja de funcionar hasta que vuelvas a descargarlo.",
+  "translationModels": "Idiomas de traducción",
+  "translationModelsNone": "No hay idiomas instalados",
+  "translationModelsImport": "Instalar desde un archivo…",
+  "translationModelsImporting": "Instalando…",
+  "translationModelsFailed": "No se pudo instalar este archivo",
+  "translationModelsRemove": "Eliminar este idioma",
+  "translationModelsHint": "Un archivo .veiltranslate por dirección. La traducción ocurre en este dispositivo.",
   "voiceModelResume": "Continuar la descarga",
   "voiceModelResumeAt": "{percent} % ya descargado",
   "@voiceModelResumeAt": {

@@ -2554,6 +2554,13 @@
   "voiceModelInstalled": "Speech model installed",
   "voiceModelRemove": "Remove the speech model",
   "voiceModelRemoveHint": "Frees 57 MB. Transcription stops working until you fetch it again.",
+  "translationModels": "Translation languages",
+  "translationModelsNone": "No languages installed",
+  "translationModelsImport": "Install from a file…",
+  "translationModelsImporting": "Installing…",
+  "translationModelsFailed": "This file could not be installed",
+  "translationModelsRemove": "Remove this language",
+  "translationModelsHint": "One .veiltranslate file per direction. Translation happens on this device.",
   "voiceModelResume": "Continue downloading",
   "voiceModelResumeAt": "{percent}% already downloaded",
   "@voiceModelResumeAt": {
