@@ -144,11 +144,20 @@ class KvLogEntry {
 /// How much of the container file is still carrying live data, as ONE space
 /// sees it. Mirrors hidden-volume's `SpaceStats` slot pair.
 ///
-/// The store is append-only and never reuses a freed slot (deliberately — a
-/// second write at one offset is not explicable by a decoy password and would
-/// hand an observer with two disk snapshots proof of live data; see
-/// `third_party/hidden-volume/DESIGN.md`, "Slot-reuse prohibition"). So every
-/// superseded chunk stays in the file forever and only a repack removes it.
+/// Superseded chunks are not freed for the writer to overwrite at will, so the
+/// file only grows and a repack is what returns the space.
+///
+/// It is NOT true that a freed slot is never reused: that prohibition was
+/// LIFTED. `third_party/hidden-volume/DESIGN.md` §9.1 says so in its first
+/// line — "Retired slots are reused. This section replaces the slot-reuse
+/// prohibition" — and reuse is live in the code (`reuse_count`,
+/// `churn_decoys`, `CHURN_PER_REUSE`). What makes it safe is churn: a commit
+/// that reuses k slots rewrites k decoys drawn from the same pool, in the same
+/// commit, under the same fsync, so a snapshot pair cannot tell a rewritten
+/// real slot from a rewritten decoy.
+///
+/// The stale wording mattered: it was read as an architectural reason the
+/// container must grow, and that reasoning was then repeated elsewhere.
 /// That is not a leak, but it means the file's size stops describing what is
 /// in it, and NOTHING told the user — a container observed at 7.0 GB compacted
 /// down to 4.8 MB.
