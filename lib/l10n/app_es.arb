@@ -2599,5 +2599,6 @@
   "chatTranslate": "Traducir",
   "chatTranslating": "Traduciendo…",
   "chatTranslateFailed": "No se pudo traducir: toca para reintentar",
-  "chatTranslationShowOriginal": "Mostrar el original"
+  "chatTranslationShowOriginal": "Mostrar el original",
+  "chatTranslateInto": "Traducir a…"
 }

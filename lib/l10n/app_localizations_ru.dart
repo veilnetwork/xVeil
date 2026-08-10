@@ -6093,4 +6093,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get chatTranslationShowOriginal => 'Показать оригинал';
+
+  @override
+  String get chatTranslateInto => 'Перевести на…';
 }
