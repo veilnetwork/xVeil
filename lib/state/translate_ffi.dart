@@ -54,11 +54,28 @@ const List<String> kRequiredSymbols = [
   'veil_translate_version',
 ];
 
+/// What [translateLibraryRef] returns on iOS.
+///
+/// There is no file to name there: the archive is linked INTO Runner, so the
+/// symbols live in the process image. A sentinel keeps the two-step shape
+/// (find a reference, then open it) working on every platform.
+const String kProcessImage = ':process:';
+
 /// Opens the library, or null when it is absent or too old.
 DynamicLibrary? openTranslateLibrary({String? path}) {
   DynamicLibrary library;
   try {
-    library = DynamicLibrary.open(path ?? nativeLibFileName(kVeilTranslateLib));
+    // iOS links the archive into the executable, so there is nothing to
+    // dlopen and asking for a .dylib by name finds nothing. Looking in the
+    // process image is not a fallback here, it is the only correct answer —
+    // and the symbol check below still decides whether translation is
+    // actually available, so a build that did not link the archive degrades
+    // to "unavailable" rather than crashing at the first call.
+    if (path == kProcessImage || (path == null && Platform.isIOS)) {
+      library = DynamicLibrary.process();
+    } else {
+      library = DynamicLibrary.open(path ?? nativeLibFileName(kVeilTranslateLib));
+    }
   } catch (_) {
     return null;
   }
@@ -71,6 +88,7 @@ DynamicLibrary? openTranslateLibrary({String? path}) {
 /// Where the library is, or null. Android resolves by soname — there is no
 /// absolute file to stat inside an APK.
 String? translateLibraryRef() {
+  if (Platform.isIOS) return kProcessImage;
   if (Platform.isAndroid) return nativeLibFileName(kVeilTranslateLib);
   for (final candidate in nativeLibCandidates(kVeilTranslateLib)) {
     if (File(candidate).existsSync()) return candidate;
