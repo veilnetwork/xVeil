@@ -428,6 +428,25 @@ void main() {
 
         final backing = HvMultiSpaceBacking.open(path, paddingPreset: preset);
         final id = backing.openSpace(keys);
+        // One warm-up commit BEFORE the measurement, which is what the
+        // single-space test above gets from its `saveProfile` — and what this
+        // one was missing.
+        //
+        // Slot reuse can only hand back slots something has retired, and a
+        // container opened cold has retired nothing: the first commit must
+        // append, and with a bucket preset it appends a whole bucket. Measured
+        // from before that commit, the bound below was asking reuse to undo an
+        // allocation that had to happen, and it failed at 512000 against every
+        // version of the storage core it was ever run on. Measured from after
+        // it, the twelve hot writes cost exactly one more bucket — which is
+        // the steady-state property an always-online store actually needs.
+        backing.commit(id, [
+          PutOp(
+            Ns.settings,
+            Uint8List.fromList('warmup'.codeUnits),
+            Uint8List.fromList('0'.codeUnits),
+          ),
+        ]);
         final before = File(path).lengthSync();
         for (var i = 0; i < 12; i++) {
           backing.commit(id, [
@@ -451,7 +470,10 @@ void main() {
         lessThanOrEqualTo(256 * 1024),
         reason:
             'always-online multi-space storage must get the same bounded '
-            'growth from slot reuse (bucket=$bucketGrowth)',
+            'growth from slot reuse: twelve hot writes from a warmed container '
+            'must fit in ONE more 256 KiB bucket, and a bucket per commit '
+            '(twelve of them, 3 MiB) is the unbounded growth this catches '
+            '(bucket=$bucketGrowth)',
       );
       expect(
         leanGrowth,
