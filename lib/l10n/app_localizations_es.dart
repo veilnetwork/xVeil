@@ -5960,6 +5960,31 @@ class AppL10nEs extends AppL10n {
       'Libera 57 MB. La transcripción deja de funcionar hasta que vuelvas a descargarlo.';
 
   @override
+  String get modelBundleTranslate => 'Modelo de traducción';
+
+  @override
+  String get modelBundleSpeech => 'Modelo de voz';
+
+  @override
+  String get modelBundleDownload => 'Descargar';
+
+  @override
+  String get modelBundleInstall => 'Instalar';
+
+  @override
+  String get modelBundleInstalling => 'Instalando…';
+
+  @override
+  String get modelBundleInstalled => 'Instalado';
+
+  @override
+  String get modelBundleFailed => 'No se pudo instalar';
+
+  @override
+  String get modelBundleTrust =>
+      'Un modelo decide lo que esta aplicación dice que otros escribieron. Instálalo solo de alguien en quien confíes.';
+
+  @override
   String get voiceModelImport => 'Instalar desde un archivo…';
 
   @override

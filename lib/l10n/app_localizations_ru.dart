@@ -5941,6 +5941,31 @@ class AppL10nRu extends AppL10n {
       'Освободит 57 МБ. Расшифровка перестанет работать, пока не скачаете снова.';
 
   @override
+  String get modelBundleTranslate => 'Модель перевода';
+
+  @override
+  String get modelBundleSpeech => 'Модель распознавания речи';
+
+  @override
+  String get modelBundleDownload => 'Скачать';
+
+  @override
+  String get modelBundleInstall => 'Установить';
+
+  @override
+  String get modelBundleInstalling => 'Устанавливается…';
+
+  @override
+  String get modelBundleInstalled => 'Установлена';
+
+  @override
+  String get modelBundleFailed => 'Установить не удалось';
+
+  @override
+  String get modelBundleTrust =>
+      'Модель решает, что приложение скажет о чужих словах. Ставьте её только от того, кому доверяете.';
+
+  @override
   String get voiceModelImport => 'Установить из файла…';
 
   @override

@@ -5886,6 +5886,31 @@ class AppL10nEn extends AppL10n {
       'Frees 57 MB. Transcription stops working until you fetch it again.';
 
   @override
+  String get modelBundleTranslate => 'Translation model';
+
+  @override
+  String get modelBundleSpeech => 'Speech model';
+
+  @override
+  String get modelBundleDownload => 'Download';
+
+  @override
+  String get modelBundleInstall => 'Install';
+
+  @override
+  String get modelBundleInstalling => 'Installing…';
+
+  @override
+  String get modelBundleInstalled => 'Installed';
+
+  @override
+  String get modelBundleFailed => 'Could not install';
+
+  @override
+  String get modelBundleTrust =>
+      'A model decides what this app says other people wrote. Install one only from someone you trust.';
+
+  @override
   String get voiceModelImport => 'Install from a file…';
 
   @override
