@@ -222,4 +222,104 @@ void main() {
       throwsA(isA<WebSocketException>()),
     );
   });
+
+  test('a socket bound after an identity switch is not left listening',
+      () async {
+    // The window is inside the bind itself, which is why nothing else in this
+    // file reaches it: `stop()` can only close a socket `start()` has already
+    // adopted. A stop that lands between the bind returning and the adoption
+    // finds nothing, the adoption then goes ahead, and what is left is a
+    // listening socket holding the OLD identity's tokens that no later
+    // reconcile can even find — the controller cleared its reference on the
+    // way past.
+    //
+    // Proven by taking the port: the switch moves to an identity with the API
+    // off, so nothing may legitimately be listening there afterwards, and a
+    // port we can bind is a port nobody is holding.
+    //
+    // TWO layers close this and either alone is enough, so removing one keeps
+    // this green — a red here means both went. The server refuses to adopt a
+    // socket after `stop`, and the controller decides on its own local
+    // reference instead of a field another path may have cleared underneath
+    // it. Break-checked: with both removed this fails on the bind, which is
+    // the defect itself.
+    final first = await _storageWithTokens([('id-a', 'tok-a')]);
+    final second = await _storageWithApiOff();
+    addTearDown(first.close);
+    addTearDown(second.close);
+    await boot(first);
+
+    final probe = await HttpServer.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+      shared: false,
+    );
+    final port = probe.port;
+    await probe.close();
+    ApiServerController.debugBindPort = port;
+
+    final release = Completer<void>();
+    final entered = Completer<void>();
+    ApiServer.debugAdoptGate = () {
+      if (!entered.isCompleted) entered.complete();
+      return release.future;
+    };
+    addTearDown(() => ApiServer.debugAdoptGate = null);
+
+    // Any token change restarts the server; this is the reconcile that binds.
+    unawaited(controller.addToken('second'));
+    await entered.future.timeout(const Duration(seconds: 5));
+
+    // Bound, not yet adopted. The switch tears down what the controller holds
+    // — which is this very server, still unadopted, so there is nothing to
+    // close — and clears the field.
+    (container.read(appControllerProvider.notifier) as _SwitchingAppController)
+        .expose(
+      Identity(nodeId: NodeId.fromHex('22' * 32), displayName: 'B'),
+      second,
+    );
+    // READ it, do not merely wait. Nothing is listening to this provider, and
+    // Riverpod rebuilds a notifier when it is next read — so a bare delay let
+    // the switch happen AFTER the gate was released, which is the ordinary
+    // ordering and proves nothing. This is the whole difference between a test
+    // that reproduces the race and one that quietly does not: without it the
+    // test stayed green with both fixes removed.
+    var switched = false;
+    for (var i = 0; i < 400 && !switched; i++) {
+      switched = container.read(apiServerControllerProvider).tokens.isEmpty;
+      if (!switched) await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    expect(
+      switched,
+      isTrue,
+      reason: 'the switch to identity B never took effect, so nothing raced',
+    );
+
+    release.complete();
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+
+    final retake = await HttpServer.bind(
+      InternetAddress.loopbackIPv4,
+      port,
+      shared: false,
+    ).catchError(
+      (Object error) => fail(
+        'the port is still held: a socket bound after the switch to identity '
+        'B is listening with identity A\'s tokens, and nothing holds a '
+        'reference to it any more ($error)',
+      ),
+    );
+    await retake.close();
+  });
+
+}
+
+
+Future<HiddenVolumeStorage> _storageWithApiOff() async {
+  final log = FakeKvLogStore();
+  final storage = HiddenVolumeStorage(
+    ({required Uint8List password, required bool create}) => log,
+  );
+  expect(await storage.open(password: 'pw', createIfMissing: true), isTrue);
+  return storage;
 }
