@@ -2681,5 +2681,21 @@
   "inviteAcceptsHint": "An invite link, or @name",
   "@inviteAcceptsHint": {
     "description": "Helper under the paste field: what it will accept. A bare node id is NOT one of them — the parser refuses it."
+  },
+  "chatTranslate": "Translate",
+  "@chatTranslate": {
+    "description": "Button under an incoming message that translates it on this device"
+  },
+  "chatTranslating": "Translating…",
+  "@chatTranslating": {
+    "description": "Shown while the on-device translation is running"
+  },
+  "chatTranslateFailed": "Translation failed — tap to retry",
+  "@chatTranslateFailed": {
+    "description": "Shown when the translation engine could not produce a reading"
+  },
+  "chatTranslationShowOriginal": "Show original",
+  "@chatTranslationShowOriginal": {
+    "description": "Tap target that hides the translation and shows the original text"
   }
 }

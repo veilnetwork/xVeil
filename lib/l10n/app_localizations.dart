@@ -10645,6 +10645,30 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'An invite link, or @name'**
   String get inviteAcceptsHint;
+
+  /// Button under an incoming message that translates it on this device
+  ///
+  /// In en, this message translates to:
+  /// **'Translate'**
+  String get chatTranslate;
+
+  /// Shown while the on-device translation is running
+  ///
+  /// In en, this message translates to:
+  /// **'Translating…'**
+  String get chatTranslating;
+
+  /// Shown when the translation engine could not produce a reading
+  ///
+  /// In en, this message translates to:
+  /// **'Translation failed — tap to retry'**
+  String get chatTranslateFailed;
+
+  /// Tap target that hides the translation and shows the original text
+  ///
+  /// In en, this message translates to:
+  /// **'Show original'**
+  String get chatTranslationShowOriginal;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
