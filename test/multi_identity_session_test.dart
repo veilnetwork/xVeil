@@ -334,6 +334,44 @@ void main() {
       isTrue,
       reason: 'the lock must be released even when a dispose hangs',
     );
+    // Abandoning is the right trade and it is not free: both nodes are still
+    // RUNNING — sockets open, network identity live — and their handles are
+    // gone from the session, so nothing can ask them to stop again. The caller
+    // is about to tell the person they are locked, which is a claim about
+    // exactly that, so it must not learn this from a debug log alone.
+    expect(
+      session.abandonedTeardowns,
+      hasLength(2),
+      reason:
+          'two node disposes were abandoned and the session reported none — '
+          '"locked" would then be said with two nodes still on the network',
+    );
+    expect(
+      session.abandonedTeardowns.every((step) => step.startsWith('node')),
+      isTrue,
+      reason: 'the report must name which step was abandoned, not just count',
+    );
+  });
+
+  test('a teardown that finishes reports nothing abandoned', () async {
+    // The other half, and the reason it is here: a report that is never empty
+    // is a report nobody can act on. Same shape as above with a dispose that
+    // returns.
+    var stopped = 0;
+    final session = MultiIdentitySession(
+      SyncWrappedAsyncMultiSpaceBacking(_ClosingFake(() {})),
+      runtimeDirBase: '/run',
+      listenPortBase: 9000,
+      disposeBudget: const Duration(milliseconds: 50),
+      boot: (spec, storage) async => IdentityNode(
+        transport: _FakeTransport(_nid(spec.spaceId + 100)),
+        dispose: () async => stopped++,
+      ),
+    );
+    await session.bootAll([_e('alice', 1), _e('bob', 2)]);
+    await session.disposeAll();
+    expect(stopped, 2);
+    expect(session.abandonedTeardowns, isEmpty);
   });
 }
 

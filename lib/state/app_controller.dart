@@ -2392,6 +2392,28 @@ class AppController extends Notifier<AppState> {
     ref.read(sessionProvider.notifier).state = null;
     ref.read(activeIdentityProvider.notifier).state = null;
     await session.disposeAll();
+    // "Locked" is a claim about the network, not only about the screen. A
+    // teardown step that ran out of its budget was abandoned so the container
+    // lock could still be released — the right trade — but the node it was
+    // stopping keeps its sockets and its network identity, and its handle is
+    // gone from the session, so nothing can ask it to stop again. That has to
+    // be recorded rather than left to a debug log nobody reads.
+    final abandoned = session.abandonedTeardowns;
+    if (abandoned.isNotEmpty) {
+      devLog(
+        () =>
+            'xVeil[lock]: ${abandoned.length} teardown step(s) abandoned; a '
+            'node may still hold its sockets: ${abandoned.join(", ")}',
+      );
+      errorJournal.record(
+        kind: 'teardown-abandoned',
+        error: StateError(
+          'teardown abandoned after its budget: ${abandoned.join(", ")} — the '
+          'session is gone from the app while a node may still be running',
+        ),
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+    }
   }
 
   Future<void> _teardownRealStack() async {
@@ -2412,8 +2434,14 @@ class AppController extends Notifier<AppState> {
   /// each identity's sockets + the public obfs4 PSK). Each stack already deletes
   /// its own subdir on dispose; this clears the now-empty base and any straggler
   /// so NO trace that nodes ran is left in temp after lock/wipe. Best-effort.
-  /// Stop the background foreground service on teardown — no node is running
-  /// once locked, so nothing should keep the process (or its notification) alive.
+  /// Stop the background foreground service on teardown — nothing should keep
+  /// the process (or its notification) alive once locked.
+  ///
+  /// This used to say "no node is running once locked". That is what the
+  /// teardown intends and not what it guarantees: a dispose that runs out of
+  /// its budget is abandoned so the container lock can still be released, and
+  /// the node it was stopping keeps running. [_teardownSession] records when
+  /// that happens.
   Future<void> _stopBackgroundService() async {
     await ref
         .read(backgroundNodeProvider.notifier)
