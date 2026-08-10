@@ -6565,6 +6565,24 @@ class ApiServer {
   final Stream<Map<String, dynamic>> _events;
   HttpServer? _server;
 
+  /// Whether [stop] has run. A stopped server stays stopped.
+  ///
+  /// `stop` can only close what [start] has already adopted, and binding is not
+  /// instant: a stop that lands between the bind returning and the socket being
+  /// adopted found nothing to close, and the adoption then went ahead. The
+  /// result was a listening socket that belonged to nobody — still answering
+  /// with the tokens it was built with, while the controller that would have
+  /// torn it down had already cleared its reference to it.
+  bool _stopped = false;
+
+  /// Awaited between binding the socket and adopting it. Null in production;
+  /// a test uses it to hold that window open, and it is cleared on use so only
+  /// the first bind waits.
+  ///
+  /// Static because the instance under test is the one the controller builds
+  /// for itself, which a test never gets to touch before it starts.
+  static Future<void> Function()? debugAdoptGate;
+
   bool get running => _server != null;
   int? get port => _server?.port;
 
@@ -6679,6 +6697,17 @@ class ApiServer {
       port,
       shared: false,
     );
+    final gate = debugAdoptGate;
+    if (gate != null) {
+      debugAdoptGate = null;
+      await gate();
+    }
+    if (_stopped) {
+      // Stopped while this bind was in flight. `stop` had nothing to close, so
+      // adopting now would leave a socket listening that nobody holds.
+      await s.close(force: true);
+      return null;
+    }
     _server = s;
     unawaited(s.forEach(_onRequest));
     return s.port;
@@ -7177,6 +7206,7 @@ class ApiServer {
   int get liveSocketCount => _live.length;
 
   Future<void> stop() async {
+    _stopped = true;
     final s = _server;
     _server = null;
     // Upgraded WebSockets are NOT part of what `HttpServer.close` tears down —
