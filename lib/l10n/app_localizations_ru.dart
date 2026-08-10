@@ -5941,6 +5941,28 @@ class AppL10nRu extends AppL10n {
       'Освободит 57 МБ. Расшифровка перестанет работать, пока не скачаете снова.';
 
   @override
+  String get translationModels => 'Языки перевода';
+
+  @override
+  String get translationModelsNone => 'Языки не установлены';
+
+  @override
+  String get translationModelsImport => 'Установить из файла…';
+
+  @override
+  String get translationModelsImporting => 'Устанавливается…';
+
+  @override
+  String get translationModelsFailed => 'Этот файл установить не удалось';
+
+  @override
+  String get translationModelsRemove => 'Удалить этот язык';
+
+  @override
+  String get translationModelsHint =>
+      'Один файл .veiltranslate на направление. Перевод выполняется на этом устройстве.';
+
+  @override
   String get voiceModelResume => 'Продолжить скачивание';
 
   @override

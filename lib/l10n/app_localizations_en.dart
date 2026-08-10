@@ -5886,6 +5886,28 @@ class AppL10nEn extends AppL10n {
       'Frees 57 MB. Transcription stops working until you fetch it again.';
 
   @override
+  String get translationModels => 'Translation languages';
+
+  @override
+  String get translationModelsNone => 'No languages installed';
+
+  @override
+  String get translationModelsImport => 'Install from a file…';
+
+  @override
+  String get translationModelsImporting => 'Installing…';
+
+  @override
+  String get translationModelsFailed => 'This file could not be installed';
+
+  @override
+  String get translationModelsRemove => 'Remove this language';
+
+  @override
+  String get translationModelsHint =>
+      'One .veiltranslate file per direction. Translation happens on this device.';
+
+  @override
   String get voiceModelResume => 'Continue downloading';
 
   @override

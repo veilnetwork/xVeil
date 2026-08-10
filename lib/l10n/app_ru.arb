@@ -2536,6 +2536,13 @@
   "voiceModelInstalled": "Модель распознавания установлена",
   "voiceModelRemove": "Удалить модель распознавания",
   "voiceModelRemoveHint": "Освободит 57 МБ. Расшифровка перестанет работать, пока не скачаете снова.",
+  "translationModels": "Языки перевода",
+  "translationModelsNone": "Языки не установлены",
+  "translationModelsImport": "Установить из файла…",
+  "translationModelsImporting": "Устанавливается…",
+  "translationModelsFailed": "Этот файл установить не удалось",
+  "translationModelsRemove": "Удалить этот язык",
+  "translationModelsHint": "Один файл .veiltranslate на направление. Перевод выполняется на этом устройстве.",
   "voiceModelResume": "Продолжить скачивание",
   "voiceModelResumeAt": "{percent}% уже скачано",
   "@voiceModelResumeAt": {
