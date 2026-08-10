@@ -44,8 +44,76 @@ bool is_blank(const char* text) {
   return true;
 }
 
+// Split into units a translation model can actually handle.
+//
+// An NMT model translates a SENTENCE. Handed a whole paragraph as one
+// sequence it does not merely slow down: the tail goes missing, quietly, and a
+// truncated translation says nothing about having been truncated. This is not
+// a decoding-length question — raising that bound did not bring the ending
+// back — it is what the model was trained to do.
+//
+// So: paragraphs by newline, sentences by terminal punctuation, and anything
+// still enormous cut at a space. Deliberately simple. A perfect splitter needs
+// per-language abbreviation lists; being wrong here costs a slightly odd break
+// between two translated sentences, while not splitting at all costs the end
+// of the message.
+std::vector<std::string> split_for_translation(const std::string& text) {
+  // Roughly a long sentence. Past this a chunk is cut at whitespace rather
+  // than fed whole, so a wall of text with no punctuation still arrives.
+  constexpr size_t kMaxChunkChars = 600;
+
+  std::vector<std::string> chunks;
+  size_t start = 0;
+  const size_t n = text.size();
+
+  auto flush = [&](size_t from, size_t to) {
+    while (from < to && std::isspace(static_cast<unsigned char>(text[from]))) ++from;
+    while (to > from && std::isspace(static_cast<unsigned char>(text[to - 1]))) --to;
+    if (to > from) chunks.emplace_back(text.substr(from, to - from));
+  };
+
+  for (size_t i = 0; i < n; ++i) {
+    const char c = text[i];
+    const bool terminal = (c == '.' || c == '!' || c == '?' || c == '\n');
+    if (!terminal) continue;
+    // A terminator ends a sentence when what follows is space or the end;
+    // "3.14" and "e.g." then stay in one piece more often than not.
+    if (c != '\n' && i + 1 < n &&
+        !std::isspace(static_cast<unsigned char>(text[i + 1]))) {
+      continue;
+    }
+    flush(start, i + 1);
+    start = i + 1;
+  }
+  flush(start, n);
+
+  // Second pass: cut anything still too long at a space.
+  std::vector<std::string> bounded;
+  for (const auto& chunk : chunks) {
+    size_t at = 0;
+    while (chunk.size() - at > kMaxChunkChars) {
+      size_t cut = chunk.rfind(' ', at + kMaxChunkChars);
+      if (cut == std::string::npos || cut <= at) cut = at + kMaxChunkChars;
+      bounded.emplace_back(chunk.substr(at, cut - at));
+      at = cut;
+      while (at < chunk.size() && chunk[at] == ' ') ++at;
+    }
+    if (at < chunk.size()) bounded.emplace_back(chunk.substr(at));
+  }
+  return bounded;
+}
+
 std::string& library_error() {
-  static std::string error;
+  // thread_local, not a plain static. Opening an engine writes this, and
+  // nothing serialises opens: the Dart side gives each language pair its own
+  // isolate, so two directions opening at once wrote the same std::string from
+  // two threads — a data race, and undefined behaviour rather than a garbled
+  // message.
+  //
+  // Per-thread is also the right shape for what it is FOR: the caller reads
+  // the reason on the thread whose open just failed, and another thread's
+  // failure was never any of its business.
+  thread_local std::string error;
   return error;
 }
 
@@ -102,10 +170,6 @@ veil_translate_engine* veil_translate_open(const char* model_dir,
   }
 
   engine->options.beam_size = static_cast<size_t>(beam_size > 0 ? beam_size : 1);
-  // A translation cannot usefully be many times longer than its input, and an
-  // unbounded decode is how a degenerate repetition loop turns a chat bubble
-  // into a hung UI.
-  engine->options.max_decoding_length = 256;
   return engine.release();
 }
 
@@ -124,26 +188,60 @@ char* veil_translate(veil_translate_engine* engine, const char* text) {
   }
 
   try {
-    std::vector<std::string> pieces;
-    const auto status = engine->source.Encode(text, &pieces);
-    if (!status.ok()) {
-      engine->last_error = "encode: " + status.ToString();
-      return nullptr;
+    const auto chunks = split_for_translation(text);
+    if (chunks.empty()) {
+      char* empty = static_cast<char*>(std::malloc(1));
+      if (empty != nullptr) empty[0] = '\0';
+      return empty;
     }
-    pieces.emplace_back(kEndOfSequence);
 
-    const auto results = engine->translator->translate_batch(
-        std::vector<std::vector<std::string>>{pieces}, engine->options);
-    if (results.empty() || results[0].hypotheses.empty()) {
-      engine->last_error = "the model returned no hypothesis";
+    std::vector<std::vector<std::string>> batch;
+    batch.reserve(chunks.size());
+    size_t longest = 0;
+    for (const auto& chunk : chunks) {
+      std::vector<std::string> pieces;
+      const auto status = engine->source.Encode(chunk, &pieces);
+      if (!status.ok()) {
+        engine->last_error = "encode: " + status.ToString();
+        return nullptr;
+      }
+      // Marian expects the source to end with this. Without it the decoder
+      // does not know where the input stopped and repeats itself: fluent,
+      // plausible and wrong in a way that reads as a weak model.
+      pieces.emplace_back(kEndOfSequence);
+      longest = std::max(longest, pieces.size());
+      batch.emplace_back(std::move(pieces));
+    }
+
+    // Bound the decode against the longest chunk rather than with a constant.
+    // Unbounded, a degenerate repetition loop hangs the UI; fixed, it cuts
+    // honest text. No language expands fourfold, so this never bites a real
+    // translation.
+    auto options = engine->options;
+    options.max_decoding_length = std::max<size_t>(64, longest * 4);
+
+    // One batch, not a loop: the whole point of a batch is that the engine
+    // runs them together.
+    const auto results = engine->translator->translate_batch(batch, options);
+    if (results.size() != batch.size()) {
+      engine->last_error = "the model answered a different number of sentences";
       return nullptr;
     }
 
     std::string out;
-    const auto decoded = engine->target.Decode(results[0].hypotheses[0], &out);
-    if (!decoded.ok()) {
-      engine->last_error = "decode: " + decoded.ToString();
-      return nullptr;
+    for (size_t i = 0; i < results.size(); ++i) {
+      if (results[i].hypotheses.empty()) {
+        engine->last_error = "the model returned no hypothesis";
+        return nullptr;
+      }
+      std::string piece;
+      const auto decoded = engine->target.Decode(results[i].hypotheses[0], &piece);
+      if (!decoded.ok()) {
+        engine->last_error = "decode: " + decoded.ToString();
+        return nullptr;
+      }
+      if (!out.empty() && !piece.empty()) out += ' ';
+      out += piece;
     }
 
     char* copy = static_cast<char*>(std::malloc(out.size() + 1));
