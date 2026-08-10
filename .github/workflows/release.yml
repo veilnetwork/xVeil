@@ -334,10 +334,21 @@ jobs:
       # artifacts expire — if the download 404s, re-run webrtc-linux and pin
       # the new id. The symbol check below is what makes a stale pin loud
       # rather than a call that fails at dlsym on someone's machine.
+      #
+      # This pin WAS 30377834797 (28 July), whose artifact exports 78 of the 87
+      # symbols the Dart layer looks up — camera-device selection, all five
+      # screen-sharing entry points, the RTP size cap and the Android420 frame
+      # push, each a dlsym failure at first call. The check below could not
+      # catch it, because it only ever ran against what this pin downloads.
+      #
+      # 31411542466's linux-x64 job is green and its artifact checks 87/87. The
+      # RUN shows "failure" — its android-arm64 job failed — and that is not a
+      # reason to move this back: the download is per-artifact, and this one is
+      # verified.
       - name: Prebuilt call engine
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ENGINE_RUN: '30377834797'
+          ENGINE_RUN: '31411542466'
         run: |
           set -euo pipefail
           dest=third_party/veil/flutter/veil_media/linux
