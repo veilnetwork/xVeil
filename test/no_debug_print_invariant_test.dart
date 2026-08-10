@@ -76,4 +76,72 @@ void main() {
           'of it',
     );
   });
+
+  // report9 X-07. The Dart gate is only half the surface: the Android and
+  // Apple host code went straight to `logcat` / the device log, in every
+  // build. What a release was announcing there, timestamped: that screen
+  // sharing had started and at what resolution, the size of the first
+  // captured frame, that a call had asked for the microphone and been refused.
+  //
+  // Both halves now go through a gate of their own — `XVeilLog` on Kotlin,
+  // `xVeilLog` on Swift — and the raw calls are what this watches for,
+  // because the next one is written by someone reaching for the obvious name.
+  test('the Android host code does not log through android.util.Log', () {
+    final offenders = <String>[];
+    for (final entity in Directory('android/app/src/main/kotlin').listSync(
+      recursive: true,
+    )) {
+      if (entity is! File || !entity.path.endsWith('.kt')) continue;
+      // The gate itself is the one place allowed to call it.
+      if (entity.path.endsWith('XVeilLog.kt')) continue;
+      final lines = entity.readAsLinesSync();
+      for (var i = 0; i < lines.length; i++) {
+        final line = lines[i];
+        if (line.trimLeft().startsWith('//') ||
+            line.trimLeft().startsWith('*')) {
+          continue;
+        }
+        if (!RegExp(r'(^|[^a-zA-Z])Log\.[iwdev]\(').hasMatch(line)) continue;
+        offenders.add('${entity.path}:${i + 1}: ${line.trim()}');
+      }
+    }
+
+    expect(
+      offenders,
+      isEmpty,
+      reason:
+          'these reach logcat in a RELEASE build, where any app holding '
+          'READ_LOGS and anyone with adb can read them — route them through '
+          'XVeilLog, which is silent unless the build is debuggable',
+    );
+  });
+
+  test('the Apple host code does not log through NSLog', () {
+    final offenders = <String>[];
+    for (final dir in ['ios/Runner', 'macos/Runner']) {
+      final root = Directory(dir);
+      if (!root.existsSync()) continue;
+      for (final entity in root.listSync(recursive: true)) {
+        if (entity is! File || !entity.path.endsWith('.swift')) continue;
+        final lines = entity.readAsLinesSync();
+        for (var i = 0; i < lines.length; i++) {
+          final line = lines[i];
+          final trimmed = line.trimLeft();
+          if (trimmed.startsWith('//') || trimmed.startsWith('*')) continue;
+          if (!line.contains('NSLog(')) continue;
+          // The gate's own body, which is what everything else routes into.
+          if (line.contains('NSLog("%@", message())')) continue;
+          offenders.add('${entity.path}:${i + 1}: ${line.trim()}');
+        }
+      }
+    }
+
+    expect(
+      offenders,
+      isEmpty,
+      reason:
+          'these reach the device log in a RELEASE build — route them through '
+          'xVeilLog, which compiles out unless DEBUG is set',
+    );
+  });
 }

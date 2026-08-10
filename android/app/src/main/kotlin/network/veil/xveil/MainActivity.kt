@@ -13,7 +13,6 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.wifi.WifiManager
 import android.os.Build
-import android.util.Log
 import android.util.Rational
 import android.view.WindowManager
 import androidx.core.app.ActivityCompat
@@ -302,17 +301,15 @@ class MainActivity : FlutterActivity() {
                                         .setAutoEnterEnabled(pipAutoWanted)
                                         .build()
                                 )
-                                android.util.Log.i(
-                                    "xveil-pip",
+                                XVeilLog.i(applicationContext, "xveil-pip") {
                                     "setAuto applied enabled=$pipAutoWanted"
-                                )
+                                }
                             } catch (error: Exception) {
                                 // PiP unsupported/disabled by device policy —
                                 // surface it, a silent drop cost a debug cycle.
-                                android.util.Log.w(
-                                    "xveil-pip",
+                                XVeilLog.w(applicationContext, "xveil-pip") {
                                     "setPictureInPictureParams failed: $error"
-                                )
+                                }
                             }
                         }
                         result.success(true)
@@ -456,7 +453,9 @@ class MainActivity : FlutterActivity() {
                 true
             }
         } catch (error: RuntimeException) {
-            android.util.Log.w("xveil-call-audio", "Audio route failed: $error")
+            XVeilLog.w(applicationContext, "xveil-call-audio") {
+                "Audio route failed: $error"
+            }
             false
         }
     }
@@ -472,7 +471,9 @@ class MainActivity : FlutterActivity() {
             }
             manager.mode = AudioManager.MODE_NORMAL
         } catch (error: RuntimeException) {
-            android.util.Log.w("xveil-call-audio", "Audio route cleanup failed: $error")
+            XVeilLog.w(applicationContext, "xveil-call-audio") {
+                "Audio route cleanup failed: $error"
+            }
         }
     }
 
@@ -506,7 +507,9 @@ class MainActivity : FlutterActivity() {
             }
             callWifiLock?.isHeld == true
         } catch (error: RuntimeException) {
-            android.util.Log.w("xveil-call-network", "Wi-Fi lock failed: $error")
+            XVeilLog.w(applicationContext, "xveil-call-network") {
+                "Wi-Fi lock failed: $error"
+            }
             callWifiLock = null
             false
         }
@@ -551,10 +554,9 @@ class MainActivity : FlutterActivity() {
                 .distinct()
                 .sorted()
         } catch (error: Exception) {
-            android.util.Log.w(
-                "xveil-camera",
-                "Unable to query exact FPS ranges for camera $cameraId: $error",
-            )
+            XVeilLog.w(applicationContext, "xveil-camera") {
+                "Unable to query exact FPS ranges for camera $cameraId: $error"
+            }
             emptyList()
         }
     }
@@ -686,7 +688,9 @@ class MainActivity : FlutterActivity() {
             ?: return null
         val token = intent.getStringExtra(CallActionCapability.EXTRA_CALL_TOKEN)
         if (!CallActionCapability.consume(action, token)) {
-            Log.w("XVeilCall", "call action '" + action + "' rejected: no valid capability")
+            XVeilLog.w(applicationContext, "XVeilCall") {
+                "call action '" + action + "' rejected: no valid capability"
+            }
             return null
         }
         return action
