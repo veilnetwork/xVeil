@@ -55,7 +55,7 @@ void main() {
   test('a translation bundle installs and says which kind it was', () async {
     final result = await installReceivedModel(
       await pairBundle(),
-      ref: container.read(_refProvider),
+      into: targetsFromContainer(container),
     );
     expect(result.succeeded, isTrue, reason: result.error);
     expect(result.kind, kBundleTranslate);
@@ -68,7 +68,7 @@ void main() {
     // read to a person as "this model is broken" when it is fine.
     final result = await installReceivedModel(
       await pairBundle(name: 'speech.veilaudio'),
-      ref: container.read(_refProvider),
+      into: targetsFromContainer(container),
     );
     expect(result.succeeded, isTrue, reason: result.error);
     expect(result.kind, kBundleTranslate);
@@ -80,7 +80,7 @@ void main() {
     final junk = File('${tmp.path}/holiday.jpg')..writeAsStringSync('nope');
     final result = await installReceivedModel(
       junk,
-      ref: container.read(_refProvider),
+      into: targetsFromContainer(container),
     );
     expect(result.succeeded, isFalse);
     expect(result.error, isNotEmpty);
@@ -113,7 +113,7 @@ void main() {
 
     final result = await installReceivedModel(
       file,
-      ref: container.read(_refProvider),
+      into: targetsFromContainer(container),
     );
     expect(result.succeeded, isFalse);
     expect(result.error, contains('hash'));
@@ -139,7 +139,3 @@ void main() {
     });
   });
 }
-
-/// A Ref for code that expects one. ProviderContainer has no Ref of its own,
-/// and a throwaway provider is the least surprising way to borrow one.
-final _refProvider = Provider<Ref>((ref) => ref);

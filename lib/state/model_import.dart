@@ -12,6 +12,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+
 import '../data/veil_bundle.dart';
 import 'translation_model_controller.dart';
 import 'whisper_model_controller.dart';
@@ -49,9 +50,61 @@ Future<File> materialiseBundle(Uint8List bytes, {String name = 'received'}) asyn
 /// Returns what happened, in words a person can act on. Never throws: a file
 /// somebody sent is not a programming error, and every way it can be wrong is
 /// an ordinary outcome here.
+/// The two controllers this needs, behind an interface.
+///
+/// `Ref` and `WidgetRef` both have `read`, with no common supertype and with
+/// the parameter type not publicly exported by Riverpod 3 — so passing either
+/// of them, or their `read`, does not compile. Naming the two operations
+/// instead keeps this entry point independent of that entirely: a widget, a
+/// controller and a test each hand over what they can reach.
+abstract interface class ModelInstallTargets {
+  Future<bool> installTranslation(String path);
+  String? get translationError;
+  Future<bool> installSpeech(String path);
+  String? get speechError;
+}
+
+class _RefTargets implements ModelInstallTargets {
+  _RefTargets(this._read);
+  final Object Function(Object provider) _read;
+
+  @override
+  Future<bool> installTranslation(String path) =>
+      (_read(translationModelsControllerProvider.notifier)
+              as TranslationModelsController)
+          .importBundle(path);
+
+  @override
+  String? get translationError =>
+      (_read(translationModelsControllerProvider) as TranslationModelsState)
+          .error;
+
+  @override
+  Future<bool> installSpeech(String path) =>
+      (_read(whisperModelControllerProvider.notifier)
+              as WhisperModelController)
+          .importBundle(path);
+
+  @override
+  String? get speechError =>
+      (_read(whisperModelControllerProvider) as WhisperModelState).error;
+}
+
+/// From a provider's own Ref.
+ModelInstallTargets targetsFromRef(Ref ref) =>
+    _RefTargets((p) => ref.read(p as dynamic) as Object);
+
+/// From a widget's WidgetRef.
+ModelInstallTargets targetsFromWidgetRef(WidgetRef ref) =>
+    _RefTargets((p) => ref.read(p as dynamic) as Object);
+
+/// From a container, which is what a test has.
+ModelInstallTargets targetsFromContainer(ProviderContainer container) =>
+    _RefTargets((p) => container.read(p as dynamic) as Object);
+
 Future<ModelImportResult> installReceivedModel(
   File bundle, {
-  required Ref ref,
+  required ModelInstallTargets into,
 }) async {
   final VeilBundleInfo info;
   try {
@@ -62,23 +115,19 @@ Future<ModelImportResult> installReceivedModel(
 
   switch (info.kind) {
     case kBundleTranslate:
-      final ok = await ref
-          .read(translationModelsControllerProvider.notifier)
-          .importBundle(bundle.path);
+      final ok = await into.installTranslation(bundle.path);
       if (ok) return const ModelImportResult.ok(kBundleTranslate);
       return ModelImportResult.failed(
-        ref.read(translationModelsControllerProvider).error ??
+        into.translationError ??
             'the model could not be installed',
         kind: kBundleTranslate,
       );
 
     case kBundleSpeech:
-      final ok = await ref
-          .read(whisperModelControllerProvider.notifier)
-          .importBundle(bundle.path);
+      final ok = await into.installSpeech(bundle.path);
       if (ok) return const ModelImportResult.ok(kBundleSpeech);
       return ModelImportResult.failed(
-        ref.read(whisperModelControllerProvider).error ??
+        into.speechError ??
             'the model could not be installed',
         kind: kBundleSpeech,
       );

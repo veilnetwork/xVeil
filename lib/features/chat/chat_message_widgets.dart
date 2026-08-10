@@ -1904,6 +1904,24 @@ class _Bubble extends ConsumerWidget {
                         ? null
                         : () => onTapFile!(message),
                   )
+                else if (message.isFile &&
+                    isModelBundleFileName(message.fileName))
+                  // A model, not content: an offer to install something that
+                  // will decide what this app says other people wrote. The
+                  // card says so, and installs nothing until its manifest and
+                  // hashes have been read.
+                  ModelBundleCard(
+                    fileKey: message.fileId ?? message.fileContentId ?? '',
+                    fileName: message.fileName,
+                    sizeBytes: message.fileSize,
+                    downloaded: progress == null && (message.fileId != null),
+                    progress: progress,
+                    onDownload: progress != null
+                        ? cancelDownload
+                        : onTapFile == null
+                        ? null
+                        : () => onTapFile!(message),
+                  )
                 else if (message.isFile && isStickerFileName(message.fileName))
                   _StickerContent(
                     fileKey: message.fileId ?? message.fileContentId ?? '',

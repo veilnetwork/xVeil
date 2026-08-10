@@ -10478,6 +10478,54 @@ abstract class AppL10n {
   /// **'Frees 57 MB. Transcription stops working until you fetch it again.'**
   String get voiceModelRemoveHint;
 
+  /// No description provided for @modelBundleTranslate.
+  ///
+  /// In en, this message translates to:
+  /// **'Translation model'**
+  String get modelBundleTranslate;
+
+  /// No description provided for @modelBundleSpeech.
+  ///
+  /// In en, this message translates to:
+  /// **'Speech model'**
+  String get modelBundleSpeech;
+
+  /// No description provided for @modelBundleDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'Download'**
+  String get modelBundleDownload;
+
+  /// No description provided for @modelBundleInstall.
+  ///
+  /// In en, this message translates to:
+  /// **'Install'**
+  String get modelBundleInstall;
+
+  /// No description provided for @modelBundleInstalling.
+  ///
+  /// In en, this message translates to:
+  /// **'Installing…'**
+  String get modelBundleInstalling;
+
+  /// No description provided for @modelBundleInstalled.
+  ///
+  /// In en, this message translates to:
+  /// **'Installed'**
+  String get modelBundleInstalled;
+
+  /// No description provided for @modelBundleFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not install'**
+  String get modelBundleFailed;
+
+  /// No description provided for @modelBundleTrust.
+  ///
+  /// In en, this message translates to:
+  /// **'A model decides what this app says other people wrote. Install one only from someone you trust.'**
+  String get modelBundleTrust;
+
   /// No description provided for @voiceModelImport.
   ///
   /// In en, this message translates to:
