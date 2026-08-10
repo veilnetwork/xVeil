@@ -103,7 +103,41 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
+# The call engine arrives here as a prebuilt the plugin hands over as-is:
+# veil_media/linux/CMakeLists.txt checks only that the file EXISTS. So a stale
+# copy bundles silently, and every symbol the Dart side has gained since that
+# copy was built becomes a dlsym failure at the first call — which is exactly
+# what was sitting in the tree until today: 78 exported against 87 looked up.
+#
+# release.yml already asks this question for the artifact it downloads. A local
+# `flutter build linux` asked nobody, so it asks here.
+#
+# WARNING and not FATAL_ERROR on purpose. The check needs `nm` from binutils,
+# and a host that can build Flutter for Linux without it should not lose the
+# ability to build over a diagnostic. It reports; it does not gate. The gate
+# that must hold lives in release.yml, where the toolchain is known.
+set(VEIL_MEDIA_SYMBOL_CHECK "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check-media-symbols.sh")
 foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
+  get_filename_component(_veil_bl_name "${bundled_library}" NAME)
+  if(_veil_bl_name STREQUAL "libveil_media.so"
+     AND EXISTS "${VEIL_MEDIA_SYMBOL_CHECK}"
+     AND EXISTS "${bundled_library}")
+    execute_process(
+      COMMAND bash "${VEIL_MEDIA_SYMBOL_CHECK}" "${bundled_library}"
+      RESULT_VARIABLE _veil_media_symbols_rc
+      OUTPUT_VARIABLE _veil_media_symbols_out
+      ERROR_VARIABLE _veil_media_symbols_out)
+    if(NOT _veil_media_symbols_rc EQUAL 0)
+      message(WARNING
+        "veil_media: the engine about to be bundled does not export everything "
+        "the Dart side looks up. Calls into the missing entry points will fail "
+        "at dlsym, at runtime, in a released bundle. Rebuild it with "
+        "veil_media/linux/build_veil_media_so_linux.sh or take a current "
+        "artifact from the webrtc-linux workflow.\n"
+        "  ${bundled_library}\n"
+        "${_veil_media_symbols_out}")
+    endif()
+  endif()
   install(FILES "${bundled_library}"
     DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
