@@ -50,13 +50,23 @@ Future<AppL10n> _openAddTokenDialog(WidgetTester tester, Locale locale) async {
 
   // The token list only exists once the API is on, and the settings screen is
   // longer than the test viewport — scroll to each control before touching it.
-  final apiSwitch = find.text(l.settingsApiTitle);
+  //
+  // The TILE is the tap target, never its label. A Text inside a scrolled
+  // ListTile resolves to a point the hit test does not land on, and `tap` only
+  // WARNS about that — so the tap silently does nothing. It happened to land in
+  // English and missed in Spanish, where the longer title wraps and moves the
+  // centre: a test that passes in one language and not another, for a reason
+  // that has nothing to do with the language.
+  final apiSwitch = find.ancestor(
+    of: find.text(l.settingsApiTitle),
+    matching: find.byType(SwitchListTile),
+  );
   await tester.scrollUntilVisible(apiSwitch, 200);
+  await tester.ensureVisible(apiSwitch);
+  await tester.pumpAndSettle();
   await tester.tap(apiSwitch);
   await tester.pumpAndSettle();
 
-  // The tile, not its label: a Text inside a scrolled ListTile resolves to a
-  // point the hit test does not land on, and `tap` only warns about that.
   final addToken = find.ancestor(
     of: find.text(l.settingsApiAddToken),
     matching: find.byType(ListTile),
