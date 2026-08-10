@@ -19,7 +19,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
-import android.util.Log
 import androidx.core.content.ContextCompat
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
@@ -122,7 +121,7 @@ class ScreenCaptureService : Service() {
                 null,
                 handler,
             )
-            Log.i(TAG, "projection started ${width}x${height}")
+            XVeilLog.i(this, TAG) { "projection started ${width}x${height}" }
         } catch (_: Exception) {
             failStart()
         }
@@ -138,11 +137,10 @@ class ScreenCaptureService : Service() {
             if (!firstImageLogged) {
                 firstImageLogged = true
                 val plane = image.planes.firstOrNull()
-                Log.i(
-                    TAG,
+                XVeilLog.i(this, TAG) {
                     "first image ${image.width}x${image.height} " +
-                        "pixelStride=${plane?.pixelStride} rowStride=${plane?.rowStride}",
-                )
+                        "pixelStride=${plane?.pixelStride} rowStride=${plane?.rowStride}"
+                }
             }
             val now = System.nanoTime()
             if (now - lastFrameAtNs < FRAME_GAP_NS || !frameInFlight.compareAndSet(false, true)) {
@@ -151,13 +149,13 @@ class ScreenCaptureService : Service() {
             lastFrameAtNs = now
             val frame = rgbaToI420(image)
             if (frame == null) {
-                Log.w(TAG, "RGBA to I420 conversion rejected a frame")
+                XVeilLog.w(this, TAG) { "RGBA to I420 conversion rejected a frame" }
                 frameInFlight.set(false)
                 return
             }
             if (!firstFrameLogged) {
                 firstFrameLogged = true
-                Log.i(TAG, "first I420 frame bytes=${frame.size}")
+                XVeilLog.i(this, TAG) { "first I420 frame bytes=${frame.size}" }
             }
             ScreenCaptureBridge.emitFrame(frame) { frameInFlight.set(false) }
         } finally {

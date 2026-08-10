@@ -3,6 +3,31 @@ import UIKit
 import AVFoundation
 import UserNotifications
 
+/// Diagnostic logging that emits NOTHING in a release build.
+///
+/// The Dart side has had this since the beginning: `devLog` is compiled out by
+/// the AOT compiler and its message is a thunk, so a release build neither
+/// prints nor even builds the string. The reason stated there applies here
+/// word for word — xVeil's diagnostics carry the metadata an anonymity tool
+/// must not emit anywhere an adversary can read it, and the device log is such
+/// a place. This half went straight to `NSLog` and never met that gate
+/// (report9 X-07).
+///
+/// `DEBUG` is set by `SWIFT_ACTIVE_COMPILATION_CONDITIONS` in the Debug
+/// configurations only, so the call disappears at compile time in a release
+/// build. `@autoclosure` keeps the interpolation from running at all.
+///
+/// The message goes through `%@` rather than being handed to `NSLog` as the
+/// FORMAT string, which is how every one of these calls used to do it: an
+/// error whose description contained a `%` was a format specifier, and NSLog
+/// read whatever happened to be next as an argument.
+@inline(__always)
+func xVeilLog(_ message: @autoclosure () -> String) {
+  #if DEBUG
+    NSLog("%@", message())
+  #endif
+}
+
 /// Native half of `lib/core/secure_screen.dart` on iOS.
 ///
 /// iOS has no `FLAG_SECURE`, and the Dart shutter that stands in for it is
@@ -173,7 +198,7 @@ final class ScreenPrivacyGuard {
     // a bounded false result, never an implicit native stall.
     guard let registrar = engineBridge.pluginRegistry.registrar(
       forPlugin: "XVeilMediaPermissions") else {
-      NSLog("xVeil: media permissions registrar unavailable")
+      xVeilLog("xVeil: media permissions registrar unavailable")
       return
     }
     let channel = FlutterMethodChannel(
@@ -271,7 +296,7 @@ final class ScreenPrivacyGuard {
       try session.overrideOutputAudioPort(speaker ? .speaker : .none)
       return true
     } catch {
-      NSLog("xVeil: call audio route failed: \(error)")
+      xVeilLog("xVeil: call audio route failed: \(error)")
       return false
     }
   }
@@ -282,7 +307,7 @@ final class ScreenPrivacyGuard {
       try session.overrideOutputAudioPort(.none)
       try session.setActive(false, options: .notifyOthersOnDeactivation)
     } catch {
-      NSLog("xVeil: call audio route cleanup failed: \(error)")
+      xVeilLog("xVeil: call audio route cleanup failed: \(error)")
     }
   }
 
@@ -326,7 +351,7 @@ final class ScreenPrivacyGuard {
     guard var url = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
     else {
       Self.backupExclusionProblem = "the Application Support directory could not be located"
-      NSLog("xVeil: \(Self.backupExclusionProblem!)")
+      xVeilLog("xVeil: \(Self.backupExclusionProblem!)")
       return
     }
     do {
@@ -344,11 +369,11 @@ final class ScreenPrivacyGuard {
       } else {
         Self.backupExclusionProblem =
           "the exclude-from-backup flag did not read back as set"
-        NSLog("xVeil: \(Self.backupExclusionProblem!)")
+        xVeilLog("xVeil: \(Self.backupExclusionProblem!)")
       }
     } catch {
       Self.backupExclusionProblem = "\(error)"
-      NSLog("xVeil: could not exclude app data from backup: \(error)")
+      xVeilLog("xVeil: could not exclude app data from backup: \(error)")
     }
   }
 }
