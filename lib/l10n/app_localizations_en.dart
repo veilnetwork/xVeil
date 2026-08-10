@@ -4570,6 +4570,11 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String nodeRegistrySaveFailed(String error) {
+    return 'The node list could not be saved: $error';
+  }
+
+  @override
   String sshKeyGenerationFailed(String error) {
     return 'Could not generate the key: $error';
   }

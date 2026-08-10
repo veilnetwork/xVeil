@@ -11,7 +11,12 @@ import 'package:xveil/features/network/managed_nodes_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/managed_nodes_controller.dart';
 import 'package:xveil/state/proxy_routing_controller.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/storage.dart';
+import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/ssh_credentials.dart';
+
+import 'support/fake_hv_container.dart';
 
 const _exit =
     'aa11bb22cc33dd44ee55ff66007788990011223344556677889900aabbccddee';
@@ -36,11 +41,42 @@ class _MemorySshCredentialsStore implements SshCredentialsStore {
   Future<void> clear(String nodeId) async => values.remove(nodeId);
 }
 
-Widget _host({_MemorySshCredentialsStore? credentials}) => ProviderScope(
+/// A store whose registry write always fails, and nothing else changes.
+///
+/// `HiddenVolumeStorage` is a class, so this overrides ONE method rather than
+/// reimplementing the interface — which is what makes this a test of the
+/// commit path and not of a mock's fidelity.
+class _RegistryWriteFails extends HiddenVolumeStorage {
+  _RegistryWriteFails(super.opener, {super.keysOpener});
+
+  @override
+  Future<void> putSetting(String key, String value) async {
+    if (key == 'managed_nodes') {
+      throw StateError('container is full');
+    }
+    return super.putSetting(key, value);
+  }
+}
+
+/// An OPEN container for the screen to commit its registry into.
+///
+/// Before report9 X-05 the controller set its state optimistically and
+/// swallowed the write error, so these tests passed with no storage at all —
+/// on exactly the lie that finding is about. The registry is only reachable
+/// after unlock in the app, so an open store is the honest fixture.
+Future<Storage> _openStorage() async {
+  final storage = FakeHvContainer().storage();
+  await storage.open(password: 'pw', createIfMissing: true);
+  return storage;
+}
+
+Widget _host({_MemorySshCredentialsStore? credentials, Storage? storage}) =>
+    ProviderScope(
   overrides: [
     sshCredentialsRepositoryProvider.overrideWithValue(
       credentials ?? _MemorySshCredentialsStore(),
     ),
+    if (storage != null) storageProvider.overrideWith((ref) => storage),
   ],
   child: const MaterialApp(
     localizationsDelegates: AppL10n.localizationsDelegates,
@@ -120,12 +156,101 @@ void main() {
       expect(ManagedNode.decodeList('not json'), isEmpty);
       expect(ManagedNode.decodeList('{}'), isEmpty);
     });
+
+    // report9 X-05. `fromJson` throws on a record with no `id`, and the throw
+    // escaped the comprehension into the outer catch — so ONE malformed entry
+    // returned an empty registry and every other node the user had configured
+    // disappeared from the screen. Nothing was lost on disk, which made it
+    // worse: the list came back empty, the user re-added a node, and that
+    // write replaced the whole key.
+    test('one unreadable record costs its own entry and nothing else', () {
+      const raw = '['
+          '{"id":"1","label":"first"},'
+          '{"label":"no id at all"},'
+          '{"id":"3","label":"third"}'
+          ']';
+      final back = ManagedNode.decodeList(raw);
+      expect(
+        back.map((n) => n.id),
+        ['1', '3'],
+        reason:
+            'a single malformed record took the whole registry with it — the '
+            'user sees an empty list and their nodes are still on disk',
+      );
+    });
+
+    test('a wrongly-typed field is quarantined, not fatal', () {
+      const raw = '['
+          '{"id":"1","label":"first"},'
+          '{"id":42,"label":"id is a number"},'
+          '{"id":"3","label":"third"}'
+          ']';
+      expect(ManagedNode.decodeList(raw).map((n) => n.id), ['1', '3']);
+    });
+  });
+
+  testWidgets('a write that fails leaves the list alone and says so', (
+    tester,
+  ) async {
+    // report9 X-05. The controller set its state BEFORE the write and
+    // swallowed the error, so the screen listed a node that was never
+    // committed. The user found out at the next launch, when it was simply
+    // gone and nothing had ever said so.
+    final container = FakeHvContainer();
+    final storage = _RegistryWriteFails(
+      container.passwordOpener,
+      keysOpener: container.keysOpener,
+    );
+    await storage.open(password: 'pw', createIfMissing: true);
+
+    await tester.pumpWidget(_host(storage: storage));
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
+    expect(find.text(l.nodesEmpty), findsOneWidget);
+
+    final scope = ProviderScope.containerOf(
+      tester.element(find.byType(ManagedNodesScreen)),
+    );
+    final error = await scope
+        .read(managedNodesProvider.notifier)
+        .upsert(const ManagedNode(id: 'x', label: 'My exit', nodeId: _exit));
+    await tester.pumpAndSettle();
+
+    expect(
+      error,
+      isNotNull,
+      reason: 'the write failed and the caller was told it succeeded',
+    );
+    expect(
+      find.text('My exit'),
+      findsNothing,
+      reason:
+          'the screen lists a node that is not on disk — it will be gone at '
+          'the next launch with nothing having said so',
+    );
+    expect(find.text(l.nodesEmpty), findsOneWidget);
+  });
+
+  testWidgets('a write that succeeds still shows the node', (tester) async {
+    // The other side of the boundary: an error path that refused everything
+    // would satisfy the test above and break the feature.
+    await tester.pumpWidget(_host(storage: await _openStorage()));
+    await tester.pumpAndSettle();
+    final scope = ProviderScope.containerOf(
+      tester.element(find.byType(ManagedNodesScreen)),
+    );
+    final error = await scope
+        .read(managedNodesProvider.notifier)
+        .upsert(const ManagedNode(id: 'x', label: 'My exit', nodeId: _exit));
+    await tester.pumpAndSettle();
+    expect(error, isNull);
+    expect(find.text('My exit'), findsOneWidget);
   });
 
   testWidgets('empty registry shows the hint; adding a node lists it', (
     tester,
   ) async {
-    await tester.pumpWidget(_host());
+    await tester.pumpWidget(_host(storage: await _openStorage()));
     await tester.pumpAndSettle();
     final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
     expect(find.text(l.nodesEmpty), findsOneWidget);
@@ -145,7 +270,7 @@ void main() {
   testWidgets('add menu separates an existing node from SSH provisioning', (
     tester,
   ) async {
-    await tester.pumpWidget(_host());
+    await tester.pumpWidget(_host(storage: await _openStorage()));
     await tester.pumpAndSettle();
     final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
 
@@ -158,7 +283,7 @@ void main() {
   });
 
   testWidgets('an existing node requires its node id', (tester) async {
-    await tester.pumpWidget(_host());
+    await tester.pumpWidget(_host(storage: await _openStorage()));
     await tester.pumpAndSettle();
     final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
     final container = ProviderScope.containerOf(
@@ -200,7 +325,7 @@ void main() {
   testWidgets('a new SSH node skips node id and continues to provisioning', (
     tester,
   ) async {
-    await tester.pumpWidget(_host());
+    await tester.pumpWidget(_host(storage: await _openStorage()));
     await tester.pumpAndSettle();
     final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
     final container = ProviderScope.containerOf(
@@ -260,7 +385,7 @@ void main() {
           .setMockMethodCallHandler(SystemChannels.platform, null),
     );
     final credentials = _MemorySshCredentialsStore();
-    await tester.pumpWidget(_host(credentials: credentials));
+    await tester.pumpWidget(_host(credentials: credentials, storage: await _openStorage()));
     await tester.pumpAndSettle();
     final l = AppL10n.of(tester.element(find.byType(ManagedNodesScreen)));
 
@@ -306,7 +431,7 @@ void main() {
   testWidgets('use-as-exit wires the node id into proxy routing', (
     tester,
   ) async {
-    await tester.pumpWidget(_host());
+    await tester.pumpWidget(_host(storage: await _openStorage()));
     await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(
       tester.element(find.byType(ManagedNodesScreen)),
@@ -333,7 +458,7 @@ void main() {
   testWidgets('tapping a node opens its full lifecycle management screen', (
     tester,
   ) async {
-    await tester.pumpWidget(_host());
+    await tester.pumpWidget(_host(storage: await _openStorage()));
     await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(
       tester.element(find.byType(ManagedNodesScreen)),
@@ -363,7 +488,7 @@ void main() {
   testWidgets('editing a node keeps its pinned SSH host key (SSH-MITM)', (
     tester,
   ) async {
-    await tester.pumpWidget(_host());
+    await tester.pumpWidget(_host(storage: await _openStorage()));
     await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(
       tester.element(find.byType(ManagedNodesScreen)),
@@ -412,7 +537,7 @@ void main() {
       ..values['p'] = const SavedSshCredentials(
         password: 'old-server-password',
       );
-    await tester.pumpWidget(_host(credentials: credentials));
+    await tester.pumpWidget(_host(credentials: credentials, storage: await _openStorage()));
     await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(
       tester.element(find.byType(ManagedNodesScreen)),

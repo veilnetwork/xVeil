@@ -8088,6 +8088,12 @@ abstract class AppL10n {
   /// **'Could not save SSH credentials: {error}'**
   String sshCredentialsSaveFailed(String error);
 
+  /// Shown when the node registry could not be committed to encrypted storage; the change is not saved.
+  ///
+  /// In en, this message translates to:
+  /// **'The node list could not be saved: {error}'**
+  String nodeRegistrySaveFailed(String error);
+
   /// No description provided for @sshKeyGenerationFailed.
   ///
   /// In en, this message translates to:
