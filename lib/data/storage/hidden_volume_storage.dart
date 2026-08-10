@@ -1777,7 +1777,7 @@ class HiddenVolumeStorage implements Storage {
     // the blobs themselves, so a transcript of content another message still
     // shows is not touched.
     final derivedOps = await _derivedTextOps(
-      messageId: messageId,
+      deadMessageIds: {messageId},
       deadContentIds: purgeBlobIds,
     );
     await _as.commit([
@@ -1828,10 +1828,11 @@ class HiddenVolumeStorage implements Storage {
   /// these. Losing the eager removal is a delay; failing the delete over it
   /// would be worse.
   Future<List<KvLogOp>> _derivedTextOps({
-    required String messageId,
+    required Iterable<String> deadMessageIds,
     required Iterable<String> deadContentIds,
   }) async {
-    if (messageId.isEmpty && deadContentIds.isEmpty) return const [];
+    final deadMessages = deadMessageIds.toSet();
+    if (deadMessages.isEmpty && deadContentIds.isEmpty) return const [];
     final List<String> keys;
     try {
       keys = await settingsKeys();
@@ -1847,7 +1848,7 @@ class HiddenVolumeStorage implements Storage {
       if (rest.startsWith('msg.translation.v1:')) {
         final tail = rest.substring('msg.translation.v1:'.length);
         final cut = tail.indexOf(':');
-        if (cut > 0 && tail.substring(cut + 1) == messageId) {
+        if (cut > 0 && deadMessages.contains(tail.substring(cut + 1))) {
           ops.add(DeleteOp(Ns.settings, _sk(key)));
         }
         continue;
@@ -1958,6 +1959,16 @@ class HiddenVolumeStorage implements Storage {
     final purgeBlobIds = await _unreferencedBlobIds(
       candidateBlobIds,
       deletingMessageKeys: deletingKeys,
+    );
+    // Derived text for everything this clear tombstones, in the same ops the
+    // callers commit. Every clear path — local, emitted, and a peer's applied
+    // remotely — builds its work here, so one insertion covers all of them,
+    // and a bounded clear only names the messages it actually erased.
+    ops.addAll(
+      await _derivedTextOps(
+        deadMessageIds: cleared,
+        deadContentIds: purgeBlobIds,
+      ),
     );
     for (final blobId in purgeBlobIds) {
       ops.addAll(await _deleteContentBlobOps(blobId, blobNamesOut));

@@ -224,6 +224,38 @@ void main() {
       },
     );
 
+    test('a bounded clear takes the derived text of what it erased, and only '
+        'that', () async {
+      // A transcript and a translation are the message's content in another
+      // form. A clear that scrubs bodies while leaving them behind has not
+      // cleared anything a person would recognise as cleared — and a clear
+      // that takes MORE than it erased destroys the translation of a message
+      // still on screen, which is the direction that hurts.
+      await incoming(1, 'one');
+      await incoming(2, 'two');
+      await incoming(3, 'three'); // newer than the clear
+
+      await s.putSetting('msg.translation.v1:en:m1', 'cleared one');
+      await s.putSetting('msg.translation.v1:ru:m1', 'очищенное');
+      await s.putSetting('msg.translation.v1:en:m2', 'cleared two');
+      await s.putSetting('msg.translation.v1:en:m3', 'survives');
+
+      await s.applyRemoteClear(conv, conv.hex, 7, {
+        conv.hex: 2,
+      }, selfHex: selfHex);
+
+      final keys = await s.settingsKeys();
+      expect(keys, isNot(contains('set:msg.translation.v1:en:m1')));
+      expect(keys, isNot(contains('set:msg.translation.v1:ru:m1')));
+      expect(keys, isNot(contains('set:msg.translation.v1:en:m2')));
+      expect(
+        keys,
+        contains('set:msg.translation.v1:en:m3'),
+        reason: 'm3 is past the watermark and still shown',
+      );
+      expect(await s.getSetting('msg.translation.v1:en:m3'), 'survives');
+    });
+
     test('born-clear: a message that arrives AFTER the clear but <= the '
         'watermark never surfaces (convergence on reordering)', () async {
       // The clear lands first (seq 2 watermark), with no messages present yet.
