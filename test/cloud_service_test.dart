@@ -945,7 +945,7 @@ void main() {
         reason: 'the materialised index must exist',
       );
       // One page: these fixtures hold a handful of rows.
-          final active = 'cloud.index.v1.$slot.p0';
+      final active = 'cloud.index.v1.$slot.p0';
       final raw = await storage.loadFile(active);
       final rows = (jsonDecode(utf8.decode(raw!)) as List).toList()
         ..add(
@@ -2504,10 +2504,10 @@ void main() {
 
       await writeMaterializedView(storage, 'cloud.test.v1', payload);
       final back = await readMaterializedView(
-          key: 'cloud.test.v1',
-          getSetting: storage.getSetting,
-          loadFile: storage.loadFile,
-        );
+        key: 'cloud.test.v1',
+        getSetting: storage.getSetting,
+        loadFile: storage.loadFile,
+      );
 
       expect(back, payload);
     });
@@ -2582,20 +2582,23 @@ void main() {
       );
     });
 
-    test('a view over quota is refused by name, not by PayloadTooLarge', () async {
-      final container = FakeHvContainer();
-      final storage = container.storage();
-      await storage.open(password: 'pw', createIfMissing: true);
+    test(
+      'a view over quota is refused by name, not by PayloadTooLarge',
+      () async {
+        final container = FakeHvContainer();
+        final storage = container.storage();
+        await storage.open(password: 'pw', createIfMissing: true);
 
-      expect(
-        () => writeMaterializedView(
-          storage,
-          'cloud.test.v1',
-          'x' * (kMaterializedViewMaxBytes + 1),
-        ),
-        throwsA(isA<StateError>()),
-      );
-    });
+        expect(
+          () => writeMaterializedView(
+            storage,
+            'cloud.test.v1',
+            'x' * (kMaterializedViewMaxBytes + 1),
+          ),
+          throwsA(isA<StateError>()),
+        );
+      },
+    );
 
     test('the pointer flips LAST, after every page and the page count', () {
       // The commit protocol is an ORDER, and an order is invisible in-process:
@@ -2624,11 +2627,59 @@ void main() {
           greaterThan(calls.indexOf('file:v.a.p2')),
           reason: 'the page count must not appear before its last page',
         );
-        expect(
-          calls.where((c) => c.startsWith('file:')).toList(),
-          ['file:v.a.p0', 'file:v.a.p1', 'file:v.a.p2'],
-        );
+        expect(calls.where((c) => c.startsWith('file:')).toList(), [
+          'file:v.a.p0',
+          'file:v.a.p1',
+          'file:v.a.p2',
+        ]);
       });
     });
+  });
+
+  /// A close that lands while `start` is still running must not leave feeds
+  /// attached to a closed service.
+  ///
+  /// `close` cancels the subscriptions once and sets the flag; `start`
+  /// installs them AFTER two awaits. So a close in that window cancelled
+  /// subscriptions that did not exist yet, and start then installed them on a
+  /// service nobody will close again — a sync feed and a content feed still
+  /// calling in, still scheduling reconciles, still writing (report9 X-15).
+  ///
+  /// The provider is written exactly this way — `unawaited(service.start())`
+  /// with a `close()` on dispose — so an identity switch is the ordinary way
+  /// to reach it, not a contrived one.
+  test('a close during start leaves no feed attached', () async {
+    final container = FakeHvContainer();
+    final storage = container.storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sync = _FakeSync(_id(1));
+    final received = StreamController<String>.broadcast();
+    addTearDown(received.close);
+    final service = CloudService(
+      storage,
+      sync,
+      contentReceived: received.stream,
+      integrityChecks: false,
+    );
+
+    // Not awaited: start suspends on its first await and close runs inside it,
+    // which is the interleaving under test.
+    final starting = service.start();
+    await service.close();
+    await starting;
+
+    expect(
+      sync.controller.hasListener,
+      isFalse,
+      reason:
+          'the sync feed is still attached to a closed service — every change '
+          'schedules a reconcile on it for the rest of the session',
+    );
+    expect(
+      received.hasListener,
+      isFalse,
+      reason: 'inbound content is still being handed to a closed service',
+    );
+    await storage.close();
   });
 }
