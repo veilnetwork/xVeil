@@ -209,6 +209,20 @@ class MessagingService {
     _realtimeControl.onP2PEndpoints = callback;
   }
 
+  /// Whoever currently owns the group-layer callbacks below.
+  ///
+  /// In all-online this service belongs to ONE identity and lives for the whole
+  /// session, while the group service is built for the ACTIVE identity and is
+  /// disposed on every switch. Its callbacks stayed attached, so the next frame
+  /// that arrived here was handed to a disposed service — it could still write
+  /// storage and then throw on a closed controller, with durable frames already
+  /// acknowledged and deduplicated by that point.
+  ///
+  /// The token is what makes detaching safe: a build that is going away must
+  /// only clear callbacks that are still ITS OWN, never ones a newer build has
+  /// since installed on this same service.
+  Object? groupBindingsOwner;
+
   /// Attached by the group layer: an inbound group snapshot ([bundleJson]) from
   /// an accepted [peer], to ingest idempotently. Dropped when unset.
   void Function(NodeId peer, String bundleJson)? onGroupEntry;
