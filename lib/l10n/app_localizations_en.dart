@@ -6032,4 +6032,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get chatTranslationShowOriginal => 'Show original';
+
+  @override
+  String get chatTranslateInto => 'Translate into…';
 }
