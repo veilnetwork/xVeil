@@ -1,0 +1,11 @@
+# Built artifacts (rebuild via build_veil_translate_*.sh). CTranslate2 and
+# SentencePiece live out-of-repo, as whisper.cpp does; so do the models, which
+# are per language pair and hundreds of megabytes.
+Frameworks/
+jniLibs/
+linux/
+windows/
+*.dylib
+*.so
+*.a
+*.bin
