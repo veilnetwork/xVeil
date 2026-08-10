@@ -73,6 +73,19 @@ jobs:
             https://chromium.googlesource.com/chromium/tools/depot_tools.git \
             "$HOME/depot_tools"
           git -C "$HOME/depot_tools" checkout --detach "$DEPOT_TOOLS_COMMIT"
+          # Bootstrap the pinned checkout's own vpython3 + cipd binaries.
+          #
+          # `gclient` brings them up on first use; `gn` does not, and its
+          # wrapper then dies with "python3_bin_reldir.txt not found. need to
+          # initialize depot_tools by running gclient, update_depot_tools or
+          # ensure_bootstrap" — which is exactly what killed run 31399122057,
+          # in both jobs, after twenty-five minutes of syncing WebRTC.
+          #
+          # It has to run BEFORE the line below: `GITHUB_ENV` applies to later
+          # steps, so `DEPOT_TOOLS_UPDATE` is still unset here and the bootstrap
+          # is allowed to fetch what the pinned commit asks for. It fetches
+          # those packages, not a newer depot_tools, so the pin stands.
+          "$HOME/depot_tools/ensure_bootstrap"
           # depot_tools self-updates on first use unless told not to, which
           # would undo the pin a moment after we set it.
           echo "DEPOT_TOOLS_UPDATE=0" >> "$GITHUB_ENV"
@@ -175,6 +188,19 @@ jobs:
             https://chromium.googlesource.com/chromium/tools/depot_tools.git \
             "$HOME/depot_tools"
           git -C "$HOME/depot_tools" checkout --detach "$DEPOT_TOOLS_COMMIT"
+          # Bootstrap the pinned checkout's own vpython3 + cipd binaries.
+          #
+          # `gclient` brings them up on first use; `gn` does not, and its
+          # wrapper then dies with "python3_bin_reldir.txt not found. need to
+          # initialize depot_tools by running gclient, update_depot_tools or
+          # ensure_bootstrap" — which is exactly what killed run 31399122057,
+          # in both jobs, after twenty-five minutes of syncing WebRTC.
+          #
+          # It has to run BEFORE the line below: `GITHUB_ENV` applies to later
+          # steps, so `DEPOT_TOOLS_UPDATE` is still unset here and the bootstrap
+          # is allowed to fetch what the pinned commit asks for. It fetches
+          # those packages, not a newer depot_tools, so the pin stands.
+          "$HOME/depot_tools/ensure_bootstrap"
           # depot_tools self-updates on first use unless told not to, which
           # would undo the pin a moment after we set it.
           echo "DEPOT_TOOLS_UPDATE=0" >> "$GITHUB_ENV"
