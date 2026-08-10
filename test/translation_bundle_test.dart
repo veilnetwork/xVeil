@@ -383,6 +383,24 @@ void main() {
                 'directory to carry a real 79 MB model through the format.'
             : null);
 
+    test('a file that is not there is refused, not thrown', () async {
+      // dart:io raises PathNotFoundException, which is not a
+      // TranslationBundleException — so it went straight past the handler and
+      // out through the caller. Picking a file that has since been moved is an
+      // ordinary thing a person does; it must produce a sentence, not a crash.
+      final result = await installBundle(
+        File('${tmp.path}/never-existed.veiltranslate'),
+        modelsRoot: models,
+      );
+      expect(result.succeeded, isFalse);
+      expect(result.error, contains('cannot read the file'));
+
+      await expectLater(
+        inspectBundle(File('${tmp.path}/never-existed.veiltranslate')),
+        throwsA(isA<TranslationBundleException>()),
+      );
+    });
+
     test('a failed install leaves the model that was already there', () async {
       final first = await installBundle(await goodBundle(), modelsRoot: models);
       expect(first.succeeded, isTrue);
