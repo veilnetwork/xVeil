@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import '../core/serve_admission.dart';
 
 import '../domain/cloud_capability.dart';
 import '../domain/content_manifest.dart';
@@ -246,7 +247,20 @@ class CloudMemberContentHost {
   /// afterwards (every subsequent request fails the MAC gate silently).
   void wipe() {
     _epochKey.fillRange(0, _epochKey.length, 0);
+    // Whoever is queued for a slot is woken and refused: after the key is
+    // gone there is nothing left to answer with, and a waiter left pending
+    // holds its request — and this host — alive for as long as it waits.
+    _admission.close();
   }
+
+  /// Bounds how many answers this host has in flight.
+  ///
+  /// Every accepted request makes the host build a return circuit, so the
+  /// unbounded `unawaited(host.serve(...))` at the call site turned a stream of
+  /// ~158-byte datagrams into as many onion round trips as a member cared to
+  /// ask for. Taken AFTER the MAC check below, so an unauthorized flood cannot
+  /// occupy the slots that authorized members need.
+  final ServeAdmission _admission = ServeAdmission();
 
   CloudCapability _capabilityFor(ContentManifest manifest) =>
       CloudCapabilityCodec.memberFileCapability(
@@ -279,37 +293,50 @@ class CloudMemberContentHost {
         requestNonce: request.nonce,
       );
       if (!_equal(expected, request.mac)) return;
-      final length = CloudCapabilityCodec.chunkLength(
-        capability,
-        request.pieceIndex,
-        request.chunkIndex,
-      );
-      final offset =
-          request.pieceIndex * manifest.pieceSize +
-          request.chunkIndex * CloudCapabilityCodec.publicChunkBytes;
-      final clear = await storage.readFileRange(contentId, offset, length);
-      if (clear == null || clear.length != length) return;
-      final sealed = await CloudCapabilityCodec.sealChunk(
-        capability: capability,
-        pieceIndex: request.pieceIndex,
-        chunkIndex: request.chunkIndex,
-        clear: clear,
-      );
-      _requestsAnswered++;
-      await _send(
-        servicePublicKey: request.returnServicePublicKey,
-        targetAppId: request.returnAppId,
-        targetEndpointId: request.returnEndpointId,
-        data: _memberChunkResponse(
-          documentId: documentId,
-          contentId: request.contentId,
-          pieceIndex: request.pieceIndex,
-          chunkIndex: request.chunkIndex,
-          nonce: request.nonce,
-          sealed: sealed,
-        ),
+      await _admission.run(
+        () => _answer(request, capability, manifest, contentId),
       );
     } catch (_) {}
+  }
+
+  /// Read the asked-for chunk, seal it and send it back. Split out of [serve]
+  /// so the bounded part is exactly the part that costs a circuit.
+  Future<void> _answer(
+    _MemberFileRequest request,
+    CloudCapability capability,
+    ContentManifest manifest,
+    String contentId,
+  ) async {
+    final length = CloudCapabilityCodec.chunkLength(
+      capability,
+      request.pieceIndex,
+      request.chunkIndex,
+    );
+    final offset =
+        request.pieceIndex * manifest.pieceSize +
+        request.chunkIndex * CloudCapabilityCodec.publicChunkBytes;
+    final clear = await storage.readFileRange(contentId, offset, length);
+    if (clear == null || clear.length != length) return;
+    final sealed = await CloudCapabilityCodec.sealChunk(
+      capability: capability,
+      pieceIndex: request.pieceIndex,
+      chunkIndex: request.chunkIndex,
+      clear: clear,
+    );
+    _requestsAnswered++;
+    await _send(
+      servicePublicKey: request.returnServicePublicKey,
+      targetAppId: request.returnAppId,
+      targetEndpointId: request.returnEndpointId,
+      data: _memberChunkResponse(
+        documentId: documentId,
+        contentId: request.contentId,
+        pieceIndex: request.pieceIndex,
+        chunkIndex: request.chunkIndex,
+        nonce: request.nonce,
+        sealed: sealed,
+      ),
+    );
   }
 }
 
