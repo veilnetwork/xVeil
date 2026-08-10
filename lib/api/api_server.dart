@@ -3309,8 +3309,16 @@ class ApiToken {
 /// be pointed at something else — a `rename` of a directory component defeats
 /// the resolution above without touching anything inside the root. Dart has no
 /// `openat`, no `O_NOFOLLOW` and no `fstat`, so from here a path cannot be
-/// bound to the inode it named a moment ago; the sender detects a substitution
-/// by hashing rather than preventing it (audit X-02).
+/// bound to the inode it named a moment ago (audit X-02).
+///
+/// What narrows it is [veilOpenPinnedSource], which the senders open through:
+/// it stamps the name's `(deviceId, inode)` immediately before and immediately
+/// after the open and REFUSES on a change, before anything is offered. This
+/// paragraph used to say the substitution was caught "by hashing", which named
+/// the wrong mechanism — the manifest hash is taken over whatever was read, so
+/// it agrees with itself no matter which file that was. The evidence is the
+/// stamp, and until audit X-01 the first one was taken after the open, which
+/// is to say after the moment it was meant to bracket.
 ///
 /// So this is an AUTHORIZATION check — may this token name this file — and not
 /// a handle. Read it as such.
@@ -6316,8 +6324,10 @@ class ApiHandler {
       final name = body?['name'];
       // The RESOLVED path goes downstream — a NAME, not a handle. The send
       // opens that name again, so what it opens is what the name means THEN,
-      // not what was checked here. See [resolveSendableFile]: this leg
-      // authorizes, the sender detects a substitution by hashing (audit X-02).
+      // not what was checked here. This leg AUTHORIZES; the open is bracketed
+      // by identity stamps in `veilOpenPinnedSource`, which refuses a name
+      // that changed under it before anything is offered (audit X-01), and
+      // what is left of the window is detected across the read (X-02).
       final err = await sendFile(
         to,
         sendable.path!,
