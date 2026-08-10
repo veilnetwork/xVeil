@@ -2164,7 +2164,6 @@
   },
   "nicknameTopUp": "Усилить (майнить ещё)",
   "nicknameClaimed": "Имя опубликовано",
-  "newChatPeerOrNickname": "Node id (hex) или @имя",
   "nicknameNotFound": "Имя не найдено в сети",
   "nicknameIsSelf": "Это имя указывает на вас",
   "nicknameOwnerChanged": "Имя сменило владельца в сети. Контакт по-прежнему указывает на человека, которого вы добавили.",
@@ -2583,5 +2582,6 @@
   "agoDays": "{count, plural, one{{count} день назад} few{{count} дня назад} other{{count} дней назад}}",
   "agoMonths": "{count, plural, one{{count} месяц назад} few{{count} месяца назад} other{{count} месяцев назад}}",
   "agoYears": "{count, plural, one{{count} год назад} few{{count} года назад} other{{count} лет назад}}",
-  "folderSyncLastPass": "Синхронизировано {when}"
+  "folderSyncLastPass": "Синхронизировано {when}",
+  "inviteAcceptsHint": "Ссылка-приглашение или @имя"
 }
