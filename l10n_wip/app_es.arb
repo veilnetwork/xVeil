@@ -1910,6 +1910,7 @@
       }
     }
   },
+  "nodeRegistrySaveFailed": "No se pudo guardar la lista de nodos: {error}",
   "sshKeyGenerationFailed": "No se pudo generar la clave: {error}",
   "@sshKeyGenerationFailed": {
     "placeholders": {

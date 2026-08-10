@@ -1903,6 +1903,7 @@
       }
     }
   },
+  "nodeRegistrySaveFailed": "Не удалось сохранить список узлов: {error}",
   "sshKeyGenerationFailed": "Не удалось сгенерировать ключ: {error}",
   "@sshKeyGenerationFailed": {
     "placeholders": {
