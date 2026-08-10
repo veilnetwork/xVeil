@@ -113,6 +113,18 @@ void main() {
 /// it sits. It is a `Tooltip` now, which carries the semantics label as well
 /// as the hover text.
 ///
+/// `folderSyncNever` was the strongest case of that kind yet: the DATA was
+/// there too. `lastPassAtMs` is carried all the way into the folder-sync
+/// view and was never rendered, so a mirror never said when it last ran and
+/// the string for "not yet" sat unused. It is the row's second subtitle line
+/// now — and wiring it turned up that `formatAgo` returned English to
+/// everyone, inside a localised sentence, which is the shape that hides an
+/// untranslated value.
+///
+/// `voiceModelTitle` went the other way: the speech-model tile is titled by
+/// its STATE ("Downloading…", "Speech model installed", "Download the speech
+/// model"), so there is no static title to write.
+///
 /// What is left falls into three groups, and each wants a different answer:
 ///  * text kept ON PURPOSE for a row that was removed rather than shipped
 ///    half-done — `networkExt*` and `networkComingLater`; see the comment in
@@ -141,7 +153,6 @@ const _knownUnreachable = {
   'chatMoreActions',
   'cloudNoteSaved',
   'devicesFreshRegistryRequired',
-  'folderSyncNever',
   'groupCallTitle',
   'groupVoiceTooLong',
   'networkComingLater',
@@ -156,5 +167,4 @@ const _knownUnreachable = {
   'spaceAccessRolePermissions',
   'spaceMemberMute',
   'spaceRenameDenied',
-  'voiceModelTitle',
 };

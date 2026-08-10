@@ -2547,7 +2547,6 @@
   "voiceModelInstalled": "Модель распознавания установлена",
   "voiceModelRemove": "Удалить модель распознавания",
   "voiceModelRemoveHint": "Освободит 57 МБ. Расшифровка перестанет работать, пока не скачаете снова.",
-  "voiceModelTitle": "Модель распознавания",
   "voiceModelResume": "Продолжить скачивание",
   "voiceModelResumeAt": "{percent}% уже скачано",
   "@voiceModelResumeAt": {
@@ -2581,5 +2580,12 @@
   "callNotificationGroup": "Групповой вызов xVeil",
   "chatListWantsToConnect": "хочет связаться",
   "chatListRequestSent": "запрос отправлен",
-  "chatListBlocked": "заблокирован"
+  "chatListBlocked": "заблокирован",
+  "agoJustNow": "только что",
+  "agoMinutes": "{count, plural, one{{count} минуту назад} few{{count} минуты назад} other{{count} минут назад}}",
+  "agoHours": "{count, plural, one{{count} час назад} few{{count} часа назад} other{{count} часов назад}}",
+  "agoDays": "{count, plural, one{{count} день назад} few{{count} дня назад} other{{count} дней назад}}",
+  "agoMonths": "{count, plural, one{{count} месяц назад} few{{count} месяца назад} other{{count} месяцев назад}}",
+  "agoYears": "{count, plural, one{{count} год назад} few{{count} года назад} other{{count} лет назад}}",
+  "folderSyncLastPass": "Синхронизировано {when}"
 }
