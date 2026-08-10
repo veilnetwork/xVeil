@@ -217,6 +217,72 @@ void main() {
     expect(calls, 1);
   });
 
+  test('a miss is remembered, so the store is read once per message', () async {
+    // The widget under every incoming message asks for a cached reading. The
+    // guard used to be "is there an entry for this message", which is only
+    // true after a HIT — so for every message nobody has translated, and that
+    // is almost all of them, the store was read again every time. A read per
+    // message per frame, on the hottest path the app has.
+    //
+    // Observable without a spy: write the value into the store AFTER the miss
+    // has been remembered. A controller that re-reads would find it.
+    container = await boot(translator: engine);
+    final ctl = container.read(translationControllerProvider.notifier);
+    await ctl.loadCached('m1', to: 'ru');
+    expect(ctl.entryFor('m1').phase, TranslationPhase.none);
+
+    await storage.putSetting('msg.translation.v1:ru:m1', 'planted');
+    await ctl.loadCached('m1', to: 'ru');
+    expect(
+      ctl.entryFor('m1').text,
+      isNull,
+      reason:
+          'the store was read a second time for a message already looked up '
+          'and found empty — that read happens on every rebuild of every '
+          'incoming message',
+    );
+
+    // Another LANGUAGE is a different question and must still be asked.
+    await storage.putSetting('msg.translation.v1:de:m1', 'anders');
+    await ctl.loadCached('m1', to: 'de');
+    expect(
+      ctl.entryFor('m1').text,
+      'anders',
+      reason: 'the miss for one language silenced the look-up for another',
+    );
+  });
+
+  test('a read that THREW is not remembered as a miss', () async {
+    // The order inside the try matters. Marking the key probed before the
+    // store answers means a read that failed — the store is not open yet,
+    // which happens during an identity switch — is remembered as "nothing
+    // there", and the translation stays hidden for the rest of the session.
+    final log = FakeKvLogStore();
+    final inner = HiddenVolumeStorage(
+      ({required Uint8List password, required bool create}) => log,
+    );
+    expect(await inner.open(password: 'pw', createIfMissing: true), isTrue);
+    addTearDown(inner.close);
+    await inner.putSetting('msg.translation.v1:ru:m1', 'hola');
+    final flaky = _FailFirstStorage(inner);
+    final c = ProviderContainer(
+      overrides: [storageProvider.overrideWith((ref) => flaky as Storage)],
+    );
+    addTearDown(c.dispose);
+
+    final ctl = c.read(translationControllerProvider.notifier);
+    await ctl.loadCached('m1', to: 'ru'); // throws inside
+    expect(ctl.entryFor('m1').text, isNull);
+    await ctl.loadCached('m1', to: 'ru'); // the store answers this time
+    expect(
+      ctl.entryFor('m1').text,
+      'hola',
+      reason:
+          'a failed read was remembered as a miss — the reading exists and is '
+          'now unreachable until the app restarts',
+    );
+  });
+
   test('an empty body is not sent to the engine', () async {
     container = await boot(translator: engine);
     final ctl = container.read(translationControllerProvider.notifier);
@@ -224,4 +290,29 @@ void main() {
     expect(calls, 0);
     expect(ctl.entryFor('m1').phase, TranslationPhase.none);
   });
+}
+
+/// Fails the first `getSetting`, then forwards. Everything else goes straight
+/// through — `noSuchMethod` rather than a hand-written stub for each member,
+/// because the interface is wide and none of the rest is under test here.
+class _FailFirstStorage implements Storage {
+  _FailFirstStorage(this._inner);
+  final Storage _inner;
+  var _failuresLeft = 1;
+
+  @override
+  Future<String?> getSetting(String key) async {
+    if (_failuresLeft > 0) {
+      _failuresLeft--;
+      throw StateError('store not open');
+    }
+    return _inner.getSetting(key);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      Function.apply(
+        (_inner as dynamic).noSuchMethod,
+        [invocation],
+      );
 }
