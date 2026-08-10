@@ -30,9 +30,6 @@ class AppL10nEs extends AppL10n {
   String get actionRemove => 'Quitar';
 
   @override
-  String get actionUnderstood => 'Entendido';
-
-  @override
   String get preparingTitle => 'Configurando tu nodo';
 
   @override
@@ -1957,10 +1954,6 @@ class AppL10nEs extends AppL10n {
       'La imagen es demasiado grande para enviarla incrustada';
 
   @override
-  String get groupVoiceTooLong =>
-      'El mensaje de voz es demasiado largo para enviarlo en un grupo';
-
-  @override
   String get reactorsTitle => 'Reacciones';
 
   @override
@@ -2570,9 +2563,6 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get cloudNoteSave => 'Guardar';
-
-  @override
-  String get cloudNoteSaved => 'Nota guardada';
 
   @override
   String get cloudNoteLoadFailed => 'No se pudo cargar ni verificar la nota';
@@ -3856,9 +3846,6 @@ class AppL10nEs extends AppL10n {
       'Los cambios se aplican la próxima vez que arranque el nodo.';
 
   @override
-  String get routeRestartNode => 'Reiniciar el nodo para aplicarlo ahora';
-
-  @override
   String get vpnTitle => 'VPN del sistema';
 
   @override
@@ -4265,9 +4252,6 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get nodeOperationRun => 'Ejecutar el comando';
-
-  @override
-  String get nodeOperationSuccess => 'Operación remota completada';
 
   @override
   String get nodeSelectServices => 'Seleccionar servicios';
@@ -4930,9 +4914,6 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get callMicrophones => 'Micrófonos';
-
-  @override
-  String get callScreens => 'Pantallas';
 
   @override
   String get callDisplays => 'Monitores';

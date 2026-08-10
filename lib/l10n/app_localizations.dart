@@ -141,12 +141,6 @@ abstract class AppL10n {
   /// **'Remove'**
   String get actionRemove;
 
-  /// No description provided for @actionUnderstood.
-  ///
-  /// In en, this message translates to:
-  /// **'I understand'**
-  String get actionUnderstood;
-
   /// No description provided for @preparingTitle.
   ///
   /// In en, this message translates to:
@@ -3392,12 +3386,6 @@ abstract class AppL10n {
   /// **'Image too large to send inline'**
   String get groupImageTooLarge;
 
-  /// No description provided for @groupVoiceTooLong.
-  ///
-  /// In en, this message translates to:
-  /// **'Voice message is too long to send in a group'**
-  String get groupVoiceTooLong;
-
   /// No description provided for @reactorsTitle.
   ///
   /// In en, this message translates to:
@@ -4441,12 +4429,6 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Save'**
   String get cloudNoteSave;
-
-  /// No description provided for @cloudNoteSaved.
-  ///
-  /// In en, this message translates to:
-  /// **'Note saved'**
-  String get cloudNoteSaved;
 
   /// No description provided for @cloudNoteLoadFailed.
   ///
@@ -6758,12 +6740,6 @@ abstract class AppL10n {
   /// **'Changes apply the next time the node starts.'**
   String get routeAppliesNextStart;
 
-  /// No description provided for @routeRestartNode.
-  ///
-  /// In en, this message translates to:
-  /// **'Restart node to apply now'**
-  String get routeRestartNode;
-
   /// No description provided for @vpnTitle.
   ///
   /// In en, this message translates to:
@@ -7489,12 +7465,6 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Run command'**
   String get nodeOperationRun;
-
-  /// No description provided for @nodeOperationSuccess.
-  ///
-  /// In en, this message translates to:
-  /// **'Remote operation completed'**
-  String get nodeOperationSuccess;
 
   /// No description provided for @nodeSelectServices.
   ///
@@ -8641,12 +8611,6 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Microphones'**
   String get callMicrophones;
-
-  /// No description provided for @callScreens.
-  ///
-  /// In en, this message translates to:
-  /// **'Screens'**
-  String get callScreens;
 
   /// No description provided for @callDisplays.
   ///
