@@ -73,6 +73,9 @@ class _NoopTransport implements VeilTransport {
 
 class _StubNode implements NodeController {
   var stopped = 0;
+
+  /// When set, `stop` waits on it — a node whose FFI stop does not answer.
+  Completer<void>? stopGate;
   @override
   NodeStatus get current => const NodeStatus(phase: NodePhase.connected);
   @override
@@ -82,7 +85,11 @@ class _StubNode implements NodeController {
   @override
   Future<void> setEconomyMode(bool economy) async {}
   @override
-  Future<void> stop() async => stopped++;
+  Future<void> stop() async {
+    stopped++;
+    final gate = stopGate;
+    if (gate != null) await gate.future;
+  }
 }
 
 /// Records whether the shared container lock was released: `disposeAll` ends in
@@ -352,6 +359,50 @@ void main() {
       reason: 'the deniable container stayed open behind the lock screen',
     );
   });
+
+  /// A node teardown that hangs must still free the provider for a reboot.
+  ///
+  /// `_ensureRealStack` returns early on a non-null `realStackProvider`, and the
+  /// teardown used to null it only AFTER `dispose()` returned. A dispose that
+  /// stops answering — the whole reason teardowns here are bounded — therefore
+  /// left a dying stack in the provider, and the app ran with no node while
+  /// believing it had one. The late completion then cleared the provider, by
+  /// then possibly a new session's stack (report9 X-16).
+  ///
+  /// Asserted while the dispose is STILL hanging, which is the point: waiting
+  /// for the bound to expire would test the bound, not the ordering.
+  test(
+    'one-active: a node teardown that hangs still frees the provider',
+    () async {
+      final h = _oneActiveHarness();
+      await _seedSingleIdentity(h.container);
+      h.gate.complete();
+      await h.controller.unlock('pw');
+      expect(
+        h.container.read(realStackProvider),
+        isNotNull,
+        reason:
+            'the harness never booted a stack, so nothing is being torn down',
+      );
+
+      h.node.stopGate = Completer<void>();
+      final tearing = h.controller.lock();
+      // Let the teardown reach its await on the hung stop.
+      for (var i = 0; i < 8; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(
+        h.container.read(realStackProvider),
+        isNull,
+        reason:
+            'a hung dispose left the dying stack in the provider — the next '
+            '_ensureRealStack returns early and the app runs with no node',
+      );
+
+      h.node.stopGate!.complete();
+      await tearing;
+    },
+  );
 
   test('one-active CONTROL: with no lock the same boot reaches ready and the '
       'node IS published', () async {
