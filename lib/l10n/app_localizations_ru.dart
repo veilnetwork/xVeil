@@ -2790,9 +2790,6 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
-  String get chatListDelete => 'Удалить чат';
-
-  @override
   String get chatDeleteChatTitle => 'Удалить этот чат?';
 
   @override
