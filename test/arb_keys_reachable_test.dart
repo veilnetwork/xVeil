@@ -162,7 +162,6 @@ const _knownUnreachable = {
   'nicknameOwnedTitle',
   'nodeOperationSuccess',
   'provisionNeedUrl',
-  'routeExitNodeHint',
   'routeRestartNode',
   'spaceAccessRolePermissions',
   'spaceMemberMute',
