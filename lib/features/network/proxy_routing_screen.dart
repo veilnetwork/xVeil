@@ -82,6 +82,13 @@ class _ProxyRoutingScreenState extends ConsumerState<ProxyRoutingScreen> {
                     ),
                     decoration: InputDecoration(
                       labelText: l.routeExitNodeLabel,
+                      // WHERE the value comes from, and that it is a trust
+                      // decision. "Exit node id (64-hex)" says what shape to
+                      // paste and nothing about what it means to paste it —
+                      // this is the node that will see the traffic. The
+                      // sentence saying so was written and never attached.
+                      helperText: l.routeExitNodeHint,
+                      helperMaxLines: 3,
                       errorText:
                           id.isNotEmpty && !ProxyRouting.isValidNodeId(id)
                           ? l.routeExitNodeInvalid
