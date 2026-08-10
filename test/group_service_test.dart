@@ -7495,6 +7495,37 @@ void main() {
       addTearDown(ownerService.dispose);
       addTearDown(readerService.dispose);
 
+      // Both services read a PINNED clock.
+      //
+      // Without it this test was ~50% flaky when its file ran alone, and
+      // green in the full suite — which is worse, because the green was
+      // bought by however long the parallel files happened to take. The
+      // publish path is timed twice over: `_replicatePublicSpaceDiscovery`
+      // drops a cached verified feed once `retainedUntilMs <= _now()`, and
+      // the sweep skips a descriptor republished within 25 minutes. Neither
+      // is a race in the product — they are real policies — but a test that
+      // lets wall time decide which side of them it lands on is not
+      // evidence about either.
+      //
+      // `debugWallClockMs` is the seam the neighbouring tests already use for
+      // exactly this: "retention expiry spans days, so deterministic tests
+      // drive the wall clock instead of waiting it out".
+      //
+      // The reader's clock is deliberately LATER than the owner's, because
+      // that is the ordering the product requires: `verifyStored` accepts a
+      // snapshot only when `verifiedAtMs >= descriptor.issuedAtMs`, and the
+      // reader verifies what the owner already signed.
+      //
+      // Pinning both to the SAME instant does not model that and fails 8 runs
+      // out of 8 — each service's `_now()` is monotonic per instance, so from
+      // one shared origin the owner, having taken more readings before it
+      // signs, ends up stamped ahead of the reader. With a real clock the
+      // milliseconds that pass between the two hide it, which is exactly what
+      // made this test ~50% flaky alone and green under load.
+      final wall = DateTime.now().millisecondsSinceEpoch;
+      ownerService.debugWallClockMs = () => wall;
+      readerService.debugWallClockMs = () => wall + 60000;
+
       final spaceId = await ownerService.createSpace(
         'Subscriber reseed',
         visibility: SpaceVisibility.public,
