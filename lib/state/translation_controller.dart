@@ -15,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
 import 'providers.dart';
+import 'translation_engines.dart';
 
 /// Translate [text] from [from] into [to]. Null means the engine could not.
 ///
@@ -24,9 +25,29 @@ import 'providers.dart';
 typedef TranslateText =
     Future<String?> Function(String text, {required String from, required String to});
 
-/// No engine by default. Wired by the platform layer once a local translator
-/// exists; until then every call returns null and the UI stays hidden.
-final textTranslatorProvider = Provider<TranslateText?>((ref) => null);
+/// Resolving what is actually on this device: a native library, and at least
+/// one language pair. Null when either is missing.
+///
+/// A FutureProvider because both answers need the filesystem, and the UI must
+/// not decide "translation is unavailable" from a check that had not run yet.
+/// Riverpod rebuilds the two providers below when it settles, so the
+/// affordance appears when the evidence does.
+final translationEnginesProvider = FutureProvider<TranslationEngines?>((
+  ref,
+) async {
+  final engines = await TranslationEngines.resolve();
+  // Each open engine holds an isolate and a loaded model; a provider that is
+  // torn down without releasing them leaks both.
+  ref.onDispose(() => engines?.dispose());
+  return engines;
+});
+
+/// The engine, or null while it is still being resolved or when there is
+/// none. Overridden wholesale in tests, which is why the real wiring lives in
+/// the provider above rather than in this expression.
+final textTranslatorProvider = Provider<TranslateText?>(
+  (ref) => ref.watch(translationEnginesProvider).asData?.value?.translate,
+);
 
 /// Whether translation can run at all on this build.
 final translationAvailableProvider = Provider<bool>(
