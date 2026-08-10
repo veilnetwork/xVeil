@@ -90,6 +90,23 @@ void main() {
 /// be the right name for an unnamed download button, and nodeRemoveConfirm,
 /// which turned out to be a confirmation nobody was being asked for.
 ///
+/// Also gone: the three hold-to-record hints (`chatVoiceHold`,
+/// `chatVoiceSlideCancel`, `chatVoiceReleaseCancel`). The composer records on
+/// a TAP and says why — a hold works differently on desktop, and an explicit
+/// stop is the same on both — so those three described a gesture the app
+/// deliberately does not have, and wiring them up would have documented an
+/// interaction that is not there. `groupEmpty` went with them: groups and 1:1
+/// conversations share one list, and it has `chatsEmpty`.
+///
+/// The API-token trio went three different ways, which is the point of doing
+/// these one at a time. `settingsApiReadOnlyHint` was a control missing its
+/// explanation — the read-only switch said "Read-only" and left the reader to
+/// guess whether that stops sending messages or only changing settings — so it
+/// is now that switch's subtitle. `settingsApiToken` and
+/// `settingsApiRegenerate` are leftovers of the SINGLE-token design: with a
+/// list of named tokens there is no bare "API token" label to write, and
+/// "Regenerate" is revoke-plus-add, which the screen already offers.
+///
 /// What is left falls into three groups, and each wants a different answer:
 ///  * text kept ON PURPOSE for a row that was removed rather than shipped
 ///    half-done — `networkExt*` and `networkComingLater`; see the comment in
@@ -117,14 +134,10 @@ const _knownUnreachable = {
   'chatFileSave',
   'chatListDelete',
   'chatMoreActions',
-  'chatVoiceHold',
-  'chatVoiceReleaseCancel',
-  'chatVoiceSlideCancel',
   'cloudNoteSaved',
   'devicesFreshRegistryRequired',
   'folderSyncNever',
   'groupCallTitle',
-  'groupEmpty',
   'groupVoiceTooLong',
   'networkComingLater',
   'networkExtSub',
@@ -135,9 +148,6 @@ const _knownUnreachable = {
   'provisionNeedUrl',
   'routeExitNodeHint',
   'routeRestartNode',
-  'settingsApiReadOnlyHint',
-  'settingsApiRegenerate',
-  'settingsApiToken',
   'spaceAccessRolePermissions',
   'spaceMemberMute',
   'spaceRenameDenied',

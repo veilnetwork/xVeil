@@ -284,6 +284,12 @@ class PrivacySettingsScreen extends ConsumerWidget {
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: Text(l.settingsApiReadOnly),
+                // What the switch REFUSES, which is the part worth knowing
+                // before handing a token to a bot. "Read-only" alone leaves
+                // the reader to guess whether it stops sending messages or
+                // only stops changing settings; the string saying so was
+                // written and then never attached to anything.
+                subtitle: Text(l.settingsApiReadOnlyHint),
                 value: readOnly,
                 onChanged: (v) => setState(() => readOnly = v),
               ),
