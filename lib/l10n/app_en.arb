@@ -2179,7 +2179,6 @@
   },
   "nicknameTopUp": "Reinforce (mine more)",
   "nicknameClaimed": "Name published",
-  "newChatPeerOrNickname": "Node id (hex) or @name",
   "nicknameNotFound": "Name not found on the network",
   "nicknameIsSelf": "That name points to you",
   "nicknameOwnerChanged": "This name has changed owners on the network. The contact still points to the person you added.",
@@ -2684,5 +2683,9 @@
         "type": "String"
       }
     }
+  },
+  "inviteAcceptsHint": "An invite link, or @name",
+  "@inviteAcceptsHint": {
+    "description": "Helper under the paste field: what it will accept. A bare node id is NOT one of them — the parser refuses it."
   }
 }

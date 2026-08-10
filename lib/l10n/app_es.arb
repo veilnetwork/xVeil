@@ -2171,7 +2171,6 @@
   },
   "nicknameTopUp": "Reforzar (minar más)",
   "nicknameClaimed": "Nombre publicado",
-  "newChatPeerOrNickname": "Identificador de nodo (hex) o @nombre",
   "nicknameNotFound": "No se encontró el nombre en la red",
   "nicknameIsSelf": "Ese nombre apunta a ti",
   "nicknameOwnerChanged": "Este nombre ha cambiado de dueño en la red. El contacto sigue apuntando a la persona que añadiste.",
@@ -2601,5 +2600,6 @@
   "agoDays": "{count, plural, =1{hace 1 día} other{hace {count} días}}",
   "agoMonths": "{count, plural, =1{hace 1 mes} other{hace {count} meses}}",
   "agoYears": "{count, plural, =1{hace 1 año} other{hace {count} años}}",
-  "folderSyncLastPass": "Sincronizado {when}"
+  "folderSyncLastPass": "Sincronizado {when}",
+  "inviteAcceptsHint": "Un enlace de invitación o @nombre"
 }

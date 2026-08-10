@@ -153,6 +153,13 @@ void main() {
 /// `chatListDelete` ("Delete chat") is deleted: the sheet says "Delete
 /// conversation" and uses `chatMenuDeleteConversation` for it.
 ///
+/// `newChatPeerOrNickname` ("Node id (hex) or @name") is deleted because it
+/// was WRONG, which is a fifth kind. The paste field takes an invite link, a
+/// peers-share token and an `@name`; anything else — a bare node id
+/// included — goes to the invite parser and comes back "invalid invite".
+/// Wiring the string up would have promised something the field refuses. The
+/// field did need to say what it takes, so it does now, accurately.
+///
 /// What is left falls into three groups, and each wants a different answer:
 ///  * text kept ON PURPOSE for a row that was removed rather than shipped
 ///    half-done — `networkExt*` and `networkComingLater`; see the comment in
@@ -184,7 +191,6 @@ const _knownUnreachable = {
   'networkComingLater',
   'networkExtSub',
   'networkExtTitle',
-  'newChatPeerOrNickname',
   'nodeOperationSuccess',
   'routeRestartNode',
   'spaceRenameDenied',
