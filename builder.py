@@ -327,12 +327,8 @@ def _check_media_staged() -> None:
     )
 
 
-def _media_symbols_problem(*, bundle_path: str, abi: str) -> list[str]:
-    """Ask whether the engine INSIDE the APK exports what Dart looks up.
-
-    Reads the copy that will be installed, not the one in the source tree:
-    those differ exactly when it matters, because gradle packages whatever sits
-    in jniLibs/ and that directory is gitignored.
+def _media_symbols_verdict(path: str, *, label: str) -> list[str]:
+    """Run the symbol check over one engine and turn its answer into problems.
 
     Three answers, deliberately not two — scripts/check-media-symbols.sh
     separates "symbols are missing" (1) from "I could not read this file" (2),
@@ -340,16 +336,41 @@ def _media_symbols_problem(*, bundle_path: str, abi: str) -> list[str]:
     nothing about the engine, and reporting that as a clean bill of health is
     how a check earns being switched off. It prints NOT CHECKED instead, in the
     spelling used for every other unasked question in this build.
+
+    The script reads ELF, Mach-O and Mach-O static archives, which is why the
+    same function serves the .so out of an APK and the .a staged for iOS.
     """
     import shutil
     import subprocess
-    import tempfile
-    import zipfile
 
     script = os.path.join(ROOT, "scripts", "check-media-symbols.sh")
     if not os.path.isfile(script) or not shutil.which("bash"):
-        print(f"    {abi}: {_MEDIA_SO} symbols NOT CHECKED — needs bash and {script}")
+        print(f"    {label}: symbols NOT CHECKED — needs bash and {script}")
         return []
+
+    done = subprocess.run(
+        ["bash", script, path], capture_output=True, text=True, cwd=ROOT
+    )
+    said = (done.stdout + done.stderr).strip().replace("\n", "\n      ")
+    if done.returncode == 0:
+        print(f"    {label}: exports everything Dart looks up")
+        return []
+    if done.returncode == 2:
+        print(f"    {label}: symbols NOT CHECKED — {said}")
+        return []
+    return [f"{label} is stale or incomplete\n      {said}"]
+
+
+def _media_symbols_problem(*, bundle_path: str, abi: str) -> list[str]:
+    """Ask whether the engine INSIDE the APK exports what Dart looks up.
+
+    Reads the copy that will be installed, not the one in the source tree:
+    those differ exactly when it matters, because gradle packages whatever sits
+    in jniLibs/ and that directory is gitignored.
+    """
+    import shutil
+    import tempfile
+    import zipfile
 
     with tempfile.TemporaryDirectory() as tmp:
         extracted = os.path.join(tmp, _MEDIA_SO)
@@ -357,21 +378,7 @@ def _media_symbols_problem(*, bundle_path: str, abi: str) -> list[str]:
             with bundle.open(f"lib/{abi}/{_MEDIA_SO}") as src:
                 with open(extracted, "wb") as dst:
                     shutil.copyfileobj(src, dst)
-        done = subprocess.run(
-            ["bash", script, extracted],
-            capture_output=True,
-            text=True,
-            cwd=ROOT,
-        )
-
-    said = (done.stdout + done.stderr).strip().replace("\n", "\n      ")
-    if done.returncode == 0:
-        print(f"    {abi}: {_MEDIA_SO} exports everything Dart looks up")
-        return []
-    if done.returncode == 2:
-        print(f"    {abi}: {_MEDIA_SO} symbols NOT CHECKED — {said}")
-        return []
-    return [f"{abi}: {_MEDIA_SO} is stale or incomplete\n      {said}"]
+        return _media_symbols_verdict(extracted, label=f"{abi}: {_MEDIA_SO}")
 
 
 def _check_android_native_libs() -> None:
@@ -614,6 +621,59 @@ def _macos(release: bool) -> list[Step]:
     return steps
 
 
+_MEDIA_IOS_A = os.path.join(
+    VEIL, "flutter", "veil_media", "ios", "Frameworks", "libveil_media.a"
+)
+
+
+def _check_ios_engine() -> None:
+    """iOS had no engine check at all — neither presence nor contents.
+
+    It is the same gitignored prebuilt as everywhere else, staged by
+    build-mobile.sh into ios/Frameworks/, and on iOS the failure is quieter
+    than on Android: the archive is linked INTO Runner, so a stale one links
+    cleanly and the Dart lookup through DynamicLibrary.process() throws at the
+    first call to whatever the archive predates.
+
+    Two things are asked, because they can disagree:
+
+    - the staged archive, always. This is the input, it is what the build
+      consumed, and the check reads Mach-O archives directly.
+    - the linked Runner, when a build left one behind. This is the only place a
+      symbol dropped by dead-stripping would show up, which the archive cannot
+      tell us. A release Runner may be stripped, and then the check answers
+      "cannot read a symbol table" — reported as NOT CHECKED, never as a
+      failure, so stripping can produce no false alarm here.
+    """
+    problems: list[str] = []
+    if os.path.isfile(_MEDIA_IOS_A):
+        problems += _media_symbols_verdict(
+            _MEDIA_IOS_A, label=f"staged {os.path.basename(_MEDIA_IOS_A)}"
+        )
+    else:
+        raise RuntimeError(
+            f"MISSING {os.path.basename(_MEDIA_IOS_A)} — this build has no call media.\n"
+            f"    Expected it staged at {_MEDIA_IOS_A}\n"
+            "    It is gitignored, so a fresh clone never has it. Voice messages,\n"
+            "    video notes, in-chat video, calls and speech-to-text all load it.\n"
+            "      scripts/build-mobile.sh ios"
+        )
+
+    for directory, _, files in os.walk(os.path.join(ROOT, "build", "ios")):
+        if directory.endswith("Runner.app") and "Runner" in files:
+            runner = os.path.join(directory, "Runner")
+            problems += _media_symbols_verdict(
+                runner, label=os.path.relpath(runner, ROOT)
+            )
+            break
+
+    if problems:
+        raise RuntimeError(
+            "THE iOS BUILD'S CALL ENGINE IS WRONG — do not hand this out.\n    "
+            + "\n    ".join(problems)
+        )
+
+
 def _ios(release: bool) -> list[Step]:
     steps = [
         Step("native libraries for iOS", argv=sh("scripts/build-mobile.sh", "ios")),
@@ -635,6 +695,7 @@ def _ios(release: bool) -> list[Step]:
                 ],
             )
         )
+    steps.append(Step("call engine in the iOS build", call=_check_ios_engine))
     return steps
 
 
