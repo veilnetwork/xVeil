@@ -2599,5 +2599,37 @@
     }
   },
   "devicesNeverSeen": "Never seen since this device was linked",
-  "devicesAwayLong": "Away a long time — consider unlinking"
+  "devicesAwayLong": "Away a long time — consider unlinking",
+  "callNotificationIncoming": "Incoming xVeil call",
+  "@callNotificationIncoming": {
+    "description": "Foreground-service notification title while a 1:1 call is ringing in."
+  },
+  "callNotificationDialing": "Calling with xVeil",
+  "@callNotificationDialing": {
+    "description": "Foreground-service notification title while dialling out."
+  },
+  "callNotificationActive": "xVeil call in progress",
+  "@callNotificationActive": {
+    "description": "Foreground-service notification title while a 1:1 call is up."
+  },
+  "callNotificationGroupIncoming": "Incoming xVeil group call",
+  "@callNotificationGroupIncoming": {
+    "description": "Foreground-service notification title while a group room is ringing."
+  },
+  "callNotificationGroup": "xVeil group call",
+  "@callNotificationGroup": {
+    "description": "Foreground-service notification title while a group room is live."
+  },
+  "chatListWantsToConnect": "wants to connect",
+  "@chatListWantsToConnect": {
+    "description": "Chat-list row hint: this contact sent a connection request. Kept short — the row ellipsizes."
+  },
+  "chatListRequestSent": "request sent",
+  "@chatListRequestSent": {
+    "description": "Chat-list row hint: we sent a request and are waiting. Kept short."
+  },
+  "chatListBlocked": "blocked",
+  "@chatListBlocked": {
+    "description": "Chat-list row hint: this contact is blocked. Kept short."
+  }
 }

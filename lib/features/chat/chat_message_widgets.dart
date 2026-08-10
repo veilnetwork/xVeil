@@ -1027,19 +1027,27 @@ class _VideoPreviewBox extends StatelessWidget {
                 Positioned(
                   top: 6,
                   right: 6,
-                  child: GestureDetector(
-                    onTap: onSave,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.35),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Padding(
-                        padding: EdgeInsets.all(6),
-                        child: Icon(
-                          Icons.save_alt,
-                          size: 16,
-                          color: Colors.white,
+                  // Named, because a floating disc with a glyph in it is not
+                  // self-explanatory and a screen reader announced nothing at
+                  // all here. The string for it already existed; nothing used
+                  // it. `Tooltip` carries the semantics label as well as the
+                  // hover/long-press text, so one wrapper answers both.
+                  child: Tooltip(
+                    message: AppL10n.of(context).chatFileSave,
+                    child: GestureDetector(
+                      onTap: onSave,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.35),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Padding(
+                          padding: EdgeInsets.all(6),
+                          child: Icon(
+                            Icons.save_alt,
+                            size: 16,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     ),

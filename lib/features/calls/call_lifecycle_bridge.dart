@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show PlatformDispatcher;
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
@@ -14,6 +15,7 @@ import '../../routing/router.dart' show rootNavigatorKey;
 import '../../state/background_node_controller.dart';
 import '../../state/call_service.dart';
 import '../../state/group_call_service.dart';
+import '../../state/locale_controller.dart';
 import '../../state/providers.dart';
 
 final callPipMode = ValueNotifier<bool>(false);
@@ -275,10 +277,18 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
     }
     _ownsForegroundService = true;
     if (directLive) {
+      // The OS shows this in the notification shade, so it has to be in the
+      // user's language — it was English in every build. There is no
+      // Localizations in scope here (this is a listener, not a widget), so it
+      // resolves the same way the desktop tray does: the chosen locale, or the
+      // system one when the choice is "follow the system".
+      final l = lookupAppL10n(
+        ref.read(localeProvider) ?? PlatformDispatcher.instance.locale,
+      );
       final title = switch (call.status) {
-        CallStatus.ringing when call.isIncoming => 'Incoming xVeil call',
-        CallStatus.dialing => 'Calling with xVeil',
-        _ => 'xVeil call in progress',
+        CallStatus.ringing when call.isIncoming => l.callNotificationIncoming,
+        CallStatus.dialing => l.callNotificationDialing,
+        _ => l.callNotificationActive,
       };
       await VeilBackground.start(
         title: title,
@@ -302,8 +312,13 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
     // foreground service: without it a backgrounded group call loses mic
     // capture and the process itself to the OS while the 1:1 path survives.
     final ringing = groupCall!.status == GroupCallStatus.ringing;
+    final groupL = lookupAppL10n(
+      ref.read(localeProvider) ?? PlatformDispatcher.instance.locale,
+    );
     await VeilBackground.start(
-      title: ringing ? 'Incoming xVeil group call' : 'xVeil group call',
+      title: ringing
+          ? groupL.callNotificationGroupIncoming
+          : groupL.callNotificationGroup,
       text: groupCall.groupId.short,
       hangupAction: true,
       ringing: ringing,
