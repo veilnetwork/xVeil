@@ -359,21 +359,27 @@ void main() {
     testWidgets('a bloated container says how much compacting would free', (
       tester,
     ) async {
-      // 20 MiB on disk, 1 live slot in 100 → 99% padding.
+      // 4 GiB on disk, 1 live slot in 100 → 99% padding.
+      //
+      // Sized past the offer's DEFAULT THRESHOLD of 1 GiB on purpose. The nudge
+      // used to fire off fixed thresholds (a 16 MiB floor and a dead share), so
+      // 20 MiB of padding was enough to raise it; it now answers to the period
+      // and threshold the person chose, and a person who asked to hear about a
+      // gigabyte does not want to hear about twenty megabytes.
       await pumpScreen(
         tester,
-        sizeBytes: 20971520,
+        sizeBytes: 4294967296,
         utilization: const SlotUtilization(ownedChunks: 1, totalSlots: 100),
       );
 
-      // 20971520 * 0.99 = 20761804.8 -> 20761804 B -> 19.8 MB.
+      // 4294967296 * 0.99 = 4252017623 B -> 4.0 GB.
       expect(
-        find.textContaining('19.8 MB of it can be reclaimed'),
+        find.textContaining('4.0 GB of it can be reclaimed'),
         findsOneWidget,
         reason: 'the size tile carries the reclaimable figure',
       );
       expect(
-        find.textContaining('Compacting would free about 19.8 MB'),
+        find.textContaining('Compacting would free about 4.0 GB'),
         findsOneWidget,
         reason: 'and the nudge names it too',
       );
@@ -432,7 +438,7 @@ void main() {
         'the user asking', (tester) async {
       await pumpScreen(
         tester,
-        sizeBytes: 20971520,
+        sizeBytes: 4294967296,
         utilization: const SlotUtilization(ownedChunks: 1, totalSlots: 100),
       );
 
