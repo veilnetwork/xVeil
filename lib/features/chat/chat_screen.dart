@@ -44,6 +44,7 @@ import '../../state/sticker_image.dart';
 import '../../state/sticker_store.dart';
 import '../../state/thumbnail.dart';
 import '../../state/transcription_controller.dart';
+import '../../state/translation_controller.dart';
 import '../../state/voice_message.dart';
 import '../../state/vnote_message.dart';
 import '../../state/vnote_play_controller.dart';

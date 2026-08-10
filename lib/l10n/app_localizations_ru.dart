@@ -6081,4 +6081,16 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get inviteAcceptsHint => 'Ссылка-приглашение или @имя';
+
+  @override
+  String get chatTranslate => 'Перевести';
+
+  @override
+  String get chatTranslating => 'Перевод…';
+
+  @override
+  String get chatTranslateFailed => 'Не удалось перевести — нажмите ещё раз';
+
+  @override
+  String get chatTranslationShowOriginal => 'Показать оригинал';
 }

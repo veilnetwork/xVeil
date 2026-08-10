@@ -6020,4 +6020,16 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get inviteAcceptsHint => 'An invite link, or @name';
+
+  @override
+  String get chatTranslate => 'Translate';
+
+  @override
+  String get chatTranslating => 'Translating…';
+
+  @override
+  String get chatTranslateFailed => 'Translation failed — tap to retry';
+
+  @override
+  String get chatTranslationShowOriginal => 'Show original';
 }

@@ -6096,4 +6096,16 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get inviteAcceptsHint => 'Un enlace de invitación o @nombre';
+
+  @override
+  String get chatTranslate => 'Traducir';
+
+  @override
+  String get chatTranslating => 'Traduciendo…';
+
+  @override
+  String get chatTranslateFailed => 'No se pudo traducir: toca para reintentar';
+
+  @override
+  String get chatTranslationShowOriginal => 'Mostrar el original';
 }

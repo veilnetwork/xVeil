@@ -2577,5 +2577,9 @@
   "agoMonths": "{count, plural, one{{count} месяц назад} few{{count} месяца назад} other{{count} месяцев назад}}",
   "agoYears": "{count, plural, one{{count} год назад} few{{count} года назад} other{{count} лет назад}}",
   "folderSyncLastPass": "Синхронизировано {when}",
-  "inviteAcceptsHint": "Ссылка-приглашение или @имя"
+  "inviteAcceptsHint": "Ссылка-приглашение или @имя",
+  "chatTranslate": "Перевести",
+  "chatTranslating": "Перевод…",
+  "chatTranslateFailed": "Не удалось перевести — нажмите ещё раз",
+  "chatTranslationShowOriginal": "Показать оригинал"
 }

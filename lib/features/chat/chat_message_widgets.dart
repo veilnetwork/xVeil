@@ -2170,6 +2170,12 @@ class _Bubble extends ConsumerWidget {
                     highlight: highlight,
                     customEmoji: message.customEmoji,
                   ),
+                // On-device translation of an INCOMING message, by button.
+                // Hidden entirely when no engine is present — see
+                // `_TranslationRow`.
+                if (message.direction == MessageDirection.incoming &&
+                    message.body.trim().isNotEmpty)
+                  _TranslationRow(messageId: message.id, body: message.body),
                 // Reaction chips: aggregated emoji → count for this message.
                 // Tap toggles my reaction, long-press / right-click lists the
                 // reactors; hidden entirely by the "show reactions" preference.
@@ -2332,4 +2338,119 @@ class _Bubble extends ConsumerWidget {
     MessageStatus.delivered => Icons.done_all,
     MessageStatus.failed => Icons.error_outline,
   };
+}
+
+/// The on-device translation affordance under an incoming text message: a
+/// "Translate" button, a spinner while running, then the reading in this
+/// device's language with a tap to go back to the original.
+///
+/// Hidden entirely when no engine is wired, exactly as the transcription
+/// affordance is hidden without whisper. A button that cannot work is worse
+/// than no button: it promises a capability the build does not have, and the
+/// person who taps it learns that by being ignored.
+///
+/// Incoming only. Translating one's own message is a spell-checker, not a
+/// translator, and the bubble has no room for affordances nobody asked for.
+class _TranslationRow extends ConsumerWidget {
+  const _TranslationRow({required this.messageId, required this.body});
+
+  final String messageId;
+  final String body;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!ref.watch(translationAvailableProvider)) {
+      return const SizedBox.shrink();
+    }
+    final entry = ref.watch(
+      translationControllerProvider.select((m) => m[messageId]),
+    );
+    // Show a reading made in an earlier session without running anything.
+    // Idempotent in the controller, so a rebuild does not re-ask.
+    if (entry == null) {
+      Future.microtask(
+        () => ref
+            .read(translationControllerProvider.notifier)
+            .loadCached(messageId),
+      );
+    }
+    final l = AppL10n.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final muted = scheme.onSurfaceVariant;
+
+    if (entry != null && entry.isRunning) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(strokeWidth: 1.6, color: muted),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              l.chatTranslating,
+              style: Theme.of(
+                context,
+              ).textTheme.labelSmall?.copyWith(color: muted),
+            ),
+          ],
+        ),
+      );
+    }
+    if (entry != null && entry.isDone) {
+      final text = entry.text ?? '';
+      if (text.isEmpty) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SelectableText(
+              text,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            InkWell(
+              onTap: () => ref
+                  .read(translationControllerProvider.notifier)
+                  .clear(messageId),
+              child: Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  l.chatTranslationShowOriginal,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelSmall?.copyWith(color: muted),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final failed = entry?.phase == TranslationPhase.failed;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: InkWell(
+        onTap: () => ref
+            .read(translationControllerProvider.notifier)
+            .translate(messageId, body),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.translate_outlined, size: 15, color: muted),
+            const SizedBox(width: 4),
+            Text(
+              failed ? l.chatTranslateFailed : l.chatTranslate,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: failed ? scheme.error : muted,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
