@@ -383,27 +383,47 @@ class MultiIdentitySession {
   /// a container that never unlocks again is not.
   final Duration _disposeBudget;
 
-  Future<void> _bounded(String what, Future<void> Function() step) async {
+  /// Teardown steps abandoned by the most recent [disposeAll].
+  ///
+  /// Abandoning is deliberate — a container that never unlocks again is worse
+  /// than a straggler — but it is not free, and it used to be invisible outside
+  /// a debug log. A node dispose that never returned left the node RUNNING:
+  /// holding its sockets and its network identity, still reachable, while the
+  /// handle was dropped from the maps here so nothing could even ask it to stop
+  /// again. The caller says "locked" at that point, and locked is a claim about
+  /// exactly this.
+  ///
+  /// Empty means every step finished. Non-empty is a fact whoever declares the
+  /// session gone has to carry — see `AppController._teardownSession`.
+  List<String> get abandonedTeardowns => List.unmodifiable(_abandoned);
+  final List<String> _abandoned = [];
+
+  Future<bool> _bounded(String what, Future<void> Function() step) async {
     try {
       await step().timeout(_disposeBudget);
+      return true;
     } on TimeoutException {
+      _abandoned.add(what);
       devLog(
         () =>
             'xVeil[all-online]: $what did not finish in '
             '${_disposeBudget.inSeconds}s — abandoned so the rest of the '
             'teardown can still release the container lock',
       );
+      return false;
     } catch (_) {
       /* keep tearing down */
+      return false;
     }
   }
 
   Future<void> disposeAll() async {
-    for (final m in _messaging.values) {
-      await _bounded('messaging dispose', m.dispose);
+    _abandoned.clear();
+    for (final entry in _messaging.entries) {
+      await _bounded('messaging dispose (${entry.key})', entry.value.dispose);
     }
-    for (final n in _nodes.values) {
-      await _bounded('node dispose', n.dispose);
+    for (final entry in _nodes.entries) {
+      await _bounded('node dispose (${entry.key})', entry.value.dispose);
     }
     _messaging.clear();
     _nodes.clear();
