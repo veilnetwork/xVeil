@@ -255,6 +255,60 @@ void main() {
     expect(gotJson, bundle);
   });
 
+  /// A chunk claiming more slices than any transfer can hold is refused
+  /// before it costs a reassembly slot.
+  ///
+  /// The byte cap bounds what a transfer may WEIGH, and nothing bounded how
+  /// many entries it could put in the parts map. A sender claiming a count in
+  /// the billions and delivering EMPTY slices adds a map entry each time and
+  /// not one byte, so the weight check never fires (report9 X-10).
+  ///
+  /// The harm is observable without measuring memory: reassembly slots are
+  /// capped at eight and the ninth evicts the least-recently-advanced partial.
+  /// So the hostile claim throws away honest work in flight, and that is what
+  /// this asserts.
+  test('a chunk claiming an impossible slice count costs nothing', () async {
+    var completed = 0;
+    mB.onGroupEntry = (_, _) => completed++;
+
+    // Eight honest transfers in flight, each missing its last chunk. The
+    // first one is the least recently advanced, so it is next to be evicted.
+    final pending = <List<Uint8List>>[];
+    for (var t = 0; t < 8; t++) {
+      final frames = _chunkFrames(bundle, 'grp:z:hold$t');
+      expect(frames.length, greaterThan(1), reason: 'need a partial to hold');
+      for (final fr in frames.take(frames.length - 1)) {
+        tB.inject(a, fr);
+        await _settle();
+      }
+      pending.add(frames);
+    }
+    expect(completed, 0, reason: 'nothing is complete yet');
+
+    // One hostile chunk: a count nothing could ever deliver, carrying nothing.
+    tB.inject(
+      a,
+      groupEntryChunkEnvelope(
+        transferId: 'grp:z:flood',
+        index: 0,
+        count: 1 << 30,
+        data: Uint8List(0),
+      ).withFrameId('grpc:flood:0').encode(),
+    );
+    await _settle();
+
+    // Finish the oldest honest transfer.
+    tB.inject(a, pending.first.last);
+    await _settle();
+    expect(
+      completed,
+      1,
+      reason:
+          'the hostile claim took a reassembly slot and evicted an honest '
+          'partial — a transfer that was making progress is now unfinishable',
+    );
+  });
+
   test('an incomplete snapshot never fires onGroupEntry', () async {
     var calls = 0;
     mB.onGroupEntry = (_, _) => calls++;

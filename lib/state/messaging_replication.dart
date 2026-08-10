@@ -241,7 +241,11 @@ class _MessagingReplication {
     } catch (_) {
       return; // malformed / hostile chunk
     }
-    if (f.count <= 0 || f.index < 0 || f.index >= f.count) return;
+    if (f.count <= 0 || f.count > _kMaxGroupReasmChunks) return;
+    if (f.index < 0 || f.index >= f.count) return;
+    // The sender never cuts an empty slice, and an empty one is exactly what
+    // grows the parts map without moving the byte total (report9 X-10).
+    if (f.data.isEmpty) return;
     final key = _reasmKey(src, f.transferId);
     var slot = _groupReasm[key];
     if (slot == null) {
@@ -317,7 +321,13 @@ class _MessagingReplication {
       await ackTerminalDocumentFrame(message, frameId);
       return;
     }
-    if (frame.count <= 0 || frame.index < 0 || frame.index >= frame.count) {
+    if (frame.count <= 0 ||
+        frame.count > _kMaxGroupReasmChunks ||
+        frame.index < 0 ||
+        frame.index >= frame.count ||
+        frame.data.isEmpty) {
+      // Same two refusals as the group path, and this one also carries an
+      // `acks` entry per slice — a second map growing on the same lie.
       await ackTerminalDocumentFrame(message, frameId);
       return;
     }
