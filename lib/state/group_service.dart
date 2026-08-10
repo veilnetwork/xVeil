@@ -7114,7 +7114,8 @@ class GroupService {
     if (bundle == null || bundle.manifest.isSovereignDevice) return null;
     Uint8List? key;
     if (channelId != null && channelEpoch != null) {
-      key = bundle.localChannelEpochKeys[_channelKeyId(channelId, channelEpoch)];
+      key =
+          bundle.localChannelEpochKeys[_channelKeyId(channelId, channelEpoch)];
       if (key == null ||
           !_validLocalChannelEpochKey(
             bundle.manifest,
@@ -7138,15 +7139,13 @@ class GroupService {
       }
     }
     return Uint8List.fromList(
-      crypto.sha256
-          .convert([
-            ...utf8.encode('xveil/group-call-media/room/v1'),
-            0,
-            ...key,
-            0,
-            ...utf8.encode(callId),
-          ])
-          .bytes,
+      crypto.sha256.convert([
+        ...utf8.encode('xveil/group-call-media/room/v1'),
+        0,
+        ...key,
+        0,
+        ...utf8.encode(callId),
+      ]).bytes,
     );
   }
 
@@ -16436,11 +16435,14 @@ class GroupService {
         verify: (e) => _validControlFor(migrateFrom.manifest, e),
         initialName: migrateFrom.manifest.name,
       ).state;
+      // The membership filter this caller used to do by hand now lives inside
+      // the pass, where `compactLocked` gets it too (report9 X-18).
       final compact =
-          _compaction.compactDeviceMessages(migrateFrom.manifest.groupId, [
-            for (final m in migrateFrom.messages)
-              if (oldState.isMember(m.author)) m,
-          ])..sort((a, b) {
+          _compaction.compactDeviceMessages(
+            migrateFrom.manifest.groupId,
+            migrateFrom.messages,
+            isMember: oldState.isMember,
+          )..sort((a, b) {
             final ts = a.createdAtMs.compareTo(b.createdAtMs);
             return ts != 0 ? ts : _compaction.messageIdentityCompare(a, b);
           });
@@ -17327,16 +17329,14 @@ class GroupService {
     Iterable<SpacePublicComment> publicComments = const [],
     Iterable<SpacePublicReaction> publicReactions = const [],
   ]) {
-    final identities =
-        <String>{
-          for (final message in messages) 'm:${_rowDigest(message.toJson())}',
-          for (final reaction in reactions)
-            'r:${_rowDigest(reaction.toJson())}',
-          for (final post in posts) 'p:${_rowDigest(post.toJson())}',
-          // Already content-derived, and cheaper than re-hashing the row.
-          for (final comment in publicComments) 'pc:${comment.recordHash}',
-          for (final reaction in publicReactions) 'pr:${reaction.recordHash}',
-        }.toList()..sort();
+    final identities = <String>{
+      for (final message in messages) 'm:${_rowDigest(message.toJson())}',
+      for (final reaction in reactions) 'r:${_rowDigest(reaction.toJson())}',
+      for (final post in posts) 'p:${_rowDigest(post.toJson())}',
+      // Already content-derived, and cheaper than re-hashing the row.
+      for (final comment in publicComments) 'pc:${comment.recordHash}',
+      for (final reaction in publicReactions) 'pr:${reaction.recordHash}',
+    }.toList()..sort();
     return crypto.sha256
         .convert(utf8.encode('${groupId.hex}|${identities.join('|')}'))
         .toString();
