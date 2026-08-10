@@ -98,6 +98,26 @@ void main() {
       }
     });
 
+    test('the offset the reader validated is the offset it hands on', () async {
+      // installBundle used to find the body by reading the header a SECOND
+      // time, so validation and extraction could apply to different bytes of a
+      // file somebody else supplied. The hashes would have caught a swap, but
+      // a parser for untrusted input should not hold two answers to one
+      // question.
+      final bundle = await goodBundle();
+      final info = await inspectBundle(bundle);
+      final raw = bundle.readAsBytesSync();
+      final declared =
+          ByteData.sublistView(Uint8List.fromList(raw), 8, 12).getUint32(0);
+
+      expect(info.bodyOffset, 8 + 4 + declared);
+      expect(
+        info.bodyOffset + info.totalBytes,
+        raw.length,
+        reason: 'the body must run from that offset to the end of the file',
+      );
+    });
+
     test('progress runs to one and never exceeds it', () async {
       final seen = <double>[];
       await installBundle(
