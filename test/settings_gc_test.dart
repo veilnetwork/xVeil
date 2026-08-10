@@ -74,6 +74,67 @@ void main() {
       expect(await storage.getSetting('saved:cid-live'), '/tmp/live.bin');
     });
 
+    test('derived text does not outlive the message it came from', () async {
+      // A transcript and a translation are the message's own content in
+      // another form. The app scrubs a deleted event's body on purpose, and
+      // these survived it — so the text a person deleted stayed readable for
+      // as long as the volume existed.
+      await storage.appendMessage(
+        Message(
+          id: 'm-live',
+          conversationId: 'conv',
+          direction: MessageDirection.incoming,
+          body: 'voice',
+          timestamp: DateTime(2026, 7, 1),
+          fileContentId: 'cid-live',
+        ),
+      );
+
+      // Transcripts are keyed by the CONTENT id; translations by the MESSAGE.
+      await storage.putSetting('voice.transcript.v3:en:cid-live', 'hello');
+      await storage.putSetting('voice.transcript.v3:en:cid-dead', 'gone');
+      await storage.putSetting('voice.transcript.v2:cid-live', 'legacy live');
+      await storage.putSetting('voice.transcript.v2:cid-dead', 'legacy gone');
+      await storage.putSetting('msg.translation.v1:en:m-live', 'hello there');
+      await storage.putSetting('msg.translation.v1:en:m-dead', 'deleted text');
+      await storage.putSetting('msg.translation.v1:ru:m-dead', 'удалённый текст');
+
+      final swept = await storage.sweepSettingsGarbage();
+      final keys = await storage.settingsKeys();
+
+      // What must go: everything derived from something that is not there.
+      expect(keys, isNot(contains('set:voice.transcript.v3:en:cid-dead')));
+      expect(keys, isNot(contains('set:voice.transcript.v2:cid-dead')));
+      expect(keys, isNot(contains('set:msg.translation.v1:en:m-dead')));
+      expect(keys, isNot(contains('set:msg.translation.v1:ru:m-dead')));
+
+      // What must STAY, which is the dangerous direction: deleting a live
+      // person's translation is worse than keeping a dead one's.
+      expect(keys, contains('set:voice.transcript.v3:en:cid-live'));
+      expect(keys, contains('set:voice.transcript.v2:cid-live'));
+      expect(keys, contains('set:msg.translation.v1:en:m-live'));
+      expect(
+        await storage.getSetting('msg.translation.v1:en:m-live'),
+        'hello there',
+      );
+      expect(swept, 4);
+    });
+
+    test('a key shaped unlike its family is left alone, not guessed at',
+        () async {
+      // This loop's job is to delete. A malformed key is not evidence about
+      // anything, and guessing at one deletes something live.
+      await storage.putSetting('voice.transcript.v3:nolang', 'x');
+      await storage.putSetting('msg.translation.v1:nolang', 'y');
+
+      final swept = await storage.sweepSettingsGarbage();
+
+      final keys = await storage.settingsKeys();
+      expect(keys, contains('set:voice.transcript.v3:nolang'));
+      expect(keys, contains('set:msg.translation.v1:nolang'));
+      expect(swept, 0);
+    });
+
     test('wholesale sweep drops file-store bookkeeping but keeps cursors',
         () async {
       await storage.putSetting('saved:cid-a', '/tmp/a');
