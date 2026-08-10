@@ -10,6 +10,8 @@
 // in its own isolate.
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import 'package:path_provider/path_provider.dart';
 
 import '../core/log.dart';
@@ -29,7 +31,14 @@ class TranslationEngines {
   /// default locations and found nothing, which is a translation that reports
   /// itself available and then returns null for every message.
   final String? _libraryPath;
-  final Map<String, TranslateEngine> _open = {};
+  /// The OPENING, not the opened engine.
+  ///
+  /// Two messages translated at once in the same direction both found an empty
+  /// slot and both opened: two isolates, two loaded models of tens of
+  /// megabytes, and the first overwritten in the map and leaked for the life
+  /// of the process. Caching the future makes the second caller wait for the
+  /// first rather than duplicate it.
+  final Map<String, Future<TranslateEngine?>> _opening = {};
 
   /// Where pairs live. The environment override exists so a desktop build can
   /// be pointed at converted models before any of them are published — without
@@ -123,27 +132,45 @@ class TranslationEngines {
     final dir = _pairs[pair.id];
     if (dir == null) return null;
 
-    var engine = _open[pair.id];
+    final engine = await (_opening[pair.id] ??= () {
+      _opens++;
+      return TranslateEngine.open(dir.path, libraryPath: _libraryPath);
+    }());
     if (engine == null) {
-      engine = await TranslateEngine.open(dir.path, libraryPath: _libraryPath);
-      if (engine == null) {
-        devLog(
-          () => 'xVeil[translate]: ${pair.id} would not open: '
-              '${TranslateEngine.lastOpenError}',
-        );
-        return null;
-      }
-      _open[pair.id] = engine;
+      // Drop the failed attempt so a later message can try again — a model
+      // that was mid-copy when the first message arrived should not poison
+      // the direction until the app restarts.
+      _opening.remove(pair.id);
+      devLog(
+        () => 'xVeil[translate]: ${pair.id} would not open: '
+            '${TranslateEngine.lastOpenError}',
+      );
+      return null;
     }
     return engine.translate(text);
   }
 
+  /// How many times an engine was actually OPENED.
+  ///
+  /// Counted at the call, not derived from the map's size: a map entry that
+  /// gets overwritten leaves one key behind either way, so a size would read
+  /// as 1 whether the dedup worked or not — a counter that measures nothing
+  /// and reports a plausible number.
+  @visibleForTesting
+  int get engineOpenCount => _opens;
+  int _opens = 0;
+
   /// Close every open engine. Each holds an isolate and a loaded model.
+  ///
+  /// Awaits the openings rather than the engines: one may still be starting,
+  /// and killing the map without it would leave an isolate nobody can reach.
   Future<void> dispose() async {
-    for (final engine in _open.values) {
-      await engine.close();
+    final pending = _opening.values.toList();
+    _opening.clear();
+    for (final opening in pending) {
+      final engine = await opening;
+      await engine?.close();
     }
-    _open.clear();
   }
 
   @override
