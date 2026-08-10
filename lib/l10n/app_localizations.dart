@@ -10619,6 +10619,54 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Away a long time — consider unlinking'**
   String get devicesAwayLong;
+
+  /// Foreground-service notification title while a 1:1 call is ringing in.
+  ///
+  /// In en, this message translates to:
+  /// **'Incoming xVeil call'**
+  String get callNotificationIncoming;
+
+  /// Foreground-service notification title while dialling out.
+  ///
+  /// In en, this message translates to:
+  /// **'Calling with xVeil'**
+  String get callNotificationDialing;
+
+  /// Foreground-service notification title while a 1:1 call is up.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil call in progress'**
+  String get callNotificationActive;
+
+  /// Foreground-service notification title while a group room is ringing.
+  ///
+  /// In en, this message translates to:
+  /// **'Incoming xVeil group call'**
+  String get callNotificationGroupIncoming;
+
+  /// Foreground-service notification title while a group room is live.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil group call'**
+  String get callNotificationGroup;
+
+  /// Chat-list row hint: this contact sent a connection request. Kept short — the row ellipsizes.
+  ///
+  /// In en, this message translates to:
+  /// **'wants to connect'**
+  String get chatListWantsToConnect;
+
+  /// Chat-list row hint: we sent a request and are waiting. Kept short.
+  ///
+  /// In en, this message translates to:
+  /// **'request sent'**
+  String get chatListRequestSent;
+
+  /// Chat-list row hint: this contact is blocked. Kept short.
+  ///
+  /// In en, this message translates to:
+  /// **'blocked'**
+  String get chatListBlocked;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

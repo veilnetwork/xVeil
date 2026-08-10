@@ -2573,5 +2573,13 @@
   },
   "devicesLastSeen": "Последний раз на связи {when}",
   "devicesNeverSeen": "Ни разу не выходило на связь",
-  "devicesAwayLong": "Давно не появлялось — возможно, стоит отвязать"
+  "devicesAwayLong": "Давно не появлялось — возможно, стоит отвязать",
+  "callNotificationIncoming": "Входящий вызов xVeil",
+  "callNotificationDialing": "Вызов через xVeil",
+  "callNotificationActive": "Идёт вызов xVeil",
+  "callNotificationGroupIncoming": "Входящий групповой вызов xVeil",
+  "callNotificationGroup": "Групповой вызов xVeil",
+  "chatListWantsToConnect": "хочет связаться",
+  "chatListRequestSent": "запрос отправлен",
+  "chatListBlocked": "заблокирован"
 }

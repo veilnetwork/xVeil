@@ -2591,5 +2591,13 @@
     }
   },
   "devicesNeverSeen": "Never seen since this device was linked",
-  "devicesAwayLong": "Away a long time — consider unlinking"
+  "devicesAwayLong": "Away a long time — consider unlinking",
+  "callNotificationIncoming": "Llamada xVeil entrante",
+  "callNotificationDialing": "Llamando con xVeil",
+  "callNotificationActive": "Llamada xVeil en curso",
+  "callNotificationGroupIncoming": "Llamada grupal xVeil entrante",
+  "callNotificationGroup": "Llamada grupal xVeil",
+  "chatListWantsToConnect": "quiere conectar",
+  "chatListRequestSent": "solicitud enviada",
+  "chatListBlocked": "bloqueado"
 }

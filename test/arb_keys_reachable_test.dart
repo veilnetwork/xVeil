@@ -107,6 +107,12 @@ void main() {
 /// list of named tokens there is no bare "API token" label to write, and
 /// "Regenerate" is revoke-plus-add, which the screen already offers.
 ///
+/// `chatFileSave` was a third kind again: a control with no name at all. The
+/// save button on a video preview is a `GestureDetector` around an icon in a
+/// translucent disc — no tooltip, and a screen reader announced nothing where
+/// it sits. It is a `Tooltip` now, which carries the semantics label as well
+/// as the hover text.
+///
 /// What is left falls into three groups, and each wants a different answer:
 ///  * text kept ON PURPOSE for a row that was removed rather than shipped
 ///    half-done — `networkExt*` and `networkComingLater`; see the comment in
@@ -131,7 +137,6 @@ void main() {
 const _knownUnreachable = {
   'actionUnderstood',
   'callScreens',
-  'chatFileSave',
   'chatListDelete',
   'chatMoreActions',
   'cloudNoteSaved',
