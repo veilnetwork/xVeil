@@ -600,6 +600,64 @@ def _linux(release: bool) -> list[Step]:
     return steps
 
 
+# What a macOS bundle must carry, and what it may.
+#
+# The two REQUIRED ones are the app itself: without them it cannot open a
+# container or reach the network. The rest are features that degrade — but they
+# are REPORTED, because "the build carries no translation" is a thing to learn
+# here rather than from a person tapping a button that does nothing.
+_MACOS_REQUIRED_DYLIBS = (
+    'libhidden_volume_ffi.dylib',
+    'libveilclient_ffi.dylib',
+)
+_MACOS_OPTIONAL_DYLIBS = (
+    'libveil_media.dylib',
+    'libveil_whisper.dylib',
+    'libveil_translate.dylib',
+)
+
+
+def _check_macos_bundle(config: str) -> None:
+    """Verify the ARTIFACT, not that the bundling script exited 0.
+
+    The bundler copies what it knows about, and what it knows about is a list
+    somebody maintains. libveil_translate.dylib was built, verified and absent
+    from every .app for as long as it existed, because nothing in that list
+    mentioned it and nothing afterwards looked. Android had the same shape at
+    the same time; this is the macOS half of that lesson.
+    """
+    subdir = 'Release' if config == 'release' else 'Debug'
+    frameworks = os.path.join(
+        ROOT, 'build', 'macos', 'Build', 'Products', subdir,
+        'xveil.app', 'Contents', 'Frameworks',
+    )
+    if not os.path.isdir(frameworks):
+        raise RuntimeError(
+            f'no Frameworks directory at {frameworks}\n'
+            '    The bundle was not produced, or was produced somewhere else.'
+        )
+
+    present = set(os.listdir(frameworks))
+    missing = [name for name in _MACOS_REQUIRED_DYLIBS if name not in present]
+    if missing:
+        raise RuntimeError(
+            'THE macOS BUNDLE IS INCOMPLETE — do not hand this out.\n'
+            f'    missing: {", ".join(missing)}\n'
+            f'    in {frameworks}'
+        )
+    print(f'    {len(present)} items in Frameworks, both required dylibs present')
+    for name in _MACOS_OPTIONAL_DYLIBS:
+        feature = {
+            'libveil_media.dylib': 'calls and voice messages',
+            'libveil_whisper.dylib': 'speech to text',
+            'libveil_translate.dylib': 'message translation',
+        }[name]
+        if name in present:
+            print(f'    {name}: {feature}')
+        else:
+            print(f'    {name} ABSENT — this build has no {feature}')
+
+
 def _macos(release: bool) -> list[Step]:
     config = "release" if release else "debug"
     whisper = _whisper_script("macos")
@@ -625,6 +683,12 @@ def _macos(release: bool) -> list[Step]:
         steps.append(
             Step("bundle native dylibs", argv=sh("scripts/bundle-macos-dylibs.sh", config))
         )
+        steps.append(
+            Step(
+                "native libraries in the bundle",
+                call=lambda: _check_macos_bundle(config),
+            )
+        )
     else:
         # No provisioning profile on this machine, so the restricted VPN
         # entitlement cannot be signed. The ad-hoc script drops the tunnel
@@ -633,6 +697,14 @@ def _macos(release: bool) -> list[Step]:
             Step(
                 "app bundle, ad-hoc (no Apple account here — VPN dropped)",
                 argv=sh("scripts/build-macos-adhoc.sh", config),
+            )
+        )
+        # The ad-hoc script bundles too, so the same question applies to what
+        # it produced.
+        steps.append(
+            Step(
+                "native libraries in the bundle",
+                call=lambda: _check_macos_bundle(config),
             )
         )
     return steps
