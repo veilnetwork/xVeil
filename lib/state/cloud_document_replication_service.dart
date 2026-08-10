@@ -345,6 +345,21 @@ class CloudDocumentReplicationService {
   final int _memberHostLimit;
   final Duration _memberFetchTimeout;
   final Map<String, _MemberFolderHostState> _memberHosts = {};
+
+  /// How many times each document's host has been torn down for a rotation.
+  ///
+  /// The fence for the race that made instant revocation not instant: a
+  /// reconcile reads epoch N, and while it is inside `network.host` — an onion
+  /// registration, seconds — a revoke rotates to N+1, tears the host down
+  /// (finding nothing, because the new one is not in the map yet) and returns.
+  /// The reconcile then installs its host under the OLD epoch key, and the
+  /// member that was just revoked can keep pulling bytes until the debounced
+  /// reconcile catches up — 300ms at best, and longer whenever ongoing edits
+  /// keep resetting that debounce.
+  ///
+  /// Counted per document rather than globally so a rotation in one folder
+  /// does not throw away hosting work for another.
+  final Map<String, int> _memberHostRevocations = {};
   Timer? _memberHostTimer;
   Future<void> _memberHostTail = Future.value();
   bool _memberHostsClosed = false;
@@ -974,6 +989,11 @@ class CloudDocumentReplicationService {
   /// (or longer: ongoing edits keep resetting the debounce). The new-epoch
   /// host comes back on the next reconcile.
   Future<void> _closeMemberHostFor(String documentId) async {
+    // Bumped BEFORE the removal, and unconditionally: a reconcile already
+    // inside `network.host` has nothing here to remove, and the fence is the
+    // only thing that stops it installing the key this call is revoking.
+    _memberHostRevocations[documentId] =
+        (_memberHostRevocations[documentId] ?? 0) + 1;
     final state = _memberHosts.remove(documentId);
     if (state != null) await state.close();
   }
@@ -1016,6 +1036,9 @@ class CloudDocumentReplicationService {
     final plans = <String, _MemberFolderHostPlan>{};
     try {
       for (final id in await _store.listDocumentIds()) {
+        // Read BEFORE the store, so any rotation from here on is visible as a
+        // change rather than being read as if it had already been applied.
+        final revocation = _memberHostRevocations[id] ?? 0;
         final stored = await _store.load(id);
         if (stored == null) continue;
         try {
@@ -1064,6 +1087,7 @@ class CloudDocumentReplicationService {
             epochKey: Uint8List.fromList(key),
             servable: servable,
             createdAtMs: stored.root.createdAtMs,
+            revocation: revocation,
           );
         } finally {
           stored.wipeLocalEpochKeys();
@@ -1093,6 +1117,16 @@ class CloudDocumentReplicationService {
         if (_memberHostsClosed) return;
         final id = entry.key;
         final plan = entry.value;
+        // Rotated while the plans were being built: this one describes a key
+        // that has been revoked. Skipping is not a loss — the rotation that
+        // moved the fence scheduled its own reconcile.
+        //
+        // An early skip, NOT the fence. Removing it leaves the race test green,
+        // because the revoke that matters lands later — after this loop has
+        // already started, inside `network.host`. The check below the awaits is
+        // the one that closes it; this one only avoids setting up a host that
+        // is already known to be stale.
+        if ((_memberHostRevocations[id] ?? 0) != plan.revocation) continue;
         final existing = _memberHosts[id];
         if (existing != null && existing.epoch == plan.epoch) {
           // Same epoch — the key is unchanged; refresh the servable set.
@@ -1127,6 +1161,15 @@ class CloudDocumentReplicationService {
           // the map and no future reconcile runs). Fail closed instead.
           if (_memberHostsClosed) {
             throw StateError('member hosting closed during host setup');
+          }
+          // The last await was `network.host` — an onion registration that
+          // takes seconds. Everything below here is synchronous, so this is
+          // the last point at which a revoke can have landed. Installing a
+          // host for a revoked epoch is exactly what `_closeMemberHostFor`
+          // exists to prevent, and it cannot prevent it on its own: the host
+          // it would tear down is not in the map yet.
+          if ((_memberHostRevocations[id] ?? 0) != plan.revocation) {
+            throw StateError('member epoch rotated during host setup');
           }
           // Fail closed on any derivation drift between this Dart client and
           // the native runtime: a member would derive THIS key to reach us.
@@ -3056,12 +3099,18 @@ class _MemberFolderHostPlan {
     required this.epochKey,
     required this.servable,
     required this.createdAtMs,
+    required this.revocation,
   });
 
   final int epoch;
   final Uint8List epochKey;
   final List<ContentManifest> servable;
   final int createdAtMs;
+
+  /// The document's revocation count when this plan read its epoch. Compared
+  /// again before the host is installed: a rotation in between means this plan
+  /// describes a key that has just been revoked.
+  final int revocation;
 
   void wipe() {
     epochKey.fillRange(0, epochKey.length, 0);
