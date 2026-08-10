@@ -68,6 +68,50 @@ Future<void> _addOproxy(
 }
 
 void main() {
+  // The exit-node field is a TRUST decision: whatever node id goes in is the
+  // node that will see the traffic. The dialog labelled it "Exit node id
+  // (64-hex)" — the shape to paste, nothing about what pasting it means — and
+  // the sentence that says so was written into both ARBs and attached to
+  // nothing.
+  //
+  // One test per locale, and the assertion is the same one the read-only hint
+  // gets: it is REACHED, and it fits. The Russian and Spanish forms run about
+  // 94 characters against English's 74, in a dialog, so `helperMaxLines` is
+  // load-bearing and a Flutter overflow is an exception.
+  for (final locale in AppL10n.supportedLocales) {
+    testWidgets('the exit-node field explains itself in ${locale.languageCode}',
+        (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            locale: locale,
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: const ProxyRoutingScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(ProxyRoutingScreen)));
+
+      await tester.tap(find.byTooltip(l.oproxyAddTitle));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(l.routeExitNodeLabel),
+        findsWidgets,
+        reason: 'the exit-node field is not in the dialog any more',
+      );
+      expect(
+        find.text(l.routeExitNodeHint),
+        findsOneWidget,
+        reason:
+            'the field asks for the node that will see the traffic and says '
+            'nothing about that being a choice of who to trust',
+      );
+    });
+  }
+
   testWidgets('exit can be configured while manual SOCKS remains off', (
     tester,
   ) async {
