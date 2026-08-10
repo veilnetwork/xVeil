@@ -174,6 +174,36 @@ Widget _host(
 );
 
 void main() {
+  // A conversation's actions — rename, pin, mute, archive, block, delete —
+  // are behind a long press and a right-click, with nothing on screen saying
+  // so. For a screen-reader user the row announced itself as a plain tap
+  // target, so those actions did not exist at all. `onLongPressHint` is the
+  // string VoiceOver and TalkBack read out for that gesture; the one written
+  // for it sat in both ARBs, attached to nothing.
+  testWidgets('the row tells a screen reader what a long press does', (
+    tester,
+  ) async {
+    // Disposed inside the body, not in a tearDown: Flutter checks for live
+    // handles BEFORE tearDowns run, so the check fails even when the test
+    // itself passed.
+    final semantics = tester.ensureSemantics();
+
+    await tester.pumpWidget(
+      _host([_conv(1, 'Alice', ContactStatus.accepted, last: 'hey')]),
+    );
+    await tester.pump();
+    final l = AppL10n.of(tester.element(find.text('Alice')));
+
+    expect(
+      tester.getSemantics(find.text('Alice')),
+      containsSemantics(onLongPressHint: l.chatMoreActions),
+      reason:
+          'the long press is the only way to those actions and nothing '
+          'announces it',
+    );
+    semantics.dispose();
+  });
+
   testWidgets('renders conversations and the incoming-request indicator', (
     tester,
   ) async {

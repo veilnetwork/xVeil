@@ -893,71 +893,80 @@ class _ConversationTile extends ConsumerWidget {
 
     return GestureDetector(
       onSecondaryTap: () => _showActions(context, ref),
-      child: ListTile(
-        leading: CircleAvatar(
-          child: isSaved
-              ? const Icon(Icons.bookmark_outline, size: 20)
-              : Text(label.characters.first.toUpperCase()),
-        ),
-        title: Row(
-          children: [
-            if (conversation.peer.pinned)
-              Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: Icon(
-                  Icons.push_pin,
-                  size: 14,
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-            Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
-            if (notificationMode != NotificationMuteMode.all)
-              Padding(
-                padding: const EdgeInsets.only(left: 4),
-                child: notificationMuteModeIndicator(
-                  context,
-                  notificationMode,
-                  key: ValueKey(
-                    'chat-notification-${notificationMode.name}-${conversation.id}',
+      // The actions for a conversation are behind a long press and a
+      // right-click, with nothing on screen saying so — and a screen reader
+      // announced the row as a plain tap target, so for its users the actions
+      // did not exist at all. `onLongPressHint` is what VoiceOver and
+      // TalkBack read out for that gesture; the string for it was written and
+      // never attached.
+      child: Semantics(
+        onLongPressHint: AppL10n.of(context).chatMoreActions,
+        child: ListTile(
+          leading: CircleAvatar(
+            child: isSaved
+                ? const Icon(Icons.bookmark_outline, size: 20)
+                : Text(label.characters.first.toUpperCase()),
+          ),
+          title: Row(
+            children: [
+              if (conversation.peer.pinned)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Icon(
+                    Icons.push_pin,
+                    size: 14,
+                    color: scheme.onSurfaceVariant,
                   ),
-                  size: 14,
-                  color: scheme.onSurfaceVariant,
                 ),
-              ),
-          ],
+              Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
+              if (notificationMode != NotificationMuteMode.all)
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: notificationMuteModeIndicator(
+                    context,
+                    notificationMode,
+                    key: ValueKey(
+                      'chat-notification-${notificationMode.name}-${conversation.id}',
+                    ),
+                    size: 14,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+            ],
+          ),
+          subtitle: hint != null
+              ? Text(hint, style: TextStyle(color: hintColor))
+              : (last == null
+                    ? null
+                    : (last.isFile ||
+                              isChatDeletedMarker(last.body) ||
+                              recommendation != null
+                          ? Text(
+                              // Attachments render the shared human kind label
+                              // (voice/video notes/stickers travel under opaque
+                              // uuid container names — never show those); a
+                              // chatDeleted farewell marker shows its system notice.
+                              last.isFile
+                                  ? messagePreviewText(l, last)
+                                  : (isChatDeletedMarker(last.body)
+                                        ? l.chatDeletedByPeer
+                                        : (recommendation?.name ?? last.body)),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            )
+                          : FormattedText(
+                              last.body,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ))),
+          trailing: (!isSaved && status == ContactStatus.pendingIncoming)
+              ? Icon(Icons.fiber_new, color: scheme.primary)
+              : (conversation.unread > 0
+                    ? Badge(label: Text('${conversation.unread}'))
+                    : null),
+          onTap: () => context.push('/chat/${conversation.peer.nodeId.hex}'),
+          onLongPress: () => _showActions(context, ref),
         ),
-        subtitle: hint != null
-            ? Text(hint, style: TextStyle(color: hintColor))
-            : (last == null
-                  ? null
-                  : (last.isFile ||
-                            isChatDeletedMarker(last.body) ||
-                            recommendation != null
-                        ? Text(
-                            // Attachments render the shared human kind label
-                            // (voice/video notes/stickers travel under opaque
-                            // uuid container names — never show those); a
-                            // chatDeleted farewell marker shows its system notice.
-                            last.isFile
-                                ? messagePreviewText(l, last)
-                                : (isChatDeletedMarker(last.body)
-                                      ? l.chatDeletedByPeer
-                                      : (recommendation?.name ?? last.body)),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          )
-                        : FormattedText(
-                            last.body,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ))),
-        trailing: (!isSaved && status == ContactStatus.pendingIncoming)
-            ? Icon(Icons.fiber_new, color: scheme.primary)
-            : (conversation.unread > 0
-                  ? Badge(label: Text('${conversation.unread}'))
-                  : null),
-        onTap: () => context.push('/chat/${conversation.peer.nodeId.hex}'),
-        onLongPress: () => _showActions(context, ref),
       ),
     );
   }
