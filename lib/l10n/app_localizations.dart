@@ -9014,12 +9014,6 @@ abstract class AppL10n {
   /// **'Name published'**
   String get nicknameClaimed;
 
-  /// No description provided for @newChatPeerOrNickname.
-  ///
-  /// In en, this message translates to:
-  /// **'Node id (hex) or @name'**
-  String get newChatPeerOrNickname;
-
   /// No description provided for @nicknameNotFound.
   ///
   /// In en, this message translates to:
@@ -10681,6 +10675,12 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Last synced {when}'**
   String folderSyncLastPass(String when);
+
+  /// Helper under the paste field: what it will accept. A bare node id is NOT one of them — the parser refuses it.
+  ///
+  /// In en, this message translates to:
+  /// **'An invite link, or @name'**
+  String get inviteAcceptsHint;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
