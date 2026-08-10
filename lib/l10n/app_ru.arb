@@ -676,7 +676,6 @@
   "spacePermissionManageStorage": "Управление хранением",
   "spacePermissionManageChannels": "Управление каналами",
   "spaceMemberMuted": "Публикации запрещены до снятия ограничения",
-  "spaceMemberMute": "Запретить публикации",
   "spaceMemberUnmute": "Разрешить публикации",
   "spaceMemberPromote": "Сделать администратором",
   "spaceMemberDemote": "Сделать участником",

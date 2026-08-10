@@ -2385,13 +2385,23 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                                           ),
                                                     )
                                                   else if (member.muted)
-                                                    const Padding(
-                                                      padding: EdgeInsets.all(
-                                                        12,
-                                                      ),
-                                                      child: Icon(
-                                                        Icons
-                                                            .volume_off_outlined,
+                                                    // Named: a viewer with
+                                                    // no actions to offer
+                                                    // sees only this glyph,
+                                                    // and a screen reader
+                                                    // announced nothing at
+                                                    // all here.
+                                                    Tooltip(
+                                                      message:
+                                                          l.spaceMemberMuted,
+                                                      child: const Padding(
+                                                        padding: EdgeInsets.all(
+                                                          12,
+                                                        ),
+                                                        child: Icon(
+                                                          Icons
+                                                              .volume_off_outlined,
+                                                        ),
                                                       ),
                                                     ),
                                                 ],

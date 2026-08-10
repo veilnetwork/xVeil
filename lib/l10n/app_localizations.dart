@@ -2720,12 +2720,6 @@ abstract class AppL10n {
   /// **'Cannot publish until unmuted'**
   String get spaceMemberMuted;
 
-  /// No description provided for @spaceMemberMute.
-  ///
-  /// In en, this message translates to:
-  /// **'Restrict publishing'**
-  String get spaceMemberMute;
-
   /// No description provided for @spaceMemberUnmute.
   ///
   /// In en, this message translates to:
