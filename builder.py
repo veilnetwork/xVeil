@@ -31,6 +31,7 @@ from xveil_build_support import (  # noqa: E402
     host,
     main,
     newer_source,
+    resolve,
     sh,
 )
 
@@ -327,6 +328,23 @@ def _check_media_staged() -> None:
     )
 
 
+def _symbol_check_argv(path: str) -> list[str]:
+    """How to invoke the symbol check, resolved the way every other step is.
+
+    Not a bare "bash". On Windows that is C:\\Windows\\System32\\bash.exe — the
+    WSL launcher — which with no distro installed prints "Windows Subsystem for
+    Linux has no installed distributions" and exits 1.
+
+    Exit 1 is the code the caller reads as "the engine is missing symbols". So
+    the unresolved spelling does not merely skip the check on Windows: it fails
+    an Android release there, accusing a perfectly good engine, in a message
+    that would name symbols nobody ever looked at. resolve() finds the bash
+    that Git for Windows ships, which is the one meant here.
+    """
+    argv = sh("scripts/check-media-symbols.sh", path)
+    return [resolve(argv[0]), *argv[1:]]
+
+
 def _media_symbols_verdict(path: str, *, label: str) -> list[str]:
     """Run the symbol check over one engine and turn its answer into problems.
 
@@ -340,16 +358,15 @@ def _media_symbols_verdict(path: str, *, label: str) -> list[str]:
     The script reads ELF, Mach-O and Mach-O static archives, which is why the
     same function serves the .so out of an APK and the .a staged for iOS.
     """
-    import shutil
     import subprocess
 
     script = os.path.join(ROOT, "scripts", "check-media-symbols.sh")
-    if not os.path.isfile(script) or not shutil.which("bash"):
+    if not os.path.isfile(script) or not have("bash"):
         print(f"    {label}: symbols NOT CHECKED — needs bash and {script}")
         return []
 
     done = subprocess.run(
-        ["bash", script, path], capture_output=True, text=True, cwd=ROOT
+        _symbol_check_argv(path), capture_output=True, text=True, cwd=ROOT
     )
     said = (done.stdout + done.stderr).strip().replace("\n", "\n      ")
     if done.returncode == 0:
