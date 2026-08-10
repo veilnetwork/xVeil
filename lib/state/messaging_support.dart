@@ -186,6 +186,20 @@ const _groupChunkBytes = 1800;
 const _kMaxGroupReasmBytes = kMaxStoredFileBytes;
 const _kMaxGroupReasmConcurrent = 8;
 
+/// The most slices a chunked transfer can legitimately claim.
+///
+/// The byte cap bounds what a transfer may WEIGH; nothing bounded how many
+/// entries it could put in the parts map, and the two are not the same limit.
+/// A sender that claims a count in the billions and then delivers empty slices
+/// adds a map entry each time and not one byte, so the weight check never
+/// fires (report9 X-10).
+///
+/// Derived rather than picked: the sender cuts at [_groupChunkBytes], so a
+/// transfer that fits under the byte cap cannot need more slices than this.
+/// Anything above it is a transfer that could never complete anyway.
+const _kMaxGroupReasmChunks =
+    (_kMaxGroupReasmBytes + _groupChunkBytes - 1) ~/ _groupChunkBytes;
+
 /// Hard ceiling on a file we will buffer in memory and store. Bound by the
 /// at-rest layer: a stored file must be DELETABLE in one atomic commit (≤ 1024
 /// records × 8 KiB), so a larger blob can neither be persisted nor scrubbed on
