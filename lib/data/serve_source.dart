@@ -146,6 +146,78 @@ Future<VeilOpenedSource?> veilOpenSourceForSend(String path) async {
   return (size: size, read: read, close: raf.close);
 }
 
+/// What [veilOpenPinnedSource] hands back: the open source, or the reason it
+/// refused, plus the identity the name had when it was opened.
+typedef VeilPinnedOpen = ({
+  VeilOpenedSource? source,
+  String? refusal,
+  VeilSourceStamp? stamp,
+});
+
+/// Open [path] for a send and refuse if the NAME changed identity across the
+/// open (audit X-01).
+///
+/// ## What was wrong with stamping after the open
+///
+/// Every send site took its first stamp AFTER opening and compared it only
+/// once the send had finished. Both halves of that are the wrong way round:
+///
+///  * a swap that happened between the caller's authorization check and the
+///    open is already reflected in that first stamp, so the comparison is of
+///    the attacker's file against itself and can never fire;
+///  * by the time the second stamp is taken the offer has been published, so
+///    even a positive answer arrives after the peer has the content.
+///
+/// Bracketing the OPEN instead reverses both. If the name resolves to the same
+/// `(deviceId, inode)` immediately before and immediately after the open, then
+/// — barring a swap that also swapped back inside that window — the descriptor
+/// this returns is the object the caller authorized, and the refusal happens
+/// before anything is offered.
+///
+/// ## What it still does not prove
+///
+/// The window is narrowed, not closed. An adversary who can win the race
+/// twice (A → B → A) across two adjacent `lstat` calls still gets the
+/// substituted descriptor with matching stamps, and nothing in `dart:io` can
+/// bind a name to an inode — no `openat`, no `O_NOFOLLOW`, no `fstat` on an
+/// open handle. Closing it needs descriptor-relative access from native code,
+/// which is the same remainder audit X-02 left behind.
+///
+/// On Windows and on any POSIX ABI [veilSourceStamp] cannot read identity
+/// fields for, the stamp degrades to size + mtime and so does this check: it
+/// then catches an ordinary rewrite and not a careful swap. That is weaker,
+/// not absent, and it is the same degradation the stamp already documents.
+///
+/// [opener] exists for tests, which need to act between the two stamps.
+Future<VeilPinnedOpen> veilOpenPinnedSource(
+  String path, {
+  Future<VeilOpenedSource?> Function(String path)? opener,
+}) async {
+  final before = await veilSourceStamp(path);
+  final source = await (opener ?? veilOpenSourceForSend)(path);
+  if (source == null) {
+    return (source: null, refusal: 'source not found', stamp: null);
+  }
+  final after = await veilSourceStamp(path);
+  // Null on either side means there was nothing to compare — a source name
+  // that is not a filesystem path, or a stat that failed. Refusing on that
+  // would break every non-file source; the caller is told by getting a null
+  // stamp back that it holds no evidence.
+  if (before != null && after != null && before != after) {
+    try {
+      await source.close();
+    } catch (_) {}
+    return (
+      source: null,
+      refusal:
+          'the file at this path was replaced while it was being opened; '
+          'nothing was sent',
+      stamp: null,
+    );
+  }
+  return (source: source, refusal: null, stamp: before);
+}
+
 /// A plaintext WRITE sink over a destination file — offset writes + close,
 /// plus an optional [read] for RESUME verification (read a piece back and
 /// hash-check it so a restart skips already-written pieces). [read] is null on

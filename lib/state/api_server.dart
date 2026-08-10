@@ -330,8 +330,14 @@ class ApiServerController extends Notifier<ApiConfig> {
   /// ([veilOpenSourceForSend]), so there is nothing left to disagree.
   ///
   /// What remains is the gap between the API edge's authorization check and
-  /// this open, and Dart cannot close it — no `openat`, no `O_NOFOLLOW`. The
-  /// stamp comparison across the read is DETECTION, and only that: by the time
+  /// this open, and Dart cannot close it — no `openat`, no `O_NOFOLLOW`.
+  /// [veilOpenPinnedSource] narrows it: the name's identity is stamped
+  /// immediately before and immediately after the open, and a change refuses
+  /// BEFORE anything is offered. The old shape took its first stamp after the
+  /// open — so a swap between the edge's check and the open was already in it,
+  /// and the comparison was of the attacker's file against itself.
+  ///
+  /// The comparison across the READ stays, and is detection only: by the time
   /// it fires the offer has been made. It is worth having because the
   /// alternative is that nobody ever finds out.
   Future<String?> _sendFile(
@@ -346,15 +352,16 @@ class ApiServerController extends Notifier<ApiConfig> {
     } catch (_) {
       return 'invalid peer';
     }
-    final source = await debugSourceOpener(path);
-    if (source == null) return 'source not found';
+    final opened = await veilOpenPinnedSource(path, opener: debugSourceOpener);
+    if (opened.refusal != null) return opened.refusal;
+    final source = opened.source!;
     // [path] arrives resolved and absolute from the API edge, so derive the
     // display name through the URI rather than by splitting on '/' — on
     // Windows that split would hand the peer the whole `C:\…` path as a name.
     final n = (name != null && name.isNotEmpty)
         ? name
         : File(path).uri.pathSegments.last;
-    final before = await veilSourceStamp(path);
+    final before = opened.stamp;
     try {
       final cid = await ref
           .read(messagingServiceProvider)
