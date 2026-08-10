@@ -1397,17 +1397,6 @@ class AppL10nEn extends AppL10n {
   String get spaceAccessRoleName => 'Role name';
 
   @override
-  String spaceAccessRolePermissions(num count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: '$count permissions',
-      one: '1 permission',
-    );
-    return '$_temp0';
-  }
-
-  @override
   String spaceAccessRoleGrantSummary(num areas, num permissions) {
     String _temp0 = intl.Intl.pluralLogic(
       permissions,
@@ -5062,9 +5051,6 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get nicknamePublishing => 'Publishing…';
-
-  @override
-  String get nicknameOwnedTitle => 'Your name';
 
   @override
   String get nicknameWeightExplain =>

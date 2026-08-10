@@ -2474,12 +2474,6 @@ abstract class AppL10n {
   /// **'Role name'**
   String get spaceAccessRoleName;
 
-  /// No description provided for @spaceAccessRolePermissions.
-  ///
-  /// In en, this message translates to:
-  /// **'{count, plural, =1{1 permission} other{{count} permissions}}'**
-  String spaceAccessRolePermissions(num count);
-
   /// No description provided for @spaceAccessRoleGrantSummary.
   ///
   /// In en, this message translates to:
@@ -8995,12 +8989,6 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Publishing…'**
   String get nicknamePublishing;
-
-  /// No description provided for @nicknameOwnedTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Your name'**
-  String get nicknameOwnedTitle;
 
   /// No description provided for @nicknameWeightExplain.
   ///

@@ -53,6 +53,52 @@ Widget _host() => ProviderScope(
 );
 
 void main() {
+  // The release URL decides which binary a remote machine downloads and runs.
+  // `isSafeHttpsUrl` is the check that says whether it is one this app will
+  // fetch, and the screen never consulted it — so a plain-http or malformed
+  // URL was accepted at the field and failed later, somewhere the reader
+  // could not connect back to what they had typed. The sentence for it was
+  // written into both ARBs and attached to nothing.
+  testWidgets('a release URL this app will not fetch is refused at the field', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_host());
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(NodeProvisionScreen)));
+
+    // The field is read-only while the URL comes from GitHub; the custom
+    // source is the one a person types into.
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('artifact-source-veil-cli')),
+        matching: find.text(l.provisionSourceCustom),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('veil-release-url')),
+      'http://example.test/veil-cli',
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.text(l.provisionNeedUrl),
+      findsOneWidget,
+      reason:
+          'plain http was taken without a word — the failure then happens far '
+          'from the field that caused it',
+    );
+
+    // And the other direction: a URL it WILL fetch must not be flagged. An
+    // error that is always on is the same as no error.
+    await tester.enterText(
+      find.byKey(const ValueKey('veil-release-url')),
+      'https://example.test/veil-cli',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(l.provisionNeedUrl), findsNothing);
+  });
+
   testWidgets('auto-fills URL and SHA and refreshes them for architecture', (
     tester,
   ) async {

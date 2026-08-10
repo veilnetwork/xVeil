@@ -132,6 +132,17 @@ void main() {
 /// screen reader announcing nothing. It says `spaceMemberMuted` now, the same
 /// string the row's subtitle already uses.
 ///
+/// Three more, three different answers again. `provisionNeedUrl` is now the
+/// release-URL field's errorText: `isSafeHttpsUrl` decides that question and
+/// was only consulted deeper in, so a plain-http or malformed URL was taken
+/// here and failed somewhere the reader could not connect to what they had
+/// typed. `nicknameOwnedTitle` is deleted — that screen has no section
+/// headings at all, and a lone "Your name" above a card already showing
+/// `@name` under an at-sign icon would be the only one.
+/// `spaceAccessRolePermissions` is deleted too: the permission count it
+/// carries is inside `spaceAccessRoleGrantSummary`, which the row uses, since
+/// areas were added beside it.
+///
 /// What is left falls into three groups, and each wants a different answer:
 ///  * text kept ON PURPOSE for a row that was removed rather than shipped
 ///    half-done — `networkExt*` and `networkComingLater`; see the comment in
@@ -166,10 +177,7 @@ const _knownUnreachable = {
   'networkExtSub',
   'networkExtTitle',
   'newChatPeerOrNickname',
-  'nicknameOwnedTitle',
   'nodeOperationSuccess',
-  'provisionNeedUrl',
   'routeRestartNode',
-  'spaceAccessRolePermissions',
   'spaceRenameDenied',
 };
