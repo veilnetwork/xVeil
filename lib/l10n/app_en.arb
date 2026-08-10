@@ -676,7 +676,6 @@
   "spacePermissionManageStorage": "Manage storage and retention",
   "spacePermissionManageChannels": "Manage channels",
   "spaceMemberMuted": "Cannot publish until unmuted",
-  "spaceMemberMute": "Restrict publishing",
   "spaceMemberUnmute": "Allow publishing",
   "spaceMemberPromote": "Make administrator",
   "spaceMemberDemote": "Make member",

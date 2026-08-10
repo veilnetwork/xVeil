@@ -1573,9 +1573,6 @@ class AppL10nEs extends AppL10n {
       'No puede publicar hasta que se le permita de nuevo';
 
   @override
-  String get spaceMemberMute => 'Restringir la publicación';
-
-  @override
   String get spaceMemberUnmute => 'Permitir publicar';
 
   @override

@@ -1558,9 +1558,6 @@ class AppL10nEn extends AppL10n {
   String get spaceMemberMuted => 'Cannot publish until unmuted';
 
   @override
-  String get spaceMemberMute => 'Restrict publishing';
-
-  @override
   String get spaceMemberUnmute => 'Allow publishing';
 
   @override

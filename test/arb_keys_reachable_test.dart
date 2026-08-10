@@ -125,6 +125,13 @@ void main() {
 /// its STATE ("Downloading…", "Speech model installed", "Download the speech
 /// model"), so there is no static title to write.
 ///
+/// `spaceMemberMute` was a label for an action this list does not offer: the
+/// member menu can UNMUTE, and muting happens on the moderation surface,
+/// which has its own wording. Deleting it turned up a bare `volume_off` icon
+/// that a viewer with no actions to offer sees on its own — no tooltip, and a
+/// screen reader announcing nothing. It says `spaceMemberMuted` now, the same
+/// string the row's subtitle already uses.
+///
 /// What is left falls into three groups, and each wants a different answer:
 ///  * text kept ON PURPOSE for a row that was removed rather than shipped
 ///    half-done — `networkExt*` and `networkComingLater`; see the comment in
@@ -164,6 +171,5 @@ const _knownUnreachable = {
   'provisionNeedUrl',
   'routeRestartNode',
   'spaceAccessRolePermissions',
-  'spaceMemberMute',
   'spaceRenameDenied',
 };
