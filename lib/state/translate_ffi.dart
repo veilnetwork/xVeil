@@ -20,7 +20,9 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
+import '../core/log.dart';
 import '../data/native_libs.dart';
 
 /// The base name, without the platform's prefix/suffix.
@@ -85,10 +87,26 @@ class _Job {
 
 /// A model open in its own isolate, answering one translation at a time.
 class TranslateEngine {
-  TranslateEngine._(this._isolate, this._requests, this.version);
+  TranslateEngine._(this._isolate, this._requests, this.version, this.deadline);
 
-  final Isolate _isolate;
+  /// An engine over a port somebody else owns, so the deadline below can be
+  /// exercised without a native library. The isolate is null here: nothing
+  /// created it, and close() has nothing to kill.
+  @visibleForTesting
+  TranslateEngine.overPort(
+    this._requests, {
+    this.version = 'test',
+    this.deadline = const Duration(seconds: 1),
+  }) : _isolate = null;
+
+  final Isolate? _isolate;
   final SendPort _requests;
+
+  /// How long one message may take before the engine is presumed lost.
+  ///
+  /// Generous — a cold model on a slow phone took seconds in measurement, and
+  /// a long message is several sentences — but FINITE, which is the point.
+  final Duration deadline;
 
   /// Why the last open() returned null, as the native side explained it.
   /// Empty when nothing has failed. Static because a failed open has no
@@ -138,24 +156,45 @@ class TranslateEngine {
       return null;
     }
     lastOpenError = '';
-    return TranslateEngine._(isolate, first.requests, first.version);
+    return TranslateEngine._(
+      isolate,
+      first.requests,
+      first.version,
+      const Duration(minutes: 2),
+    );
   }
 
   /// Translates one message. Null when the engine could not — the caller shows
   /// the original rather than a wrong answer.
+  ///
+  /// Never waits forever. The worker isolate can die: a native fault, an
+  /// uncaught error, or a kill from close() racing a request in flight. Its
+  /// reply port then simply never receives anything, and `await reply.first`
+  /// on the caller's side waits for the life of the process — the translation
+  /// spinner turns and nothing ever arrives, which is worse than an error
+  /// because there is nothing to retry from.
   Future<String?> translate(String text) async {
     if (_closed) return null;
     final reply = ReceivePort();
-    _requests.send(_Job(text, reply.sendPort));
-    final answer = await reply.first;
-    reply.close();
-    return answer is String ? answer : null;
+    try {
+      _requests.send(_Job(text, reply.sendPort));
+      final answer = await reply.first.timeout(deadline);
+      return answer is String ? answer : null;
+    } on TimeoutException {
+      devLog(() => 'xVeil[translate]: the engine did not answer in $deadline');
+      return null;
+    } on Object {
+      // A dead isolate can also surface as a send failure rather than silence.
+      return null;
+    } finally {
+      reply.close();
+    }
   }
 
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
-    _isolate.kill(priority: Isolate.beforeNextEvent);
+    _isolate?.kill(priority: Isolate.beforeNextEvent);
   }
 }
 

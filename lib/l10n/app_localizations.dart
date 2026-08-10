@@ -10520,6 +10520,12 @@ abstract class AppL10n {
   /// **'Could not install'**
   String get modelBundleFailed;
 
+  /// No description provided for @modelBundleMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'the file is not on this device'**
+  String get modelBundleMissing;
+
   /// No description provided for @modelBundleTrust.
   ///
   /// In en, this message translates to:

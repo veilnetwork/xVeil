@@ -17,6 +17,7 @@
 // message says exactly what went unchecked. The pure-Dart group below always
 // runs.
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/state/translate_ffi.dart';
@@ -65,6 +66,51 @@ void main() {
       // Not merely non-empty: an empty reason is exactly the failure this
       // guards, and it is what the native selftest asserts on its own side.
       expect(TranslateEngine.lastOpenError, isNotEmpty);
+    });
+  });
+
+  group('when the engine stops answering', () {
+    test('a request that is never answered gives up, it does not hang', () async {
+      // The worker isolate can die — a native fault, an uncaught error, a
+      // close() racing a request in flight. Its reply port then never receives
+      // anything, and an unguarded `await reply.first` waits for the life of
+      // the process: the spinner turns and nothing arrives, which is worse
+      // than an error because there is nothing to retry from.
+      final silent = ReceivePort();
+      addTearDown(silent.close);
+      final engine = TranslateEngine.overPort(
+        silent.sendPort,
+        deadline: const Duration(milliseconds: 200),
+      );
+
+      final started = DateTime.now();
+      final answer = await engine.translate('Привет');
+      final waited = DateTime.now().difference(started);
+
+      expect(answer, isNull);
+      expect(
+        waited,
+        lessThan(const Duration(seconds: 5)),
+        reason: 'it waited $waited — the deadline did not apply',
+      );
+    });
+
+    test('a closed engine answers immediately', () async {
+      final silent = ReceivePort();
+      addTearDown(silent.close);
+      final engine = TranslateEngine.overPort(
+        silent.sendPort,
+        deadline: const Duration(minutes: 5),
+      );
+      await engine.close();
+
+      // Not after five minutes: closed is known locally.
+      final started = DateTime.now();
+      expect(await engine.translate('Привет'), isNull);
+      expect(
+        DateTime.now().difference(started),
+        lessThan(const Duration(seconds: 1)),
+      );
     });
   });
 

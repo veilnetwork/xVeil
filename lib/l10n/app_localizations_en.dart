@@ -5907,6 +5907,9 @@ class AppL10nEn extends AppL10n {
   String get modelBundleFailed => 'Could not install';
 
   @override
+  String get modelBundleMissing => 'the file is not on this device';
+
+  @override
   String get modelBundleTrust =>
       'A model decides what this app says other people wrote. Install one only from someone you trust.';
 
