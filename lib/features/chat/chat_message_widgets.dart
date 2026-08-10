@@ -2351,29 +2351,44 @@ class _Bubble extends ConsumerWidget {
 ///
 /// Incoming only. Translating one's own message is a spell-checker, not a
 /// translator, and the bubble has no room for affordances nobody asked for.
-class _TranslationRow extends ConsumerWidget {
+class _TranslationRow extends ConsumerStatefulWidget {
   const _TranslationRow({required this.messageId, required this.body});
 
   final String messageId;
   final String body;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_TranslationRow> createState() => _TranslationRowState();
+}
+
+class _TranslationRowState extends ConsumerState<_TranslationRow> {
+  @override
+  void initState() {
+    super.initState();
+    // ONCE per mount, not once per build.
+    //
+    // The look-up costs a read of the encrypted store, and a widget under
+    // every incoming message rebuilds with the list. Asking from `build` meant
+    // a read per message per frame — the controller now remembers a miss as
+    // well as a hit, and this makes sure the question is not asked that often
+    // in the first place.
+    Future.microtask(
+      () => ref
+          .read(translationControllerProvider.notifier)
+          .loadCached(widget.messageId),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final messageId = widget.messageId;
+    final body = widget.body;
     if (!ref.watch(translationAvailableProvider)) {
       return const SizedBox.shrink();
     }
     final entry = ref.watch(
       translationControllerProvider.select((m) => m[messageId]),
     );
-    // Show a reading made in an earlier session without running anything.
-    // Idempotent in the controller, so a rebuild does not re-ask.
-    if (entry == null) {
-      Future.microtask(
-        () => ref
-            .read(translationControllerProvider.notifier)
-            .loadCached(messageId),
-      );
-    }
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final muted = scheme.onSurfaceVariant;

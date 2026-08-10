@@ -73,15 +73,34 @@ class TranslationController extends Notifier<Map<String, TranslationEntry>> {
   TranslationEntry entryFor(String messageId) =>
       state[messageId] ?? const TranslationEntry();
 
+  /// Cache keys this controller has already looked for, hit or miss.
+  ///
+  /// A MISS has to be remembered, and that is the whole point. The guard used
+  /// to be "is there an entry for this message", which is only ever true after
+  /// a hit — so for every message nobody has translated, and that is almost
+  /// all of them, the store was read again on every call. The caller is a
+  /// widget under each incoming message, so "every call" meant every rebuild
+  /// of the chat list: a storage read per message per frame, on the hottest
+  /// path the app has.
+  ///
+  /// Keyed by (message, language) rather than by message, because asking for
+  /// another language is a different question and must still be asked.
+  final _probed = <String>{};
+
   /// Show a previously-made translation without running anything. No-op when
-  /// one is already in hand.
+  /// one is already in hand, and no-op after the first look that found none.
   Future<void> loadCached(String messageId, {String? to}) async {
-    if (state.containsKey(messageId)) return;
     final target = to ?? deviceLang();
+    final key = _cacheKey(messageId, target);
+    if (_probed.contains(key)) return;
+    final current = state[messageId];
+    if (current != null && current.isDone && current.to == target) return;
     try {
-      final cached = await ref
-          .read(storageProvider)
-          .getSetting(_cacheKey(messageId, target));
+      final cached = await ref.read(storageProvider).getSetting(key);
+      // Marked only once the store ANSWERED. A read that threw means the store
+      // is not open yet, and remembering that as "nothing there" would hide a
+      // translation for the rest of the session.
+      _probed.add(key);
       if (cached != null) {
         _set(
           messageId,
@@ -161,6 +180,9 @@ class TranslationController extends Notifier<Map<String, TranslationEntry>> {
   }
 
   /// Drop the shown translation for [messageId] — back to the original text.
+  ///
+  /// The probe memory is NOT cleared: the store still holds what it held, and
+  /// re-reading it would only put back what the reader just dismissed.
   void clear(String messageId) {
     final next = {...state}..remove(messageId);
     state = next;
