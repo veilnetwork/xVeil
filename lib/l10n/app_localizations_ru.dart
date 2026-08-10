@@ -1578,9 +1578,6 @@ class AppL10nRu extends AppL10n {
   String get spaceMemberMuted => 'Публикации запрещены до снятия ограничения';
 
   @override
-  String get spaceMemberMute => 'Запретить публикации';
-
-  @override
   String get spaceMemberUnmute => 'Разрешить публикации';
 
   @override
