@@ -2017,13 +2017,17 @@ final class GroupApiAdapter {
       //
       // The remaining gap — between the API edge's authorization check and
       // this open — is not closable from Dart: no `openat`, no `O_NOFOLLOW`.
-      // Unlike the 1:1 send there is not even a stamp to bracket it with,
-      // because a group offer is served on demand later rather than streamed
-      // here, so there is no "across the read" to compare.
-      final source = await veilOpenSourceForSend(file.absolute.path);
-      if (source == null) {
-        return (error: 'source not found', contentId: null);
+      // It IS narrowable, and this used to say it was not: the reasoning was
+      // that a group offer is served on demand later, so there is no "across
+      // the read" to compare. True, and beside the point — the bracket that
+      // matters goes around the OPEN, and that exists here exactly as it does
+      // for the 1:1 send. A name swapped between the edge's check and this
+      // open now refuses before the offer is posted (audit X-01).
+      final opened = await veilOpenPinnedSource(file.absolute.path);
+      if (opened.refusal != null) {
+        return (error: opened.refusal, contentId: null);
       }
+      final source = opened.source!;
       final size = source.size;
       if (size <= 0) {
         await source.close();
