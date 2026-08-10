@@ -1,10 +1,18 @@
-// The .veiltranslate container: one file a person can hand to another.
+// One container, two kinds: .veiltranslate for a language pair and .veilaudio
+// for the speech model. One file a person can hand to another, either way.
 //
 // A language pair is five files. Asking someone to move five files into a
 // directory with the right name is asking them to make the mistake this app
 // then has to detect — four files plus a missing target.spm is not a partial
 // model, it is a directory that translates into nonsense the moment the fifth
-// arrives from a different pair.
+// arrives from a different pair. The speech model is a single file and needs
+// no container at all; it gets one anyway, because two nearly-identical
+// formats would be two readers, two sets of bounds checks, and eventually one
+// of them missing a fix the other got.
+//
+// The kind is IN the manifest, not in the extension. A filename is a hint
+// anybody can change; the reader believes the manifest and checks the files
+// against the list that kind is allowed to carry.
 //
 // ## Why not a zip
 //
@@ -17,11 +25,13 @@
 // So the format is deliberately poor:
 //
 //   "VEILTR1\n"            8 bytes, so a wrong file is refused immediately
+//   (the magic is shared: the kind is a manifest field, not a file format)
 //   uint32 big-endian      manifest length, bounded
 //   manifest               UTF-8 JSON
 //   blobs                  raw bytes, in manifest order, no compression
 //
-// There are no paths in it. Names are checked against a fixed list of five,
+// There are no paths in it. Names are checked against the fixed list its kind
+// allows,
 // so nothing can be written anywhere unexpected — not because the code is
 // careful, but because the format cannot express it. Nothing is compressed,
 // so there is no bomb: the declared sizes must add up to the file's actual
@@ -50,12 +60,27 @@ const List<int> _magic = [0x56, 0x45, 0x49, 0x4c, 0x54, 0x52, 0x31, 0x0a]; // VE
 /// hostile one cannot make us allocate.
 const int kMaxManifestBytes = 64 * 1024;
 
+/// A language pair for the translation engine.
+const String kBundleTranslate = 'translate';
+
+/// The speech model the transcriber loads. One file, not a set — but it
+/// travels the same way, so a person hands over one file either way and the
+/// same reader checks both.
+const String kBundleSpeech = 'speech';
+
+const List<String> kVeilBundleKinds = [kBundleTranslate, kBundleSpeech];
+
+/// What a speech bundle may contain. Named here rather than imported from the
+/// whisper store so that the READER — which parses input from a stranger —
+/// does not depend on the app's model layer.
+const List<String> kSpeechFiles = ['ggml-base-q5_1.bin'];
+
 /// No pair is anywhere near this. It exists so a declared size cannot ask for
 /// an allocation before the arithmetic below has been checked.
 const int kMaxBundleBytes = 2 * 1024 * 1024 * 1024;
 
-class TranslationBundleFile {
-  const TranslationBundleFile({
+class VeilBundleFile {
+  const VeilBundleFile({
     required this.name,
     required this.bytes,
     required this.sha256,
@@ -66,16 +91,29 @@ class TranslationBundleFile {
 }
 
 /// What a bundle says about itself, read without unpacking it.
-class TranslationBundleInfo {
-  const TranslationBundleInfo({required this.pair, required this.files});
-  final TranslationPair pair;
-  final List<TranslationBundleFile> files;
+class VeilBundleInfo {
+  const VeilBundleInfo({
+    required this.kind,
+    required this.pair,
+    required this.files,
+  });
+
+  /// [kBundleTranslate] or [kBundleSpeech].
+  final String kind;
+
+  /// The direction, for a translation bundle. Null for a speech bundle: one
+  /// model transcribes every language it knows, so there is no pair to name.
+  final TranslationPair? pair;
+  final List<VeilBundleFile> files;
+
+  /// What a person should see before deciding: "ru → en" or "speech".
+  String get label => pair?.id ?? kind;
 
   int get totalBytes => files.fold(0, (sum, f) => sum + f.bytes);
 }
 
-class TranslationBundleException implements Exception {
-  TranslationBundleException(this.message);
+class VeilBundleException implements Exception {
+  VeilBundleException(this.message);
   final String message;
   @override
   String toString() => message;
@@ -84,12 +122,12 @@ class TranslationBundleException implements Exception {
 /// Read the header and manifest. Cheap: it does not hash anything, so a UI can
 /// say "ru → en, 79 MB — install?" before committing to the work.
 ///
-/// Throws [TranslationBundleException] with a reason a person could act on.
+/// Throws [VeilBundleException] with a reason a person could act on.
 /// Every check here has to survive a file chosen by someone else.
-Future<TranslationBundleInfo> inspectBundle(File bundle) async {
+Future<VeilBundleInfo> inspectBundle(File bundle) async {
   // Every filesystem touch, not just the parsing. A file that has been moved,
   // deleted or is unreadable throws PathNotFoundException or FileSystemException
-  // from dart:io, and those are NOT TranslationBundleException — so they went
+  // from dart:io, and those are NOT VeilBundleException — so they went
   // straight past installBundle's handler and out through the controller. A
   // person picking a file that has since vanished got a crash where they
   // should have got a sentence.
@@ -97,32 +135,32 @@ Future<TranslationBundleInfo> inspectBundle(File bundle) async {
   try {
     length = await bundle.length();
   } on FileSystemException catch (e) {
-    throw TranslationBundleException('cannot read the file: ${e.osError?.message ?? e.message}');
+    throw VeilBundleException('cannot read the file: ${e.osError?.message ?? e.message}');
   }
   if (length < _magic.length + 4) {
-    throw TranslationBundleException('not a .veiltranslate file (too short)');
+    throw VeilBundleException('not a veil bundle (too short)');
   }
 
   final Uint8List head;
   try {
     head = await _read(bundle, 0, _magic.length + 4);
   } on FileSystemException catch (e) {
-    throw TranslationBundleException('cannot read the file: ${e.osError?.message ?? e.message}');
+    throw VeilBundleException('cannot read the file: ${e.osError?.message ?? e.message}');
   }
   for (var i = 0; i < _magic.length; i++) {
     if (head[i] != _magic[i]) {
-      throw TranslationBundleException('not a .veiltranslate file (bad header)');
+      throw VeilBundleException('not a veil bundle (bad header)');
     }
   }
   final manifestLength = ByteData.sublistView(head, _magic.length).getUint32(0);
   if (manifestLength == 0 || manifestLength > kMaxManifestBytes) {
-    throw TranslationBundleException(
+    throw VeilBundleException(
       'the manifest claims $manifestLength bytes, which is not credible',
     );
   }
   final manifestStart = _magic.length + 4;
   if (manifestStart + manifestLength > length) {
-    throw TranslationBundleException('the file ends inside its own manifest');
+    throw VeilBundleException('the file ends inside its own manifest');
   }
 
   final Object? decoded;
@@ -131,39 +169,61 @@ Future<TranslationBundleInfo> inspectBundle(File bundle) async {
       utf8.decode(await _read(bundle, manifestStart, manifestLength)),
     );
   } on Object {
-    throw TranslationBundleException('the manifest is not readable JSON');
+    throw VeilBundleException('the manifest is not readable JSON');
   }
   if (decoded is! Map) {
-    throw TranslationBundleException('the manifest is not an object');
+    throw VeilBundleException('the manifest is not an object');
   }
   if (decoded['format'] != 1) {
-    throw TranslationBundleException(
+    throw VeilBundleException(
       'this bundle is format ${decoded['format']}, and this build reads format 1',
     );
   }
 
-  final from = decoded['from'];
-  final to = decoded['to'];
-  final code = RegExp(r'^[a-z]{2,3}$');
-  if (from is! String || to is! String ||
-      !code.hasMatch(from) || !code.hasMatch(to)) {
-    throw TranslationBundleException('the manifest does not name a language pair');
-  }
-  if (from == to) {
-    throw TranslationBundleException('a bundle from $from to $to translates nothing');
+  // One format, two kinds, rather than a second nearly-identical container
+  // for the speech model. Two formats would be two readers, two sets of
+  // bounds checks, and eventually one of them missing a fix the other got —
+  // which is the drift this repository paid for twice this week, in build
+  // arguments and in a download loop.
+  final kind = decoded['kind'];
+  if (kind is! String || !kVeilBundleKinds.contains(kind)) {
+    throw VeilBundleException(
+      'the manifest does not say what kind of bundle this is '
+      '(expected one of ${kVeilBundleKinds.join(", ")})',
+    );
   }
 
+  TranslationPair? pair;
+  if (kind == kBundleTranslate) {
+    final from = decoded['from'];
+    final to = decoded['to'];
+    final code = RegExp(r'^[a-z]{2,3}$');
+    if (from is! String || to is! String ||
+        !code.hasMatch(from) || !code.hasMatch(to)) {
+      throw VeilBundleException('the manifest does not name a language pair');
+    }
+    if (from == to) {
+      throw VeilBundleException('a bundle from $from to $to translates nothing');
+    }
+    pair = TranslationPair(from, to);
+  } else if (decoded.containsKey('from') || decoded.containsKey('to')) {
+    // A speech bundle naming a language pair is either mislabelled or trying
+    // to be read as two things at once. Refused rather than ignored.
+    throw VeilBundleException('a $kind bundle must not name a language pair');
+  }
+
+  final allowed = kind == kBundleTranslate ? kPairFiles : kSpeechFiles;
   final rawFiles = decoded['files'];
   if (rawFiles is! List || rawFiles.isEmpty) {
-    throw TranslationBundleException('the manifest lists no files');
+    throw VeilBundleException('the manifest lists no files');
   }
 
-  final files = <TranslationBundleFile>[];
+  final files = <VeilBundleFile>[];
   final seen = <String>{};
   var total = 0;
   for (final entry in rawFiles) {
     if (entry is! Map) {
-      throw TranslationBundleException('a file entry is not an object');
+      throw VeilBundleException('a file entry is not an object');
     }
     final name = entry['name'];
     final bytes = entry['bytes'];
@@ -171,32 +231,32 @@ Future<TranslationBundleInfo> inspectBundle(File bundle) async {
     // The allowlist IS the path safety. There are no directories in this
     // format and no name outside these five is accepted, so nothing can be
     // written where it was not meant to go.
-    if (name is! String || !kPairFiles.contains(name)) {
-      throw TranslationBundleException('unexpected file in the bundle: $name');
+    if (name is! String || !allowed.contains(name)) {
+      throw VeilBundleException('unexpected file in the bundle: $name');
     }
     if (!seen.add(name)) {
-      throw TranslationBundleException('$name appears twice');
+      throw VeilBundleException('$name appears twice');
     }
     if (bytes is! int || bytes < 0 || bytes > kMaxBundleBytes) {
-      throw TranslationBundleException('$name declares an impossible size');
+      throw VeilBundleException('$name declares an impossible size');
     }
     if (hash is! String || !RegExp(r'^[0-9a-f]{64}$').hasMatch(hash)) {
-      throw TranslationBundleException('$name has no usable sha256');
+      throw VeilBundleException('$name has no usable sha256');
     }
     total += bytes;
     if (total > kMaxBundleBytes) {
-      throw TranslationBundleException('the bundle declares more than 2 GiB');
+      throw VeilBundleException('the bundle declares more than 2 GiB');
     }
-    files.add(TranslationBundleFile(name: name, bytes: bytes, sha256: hash));
+    files.add(VeilBundleFile(name: name, bytes: bytes, sha256: hash));
   }
 
-  final missing = kPairFiles.where((f) => !seen.contains(f)).toList();
+  final missing = allowed.where((f) => !seen.contains(f)).toList();
   if (missing.isNotEmpty) {
     // Refused here rather than after unpacking: an incomplete pair on disk is
     // the state the rest of the app has to keep detecting.
-    throw TranslationBundleException(
-      'the bundle is missing ${missing.join(", ")} — an incomplete pair '
-      'cannot translate, and half of one is worse than none',
+    throw VeilBundleException(
+      'the bundle is missing ${missing.join(", ")} — an incomplete set '
+      'cannot be used, and half of one is worse than none',
     );
   }
 
@@ -204,20 +264,17 @@ Future<TranslationBundleInfo> inspectBundle(File bundle) async {
   if (expected != length) {
     // Both directions matter. Short means truncated; long means something is
     // riding along that nothing will ever check.
-    throw TranslationBundleException(
+    throw VeilBundleException(
       'the bundle should be $expected bytes and is $length',
     );
   }
 
-  return TranslationBundleInfo(
-    pair: TranslationPair(from, to),
-    files: files,
-  );
+  return VeilBundleInfo(kind: kind, pair: pair, files: files);
 }
 
-class TranslationBundleInstall {
-  const TranslationBundleInstall.ok(this.path, this.pair) : error = null;
-  const TranslationBundleInstall.failed(this.error) : path = null, pair = null;
+class VeilBundleInstall {
+  const VeilBundleInstall.ok(this.path, this.pair) : error = null;
+  const VeilBundleInstall.failed(this.error) : path = null, pair = null;
 
   final String? path;
   final TranslationPair? pair;
@@ -231,19 +288,22 @@ class TranslationBundleInstall {
 /// temporary directory beside the destination and are moved into place at the
 /// end, so an import interrupted at any point leaves either the previous model
 /// or nothing — never a directory with four files in it.
-Future<TranslationBundleInstall> installBundle(
+Future<VeilBundleInstall> installBundle(
   File bundle, {
   required Directory modelsRoot,
   void Function(double progress)? onProgress,
 }) async {
-  final TranslationBundleInfo info;
+  final VeilBundleInfo info;
   try {
     info = await inspectBundle(bundle);
-  } on TranslationBundleException catch (e) {
-    return TranslationBundleInstall.failed(e.message);
+  } on VeilBundleException catch (e) {
+    return VeilBundleInstall.failed(e.message);
   }
 
-  final staging = Directory('${modelsRoot.path}/.incoming-${info.pair.id}');
+  // A translation pair becomes its own directory; the speech model is a single
+  // file that lives in the root the caller gave. Staging is keyed on the label
+  // either way, so two imports of different things cannot collide.
+  final staging = Directory('${modelsRoot.path}/.incoming-${info.label}');
   if (staging.existsSync()) staging.deleteSync(recursive: true);
   staging.createSync(recursive: true);
 
@@ -273,7 +333,7 @@ Future<TranslationBundleInstall> installBundle(
       }
       input.close();
       if (remaining != 0) {
-        return TranslationBundleInstall.failed(
+        return VeilBundleInstall.failed(
           '${entry.name} is ${entry.bytes - remaining} bytes, not ${entry.bytes}',
         );
       }
@@ -281,15 +341,27 @@ Future<TranslationBundleInstall> installBundle(
       if (actual != entry.sha256) {
         // Named, because "the bundle is corrupt" tells a person nothing about
         // whether to retry the transfer or distrust the sender.
-        return TranslationBundleInstall.failed(
+        return VeilBundleInstall.failed(
           '${entry.name} does not match its hash',
         );
       }
       offset += entry.bytes;
     }
 
-    final destination = Directory('${modelsRoot.path}/${info.pair.id}');
-    final displaced = Directory('${modelsRoot.path}/.replacing-${info.pair.id}');
+    if (info.pair == null) {
+      // One file, into the root as it is. The move is per file and still last,
+      // so an interrupted import leaves the previous model rather than a
+      // half-written one.
+      modelsRoot.createSync(recursive: true);
+      for (final entry in info.files) {
+        File('${staging.path}/${entry.name}')
+            .renameSync('${modelsRoot.path}/${entry.name}');
+      }
+      return VeilBundleInstall.ok(modelsRoot.path, null);
+    }
+
+    final destination = Directory('${modelsRoot.path}/${info.pair!.id}');
+    final displaced = Directory('${modelsRoot.path}/.replacing-${info.pair!.id}');
     if (displaced.existsSync()) displaced.deleteSync(recursive: true);
     final replacing = destination.existsSync();
     if (replacing) destination.renameSync(displaced.path);
@@ -302,13 +374,13 @@ Future<TranslationBundleInstall> installBundle(
       rethrow;
     }
     if (replacing) displaced.deleteSync(recursive: true);
-    return TranslationBundleInstall.ok(destination.path, info.pair);
+    return VeilBundleInstall.ok(destination.path, info.pair);
   } on FileSystemException catch (e) {
-    return TranslationBundleInstall.failed(
+    return VeilBundleInstall.failed(
       'cannot read the file: ${e.osError?.message ?? e.message}',
     );
   } on Object catch (error) {
-    return TranslationBundleInstall.failed('$error');
+    return VeilBundleInstall.failed('$error');
   } finally {
     if (staging.existsSync()) staging.deleteSync(recursive: true);
   }
@@ -317,16 +389,32 @@ Future<TranslationBundleInstall> installBundle(
 /// Write a pair directory out as a bundle. Used by tooling and by the tests
 /// that read it back — a format with only a reader is a format nobody has
 /// checked round-trips.
+/// Write a set of files out as a bundle. Used by tooling and by the tests that
+/// read it back — a format with only a reader is a format nobody has checked
+/// round-trips.
+///
+/// [pair] is required for a translation bundle and must be null for a speech
+/// one; the reader refuses the mismatch either way, and this refuses to
+/// produce it.
 Future<void> writeBundle({
-  required Directory pairDir,
-  required TranslationPair pair,
+  required Directory sourceDir,
   required File out,
+  String kind = kBundleTranslate,
+  TranslationPair? pair,
 }) async {
+  if (kind == kBundleTranslate && pair == null) {
+    throw VeilBundleException('a translation bundle must name its direction');
+  }
+  if (kind != kBundleTranslate && pair != null) {
+    throw VeilBundleException('a $kind bundle must not name a language pair');
+  }
+  final names = kind == kBundleTranslate ? kPairFiles : kSpeechFiles;
+
   final entries = <Map<String, Object>>[];
-  for (final name in kPairFiles) {
-    final file = File('${pairDir.path}/$name');
+  for (final name in names) {
+    final file = File('${sourceDir.path}/$name');
     if (!file.existsSync()) {
-      throw TranslationBundleException('$name is missing from ${pairDir.path}');
+      throw VeilBundleException('$name is missing from ${sourceDir.path}');
     }
     final bytes = await file.readAsBytes();
     entries.add({
@@ -338,8 +426,9 @@ Future<void> writeBundle({
   final manifest = utf8.encode(
     jsonEncode({
       'format': 1,
-      'from': pair.from,
-      'to': pair.to,
+      'kind': kind,
+      if (pair != null) 'from': pair.from,
+      if (pair != null) 'to': pair.to,
       'files': entries,
     }),
   );
@@ -350,8 +439,8 @@ Future<void> writeBundle({
     final length = ByteData(4)..setUint32(0, manifest.length);
     sink.add(length.buffer.asUint8List());
     sink.add(manifest);
-    for (final name in kPairFiles) {
-      await sink.addStream(File('${pairDir.path}/$name').openRead());
+    for (final name in names) {
+      await sink.addStream(File('${sourceDir.path}/$name').openRead());
     }
   } finally {
     await sink.close();

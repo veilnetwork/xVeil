@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:xveil/data/translation_bundle.dart';
+import 'package:xveil/data/veil_bundle.dart';
 import 'package:xveil/data/translation_model_store.dart';
 import 'package:xveil/state/translation_controller.dart';
 import 'package:xveil/state/translation_model_controller.dart';
@@ -29,7 +29,7 @@ void main() {
   Future<File> bundle({String from = 'ru', String to = 'en'}) async {
     final out = File('${tmp.path}/$from-$to.veiltranslate');
     await writeBundle(
-      pairDir: pairDir,
+      sourceDir: pairDir,
       pair: TranslationPair(from, to),
       out: out,
     );
