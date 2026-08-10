@@ -179,6 +179,32 @@ void main() {
       final again = await engines.translate('Привет!', from: 'ru', to: 'en');
       expect(again, isNotNull);
     });
+
+    test('two messages at once in one direction open ONE engine', () async {
+      // The defect this pins: both callers found an empty slot and both
+      // opened, so there were two isolates and two loaded models of tens of
+      // megabytes — and the first was overwritten in the map and leaked for
+      // the life of the process. Tapping translate on two messages is an
+      // ordinary thing to do.
+      final engines = await TranslationEngines.resolve(
+        root: Directory(models!),
+        libraryPath: lib,
+      );
+      expect(engines, isNotNull);
+      addTearDown(engines!.dispose);
+
+      final answers = await Future.wait([
+        engines.translate('Привет!', from: 'ru', to: 'en'),
+        engines.translate('Как дела?', from: 'ru', to: 'en'),
+      ]);
+
+      expect(answers.every((a) => a != null && a.isNotEmpty), isTrue);
+      expect(
+        engines.engineOpenCount,
+        1,
+        reason: 'opened ${engines.engineOpenCount} engines for one direction',
+      );
+    });
   },
       skip: ready
           ? null
