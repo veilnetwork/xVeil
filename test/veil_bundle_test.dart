@@ -11,7 +11,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:xveil/data/translation_bundle.dart';
+import 'package:xveil/data/veil_bundle.dart';
 import 'package:xveil/data/translation_model_store.dart';
 
 const _magic = 'VEILTR1\n';
@@ -72,7 +72,7 @@ void main() {
   Future<File> goodBundle() async {
     final out = File('${tmp.path}/ru-en.veiltranslate');
     await writeBundle(
-      pairDir: pairDir,
+      sourceDir: pairDir,
       pair: const TranslationPair('ru', 'en'),
       out: out,
     );
@@ -83,7 +83,7 @@ void main() {
     test('what goes in comes out, byte for byte', () async {
       final bundle = await goodBundle();
       final info = await inspectBundle(bundle);
-      expect(info.pair.id, 'ru-en');
+      expect(info.pair!.id, 'ru-en');
       expect(info.files.map((f) => f.name).toSet(), kPairFiles.toSet());
 
       final result = await installBundle(bundle, modelsRoot: models);
@@ -117,7 +117,7 @@ void main() {
         ..writeAsBytesSync(List<int>.filled(4096, 0xff));
       expect(
         () => inspectBundle(junk),
-        throwsA(isA<TranslationBundleException>()),
+        throwsA(isA<VeilBundleException>()),
       );
     });
 
@@ -126,13 +126,13 @@ void main() {
         tmp,
         'wrong.veiltranslate',
         magic: 'NOTVEIL\n',
-        manifest: {'format': 1, 'from': 'ru', 'to': 'en', 'files': []},
+        manifest: {'format': 1, 'kind': 'translate', 'from': 'ru', 'to': 'en', 'files': []},
         blobs: const [],
       );
       await expectLater(
         inspectBundle(file),
         throwsA(
-          isA<TranslationBundleException>().having(
+          isA<VeilBundleException>().having(
             (e) => e.message,
             'message',
             contains('bad header'),
@@ -149,6 +149,7 @@ void main() {
           'evil.veiltranslate',
           manifest: {
             'format': 1,
+            'kind': 'translate',
             'from': 'ru',
             'to': 'en',
             'files': [_entry('model.bin', body)..['name'] = hostile],
@@ -158,7 +159,7 @@ void main() {
         await expectLater(
           inspectBundle(file),
           throwsA(
-            isA<TranslationBundleException>().having(
+            isA<VeilBundleException>().having(
               (e) => e.message,
               'message for $hostile',
               contains('unexpected file'),
@@ -175,6 +176,7 @@ void main() {
         'partial.veiltranslate',
         manifest: {
           'format': 1,
+          'kind': 'translate',
           'from': 'ru',
           'to': 'en',
           'files': [for (final n in kept) _entry(n, bodies[n]!)],
@@ -184,7 +186,7 @@ void main() {
       await expectLater(
         inspectBundle(file),
         throwsA(
-          isA<TranslationBundleException>().having(
+          isA<VeilBundleException>().having(
             (e) => e.message,
             'message',
             contains('target.spm'),
@@ -200,6 +202,7 @@ void main() {
         'dup.veiltranslate',
         manifest: {
           'format': 1,
+          'kind': 'translate',
           'from': 'ru',
           'to': 'en',
           'files': [_entry('model.bin', body), _entry('model.bin', body)],
@@ -209,7 +212,7 @@ void main() {
       await expectLater(
         inspectBundle(file),
         throwsA(
-          isA<TranslationBundleException>()
+          isA<VeilBundleException>()
               .having((e) => e.message, 'message', contains('twice')),
         ),
       );
@@ -222,7 +225,7 @@ void main() {
       await expectLater(
         inspectBundle(grown),
         throwsA(
-          isA<TranslationBundleException>()
+          isA<VeilBundleException>()
               .having((e) => e.message, 'message', contains('should be')),
         ),
       );
@@ -234,7 +237,7 @@ void main() {
         ..writeAsBytesSync(bytes.sublist(0, bytes.length - 20));
       await expectLater(
         inspectBundle(cut),
-        throwsA(isA<TranslationBundleException>()),
+        throwsA(isA<VeilBundleException>()),
       );
     });
 
@@ -242,14 +245,14 @@ void main() {
       final file = _craft(
         tmp,
         'huge.veiltranslate',
-        manifest: {'format': 1, 'from': 'ru', 'to': 'en', 'files': []},
+        manifest: {'format': 1, 'kind': 'translate', 'from': 'ru', 'to': 'en', 'files': []},
         blobs: const [],
         declaredManifestLength: 500 * 1024 * 1024,
       );
       await expectLater(
         inspectBundle(file),
         throwsA(
-          isA<TranslationBundleException>()
+          isA<VeilBundleException>()
               .having((e) => e.message, 'message', contains('not credible')),
         ),
       );
@@ -261,6 +264,7 @@ void main() {
         'same.veiltranslate',
         manifest: {
           'format': 1,
+          'kind': 'translate',
           'from': 'ru',
           'to': 'ru',
           'files': [for (final n in kPairFiles) _entry(n, bodies[n]!)],
@@ -270,7 +274,7 @@ void main() {
       await expectLater(
         inspectBundle(file),
         throwsA(
-          isA<TranslationBundleException>()
+          isA<VeilBundleException>()
               .having((e) => e.message, 'message', contains('translates nothing')),
         ),
       );
@@ -286,9 +290,147 @@ void main() {
       await expectLater(
         inspectBundle(file),
         throwsA(
-          isA<TranslationBundleException>()
+          isA<VeilBundleException>()
               .having((e) => e.message, 'message', contains('format 2')),
         ),
+      );
+    });
+  });
+
+  group('the speech kind', () {
+    late Directory speechDir;
+    late List<int> speechBody;
+
+    setUp(() {
+      speechDir = Directory('${tmp.path}/speech')..createSync();
+      speechBody = utf8.encode('ggml weights' * 40);
+      File('${speechDir.path}/${kSpeechFiles.single}')
+          .writeAsBytesSync(speechBody);
+    });
+
+    Future<File> speechBundle() async {
+      final out = File('${tmp.path}/speech.veilaudio');
+      await writeBundle(sourceDir: speechDir, kind: kBundleSpeech, out: out);
+      return out;
+    }
+
+    test('round-trips and lands as one file in the root', () async {
+      final info = await inspectBundle(await speechBundle());
+      expect(info.kind, kBundleSpeech);
+      // No direction: one model transcribes every language it knows, so a
+      // pair would be a claim the artifact cannot support.
+      expect(info.pair, isNull);
+      expect(info.files.single.name, kSpeechFiles.single);
+
+      final result = await installBundle(await speechBundle(), modelsRoot: models);
+      expect(result.succeeded, isTrue, reason: result.error);
+      expect(result.pair, isNull);
+      expect(
+        File('${models.path}/${kSpeechFiles.single}').readAsBytesSync(),
+        equals(speechBody),
+      );
+      expect(models.listSync().where((e) => e.path.contains('incoming')), isEmpty);
+    });
+
+    test('a speech bundle that names a language pair is refused', () async {
+      final file = _craft(
+        tmp,
+        'mislabelled.veilaudio',
+        manifest: {
+          'format': 1,
+          'kind': 'speech',
+          'from': 'ru',
+          'to': 'en',
+          'files': [_entry(kSpeechFiles.single, speechBody)],
+        },
+        blobs: [speechBody],
+      );
+      await expectLater(
+        inspectBundle(file),
+        throwsA(
+          isA<VeilBundleException>()
+              .having((e) => e.message, 'message', contains('must not name')),
+        ),
+      );
+    });
+
+    test('each kind accepts only its own files', () async {
+      // A speech bundle carrying model.bin, or a translation bundle carrying
+      // the ggml file: the allowlist is per kind, so neither can smuggle the
+      // other's names past it.
+      final asSpeech = _craft(
+        tmp,
+        'wrongfiles.veilaudio',
+        manifest: {
+          'format': 1,
+          'kind': 'speech',
+          'files': [_entry('model.bin', speechBody)],
+        },
+        blobs: [speechBody],
+      );
+      await expectLater(
+        inspectBundle(asSpeech),
+        throwsA(
+          isA<VeilBundleException>()
+              .having((e) => e.message, 'message', contains('unexpected file')),
+        ),
+      );
+
+      final asTranslate = _craft(
+        tmp,
+        'wrongfiles.veiltranslate',
+        manifest: {
+          'format': 1,
+          'kind': 'translate',
+          'from': 'ru',
+          'to': 'en',
+          'files': [_entry(kSpeechFiles.single, speechBody)],
+        },
+        blobs: [speechBody],
+      );
+      await expectLater(
+        inspectBundle(asTranslate),
+        throwsA(
+          isA<VeilBundleException>()
+              .having((e) => e.message, 'message', contains('unexpected file')),
+        ),
+      );
+    });
+
+    test('a bundle that does not say what it is', () async {
+      final file = _craft(
+        tmp,
+        'nokind.veiltranslate',
+        manifest: {
+          'format': 1,
+          'from': 'ru',
+          'to': 'en',
+          'files': [_entry('model.bin', speechBody)],
+        },
+        blobs: [speechBody],
+      );
+      await expectLater(
+        inspectBundle(file),
+        throwsA(
+          isA<VeilBundleException>()
+              .having((e) => e.message, 'message', contains('what kind')),
+        ),
+      );
+    });
+
+    test('the writer refuses to produce a mismatch', () async {
+      await expectLater(
+        writeBundle(
+          sourceDir: speechDir,
+          kind: kBundleSpeech,
+          pair: const TranslationPair('ru', 'en'),
+          out: File('${tmp.path}/nope'),
+        ),
+        throwsA(isA<VeilBundleException>()),
+      );
+      await expectLater(
+        writeBundle(sourceDir: pairDir, out: File('${tmp.path}/nope2')),
+        throwsA(isA<VeilBundleException>()),
       );
     });
   });
@@ -305,6 +447,7 @@ void main() {
         'swapped.veiltranslate',
         manifest: {
           'format': 1,
+          'kind': 'translate',
           'from': 'ru',
           'to': 'en',
           'files': [
@@ -361,12 +504,12 @@ void main() {
       final id = dir.path.split(Platform.pathSeparator).last;
 
       await writeBundle(
-        pairDir: dir,
+        sourceDir: dir,
         pair: TranslationPair(id.split('-').first, id.split('-').last),
         out: out,
       );
       final info = await inspectBundle(out);
-      expect(info.pair.id, id);
+      expect(info.pair!.id, id);
 
       final result = await installBundle(out, modelsRoot: models);
       expect(result.succeeded, isTrue, reason: result.error);
@@ -385,7 +528,7 @@ void main() {
 
     test('a file that is not there is refused, not thrown', () async {
       // dart:io raises PathNotFoundException, which is not a
-      // TranslationBundleException — so it went straight past the handler and
+      // VeilBundleException — so it went straight past the handler and
       // out through the caller. Picking a file that has since been moved is an
       // ordinary thing a person does; it must produce a sentence, not a crash.
       final result = await installBundle(
@@ -397,7 +540,7 @@ void main() {
 
       await expectLater(
         inspectBundle(File('${tmp.path}/never-existed.veiltranslate')),
-        throwsA(isA<TranslationBundleException>()),
+        throwsA(isA<VeilBundleException>()),
       );
     });
 
