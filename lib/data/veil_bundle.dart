@@ -108,7 +108,18 @@ class VeilBundleInfo {
     required this.kind,
     required this.pair,
     required this.files,
+    required this.bodyOffset,
   });
+
+  /// Where the blobs start, from the manifest THIS reading validated.
+  ///
+  /// Carried rather than recomputed: installBundle used to read the header a
+  /// second time to find it, so the bytes it validated and the bytes it
+  /// extracted came from two separate reads of a file somebody else supplied.
+  /// The per-blob hashes would have caught a swap, but a parser for untrusted
+  /// input should not have two answers to the same question in the first
+  /// place.
+  final int bodyOffset;
 
   /// [kBundleTranslate] or [kBundleSpeech].
   final String kind;
@@ -281,7 +292,12 @@ Future<VeilBundleInfo> inspectBundle(File bundle) async {
     );
   }
 
-  return VeilBundleInfo(kind: kind, pair: pair, files: files);
+  return VeilBundleInfo(
+    kind: kind,
+    pair: pair,
+    files: files,
+    bodyOffset: manifestStart + manifestLength,
+  );
 }
 
 class VeilBundleInstall {
@@ -320,8 +336,7 @@ Future<VeilBundleInstall> installBundle(
   staging.createSync(recursive: true);
 
   try {
-    final manifestEnd = _magic.length + 4 + await _manifestLength(bundle);
-    var offset = manifestEnd;
+    var offset = info.bodyOffset;
     var written = 0;
     final total = info.totalBytes;
 
@@ -465,11 +480,6 @@ Future<Uint8List> _read(File file, int start, int length) async {
     builder.add(chunk);
   }
   return builder.takeBytes();
-}
-
-Future<int> _manifestLength(File file) async {
-  final head = await _read(file, _magic.length, 4);
-  return ByteData.sublistView(head).getUint32(0);
 }
 
 /// The one digest a chunked sha256 emits when it closes. Local rather than
