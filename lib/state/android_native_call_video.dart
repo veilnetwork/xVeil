@@ -35,6 +35,26 @@ class AndroidNativeCallVideoRenderer {
     : _channel = channel ?? const MethodChannel('xveil/native_call_video');
 
   final MethodChannel _channel;
+
+  /// Bumped by every [start] and every [stop].
+  ///
+  /// `refreshStats` reads the texture id, awaits the platform channel and then
+  /// PUBLISHES. A stop landing in that window cleared the id and the notifier,
+  /// and the poll then republished the texture it had captured — a texture the
+  /// native side has freed. If a new call had started meanwhile, the stale poll
+  /// overwrote ITS texture with the dead one (report9 X-11).
+  int _generation = 0;
+
+  /// Whether a stats poll is in flight.
+  ///
+  /// Read by the TIMER only. The timer fires every 200ms and a poll slower
+  /// than that used to overlap itself, with two answers publishing in whatever
+  /// order the platform returned them. An explicit [refreshStats] still always
+  /// polls: a caller asking for fresh numbers and silently getting none is a
+  /// worse contract than an occasional overlap, and the existing renderer test
+  /// says so.
+  bool _polling = false;
+
   Timer? _statsTimer;
   int? _textureId;
   int _lastFrames = 0;
@@ -46,12 +66,20 @@ class AndroidNativeCallVideoRenderer {
 
   Future<bool> start({required int engineAddress}) async {
     await stop();
+    final generation = ++_generation;
     try {
       final value = await _channel.invokeMapMethod<Object?, Object?>('start', {
         'engine': engineAddress,
       });
       final textureId = (value?['textureId'] as num?)?.toInt();
       if (textureId == null || textureId < 0) {
+        await _channel.invokeMethod<void>('stop');
+        return false;
+      }
+      if (generation != _generation) {
+        // Stopped — or restarted — while this start was in flight. The texture
+        // this call created belongs to nobody, so hand it back rather than
+        // publish it over whatever is current now.
         await _channel.invokeMethod<void>('stop');
         return false;
       }
@@ -65,10 +93,10 @@ class AndroidNativeCallVideoRenderer {
         frames: 0,
         lastFrameAt: null,
       );
-      _statsTimer = Timer.periodic(
-        const Duration(milliseconds: 200),
-        (_) => unawaited(refreshStats()),
-      );
+      _statsTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+        if (_polling) return; // the previous tick has not answered yet
+        unawaited(refreshStats());
+      });
       unawaited(refreshStats());
       return true;
     } on PlatformException catch (error) {
@@ -86,9 +114,14 @@ class AndroidNativeCallVideoRenderer {
   Future<void> refreshStats() async {
     final textureId = _textureId;
     if (textureId == null) return;
+    final generation = _generation;
+    _polling = true;
     try {
       final value = await _channel.invokeMapMethod<Object?, Object?>('stats');
       if (value == null) return;
+      // Everything below publishes. A stop or a restart in the await above
+      // means this answer describes a texture that is gone.
+      if (generation != _generation) return;
       final diagnostics = value.map(
         (key, item) => MapEntry(key?.toString() ?? '', item),
       )..remove('');
@@ -120,10 +153,13 @@ class AndroidNativeCallVideoRenderer {
       }
     } catch (_) {
       // A diagnostics poll is advisory and cannot disturb a running renderer.
+    } finally {
+      _polling = false;
     }
   }
 
   Future<void> stop() async {
+    _generation++;
     _statsTimer?.cancel();
     _statsTimer = null;
     _textureId = null;
