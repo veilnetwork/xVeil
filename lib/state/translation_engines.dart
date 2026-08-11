@@ -15,6 +15,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path_provider/path_provider.dart';
 
 import '../core/log.dart';
+import '../data/storage/app_profile.dart';
 import '../data/translation_model_store.dart';
 import 'translate_ffi.dart';
 
@@ -93,20 +94,37 @@ class TranslationEngines {
     return TranslationEngines._(dir, pairs, library);
   }
 
-  /// Where pairs live in a real build: beside the speech model, under the app
-  /// support root, in one directory so that removing translation entirely is
-  /// removing one tree.
+  /// Where pairs live in a real build: beside the speech model, under the
+  /// ACTIVE PROFILE's directory, in one directory so that removing translation
+  /// entirely is removing one tree.
+  ///
+  /// This is the SAME answer [TranslationModelStore.root] gives, derived the
+  /// same way through [activeProfileDir]. The two must not be able to disagree:
+  /// this one is what the settings list, the export, the model exchange and the
+  /// WIPE all resolve, and a wipe that deletes a different tree than the store
+  /// writes is a wipe that destroys somebody else's models and leaves this
+  /// profile's standing.
   ///
   /// Without this the feature was dead outside a test: resolve() consulted the
   /// environment variable and nothing else, so a shipped build had no models
   /// directory to find models in. The override stays for pointing a desktop
   /// build at converted pairs before any are published.
-  static Future<Directory?> defaultModelsRoot() async {
+  ///
+  /// [supportDirectory] is injectable for the reason the stores' is: a unit
+  /// test has no platform channel, and the profile scoping must be exercised
+  /// where it actually runs rather than restated in the test.
+  static Future<Directory?> defaultModelsRoot({
+    Future<Directory> Function()? supportDirectory,
+  }) async {
     final override = Platform.environment[rootEnv];
     if (override != null && override.isNotEmpty) return Directory(override);
     try {
-      final support = await getApplicationSupportDirectory();
-      return Directory('${support.path}/${TranslationModelStore.dirName}');
+      final support =
+          await (supportDirectory ?? getApplicationSupportDirectory)();
+      return Directory(
+        '${activeProfileDir(support.path, leftBehind: const [TranslationModelStore.dirName])}'
+        '/${TranslationModelStore.dirName}',
+      );
     } on Object {
       // No platform channel (a plain unit test, a headless tool). Not an
       // error: it means there is nowhere to look, which resolve() reports as

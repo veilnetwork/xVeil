@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import '../../core/error_journal.dart';
 import '../../data/storage/app_profile.dart';
 import '../../l10n/app_localizations.dart';
-import '../../main.dart' show activeProfile;
 
 /// Version of the running build.
 ///
