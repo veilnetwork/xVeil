@@ -2836,5 +2836,21 @@
   "seedsSaveFailed": "That choice could not be saved. It applies to this session only.",
   "@seedsSaveFailed": {
     "description": "Shown when the preference store refused the write."
+  },
+  "seedsSwitchTitle": "Use the shared entry nodes",
+  "@seedsSwitchTitle": {
+    "description": "Title of the network-settings switch that changes the shared-seed answer given during onboarding."
+  },
+  "seedsSwitchOnSub": "On: the app finds the network on its own. The project's nodes learn that a node of yours exists and which address it connects from.",
+  "@seedsSwitchOnSub": {
+    "description": "Subtitle of that switch while the shared entry nodes are in use: what keeping them costs."
+  },
+  "seedsSwitchOffSub": "Off: only nodes you add yourself. Nothing connects until you add one.",
+  "@seedsSwitchOffSub": {
+    "description": "Subtitle of that switch while the shared entry nodes are refused: what refusing costs."
+  },
+  "seedsSwitchSaveFailed": "That change could not be saved, so it was not applied.",
+  "@seedsSwitchSaveFailed": {
+    "description": "Shown when the preference store refuses the write, and the switch therefore stays where it was."
   }
 }
