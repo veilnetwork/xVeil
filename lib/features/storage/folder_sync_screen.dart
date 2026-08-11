@@ -35,9 +35,38 @@ class FolderSyncScreen extends ConsumerWidget {
         onPressed: () async {
           final path = await (pickDirectory ?? FilePicker.getDirectoryPath)();
           if (path == null || path.isEmpty) return;
-          await controller.addPair(
+          // `addPair` answers with WHY it would not take the folder — a root
+          // another account on this computer can write to, or one that overlaps
+          // a folder already mirrored. That answer was thrown away, so a
+          // refused folder looked exactly like a tap that did nothing, and the
+          // thing people learn from a button that does nothing is that the app
+          // is broken. Both reasons come back the same way and go out the same
+          // way; neither creates a pair, so there is no row to hang this on and
+          // it has to be said here.
+          final refusal = await controller.addPair(
             localPath: path,
             id: 'pair-${DateTime.now().microsecondsSinceEpoch}',
+          );
+          if (refusal == null || !context.mounted) return;
+          await showDialog<void>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              icon: Icon(
+                Icons.warning_amber_rounded,
+                color: Theme.of(ctx).colorScheme.error,
+              ),
+              title: Text(l.folderSyncNotAddedTitle),
+              // The reason itself, not a paraphrase of it: it names the exact
+              // folder in the chain that is open, and that is the one part
+              // nobody can guess.
+              content: Text(l.folderSyncNotAdded(refusal)),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: Text(l.actionDone),
+                ),
+              ],
+            ),
           );
         },
         icon: const Icon(Icons.create_new_folder_outlined),
