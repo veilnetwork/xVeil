@@ -33,6 +33,7 @@ import 'debug/soak_hook.dart';
 import 'features/bootstrap/storage_unavailable_app.dart';
 import 'features/bootstrap/startup_failed_app.dart';
 import 'state/providers.dart';
+import 'state/translate_ffi.dart' show kRequiredSymbols, openTranslateLibrary;
 import 'state/storage_preferences.dart';
 import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/core/log.dart';
@@ -143,6 +144,26 @@ Future<void> _bootAndRunApp() async {
           'in-memory store for this session: $e\n$st',
     ),
   );
+
+  // Whether the translation engine is reachable, answered once at startup.
+  //
+  // The whole probe is INSIDE the closure on purpose: `devLog` only calls it
+  // when logging is on, so a release build with diagnostics off pays nothing.
+  // A probe placed outside the gate has cost this app real time before.
+  //
+  // Worth answering at boot rather than at first use because the failure it
+  // catches is invisible otherwise: on iOS the archive is linked into the
+  // executable, and an executable exports nothing by default -- a whole
+  // release configuration shipped with the engine inside the binary and
+  // unreachable, and nothing would have said so until somebody tried to
+  // translate and got "unavailable".
+  devLog(() {
+    final library = openTranslateLibrary();
+    return library == null
+        ? 'xVeil[translate]: engine NOT reachable from this build'
+        : 'xVeil[translate]: engine reachable, '
+              '${kRequiredSymbols.length} entry points';
+  });
 
   // Desktop: arm window_manager so the close button can hide to tray
   // (DesktopTrayHost decides) instead of quitting. No-op on mobile.
