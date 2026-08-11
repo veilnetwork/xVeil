@@ -17,6 +17,7 @@ import '../data/storage/kv_log_store.dart' show SlotUtilization;
 import '../data/storage/on_disk_blob_store.dart';
 import '../data/storage/storage.dart';
 import '../data/veil_stack.dart';
+import '../data/vpn/vpn_backend.dart' show VpnBackendPhase;
 import '../domain/storage_compaction_policy.dart';
 import '../domain/identity.dart';
 import '../domain/p2p_policy.dart';
@@ -2264,16 +2265,30 @@ class AppController extends Notifier<AppState> {
   ///
   /// Best-effort and always before the node teardown — a tunnel pointed at a
   /// node that has just gone away is worse than one shut down cleanly.
+  ///
+  /// [VpnController.stopForTeardown], not the UI's `stop`: this call READS the
+  /// VPN provider, so in a session where nothing else touched it the lock builds
+  /// the controller itself — and `stop` would then return on that fresh default
+  /// state without asking the backend anything, while the restore the build just
+  /// scheduled went on to adopt the very tunnel we came to kill (audit XV-H2).
   Future<void> _stopVpnTunnel() async {
     try {
-      await ref
+      final phase = await ref
           .read(vpnControllerProvider.notifier)
-          .stop()
+          .stopForTeardown()
           // Bounded: the tunnel lives behind a platform channel, and a wipe
           // that hangs because the VPN plugin is unresponsive is worse than
           // one that leaves the tunnel up — the user asked for their data
           // gone, and that part does not depend on the OS answering.
           .timeout(const Duration(seconds: 3));
+      // A backend can report `error` without throwing, and that used to pass
+      // unnoticed: the tunnel stays up and nothing in the log says so.
+      if (phase != VpnBackendPhase.stopped) {
+        devLog(
+          () =>
+              'xVeil[vpn]: tunnel did not stop during lock/wipe: ${phase.name}',
+        );
+      }
     } catch (e) {
       devLog(() => 'xVeil[vpn]: stop during lock/wipe failed: $e');
     }

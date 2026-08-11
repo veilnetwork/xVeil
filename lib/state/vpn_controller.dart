@@ -66,16 +66,61 @@ class VpnController extends Notifier<VpnState> {
   bool _disposed = false;
   bool _userChanged = false;
 
+  /// TEARDOWN GENERATION — the same idiom as `AppController._lifecycle`, for the
+  /// one resource in this app that outlives the process: the OS packet tunnel
+  /// (audit XV-H2).
+  ///
+  /// [start] publishes `running` and persists `enabled: true` only AFTER seconds
+  /// of awaits — the transport activation, a SOCKS5 preflight, the native start.
+  /// A lock landing in that window used to change nothing: [stop] opens with
+  /// `if (state.busy || !state.isRunning) return;` and during a start BOTH are
+  /// true — busy is set, and the phase is `starting`, never `running` — so the
+  /// backend was never asked to stop, and the tunnel came up behind the lock
+  /// screen of a device that had just said it was locked.
+  ///
+  /// The deterministic half of it needs no race at all. `_stopVpnTunnel` READS
+  /// this provider, so in a session where nothing else touched the VPN the lock
+  /// itself constructs the notifier: [build] returns the default state
+  /// (`unsupported`, not running), the guard above returns on it synchronously,
+  /// and the [_restoreAndProbe] that [build] scheduled then probes the native
+  /// backend and ADOPTS whatever tunnel it finds — republishing `running` for
+  /// the session the lock had just ended. The lock's own act of reading the
+  /// provider defeated the stop it existed to perform.
+  ///
+  /// So every path that publishes or adopts a tunnel snapshots this counter
+  /// before its first await and, if the snapshot has gone stale by the time it
+  /// holds a result, takes the tunnel down instead of publishing it.
+  /// [stopForTeardown] bumps the counter synchronously, before anything it
+  /// awaits, so neither an in-flight start nor a just-scheduled restore can slip
+  /// past it.
+  int _generation = 0;
+
+  /// The start currently in flight, so a teardown waits for it to be OVER before
+  /// asking the backend to stop: a stop that overtakes the start it means to
+  /// cancel is simply overwritten by it.
+  Future<void>? _inFlight;
+
+  /// True when a session-ending teardown happened since [gen] was taken.
+  bool _superseded(int gen) => gen != _generation;
+
   @override
   VpnState build() {
     ref.onDispose(() => _disposed = true);
+    // Taken HERE, synchronously, because a teardown that reads this provider for
+    // the first time constructs the notifier itself: the bump that follows in
+    // the same synchronous stretch must be visible to the restore below.
+    final gen = _generation;
     // Let NotifierProvider publish the build result before async code reads or
     // writes [state]. Calling it synchronously here races provider init.
-    scheduleMicrotask(() => unawaited(_restoreAndProbe()));
+    scheduleMicrotask(() => unawaited(_restoreAndProbe(gen)));
     return const VpnState();
   }
 
-  Future<void> _restoreAndProbe() async {
+  Future<void> _restoreAndProbe(int gen) async {
+    // A teardown ran between [build] and this microtask — which is the ordinary
+    // case when the teardown is what built us. Adopting a tunnel now would put
+    // `running` back on a session that is over.
+    if (_superseded(gen)) return;
     var policy = state.policy;
     try {
       final prefs = await ref.read(prefsProvider.future);
@@ -93,6 +138,9 @@ class VpnController extends Notifier<VpnState> {
         .waitUntilLoaded();
     final nativeBackend = ref.read(vpnBackendProvider);
     var backend = await nativeBackend.probe();
+    // The teardown that superseded us stops the tunnel itself, unconditionally,
+    // so this probe result — running or not — describes a session that is over.
+    if (_superseded(gen)) return;
     final activePolicy = _userChanged ? state.policy : policy;
     if (backend.isRunning) {
       try {
@@ -119,7 +167,9 @@ class VpnController extends Notifier<VpnState> {
     } else {
       _clearProxyPlan();
     }
-    if (!_disposed) state = VpnState(policy: activePolicy, backend: backend);
+    if (!_disposed && !_superseded(gen)) {
+      state = VpnState(policy: activePolicy, backend: backend);
+    }
   }
 
   Future<void> configure(VpnRoutingPolicy policy) async {
@@ -130,9 +180,20 @@ class VpnController extends Notifier<VpnState> {
     await _persist(policy);
   }
 
-  Future<void> start() async {
+  Future<void> start() {
+    final pending = _start();
+    // Recorded so a teardown can wait for this run to be OVER — not for it to
+    // have succeeded. The error-swallowing copy is the teardown's; the caller
+    // still gets the original future with its error intact.
+    _inFlight = pending.catchError((Object _) {});
+    return pending;
+  }
+
+  Future<void> _start() async {
     if (state.busy || state.isRunning) return;
     if (state.backend.phase == VpnBackendPhase.unsupported) return;
+    // Taken before the first await — see [_generation].
+    final gen = _generation;
     final proxy = ref.read(proxyRoutingProvider);
     if (!state.policy.isValid) {
       state = state.copyWith(
@@ -189,20 +250,43 @@ class VpnController extends Notifier<VpnState> {
       }
       return;
     }
+    // Held across the await: after it, a teardown may have disposed the
+    // container, and the handle to the thing that must be stopped would be gone
+    // with it.
+    final nativeBackend = ref.read(vpnBackendProvider);
     VpnBackendState result;
     try {
-      result = await ref
-          .read(vpnBackendProvider)
-          .start(
-            policy: state.policy,
-            socks5Listen: proxyPlan.defaultListen,
-            exitNodeId: proxyPlan.profiles.first.exitNodeIds.first,
-            exitNodeIds: proxyPlan.profiles.first.exitNodeIds,
-            applicationProxyListens: proxyPlan.applicationListens,
-            obfs4Psk: ref.read(deniableBootProvider)?.obfs4Psk,
-          );
+      result = await nativeBackend.start(
+        policy: state.policy,
+        socks5Listen: proxyPlan.defaultListen,
+        exitNodeId: proxyPlan.profiles.first.exitNodeIds.first,
+        exitNodeIds: proxyPlan.profiles.first.exitNodeIds,
+        applicationProxyListens: proxyPlan.applicationListens,
+        obfs4Psk: ref.read(deniableBootProvider)?.obfs4Psk,
+      );
     } catch (error) {
       result = VpnBackendState(VpnBackendPhase.error, detail: '$error');
+    }
+    if (_superseded(gen)) {
+      // The session ended while the tunnel was coming up. The tunnel lives in
+      // the operating system, so the session ending does not take it with it:
+      // hand it straight back, drop the transport, and above all do NOT persist
+      // `enabled: true` — that flag is what the next launch restores from.
+      try {
+        await nativeBackend.stop();
+      } catch (_) {
+        // Best effort. [stopForTeardown] waited for this run and asks again.
+      }
+      if (_disposed) return;
+      _clearProxyPlan();
+      state = VpnState(
+        policy: state.policy,
+        backend: const VpnBackendState(
+          VpnBackendPhase.stopped,
+          detail: 'the session ended while the VPN tunnel was starting',
+        ),
+      );
+      return;
     }
     if (!result.isRunning && !_disposed) {
       await _setProxyDemand(false);
@@ -229,6 +313,42 @@ class VpnController extends Notifier<VpnState> {
     final applied = state.policy.copyWith(enabled: !stopped);
     state = VpnState(policy: applied, backend: result);
     await _persist(applied);
+  }
+
+  /// Bring the OS tunnel down because the SESSION IS ENDING — lock, start over,
+  /// wipe — and report the phase the backend finished in (audit XV-H2).
+  ///
+  /// Deliberately not [stop]. That one is the UI button, and its opening guard
+  /// (`busy || !isRunning`) is right for a button and wrong for a teardown: a
+  /// teardown must not be talked out of stopping by a tunnel that is mid-start,
+  /// nor by the default state of a controller the teardown itself has just
+  /// built. So the backend is asked unconditionally, and the caller is told what
+  /// it answered instead of the answer being dropped on the floor.
+  ///
+  /// Nothing is persisted here. A lock is not the user turning the VPN off, and
+  /// the policy key is profile-scoped: writing it while the identity underneath
+  /// is being torn down would file this session's posture under whichever scope
+  /// the write happened to resolve to.
+  Future<VpnBackendPhase> stopForTeardown() async {
+    // FIRST, before any await: nothing built under the previous generation may
+    // publish or adopt a tunnel any more. Even if the wait below outlives the
+    // caller's timeout, this bump has already landed and the in-flight start
+    // tears its own tunnel down when it returns.
+    _generation++;
+    // Read now, while the container is certainly alive.
+    final nativeBackend = ref.read(vpnBackendProvider);
+    // A start past its guards owns the backend until it returns; it now knows it
+    // is superseded and stops what it started. Stopping underneath it would only
+    // be undone by it.
+    await _inFlight;
+    final result = await nativeBackend.stop();
+    if (!_disposed) {
+      // A tunnel that did NOT stop still needs its local transport, exactly as
+      // in [stop]: pulling it out from under a live tunnel blackholes traffic.
+      if (result.phase == VpnBackendPhase.stopped) _clearProxyPlan();
+      state = VpnState(policy: state.policy, backend: result);
+    }
+    return result.phase;
   }
 
   Future<void> refresh() async {
