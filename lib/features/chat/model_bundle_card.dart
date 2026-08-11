@@ -7,6 +7,8 @@ import '../../data/veil_bundle.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/model_import.dart';
 import '../../state/model_message.dart';
+import '../../state/translation_model_controller.dart' show translationBundlePickerProvider;
+import 'model_provenance_dialog.dart';
 import '../../state/providers.dart';
 
 /// A model that arrived in a chat: what it claims to be, and a way to install
@@ -71,8 +73,52 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
         bytes,
         name: widget.fileName ?? 'received.veiltranslate',
       );
-      final result = await installReceivedModel(staged, into: targetsFromWidgetRef(ref));
+      var result = await installReceivedModel(
+        staged,
+        into: targetsFromWidgetRef(ref),
+      );
       if (!mounted) return;
+      if (result.needsDecision) {
+        // Nothing has been installed at this point. The bundle's own hashes
+        // check out — what is unsettled is whether it is the PUBLISHED model,
+        // which the manifest cannot answer because the sender wrote it.
+        final choice = await askAboutProvenance(context, result.verdict!);
+        if (!mounted) return;
+        switch (choice) {
+          case ProvenanceChoice.installAnyway:
+            result = await installReceivedModel(
+              staged,
+              into: targetsFromWidgetRef(ref),
+              acceptUnverified: true,
+            );
+            if (!mounted) return;
+          case ProvenanceChoice.loadManually:
+            final path = await ref.read(translationBundlePickerProvider)();
+            if (!mounted) return;
+            if (path == null) return;
+            // A file the person chose themselves, from wherever they trust.
+            // Held to the same standard: choosing it says where it came from,
+            // not that it is the published artifact.
+            result = await installReceivedModel(
+              File(path),
+              into: targetsFromWidgetRef(ref),
+            );
+            if (!mounted) return;
+            if (result.needsDecision) {
+              final again = await askAboutProvenance(context, result.verdict!);
+              if (!mounted) return;
+              if (again != ProvenanceChoice.installAnyway) return;
+              result = await installReceivedModel(
+                File(path),
+                into: targetsFromWidgetRef(ref),
+                acceptUnverified: true,
+              );
+              if (!mounted) return;
+            }
+          case ProvenanceChoice.cancel:
+            return;
+        }
+      }
       setState(() {
         _installed = result.succeeded;
         _error = result.error;
