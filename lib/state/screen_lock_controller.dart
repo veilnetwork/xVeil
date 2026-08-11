@@ -68,6 +68,12 @@ class ScreenLockState {
   /// is torn down — see [ScreenLockController].
   final bool locked;
 
+  /// Whether the last thing SUBMITTED was compared and came back no.
+  ///
+  /// Not "the last thing that was looked at": the field it drives sits under
+  /// the box, so it reads as a verdict on the text in the box right now. An
+  /// attempt refused unread replaces a verdict with the absence of one — see
+  /// [ScreenLockController.tryUnlock].
   final bool wrongPassword;
 
   ScreenLockState copyWith({
@@ -258,7 +264,25 @@ class ScreenLockController extends Notifier<ScreenLockState> {
     // cheap — see [ScreenLockVerifier] — so the only thing standing between a
     // weak PIN and UI automation is how often it may be asked.
     if (throttleRemaining > Duration.zero) {
-      state = state.copyWith(wrongPassword: true);
+      // CLEARED, not set. This line used to say `wrongPassword: true`, and it
+      // was measured on an Android phone: wrong answers until a wait is owed,
+      // then the CORRECT password, refused by the throttle and counted down
+      // honestly — and at the tick the countdown expired the field flipped to
+      // "wrong password" with that correct password still visible in the box,
+      // nobody having touched the phone. The countdown had only been covering
+      // the claim; running out uncovered it.
+      //
+      // Nothing was compared here — the return above the HMAC is the whole
+      // point of the throttle — so the app has no opinion to hold, and the
+      // one it was holding is about a different string than the one now in the
+      // box. What replaces it is nothing at all: no verdict is the truth, and
+      // the button coming back live is already the invitation to try again.
+      //
+      // Scoped to THIS event, deliberately. A person who gets it wrong and
+      // then just waits still sees "wrong password" when the wait ends, and
+      // should: that answer was reached, about the text still in front of
+      // them. Clearing on the countdown instead would throw it away.
+      state = state.copyWith(wrongPassword: false);
       return false;
     }
     final verifier = _verifier;
