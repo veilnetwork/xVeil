@@ -560,6 +560,25 @@ extension _MessagingInboundDispatch on MessagingService {
           endpointsHandler(m.src, env.body);
         }
         return;
+      case WireKind.modelInventoryRequest:
+        // "What models have you got?" Accepted contacts only: the answer names
+        // the languages this device holds, which says something about who is
+        // reading what, and that is not a question a stranger gets to ask.
+        //
+        // Nothing is acked or stored. If no service is attached the question
+        // is simply not answered — silence is a legitimate response here, and
+        // it is indistinguishable from having no models, which is the point.
+        if (existing?.status != ContactStatus.accepted) return;
+        onModelInventoryRequest?.call(m.src);
+        return;
+      case WireKind.modelInventoryOffer:
+        // An answer. Contact-gated for the same reason and, at the service,
+        // matched against a question this device actually asked — an
+        // unsolicited list is a way to put entries in front of someone who
+        // never opened the screen.
+        if (existing?.status != ContactStatus.accepted) return;
+        onModelInventoryOffer?.call(m.src, env.body);
+        return;
       case WireKind.spaceInvite:
         // A proposal, not authorization. Keep it contact-gated and let the
         // Space layer validate the authenticated sender and explicit target.
