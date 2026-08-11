@@ -524,6 +524,13 @@ Future<BootstrapResult> _bootstrapOverrides() async {
             bundledSeeds: bundledSeeds,
             useBundledSeeds: ref.watch(bundledSeedsChoiceProvider),
           ),
+          // The two halves, kept APART as well as merged. The merged list above
+          // is the pre-unlock one — it can only be built from one answer, and
+          // this process may host several identities that answered differently.
+          // Each boot path rebuilds its identity's own list from these
+          // ([DeniableBootConfig.peersFor]).
+          operatorPeers: operatorPeers,
+          bundledSeeds: bundledSeeds,
           udpReflectors: udpReflectors,
           obfs4Psk: (obfs4Psk != null && obfs4Psk.isNotEmpty) ? obfs4Psk : null,
         ),

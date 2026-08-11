@@ -2668,10 +2668,10 @@
   "seedsUseTitle": "Usar los nodos de entrada compartidos (recomendado)",
   "seedsUseBody": "La aplicación se conecta sola, sin que tengas que configurar nada. Esos nodos los mantiene el proyecto, y se enteran de que existe un nodo tuyo y desde qué dirección se conecta; no de quién eres ni de lo que envías.",
   "seedsDeclineTitle": "Solo los nodos que añada yo",
-  "seedsDeclineBody": "No se contacta con ningún nodo compartido, así que el servidor de nadie más sabrá que esta identidad existe. Nada funciona hasta que añadas un nodo tú: no se podrán enviar mensajes ni llegará ninguno.",
+  "seedsDeclineBody": "Para esta identidad no se contacta con ningún nodo compartido, así que el servidor de nadie más sabrá que existe. Tus otras identidades no se ven afectadas. Nada funciona hasta que añadas un nodo tú: no se podrán enviar mensajes ni llegará ninguno.",
   "seedsChoiceChangeLater": "Puedes cambiarlo más adelante en los ajustes de red.",
   "seedsReofferTitle": "Esta identidad no puede llegar a la red",
-  "seedsReofferBody": "Elegiste usar solo nodos añadidos por ti, y no has añadido ninguno. Mientras no lo hagas, no se puede enviar ni recibir ningún mensaje. Puedes añadir tu nodo ahora o usar después de todo los nodos de entrada compartidos: se enteran de que existe un nodo tuyo y desde qué dirección se conecta.",
+  "seedsReofferBody": "Elegiste usar solo nodos añadidos por ti, y no has añadido ninguno. Mientras no lo hagas, no se puede enviar ni recibir ningún mensaje. Puedes añadir tu nodo ahora o usar después de todo los nodos de entrada compartidos: se enteran de que existe un nodo tuyo y desde qué dirección se conecta. Elijas lo que elijas, la respuesta se guarda solo para esta identidad.",
   "seedsReofferUse": "Usar los nodos compartidos",
   "seedsReofferKeep": "Mantener mi elección",
   "seedsReofferDontAsk": "No volver a mostrar",
@@ -2680,7 +2680,7 @@
   "seedsNoNodeAction": "Añadir mi nodo",
   "seedsSaveFailed": "No se pudo guardar esa elección. Solo se aplica a esta sesión.",
   "seedsSwitchTitle": "Usar los nodos de entrada compartidos",
-  "seedsSwitchOnSub": "Activado: la aplicación encuentra la red por su cuenta. Los nodos del proyecto se enteran de que existe un nodo tuyo y desde qué dirección se conecta.",
-  "seedsSwitchOffSub": "Desactivado: solo los nodos que añadas tú. No habrá conexión hasta que añadas uno.",
+  "seedsSwitchOnSub": "Activado para esta identidad: la aplicación encuentra la red por su cuenta. Los nodos del proyecto se enteran de que existe un nodo tuyo y desde qué dirección se conecta.",
+  "seedsSwitchOffSub": "Desactivado para esta identidad: solo los nodos que añadas tú. No habrá conexión hasta que añadas uno. Tus otras identidades no se ven afectadas.",
   "seedsSwitchSaveFailed": "No se pudo guardar el cambio, así que no se ha aplicado."
 }

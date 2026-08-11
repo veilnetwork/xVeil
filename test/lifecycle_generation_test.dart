@@ -196,7 +196,7 @@ _OneActive _oneActiveHarness() {
   final node = _StubNode();
   final gate = Completer<void>();
   var entered = false;
-  ctrl.debugDeniableStackStarter = () async {
+  ctrl.debugDeniableStackStarter = (plan) async {
     entered = true;
     await gate.future;
     return RealVeilStack.overParts(
@@ -291,7 +291,7 @@ Future<_AllOnline> _allOnlineHarness() async {
           required storePath,
           required runtimeDir,
           required listenPort,
-          required bootstrapPeers,
+          required peersFor,
           obfs4Psk,
           required udpReflectors,
           required lazyMining,

@@ -6,6 +6,8 @@ import '../data/serve_source.dart';
 
 import 'dart:async';
 
+import '../data/node/bundled_seeds.dart'
+    show IdentityPeers, kBundledSeedsDefault, planIdentitySeeds;
 import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
 import '../data/node/proxy_routing.dart';
 import '../data/storage/hidden_volume_storage.dart';
@@ -31,6 +33,7 @@ class IdentityBootSpec {
     required this.runtimeBase,
     required this.listenPort,
     required this.anonymous,
+    this.useBundledSeeds = kBundledSeedsDefault,
     this.bootstrapPeers = const [],
     this.obfs4Psk,
     this.udpReflectors = const [],
@@ -46,6 +49,21 @@ class IdentityBootSpec {
   final String runtimeBase;
   final int listenPort;
   final bool anonymous;
+
+  /// THIS identity's answer to the shared-seed question, read from its own
+  /// space — not the session's, and not the profile's.
+  ///
+  /// Per spec, because it has to be: with several identities online at once a
+  /// single session-wide answer was resolved once and handed to every node, so
+  /// two identities could not disagree and the last write won for all of them.
+  /// It decides `builtin_seed_policy` in the composed config, which is the half
+  /// [bootstrapPeers] cannot express — an empty list alone is the condition
+  /// under which veil dials its compiled-in seeds anyway.
+  final bool useBundledSeeds;
+
+  /// Built from [useBundledSeeds], per identity — a refuser's spec never holds
+  /// the shared descriptors at all, so nothing downstream has an address it
+  /// could decide to fall back to.
   final List<BootstrapPeerCfg> bootstrapPeers;
 
   /// Session-wide node config the all-online boot must apply per identity, in
@@ -57,6 +75,13 @@ class IdentityBootSpec {
   final bool lazyMining;
   final ProxyRouting proxy;
 }
+
+/// No peer list at all — the default for a session nobody handed one to (tests,
+/// and any build with neither operator peers nor bundled seeds). Deliberately
+/// not "the shared list": a default that hands out addresses is how one
+/// identity's answer reached another's node.
+List<BootstrapPeerCfg> _noPeers(bool useBundledSeeds) =>
+    const <BootstrapPeerCfg>[];
 
 /// A booted identity node: its overlay [transport] (drives that identity's
 /// messaging), the optional [stack] (for its invite/status — null in tests),
@@ -74,16 +99,34 @@ class IdentityNode {
   final RealVeilStack? stack;
 }
 
+/// This identity's storage view over the already-open space, by space id.
+///
+/// The plan needs it because the shared-seed answer lives in the SPACE: the
+/// storage exists as soon as the space is open, which is before any node boots,
+/// so the peer list can be built per identity rather than handed down whole.
+/// The session hands over its own cache, so the view the plan reads is the very
+/// one the boot then uses.
+typedef IdentityStorage = Storage Function(int spaceId);
+
 /// Plan the boots for a whole roster over a shared [backing]: open each
-/// identity's space (hosting it) and assign it a distinct runtime dir + listen
-/// port (offset by index) so N nodes can run at once on one host. Pure aside
-/// from `backing.openSpace`, so it is unit-testable with a fake backing.
+/// identity's space (hosting it), read that identity's own shared-seed answer
+/// out of it, and assign it a distinct runtime dir + listen port (offset by
+/// index) so N nodes can run at once on one host. Pure aside from
+/// `backing.openSpace` and that read, so it is unit-testable with a fake
+/// backing.
+///
+/// [peersFor] BUILDS the list from each identity's answer instead of taking one
+/// finished list for the session. That list used to be resolved once, from the
+/// profile preference, and stamped onto every spec — so an identity that had
+/// refused the shared seeds was handed them anyway whenever another identity in
+/// the same session had not.
 Future<List<IdentityBootSpec>> planIdentityBoots(
   List<RosterEntry> roster,
   AsyncMultiSpaceBacking backing, {
   required String runtimeDirBase,
   required int listenPortBase,
-  List<BootstrapPeerCfg> bootstrapPeers = const [],
+  required IdentityStorage storageFor,
+  required IdentityPeers peersFor,
   String? obfs4Psk,
   List<String> udpReflectors = const [],
   bool lazyMining = false,
@@ -91,11 +134,17 @@ Future<List<IdentityBootSpec>> planIdentityBoots(
 }) async {
   final out = <IdentityBootSpec>[];
   for (var i = 0; i < roster.length; i++) {
+    final spaceId = await backing.openSpace(roster[i].spaceKeys);
+    final seeds = await planIdentitySeeds(
+      storage: storageFor(spaceId),
+      peersFor: peersFor,
+    );
     out.add(
       IdentityBootSpec(
         label: roster[i].label,
-        spaceId: await backing.openSpace(roster[i].spaceKeys),
-        bootstrapPeers: bootstrapPeers,
+        spaceId: spaceId,
+        useBundledSeeds: seeds.useBundledSeeds,
+        bootstrapPeers: seeds.bootstrapPeers,
         obfs4Psk: obfs4Psk,
         udpReflectors: udpReflectors,
         lazyMining: lazyMining,
@@ -140,6 +189,10 @@ Future<IdentityNode> _realBoot(IdentityBootSpec spec, Storage storage) async {
     udpReflectors: spec.udpReflectors,
     obfs4Psk: spec.obfs4Psk,
     proxy: spec.proxy,
+    // Already resolved from THIS identity's space when the plan was made, over
+    // the same storage view. Passed rather than re-read so the policy line and
+    // the peer list above cannot come from two different answers.
+    useBundledSeeds: spec.useBundledSeeds,
   );
   return IdentityNode(
     transport: stack.transport,
@@ -167,7 +220,7 @@ class MultiIdentitySession {
     Directory? blobRoot,
     Duration bootTimeout = _defaultBootTimeout,
     Duration disposeBudget = _defaultDisposeBudget,
-    List<BootstrapPeerCfg> bootstrapPeers = const [],
+    IdentityPeers peersFor = _noPeers,
     String? obfs4Psk,
     List<String> udpReflectors = const [],
     bool lazyMining = false,
@@ -178,7 +231,7 @@ class MultiIdentitySession {
        _blobRoot = blobRoot,
        _bootTimeout = bootTimeout,
        _disposeBudget = disposeBudget,
-       _bootstrapPeers = bootstrapPeers,
+       _peersFor = peersFor,
        _obfs4Psk = obfs4Psk,
        _udpReflectors = udpReflectors,
        _lazyMining = lazyMining,
@@ -203,7 +256,10 @@ class MultiIdentitySession {
 
   final String _runtimeDirBase;
   final int _listenPortBase;
-  final List<BootstrapPeerCfg> _bootstrapPeers;
+
+  /// Builds one identity's peer list from ITS answer. A finished list would be
+  /// the defect: it can only be built once, from one answer, for everybody.
+  final IdentityPeers _peersFor;
 
   /// Session-wide node config applied to every always-online node, kept in
   /// lockstep with the single-identity boot (obfs4 PSK to join the network,
@@ -229,6 +285,16 @@ class MultiIdentitySession {
   final _nodes = <String, IdentityNode>{};
   final _messaging = <String, MessagingService>{};
 
+  /// The shared-seed answer each identity's node was actually booted with,
+  /// resolved from that identity's own space.
+  ///
+  /// Kept so the UI can follow a switch without re-reading the container: the
+  /// screens render the live value, and leaving it on the previously shown
+  /// identity's answer is the same misstatement the per-space answer exists to
+  /// end. Null for an identity this session never planned.
+  final _bundledSeeds = <String, bool>{};
+  bool? usesBundledSeeds(String label) => _bundledSeeds[label];
+
   List<String> get labels => _storages.keys.toList(growable: false);
   Storage? storageFor(String label) => _storages[label];
   RealVeilStack? stackFor(String label) => _nodes[label]?.stack;
@@ -239,28 +305,42 @@ class MultiIdentitySession {
   /// concurrently. Best-effort per identity: a boot failure logs and skips that
   /// identity's node/messaging but keeps its storage view hosted.
   Future<void> bootAll(List<RosterEntry> roster) async {
+    // One view per space, made where the space is opened and reused by the boot.
+    //
+    // The plan needs it: an identity's shared-seed answer lives in ITS space,
+    // and the answer decides the peer list its node is composed with. Building
+    // the view here — rather than after planning, as the loop used to — is what
+    // makes "before its node boots" true, and hands the plan and the boot the
+    // SAME handle, so a migration written during the plan is visible to the boot.
+    final views = <int, Storage>{};
+    Storage viewOf(int spaceId) => views.putIfAbsent(spaceId, () {
+      // Each identity's storage view routes its ops to the shared backing's
+      // worker isolate (off the UI thread) via AsyncMultiSpaceKvLogStore.
+      final storage = HiddenVolumeStorage.fromAsyncStore(
+        AsyncMultiSpaceKvLogStore(_backing, spaceId),
+      );
+      // Same tier the single-space boot uses — without it this identity cannot
+      // read the large files it already stored (XV-02).
+      final blobRoot = _blobRoot;
+      if (blobRoot != null) storage.useOnDiskTier(blobRoot);
+      return storage;
+    });
     final specs = await planIdentityBoots(
       roster,
       _backing,
       runtimeDirBase: _runtimeDirBase,
       listenPortBase: _listenPortBase,
-      bootstrapPeers: _bootstrapPeers,
+      storageFor: viewOf,
+      peersFor: _peersFor,
       obfs4Psk: _obfs4Psk,
       udpReflectors: _udpReflectors,
       lazyMining: _lazyMining,
       proxy: _proxy,
     );
     for (final spec in specs) {
-      // Each identity's storage view routes its ops to the shared backing's
-      // worker isolate (off the UI thread) via AsyncMultiSpaceKvLogStore.
-      final storage = HiddenVolumeStorage.fromAsyncStore(
-        AsyncMultiSpaceKvLogStore(_backing, spec.spaceId),
-      );
-      // Same tier the single-space boot uses — without it this identity cannot
-      // read the large files it already stored (XV-02).
-      final blobRoot = _blobRoot;
-      if (blobRoot != null) storage.useOnDiskTier(blobRoot);
+      final storage = viewOf(spec.spaceId);
       _storages[spec.label] = storage;
+      _bundledSeeds[spec.label] = spec.useBundledSeeds;
       try {
         // Bound the boot: a node that can't bind its port (e.g. one just freed
         // by a previous mode) otherwise retries the admin-connect for ~90s and
@@ -428,6 +508,7 @@ class MultiIdentitySession {
     _messaging.clear();
     _nodes.clear();
     _storages.clear();
+    _bundledSeeds.clear();
     try {
       await _backing.close().timeout(_disposeBudget);
     } catch (e) {

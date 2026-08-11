@@ -280,14 +280,22 @@ class _BundledSeedsReofferDialogState
   ///
   /// The stored answer and the live provider are both updated: the provider is
   /// what rebuilds the boot config, so the seeds are available to the next node
-  /// boot without waiting for a restart, and the preference is what survives
+  /// boot without waiting for a restart, and the stored answer is what survives
   /// one. Suppression is irrelevant here — the prompt cannot fire again for an
   /// identity that is using the seeds — but an unticked box must not silently
   /// clear a suppression the person set earlier, so it is only ever written on.
+  ///
+  /// Written into the ACTIVE identity's own space. This dialog speaks for the
+  /// identity in front of the person; a profile-level write would have answered
+  /// on behalf of every other identity in the same container, including a decoy
+  /// master, none of which was asked.
   Future<void> _accept() async {
     if (_busy) return;
     setState(() => _busy = true);
-    final saved = await setBundledSeedsAllowed(true);
+    final saved = await setBundledSeedsAllowedFor(
+      ref.read(storageProvider),
+      true,
+    );
     if (!mounted) return;
     ref.read(bundledSeedsChoiceProvider.notifier).state = true;
     if (!saved) {

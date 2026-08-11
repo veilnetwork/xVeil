@@ -6337,7 +6337,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get seedsDeclineBody =>
-      'No se contacta con ningún nodo compartido, así que el servidor de nadie más sabrá que esta identidad existe. Nada funciona hasta que añadas un nodo tú: no se podrán enviar mensajes ni llegará ninguno.';
+      'Para esta identidad no se contacta con ningún nodo compartido, así que el servidor de nadie más sabrá que existe. Tus otras identidades no se ven afectadas. Nada funciona hasta que añadas un nodo tú: no se podrán enviar mensajes ni llegará ninguno.';
 
   @override
   String get seedsChoiceChangeLater =>
@@ -6348,7 +6348,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get seedsReofferBody =>
-      'Elegiste usar solo nodos añadidos por ti, y no has añadido ninguno. Mientras no lo hagas, no se puede enviar ni recibir ningún mensaje. Puedes añadir tu nodo ahora o usar después de todo los nodos de entrada compartidos: se enteran de que existe un nodo tuyo y desde qué dirección se conecta.';
+      'Elegiste usar solo nodos añadidos por ti, y no has añadido ninguno. Mientras no lo hagas, no se puede enviar ni recibir ningún mensaje. Puedes añadir tu nodo ahora o usar después de todo los nodos de entrada compartidos: se enteran de que existe un nodo tuyo y desde qué dirección se conecta. Elijas lo que elijas, la respuesta se guarda solo para esta identidad.';
 
   @override
   String get seedsReofferUse => 'Usar los nodos compartidos';
@@ -6378,11 +6378,11 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get seedsSwitchOnSub =>
-      'Activado: la aplicación encuentra la red por su cuenta. Los nodos del proyecto se enteran de que existe un nodo tuyo y desde qué dirección se conecta.';
+      'Activado para esta identidad: la aplicación encuentra la red por su cuenta. Los nodos del proyecto se enteran de que existe un nodo tuyo y desde qué dirección se conecta.';
 
   @override
   String get seedsSwitchOffSub =>
-      'Desactivado: solo los nodos que añadas tú. No habrá conexión hasta que añadas uno.';
+      'Desactivado para esta identidad: solo los nodos que añadas tú. No habrá conexión hasta que añadas uno. Tus otras identidades no se ven afectadas.';
 
   @override
   String get seedsSwitchSaveFailed =>

@@ -11012,7 +11012,7 @@ abstract class AppL10n {
   /// **'How this device finds the network'**
   String get seedsChoiceTitle;
 
-  /// Explains why the question is being asked at all: there is no central server to fall back on.
+  /// Explains why the question is being asked at all: there is no central server to fall back on. Deliberately NOT lengthened with the scope sentence — this step is the one that has to fit on a 407x904 phone, and the scope is stated in the option bodies below.
   ///
   /// In en, this message translates to:
   /// **'xVeil has no central server, so a new device needs at least one node it can reach before anything else can happen. Choose how this identity gets its first one.'**
@@ -11036,10 +11036,10 @@ abstract class AppL10n {
   /// **'Only nodes I add myself'**
   String get seedsDeclineTitle;
 
-  /// What refusing costs: nothing works until the person adds a node themselves.
+  /// What refusing costs, and how far it reaches: this identity only — the answer is stored in this identity's own space, not for the device.
   ///
   /// In en, this message translates to:
-  /// **'No shared node is contacted, so nobody else\'s server learns that this identity exists. Nothing works until you add a node yourself: messages cannot be sent and none will arrive.'**
+  /// **'No shared node is contacted for this identity, so nobody else\'s server learns that it exists. Other identities are unaffected. Nothing works until you add a node yourself: messages cannot be sent and none will arrive.'**
   String get seedsDeclineBody;
 
   /// Reassurance that the choice is not permanent.
@@ -11054,10 +11054,10 @@ abstract class AppL10n {
   /// **'This identity cannot reach the network'**
   String get seedsReofferTitle;
 
-  /// Body of that prompt: says why the app is not working and what the two ways out cost.
+  /// Body of that prompt: says why the app is not working, what the two ways out cost, and that the answer is stored for this identity alone.
   ///
   /// In en, this message translates to:
-  /// **'You chose to use only nodes you add yourself, and none has been added. Until one is, no message can be sent or received. You can add your own node now, or use the shared entry nodes after all — they learn that a node of yours exists and which address it connects from.'**
+  /// **'You chose to use only nodes you add yourself, and none has been added. Until one is, no message can be sent or received. You can add your own node now, or use the shared entry nodes after all — they learn that a node of yours exists and which address it connects from. Whichever you pick answers for this identity only.'**
   String get seedsReofferBody;
 
   /// Button that switches this identity onto the shared seed nodes.
@@ -11108,16 +11108,16 @@ abstract class AppL10n {
   /// **'Use the shared entry nodes'**
   String get seedsSwitchTitle;
 
-  /// Subtitle of that switch while the shared entry nodes are in use: what keeping them costs.
+  /// Subtitle of that switch while the shared entry nodes are in use: what keeping them costs, and that it is answered per identity.
   ///
   /// In en, this message translates to:
-  /// **'On: the app finds the network on its own. The project\'s nodes learn that a node of yours exists and which address it connects from.'**
+  /// **'On for this identity: the app finds the network on its own. The project\'s nodes learn that a node of yours exists and which address it connects from.'**
   String get seedsSwitchOnSub;
 
-  /// Subtitle of that switch while the shared entry nodes are refused: what refusing costs.
+  /// Subtitle of that switch while the shared entry nodes are refused: what refusing costs, and that it is answered per identity.
   ///
   /// In en, this message translates to:
-  /// **'Off: only nodes you add yourself. Nothing connects until you add one.'**
+  /// **'Off for this identity: only nodes you add yourself. Nothing connects until you add one. Your other identities are unaffected.'**
   String get seedsSwitchOffSub;
 
   /// Shown when the preference store refuses the write, and the switch therefore stays where it was.

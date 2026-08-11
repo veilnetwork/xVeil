@@ -7,7 +7,7 @@ import 'package:xveil/core/cleanup_legs.dart';
 import 'package:xveil/core/posix_file_facts.dart';
 
 import 'native_libs.dart' show openEnvLib, processLibFor;
-import 'node/bundled_seeds.dart' show bundledSeedsAllowed;
+import 'node/bundled_seeds.dart' show bundledSeedsAllowedFor;
 import 'node/embedded_node.dart';
 import 'node/node_controller.dart';
 import 'node/proxy_routing.dart';
@@ -113,7 +113,6 @@ class LocalEndpointPlan {
       ? 'tcp://127.0.0.1:0?runtime_dir=$runtimeDir'
       : adminSocket(runtimeDir);
 }
-
 
 /// `chmod 700`, through libc. Null when the mode was applied, otherwise WHY it
 /// was not.
@@ -807,17 +806,25 @@ class RealVeilStack {
     // deniable container like the mined one always has).
     String? identityPhrase,
     // Whether this identity may reach the network through the SHARED seed
-    // nodes. Null resolves it from the profile's own preference, which is what
-    // every real boot wants: the node config is composed down here, below the
-    // providers, and resolving it at this one point is what makes the opt-out
-    // impossible for a caller to forget. Tests pass it explicitly.
+    // nodes. Null resolves it from THIS identity's own space — the [storage]
+    // this boot already holds open — which is what every real boot wants: the
+    // node config is composed down here, below the providers, and resolving it
+    // at this one point is what makes the opt-out impossible for a caller to
+    // forget. Callers that resolved it themselves (both app boot paths, which
+    // need the same answer to build the peer list) pass it in rather than
+    // reading twice; tests pass it explicitly.
+    //
+    // Resolved from the SPACE and not from a preference: the preference store is
+    // one file per app profile, so a decoy master — another space in the same
+    // container — used to inherit the real identity's answer from it, and two
+    // identities online at once could not disagree at all.
     //
     // It is NOT enough to hand over an empty peer list — see
     // [EmbeddedNode.withBuiltinSeedPolicy] for the compiled-in seeds the node
     // would otherwise dial entirely on its own.
     bool? useBundledSeeds,
   }) async {
-    final seedsAllowed = useBundledSeeds ?? await bundledSeedsAllowed();
+    final seedsAllowed = useBundledSeeds ?? await bundledSeedsAllowedFor(storage);
     // Time each phase so the log pinpoints where a slow boot/switch goes (the
     // boot is mining-free when the identity already exists, so a slow switch is
     // the node bind/connect, not PoW). Zero-cost diagnostic; reads at a glance.

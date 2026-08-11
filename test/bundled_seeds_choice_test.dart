@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -10,7 +11,15 @@ import 'package:xveil/data/node/bundled_seeds.dart';
 import 'package:xveil/data/node/embedded_node.dart';
 import 'package:xveil/data/node/managed_node.dart';
 import 'package:xveil/data/node/node_controller.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/multi_space_store.dart';
+import 'package:xveil/data/storage/storage.dart';
+import 'package:xveil/data/transport/bootstrap_invite.dart';
+import 'package:xveil/data/transport/veil_transport.dart';
+import 'package:xveil/data/veil_stack.dart';
 import 'package:xveil/domain/identity.dart';
+import 'package:xveil/domain/roster.dart';
+import 'package:xveil/state/multi_identity_session.dart';
 import 'package:xveil/features/network/network_screen.dart';
 import 'package:xveil/features/onboarding/bundled_seeds_choice.dart';
 import 'package:xveil/features/onboarding/onboarding_screen.dart';
@@ -20,6 +29,9 @@ import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/managed_nodes_controller.dart';
 import 'package:xveil/state/providers.dart';
 
+import 'support/fake_hv_container.dart';
+import 'support/fake_multi_space.dart';
+import 'support/fake_setting_storage.dart';
 import 'support/onboarding_walk.dart';
 
 /// The choice between reaching the network through the project's shared seed
@@ -214,7 +226,14 @@ void main() {
     });
   });
 
-  group('the answer is persisted for the identity that gave it', () {
+  // Renamed: this group asserted a round-trip through the PROFILE preference
+  // and nothing whatever about scope, under a title that claimed the answer
+  // belonged to the identity that gave it. It did not — one file per app
+  // profile was handed to every identity in the process — and a title that
+  // states the property nobody checked is how the scope defect survived a full
+  // test suite. What the preference is now is the pre-unlock fallback; the
+  // identity's own answer is asserted further down, against its space.
+  group('the pre-unlock answer is persisted for the profile', () {
     test('absent means yes, so an existing install is untouched', () async {
       expect(await bundledSeedsAllowed(), isTrue);
       expect(await bundledSeedsReofferSuppressed(), isFalse);
@@ -468,7 +487,11 @@ void main() {
       expect(find.byType(BundledSeedsReofferDialog), findsNothing);
     });
 
-    testWidgets('accepting after all puts the identity back on the seeds', (
+    // Renamed for the same reason as the group above: it says "the identity"
+    // and asserts a profile-wide preference plus a live provider. Which
+    // identity the dialog answered for is asserted where it can be — against
+    // the space, in "the answer belongs to the identity".
+    testWidgets('accepting after all records the answer and the live config', (
       tester,
     ) async {
       await setBundledSeedsAllowed(false);
@@ -545,7 +568,9 @@ void main() {
       await tester.tap(find.byType(SwitchListTile));
       await tester.pumpAndSettle();
 
-      // Survives a restart, per identity, under the key a wipe clears.
+      // Survives a restart, under the key a wipe clears. No container is open
+      // in this widget test, so the write lands in the pre-unlock fallback —
+      // which is exactly the path the switch takes when nothing is unlocked.
       expect(await bundledSeedsAllowed(), isFalse);
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getBool(kBundledSeedsPrefKey), isFalse);
@@ -756,4 +781,441 @@ void main() {
       expect(bar.thumbVisibility, isTrue);
     });
   });
+
+  group('the answer belongs to the identity, not the profile', () {
+    // The defect these are for: the answer was a PREFERENCE, and preferences
+    // are separated by which file is installed — once per process, per app
+    // profile, which the codebase itself documents as a directory choice and
+    // not an identity. So one answer was handed to every identity at once: two
+    // could not disagree, the last write won for all of them, and a duress
+    // master — another space in the SAME container — inherited the real
+    // identity's network posture, which is the one thing a decoy must not do.
+    //
+    // Every assertion below therefore names WHICH identity, and the profile
+    // preference is deliberately left saying the opposite of the space, so a
+    // path that still reads the old key cannot pass.
+
+    /// One identity's storage view over a hosted space.
+    Storage viewOf(FakeMultiSpaceBacking backing, Uint8List keys) =>
+        HiddenVolumeStorage.fromStore(
+          MultiSpaceKvLogStore(backing, backing.openSpace(keys)),
+        );
+
+    test(
+      'ALL-ONLINE: a refuser and an allower boot from one container, and each '
+      'node is composed with its OWN answer',
+      () async {
+        // The profile says YES, loudly, so nothing here can pass by reading it.
+        SharedPreferences.setMockInitialValues({
+          'network.bundled_seeds.v1': true,
+        });
+        final backing = FakeMultiSpaceBacking();
+        await viewOf(
+          backing,
+          _spaceKeys(1),
+        ).putSetting(kBundledSeedsSettingKey, 'false');
+        await viewOf(
+          backing,
+          _spaceKeys(2),
+        ).putSetting(kBundledSeedsSettingKey, 'true');
+
+        final booted = <String, IdentityBootSpec>{};
+        final session = MultiIdentitySession(
+          SyncWrappedAsyncMultiSpaceBacking(backing),
+          runtimeDirBase: '/run',
+          listenPortBase: 9000,
+          // What main() hands down: the two halves, kept apart, so each
+          // identity's list is BUILT from its own answer.
+          peersFor: (allowed) => resolveBootstrapPeers(
+            operatorPeers: const [_mine],
+            bundledSeeds: const [_seed1, _seed2],
+            useBundledSeeds: allowed,
+          ),
+          boot: (spec, storage) async {
+            booted[spec.label] = spec;
+            return IdentityNode(
+              transport: _NoopTransport(),
+              dispose: () async {},
+            );
+          },
+        );
+        addTearDown(session.disposeAll);
+
+        await session.bootAll([
+          RosterEntry(label: 'refuser', spaceKeys: _spaceKeys(1)),
+          RosterEntry(label: 'allower', spaceKeys: _spaceKeys(2)),
+        ]);
+
+        // The refuser's node is handed NO shared descriptor — not a filtered
+        // list, no list containing them at all — and is forbidden the
+        // compiled-in ones, which is the half an empty list cannot express.
+        expect(
+          booted['refuser']!.bootstrapPeers.map((p) => p.publicKey),
+          ['MINE='],
+          reason: 'an identity that refused the shared seeds was handed them '
+              'because another identity in the same container had not',
+        );
+        expect(booted['refuser']!.useBundledSeeds, isFalse);
+        expect(
+          EmbeddedNode.withBuiltinSeedPolicy(
+            '[global]\nbuiltin_seed_policy = "auto"\n',
+            booted['refuser']!.useBundledSeeds,
+          ),
+          contains('builtin_seed_policy = "never"'),
+        );
+
+        // ...and the allower, in the same container and the same session, gets
+        // them. Both halves, or "nobody gets seeds" would pass this too.
+        expect(booted['allower']!.bootstrapPeers.map((p) => p.publicKey), [
+          'MINE=',
+          'SEED1=',
+          'SEED2=',
+        ]);
+        expect(booted['allower']!.useBundledSeeds, isTrue);
+      },
+    );
+
+    test('ONE-ACTIVE: the boot composes the ACTIVE identity of the container, '
+        'and a second identity in the same container disagrees', () async {
+      // Two passwords over one FakeHvContainer is the real/decoy master shape:
+      // two spaces, one file, one process, one preference file.
+      SharedPreferences.setMockInitialValues({
+        'onboarded': true,
+        // Again the opposite of what the refusing space says.
+        'network.bundled_seeds.v1': true,
+      });
+      final container = FakeHvContainer();
+      Future<void> seedSpace(String password, bool allowed) async {
+        final s = container.storage();
+        await s.open(password: password, createIfMissing: true);
+        await s.saveProfile(UserProfile(displayName: password));
+        await s.putSetting(
+          kBundledSeedsSettingKey,
+          allowed ? 'true' : 'false',
+        );
+        await s.close();
+      }
+
+      await seedSpace('refuserpw', false);
+      await seedSpace('allowerpw', true);
+
+      final c = ProviderContainer(
+        overrides: [
+          singleSpaceStorageProvider.overrideWith((ref) => container.storage()),
+          deniableBootProvider.overrideWithValue(
+            const DeniableBootConfig(
+              runtimeDir: '/run',
+              listenPort: 9000,
+              storePath: '/x',
+              operatorPeers: [_mine],
+              bundledSeeds: [_seed1, _seed2],
+            ),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      IdentitySeedPlan? planned;
+      ctrl.debugDeniableStackStarter = (plan) async {
+        planned = plan;
+        return RealVeilStack.overParts(
+          controller: _NoopNode(),
+          transport: _NoopTransport(),
+          myInvite: BootstrapInvite(
+            publicKey: Uint8List(32),
+            nonce: Uint8List(8),
+          ),
+        );
+      };
+      for (var i = 0;
+          i < 40 &&
+              c.read(appControllerProvider).phase == AppPhase.bootstrapping;
+          i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      await ctrl.unlock('refuserpw');
+      expect(planned, isNotNull, reason: 'the one-active boot never ran');
+      expect(planned!.useBundledSeeds, isFalse);
+      expect(planned!.bootstrapPeers.map((p) => p.publicKey), ['MINE=']);
+      // The live value the screens render follows the identity that booted.
+      expect(c.read(bundledSeedsChoiceProvider), isFalse);
+
+      // The other identity in the SAME container, in the same process, on the
+      // same preference file: it kept the seeds and it still has them.
+      planned = null;
+      await ctrl.lock();
+      await ctrl.unlock('allowerpw');
+      expect(planned, isNotNull, reason: 'the second boot never ran');
+      expect(planned!.useBundledSeeds, isTrue);
+      expect(planned!.bootstrapPeers.map((p) => p.publicKey), [
+        'MINE=',
+        'SEED1=',
+        'SEED2=',
+      ]);
+      expect(c.read(bundledSeedsChoiceProvider), isTrue);
+    });
+
+    test('a decoy master and the real master in one container do not share the '
+        'answer', () async {
+      // The rationale the shipped code carried — "one file per profile is what
+      // keeps a decoy from inheriting the real identity's network posture" —
+      // was untrue of the decoy this app actually creates: `createDecoyMaster`
+      // opens a space in the SAME container, out of the same profile directory.
+      SharedPreferences.setMockInitialValues({});
+      final container = FakeHvContainer();
+      // Only one space may be open at a time — the container's exclusive lock,
+      // which is exactly why this is not two containers.
+      Future<T> inSpace<T>(
+        String password,
+        Future<T> Function(Storage s) body,
+      ) async {
+        final s = container.storage();
+        await s.open(password: password, createIfMissing: true);
+        try {
+          return await body(s);
+        } finally {
+          await s.close();
+        }
+      }
+
+      // The real identity refuses. The decoy has never been asked.
+      await inSpace('realpw', (s) => setBundledSeedsAllowedFor(s, false));
+      expect(await inSpace('realpw', bundledSeedsAllowedFor), isFalse);
+      expect(
+        await inSpace('duresspw', bundledSeedsAllowedFor),
+        isTrue,
+        reason: 'the decoy inherited the real identity\'s network posture — '
+            'the deniability failure the per-profile file was claimed to '
+            'prevent and in fact caused',
+      );
+
+      // And it holds in both directions, once each has answered.
+      await inSpace('duresspw', (s) => setBundledSeedsAllowedFor(s, false));
+      expect(await inSpace('realpw', bundledSeedsAllowedFor), isFalse);
+      await inSpace('realpw', (s) => setBundledSeedsAllowedFor(s, true));
+      expect(
+        await inSpace('duresspw', bundledSeedsAllowedFor),
+        isFalse,
+        reason: 'the last write won for every identity at once',
+      );
+      // Nothing of either answer is left in the preference file, where a
+      // forensic tool reads it without opening any container.
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(kBundledSeedsPrefKey), isNull);
+    });
+
+    test('a space that never answered adopts the pre-unlock answer ONCE, then '
+        'owns it', () async {
+      // The migration. An upgrade must not put an identity that declined back
+      // on the shared seeds — only the preference remembers that it declined —
+      // and it must not keep tracking the preference afterwards.
+      SharedPreferences.setMockInitialValues({
+        'network.bundled_seeds.v1': false,
+      });
+      final backing = FakeMultiSpaceBacking();
+      final space = viewOf(backing, _spaceKeys(7));
+      expect(await bundledSeedsAllowedFor(space), isFalse);
+      expect(await space.getSetting(kBundledSeedsSettingKey), 'false');
+
+      // The preference moves (another identity answers pre-unlock). This space
+      // has its own answer now and does not follow.
+      await setBundledSeedsAllowed(true);
+      expect(await bundledSeedsAllowedFor(space), isFalse);
+    });
+
+    testWidgets('the SWITCH writes the active identity, and nothing else', (
+      tester,
+    ) async {
+      // Two spaces in one container, one of them active. The control must
+      // answer for that one alone — it used to write a preference every
+      // identity in the process then read.
+      SharedPreferences.setMockInitialValues({});
+      final backing = FakeMultiSpaceBacking();
+      final active = viewOf(backing, _spaceKeys(1));
+      final other = viewOf(backing, _spaceKeys(2));
+      await active.putSetting(kBundledSeedsSettingKey, 'true');
+      await other.putSetting(kBundledSeedsSettingKey, 'true');
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            ..._bootOverrides,
+            singleSpaceStorageProvider.overrideWith((ref) => active),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: const Scaffold(
+              body: SingleChildScrollView(child: SharedSeedsSwitch()),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(SwitchListTile));
+      await tester.pumpAndSettle();
+
+      expect(
+        await active.getSetting(kBundledSeedsSettingKey),
+        'false',
+        reason: 'the refusal never reached the identity whose node is composed '
+            'from it',
+      );
+      expect(
+        await other.getSetting(kBundledSeedsSettingKey),
+        'true',
+        reason: 'one identity answered for another — the defect exactly: the '
+            'last write won for every identity at once',
+      );
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getBool(kBundledSeedsPrefKey),
+        isNull,
+        reason: 'the answer was left in the profile preference file, where the '
+            'next identity with none of its own inherits it and a forensic '
+            'tool reads it without opening any container',
+      );
+    });
+
+    testWidgets('the RE-OFFER writes the active identity too', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final backing = FakeMultiSpaceBacking();
+      final active = viewOf(backing, _spaceKeys(1));
+      final other = viewOf(backing, _spaceKeys(2));
+      await active.putSetting(kBundledSeedsSettingKey, 'false');
+      await other.putSetting(kBundledSeedsSettingKey, 'false');
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            ..._bootOverrides,
+            singleSpaceStorageProvider.overrideWith((ref) => active),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: const Scaffold(body: BundledSeedsReofferDialog()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(BundledSeedsReofferDialog)));
+      await tester.tap(find.text(l.seedsReofferUse));
+      await tester.pumpAndSettle();
+
+      expect(await active.getSetting(kBundledSeedsSettingKey), 'true');
+      expect(await other.getSetting(kBundledSeedsSettingKey), 'false');
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(kBundledSeedsPrefKey), isNull);
+    });
+
+    test('a store that will not answer moves no switch', () async {
+      // The control's read, which must differ from the boot's on failure only.
+      SharedPreferences.setMockInitialValues({
+        'network.bundled_seeds.v1': false,
+      });
+      final refusing = _RefusingStorage();
+      expect(await storedBundledSeedsAnswerFor(refusing), isNull);
+      // ...while a node config, which has to be composed either way, falls back
+      // to the historical behaviour rather than to the opt-out.
+      expect(await bundledSeedsAllowedFor(refusing), isFalse);
+      expect(await setBundledSeedsAllowedFor(refusing, true), isFalse);
+    });
+  });
+
+  group('the wording states whose answer it is', () {
+    // The strings said the opposite of what the code did: "nobody else's server
+    // learns that THIS IDENTITY exists" over a device-wide preference, and two
+    // switch subtitles that named no scope at all. The scope is now real, and
+    // these assert that it is also SAID — in every locale, because a translated
+    // string that drops the clause is the same defect in another language.
+    const scope = {'en': 'this identity', 'ru': 'этой личности', 'es': 'esta identidad'};
+    const others = {
+      'en': 'other identities are unaffected',
+      'ru': 'другие ваши личности это не затрагивает',
+      'es': 'otras identidades no se ven afectadas',
+    };
+
+    for (final entry in scope.entries) {
+      testWidgets('${entry.key}: the switch subtitles name the identity', (
+        tester,
+      ) async {
+        final l = await AppL10n.delegate.load(Locale(entry.key));
+        expect(
+          l.seedsSwitchOnSub.toLowerCase(),
+          contains(entry.value),
+          reason: 'the ON subtitle states no scope, so a device-wide reading '
+              'is the natural one',
+        );
+        expect(l.seedsSwitchOffSub.toLowerCase(), contains(entry.value));
+      });
+
+      testWidgets('${entry.key}: declining says how far the refusal reaches', (
+        tester,
+      ) async {
+        final l = await AppL10n.delegate.load(Locale(entry.key));
+        expect(l.seedsDeclineBody.toLowerCase(), contains(entry.value));
+        expect(
+          l.seedsDeclineBody.toLowerCase(),
+          contains(others[entry.key]!),
+          reason: 'the promise was "nobody else\'s server learns that this '
+              'identity exists" while the answer was shared with every other '
+              'identity on the device; saying whose answer it is IS the fix',
+        );
+      });
+
+      testWidgets('${entry.key}: the re-offer says whom it answers for', (
+        tester,
+      ) async {
+        final l = await AppL10n.delegate.load(Locale(entry.key));
+        expect(l.seedsReofferBody.toLowerCase(), contains(entry.value));
+      });
+    }
+  });
+}
+
+/// Deterministic space keys, distinct per seed — one hosted space each.
+Uint8List _spaceKeys(int seed) => Uint8List.fromList(List.filled(64, seed));
+
+/// A transport that does nothing: the boots under test are faked, and a real
+/// one would leave timers running past the test.
+class _NoopTransport implements VeilTransport {
+  final _c = StreamController<InboundMessage>.broadcast();
+
+  @override
+  Future<NodeId> nodeId() async => NodeId(Uint8List(32));
+  @override
+  Stream<InboundMessage> messages() => _c.stream;
+  @override
+  Future<void> sendWithReply(NodeId dst, Uint8List payload) =>
+      send(dst, payload, anonymous: true);
+  @override
+  Future<void> sendReply(int replyId, Uint8List payload) async {}
+  @override
+  Future<void> send(
+    NodeId dst,
+    Uint8List payload, {
+    bool anonymous = false,
+  }) async {}
+  @override
+  Stream<int> sessionCount() => const Stream.empty();
+  @override
+  Future<List<PeerInfo>> peers() async => const [];
+  @override
+  Future<void> dispose() async => _c.close();
+}
+
+/// A space that is open and will not answer — a damaged container, not an
+/// unanswered one. The two must not be handled alike: the second inherits the
+/// pre-unlock answer, and doing that on the first would write another
+/// identity's posture into this space for good.
+class _RefusingStorage extends FakeSettingStorage {
+  @override
+  bool get isOpen => true;
+  @override
+  Future<String?> getSetting(String key) async => throw StateError('unreadable');
+  @override
+  Future<void> putSetting(String key, String value) async =>
+      throw StateError('unwritable');
 }
