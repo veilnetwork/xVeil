@@ -11029,6 +11029,30 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'That choice could not be saved. It applies to this session only.'**
   String get seedsSaveFailed;
+
+  /// Title of the network-settings switch that changes the shared-seed answer given during onboarding.
+  ///
+  /// In en, this message translates to:
+  /// **'Use the shared entry nodes'**
+  String get seedsSwitchTitle;
+
+  /// Subtitle of that switch while the shared entry nodes are in use: what keeping them costs.
+  ///
+  /// In en, this message translates to:
+  /// **'On: the app finds the network on its own. The project\'s nodes learn that a node of yours exists and which address it connects from.'**
+  String get seedsSwitchOnSub;
+
+  /// Subtitle of that switch while the shared entry nodes are refused: what refusing costs.
+  ///
+  /// In en, this message translates to:
+  /// **'Off: only nodes you add yourself. Nothing connects until you add one.'**
+  String get seedsSwitchOffSub;
+
+  /// Shown when the preference store refuses the write, and the switch therefore stays where it was.
+  ///
+  /// In en, this message translates to:
+  /// **'That change could not be saved, so it was not applied.'**
+  String get seedsSwitchSaveFailed;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

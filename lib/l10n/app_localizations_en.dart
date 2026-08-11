@@ -6240,4 +6240,19 @@ class AppL10nEn extends AppL10n {
   @override
   String get seedsSaveFailed =>
       'That choice could not be saved. It applies to this session only.';
+
+  @override
+  String get seedsSwitchTitle => 'Use the shared entry nodes';
+
+  @override
+  String get seedsSwitchOnSub =>
+      'On: the app finds the network on its own. The project\'s nodes learn that a node of yours exists and which address it connects from.';
+
+  @override
+  String get seedsSwitchOffSub =>
+      'Off: only nodes you add yourself. Nothing connects until you add one.';
+
+  @override
+  String get seedsSwitchSaveFailed =>
+      'That change could not be saved, so it was not applied.';
 }

@@ -7,7 +7,11 @@ import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../common/shown_cause.dart';
 import '../../core/error_journal.dart';
-import '../../data/node/bundled_seeds.dart' show shouldOfferBundledSeeds;
+import '../../data/node/bundled_seeds.dart'
+    show
+        setBundledSeedsAllowed,
+        shouldOfferBundledSeeds,
+        storedBundledSeedsAnswer;
 import '../../data/node/node_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
@@ -102,6 +106,12 @@ class NetworkScreen extends ConsumerWidget {
           // only "offline" — which reads as a fault. Name the actual reason and
           // the way out, on the screen someone lands on when nothing works.
           const _NoWayToTheNetworkCard(),
+          const Divider(),
+          // How this identity reaches the network at all — first, because every
+          // control below it is about a network this one decides whether there
+          // is any way into. It is also the control the onboarding step promises
+          // is here.
+          const SharedSeedsSwitch(),
           const Divider(),
           // Secondary controls: proxy routing (oproxy SOCKS5 client + exit) is
           // live below; node management (ogate, SSH provisioning) is still a
@@ -210,6 +220,154 @@ class NetworkScreen extends ConsumerWidget {
           // restoring the entry is one widget, not a translation round.
         ],
       ),
+    );
+  }
+}
+
+/// The shared-seed question, after onboarding — the control the onboarding step
+/// promises is here ("You can change this later in Network settings").
+///
+/// That sentence shipped with nothing behind it. `setBundledSeedsAllowed` had
+/// exactly two call sites: the onboarding step, which asks once, and the
+/// startup re-offer, which can only ever write `true`. So an identity that
+/// ACCEPTED could never decline, and one that declined and then ticked "don't
+/// show this again" had no route back at all — the app promised a control it
+/// did not have.
+///
+/// ## Why both halves are written here
+///
+/// Exactly the reasoning onboarding is built on, and it is not optional:
+///
+///   * the PREFERENCE is what `RealVeilStack.startDeniable` resolves when it
+///     composes the node config, and therefore what decides
+///     `builtin_seed_policy` (see [EmbeddedNode.withBuiltinSeedPolicy]);
+///   * [bundledSeedsChoiceProvider] is what [deniableBootProvider] rebuilds its
+///     bootstrap peer list from, so it decides whether the bundled descriptors
+///     from `assets/prod/seeds.json` are handed to the node at all.
+///
+/// Writing only the preference would leave the boot config still holding those
+/// addresses; setting only the provider would leave the node splicing in its
+/// own compile-time seeds. Either alone is the theatre the choice exists to
+/// prevent.
+///
+/// ## What happens to a node that is already running
+///
+/// Nothing, until it next starts — which is what the note under the switch
+/// says, in the same words the proxy-routing screen uses for the same reason.
+/// Both halves are consumed while a node config is being COMPOSED: the policy
+/// line at `startDeniable`, the peer list when the messaging stack is built
+/// around a fresh node. A running node keeps the posture it booted with, and
+/// flipping this switch neither tears down a connection it already has nor
+/// dials anything new. The switch deliberately does not restart the node on its
+/// own: that drops every live session, and doing it silently under a settings
+/// toggle is worse than saying when the change lands.
+///
+/// Profile-scoped, like the original answer — the preference store is one file
+/// per profile, so a decoy neither inherits nor discloses the real identity's
+/// network posture.
+class SharedSeedsSwitch extends ConsumerStatefulWidget {
+  const SharedSeedsSwitch({super.key});
+
+  @override
+  ConsumerState<SharedSeedsSwitch> createState() => _SharedSeedsSwitchState();
+}
+
+class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncFromStore();
+  }
+
+  /// Re-read the identity's own answer from the store.
+  ///
+  /// [bundledSeedsChoiceProvider] is seeded ONCE, by `main()`, from whichever
+  /// profile the process started on. Switching identity swaps the preference
+  /// file underneath it without touching the provider, so a control rendered
+  /// from the provider alone would show — and write from — the PREVIOUS
+  /// identity's answer. Reading the store when the control is opened makes that
+  /// self-correcting, the same shape as the cached node identity.
+  ///
+  /// [storedBundledSeedsAnswer] rather than `bundledSeedsAllowed` because a
+  /// store that will not answer must move nothing: the latter reports `true` on
+  /// a failed read, which is the right default when a node config has to be
+  /// composed regardless, and exactly the wrong one here — it would put an
+  /// identity that refused the shared seeds back on them without anyone asking.
+  Future<void> _syncFromStore() async {
+    final stored = await storedBundledSeedsAnswer();
+    if (!mounted || stored == null) return;
+    if (ref.read(bundledSeedsChoiceProvider) != stored) {
+      ref.read(bundledSeedsChoiceProvider.notifier).state = stored;
+    }
+  }
+
+  Future<void> _set(bool allowed) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      // Persist FIRST, and treat a refused write as "nothing happened". The
+      // onboarding step can afford the opposite — there the node has not booted
+      // yet and the session that follows really does run on the answer just
+      // given — but here the node config is composed from the STORE at the next
+      // boot. Moving the switch over a failed write would show an answer no
+      // node will ever read, which is the exact shape of promise this control
+      // exists to stop making.
+      final saved = await setBundledSeedsAllowed(allowed);
+      if (!mounted) return;
+      if (!saved) {
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(content: Text(AppL10n.of(context).seedsSwitchSaveFailed)),
+          );
+        return;
+      }
+      ref.read(bundledSeedsChoiceProvider.notifier).state = allowed;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final on = ref.watch(bundledSeedsChoiceProvider);
+    return Column(
+      children: [
+        SwitchListTile(
+          secondary: const Icon(Icons.public),
+          title: Text(l.seedsSwitchTitle),
+          // Both answers stated with what they cost, as on the onboarding step:
+          // a switch labelled only "shared entry nodes" would make the private
+          // answer look free and the shared one look like nothing at all.
+          subtitle: Text(on ? l.seedsSwitchOnSub : l.seedsSwitchOffSub),
+          isThreeLine: true,
+          value: on,
+          onChanged: _busy ? null : _set,
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Row(
+            children: [
+              Icon(Icons.refresh, size: 18, color: scheme.outline),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  // The same sentence the routing screen shows for the same
+                  // fact: a running node keeps the config it booted with.
+                  l.routeAppliesNextStart,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: scheme.outline),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
