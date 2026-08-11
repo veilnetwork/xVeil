@@ -716,10 +716,26 @@ class HeadlessRuntime {
   /// ONE open, for the reason spelled out on [veilOpenSourceForSend]: size and
   /// bytes have to come from the same descriptor or the offer can describe one
   /// file while serving another. [veilOpenPinnedSource] brackets that open with
-  /// an identity stamp on either side, so a name swapped between the API edge's
-  /// authorization and the open refuses before anything is offered (audit
-  /// X-01). The comparison across the READ stays detection only — the offer is
-  /// already out by the time it can fire.
+  /// an identity stamp on either side, so a name swapped ACROSS THE OPEN
+  /// refuses before anything is offered (audit X-01). The comparison across the
+  /// READ stays detection only — the offer is already out by the time it can
+  /// fire.
+  ///
+  /// What those stamps do NOT close, and what this comment used to claim they
+  /// did (audit report11 XV-M3): the window between the API edge's
+  /// authorization and this open. Both stamps are taken AFTER that window, so a
+  /// swap completed before the first one is seen identically by both and
+  /// passes. `lib/state/api_server.dart` says the same thing the right way
+  /// round — "what remains is the gap between the API edge's authorization
+  /// check and this open, and Dart cannot close it" — and the two comments
+  /// disagreed, with this one being the wrong half.
+  ///
+  /// It matters more here than the wording suggests, because the precondition
+  /// is inside the granted root rather than outside it: this entry point is
+  /// documented as serving "a service account or a container with a drop
+  /// folder", and write access to that folder is exactly what the attack
+  /// needs. Closing it properly needs descriptor-relative open, which Dart does
+  /// not expose (audit X-02, deferred).
   static Future<String?> _sendFile(
     MessagingService messaging,
     String toHex,
