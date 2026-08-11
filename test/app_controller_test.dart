@@ -258,6 +258,91 @@ void main() {
     expect(c2.read(appControllerProvider).phase, AppPhase.onboarding);
   });
 
+  test('a container that could not be deleted is NOT reported as wiped',
+      () async {
+    // audit report11 XV-H3. Every step of the wipe is best-effort by design —
+    // aborting halfway would leave MORE behind than carrying on. What was
+    // wrong is that the silence was total: the phase flipped to onboarding
+    // unconditionally, the function returned nothing, and a person whose
+    // container was still on disk saw the same screen as one whose container
+    // was gone. In an app whose whole promise is deniability, that is the
+    // worst direction for a lie to point.
+    final dir = Directory.systemTemp.createTempSync('xveil_wipe_locked_');
+    final file = File('${dir.path}/test.store')..writeAsStringSync('container');
+    try {
+      // Make the DIRECTORY unwritable: the file itself stays readable, but the
+      // unlink cannot happen. This is what a read-only volume, an ACL drift or
+      // a backup agent holding the directory looks like from here.
+      Process.runSync('chmod', ['a-w', dir.path]);
+      SharedPreferences.setMockInitialValues({'onboarded': true});
+      final container = FakeHvContainer();
+      final c = ProviderContainer(
+        overrides: [
+          storageProvider.overrideWith((ref) => container.storage()),
+          deniableBootProvider.overrideWithValue(
+            DeniableBootConfig(
+              runtimeDir: '/run',
+              listenPort: 9000,
+              storePath: file.path,
+            ),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
+
+      final remaining = await ctrl.wipeContainers();
+
+      // Checked by LOOKING. `delete()` returning without throwing is not the
+      // same as the file being gone, and this is the assertion the fix exists
+      // for: it cannot pass while the wipe reports success unconditionally.
+      expect(file.existsSync(), isTrue, reason: 'precondition: it survived');
+      expect(
+        remaining,
+        contains('container'),
+        reason: 'a wipe that could not delete the container must say so',
+      );
+      // The phase still flips, deliberately: parking a person on a lock screen
+      // for a container that may already be gone is its own disclosure. This
+      // assertion is a GUARD — it stays green with the fix removed.
+      expect(c.read(appControllerProvider).phase, AppPhase.onboarding);
+    } finally {
+      Process.runSync('chmod', ['u+w', dir.path]);
+      dir.deleteSync(recursive: true);
+    }
+  }, testOn: '!windows');
+
+  test('a wipe that removes everything reports nothing left', () async {
+    // The positive control. Without it, "reports what survived" would also be
+    // satisfied by a function that names the container every single time.
+    final dir = Directory.systemTemp.createTempSync('xveil_wipe_ok_');
+    final file = File('${dir.path}/test.store')..writeAsStringSync('container');
+    try {
+      SharedPreferences.setMockInitialValues({'onboarded': true});
+      final container = FakeHvContainer();
+      final c = ProviderContainer(
+        overrides: [
+          storageProvider.overrideWith((ref) => container.storage()),
+          deniableBootProvider.overrideWithValue(
+            DeniableBootConfig(
+              runtimeDir: '/run',
+              listenPort: 9000,
+              storePath: file.path,
+            ),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
+      expect(await ctrl.wipeContainers(), isEmpty);
+      expect(file.existsSync(), isFalse);
+    } finally {
+      dir.deleteSync(recursive: true);
+    }
+  });
+
   test('wipeContainers deletes the on-disk container file', () async {
     final dir = Directory.systemTemp.createTempSync('xveil_wipe_');
     final file = File('${dir.path}/test.store')..writeAsStringSync('container');
