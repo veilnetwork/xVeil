@@ -1299,7 +1299,6 @@
   "settingsApiAddFolder": "Añadir una carpeta",
   "settingsApiRevoke": "Revocar",
   "settingsApiCopyToken": "Copiar el token",
-  "settingsApiTokenCopied": "Token copiado",
   "settingsCommunication": "Comunicación",
   "settingsP2PPolicy": "Política P2P",
   "settingsP2PPolicyHint": "Permite el transporte directo para llamadas, contenido pesado, archivos e intercambio entre dispositivos cuando ambas partes lo consienten.",
@@ -2633,5 +2632,6 @@
   "askContactsTitle": "Pedir modelos a los contactos",
   "askContactsWaiting": "Quien responda aparecerá aquí. El silencio no significa nada en concreto.",
   "askContactsAction": "Preguntar a mis contactos",
-  "modelProvenanceAskAnother": "Preguntar a otro contacto"
+  "modelProvenanceAskAnother": "Preguntar a otro contacto",
+  "settingsApiTokenCopiedClears": "Token copiado. El portapapeles se borrará en {seconds} segundos."
 }

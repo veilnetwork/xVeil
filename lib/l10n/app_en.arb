@@ -1299,7 +1299,6 @@
   "settingsApiAddFolder": "Add a folder",
   "settingsApiRevoke": "Revoke",
   "settingsApiCopyToken": "Copy token",
-  "settingsApiTokenCopied": "Token copied",
   "settingsCommunication": "Communication",
   "settingsP2PPolicy": "P2P policy",
   "settingsP2PPolicyHint": "Allows direct transport for calls, large media, files, and device-to-device exchange when both sides consent.",
@@ -2741,5 +2740,13 @@
   "askContactsTitle": "Ask contacts for models",
   "askContactsWaiting": "Whoever answers appears here. Silence means nothing in particular.",
   "askContactsAction": "Ask my contacts",
-  "modelProvenanceAskAnother": "Ask another contact"
+  "modelProvenanceAskAnother": "Ask another contact",
+  "settingsApiTokenCopiedClears": "Token copied. The clipboard will be cleared in {seconds} seconds.",
+  "@settingsApiTokenCopiedClears": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  }
 }

@@ -3030,9 +3030,6 @@ class AppL10nEs extends AppL10n {
   String get settingsApiCopyToken => 'Copiar el token';
 
   @override
-  String get settingsApiTokenCopied => 'Token copiado';
-
-  @override
   String get settingsCommunication => 'Comunicación';
 
   @override
@@ -6220,4 +6217,9 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get modelProvenanceAskAnother => 'Preguntar a otro contacto';
+
+  @override
+  String settingsApiTokenCopiedClears(int seconds) {
+    return 'Token copiado. El portapapeles se borrará en $seconds segundos.';
+  }
 }
