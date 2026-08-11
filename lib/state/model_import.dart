@@ -13,19 +13,31 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 
+import '../data/model_provenance.dart';
 import '../data/veil_bundle.dart';
 import 'translation_model_controller.dart';
 import 'whisper_model_controller.dart';
 
 class ModelImportResult {
-  const ModelImportResult.ok(this.kind) : error = null;
-  const ModelImportResult.failed(this.error, {this.kind});
+  const ModelImportResult.ok(this.kind) : error = null, verdict = null;
+  const ModelImportResult.failed(this.error, {this.kind}) : verdict = null;
+
+  /// Nothing was installed because the model's provenance is not settled. Not
+  /// a failure: the bundle parsed and its bytes are intact, and the person now
+  /// has a decision to make that this layer must not make for them.
+  const ModelImportResult.needsDecision(ProvenanceVerdict this.verdict, {this.kind})
+    : error = null;
 
   /// What the manifest said it was, when that much could be read.
   final String? kind;
   final String? error;
+  final ProvenanceVerdict? verdict;
 
-  bool get succeeded => error == null;
+  bool get succeeded => error == null && verdict == null;
+
+  /// The caller must ask, then call again with `acceptUnverified: true` if the
+  /// person accepts the risk.
+  bool get needsDecision => verdict != null;
 }
 
 /// Write [bytes] somewhere the bundle reader can stream them from.
@@ -45,11 +57,6 @@ Future<File> materialiseBundle(Uint8List bytes, {String name = 'received'}) asyn
   return file;
 }
 
-/// Install a received bundle, whichever kind it turns out to be.
-///
-/// Returns what happened, in words a person can act on. Never throws: a file
-/// somebody sent is not a programming error, and every way it can be wrong is
-/// an ordinary outcome here.
 /// The two controllers this needs, behind an interface.
 ///
 /// `Ref` and `WidgetRef` both have `read`, with no common supertype and with
@@ -102,15 +109,38 @@ ModelInstallTargets targetsFromWidgetRef(WidgetRef ref) =>
 ModelInstallTargets targetsFromContainer(ProviderContainer container) =>
     _RefTargets((p) => container.read(p as dynamic) as Object);
 
+/// Install a model that arrived from a contact.
+///
+/// Provenance is settled BEFORE anything is unpacked. The bundle proving its
+/// own integrity is not the same question: the manifest is the sender's claim
+/// about the sender's own file, so a contact whose copy was tampered with
+/// produces a bundle that verifies against itself perfectly. Only the hash
+/// pinned in this build can tell the published artifact from a substitute.
+///
+/// Refuses by default and hands the verdict back, because the answer belongs
+/// to the person: they may know the model is fine, they may prefer to ask
+/// another contact who offered it, or they may go and fetch it themselves.
+/// [acceptUnverified] is how the UI reports that they chose the first, and it
+/// exists as an explicit argument rather than a flag on this layer so the
+/// choice cannot be made anywhere except at the point a human made it.
 Future<ModelImportResult> installReceivedModel(
   File bundle, {
   required ModelInstallTargets into,
+  bool acceptUnverified = false,
+  Map<String, Map<String, String>>? pinned,
 }) async {
   final VeilBundleInfo info;
   try {
     info = await inspectBundle(bundle);
   } on VeilBundleException catch (e) {
     return ModelImportResult.failed(e.message);
+  }
+
+  if (!acceptUnverified) {
+    final verdict = judgeProvenance(info, pinned: pinned);
+    if (!verdict.isVerified) {
+      return ModelImportResult.needsDecision(verdict, kind: info.kind);
+    }
   }
 
   switch (info.kind) {

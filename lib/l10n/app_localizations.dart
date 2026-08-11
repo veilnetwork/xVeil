@@ -10789,6 +10789,48 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Translate into…'**
   String get chatTranslateInto;
+
+  /// No description provided for @modelProvenanceTitleMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'This model does not match the published one'**
+  String get modelProvenanceTitleMismatch;
+
+  /// No description provided for @modelProvenanceTitleUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'This model cannot be checked'**
+  String get modelProvenanceTitleUnknown;
+
+  /// No description provided for @modelProvenanceBodyMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The hash of {files} differs from the one built into this app. Either your contact\'s copy is not the published model, or it was altered. A model runs as input to the engine that reads your microphone and your messages.'**
+  String modelProvenanceBodyMismatch(String files);
+
+  /// No description provided for @modelProvenanceBodyUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'This build has no reference hash for this model, so there is nothing to compare it against. That is not an accusation — it means the check cannot be made here.'**
+  String get modelProvenanceBodyUnknown;
+
+  /// No description provided for @modelProvenanceInstallAnyway.
+  ///
+  /// In en, this message translates to:
+  /// **'Install anyway'**
+  String get modelProvenanceInstallAnyway;
+
+  /// No description provided for @modelProvenanceLoadManually.
+  ///
+  /// In en, this message translates to:
+  /// **'Find and load it myself'**
+  String get modelProvenanceLoadManually;
+
+  /// No description provided for @modelProvenanceRisk.
+  ///
+  /// In en, this message translates to:
+  /// **'At your own risk.'**
+  String get modelProvenanceRisk;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

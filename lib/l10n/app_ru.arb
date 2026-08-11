@@ -2601,5 +2601,12 @@
   "chatTranslating": "Перевод…",
   "chatTranslateFailed": "Не удалось перевести — нажмите ещё раз",
   "chatTranslationShowOriginal": "Показать оригинал",
-  "chatTranslateInto": "Перевести на…"
+  "chatTranslateInto": "Перевести на…",
+  "modelProvenanceTitleMismatch": "Эта модель не совпадает с опубликованной",
+  "modelProvenanceTitleUnknown": "Эту модель нечем сверить",
+  "modelProvenanceBodyMismatch": "Хеш {files} отличается от заложенного в приложение. Либо у контакта не опубликованная модель, либо её изменили. Модель — это входные данные движка, который читает ваш микрофон и ваши сообщения.",
+  "modelProvenanceBodyUnknown": "В этой сборке нет эталонного хеша для такой модели, сверить не с чем. Это не обвинение — это значит, что проверка здесь невозможна.",
+  "modelProvenanceInstallAnyway": "Всё равно установить",
+  "modelProvenanceLoadManually": "Найти и загрузить самому",
+  "modelProvenanceRisk": "На ваш страх и риск."
 }

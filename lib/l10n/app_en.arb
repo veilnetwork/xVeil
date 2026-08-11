@@ -2720,5 +2720,19 @@
   "chatTranslateInto": "Translate into…",
   "@chatTranslateInto": {
     "description": "Title of the sheet that picks which language to translate a message into"
-  }
+  },
+  "modelProvenanceTitleMismatch": "This model does not match the published one",
+  "modelProvenanceTitleUnknown": "This model cannot be checked",
+  "modelProvenanceBodyMismatch": "The hash of {files} differs from the one built into this app. Either your contact's copy is not the published model, or it was altered. A model runs as input to the engine that reads your microphone and your messages.",
+  "@modelProvenanceBodyMismatch": {
+    "placeholders": {
+      "files": {
+        "type": "String"
+      }
+    }
+  },
+  "modelProvenanceBodyUnknown": "This build has no reference hash for this model, so there is nothing to compare it against. That is not an accusation — it means the check cannot be made here.",
+  "modelProvenanceInstallAnyway": "Install anyway",
+  "modelProvenanceLoadManually": "Find and load it myself",
+  "modelProvenanceRisk": "At your own risk."
 }
