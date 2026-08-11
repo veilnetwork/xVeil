@@ -543,6 +543,36 @@ String _configFromPhraseInIsolate(String phrase) {
 ///   and shells out to `veil-cli` for invite/join. Not deprecated — it is what
 ///   `scripts/run-real-instance.sh`, `run-deniable-instance.sh` and
 ///   `dev-real-pair.sh` still use, and `doc/REAL-MODE.md` documents.
+/// The metrics endpoint's own define, and the soak hook's.
+///
+/// Read here rather than at the call site so the two defaults sit next to each
+/// other and cannot drift apart again.
+const bool kXVeilDebugMetricsDefine = bool.fromEnvironment(
+  'XVEIL_DEBUG_METRICS',
+);
+const bool kXVeilDebugHookDefine = bool.fromEnvironment('XVEIL_DEBUG_HOOK');
+
+/// Whether to open the loopback metrics endpoint (audit report10 X-10).
+///
+/// One define used to control two things with OPPOSITE defaults. The soak hook
+/// reads `XVEIL_DEBUG_HOOK` plainly — default FALSE, deliberately, because a
+/// full control plane should not be on for everyone who builds in debug. The
+/// metrics endpoint read the SAME name with `defaultValue: true`. So an
+/// ordinary debug build, with no defines at all, got no hook and an
+/// unauthenticated Prometheus endpoint on 39997/39998 that any local process
+/// could read activity counters from.
+///
+/// Now they share a default: off unless asked for. The hook's define still
+/// turns metrics on, so a stand recipe that passes only `XVEIL_DEBUG_HOOK=true`
+/// keeps working — the leak was the DEFAULT, not the coupling, and silently
+/// taking metrics away from the stands that rely on them would trade one
+/// surprise for another.
+bool debugMetricsWanted({
+  required bool debugBuild,
+  required bool metricsDefine,
+  required bool hookDefine,
+}) => debugBuild && (metricsDefine || hookDefine);
+
 class RealVeilStack {
   RealVeilStack._({
     required this.controller,
@@ -854,11 +884,13 @@ class RealVeilStack {
       proxy: proxy,
     );
     // Debug stands only: loopback Prometheus metrics for the embedded node,
-    // the per-node twin of a relay's [metrics] endpoint. Follows the debug
-    // hook's gating (compiled out of release; explicit opt-out via the same
-    // define family). Never binds a non-loopback interface.
-    if (kXVeilDebugBuild &&
-        const bool.fromEnvironment('XVEIL_DEBUG_HOOK', defaultValue: true)) {
+    // the per-node twin of a relay's [metrics] endpoint. Never binds a
+    // non-loopback interface.
+    if (debugMetricsWanted(
+      debugBuild: kXVeilDebugBuild,
+      metricsDefine: kXVeilDebugMetricsDefine,
+      hookDefine: kXVeilDebugHookDefine,
+    )) {
       fullConfig = EmbeddedNode.withDebugMetrics(
         fullConfig,
         debugMetricsPort ??
