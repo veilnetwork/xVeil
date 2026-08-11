@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/posix_file_facts.dart';
 import '../data/storage/folder_sync_store.dart';
 import '../domain/folder_sync.dart';
 import 'cloud_service.dart';
@@ -120,7 +121,9 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
     _rewatch([for (final view in views) view.pair]);
   }
 
-  Future<void> addPair({
+  /// Configure [localPath] as a sync root. Null when it was taken; otherwise
+  /// why it was refused.
+  Future<String?> addPair({
     required String localPath,
     String? cloudFolderId,
     required String id,
@@ -130,12 +133,17 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
     // twice, under two cloud paths, with two independent bases — nothing is
     // lost, but one file quietly becomes two objects and deleting it locally
     // deletes both, which is impossible to explain to whoever it happens to.
-    if (pairs.any((p) => folderPairsOverlap(p.localPath, localPath))) return;
+    if (pairs.any((p) => folderPairsOverlap(p.localPath, localPath))) {
+      return 'it overlaps a folder that is already synced';
+    }
+    final unsafe = folderSyncRootRefusal(localPath);
+    if (unsafe != null) return unsafe;
     pairs.add(
       FolderSyncPair(id: id, localPath: localPath, cloudFolderId: cloudFolderId),
     );
     await _store.savePairs(pairs);
     await reload();
+    return null;
   }
 
   Future<void> removePair(String id) async {
@@ -173,6 +181,83 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
     await _engine?.resolveConflict(pairId, path, keepLocal: keepLocal);
     await reload();
   }
+}
+
+/// Why [path] must not become a sync root, or null when it may.
+///
+/// The mirror writes into this folder on behalf of whatever the cloud account
+/// admits, so who ELSE can reach the folder is this app's business and not the
+/// user's alone. If any step of the path — the folder itself or an ancestor —
+/// may be written by group or by other, another local account can rename or
+/// replace it between two passes, and the mirror will then create the user's
+/// files under a name that account chose. That is the only arrangement in
+/// which this app is a confused deputy: an attacker running as the SAME user
+/// gains nothing here they could not do directly.
+///
+/// ANCESTORS are the point. A leaf-only check looks correct and is not: a
+/// perfectly private `0755` folder inside a `0777` parent can simply be
+/// swapped for a link to somewhere else, leaf permissions untouched.
+///
+/// This is a PRECONDITION, not a race fix. The window between this check and a
+/// later write stays open — closing that needs descriptor-relative `openat`
+/// with `O_NOFOLLOW`, which `dart:io` does not expose (see the note on
+/// `mirrorPathWithin`). What the gate removes is the setting in which the
+/// window has somebody else standing in it.
+///
+/// Both the path as given and the path with its links resolved are walked, for
+/// the reason the privileged-launch guard walks both: the resolved chain says
+/// where writes land, the literal chain says which links could be repointed to
+/// land elsewhere. A symlink STEP is not refused for being one — a link's own
+/// mode means nothing on POSIX, what governs it is its parent's write bits and
+/// what it points at, and both are steps of this same walk. (`/var` on macOS
+/// is a symlink; refusing links outright would refuse every temporary folder
+/// on the platform.)
+String? folderSyncRootRefusal(String path) {
+  // Windows says nothing about this in mode bits: rights there live in ACLs,
+  // which this code does not read and a POSIX mode cannot describe. Same
+  // reasoning as `runtimeDirMustBePrivate()` — a check that cannot be made
+  // faithfully must not be faked, so nothing is refused. A host whose ABI is
+  // not in the `lstat` table is the same case.
+  if (Platform.isWindows || !posixFactsAvailable) return null;
+
+  final String canonical;
+  try {
+    canonical = Directory(path).resolveSymbolicLinksSync();
+  } on FileSystemException catch (error) {
+    return 'the real location behind $path could not be resolved '
+        '(${error.osError?.message ?? error.message})';
+  }
+
+  for (final step in {..._rootChain(canonical), ..._rootChain(path)}) {
+    final facts = posixLstat(step);
+    // Unreadable is not evidence of safety. Every step of a path that just
+    // resolved does exist, so a null here is an anomaly, not a normal state.
+    if (facts == null) return 'the permissions of $step could not be read';
+    if (facts.isSymlink) continue;
+    // Sticky takes the dangerous half of the write bit back: in `/tmp` others
+    // may create their own entries but may not touch this one.
+    if (facts.groupOrOtherWritable && !(facts.isDirectory && facts.isSticky)) {
+      return '$step can be written by other accounts on this computer, so '
+          'what is mirrored into it could be redirected somewhere else';
+    }
+  }
+  return null;
+}
+
+/// [path] and every ancestor above it, leaf first. Bounded, so a malformed
+/// path cannot spin here.
+List<String> _rootChain(String path) {
+  final steps = <String>[];
+  var current = path;
+  for (var guard = 0; guard < 128; guard++) {
+    steps.add(current);
+    final index = current.lastIndexOf('/');
+    if (index < 0) break;
+    final parent = index == 0 ? '/' : current.substring(0, index);
+    if (parent == current) break;
+    current = parent;
+  }
+  return steps;
 }
 
 final folderSyncStoreProvider = Provider<FolderSyncStore>(
