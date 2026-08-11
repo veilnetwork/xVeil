@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
 import 'pinned_download.dart';
+import 'storage/app_profile.dart';
 
 /// Translation models, fetched per language pair.
 ///
@@ -15,10 +16,17 @@ import 'pinned_download.dart';
 /// translates, into nonsense. So "installed" here means every file present and
 /// the right size, and a half-finished pair reports as absent.
 ///
-/// One directory per pair under the app support root, beside the speech model
-/// and for the same reasons: these are static artifacts, identical for
-/// everyone, carrying nothing about the person, and re-fetching 40-150 MB per
-/// profile would be absurd.
+/// One directory per pair under the ACTIVE PROFILE's directory, beside the
+/// speech model and for the same reason — see [activeProfileDir], which is the
+/// support root itself for the default profile, so an existing install keeps
+/// every pair it has.
+///
+/// These used to sit in the support root, shared by every profile, on the
+/// reasoning that a static artifact identical for everyone should not be
+/// fetched twice. Here that was worse than for the speech model: a pair is a
+/// DIRECTORY NAMED `ru-en`, so the shared location handed every profile the
+/// list of languages the person reads — the exact fact a wipe deletes these
+/// for — and a wipe inside a throwaway profile deleted the real one's pairs.
 ///
 /// What the download must not do is take whatever bytes arrive. Every file's
 /// size and SHA-256 are pinned by whoever describes the pair; anything else is
@@ -44,8 +52,18 @@ class TranslationModelStore {
   /// entirely is removing one tree.
   static const dirName = 'translate';
 
+  /// The one tree every pair lives under, for THIS profile.
+  ///
+  /// The injected callback answers "where is the APP SUPPORT directory", not
+  /// "where are the models" — the profile scoping happens here, so a test
+  /// drives the same derivation production does instead of a second one.
+  Future<Directory> root() async => Directory(
+    '${activeProfileDir((await _supportDirectory()).path, leftBehind: const [dirName])}'
+    '/$dirName',
+  );
+
   Future<Directory> directoryFor(TranslationPair pair) async =>
-      Directory('${(await _supportDirectory()).path}/$dirName/${pair.id}');
+      Directory('${(await root()).path}/${pair.id}');
 
   /// The installed pair, or null. Cheap: sizes, not hashes — each hash was
   /// verified before its file was given its final name.

@@ -19,6 +19,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../core/log.dart';
 import '../data/native_libs.dart';
+import '../data/storage/app_profile.dart';
 
 /// Everything the worker isolate needs to transcribe, all sendable.
 class WhisperJob {
@@ -142,12 +143,20 @@ class WhisperTranscriber {
         // release packaging path has already failed closed.
       }
       if (_resolvedModel == null) {
+        // External storage is an adb-push location for development, never
+        // written by the app, so it stays whole-device like the env override.
+        // The support directory is scoped to the profile in the same one place
+        // the store writes it. Unscoped, this probe alone would undo the fix:
+        // the download would land in the profile and the transcriber would keep
+        // opening ANOTHER profile's model, or report one installed to a profile
+        // that has none.
+        final external = await getExternalStorageDirectory();
+        final support = await getApplicationSupportDirectory();
         for (final dir in [
-          await getExternalStorageDirectory(),
-          await getApplicationSupportDirectory(),
+          if (external != null) external.path,
+          activeProfileDir(support.path),
         ]) {
-          if (dir == null) continue;
-          final p = '${dir.path}/$_modelFile';
+          final p = '$dir/$_modelFile';
           if (File(p).existsSync()) {
             _resolvedModel = p;
             break;
@@ -168,7 +177,11 @@ class WhisperTranscriber {
       // their own directory.
       try {
         final dir = await getApplicationSupportDirectory();
-        final p = '${dir.path}/$_modelFile';
+        // The profile's directory, not the support root: the store downloads
+        // into the profile, and a probe that looked one level up would answer
+        // with a DIFFERENT profile's model — the same crossing that let a wipe
+        // in one profile delete another's.
+        final p = '${activeProfileDir(dir.path)}/$_modelFile';
         devLog(
           () =>
               'xVeil[whisper]: support-dir probe $p '

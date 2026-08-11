@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
 import 'pinned_download.dart';
+import 'storage/app_profile.dart';
 export 'pinned_download.dart' show sha256OfFileStreaming;
 
 /// The speech model, fetched on demand instead of shipped in the build.
@@ -13,12 +14,17 @@ export 'pinned_download.dart' show sha256OfFileStreaming;
 /// transcribe anything, so most of what they downloaded was a feature they
 /// did not use.
 ///
-/// It is stored ONCE FOR THE WHOLE APP, in the support directory root rather
-/// than under `profiles/<name>/`: it is a static artifact identical for
-/// everyone, carries nothing about the person, and re-downloading 57 MiB per
-/// profile would be absurd. This is also where the existing Android and Linux
-/// lookups already probe, so a downloaded model is found by the same code that
-/// used to find a bundled one.
+/// It is stored under the ACTIVE PROFILE's directory — see [activeProfileDir],
+/// which is the support directory itself for the default profile and therefore
+/// leaves every existing install exactly where it was.
+///
+/// It used to be stored once for the whole app, in the support root, on the
+/// reasoning that a 57 MiB artifact identical for everyone should not be
+/// fetched twice. That reasoning ignored what a profile IS. A second profile
+/// reported "speech model installed" on the strength of the FIRST profile's
+/// file, and a wipe performed inside the second profile deleted it — 57 MiB of
+/// another identity's data, destroyed by an identity that was never supposed to
+/// know it existed. Sharing a file between profiles means sharing a wipe.
 ///
 /// What the download must not do is take whatever bytes arrive. The expected
 /// size and SHA-256 are pinned here, matching the values the Android packaging
@@ -69,7 +75,16 @@ class WhisperModelStore {
   /// Where the model file lives. Public because a .veilaudio bundle is
   /// installed into it, and an importer that guessed the directory would be a
   /// second answer to a question this class already answers.
-  Future<Directory> modelDirectory() => _supportDirectory();
+  ///
+  /// The injected callback answers "where is the APP SUPPORT directory", not
+  /// "where is the model" — the profile scoping happens on the line below, so
+  /// a test drives the same derivation production does instead of a second one.
+  Future<Directory> modelDirectory() async => Directory(
+    activeProfileDir(
+      (await _supportDirectory()).path,
+      leftBehind: const [fileName],
+    ),
+  );
 
   /// The installed model, or null. Cheap: a size check, not a hash — the hash
   /// was verified before the file was ever given this name.
@@ -125,8 +140,14 @@ class WhisperModelStore {
     bool Function()? isCancelled,
     Uri? from,
   }) async {
+    final target = await _target();
+    // The profile's own directory may not be there yet — boot creates it, but
+    // a store that depends on that would fail the whole download on a
+    // FileSystemException from the very first write. [fetchPinned] does not
+    // create parents; the translation store already creates its own.
+    target.parent.createSync(recursive: true);
     final result = await fetchPinned(
-      target: await _target(),
+      target: target,
       artifact: const PinnedArtifact(
         url: downloadUrl,
         bytes: expectedBytes,

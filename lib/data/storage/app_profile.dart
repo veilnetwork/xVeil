@@ -1,4 +1,6 @@
-import 'dart:io' show Platform;
+import 'dart:io' show FileSystemEntity, FileSystemEntityType, Platform;
+
+import '../../core/log.dart';
 
 /// WHERE the profile for this launch came from.
 ///
@@ -185,3 +187,82 @@ class AppProfiles {
     return null;
   }
 }
+
+/// The profile this launch resolved to, for anything that has to report or
+/// branch on it (the switcher UI, the node's listener port, and every file that
+/// belongs to one profile rather than to the install).
+///
+/// Set once during bootstrap, before any provider reads it. It lives HERE
+/// rather than in `main.dart` — which re-exports it, so every existing importer
+/// is unaffected — because [activeProfileDir] needs it and the data layer must
+/// not import the entrypoint.
+String activeProfile = AppProfiles.defaultName;
+
+/// Where THIS launch's profile keeps a file that belongs to one profile and not
+/// to the install: the container, the blob tier beside it — and the speech and
+/// translation models, which used to sit in [supportDir] itself.
+///
+/// The models were resolved from the bare support directory, so a second
+/// profile read the FIRST profile's models and, on a wipe, deleted them. That
+/// is one identity destroying another's data, and — because a translation pair
+/// is a directory named `ru-en` — one identity reading the list of languages
+/// the other reads.
+///
+/// ## Migration: nothing moves, nothing is adopted, nothing is deleted
+///
+/// For the default profile this returns [supportDir] unchanged, exactly as
+/// [AppProfiles.storePath] keeps the historical container path. So an existing
+/// install keeps every model it has already downloaded, in place, with no copy
+/// and no move — the case that covers everybody who has never opened the
+/// switcher.
+///
+/// A NON-default profile does not adopt what it finds in [supportDir]. It never
+/// had a model of its own to lose; what it had was the default profile's, and
+/// inheriting that is the leak itself — a throwaway profile would start out
+/// holding the list of languages the real one reads. It re-downloads (or takes
+/// a bundle import), and the older shared copy is LEFT WHERE IT IS.
+///
+/// [leftBehind] names the entries the caller owns in the pre-profile location,
+/// so that choice is stated in the log instead of happening silently.
+String activeProfileDir(
+  String supportDir, {
+  List<String> leftBehind = const [],
+}) {
+  final dir = AppProfiles.directory(supportDir, activeProfile);
+  if (dir != supportDir) _noteLeftBehind(supportDir, dir, leftBehind);
+  return dir;
+}
+
+/// Which (directory, entries) pairs have already been reported this process.
+///
+/// The dedup key is set OUTSIDE the log gate and the filesystem probe INSIDE
+/// it: this runs on every model-path resolution, and a `stat` per resolution
+/// that a release build cannot even print is a cost paid for nothing.
+final Set<String> _noted = <String>{};
+
+void _noteLeftBehind(String supportDir, String dir, List<String> names) {
+  if (names.isEmpty || !_noted.add('$dir ${names.join(",")}')) return;
+  devLog(() {
+    final present = [
+      for (final name in names)
+        if (FileSystemEntity.typeSync('$supportDir/$name') !=
+            FileSystemEntityType.notFound)
+          name,
+    ];
+    if (present.isEmpty) {
+      return 'xVeil[profile]: "$activeProfile" keeps its models in $dir; '
+          'nothing of ${names.join(", ")} is in the shared $supportDir';
+    }
+    return 'xVeil[profile]: "$activeProfile" keeps its models in $dir. '
+        'LEFT WHERE THEY ARE — not adopted, not deleted: '
+        '${present.join(", ")} under $supportDir belong to the '
+        '"${AppProfiles.defaultName}" profile. Download or import again to '
+        'have them here.';
+  });
+}
+
+/// Forget what [activeProfileDir] has already reported.
+///
+/// Only for tests: the note is once-per-process by design, and a test that
+/// asserts on it must be able to ask for it again.
+void debugResetProfileDirNotes() => _noted.clear();
