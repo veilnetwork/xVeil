@@ -2602,14 +2602,33 @@ class AppController extends Notifier<AppState> {
   /// later), this scrubs the file itself. There is NO recovery: by design the
   /// spaces are unrecoverable without the container. The UI must gate this
   /// behind an explicit, clearly-worded confirmation.
-  Future<void> wipeContainers() async {
+  /// Destroy everything, and say what survived (audit report11 XV-H3).
+  ///
+  /// Every step here is best-effort by design — a wipe that aborts halfway
+  /// because one directory was locked would leave MORE behind than one that
+  /// carries on. What was wrong was not the tolerance, it was the silence: the
+  /// phase flipped to onboarding unconditionally, the function returned
+  /// nothing, and a person whose container was still on disk was shown the
+  /// same screen as one whose container was gone.
+  ///
+  /// The returned list names what is still there, checked by looking rather
+  /// than by trusting the delete call. Empty means empty.
+  Future<List<String>> wipeContainers() async {
     _endLifecycle(); // same window as [lock] — see [_lifecycle]
     await _stopVpnTunnel();
     await _teardownSession();
     await _teardownRealStack();
     await _stopBackgroundService();
     await _cleanRuntimeBase();
-    await ref.read(storageProvider).close();
+    // Guarded, unlike everything after it used to be. A wedged storage worker
+    // threw here and took the whole rest of the wipe with it — including the
+    // container delete on the very next lines. The one step whose failure
+    // could skip the deletion was the one step with no handler.
+    try {
+      await ref.read(storageProvider).close();
+    } catch (e) {
+      devLog(() => 'xVeil[wipe]: storage close failed, deleting anyway: $e');
+    }
     _clearMasterSession();
 
     // Delete the container file when we know its path (native/deniable build).
@@ -2694,7 +2713,27 @@ class AppController extends Notifier<AppState> {
     } catch (e) {
       devLog(() => 'xVeil[wipe]: failed to remove translation models: $e');
     }
+    // Look, do not assume. `delete()` returning without throwing is not the
+    // same as the file being gone: a partial recursive delete leaves children,
+    // and a platform can report success on a handle it has only unlinked.
+    final remaining = <String>[];
+    if (path != null && File(path).existsSync()) remaining.add('container');
+    if (path != null && blobRootFor(path).existsSync()) {
+      remaining.add('files');
+    }
+    if (remaining.isNotEmpty) {
+      errorJournal.record(
+        kind: 'wipe-incomplete',
+        error: StateError('still on disk after wipe: ${remaining.join(', ')}'),
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+    }
+
+    // The phase still flips. Parking someone on a lock screen for a container
+    // that may already be gone is its own failure, and in a deniable app the
+    // wrong screen is a disclosure.
     state = const AppState(AppPhase.onboarding);
+    return remaining;
   }
 
   /// What to show for a space that opened but holds NO profile record.
