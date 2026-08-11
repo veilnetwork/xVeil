@@ -920,11 +920,15 @@ class EmbeddedNode {
   /// (e.g. the bytes from [mineConfig], loaded from the deniable container) over
   /// its admin socket, in memory. Throws if the apply fails.
   void applyConfig(String configToml) {
-    // Use-after-free guard: stop() frees the native handle (veil_node_stop does
-    // Box::from_raw), so a call ordered after stop() would dereference freed
-    // memory. Mirror stop()'s _stopped check and fail loudly instead of touching
-    // _handle. Closes the realistic same-isolate post-stop UAF; a true
-    // cross-isolate stop-vs-in-flight race still needs native refcounting.
+    // Ordering guard, no longer a memory-safety one. The native handle is an
+    // opaque generational token now (report10 #1): a stop removes its table
+    // entry, so a later call finds nothing rather than dereferencing freed
+    // memory, and a stop landing mid-call cannot free the value under it.
+    //
+    // The check stays because refusing loudly here is still the right answer.
+    // "the node handle is not live" from the other side of an FFI boundary
+    // tells a person nothing about what they did; this names the mistake at
+    // the layer that can see the intent.
     if (_stopped) {
       throw StateError(
         'applyConfig called after stop() — node handle is freed',
