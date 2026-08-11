@@ -19,7 +19,31 @@ import '../../state/providers.dart';
 /// The recommended answer is the one that works, and it is preselected. An
 /// onboarding step whose safe-looking default breaks the app would be a trap of
 /// a different kind.
-class BundledSeedsChoiceStep extends StatelessWidget {
+///
+/// ## Why the whole step scrolls, and why picking "decline" scrolls it
+///
+/// Three separate things went wrong at 407x904 — a perfectly ordinary phone —
+/// and the one that mattered was the last: choosing the private answer pushed
+/// the red consequence below the Continue button, cut mid-glyph, with nothing
+/// on screen saying there was more. It was reachable by scrolling, which is
+/// exactly the problem: the sentence this file itself calls "the consequence,
+/// once more, where the eye already is" was the one part of the step a person
+/// could act without ever seeing.
+///
+///   * the heading and the intro were PINNED above an [Expanded] scroll view,
+///     spending roughly a third of the screen on text nobody needs a second
+///     time while the part that changes fought over what was left. They scroll
+///     with everything else now, and only the button stays put;
+///   * nothing said the region scrolled. A [Scrollbar] with a visible thumb
+///     does, permanently — the standard affordance, and the one a person
+///     already knows how to read;
+///   * and the consequence is brought INTO view when it appears
+///     ([Scrollable.ensureVisible]), rather than being laid out below the fold
+///     and left there. That is what makes the guarantee independent of screen
+///     size, font scale and translated string length — none of which a fixed
+///     layout can be tuned against, and all of which decide whether a warning
+///     about an app that will not work is read or missed.
+class BundledSeedsChoiceStep extends StatefulWidget {
   const BundledSeedsChoiceStep({
     super.key,
     required this.useBundledSeeds,
@@ -32,76 +56,139 @@ class BundledSeedsChoiceStep extends StatelessWidget {
   final VoidCallback onNext;
 
   @override
+  State<BundledSeedsChoiceStep> createState() => _BundledSeedsChoiceStepState();
+}
+
+class _BundledSeedsChoiceStepState extends State<BundledSeedsChoiceStep> {
+  /// Owned explicitly: [Scrollbar] needs an attached controller before it will
+  /// keep its thumb on screen, and without the thumb the region looks like the
+  /// end of the page.
+  final _scroll = ScrollController();
+
+  /// The consequence's own context, so it can be scrolled to by identity rather
+  /// than by a measured offset that every translation would falsify.
+  final _consequenceKey = GlobalKey();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant BundledSeedsChoiceStep oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Only on the transition INTO the declined answer. Running it on every
+    // rebuild would yank the view back down while someone was reading the other
+    // option, and running it when the seeds are kept has nothing to reveal.
+    if (!widget.useBundledSeeds && oldWidget.useBundledSeeds) {
+      _revealConsequence();
+    }
+  }
+
+  /// Put the red consequence on screen, after the frame that creates it.
+  ///
+  /// Post-frame because the widget does not exist yet at the moment the answer
+  /// changes — it is built by the rebuild this callback is scheduled from.
+  void _revealConsequence() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _consequenceKey.currentContext;
+      if (ctx == null || !_scroll.hasClients) return;
+      // `alignment: 1.0` puts the BOTTOM of the warning at the bottom of the
+      // viewport: the defect was a last line cut in half, so the last line is
+      // the edge that has to be inside.
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 1.0,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          l.seedsChoiceTitle,
-          style: Theme.of(context).textTheme.headlineSmall,
-        ),
-        const SizedBox(height: 12),
-        Text(l.seedsChoiceBody, style: Theme.of(context).textTheme.bodyMedium),
-        const SizedBox(height: 20),
         Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SeedsOption(
-                  selected: useBundledSeeds,
-                  icon: Icons.public,
-                  title: l.seedsUseTitle,
-                  body: l.seedsUseBody,
-                  onTap: () => onChanged(true),
-                ),
-                const SizedBox(height: 12),
-                _SeedsOption(
-                  selected: !useBundledSeeds,
-                  icon: Icons.dns_outlined,
-                  title: l.seedsDeclineTitle,
-                  body: l.seedsDeclineBody,
-                  onTap: () => onChanged(false),
-                ),
-                if (!useBundledSeeds) ...[
+          child: Scrollbar(
+            controller: _scroll,
+            thumbVisibility: true,
+            child: SingleChildScrollView(
+              controller: _scroll,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l.seedsChoiceTitle,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
                   const SizedBox(height: 12),
-                  // The consequence, once more, where the eye already is. A
-                  // person who picks this and adds nothing has an app that
-                  // cannot work; the difference between a choice and a trap is
-                  // whether that was said before they met it.
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.warning_amber_rounded,
-                        color: scheme.error,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          l.seedsNoNodeBody,
-                          style: TextStyle(color: scheme.error),
+                  Text(
+                    l.seedsChoiceBody,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 20),
+                  _SeedsOption(
+                    selected: widget.useBundledSeeds,
+                    icon: Icons.public,
+                    title: l.seedsUseTitle,
+                    body: l.seedsUseBody,
+                    onTap: () => widget.onChanged(true),
+                  ),
+                  const SizedBox(height: 12),
+                  _SeedsOption(
+                    selected: !widget.useBundledSeeds,
+                    icon: Icons.dns_outlined,
+                    title: l.seedsDeclineTitle,
+                    body: l.seedsDeclineBody,
+                    onTap: () => widget.onChanged(false),
+                  ),
+                  if (!widget.useBundledSeeds) ...[
+                    const SizedBox(height: 12),
+                    // The consequence, once more, where the eye already is. A
+                    // person who picks this and adds nothing has an app that
+                    // cannot work; the difference between a choice and a trap is
+                    // whether that was said before they met it.
+                    Row(
+                      key: _consequenceKey,
+                      children: [
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          color: scheme.error,
+                          size: 20,
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            l.seedsNoNodeBody,
+                            style: TextStyle(color: scheme.error),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Text(
+                    l.seedsChoiceChangeLater,
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant,
+                      fontSize: 13,
+                    ),
                   ),
                 ],
-                const SizedBox(height: 12),
-                Text(
-                  l.seedsChoiceChangeLater,
-                  style: TextStyle(
-                    color: scheme.onSurfaceVariant,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
         const SizedBox(height: 12),
-        FilledButton(onPressed: onNext, child: Text(l.actionContinue)),
+        FilledButton(
+          onPressed: widget.onNext,
+          child: Text(l.actionContinue),
+        ),
       ],
     );
   }

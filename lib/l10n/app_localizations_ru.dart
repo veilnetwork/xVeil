@@ -6301,4 +6301,19 @@ class AppL10nRu extends AppL10n {
   @override
   String get seedsSaveFailed =>
       'Выбор не удалось сохранить. Он действует только до перезапуска.';
+
+  @override
+  String get seedsSwitchTitle => 'Использовать общие входные узлы';
+
+  @override
+  String get seedsSwitchOnSub =>
+      'Включено: приложение само находит сеть. Узлы проекта узнают, что ваш узел существует и с какого адреса он подключается.';
+
+  @override
+  String get seedsSwitchOffSub =>
+      'Выключено: только узлы, которые вы добавите сами. Пока такого узла нет, соединения не будет.';
+
+  @override
+  String get seedsSwitchSaveFailed =>
+      'Изменение не удалось сохранить, поэтому оно не применено.';
 }

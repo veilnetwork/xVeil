@@ -6318,4 +6318,19 @@ class AppL10nEs extends AppL10n {
   @override
   String get seedsSaveFailed =>
       'No se pudo guardar esa elección. Solo se aplica a esta sesión.';
+
+  @override
+  String get seedsSwitchTitle => 'Usar los nodos de entrada compartidos';
+
+  @override
+  String get seedsSwitchOnSub =>
+      'Activado: la aplicación encuentra la red por su cuenta. Los nodos del proyecto se enteran de que existe un nodo tuyo y desde qué dirección se conecta.';
+
+  @override
+  String get seedsSwitchOffSub =>
+      'Desactivado: solo los nodos que añadas tú. No habrá conexión hasta que añadas uno.';
+
+  @override
+  String get seedsSwitchSaveFailed =>
+      'No se pudo guardar el cambio, así que no se ha aplicado.';
 }
