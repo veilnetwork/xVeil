@@ -447,6 +447,48 @@ abstract class AppL10n {
   /// **'Delete forever'**
   String get lockWipeConfirm;
 
+  /// No description provided for @lockWipeLeftTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Some of it is still on this device'**
+  String get lockWipeLeftTitle;
+
+  /// No description provided for @lockWipeLeftContainer.
+  ///
+  /// In en, this message translates to:
+  /// **'The container could not be deleted and is still on this device.'**
+  String get lockWipeLeftContainer;
+
+  /// No description provided for @lockWipeLeftFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'The large files kept beside the container could not be deleted and are still on this device.'**
+  String get lockWipeLeftFiles;
+
+  /// No description provided for @lockWipeLeftBoth.
+  ///
+  /// In en, this message translates to:
+  /// **'Neither the container nor the large files kept beside it could be deleted, and both are still on this device.'**
+  String get lockWipeLeftBoth;
+
+  /// No description provided for @lockWipeLeftRest.
+  ///
+  /// In en, this message translates to:
+  /// **'Everything else was destroyed. Try again — if it keeps failing, something else on this computer is holding on to it, such as a backup tool or a read-only disk.'**
+  String get lockWipeLeftRest;
+
+  /// No description provided for @lockWipeStopped.
+  ///
+  /// In en, this message translates to:
+  /// **'The deletion stopped partway through, so some of your data may still be on this device. Try again.'**
+  String get lockWipeStopped;
+
+  /// No description provided for @lockWipeRetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again'**
+  String get lockWipeRetry;
+
   /// No description provided for @navChats.
   ///
   /// In en, this message translates to:
@@ -10399,6 +10441,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Deleting a file here deletes it in Storage too.'**
   String get folderSyncDeleteWarning;
+
+  /// No description provided for @folderSyncNotAddedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This folder was not added'**
+  String get folderSyncNotAddedTitle;
+
+  /// No description provided for @folderSyncNotAdded.
+  ///
+  /// In en, this message translates to:
+  /// **'{reason}. Nothing was mirrored and nothing on this computer was changed. Choose a different folder — one inside your home folder, where only your own account can write.'**
+  String folderSyncNotAdded(String reason);
 
   /// No description provided for @settingsCopyErrors.
   ///

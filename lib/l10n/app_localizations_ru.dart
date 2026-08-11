@@ -210,6 +210,32 @@ class AppL10nRu extends AppL10n {
   String get lockWipeConfirm => 'Удалить навсегда';
 
   @override
+  String get lockWipeLeftTitle => 'Часть данных осталась на устройстве';
+
+  @override
+  String get lockWipeLeftContainer =>
+      'Контейнер удалить не удалось — он всё ещё на этом устройстве.';
+
+  @override
+  String get lockWipeLeftFiles =>
+      'Крупные файлы, которые хранились рядом с контейнером, удалить не удалось — они всё ещё на этом устройстве.';
+
+  @override
+  String get lockWipeLeftBoth =>
+      'Ни контейнер, ни крупные файлы рядом с ним удалить не удалось — они всё ещё на этом устройстве.';
+
+  @override
+  String get lockWipeLeftRest =>
+      'Всё остальное уничтожено. Повторите попытку — если снова не выйдет, значит, файл удерживает что-то ещё на этом компьютере: например, программа резервного копирования или диск только для чтения.';
+
+  @override
+  String get lockWipeStopped =>
+      'Удаление прервалось на середине, поэтому часть данных может оставаться на этом устройстве. Повторите попытку.';
+
+  @override
+  String get lockWipeRetry => 'Повторить';
+
+  @override
   String get navChats => 'Чаты';
 
   @override
@@ -5886,6 +5912,14 @@ class AppL10nRu extends AppL10n {
   @override
   String get folderSyncDeleteWarning =>
       'Удаление файла здесь удалит его и в Хранилище.';
+
+  @override
+  String get folderSyncNotAddedTitle => 'Папка не добавлена';
+
+  @override
+  String folderSyncNotAdded(String reason) {
+    return '$reason. Ничего не скопировано, и на этом компьютере ничего не изменилось. Выберите другую папку — внутри своей домашней папки, куда может писать только ваша учётная запись.';
+  }
 
   @override
   String get settingsCopyErrors => 'Скопировать отчёт об ошибках';

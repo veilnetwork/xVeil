@@ -210,6 +210,33 @@ class AppL10nEs extends AppL10n {
   String get lockWipeConfirm => 'Borrar para siempre';
 
   @override
+  String get lockWipeLeftTitle =>
+      'Parte de los datos sigue en este dispositivo';
+
+  @override
+  String get lockWipeLeftContainer =>
+      'No se ha podido borrar el contenedor y sigue en este dispositivo.';
+
+  @override
+  String get lockWipeLeftFiles =>
+      'No se han podido borrar los archivos grandes guardados junto al contenedor y siguen en este dispositivo.';
+
+  @override
+  String get lockWipeLeftBoth =>
+      'No se han podido borrar ni el contenedor ni los archivos grandes guardados junto a él, y ambos siguen en este dispositivo.';
+
+  @override
+  String get lockWipeLeftRest =>
+      'Todo lo demás se ha destruido. Vuelve a intentarlo; si sigue sin conseguirlo, es que algo más de este equipo lo está reteniendo, como una herramienta de copias de seguridad o un disco de solo lectura.';
+
+  @override
+  String get lockWipeStopped =>
+      'El borrado se ha interrumpido a medias, así que parte de tus datos puede seguir en este dispositivo. Vuelve a intentarlo.';
+
+  @override
+  String get lockWipeRetry => 'Volver a intentarlo';
+
+  @override
   String get navChats => 'Chats';
 
   @override
@@ -5907,6 +5934,14 @@ class AppL10nEs extends AppL10n {
   @override
   String get folderSyncDeleteWarning =>
       'Si borras un archivo aquí, también se borra en Almacenamiento.';
+
+  @override
+  String get folderSyncNotAddedTitle => 'No se ha añadido la carpeta';
+
+  @override
+  String folderSyncNotAdded(String reason) {
+    return '$reason. No se ha copiado nada ni ha cambiado nada en este equipo. Elige otra carpeta: una dentro de tu carpeta personal, en la que solo pueda escribir tu propia cuenta.';
+  }
 
   @override
   String get settingsCopyErrors => 'Copiar informe de errores';
