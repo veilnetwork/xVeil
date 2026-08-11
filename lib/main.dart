@@ -40,12 +40,12 @@ import 'state/storage_preferences.dart';
 import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/core/log.dart';
 
-Duration? _disableAutomaticProviderRetry(int retryCount, Object error) => null;
+/// The profile this launch resolved to. Declared beside [AppProfiles.directory]
+/// — the data layer resolves model paths from it and must not import the
+/// entrypoint — and re-exported here, where every reader already looks for it.
+export 'data/storage/app_profile.dart' show activeProfile;
 
-/// The profile this launch resolved to, for anything that has to report or
-/// branch on it (the switcher UI, the node's listener port). Set once during
-/// bootstrap, before any provider reads it.
-String activeProfile = AppProfiles.defaultName;
+Duration? _disableAutomaticProviderRetry(int retryCount, Object error) => null;
 
 /// Command-line arguments as delivered by the embedder — every desktop
 /// platform (macOS needs MainFlutterWindow to hand argv to the Dart project;
