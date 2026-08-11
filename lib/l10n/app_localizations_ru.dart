@@ -6181,4 +6181,15 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get modelProvenanceRisk => 'На ваш страх и риск.';
+
+  @override
+  String get modelSharingTitle => 'Отвечать контактам, спрашивающим модели';
+
+  @override
+  String get modelSharingOn =>
+      'Контакты видят, какие языковые и речевые модели у вас есть, и могут попросить копию.';
+
+  @override
+  String get modelSharingOff =>
+      'Контакты не получают ответа. Отличить это от «моделей нет» они не смогут.';
 }

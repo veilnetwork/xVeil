@@ -2734,5 +2734,8 @@
   "modelProvenanceBodyUnknown": "This build has no reference hash for this model, so there is nothing to compare it against. That is not an accusation — it means the check cannot be made here.",
   "modelProvenanceInstallAnyway": "Install anyway",
   "modelProvenanceLoadManually": "Find and load it myself",
-  "modelProvenanceRisk": "At your own risk."
+  "modelProvenanceRisk": "At your own risk.",
+  "modelSharingTitle": "Answer contacts asking for models",
+  "modelSharingOn": "Contacts can see which language and speech models you have, and ask for a copy.",
+  "modelSharingOff": "Contacts get no answer. They cannot tell this from your having no models."
 }
