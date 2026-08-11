@@ -5282,12 +5282,6 @@ abstract class AppL10n {
   /// **'Copy token'**
   String get settingsApiCopyToken;
 
-  /// No description provided for @settingsApiTokenCopied.
-  ///
-  /// In en, this message translates to:
-  /// **'Token copied'**
-  String get settingsApiTokenCopied;
-
   /// No description provided for @settingsCommunication.
   ///
   /// In en, this message translates to:
@@ -10873,6 +10867,12 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Ask another contact'**
   String get modelProvenanceAskAnother;
+
+  /// No description provided for @settingsApiTokenCopiedClears.
+  ///
+  /// In en, this message translates to:
+  /// **'Token copied. The clipboard will be cleared in {seconds} seconds.'**
+  String settingsApiTokenCopiedClears(int seconds);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
