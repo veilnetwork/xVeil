@@ -10,6 +10,7 @@ import '../../core/log.dart';
 import '../../core/secret_wipe.dart';
 import '../native_libs.dart' show processLibFor;
 import 'node_controller.dart';
+import 'veil_library.dart' show verifiedVeilLibrary;
 import 'proxy_routing.dart';
 import 'veil_node.dart' show veilSocketProbe;
 
@@ -17,7 +18,12 @@ import 'veil_node.dart' show veilSocketProbe;
 /// in the dlopen'd `libveilclient_ffi.so` (not the global scope), so we must
 /// use that handle; on iOS/desktop they are process-global. See
 /// [processLibFor].
-DynamicLibrary _veilLib() => processLibFor('veilclient_ffi');
+/// Refused unless it is the library these bindings describe — see
+/// [verifiedVeilLibrary]. `lookupFunction` matches a name, not a signature, so
+/// a library of another revision resolves and then corrupts memory on the
+/// first call; the node is started through this handle before anything else in
+/// the app would have checked.
+DynamicLibrary _veilLib() => verifiedVeilLibrary();
 
 /// One `[[bootstrap_peers]]` entry — a known node the embedded node dials at
 /// boot to join a network (seed set / testnet). Fields mirror veil's

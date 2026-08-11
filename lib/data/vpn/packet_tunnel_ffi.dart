@@ -2,7 +2,7 @@ import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
 
-import '../native_libs.dart';
+import '../node/veil_library.dart' show verifiedVeilLibrary;
 
 typedef _StartNative =
     Int32 Function(
@@ -93,7 +93,10 @@ class PacketTunnelFfi {
   /// Returns null for old/platform builds that do not embed the packet engine.
   static PacketTunnelFfi? tryOpen() {
     try {
-      return PacketTunnelFfi._(processLibFor('veilclient_ffi'));
+      // Through the contract gate, not straight at the process image: this
+      // binding hands a TUN descriptor to native code, so a signature that
+      // moved is a descriptor written somewhere else.
+      return PacketTunnelFfi._(verifiedVeilLibrary());
     } catch (_) {
       return null;
     }
