@@ -8,7 +8,6 @@ import 'package:path_provider/path_provider.dart';
 import '../../data/storage/app_profile.dart';
 import '../../data/storage/profile_prefs_store.dart';
 import '../../l10n/app_localizations.dart';
-import '../../main.dart' show activeProfile;
 import '../../routing/back_affordance.dart';
 
 /// The hidden profile switcher: which on-disk profile the app starts on.
