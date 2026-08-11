@@ -1125,6 +1125,156 @@ Uint8List? _rawIdentityRecord(FakeHvContainer container, String password) =>
         .get(Ns.settings, Uint8List.fromList(utf8.encode('identity')));
 
 void _keyWipeOnLockTests() {
+  /// A master session with two children, unlocked and ready for roster edits.
+  Future<(ProviderContainer, AppController, FakeHvContainer)> unlockedMaster()
+  async {
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    errorJournal.clear();
+    final container = FakeHvContainer();
+    final roster = <RosterEntry>[];
+    for (final (label, pw) in [('alice', 'pw-a'), ('bob', 'pw-b')]) {
+      final ch = container.storage();
+      await ch.open(password: pw, createIfMissing: true);
+      await ch.saveProfile(UserProfile(displayName: label));
+      roster.add(
+        RosterEntry(label: label, spaceKeys: await ch.exportSpaceKeys()),
+      );
+      await ch.close();
+    }
+    final m = container.storage();
+    await m.open(password: 'masterpw', createIfMissing: true);
+    await m.saveRoster(roster);
+    await m.close();
+
+    final c = ProviderContainer(
+      overrides: [storageProvider.overrideWith((ref) => container.storage())],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await ctrl.unlock('masterpw');
+    return (c, ctrl, container);
+  }
+
+  test('a roster edit zeroes the keys it supersedes, not just the last set',
+      () async {
+    // audit report10 X-04. Only the CURRENT references were wiped at lock, and
+    // `loadRoster` hands back FRESH buffers every call — so every anonymity
+    // toggle, bind, unbind, delete and addIdentity abandoned a whole set of
+    // child space keys intact in the heap. A session with a few edits left
+    // several full sets readable after the container closed.
+    final (c, ctrl, _) = await unlockedMaster();
+    final before = [for (final e in ctrl.debugRoster!) e.spaceKeys];
+    expect(before, hasLength(2));
+    expect(before.every((k) => k.any((b) => b != 0)), isTrue,
+        reason: 'sanity: real key material before the edit');
+
+    await ctrl.setIdentityAnonymous('bob', true);
+    final after = [for (final e in ctrl.debugRoster!) e.spaceKeys];
+
+    // Anti-vacuity: if the edit did not actually replace the buffers there is
+    // nothing superseded and the next assertion means nothing.
+    expect(
+      before.any((b) => after.any((a) => identical(a, b))),
+      isFalse,
+      reason: 'the edit must have replaced the buffers, or the test is empty',
+    );
+    for (final k in before) {
+      expect(
+        k.every((b) => b == 0),
+        isTrue,
+        reason: 'superseded child keys must be zeroed AT THE SWAP, not at the '
+            'next lock — the next lock never sees them',
+      );
+    }
+    // And the live ones must survive: over-wiping here would leave the app
+    // holding keys that open nothing.
+    expect(after.every((k) => k.any((b) => b != 0)), isTrue);
+    expect(c.read(appControllerProvider).phase, isNot(AppPhase.locked));
+  });
+
+  test('replacing the master keys zeroes the old buffer', () async {
+    final (_, ctrl, _) = await unlockedMaster();
+    final before = ctrl.debugMasterKeys!;
+    expect(before.any((b) => b != 0), isTrue);
+
+    await ctrl.addIdentity(
+      masterPassword: 'masterpw',
+      label: 'carol',
+      password: 'pw-c',
+    );
+
+    expect(
+      before.every((b) => b == 0),
+      isTrue,
+      reason: 'the superseded master keys must be gone, not merely dropped',
+    );
+    expect(ctrl.debugMasterKeys!.any((b) => b != 0), isTrue);
+    // Proves the LIVE master keys still open the master: a fix that wiped the
+    // adopted buffer instead would pass the assertion above and break this.
+    expect(await ctrl.setIdentityAnonymous('carol', true), isTrue);
+  });
+
+  test('an edit that aborts leaves every live key usable', () async {
+    // Named for what it establishes. It was written to exercise the identity
+    // guard in _releaseKeys, and it does NOT: with an unreadable roster blob
+    // `saveRoster` refuses fail-closed BEFORE the swap, so no release runs at
+    // all. Deleting the guard leaves this green — checked, not assumed.
+    //
+    // The guard stays anyway, and is documented as defensive rather than
+    // covered: `onDisk = await storage.loadRoster() ?? roster` aliases the live
+    // roster on its fallback branch, and `createDecoyMaster` builds from live
+    // entries. Neither reaches a swap today. If one ever does, wiping by
+    // content equality or without an identity check would zero buffers the app
+    // is still holding, and nothing else would say so.
+    //
+    // What this DOES prove is worth having on its own: a failed roster edit
+    // must not take the session's keys with it.
+    final (c, ctrl, container) = await unlockedMaster();
+    final live = [for (final e in ctrl.debugRoster!) e.spaceKeys];
+    final master = ctrl.debugMasterKeys!;
+    expect(live.every((k) => k.any((b) => b != 0)), isTrue);
+
+    container.rawStoreFor('masterpw')!.commit([
+      PutOp(
+        Ns.settings,
+        Uint8List.fromList(utf8.encode('master:roster')),
+        Uint8List.fromList(utf8.encode('{not a roster}')),
+      ),
+    ]);
+
+    // Precondition, asserted rather than assumed: without an unreadable roster
+    // there is no aliasing and this test proves nothing.
+    final probe = container.storage();
+    await probe.open(password: 'masterpw');
+    expect(
+      await probe.loadRoster(),
+      isNull,
+      reason: 'the damaged blob must make loadRoster fall back, or the '
+          'aliasing this test exists for never happens',
+    );
+    await probe.close();
+
+    // The edit aborts in saveRoster's fail-closed guard; what matters is what
+    // it leaves behind.
+    try {
+      await ctrl.setIdentityAnonymous('alice', false);
+    } catch (_) {
+      // The abort itself is not what this test is about.
+    }
+
+    for (final k in live) {
+      expect(
+        k.any((b) => b != 0),
+        isTrue,
+        reason: 'a buffer the roster still holds was wiped — it opens nothing '
+            'now, and the app cannot tell why',
+      );
+    }
+    expect(master.any((b) => b != 0), isTrue,
+        reason: 'the master keys are still in use');
+  });
+
   test('locking ZEROES the cached space keys, not just the reference', () async {
     // Audit XV-22. A SpaceKeys blob opens a space with no password; the master
     // session caches its own and one per child. They used to be dropped by

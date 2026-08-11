@@ -474,10 +474,10 @@ class AppController extends Notifier<AppState> {
             '(+${ms()}ms)',
       );
       if (roster != null && roster.isNotEmpty) {
-        _pendingRoster = roster;
+        _setPendingRoster(roster);
         // Cache the master's keys so roster edits can reopen it without a
         // password re-prompt (held in memory like the child keys above).
-        _masterKeys = await storage.exportSpaceKeys();
+        _setMasterKeys(await storage.exportSpaceKeys());
         await storage.close(); // release the single-space lock first
         // "All identities online" (the NORM since 2026-07-11): host every
         // space + run every node at once (needs the real container path).
@@ -1499,7 +1499,7 @@ class AppController extends Notifier<AppState> {
       ];
       await storage.saveRoster(updated);
       await storage.close();
-      _pendingRoster = updated;
+      _setPendingRoster(updated);
       _bumpAnonymityRevision();
 
       // Re-enter so the change takes effect (a node's anonymity is fixed at
@@ -1600,7 +1600,7 @@ class AppController extends Notifier<AppState> {
       ];
       await storage.saveRoster(updated);
       await storage.close();
-      _pendingRoster = updated;
+      _setPendingRoster(updated);
 
       // If we just unbound the ACTIVE identity it is gone from [updated], so
       // the helper falls back to the picker; otherwise restores the view.
@@ -1662,7 +1662,7 @@ class AppController extends Notifier<AppState> {
       ];
       await storage.saveRoster(updated);
       await storage.close();
-      _pendingRoster = updated;
+      _setPendingRoster(updated);
 
       await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
       return true;
@@ -1736,7 +1736,7 @@ class AppController extends Notifier<AppState> {
       final updated = [...onDisk, RosterEntry(label: label, spaceKeys: keys)];
       await storage.saveRoster(updated);
       await storage.close();
-      _pendingRoster = updated;
+      _setPendingRoster(updated);
 
       await _reEnterAfterRosterEdit(updated, prevActive, hadSession);
       return true;
@@ -1919,12 +1919,12 @@ class AppController extends Notifier<AppState> {
       await storage.saveRoster(roster);
       // Cache the master's keys so a later roster edit (e.g. toggling anonymity)
       // works without re-unlocking — same as the unlock path does.
-      _masterKeys = await storage.exportSpaceKeys();
+      _setMasterKeys(await storage.exportSpaceKeys());
       await storage.close();
 
       // Enter the new identity (one-active). If the user has keep-all-online on,
       // the next unlock brings every identity — including this one — back online.
-      _pendingRoster = roster;
+      _setPendingRoster(roster);
       _activeLabel = null;
       await pickIdentity(label);
       return true;
@@ -2367,13 +2367,65 @@ class AppController extends Notifier<AppState> {
   /// Safe here because every caller has already torn the session down, so
   /// nothing is still reading through these buffers.
   void _clearMasterSession() {
-    for (final e in _pendingRoster ?? const <RosterEntry>[]) {
-      wipeSecretBytes(e.spaceKeys);
-    }
-    _pendingRoster = null; // drop cached child keys
-    wipeSecretBytes(_masterKeys);
-    _masterKeys = null; // drop cached master keys
+    _setPendingRoster(null); // drop cached child keys
+    _setMasterKeys(null); // drop cached master keys
     _activeLabel = null;
+  }
+
+  /// Every key buffer this controller currently holds.
+  ///
+  /// Consulted AFTER a swap, so a buffer the new value adopted from the old
+  /// one shows up as live and is left alone.
+  Iterable<Uint8List> get _liveKeyBuffers sync* {
+    final master = _masterKeys;
+    if (master != null) yield master;
+    for (final entry in _pendingRoster ?? const <RosterEntry>[]) {
+      yield entry.spaceKeys;
+    }
+  }
+
+  /// Zero the key buffers in [candidates] that nothing still holds.
+  ///
+  /// Compared by IDENTITY, never by content (audit report10 X-04). A roster
+  /// edit builds new [RosterEntry] objects around the SAME `spaceKeys` buffers,
+  /// so entry-level comparison would miss the aliasing entirely — and content
+  /// equality is worse than useless here: the old and new buffers hold the same
+  /// key bytes, so an equality check would find every buffer "still live" and
+  /// wipe nothing, while looking exactly like a working fix.
+  void _releaseKeys(Iterable<Uint8List?> candidates) {
+    final live = _liveKeyBuffers.toList();
+    for (final candidate in candidates) {
+      if (candidate == null) continue;
+      if (live.any((held) => identical(held, candidate))) continue;
+      wipeSecretBytes(candidate);
+    }
+  }
+
+  /// Replace the cached roster, wiping whatever the old one held alone.
+  ///
+  /// The single owner of that field. It used to be a plain assignment in six
+  /// places, and `loadRoster` hands back FRESH buffers every call — so every
+  /// anonymity toggle, bind, unbind, delete and addIdentity abandoned a whole
+  /// set of child space keys intact in the heap. Only the buffers still
+  /// referenced at lock time were ever zeroed, which meant a session with a few
+  /// roster edits left several full sets readable after the container closed.
+  ///
+  /// Assign first, release second: the live set is read after the swap, so an
+  /// adopted buffer is skipped without the caller having to say which.
+  void _setPendingRoster(List<RosterEntry>? next) {
+    final previous = _pendingRoster;
+    _pendingRoster = next;
+    if (previous == null) return;
+    _releaseKeys([for (final entry in previous) entry.spaceKeys]);
+  }
+
+  /// Replace the cached master keys, wiping the old buffer unless it was
+  /// adopted. Same rule as [_setPendingRoster].
+  void _setMasterKeys(Uint8List? next) {
+    final previous = _masterKeys;
+    _masterKeys = next;
+    if (previous == null) return;
+    _releaseKeys([previous]);
   }
 
   /// The cached master SpaceKeys, for tests that check they are ZEROED — not
