@@ -2649,5 +2649,21 @@
   "askContactsWaiting": "Quien responda aparecerá aquí. El silencio no significa nada en concreto.",
   "askContactsAction": "Preguntar a mis contactos",
   "modelProvenanceAskAnother": "Preguntar a otro contacto",
-  "settingsApiTokenCopiedClears": "Token copiado. El portapapeles se borrará en {seconds} segundos."
+  "settingsApiTokenCopiedClears": "Token copiado. El portapapeles se borrará en {seconds} segundos.",
+  "seedsChoiceTitle": "Cómo encuentra la red este dispositivo",
+  "seedsChoiceBody": "xVeil no tiene servidor central, así que un dispositivo nuevo necesita al menos un nodo al que llegar antes de que pueda ocurrir nada más. Elige cómo consigue el primero esta identidad.",
+  "seedsUseTitle": "Usar los nodos de entrada compartidos (recomendado)",
+  "seedsUseBody": "La aplicación se conecta sola, sin que tengas que configurar nada. Esos nodos los mantiene el proyecto, y se enteran de que existe un nodo tuyo y desde qué dirección se conecta; no de quién eres ni de lo que envías.",
+  "seedsDeclineTitle": "Solo los nodos que añada yo",
+  "seedsDeclineBody": "No se contacta con ningún nodo compartido, así que el servidor de nadie más sabrá que esta identidad existe. Nada funciona hasta que añadas un nodo tú: no se podrán enviar mensajes ni llegará ninguno.",
+  "seedsChoiceChangeLater": "Puedes cambiarlo más adelante en los ajustes de red.",
+  "seedsReofferTitle": "Esta identidad no puede llegar a la red",
+  "seedsReofferBody": "Elegiste usar solo nodos añadidos por ti, y no has añadido ninguno. Mientras no lo hagas, no se puede enviar ni recibir ningún mensaje. Puedes añadir tu nodo ahora o usar después de todo los nodos de entrada compartidos: se enteran de que existe un nodo tuyo y desde qué dirección se conecta.",
+  "seedsReofferUse": "Usar los nodos compartidos",
+  "seedsReofferKeep": "Mantener mi elección",
+  "seedsReofferDontAsk": "No volver a mostrar",
+  "seedsNoNodeTitle": "Todavía no hay forma de llegar a la red",
+  "seedsNoNodeBody": "Esta identidad no usa los nodos de entrada compartidos, así que necesita uno tuyo. Añádelo y la aplicación se conectará.",
+  "seedsNoNodeAction": "Añadir mi nodo",
+  "seedsSaveFailed": "No se pudo guardar esa elección. Solo se aplica a esta sesión."
 }

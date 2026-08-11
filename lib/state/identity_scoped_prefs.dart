@@ -66,6 +66,14 @@ const kIdentityPosturePrefKeys = <String>[
   'notifications_preview',
   'storage.lean_padding.v1',
   'whisper.auto_fetch.v1',
+  // Whether this profile reaches the network through the shared seed nodes,
+  // and whether it has silenced the offer to reconsider. Posture in the
+  // strongest sense the list has: the first decides which addresses the node
+  // is composed with, so a decoy inheriting the real profile's answer would
+  // dial the same operator-run hosts — and a profile that declined them and
+  // inherited a "yes" would be back on the shared seeds without being asked.
+  'network.bundled_seeds.v1',
+  'network.bundled_seeds.reoffer_suppressed.v1',
   // Device-synced settings. `kSync*` in device_settings_sync.dart holds the
   // same three strings; they are spelled out here rather than imported so this
   // list stays readable as the checklist it is.

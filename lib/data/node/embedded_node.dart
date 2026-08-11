@@ -330,6 +330,10 @@ class EmbeddedNode {
     List<String> udpReflectors = const [],
     String? obfs4PskFile,
     ProxyRouting proxy = ProxyRouting.disabled,
+    // False when this identity declined the shared seed nodes. See
+    // [withBuiltinSeedPolicy] for why an empty [bootstrapPeers] does not
+    // already mean that.
+    bool useBundledSeeds = true,
   }) {
     return _composeConfigImpl(
       identityToml: identityToml,
@@ -343,6 +347,7 @@ class EmbeddedNode {
       udpReflectors: udpReflectors,
       obfs4PskFile: obfs4PskFile,
       proxy: proxy,
+      useBundledSeeds: useBundledSeeds,
     );
   }
 
@@ -366,6 +371,45 @@ class EmbeddedNode {
       return '${toml.substring(0, at)}$line\n${toml.substring(at)}';
     }
     return '$toml\n[transport]\n$line\n';
+  }
+
+  /// Forbid veil's COMPILE-TIME seed list when the shared seeds were declined.
+  ///
+  /// This is the half of the opt-out that actually does anything. The app's
+  /// deniable boot passes no `[[bootstrap_peers]]` on purpose (injecting them
+  /// made `veil_node_apply_config` fail with ENOENT on Android), so every stock
+  /// install satisfies veil's `builtin_seed_policy = "auto"` condition —
+  /// "neither `peers` nor `[[bootstrap_peers]]` is set" — and the runtime
+  /// splices `veil_bootstrap::builtin_seeds()` into its own dial list. Handing
+  /// the node an empty Dart-side peer list therefore removes NOTHING: it dials
+  /// the same operator-run hosts a moment later, from inside itself.
+  ///
+  /// `"never"` is the only value that answers the question, and it is written
+  /// while the config is being composed — so a node whose owner declined never
+  /// holds the addresses at all, rather than holding them under an instruction
+  /// not to use them.
+  ///
+  /// Writes NOTHING when the seeds are kept: veil's own default is `auto` and
+  /// spelling it out here would freeze a decision that belongs to the runtime.
+  /// Pure helper (no FFI), so it is unit-testable.
+  static String withBuiltinSeedPolicy(String toml, bool useBundledSeeds) {
+    if (useBundledSeeds) return toml;
+    const line = 'builtin_seed_policy = "never"';
+    // `veil_config_compose` serializes a full Config, so `[global]` normally
+    // already carries a rendered policy — replace it rather than appending a
+    // second key the TOML parser would reject as a duplicate.
+    final rendered = RegExp(
+      r'^[ \t]*builtin_seed_policy[ \t]*=.*$',
+      multiLine: true,
+    );
+    if (rendered.hasMatch(toml)) return toml.replaceAll(rendered, line);
+    const marker = '[global]\n';
+    final idx = toml.indexOf(marker);
+    if (idx >= 0) {
+      final at = idx + marker.length;
+      return '${toml.substring(0, at)}$line\n${toml.substring(at)}';
+    }
+    return '$toml\n[global]\n$line\n';
   }
 
   /// Append a `[metrics]` table exposing the node's Prometheus counters on a
@@ -662,6 +706,7 @@ class EmbeddedNode {
     List<String> udpReflectors = const [],
     String? obfs4PskFile,
     ProxyRouting proxy = ProxyRouting.disabled,
+    bool useBundledSeeds = true,
   }) {
     final dl = lib ?? _veilLib();
     final composeFn = dl.lookupFunction<_ComposeNative, _ComposeDart>(
@@ -708,24 +753,27 @@ class EmbeddedNode {
       }
       final toml = out.toDartString();
       freeStr(out);
-      return withTransportRotation(
-        withSessionKeepalive(
-          withObfs4PskFile(
-            withUdpReflectors(
-              withProxy(
-                withBootstrapPeers(
-                  withClientNodeRole(
-                    withLazyMining(withAnonymity(toml, anonymous), lazyMining),
+      return withBuiltinSeedPolicy(
+        withTransportRotation(
+          withSessionKeepalive(
+            withObfs4PskFile(
+              withUdpReflectors(
+                withProxy(
+                  withBootstrapPeers(
+                    withClientNodeRole(
+                      withLazyMining(withAnonymity(toml, anonymous), lazyMining),
+                    ),
+                    bootstrapPeers,
                   ),
-                  bootstrapPeers,
+                  proxy,
                 ),
-                proxy,
+                udpReflectors,
               ),
-              udpReflectors,
+              obfs4PskFile,
             ),
-            obfs4PskFile,
           ),
         ),
+        useBundledSeeds,
       );
     } finally {
       // Only ptrs[0]/args[0] hold a secret; the rest are socket paths. Wiping

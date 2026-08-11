@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/transport/bootstrap_invite.dart';
 
+import '../data/node/bundled_seeds.dart' show kBundledSeedsDefault;
 import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
 import '../data/node/fake_node_controller.dart';
 import '../data/node/node_controller.dart';
@@ -186,6 +187,21 @@ class DeniableBootConfig {
   /// in the runtime dir at boot and referenced via `[transport].obfs4_psk_file`.
   final String? obfs4Psk;
 }
+
+/// This profile's answer to the shared-seed question, as the RUNNING app knows
+/// it — seeded by main() from the stored preference.
+///
+/// It exists because of the first run. The boot config is assembled in `main`,
+/// before onboarding has asked anything, so on the launch where the choice is
+/// actually made the stored preference still says what it said at process
+/// start. [deniableBootProvider] watches this, so recording a refusal REBUILDS
+/// the config without the bundled seed descriptors before the node boots at the
+/// end of onboarding. Without it the very first session — the one where the
+/// person just declined — would still hand those addresses to the node over
+/// IPC, which is precisely the quiet fallback the choice is meant to prevent.
+final bundledSeedsChoiceProvider = StateProvider<bool>(
+  (ref) => kBundledSeedsDefault,
+);
 
 /// Present (non-null) when the app should boot the node in-process from the
 /// in-space identity post-unlock. main() overrides it only when the embedded
