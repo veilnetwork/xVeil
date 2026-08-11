@@ -1,0 +1,110 @@
+name: translate-windows
+
+# Produces veil_translate.dll for win-x64 — the one platform whose translation
+# wrapper cannot be built from a development Mac. macOS, iOS, Android and Linux
+# all have scripts that run on a host somebody actually has; Windows needs MSVC,
+# so it runs here.
+#
+# Run by hand and carry the result forward as an artifact, the same shape as
+# webrtc-windows: the DLL is a prebuilt that builder.py stages into the runner
+# directory, and its staging step is already written and waiting.
+#
+# Nothing about this workflow is on the app's critical path. Translation is
+# optional on every platform: without the DLL the Windows bundle builds, runs,
+# and reports translation as unavailable rather than offering a model download
+# that could not help.
+on:
+  workflow_dispatch:
+    inputs:
+      ct2_ref:
+        description: 'CTranslate2 ref to build (veilnetwork fork)'
+        required: false
+        type: string
+        default: master
+      spm_ref:
+        description: 'SentencePiece ref to build'
+        required: false
+        type: string
+        default: master
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: CTranslate2 (veilnetwork fork)
+        run: |
+          git clone --depth 1 --branch "${{ inputs.ct2_ref }}" --recurse-submodules --shallow-submodules `
+            https://github.com/veilnetwork/CTranslate2.git "$env:RUNNER_TEMP\CTranslate2"
+
+      - name: SentencePiece
+        run: |
+          git clone --depth 1 --branch "${{ inputs.spm_ref }}" `
+            https://github.com/google/sentencepiece.git "$env:RUNNER_TEMP\sentencepiece"
+
+      # Ruy rather than MKL: the engine has to run on whatever CPU a person
+      # already owns, and MKL is both an extra redistributable and an Intel-only
+      # fast path. OPENMP_RUNTIME=NONE for the same reason — an OpenMP runtime
+      # is one more DLL that has to arrive alongside this one, and this file
+      # exists precisely so that nothing does.
+      - name: Build CTranslate2 (static)
+        run: |
+          cmake -S "$env:RUNNER_TEMP\CTranslate2" -B "$env:RUNNER_TEMP\CTranslate2\build-windows-static" `
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF `
+            -DWITH_MKL=OFF -DWITH_RUY=ON -DWITH_DNNL=OFF -DWITH_CUDA=OFF `
+            -DOPENMP_RUNTIME=NONE -DBUILD_CLI=OFF -DBUILD_TESTS=OFF
+          cmake --build "$env:RUNNER_TEMP\CTranslate2\build-windows-static" --config Release --parallel
+
+      - name: Build SentencePiece (static)
+        run: |
+          cmake -S "$env:RUNNER_TEMP\sentencepiece" -B "$env:RUNNER_TEMP\sentencepiece\build-windows-x64" `
+            -DCMAKE_BUILD_TYPE=Release -DSPM_ENABLE_SHARED=OFF `
+            -DSPM_BUILD_TEST=OFF -DSPM_ENABLE_TCMALLOC=OFF
+          cmake --build "$env:RUNNER_TEMP\sentencepiece\build-windows-x64" --config Release --parallel
+
+      # The script checks its own output: the export table must equal the entry
+      # points declared in veil_translate.h, and no protobuf/abseil/engine name
+      # may be exported alongside them. Both are failures here rather than a
+      # surprise at GetProcAddress on a user's machine.
+      - name: Build the wrapper
+        shell: cmd
+        run: |
+          set "VS=C:\Program Files\Microsoft Visual Studio\2022"
+          if exist "%VS%\Enterprise\VC\Auxiliary\Build\vcvars64.bat" call "%VS%\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          if exist "%VS%\Community\VC\Auxiliary\Build\vcvars64.bat" call "%VS%\Community\VC\Auxiliary\Build\vcvars64.bat"
+          where cl.exe || exit /b 1
+          powershell -NoProfile -ExecutionPolicy Bypass -File native\translate\build_veil_translate_windows.ps1 -Ct2Src "%RUNNER_TEMP%\CTranslate2" -SpmSrc "%RUNNER_TEMP%\sentencepiece"
+
+      # A second look at the finished artifact, from outside the script that
+      # produced it. A check that only ever runs inside the build that made the
+      # thing is a check that agrees with itself.
+      - name: The DLL exports what the app looks up
+        shell: pwsh
+        run: |
+          $dll = "native\translate\windows\veil_translate.dll"
+          if (-not (Test-Path $dll)) { throw "no DLL at $dll" }
+          $wanted = Select-String -Path native\translate\veil_translate.h `
+            -Pattern 'veil_translate[a-z_]*\(' -AllMatches |
+            ForEach-Object { $_.Matches } | ForEach-Object { $_.Value.TrimEnd('(') } |
+            Sort-Object -Unique
+          # A gate keyed on discovery passes trivially when discovery breaks.
+          if ($wanted.Count -lt 5) { throw "found only $($wanted.Count) entry points in the header - discovery is broken, not the DLL" }
+          $exports = (& dumpbin.exe /EXPORTS $dll) |
+            Select-String -Pattern '\bveil_translate[a-z_]*\b' -AllMatches |
+            ForEach-Object { $_.Matches } | ForEach-Object { $_.Value } | Sort-Object -Unique
+          $missing = $wanted | Where-Object { $_ -notin $exports }
+          if ($missing) { throw "the DLL does not export: $($missing -join ', ')" }
+          Write-Host "ok: $($exports.Count) entry points"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: veil_translate-win-x64
+          path: native/translate/windows/veil_translate.dll
+          if-no-files-found: error
