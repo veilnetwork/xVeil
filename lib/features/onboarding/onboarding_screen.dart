@@ -441,7 +441,15 @@ class _OptionCard extends StatelessWidget {
   }
 }
 
-class _Recovery extends StatelessWidget {
+/// Finds the row carrying word [index] (0-based) of the recovery phrase.
+///
+/// The words repeat — the placeholder generator draws WITH replacement, and a
+/// real BIP-39 phrase may repeat too — so a test cannot find word 24 by its
+/// text. It has to ask for the twenty-fourth ROW, which is exactly what the
+/// layout gate needs: the defect was widgets that existed and were off-screen.
+Key recoveryWordKey(int index) => ValueKey('recovery-word-$index');
+
+class _Recovery extends StatefulWidget {
   const _Recovery({
     required this.phrase,
     required this.real,
@@ -461,76 +469,203 @@ class _Recovery extends StatelessWidget {
   final VoidCallback onNext;
 
   @override
+  State<_Recovery> createState() => _RecoveryState();
+}
+
+/// The 24 words, laid out so that a person can copy ALL of them.
+///
+/// What was here before was a `Wrap` of chips inside its own
+/// `Expanded(SingleChildScrollView(...))`, with the confirm checkbox and the
+/// Continue button pinned OUTSIDE that scroll. On an iPhone 17 Pro (402x874)
+/// ten of the twenty-four chips were fully on screen and the rest were below
+/// the fold; the inner scroll clipped flush with the chip above it, so there
+/// was no partial row and no cue that anything followed. Worse, the confirm
+/// checkbox — the control that says "I have written them down" — was reachable
+/// without the later words ever having been rendered on screen. At 360x640 the
+/// column overflowed outright and NOT ONE word was on screen. Someone who
+/// copied what they saw lost the identity, and found out the first time they
+/// tried to restore it, which may be years later.
+///
+/// Three things changed, and the order matters:
+///
+///  1. Chips are gone. A chip is a pill sized to its own text, so 24 of them
+///     wrap into a ragged block whose height depends on the words that were
+///     drawn — the layout could not be reasoned about, let alone asserted.
+///     They are a fixed TWO-COLUMN numbered list now, 1–12 beside 13–24, which
+///     is the shape of a paper backup sheet and costs a predictable twelve
+///     rows regardless of which words came up — roughly 310 logical pixels at
+///     the default text size, which leaves the prose and the confirmation
+///     room to share an 874 pt screen instead of competing with it.
+///  2. The step scrolls as ONE page, and the checkbox and button live inside
+///     that scroll, below word 24. So when the words do not fit — large system
+///     text, a shorter screen — the person cannot reach the control that
+///     confirms the backup without word 24 having passed under their finger,
+///     and an always-visible scrollbar says there is more.
+///  3. The count is stated in words as well as in geometry
+///     ([AppL10n.recoveryNumbered]), and the checkbox names the number it is
+///     confirming.
+///
+/// What deliberately did NOT change: there is still no "copy all 24 words"
+/// button. It was considered, because [SecureScreenGuard] blocks screenshots
+/// and the clipboard would be the only route off the device — and rejected.
+/// The clipboard is system-wide, survives the lock screen, and on both Apple
+/// and Windows syncs to other machines the container knows nothing about;
+/// bounding it to 45 seconds (see clipboard_secret.dart) makes an exposure
+/// that already exists smaller, it does not make the clipboard a place to put
+/// a master seed. It would also contradict the canon this file already states
+/// for a file-based backup: identity documents do not leave the container.
+/// So the answer to "all 24 must be readable" is layout, not export.
+class _RecoveryState extends State<_Recovery> {
+  final _scroll = ScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
+    final theme = Theme.of(context);
     // The one screen in the app that shows, in plain words, everything needed
     // to become this person. A screenshot of it — taken by the user for
     // convenience, by a recording app, or by whatever is on the device — is the
     // identity itself (audit X-11). Scoped to this step so screen sharing keeps
     // working everywhere else.
     return SecureScreenGuard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l.recoveryTitle,
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 12),
-          Text(l.recoveryBody, style: Theme.of(context).textTheme.bodyMedium),
-          if (!real) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.errorContainer,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.warning_amber_outlined,
-                    color: Theme.of(context).colorScheme.onErrorContainer,
+      child: Scrollbar(
+        controller: _scroll,
+        // Not "when scrolling": a cue that appears only once the person has
+        // already scrolled cannot tell them that scrolling is needed. This is
+        // the affordance the old layout had none of.
+        thumbVisibility: true,
+        child: SingleChildScrollView(
+          controller: _scroll,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(l.recoveryTitle, style: theme.textTheme.headlineSmall),
+              const SizedBox(height: 12),
+              Text(l.recoveryBody, style: theme.textTheme.bodyMedium),
+              if (!widget.real) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      l.recoveryPlaceholderWarning,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onErrorContainer,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.warning_amber_outlined,
+                        color: theme.colorScheme.onErrorContainer,
                       ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          l.recoveryPlaceholderWarning,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onErrorContainer,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              Text(
+                l.recoveryNumbered,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _PhraseGrid(phrase: widget.phrase),
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: widget.confirmed,
+                onChanged: (v) => widget.onConfirmedChanged(v ?? false),
+                title: Text(l.recoveryConfirm),
+              ),
+              FilledButton(
+                onPressed: widget.confirmed ? widget.onNext : null,
+                child: Text(l.actionContinue),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Twelve rows of two numbered words, the way a backup sheet is printed.
+///
+/// Down the left column then down the right, so the numbers a person reads
+/// while writing run 1…12, 13…24 without jumping across the page. The number
+/// gutter is a fixed width so the words line up in a column of their own —
+/// with a ragged left edge, "did I already write that one?" has no answer.
+class _PhraseGrid extends StatelessWidget {
+  const _PhraseGrid({required this.phrase});
+
+  final List<String> phrase;
+
+  @override
+  Widget build(BuildContext context) {
+    final half = (phrase.length + 1) ~/ 2;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: _column(context, 0, half)),
+        const SizedBox(width: 16),
+        Expanded(child: _column(context, half, phrase.length)),
+      ],
+    );
+  }
+
+  Widget _column(BuildContext context, int from, int to) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = from; i < to; i++)
+          Padding(
+            key: recoveryWordKey(i),
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                SizedBox(
+                  width: 22,
+                  child: Text(
+                    '${i + 1}',
+                    textAlign: TextAlign.right,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
-                ],
-              ),
-            ),
-          ],
-          const SizedBox(height: 16),
-          Expanded(
-            child: SingleChildScrollView(
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (var i = 0; i < phrase.length; i++)
-                    Chip(label: Text('${i + 1}. ${phrase[i]}')),
-                ],
-              ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    phrase[i],
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            value: confirmed,
-            onChanged: (v) => onConfirmedChanged(v ?? false),
-            title: Text(l.recoveryConfirm),
-          ),
-          FilledButton(
-            onPressed: confirmed ? onNext : null,
-            child: Text(l.actionContinue),
-          ),
-        ],
-      ),
+      ],
     );
   }
 }

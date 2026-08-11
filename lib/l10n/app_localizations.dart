@@ -333,10 +333,16 @@ abstract class AppL10n {
   /// **'These 24 words ARE your identity. Anyone with them controls it; lose them and it is gone forever. Write them on paper and store them somewhere safe. Never store them online or photograph them.'**
   String get recoveryBody;
 
+  /// Says how many words there are and which one proves the list is complete. The grid used to end flush with the container edge, so a phone that could not fit all 24 showed a list that looked finished at 21.
+  ///
+  /// In en, this message translates to:
+  /// **'The words are numbered 1 to 24. Do not continue until you have written down number 24.'**
+  String get recoveryNumbered;
+
   /// No description provided for @recoveryConfirm.
   ///
   /// In en, this message translates to:
-  /// **'I have written down my recovery phrase'**
+  /// **'I have written down all 24 words, ending with number 24'**
   String get recoveryConfirm;
 
   /// No description provided for @recoveryPlaceholderWarning.
@@ -9277,6 +9283,24 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Copy recovery code'**
   String get devicesCopyCode;
+
+  /// No description provided for @devicesCertificateCopiedClears.
+  ///
+  /// In en, this message translates to:
+  /// **'Certificate copied. The clipboard will be cleared in {seconds} seconds.'**
+  String devicesCertificateCopiedClears(int seconds);
+
+  /// No description provided for @devicesCodeCopiedClears.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery code copied. The clipboard will be cleared in {seconds} seconds.'**
+  String devicesCodeCopiedClears(int seconds);
+
+  /// No description provided for @devicesTokenCopiedClears.
+  ///
+  /// In en, this message translates to:
+  /// **'Setup token copied. The clipboard will be cleared in {seconds} seconds.'**
+  String devicesTokenCopiedClears(int seconds);
 
   /// No description provided for @devicesRecovered.
   ///

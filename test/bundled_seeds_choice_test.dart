@@ -20,6 +20,8 @@ import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/managed_nodes_controller.dart';
 import 'package:xveil/state/providers.dart';
 
+import 'support/onboarding_walk.dart';
+
 /// The choice between reaching the network through the project's shared seed
 /// nodes and reaching it only through nodes the person added themselves.
 ///
@@ -688,10 +690,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text(l().onboardCreateIdentity));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(Checkbox));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(l().actionContinue));
-      await tester.pumpAndSettle();
+      await confirmRecoveryPhrase(tester, continueLabel: l().actionContinue);
       await tester.tap(find.text(l().actionContinue));
       await tester.pumpAndSettle();
       expect(find.text(l().seedsChoiceTitle), findsOneWidget);
