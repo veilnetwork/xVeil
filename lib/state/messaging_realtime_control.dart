@@ -350,6 +350,21 @@ class _MessagingRealtimeControl {
     );
   }
 
+  /// One live model-inventory frame to an accepted contact.
+  ///
+  /// The accepted check is repeated here rather than trusted from the caller:
+  /// this is the last place before the frame leaves, and the thing being sent
+  /// is a description of what languages this device holds.
+  Future<void> sendModelInventory(
+    NodeId peer,
+    WireEnvelope envelope,
+    String scope,
+  ) async {
+    final contact = await _owner._storage.getContact(peer);
+    if (contact == null || contact.status != ContactStatus.accepted) return;
+    await _sendRealtimePaths(scope, peer, envelope.encode());
+  }
+
   Future<void> sendP2PEndpoints(
     NodeId peer,
     String bodyJson, {

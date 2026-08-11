@@ -82,7 +82,7 @@ void main() {
     expect(WireKind.spacePublicMediaGrantRequest.index, 43);
     expect(WireKind.spaceAbuseReport.index, 44);
     expect(WireKind.spaceAbuseReportDecision.index, 45);
-    expect(WireKind.unknown.index, 46);
+    expect(WireKind.unknown.index, 48);
 
     final report = WireEnvelope.decode(
       const WireEnvelope.spaceAbuseReport('{"kind":"report"}').encode(),
@@ -94,6 +94,28 @@ void main() {
     );
     expect(report.kind, WireKind.spaceAbuseReport);
     expect(decision.kind, WireKind.spaceAbuseReportDecision);
+  });
+
+  test('asking a contact for models is an append-only live frame', () {
+    // Indices pinned like every kind before them: these two ride the wire as
+    // numbers, and a later insert anywhere above would make an older peer read
+    // an inventory answer as something else entirely.
+    expect(WireKind.modelInventoryRequest.index, 46);
+    expect(WireKind.modelInventoryOffer.index, 47);
+
+    final ask = WireEnvelope.decode(
+      const WireEnvelope.modelInventoryRequest().encode(),
+    );
+    expect(ask.kind, WireKind.modelInventoryRequest);
+    expect(ask.body, isEmpty, reason: 'the question has no parameters');
+
+    final answer = WireEnvelope.decode(
+      const WireEnvelope.modelInventoryOffer(
+        '[{"kind":"translate","from":"ru","to":"en","bytes":1}]',
+      ).encode(),
+    );
+    expect(answer.kind, WireKind.modelInventoryOffer);
+    expect(answer.body, contains('"from":"ru"'));
   });
 
   test('Space recommendation is a typed forward-compatible frame', () {
