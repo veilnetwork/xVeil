@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import '../../core/clipboard_secret.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -240,9 +243,22 @@ class PrivacySettingsScreen extends ConsumerWidget {
                     tooltip: l.settingsApiCopyToken,
                     onPressed: () async {
                       await Clipboard.setData(ClipboardData(text: t.token));
+                      // A write-capable credential on the system-wide
+                      // clipboard (audit report10 X-07). Taken back off after
+                      // a bounded window, and the window is stated here rather
+                      // than applied silently — something else copied inside
+                      // it is lost, and that cost is only fair if the person
+                      // knows about it before it starts.
+                      unawaited(clearClipboardLater());
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(l.settingsApiTokenCopied)),
+                          SnackBar(
+                            content: Text(
+                              l.settingsApiTokenCopiedClears(
+                                kClipboardSecretLifetime.inSeconds,
+                              ),
+                            ),
+                          ),
                         );
                       }
                     },

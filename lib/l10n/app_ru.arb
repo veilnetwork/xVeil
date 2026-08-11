@@ -1292,7 +1292,6 @@
   "settingsApiAddFolder": "Добавить папку",
   "settingsApiRevoke": "Отозвать",
   "settingsApiCopyToken": "Копировать токен",
-  "settingsApiTokenCopied": "Токен скопирован",
   "settingsCommunication": "Связь",
   "settingsP2PPolicy": "Политика P2P",
   "settingsP2PPolicyHint": "Разрешает прямой транспорт для звонков, больших медиа, файлов и обмена между устройствами, когда обе стороны согласны.",
@@ -2615,5 +2614,6 @@
   "askContactsTitle": "Спросить модели у контактов",
   "askContactsWaiting": "Кто ответит — появится здесь. Молчание само по себе ничего не значит.",
   "askContactsAction": "Спросить у контактов",
-  "modelProvenanceAskAnother": "Спросить другой контакт"
+  "modelProvenanceAskAnother": "Спросить другой контакт",
+  "settingsApiTokenCopiedClears": "Токен скопирован. Буфер обмена очистится через {seconds} с."
 }
