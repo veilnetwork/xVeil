@@ -227,15 +227,24 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
                               onSubmitted: (_) => _submit(),
                               decoration: InputDecoration(
                                 labelText: l.lockPasswordHint,
-                                // The wait WINS over "wrong password", and
-                                // that ordering is the whole fix. Inside the
-                                // window `tryUnlock` refuses before it looks at
-                                // anything, so the CORRECT password comes back
-                                // flagged exactly like a wrong one — and the
-                                // person, who knows perfectly well what their
-                                // password is, is told they do not. The debt is
-                                // the true answer, and it is one a person can
-                                // act on: wait, then try.
+                                // The wait WINS over "wrong password". Inside
+                                // the window `tryUnlock` refuses before it
+                                // looks at anything, so the CORRECT password
+                                // comes back flagged exactly like a wrong one —
+                                // and the person, who knows perfectly well what
+                                // their password is, is told they do not. The
+                                // debt is the true answer, and it is one a
+                                // person can act on: wait, then try.
+                                //
+                                // Ordering alone was NOT enough, and a phone
+                                // proved it: it only decides which of the two
+                                // lines shows, so a "wrong" recorded by the
+                                // refusal itself sat underneath waiting for the
+                                // countdown to end and then surfaced. The
+                                // controller no longer records one — `wrong` is
+                                // now only ever a verdict that was actually
+                                // reached, and this fallback can be trusted to
+                                // mean it.
                                 errorText: waiting
                                     ? l.screenLockWait(
                                         screenLockWaitSeconds(owed),
