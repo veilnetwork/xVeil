@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
+
+import '../../core/secret_wipe.dart' show wipeNativeSecret;
 
 import '../node/veil_library.dart' show verifiedVeilLibrary;
 
@@ -146,7 +149,23 @@ class PacketTunnelFfi {
       calloc.free(proxyUrl);
       calloc.free(dns);
       if (selectorAddress != null) calloc.free(selectorAddress);
-      if (token != null) calloc.free(token);
+      if (token != null) {
+        // Zeroed before it is freed (audit report10 X-09). This is the bearer
+        // secret for the node selector, and `free` only returns the block to
+        // the allocator — the bytes stay at that address until something else
+        // happens to reuse it, where a heap dump or a later allocation in the
+        // same process can still read them.
+        //
+        // The length is the UTF-8 length PLUS the terminator, which
+        // `toNativeUtf8` wrote: stopping one byte short would leave the NUL
+        // and, more to the point, means the count was derived from the Dart
+        // string's code units rather than from what was actually allocated.
+        wipeNativeSecret(
+          token.cast<Uint8>(),
+          utf8.encode(selectorToken!).length + 1,
+        );
+        calloc.free(token);
+      }
     }
   }
 
