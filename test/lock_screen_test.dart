@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,7 +12,21 @@ import 'package:xveil/state/whisper_model_controller.dart';
 import 'package:xveil/state/translation_model_controller.dart';
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({'onboarded': true}));
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    // Start over and Clear all data both bring the OS tunnel down first, and
+    // that stop is now unconditional — closing the platform TUN is what makes
+    // it authoritative (audit XV-H2). A widget test has no VPN plugin, and an
+    // unanswered platform channel leaves the teardown in flight when the
+    // assertion runs — the same reason the speech store is faked below.
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('network.veil.xveil/vpn'),
+          (call) async => <String, Object?>{'phase': 'stopped'},
+        );
+  });
 
   testWidgets('Start over confirms then returns to onboarding', (tester) async {
     late ProviderContainer container;
