@@ -837,6 +837,13 @@ def _windows(release: bool) -> list[Step]:
                   "-p", "veilclient-ffi", "--features", "node-embedded,production-seeds"]
     whisper_win = _whisper_script("windows")
     whisper_dll = os.path.join(ROOT, "native", "whisper", "windows", "veil_whisper.dll")
+    # Written before the Windows build script exists, deliberately. Every other
+    # platform learned the same lesson in one week: Android built its library
+    # into a directory the APK never reads, macOS never copied its dylib, and
+    # iOS linked nothing at all -- three libraries that were built, verified and
+    # unreachable. The skip_if below keeps this inert until there is a DLL, and
+    # present the moment there is one.
+    translate_dll = os.path.join(ROOT, "native", "translate", "windows", "veil_translate.dll")
     if profile:
         cargo_hv.append(profile)
         cargo_veil.append(profile)
@@ -877,6 +884,14 @@ def _windows(release: bool) -> list[Step]:
             call=lambda: _copy(whisper_dll, runner),
             optional=True,
             skip_if="" if os.path.isfile(whisper_dll) else "whisper not built",
+        ),
+        Step(
+            f"stage veil_translate.dll -> {runner}",
+            call=lambda: _copy(translate_dll, runner),
+            optional=True,
+            skip_if=(
+                "" if os.path.isfile(translate_dll) else "translation not built"
+            ),
         ),
         Step(
             "call engine in the bundle",
