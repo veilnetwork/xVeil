@@ -13,6 +13,7 @@ import 'package:xveil/data/storage/on_disk_blob_store.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/data/veil_stack.dart';
+import 'package:xveil/data/vpn/vpn_backend.dart' show VpnBackendPhase;
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/p2p_policy.dart';
@@ -2124,10 +2125,18 @@ void _wipeClearsPostureTests() {
   });
 }
 
-/// Records `stop()` without touching a platform channel.
+/// Records the teardown stop without touching a platform channel.
+///
+/// [VpnController.stopForTeardown], not `stop`: a lock or a wipe must not be
+/// talked out of stopping the tunnel by a start still in flight or by the
+/// default state of a controller the teardown itself just built, so that is the
+/// entry point the teardown uses (audit XV-H2).
 class _RecordingVpn extends VpnController {
   int stops = 0;
 
   @override
-  Future<void> stop() async => stops++;
+  Future<VpnBackendPhase> stopForTeardown() async {
+    stops++;
+    return VpnBackendPhase.stopped;
+  }
 }
