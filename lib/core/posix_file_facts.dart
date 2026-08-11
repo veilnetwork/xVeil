@@ -62,6 +62,13 @@ class PosixFileFacts {
   /// entries here" and "delete what is here".
   bool get groupOrOtherWritable => mode & 0x12 != 0; // 0o020 | 0o002
 
+  /// The sticky bit. On a DIRECTORY it takes the "delete what is here" half of
+  /// [groupOrOtherWritable] back: only an entry's owner may rename or remove
+  /// it. That is the whole reason a world-writable `/tmp` is usable at all, and
+  /// a caller asking "can somebody else swap this directory out from under me"
+  /// has to read it, or it will refuse every path under `/tmp` on Linux.
+  bool get isSticky => mode & 0x200 != 0; // 0o1000
+
   bool sameObjectAs(PosixFileFacts other) =>
       deviceId == other.deviceId && inode == other.inode;
 
