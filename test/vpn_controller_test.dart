@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,6 +30,10 @@ class _FakeBackend implements VpnBackend {
   String? receivedObfs4Psk;
   Map<String, String> receivedApplicationProxyListens = const {};
 
+  /// Holds [start] open where the real native start takes seconds, so a lock
+  /// can land INSIDE the start window without a timing race.
+  Completer<void>? startBarrier;
+
   @override
   Future<VpnBackendState> probe() async => probeResult;
 
@@ -51,6 +56,8 @@ class _FakeBackend implements VpnBackend {
     receivedExitNodeIds = exitNodeIds;
     receivedObfs4Psk = obfs4Psk;
     receivedApplicationProxyListens = applicationProxyListens;
+    final barrier = startBarrier;
+    if (barrier != null) await barrier.future;
     return startResult;
   }
 
@@ -304,6 +311,97 @@ void main() {
     expect(container.read(proxyRoutingProvider).socks5Enabled, isTrue);
     expect(container.read(effectiveProxyRoutingProvider).socks5Active, isTrue);
   });
+
+  test(
+    'a teardown during a start never leaves the tunnel up (audit XV-H2)',
+    () async {
+      final backend = _FakeBackend()..startBarrier = Completer<void>();
+      final container = await _container(backend);
+      await _configureExit(container);
+      final controller = container.read(vpnControllerProvider.notifier);
+
+      final starting = controller.start();
+      for (var pump = 0; pump < 10; pump++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      // The start is inside the native call, which is where a lock lands in
+      // practice: busy, and `starting` — so NOT running.
+      expect(backend.starts, 1, reason: 'the start must be in flight');
+      expect(container.read(vpnControllerProvider).busy, isTrue);
+      expect(
+        container.read(vpnControllerProvider).backend.phase,
+        VpnBackendPhase.starting,
+      );
+
+      // The lock. It ends the generation synchronously and then waits for the
+      // start it interrupted, so the barrier is released before it is awaited.
+      final teardown = controller.stopForTeardown();
+      backend.startBarrier!.complete();
+      await starting;
+      final phase = await teardown;
+
+      expect(phase, VpnBackendPhase.stopped);
+      expect(backend.stops, greaterThanOrEqualTo(1));
+      final state = container.read(vpnControllerProvider);
+      expect(state.isRunning, isFalse);
+      expect(state.policy.enabled, isFalse);
+      expect(container.read(vpnProxyDemandProvider), isFalse);
+      // The persisted flag is what a later launch restores from, so an
+      // interrupted start must not leave it saying the VPN was on.
+      final prefs = await container.read(prefsProvider.future);
+      expect(
+        VpnRoutingPolicy.fromJson(
+          jsonDecode(prefs.getString('vpn_routing_policy') ?? '{}')
+              as Map<String, dynamic>,
+        ).enabled,
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'a teardown that is the first read of the provider still stops the tunnel',
+    () async {
+      final backend = _FakeBackend()
+        ..probeResult = const VpnBackendState(VpnBackendPhase.running);
+      SharedPreferences.setMockInitialValues({
+        'proxy_routing': jsonEncode(
+          const ProxyRouting(exitNodeId: _exit).toJson(),
+        ),
+        'vpn_routing_policy': jsonEncode(
+          const VpnRoutingPolicy(enabled: true).toJson(),
+        ),
+      });
+      final container = ProviderContainer(
+        overrides: [
+          vpnBackendProvider.overrideWithValue(backend),
+          deniableBootProvider.overrideWithValue(
+            const DeniableBootConfig(
+              runtimeDir: '/tmp/xveil-test',
+              obfs4Psk: _psk,
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // The FIRST touch of the provider in this container is the teardown
+      // itself — a lock in a session that never opened the VPN screen. Building
+      // the controller schedules the restore that adopts a live tunnel, so the
+      // lock must not be defeated by the state it just constructed.
+      final phase = await container
+          .read(vpnControllerProvider.notifier)
+          .stopForTeardown();
+      // Well past the restore: prefs, the routing load and the native probe.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(phase, VpnBackendPhase.stopped);
+      expect(backend.stops, 1);
+      expect(container.read(vpnControllerProvider).isRunning, isFalse);
+      expect(container.read(vpnProxyDemandProvider), isFalse);
+      expect(container.read(vpnProxyProfilesProvider), isEmpty);
+    },
+  );
 
   test('unsupported backend is fail-closed and is never invoked', () async {
     final backend = _FakeBackend()
