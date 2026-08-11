@@ -2272,7 +2272,23 @@ class AppController extends Notifier<AppState> {
   /// the controller itself — and `stop` would then return on that fresh default
   /// state without asking the backend anything, while the restore the build just
   /// scheduled went on to adopt the very tunnel we came to kill (audit XV-H2).
-  Future<void> _stopVpnTunnel() async {
+  ///
+  /// Returns true only when the OS said the tunnel is DOWN. A false has already
+  /// been journalled, so a caller is free to ignore it; the point of returning
+  /// it is that a caller which can tell the person something — the wipe's
+  /// survivor list is the obvious one — no longer has to ask a second time.
+  ///
+  /// JOURNALLED, not logged. Both failure paths here used to be [devLog] alone,
+  /// and `devLog` is compiled out of a release build (see `core/log.dart`): in
+  /// a shipped app an OS tunnel that survived a lock or a wipe left NO trace
+  /// anywhere. The node half of the same teardown records `node-stop-abandoned`
+  /// for exactly this situation, and of the two halves this is the one that
+  /// keeps routing the person's traffic while the app says it is locked. The
+  /// journal is in RAM and never exports the message, so recording it costs
+  /// nothing a deniable app cares about.
+  Future<bool> _stopVpnTunnel() async {
+    // What went wrong, phrased for the journal. Null means the OS confirmed it.
+    String? incomplete;
     try {
       final phase = await ref
           .read(vpnControllerProvider.notifier)
@@ -2285,14 +2301,30 @@ class AppController extends Notifier<AppState> {
       // A backend can report `error` without throwing, and that used to pass
       // unnoticed: the tunnel stays up and nothing in the log says so.
       if (phase != VpnBackendPhase.stopped) {
-        devLog(
-          () =>
-              'xVeil[vpn]: tunnel did not stop during lock/wipe: ${phase.name}',
-        );
+        incomplete = 'the backend answered ${phase.name}';
       }
     } catch (e) {
-      devLog(() => 'xVeil[vpn]: stop during lock/wipe failed: $e');
+      // The timeout above lands here too, and it is the case that matters
+      // most: a VPN plugin that never answers is precisely the arrangement in
+      // which the tunnel is still up. Both are the same outcome to the person.
+      incomplete = 'the stop did not return: $e';
     }
+    if (incomplete == null) return true;
+    devLog(
+      () => 'xVeil[vpn]: tunnel did not stop during lock/wipe — $incomplete',
+    );
+    // The consequence FIRST, the cause after it: the journal truncates a long
+    // message from the end, and what a reader must not lose is what this means
+    // for the person rather than which exception said so.
+    errorJournal.record(
+      kind: 'vpn-stop-incomplete',
+      error: StateError(
+        'traffic may still be routed through the configured exit while the app '
+        'presents itself as locked: $incomplete',
+      ),
+      atMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    return false;
   }
 
   Future<void> lock() async {
