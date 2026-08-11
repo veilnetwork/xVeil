@@ -454,7 +454,11 @@ void main() {
 
     for (final secret in ['_certificate!', '_code!']) {
       final shown = source.indexOf('SelectableText(\n              $secret');
-      final copied = source.indexOf('ClipboardData(text: $secret)');
+      // Both are copied through SecretCopyButton now, which also bounds how
+      // long they stay on the clipboard — see devices_clipboard_lifetime_test.
+      // The claim here is unchanged: the control that copies them is enclosed
+      // by the guard, not merely the text that displays them.
+      final copied = source.indexOf('value: () => $secret');
       expect(copied, isNonNegative, reason: 'copy button for $secret moved');
       expect(
         copied,

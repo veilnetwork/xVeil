@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../core/clipboard_secret.dart';
 import '../../core/ids.dart';
 import '../../state/messaging_providers.dart';
 import '../../data/veil_stack.dart';
@@ -343,6 +344,71 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   }
 }
 
+/// A copy control for a credential, with the clipboard's lifetime attached.
+///
+/// Three secrets on this screen went onto the system-wide clipboard and stayed
+/// there for as long as the person did not copy something else: the recovery
+/// CERTIFICATE, the recovery CODE, and the device-adoption TOKEN. The
+/// certificate and the code TOGETHER are a whole recovery capability for this
+/// identity — the sheet's own warning says as much — and the token adopts a
+/// device into the group. That is the same credential class as the API token,
+/// which was bounded first, and strictly more dangerous: the API token is
+/// revocable from the same screen, a sovereign recovery capability is not.
+///
+/// Why the clear is UNCONDITIONAL rather than compare-then-clear is argued in
+/// clipboard_secret.dart and is not repeated here: reading the clipboard back
+/// on iOS 16+ raises a "pasted from xVeil" banner, so the check would announce
+/// itself every time. The honest price of clearing blind is telling the person
+/// the window exists before it starts — which is what [copiedMessage] is for,
+/// and why it takes the number of seconds rather than hard-coding one that can
+/// drift away from [kClipboardSecretLifetime].
+class SecretCopyButton extends StatelessWidget {
+  const SecretCopyButton({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.copiedMessage,
+    this.schedule = clearClipboardLater,
+  });
+
+  /// Text on the button.
+  final String label;
+
+  /// Read at TAP time, not captured at build time: these sheets rebuild around
+  /// the secret as it is produced, and a stale capture would copy the value
+  /// from a previous frame.
+  final String Function() value;
+
+  /// The localised "copied, cleared in N seconds" line, taking the window.
+  /// The generated getter is passed directly so the number the person is told
+  /// and the number the timer waits are one value.
+  final String Function(int seconds) copiedMessage;
+
+  /// Injectable so a test can watch the scheduling without waiting 45 s.
+  final Future<void> Function() schedule;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton.icon(
+      onPressed: () async {
+        await Clipboard.setData(ClipboardData(text: value()));
+        // Fire and forget, deliberately: the clear must happen even when this
+        // sheet is closed a second later, which is the case where the person
+        // is least likely to clear it themselves.
+        unawaited(schedule());
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(copiedMessage(kClipboardSecretLifetime.inSeconds)),
+          ),
+        );
+      },
+      icon: const Icon(Icons.copy),
+      label: Text(label),
+    );
+  }
+}
+
 class _RecoveryExportSheet extends StatefulWidget {
   const _RecoveryExportSheet({
     required this.service,
@@ -466,21 +532,20 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
               maxLines: 5,
               style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
             ),
-            TextButton.icon(
-              onPressed: () =>
-                  Clipboard.setData(ClipboardData(text: _certificate!)),
-              icon: const Icon(Icons.copy),
-              label: Text(l.devicesCopyCertificate),
+            SecretCopyButton(
+              label: l.devicesCopyCertificate,
+              value: () => _certificate!,
+              copiedMessage: l.devicesCertificateCopiedClears,
             ),
             const SizedBox(height: 8),
             SelectableText(
               _code!,
               style: const TextStyle(fontFamily: 'monospace'),
             ),
-            TextButton.icon(
-              onPressed: () => Clipboard.setData(ClipboardData(text: _code!)),
-              icon: const Icon(Icons.copy),
-              label: Text(l.devicesCopyCode),
+            SecretCopyButton(
+              label: l.devicesCopyCode,
+              value: () => _code!,
+              copiedMessage: l.devicesCodeCopiedClears,
             ),
           ],
           if (_busy)
@@ -792,10 +857,10 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
               _token!,
               style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
             ),
-            TextButton.icon(
-              onPressed: () => Clipboard.setData(ClipboardData(text: _token!)),
-              icon: const Icon(Icons.copy),
-              label: Text(l.actionCopy),
+            SecretCopyButton(
+              label: l.actionCopy,
+              value: () => _token!,
+              copiedMessage: l.devicesTokenCopiedClears,
             ),
             const SizedBox(height: 12),
             FilledButton.icon(
