@@ -409,6 +409,50 @@ class SecretCopyButton extends StatelessWidget {
   }
 }
 
+/// A credential put on screen, and put there ONLY — the copy control beside it
+/// is the single route off it.
+///
+/// The three secrets on this screen were displayed in [SelectableText], which
+/// is an `EditableText` in read-only clothes. Long-press → Copy on a phone and
+/// Ctrl/Cmd-C on a desktop both land in `Clipboard.setData` inside the
+/// framework: no timer, no snackbar, no bound. So beside the [SecretCopyButton]
+/// that schedules the clear and states the window, each of the certificate, the
+/// code and the adoption token also had a second, unbounded route onto a
+/// clipboard every app can read — on the one sheet the app wraps in
+/// [SecureScreenGuard] precisely because a capture of it reconstructs the
+/// signer.
+///
+/// Hiding the toolbar item was NOT the fix: `copySelection` is reached by the
+/// keyboard shortcut with no toolbar ever built, so a `contextMenuBuilder` that
+/// drops "Copy" is a lid laid over the hole. The text has to stop being
+/// selectable.
+///
+/// [SelectionContainer.disabled] is not redundant with plain [Text]. There is
+/// no ancestor `SelectionArea` on this screen today, and this is what stops
+/// that from being a fact somebody has to keep remembering: wrap a sheet in one
+/// tomorrow and every other line becomes selectable while these three do not.
+class SecretText extends StatelessWidget {
+  const SecretText(this.secret, {super.key, this.maxLines, this.fontSize});
+
+  /// The credential itself.
+  final String secret;
+
+  /// Clipped past this many lines, as the certificate was before.
+  final int? maxLines;
+
+  /// Null keeps the surrounding text size; the long values ask for 10.
+  final double? fontSize;
+
+  @override
+  Widget build(BuildContext context) => SelectionContainer.disabled(
+    child: Text(
+      secret,
+      maxLines: maxLines,
+      style: TextStyle(fontFamily: 'monospace', fontSize: fontSize),
+    ),
+  );
+}
+
 class _RecoveryExportSheet extends StatefulWidget {
   const _RecoveryExportSheet({
     required this.service,
@@ -527,21 +571,14 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
             const SizedBox(height: 12),
             Text('${l.nodeIdLabel}: ${_nodeId!.hex}'),
             const SizedBox(height: 12),
-            SelectableText(
-              _certificate!,
-              maxLines: 5,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
-            ),
+            SecretText(_certificate!, maxLines: 5, fontSize: 10),
             SecretCopyButton(
               label: l.devicesCopyCertificate,
               value: () => _certificate!,
               copiedMessage: l.devicesCertificateCopiedClears,
             ),
             const SizedBox(height: 8),
-            SelectableText(
-              _code!,
-              style: const TextStyle(fontFamily: 'monospace'),
-            ),
+            SecretText(_code!),
             SecretCopyButton(
               label: l.devicesCopyCode,
               value: () => _code!,
@@ -789,7 +826,14 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final usesCertificate = widget.credentialKind == 'certificate';
-    return SingleChildScrollView(
+    // The recovery export sheet was guarded and this one was not, on the
+    // reasoning that a QR is a picture. It is not: `QrImageView` is handed the
+    // adoption token verbatim, so a photograph of the code IS the token — the
+    // same capability, in a form any camera in the room can lift from across a
+    // desk, and one the token's own text is printed beside anyway. The sheet
+    // also takes the recovery code or phrase in the branch above.
+    return SecureScreenGuard(
+      child: SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
         24,
         24,
@@ -853,10 +897,7 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
                 child: QrImageView(data: _token!, size: 220),
               ),
             ),
-            SelectableText(
-              _token!,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
-            ),
+            SecretText(_token!, fontSize: 10),
             SecretCopyButton(
               label: l.actionCopy,
               value: () => _token!,
@@ -883,6 +924,7 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
               ),
             ),
         ],
+      ),
       ),
     );
   }
