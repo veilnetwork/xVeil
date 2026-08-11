@@ -1,2 +1,6 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
 #include "Generated.xcconfig"
+// Present only once native/translate/build_veil_translate_ios.sh has run.
+// The optional form: absent means a build with no translation, not a
+// build failure.
+#include? "TranslateLink.xcconfig"
