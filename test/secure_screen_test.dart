@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -345,4 +346,39 @@ void main() {
       );
     });
   });
+  test('the recovery export sheet is inside the capture guard', () async {
+    // The one screen that shows a sovereign recovery capability whole: the
+    // certificate AND the code that unlocks it, both copyable. A screenshot or
+    // a recording of it reconstructs the signer and mints new device-group
+    // state as this identity — a long-lived capability, not a session secret.
+    //
+    // Structural rather than a widget test: the sheet is private and takes a
+    // GroupService, so pumping it needs more scaffolding than the claim is
+    // worth. What matters is that the guard encloses BOTH the display and the
+    // copy buttons, which is what the ordering assertion below checks.
+    final source =
+        await File('lib/features/settings/devices_screen.dart').readAsString();
+
+    final guard = source.indexOf('return SecureScreenGuard(');
+    expect(
+      guard,
+      isNonNegative,
+      reason: 'the recovery export sheet must be wrapped in SecureScreenGuard',
+    );
+
+    for (final secret in ['_certificate!', '_code!']) {
+      final shown = source.indexOf('SelectableText(\n              $secret');
+      final copied = source.indexOf('ClipboardData(text: $secret)');
+      expect(copied, isNonNegative, reason: 'copy button for $secret moved');
+      expect(
+        copied,
+        greaterThan(guard),
+        reason: '$secret is copied outside the guard',
+      );
+      if (shown >= 0) {
+        expect(shown, greaterThan(guard), reason: '$secret is shown outside the guard');
+      }
+    }
+  });
+
 }
