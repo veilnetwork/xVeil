@@ -200,10 +200,21 @@ class HomeSectionScaffold extends ConsumerWidget {
                 builder: (context, ref, _) {
                   final peers =
                       ref.watch(sessionCountProvider).asData?.value ?? 0;
-                  return Badge(
-                    isLabelVisible: peers > 0,
-                    label: Text('$peers'),
-                    child: const Icon(Icons.shield_outlined),
+                  // The button's tooltip says "Security"; the badge said "4".
+                  // A screen reader read the two out one after the other and
+                  // nothing connected the number to peers — it could as
+                  // plausibly have been unread mail or a version. The count is
+                  // named here and the digits are excluded, so it is announced
+                  // once, with its unit.
+                  return Semantics(
+                    label: l.networkPeers(peers),
+                    child: ExcludeSemantics(
+                      child: Badge(
+                        isLabelVisible: peers > 0,
+                        label: Text('$peers'),
+                        child: const Icon(Icons.shield_outlined),
+                      ),
+                    ),
                   );
                 },
               ),

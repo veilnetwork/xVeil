@@ -84,8 +84,17 @@ void main() {
 
       expect(refusal, isNotNull, reason: 'a reachable chain must be refused');
       expect(
-        refusal,
-        contains(parent.path),
+        refusal!.code,
+        FolderSyncRefusalCode.writableByOtherAccounts,
+        reason: 'the refusal must say WHICH rule turned the folder down',
+      );
+      // `endsWith`, not equality: the walk starts from the RESOLVED chain, so
+      // on macOS the step is `/private/var/…` where the fixture built
+      // `/var/…`. Both name the same directory and the resolved one is the
+      // more useful of the two to show.
+      expect(
+        refusal.path,
+        endsWith(parent.path),
         reason: 'the refusal must name the step that is actually open',
       );
       expect(
@@ -105,7 +114,8 @@ void main() {
         id: 'pair-leaf',
       );
 
-      expect(refusal, contains(root.path));
+      expect(refusal?.code, FolderSyncRefusalCode.writableByOtherAccounts);
+      expect(refusal?.path, endsWith(root.path));
       expect(container.read(folderSyncControllerProvider), isEmpty);
     });
   });

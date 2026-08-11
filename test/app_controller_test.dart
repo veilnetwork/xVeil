@@ -2123,6 +2123,98 @@ void _wipeClearsPostureTests() {
       reason: 'the tunnel is in the OS — a wipe that leaves it up is not one',
     );
   });
+
+  test(
+    'models the wipe could not delete are NAMED in what survived',
+    () async {
+      // The survivor list re-stat'd the container and the blob directory and
+      // stopped there. The two model deletes were left out — and they are the
+      // failure-prone steps of the whole wipe: each goes through a platform
+      // channel, each is bounded by a timeout, and each catch swallows
+      // everything it sees. So the two places something is most likely to be
+      // left behind were the two places the report could not mention, and a
+      // person whose list of languages was still on disk was told exactly what
+      // a person with a clean disk was told.
+      //
+      // Real chmod, not a fake store: what is under test is that the re-stat
+      // LOOKS, and a store that answers "still there" on command cannot show
+      // that. Both deletes are driven through the real `wipeContainers`.
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarded': true,
+      });
+
+      final dir = Directory.systemTemp.createTempSync('xveil_wipe_models_left');
+      final modelDir = Directory('${dir.path}/model')..createSync();
+      final model = File('${modelDir.path}/${WhisperModelStore.fileName}')
+        ..writeAsStringSync('57 MiB, notionally');
+      final translateRoot = Directory('${dir.path}/translate')..createSync();
+      final pair = Directory('${translateRoot.path}/ru-en')..createSync();
+      // Deliberately OUTSIDE the locked directories, so the container deletes
+      // normally. That is what makes the assertion below about the two new
+      // codes rather than about the old ones under new names.
+      final store = File('${dir.path}/test.store')..writeAsStringSync('c');
+
+      // Unwritable PARENTS: the entries stay readable, the unlink cannot
+      // happen. What a read-only volume, an ACL drift or a backup agent
+      // holding the directory looks like from here.
+      expect(Process.runSync('chmod', ['a-w', translateRoot.path]).exitCode, 0);
+      expect(Process.runSync('chmod', ['a-w', modelDir.path]).exitCode, 0);
+      addTearDown(() {
+        Process.runSync('chmod', ['u+w', modelDir.path]);
+        Process.runSync('chmod', ['u+w', translateRoot.path]);
+        if (dir.existsSync()) dir.deleteSync(recursive: true);
+      });
+
+      final container = FakeHvContainer();
+      final c = ProviderContainer(
+        overrides: [
+          storageProvider.overrideWith((ref) => container.storage()),
+          whisperModelStoreProvider.overrideWithValue(
+            WhisperModelStore(supportDirectory: () async => modelDir),
+          ),
+          translationModelsRootProvider.overrideWithValue(
+            () async => translateRoot,
+          ),
+          deniableBootProvider.overrideWithValue(
+            DeniableBootConfig(
+              runtimeDir: '${dir.path}/rt',
+              listenPort: 9003,
+              storePath: store.path,
+            ),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
+
+      final remaining = await ctrl.wipeContainers();
+
+      expect(model.existsSync(), isTrue, reason: 'precondition: it survived');
+      expect(pair.existsSync(), isTrue, reason: 'precondition: it survived');
+      // THE assertions. Neither can pass while the re-stat looks at two paths.
+      expect(
+        remaining,
+        contains('speech-model'),
+        reason: 'a wipe that could not delete the speech model must say so',
+      );
+      expect(
+        remaining,
+        contains('translations'),
+        reason: 'the surviving directory names ARE the languages you read',
+      );
+      // The container really did go, so the report must not overstate either.
+      expect(remaining, isNot(contains('container')));
+      // Journalled as well as returned: the dialog is dismissible, the journal
+      // is what is still there afterwards.
+      expect(
+        errorJournal.entries.where((e) => e.kind == 'wipe-incomplete'),
+        isNotEmpty,
+        reason: 'an incomplete wipe that leaves no trace cannot be diagnosed',
+      );
+    },
+    testOn: '!windows',
+  );
 }
 
 /// Records the teardown stop without touching a platform channel.

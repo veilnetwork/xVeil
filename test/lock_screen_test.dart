@@ -322,6 +322,52 @@ void main() {
     expect(find.byType(AlertDialog), findsNothing);
   });
 
+  testWidgets('a surviving MODEL is named, not folded into "stopped partway"', (
+    tester,
+  ) async {
+    // The report grew two codes when the survivor list did, and the dialog had
+    // one sentence per COMBINATION of the two it knew. An unknown code fell
+    // through to `lockWipeStopped` — "the deletion stopped partway through" —
+    // which is the honest-about-nothing message, over a wipe that ran to the
+    // end and knows exactly what is left. So the two things most likely to
+    // survive would have been reported as the one thing nothing is known
+    // about.
+    final ctrl = _LeftoverWipeController()
+      ..leftovers = const ['speech-model', 'translations'];
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [appControllerProvider.overrideWith(() => ctrl)],
+        child: _appAround(const LockScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(LockScreen)));
+
+    await tester.tap(find.widgetWithText(TextButton, l.lockWipe));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      l.lockWipePhrase,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, l.lockWipeConfirm));
+    await tester.pumpAndSettle();
+
+    expect(find.text(l.lockWipeLeftSpeechModel), findsOneWidget);
+    expect(find.text(l.lockWipeLeftTranslations), findsOneWidget);
+    expect(
+      find.text(l.lockWipeStopped),
+      findsNothing,
+      reason: 'the wipe ran to the end and knows what is left — say which',
+    );
+    // The container went, so the sentence about the container must not appear.
+    expect(find.text(l.lockWipeLeftContainer), findsNothing);
+    expect(find.text(l.lockWipeLeftRest), findsOneWidget);
+  });
+
   testWidgets('a wipe that THROWS says so instead of vanishing', (
     tester,
   ) async {

@@ -117,6 +117,77 @@ void main() {
     expect(find.text(root.path), findsNothing);
   });
 
+  testWidgets('the REASON is translated too, not just the frame around it',
+      (tester) async {
+    // The refusal came back from the controller as an English sentence and was
+    // dropped straight into `folderSyncNotAdded`, which IS translated. So a
+    // Russian reader got a Russian frame wrapped around an English middle —
+    // and the middle is the only part that names the danger and the folder.
+    // Nothing catches that shape on its own: every string involved is in the
+    // ARB, and the gate that watches for keys with no call site sees a call
+    // site. It only shows up by reading the screen in another language, which
+    // is what this does.
+    final tmp = tempRoot('xveil_sync_screen_ru');
+    final parent = Directory('${tmp.path}/open')..createSync();
+    final root = Directory('${parent.path}/mirror')..createSync();
+    expect(posixChmod(root.path, _mode0755), 0);
+    expect(posixChmod(parent.path, _mode0777), 0);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [storageProvider.overrideWith((ref) => _FileOnlyStorage())],
+        child: MaterialApp(
+          locale: const Locale('ru'),
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: FolderSyncScreen(pickDirectory: () async => root.path),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(FolderSyncScreen)));
+
+    await tester.tap(find.widgetWithText(FloatingActionButton, l.folderSyncAdd));
+    await tester.pumpAndSettle();
+
+    final shown = tester
+        .widgetList<Text>(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(Text),
+          ),
+        )
+        .map((t) => t.data ?? '')
+        .join('\n');
+
+    // Taken from the ARB rather than typed out here, so this asserts that the
+    // shipped Russian string is what reached the screen and not that some
+    // Russian did. The path is dropped from the comparison because the walk
+    // reports the RESOLVED step (`/private/var/…` on macOS), which is checked
+    // on its own below.
+    // A SENTINEL for the path, not the path itself: the walk reports the
+    // RESOLVED step, which is not the string the fixture built. What is
+    // compared is the translated remainder; the path is checked below.
+    const cut = '<<path>>';
+    final reasonTail = l.folderSyncRefusedWritable(cut).split(cut).last;
+    expect(
+      shown,
+      contains(reasonTail),
+      reason: 'the reason has to be in the same language as the sentence '
+          'it is a part of',
+    );
+    // THE assertion the fix exists for: not one word of the English reason may
+    // survive into a Russian sentence.
+    expect(
+      shown,
+      isNot(contains('can be written by other accounts')),
+      reason: 'an English middle inside a Russian frame reads as a broken app',
+    );
+    // GUARD — stays green with the fix removed. The folder is still named,
+    // because a translated sentence that lost the path is no better.
+    expect(shown, contains(parent.path));
+  });
+
   testWidgets('an overlapping folder is refused through the SAME path',
       (tester) async {
     // The second reason `addPair` can give. It travels the same way and must

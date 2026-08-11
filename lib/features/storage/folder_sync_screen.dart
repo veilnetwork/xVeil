@@ -58,8 +58,11 @@ class FolderSyncScreen extends ConsumerWidget {
               title: Text(l.folderSyncNotAddedTitle),
               // The reason itself, not a paraphrase of it: it names the exact
               // folder in the chain that is open, and that is the one part
-              // nobody can guess.
-              content: Text(l.folderSyncNotAdded(refusal)),
+              // nobody can guess. Translated HERE, from a code — the reason
+              // used to arrive as an English sentence and go straight into
+              // this localised frame, so a Russian reader was shown a Russian
+              // sentence with an English middle.
+              content: Text(l.folderSyncNotAdded(folderSyncRefusalText(l, refusal))),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(ctx).pop(),
@@ -98,6 +101,28 @@ class FolderSyncScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// The sentence for a refusal code, in the reader's language.
+///
+/// Lives here rather than on [FolderSyncRefusal] because the controller has no
+/// [BuildContext] and must not acquire one: a rule that decides whether a
+/// folder is safe has no business knowing what language the person reads.
+String folderSyncRefusalText(AppL10n l, FolderSyncRefusal refusal) {
+  final path = refusal.path ?? '';
+  return switch (refusal.code) {
+    FolderSyncRefusalCode.overlapsExistingPair => l.folderSyncRefusedOverlap,
+    FolderSyncRefusalCode.unresolvable => l.folderSyncRefusedUnresolvable(
+      path,
+      refusal.detail ?? '',
+    ),
+    FolderSyncRefusalCode.permissionsUnreadable => l.folderSyncRefusedUnreadable(
+      path,
+    ),
+    FolderSyncRefusalCode.writableByOtherAccounts => l.folderSyncRefusedWritable(
+      path,
+    ),
+  };
 }
 
 class _PairCard extends ConsumerWidget {
