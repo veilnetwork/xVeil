@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -49,6 +51,7 @@ void main() {
   _wipeRemovesBlobsTests();
   _lockAlwaysCompletesTests();
   _wipeClearsPostureTests();
+  _vpnTeardownIsJournalledTests();
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     errorJournal.clear();
@@ -2217,6 +2220,120 @@ void _wipeClearsPostureTests() {
   );
 }
 
+/// An OS tunnel that outlived the teardown leaves a trace in a RELEASE build.
+void _vpnTeardownIsJournalledTests() {
+  // `_stopVpnTunnel` handled both of its failure paths — a phase that is not
+  // `stopped`, and a call that threw or timed out — with `devLog` alone, and
+  // `devLog` is gated on `!_productMode || _releaseDiagnosticLog`
+  // (`lib/core/log.dart`), so a shipped build eliminates it entirely. In the
+  // build people actually run, a tunnel that survived a lock or a wipe left
+  // ZERO trace anywhere — while the node half of the very same teardown has
+  // recorded `node-stop-abandoned` all along. Of the two halves, the silent one
+  // is the one still routing the person's traffic through the configured exit
+  // while the app presents itself as locked.
+  //
+  // WHAT DOES NOT PROVE ANY OF THIS. Each of the following stays GREEN with the
+  // fix reverted, and none of them may stand in for the assertions below:
+  //   * `expect(vpn.stops, 1)` — the stop was always ATTEMPTED. What was
+  //     missing is any record of it not having worked.
+  //   * a bare `expect(errorJournal.entries, isNotEmpty)` — other legs of the
+  //     same lock record their own kinds, so the journal is rarely empty.
+  //     Filter by kind or the assertion means nothing.
+  //   * `expect(phase, AppPhase.locked)` on its own — the flip is
+  //     unconditional by design and was never in question. It is asserted in
+  //     the first test only to PIN that design against drift, alongside a
+  //     kind-filtered journal assertion that does the real work.
+
+  test('a backend that reports it did not stop is journalled', () async {
+    final vpn = _RecordingVpn(phase: VpnBackendPhase.error);
+    final c = ProviderContainer(
+      overrides: [vpnControllerProvider.overrideWith(() => vpn)],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+
+    await ctrl.lock();
+
+    // Precondition, NOT the assertion: this stayed green throughout the defect.
+    expect(vpn.stops, 1, reason: 'precondition: the teardown asked at all');
+    final left = errorJournal.entries.where(
+      (e) => e.kind == 'vpn-stop-incomplete',
+    );
+    expect(
+      left,
+      isNotEmpty,
+      reason: 'a release build compiles devLog out — the journal is the trace',
+    );
+    expect(
+      left.single.message,
+      contains('traffic may still be routed'),
+      reason: 'the record has to say what it means for the person',
+    );
+    // THE APPROVED DESIGN, pinned. Parking someone on an unlocked-looking
+    // screen because the OS would not answer is its own failure, and in a
+    // deniable app the wrong screen is a disclosure. The tunnel is reported,
+    // not used as a veto.
+    expect(
+      c.read(appControllerProvider).phase,
+      AppPhase.locked,
+      reason: 'a surviving tunnel is reported; it does not hold the lock open',
+    );
+  });
+
+  test('a stop that throws is journalled the same way', () async {
+    final vpn = _RecordingVpn(fails: StateError('the VPN plugin is not there'));
+    final c = ProviderContainer(
+      overrides: [vpnControllerProvider.overrideWith(() => vpn)],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+
+    await ctrl.lock();
+
+    expect(vpn.stops, 1, reason: 'precondition: the teardown asked at all');
+    expect(
+      errorJournal.entries.where((e) => e.kind == 'vpn-stop-incomplete'),
+      isNotEmpty,
+      reason: 'a throw leaves the tunnel exactly as up as an error phase does',
+    );
+  });
+
+  test('a stop that never answers is journalled when its bound expires', () {
+    // The case the three-second bound exists for: the tunnel is behind a
+    // platform channel, and an unresponsive plugin is precisely the
+    // arrangement in which the tunnel is still carrying traffic.
+    //
+    // Driven with `fakeAsync` so the bound is exercised without the suite
+    // waiting three real seconds.
+    final vpn = _RecordingVpn(neverAnswers: true, inertBuild: true);
+    final c = ProviderContainer(
+      overrides: [vpnControllerProvider.overrideWith(() => vpn)],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+
+    fakeAsync((async) {
+      // Deliberately not awaited. Everything in the lock past the tunnel is
+      // real I/O that a fake clock cannot resolve, so the future is dropped
+      // once the record we came for has landed; `ignore` keeps a late error
+      // from that abandoned tail from surfacing as an unhandled one.
+      ctrl.lock().ignore();
+      // Past the bound, and not by much: a test that elapsed a minute would
+      // pass against a timeout of any length.
+      async.elapse(const Duration(seconds: 4));
+
+      expect(vpn.stops, 1, reason: 'precondition: the teardown asked at all');
+      expect(
+        errorJournal.entries.where((e) => e.kind == 'vpn-stop-incomplete'),
+        isNotEmpty,
+        reason: 'a plugin that never answers must not be the silent case',
+      );
+    });
+  });
+}
+
 /// Records the teardown stop without touching a platform channel.
 ///
 /// [VpnController.stopForTeardown], not `stop`: a lock or a wipe must not be
@@ -2224,11 +2341,48 @@ void _wipeClearsPostureTests() {
 /// default state of a controller the teardown itself just built, so that is the
 /// entry point the teardown uses (audit XV-H2).
 class _RecordingVpn extends VpnController {
+  _RecordingVpn({
+    this.phase = VpnBackendPhase.stopped,
+    this.fails,
+    this.neverAnswers = false,
+    this.inertBuild = false,
+  });
+
   int stops = 0;
+
+  /// What the OS backend reports. `error` is the case that used to pass
+  /// unnoticed: nothing is thrown, and the tunnel is still up.
+  final VpnBackendPhase phase;
+
+  /// Thrown instead of answering — a plugin that is not installed, a channel
+  /// that is gone with the activity.
+  final Object? fails;
+
+  /// Never answers at all. The unresponsive plugin: the reason the call is
+  /// bounded in the first place.
+  final bool neverAnswers;
+
+  /// Skip the controller's OWN restore-and-probe, which [build] schedules.
+  ///
+  /// Set by the fake-clock test only, and not to make anything pass: the
+  /// restore awaits shared preferences, a real future that completes on the
+  /// real event loop long after a `fakeAsync` block has ended and the
+  /// container has been disposed, and the restore then resumes onto a dead
+  /// `Ref`. That is a property of the restore under a fake clock — it happens
+  /// with the teardown call removed entirely — and it is reported against
+  /// whichever test is running. The other two tests here run the REAL build,
+  /// which is what keeps the XV-H2 property (the teardown builds the
+  /// controller itself and must still reach the backend) under test.
+  final bool inertBuild;
+
+  @override
+  VpnState build() => inertBuild ? const VpnState() : super.build();
 
   @override
   Future<VpnBackendPhase> stopForTeardown() async {
     stops++;
-    return VpnBackendPhase.stopped;
+    if (fails != null) throw fails!;
+    if (neverAnswers) return Completer<VpnBackendPhase>().future;
+    return phase;
   }
 }
