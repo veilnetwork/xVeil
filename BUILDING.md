@@ -408,9 +408,10 @@ small C ABI, so a translation feature arrives as one file rather than a set
 that can turn up incomplete:
 
 ```bash
-native/translate/build_veil_translate_macos.sh     # libveil_translate.dylib
-native/translate/build_veil_translate_android.sh   # android/app/src/main/jniLibs/arm64-v8a/ (+ libomp.so)
-native/translate/build_veil_translate_ios.sh       # libveil_translate.a
+native/translate/build_veil_translate_macos.sh          # libveil_translate.dylib
+native/translate/build_veil_translate_android.sh        # android/app/src/main/jniLibs/arm64-v8a/ (+ libomp.so)
+native/translate/build_veil_translate_ios.sh            # libveil_translate.a       (device)
+native/translate/build_veil_translate_ios.sh --simulator # libveil_translate-sim.a  (Simulator)
 ```
 
 Each verifies what it produced — architecture, exported entry points, and for
@@ -418,26 +419,66 @@ iOS the PLATFORM, because a macOS archive is arm64 too and fails only on a
 device. The Android script also runs its selftest ON a connected phone when
 one is attached and `VEIL_TRANSLATE_TEST_MODEL` names a model directory.
 
+The iOS script builds its own prerequisites when they are missing, including
+the SentencePiece cross build — that invocation lives in the script rather than
+in the SentencePiece checkout, which is pristine upstream and cannot carry a
+reference to a shim file in this repo.
+
+**The Simulator is a separate build, not a second architecture.** An arm64
+device slice and an arm64 Simulator slice are the same instruction set and
+different platforms in the Mach-O load commands (2 = iOS, 7 = iOS Simulator).
+The linker refuses to mix them and `lipo` cannot fuse them, so there are two
+archives and each is checked against the platform it claims — a check that only
+asks "is this iOS" passes on the wrong one. One consequence worth knowing: the
+arm64 Simulator did not exist before iOS 14, so the toolchain raises a 13.0
+request to 14.0 and the verifier expects that floor rather than the number it
+asked for.
+
 **Linux and Windows are not built yet.** The engine itself is supported
 upstream on both; only the wrapper script is missing. Translation is simply
 absent there — the provider returns null and no affordance appears.
 
-**iOS is built but not yet LINKED.** The archive exists and is verified, and
-the Dart side now resolves iOS symbols from the process image (where a static
-archive ends up) — but nothing adds `libveil_translate.a` to the Runner target,
-so those symbols are not in the image and translation stays unavailable.
+The iOS link is done through a GENERATED xcconfig, and the reason is that it
+had to TOLERATE THE ARCHIVE BEING ABSENT. The obvious move — an `-force_load`
+entry in the Runner target's OTHER_LDFLAGS, the way PacketTunnel links
+libveilclient_ffi.a — breaks the build outright for anyone who has not produced
+the prebuilt, and translation is optional where veilclient is mandatory. So the
+build script writes `ios/Flutter/TranslateLink.xcconfig` and Runner's Debug and
+Release configs pull it in with `#include?`, the optional form Xcode skips in
+silence when the file is not there. The `-force_load` itself is not optional —
+nothing in the app's own code calls these symbols, Dart resolves them out of
+the process image, and a plain link drops every one of them.
 
-The remaining step is that link, and it has a constraint worth knowing before
-starting: it must TOLERATE THE ARCHIVE BEING ABSENT. The obvious move — an
-`-force_load` entry in the Runner target's OTHER_LDFLAGS, the way PacketTunnel
-links libveilclient_ffi.a — breaks the build outright for anyone who has not
-produced the prebuilt, and translation is optional. veilclient can do it
-because it is mandatory. Two mechanisms that degrade instead: an .xcconfig
-written by a run-script phase that emits the flags only when the file exists,
-or making native/translate a proper plugin whose podspec vendors the library
-optionally. The `-force_load` itself is NOT optional in either case — nothing
-in the app's own code calls these symbols, so a plain link drops every one of
-them.
+The file selects the archive by SDK, and only the SDKs whose archive is
+actually on disk get any flags:
+
+```
+VEIL_TRANSLATE_LDFLAGS =                                  // base: nothing
+VEIL_TRANSLATE_ARCHIVE[sdk=iphoneos*]        = …/libveil_translate.a
+VEIL_TRANSLATE_ARCHIVE[sdk=iphonesimulator*] = …/libveil_translate-sim.a
+OTHER_LDFLAGS = $(inherited) $(VEIL_TRANSLATE_LDFLAGS)
+```
+
+Building only one of the two is therefore harmless: the other SDK falls through
+to the empty base and links a working app with no translation. Naming an
+archive that is not there would be worse than saying nothing, because
+`-force_load` on a missing path is a hard link error — the half-built tree
+would break the build it was supposed to leave alone. The file is rewritten
+from what is on disk on every run, so building one archive never un-links the
+other.
+
+Confirm the result in the PRODUCT rather than the build log, because every way
+this has gone wrong so far was invisible from the exit code:
+
+```bash
+scripts/check-ios-translate-link.sh --simulator   # build/ios/iphonesimulator/Runner.app
+scripts/check-ios-translate-link.sh --device      # build/ios/iphoneos/Runner.app
+```
+
+It reads the export trie — the table `dlsym` consults, not the static symbol
+table a release build strips — and reports which platform the bundle it opened
+was built for, since a stale device app sits in its own directory after a
+Simulator build and would otherwise answer for it.
 
 Models are **not** bundled and none are published yet. Convert a pair with
 `native/translate/convert-model.sh <from> <to>` (needs a Python environment
