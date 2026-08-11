@@ -477,6 +477,18 @@ abstract class AppL10n {
   /// **'Neither the container nor the large files kept beside it could be deleted, and both are still on this device.'**
   String get lockWipeLeftBoth;
 
+  /// No description provided for @lockWipeLeftSpeechModel.
+  ///
+  /// In en, this message translates to:
+  /// **'The downloaded speech model could not be deleted and is still on this device.'**
+  String get lockWipeLeftSpeechModel;
+
+  /// No description provided for @lockWipeLeftTranslations.
+  ///
+  /// In en, this message translates to:
+  /// **'The downloaded translation languages could not be deleted, and their names are still on this device.'**
+  String get lockWipeLeftTranslations;
+
   /// No description provided for @lockWipeLeftRest.
   ///
   /// In en, this message translates to:
@@ -8504,6 +8516,18 @@ abstract class AppL10n {
   /// **'Security'**
   String get securityCenterTooltip;
 
+  /// No description provided for @securityCenterAnonymousOn.
+  ///
+  /// In en, this message translates to:
+  /// **'This identity routes over onion'**
+  String get securityCenterAnonymousOn;
+
+  /// No description provided for @securityCenterAnonymousOff.
+  ///
+  /// In en, this message translates to:
+  /// **'This identity does not route over onion'**
+  String get securityCenterAnonymousOff;
+
   /// No description provided for @securityCenterTitle.
   ///
   /// In en, this message translates to:
@@ -10483,6 +10507,30 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'{reason}. Nothing was mirrored and nothing on this computer was changed. Choose a different folder — one inside your home folder, where only your own account can write.'**
   String folderSyncNotAdded(String reason);
+
+  /// No description provided for @folderSyncRefusedOverlap.
+  ///
+  /// In en, this message translates to:
+  /// **'it overlaps a folder that is already synced'**
+  String get folderSyncRefusedOverlap;
+
+  /// No description provided for @folderSyncRefusedUnresolvable.
+  ///
+  /// In en, this message translates to:
+  /// **'the real location behind {path} could not be resolved ({detail})'**
+  String folderSyncRefusedUnresolvable(String path, String detail);
+
+  /// No description provided for @folderSyncRefusedUnreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'the permissions of {path} could not be read'**
+  String folderSyncRefusedUnreadable(String path);
+
+  /// No description provided for @folderSyncRefusedWritable.
+  ///
+  /// In en, this message translates to:
+  /// **'{path} can be written by other accounts on this computer, so what is mirrored into it could be redirected somewhere else'**
+  String folderSyncRefusedWritable(String path);
 
   /// No description provided for @settingsCopyErrors.
   ///

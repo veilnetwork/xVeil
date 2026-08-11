@@ -122,8 +122,8 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
   }
 
   /// Configure [localPath] as a sync root. Null when it was taken; otherwise
-  /// why it was refused.
-  Future<String?> addPair({
+  /// why it was refused, as a [FolderSyncRefusal] the UI translates.
+  Future<FolderSyncRefusal?> addPair({
     required String localPath,
     String? cloudFolderId,
     required String id,
@@ -134,7 +134,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
     // lost, but one file quietly becomes two objects and deleting it locally
     // deletes both, which is impossible to explain to whoever it happens to.
     if (pairs.any((p) => folderPairsOverlap(p.localPath, localPath))) {
-      return 'it overlaps a folder that is already synced';
+      return const FolderSyncRefusal(FolderSyncRefusalCode.overlapsExistingPair);
     }
     final unsafe = folderSyncRootRefusal(localPath);
     if (unsafe != null) return unsafe;
@@ -212,7 +212,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
 /// what it points at, and both are steps of this same walk. (`/var` on macOS
 /// is a symlink; refusing links outright would refuse every temporary folder
 /// on the platform.)
-String? folderSyncRootRefusal(String path) {
+FolderSyncRefusal? folderSyncRootRefusal(String path) {
   // Windows says nothing about this in mode bits: rights there live in ACLs,
   // which this code does not read and a POSIX mode cannot describe. Same
   // reasoning as `runtimeDirMustBePrivate()` — a check that cannot be made
@@ -224,24 +224,84 @@ String? folderSyncRootRefusal(String path) {
   try {
     canonical = Directory(path).resolveSymbolicLinksSync();
   } on FileSystemException catch (error) {
-    return 'the real location behind $path could not be resolved '
-        '(${error.osError?.message ?? error.message})';
+    return FolderSyncRefusal(
+      FolderSyncRefusalCode.unresolvable,
+      path: path,
+      detail: error.osError?.message ?? error.message,
+    );
   }
 
   for (final step in {..._rootChain(canonical), ..._rootChain(path)}) {
     final facts = posixLstat(step);
     // Unreadable is not evidence of safety. Every step of a path that just
     // resolved does exist, so a null here is an anomaly, not a normal state.
-    if (facts == null) return 'the permissions of $step could not be read';
+    if (facts == null) {
+      return FolderSyncRefusal(
+        FolderSyncRefusalCode.permissionsUnreadable,
+        path: step,
+      );
+    }
     if (facts.isSymlink) continue;
     // Sticky takes the dangerous half of the write bit back: in `/tmp` others
     // may create their own entries but may not touch this one.
     if (facts.groupOrOtherWritable && !(facts.isDirectory && facts.isSticky)) {
-      return '$step can be written by other accounts on this computer, so '
-          'what is mirrored into it could be redirected somewhere else';
+      return FolderSyncRefusal(
+        FolderSyncRefusalCode.writableByOtherAccounts,
+        path: step,
+      );
     }
   }
   return null;
+}
+
+/// Why a folder was refused as a sync root.
+///
+/// A CODE, not a sentence, for the same reason `WipeReport.remaining` is a list
+/// of codes: the sentence has to be a translated one. These reasons used to be
+/// English prose returned from here, and the screen dropped that prose straight
+/// into `folderSyncNotAdded` — which IS translated. So a Russian reader got a
+/// Russian frame wrapped around an English middle, and the only part naming the
+/// actual danger was the part they could not read. That shape hides itself:
+/// every string involved is in the ARB, the gate that watches for keys with no
+/// call site sees nothing wrong, and the sentence looks translated until you
+/// read it.
+enum FolderSyncRefusalCode {
+  /// The folder is inside, or contains, one that is already mirrored.
+  overlapsExistingPair,
+
+  /// The real location behind the path could not be resolved, so nothing about
+  /// its permissions could be checked either.
+  unresolvable,
+
+  /// A step of the path exists but its mode could not be read. Unreadable is
+  /// not evidence of safety.
+  permissionsUnreadable,
+
+  /// A step of the path may be written by group or by other, so another local
+  /// account can redirect what is mirrored into it.
+  writableByOtherAccounts,
+}
+
+/// A [FolderSyncRefusalCode] together with the facts a person cannot guess.
+///
+/// [path] is the STEP the refusal is about, which is not always the folder that
+/// was picked — a private folder inside a world-writable parent is refused for
+/// the parent, and naming the leaf instead would send someone looking at the
+/// one directory that is fine.
+class FolderSyncRefusal {
+  const FolderSyncRefusal(this.code, {this.path, this.detail});
+
+  final FolderSyncRefusalCode code;
+
+  /// The step of the path this is about. Absent only for
+  /// [FolderSyncRefusalCode.overlapsExistingPair], which is about the pair
+  /// list rather than about any one directory.
+  final String? path;
+
+  /// The operating system's own message, for [FolderSyncRefusalCode
+  /// .unresolvable]. Not translated: it comes from the platform, and inventing
+  /// a translation for it would misreport what actually failed.
+  final String? detail;
 }
 
 /// [path] and every ancestor above it, leaf first. Bounded, so a malformed

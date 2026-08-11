@@ -252,10 +252,25 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
       ],
       floatingActionButton: _searching
           ? null
-          : FloatingActionButton(
-              heroTag: 'xveil-chats-add-contact',
-              onPressed: () => showAddContactSheet(context, ref),
-              child: const Icon(Icons.person_add_alt_1),
+          // The one control on the app's main screen with no name at all: the
+          // largest, most prominent button on it announced itself as an
+          // unlabelled button, while every small icon in the bar above it had
+          // a tooltip.
+          //
+          // Both, not either. `tooltip` is the hover text a pointer user
+          // wants, and it lands in the semantics tree as a TOOLTIP rather than
+          // as a name — so the merged label is what puts the button's name on
+          // the node a screen reader actually focuses.
+          : MergeSemantics(
+              child: Semantics(
+                label: l.inviteAddContact,
+                child: FloatingActionButton(
+                  heroTag: 'xveil-chats-add-contact',
+                  tooltip: l.inviteAddContact,
+                  onPressed: () => showAddContactSheet(context, ref),
+                  child: const Icon(Icons.person_add_alt_1),
+                ),
+              ),
             ),
       body: _searching && _query.trim().isNotEmpty
           ? _searchResults(
@@ -723,18 +738,29 @@ class _UnreadBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: BoxDecoration(
-        color: scheme.primary,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        unreadBadgeText(count),
-        style: TextStyle(
-          color: scheme.onPrimary,
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
+    // A bare number is what a sighted reader gets from POSITION — it sits on a
+    // folder row, so it is obviously that folder's unread count. A screen
+    // reader has no position: it read out "7" after the folder name and left
+    // the person to guess what seven meant. The label says which seven; the
+    // digits themselves are excluded so it is not announced twice, and the
+    // capped "999+" stays visual only — the label carries the real count.
+    return Semantics(
+      label: AppL10n.of(context).trayUnread('$count'),
+      child: ExcludeSemantics(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+          decoration: BoxDecoration(
+            color: scheme.primary,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            unreadBadgeText(count),
+            style: TextStyle(
+              color: scheme.onPrimary,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ),
       ),
     );
@@ -961,8 +987,17 @@ class _ConversationTile extends ConsumerWidget {
                             ))),
           trailing: (!isSaved && status == ContactStatus.pendingIncoming)
               ? Icon(Icons.fiber_new, color: scheme.primary)
+              // Same bare number, on the row that matters most: the only thing
+              // announced after the contact's name was the digit itself.
               : (conversation.unread > 0
-                    ? Badge(label: Text('${conversation.unread}'))
+                    ? Semantics(
+                        label: l.trayUnread('${conversation.unread}'),
+                        child: ExcludeSemantics(
+                          child: Badge(
+                            label: Text('${conversation.unread}'),
+                          ),
+                        ),
+                      )
                     : null),
           onTap: () => context.push('/chat/${conversation.peer.nodeId.hex}'),
           onLongPress: () => _showActions(context, ref),

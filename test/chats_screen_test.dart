@@ -129,9 +129,11 @@ Conversation _conv(
   String name,
   ContactStatus status, {
   String? last,
+  int unread = 0,
   NotificationMuteMode notificationMode = NotificationMuteMode.none,
   DateTime? mutedUntil,
 }) => Conversation(
+  unread: unread,
   peer: Contact(
     nodeId: _id(seed),
     name: name,
@@ -200,6 +202,49 @@ void main() {
       reason:
           'the long press is the only way to those actions and nothing '
           'announces it',
+    );
+    semantics.dispose();
+  });
+
+  testWidgets('the main screen names its icon-only controls and its counters', (
+    tester,
+  ) async {
+    // Three things on the app's primary screen announced nothing usable. The
+    // add-contact button is the largest control on it and carried no tooltip
+    // at all — which is where an icon button's accessibility label comes from,
+    // so it read as an unlabelled button. The peer badge on the shield and the
+    // unread badge on a row each announced a bare digit: sighted readers get
+    // the meaning from POSITION, and a screen reader has no position, so "2"
+    // arrived with nothing saying two of what.
+    //
+    // Asserted on the SEMANTICS, not on the widgets: a Tooltip that exists and
+    // a label that reaches the accessibility tree are different claims, and it
+    // is the second one a screen-reader user depends on.
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      _host([_conv(1, 'Alice', ContactStatus.accepted, last: 'hey', unread: 3)]),
+    );
+    await tester.pump();
+    final l = AppL10n.of(tester.element(find.text('Alice')));
+
+    expect(
+      find.bySemanticsLabel(l.inviteAddContact),
+      findsWidgets,
+      reason: 'the biggest button on the main screen had no name',
+    );
+    expect(
+      find.bySemanticsLabel(l.networkPeers(4)),
+      findsOneWidget,
+      reason: 'a bare "4" says nothing about what four there are',
+    );
+    // A RegExp, not the whole string: the row is one tappable target, so its
+    // title, its preview and this counter are merged into a single announced
+    // label. What matters is that the counter arrives inside it saying what it
+    // counts, rather than as a lone digit at the end.
+    expect(
+      find.bySemanticsLabel(RegExp(RegExp.escape(l.trayUnread('3')))),
+      findsOneWidget,
+      reason: 'a bare "3" beside a name is not an unread count to a listener',
     );
     semantics.dispose();
   });
