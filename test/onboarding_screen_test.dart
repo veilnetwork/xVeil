@@ -70,6 +70,9 @@ void main() {
     // 3 storage -> Continue (default hidden space)
     await tester.tap(find.text(l().actionContinue));
     await tester.pumpAndSettle();
+    // 7 network entry -> Continue (default: keep the shared seed nodes)
+    await tester.tap(find.text(l().actionContinue));
+    await tester.pumpAndSettle();
     // 4 password -> enter + repeat + Done
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), 'test123');
@@ -146,7 +149,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(validated, contains(List.generate(24, (i) => 'w$i').join(' ')));
 
-      // 3 storage -> Continue, 4 password -> Done.
+      // 3 storage -> Continue, 7 network entry -> Continue, 4 password -> Done.
+      await tester.tap(find.text(l().actionContinue));
+      await tester.pumpAndSettle();
       await tester.tap(find.text(l().actionContinue));
       await tester.pumpAndSettle();
       final fields = find.byType(TextField);
@@ -218,6 +223,8 @@ void main() {
       await tester.tap(find.text(l(tester).actionContinue));
       await tester.pumpAndSettle(); // 3 storage
       await tester.tap(find.text(l(tester).actionContinue));
+      await tester.pumpAndSettle(); // 7 network entry
+      await tester.tap(find.text(l(tester).actionContinue));
       await tester.pumpAndSettle(); // 4 password
       final fields = find.byType(TextField);
       await tester.enterText(fields.at(0), 'test123');
@@ -250,6 +257,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text(l(tester).actionContinue));
       await tester.pumpAndSettle();
+      await tester.tap(find.text(l(tester).actionContinue));
+      await tester.pumpAndSettle();
+      // 7 network entry -> Continue (default: keep the shared seed nodes)
       await tester.tap(find.text(l(tester).actionContinue));
       await tester.pumpAndSettle();
       final fields = find.byType(TextField);
@@ -289,6 +299,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text(l(tester).actionContinue));
       await tester.pumpAndSettle();
+      await tester.tap(find.text(l(tester).actionContinue));
+      await tester.pumpAndSettle();
+      // 7 network entry -> Continue (default: keep the shared seed nodes)
       await tester.tap(find.text(l(tester).actionContinue));
       await tester.pumpAndSettle();
       final fields = find.byType(TextField);
@@ -340,6 +353,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text(l().actionContinue));
       await tester.pumpAndSettle();
+      await tester.tap(find.text(l().actionContinue));
+      await tester.pumpAndSettle();
+      // 7 network entry -> Continue (default: keep the shared seed nodes)
       await tester.tap(find.text(l().actionContinue));
       await tester.pumpAndSettle();
       return container;

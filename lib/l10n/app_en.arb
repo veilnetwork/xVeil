@@ -2764,5 +2764,69 @@
         "type": "int"
       }
     }
+  },
+  "seedsChoiceTitle": "How this device finds the network",
+  "@seedsChoiceTitle": {
+    "description": "Heading of the onboarding step that asks whether to use the project's shared seed nodes."
+  },
+  "seedsChoiceBody": "xVeil has no central server, so a new device needs at least one node it can reach before anything else can happen. Choose how this identity gets its first one.",
+  "@seedsChoiceBody": {
+    "description": "Explains why the question is being asked at all: there is no central server to fall back on."
+  },
+  "seedsUseTitle": "Use the shared entry nodes (recommended)",
+  "@seedsUseTitle": {
+    "description": "Label of the option that keeps the shared seed nodes."
+  },
+  "seedsUseBody": "The app connects on its own, with nothing for you to configure. These nodes are run by the project, and they learn that a node of yours exists and which address it connects from — not who you are, and not what you send.",
+  "@seedsUseBody": {
+    "description": "What keeping the shared seed nodes costs: convenience in exchange for those nodes observing that this node exists."
+  },
+  "seedsDeclineTitle": "Only nodes I add myself",
+  "@seedsDeclineTitle": {
+    "description": "Label of the option that refuses the shared seed nodes."
+  },
+  "seedsDeclineBody": "No shared node is contacted, so nobody else's server learns that this identity exists. Nothing works until you add a node yourself: messages cannot be sent and none will arrive.",
+  "@seedsDeclineBody": {
+    "description": "What refusing costs: nothing works until the person adds a node themselves."
+  },
+  "seedsChoiceChangeLater": "You can change this later in Network settings.",
+  "@seedsChoiceChangeLater": {
+    "description": "Reassurance that the choice is not permanent."
+  },
+  "seedsReofferTitle": "This identity cannot reach the network",
+  "@seedsReofferTitle": {
+    "description": "Heading of the startup prompt shown to someone who declined and has added no node."
+  },
+  "seedsReofferBody": "You chose to use only nodes you add yourself, and none has been added. Until one is, no message can be sent or received. You can add your own node now, or use the shared entry nodes after all — they learn that a node of yours exists and which address it connects from.",
+  "@seedsReofferBody": {
+    "description": "Body of that prompt: says why the app is not working and what the two ways out cost."
+  },
+  "seedsReofferUse": "Use the shared nodes",
+  "@seedsReofferUse": {
+    "description": "Button that switches this identity onto the shared seed nodes."
+  },
+  "seedsReofferKeep": "Keep my choice",
+  "@seedsReofferKeep": {
+    "description": "Button that leaves the refusal in place."
+  },
+  "seedsReofferDontAsk": "Don't show this again",
+  "@seedsReofferDontAsk": {
+    "description": "Checkbox that silences the startup prompt for good."
+  },
+  "seedsNoNodeTitle": "No way to reach the network yet",
+  "@seedsNoNodeTitle": {
+    "description": "Heading on the network screen when this identity declined the seeds and has no node."
+  },
+  "seedsNoNodeBody": "This identity does not use the shared entry nodes, so it needs a node of your own. Add one and the app will connect.",
+  "@seedsNoNodeBody": {
+    "description": "Tells the person what to do next, so a deliberate choice does not read as a broken app."
+  },
+  "seedsNoNodeAction": "Add my node",
+  "@seedsNoNodeAction": {
+    "description": "Button leading to the screen where a node is added."
+  },
+  "seedsSaveFailed": "That choice could not be saved. It applies to this session only.",
+  "@seedsSaveFailed": {
+    "description": "Shown when the preference store refused the write."
   }
 }
