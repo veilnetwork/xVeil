@@ -53,6 +53,68 @@ class RuntimeDirNotPrivate implements Exception {
 /// an outage.
 bool runtimeDirMustBePrivate() => Platform.isMacOS || Platform.isLinux;
 
+/// How this platform carries the node's two LOCAL control channels: the admin
+/// socket the app drives the node through, and the app IPC socket it talks to
+/// it over.
+///
+/// Two platforms cannot use a Unix domain socket and take authenticated
+/// loopback TCP instead, for unrelated reasons:
+///
+///  * **iOS** — application-container paths exceed `sockaddr_un`'s `SUN_LEN` on
+///    both physical devices and the Simulator, so the bind fails on a path the
+///    app is not free to shorten.
+///  * **Windows** — there is no Unix domain socket to bind at all. This was the
+///    defect: Windows fell through to the POSIX branch and sent the node a bare
+///    `C:\...\admin.sock`, which the FFI wrapped as `unix://C:\...` and pasted
+///    into a TOML template, where `\U` opens a unicode escape. The shipped
+///    build could not compose a config, let alone start a node, and said so
+///    only as a TOML column number. veil's own `veil-cfg` already answers
+///    `tcp://127.0.0.1:0` for `not(unix)`; this had been overriding it.
+///
+/// TCP and not a named pipe, on Windows, for three independent reasons:
+/// `veil_node_start_deferred` rejects a `pipe://` endpoint outright, the Dart
+/// readiness probe knows how to watch the TCP sidecars and knows nothing about
+/// a pipe, and client-side anchor discovery already covers the TCP shape.
+///
+/// Pure and platform-named rather than reading [Platform] itself, so every
+/// branch is reachable from a test on one host.
+LocalEndpointPlan localEndpointPlanFor(String operatingSystem) =>
+    LocalEndpointPlan(
+      loopbackTcp: operatingSystem == 'ios' || operatingSystem == 'windows',
+    );
+
+/// The local-endpoint shape [localEndpointPlanFor] picked, resolved against a
+/// runtime directory.
+///
+/// The `*Socket` paths are what the APP watches and connects to; the
+/// `*Endpoint` values are what the NODE is told to bind. Under Unix sockets
+/// they are the same string. Under loopback TCP they differ: the node binds an
+/// ephemeral port and drops `ipc.port`/`ipc.token` sidecars in the runtime
+/// directory, and the app finds them through the `.anchor` path, whose parent
+/// directory is the part that matters.
+class LocalEndpointPlan {
+  const LocalEndpointPlan({required this.loopbackTcp});
+
+  /// Carry admin + IPC over authenticated loopback TCP, with `.anchor`
+  /// sidecars, instead of Unix domain sockets.
+  final bool loopbackTcp;
+
+  String ipcSocket(String runtimeDir) =>
+      loopbackTcp ? '$runtimeDir/ipc.anchor' : '$runtimeDir/app.sock';
+
+  String adminSocket(String runtimeDir) =>
+      loopbackTcp ? '$runtimeDir/admin.anchor' : '$runtimeDir/admin.sock';
+
+  String ipcEndpoint(String runtimeDir) => loopbackTcp
+      ? 'tcp://127.0.0.1:0?runtime_dir=$runtimeDir'
+      : ipcSocket(runtimeDir);
+
+  String adminEndpoint(String runtimeDir) => loopbackTcp
+      ? 'tcp://127.0.0.1:0?runtime_dir=$runtimeDir'
+      : adminSocket(runtimeDir);
+}
+
+
 /// `chmod 700`, through libc. Null when the mode was applied, otherwise WHY it
 /// was not.
 ///
@@ -848,22 +910,10 @@ class RealVeilStack {
     required bool useBundledSeeds,
   }) async {
     final runtimeDir = lease.path;
-    // iOS application-container paths exceed sockaddr_un's SUN_LEN on both
-    // physical devices and Simulator. Keep discovery sidecars in the sandbox,
-    // but carry local admin + IPC over authenticated loopback TCP there.
-    final tcpLocalEndpoints = Platform.isIOS;
-    final ipcSock = tcpLocalEndpoints
-        ? '$runtimeDir/ipc.anchor'
-        : '$runtimeDir/app.sock';
-    final adminSock = tcpLocalEndpoints
-        ? '$runtimeDir/admin.anchor'
-        : '$runtimeDir/admin.sock';
-    final ipcEndpoint = tcpLocalEndpoints
-        ? 'tcp://127.0.0.1:0?runtime_dir=$runtimeDir'
-        : ipcSock;
-    final adminEndpoint = tcpLocalEndpoints
-        ? 'tcp://127.0.0.1:0?runtime_dir=$runtimeDir'
-        : adminSock;
+    final endpoints = localEndpointPlanFor(Platform.operatingSystem);
+    final ipcSock = endpoints.ipcSocket(runtimeDir);
+    final ipcEndpoint = endpoints.ipcEndpoint(runtimeDir);
+    final adminEndpoint = endpoints.adminEndpoint(runtimeDir);
     // Direct peer sessions use QUIC even on a LAN. Besides authenticating and
     // encrypting the listener transport, this makes QUIC DATAGRAM available
     // to real-time media; TCP remains supported when dialing older peers.
