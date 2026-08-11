@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:xveil/core/log.dart';
+import 'package:xveil/core/posix_file_facts.dart' show posixProcessAlive;
 
 import 'veil_stack.dart' show runtimeDirIsOurs;
 
@@ -26,18 +27,26 @@ final RegExp _ourRuntimeDirName = RegExp(r'^xveil-rt-(\d+)(?:-(\d+))?$');
 /// otherwise these are nested under ours and go when it goes.
 const _nodeWorkDirPrefix = 'veil-deferred-';
 
-/// True when the process with [otherPid] is still alive (POSIX `kill -0`).
+/// Whether the process with [otherPid] is still alive — `kill(2)` with signal
+/// 0, straight out of libc. **Null means this host cannot tell.**
 ///
-/// Conservative: any error — no `kill` binary, no permission — counts as ALIVE,
-/// so a sweep never removes a live instance's runtime dir.
-Future<bool> defaultPidAlive(int otherPid) async {
-  try {
-    final r = await Process.run('kill', ['-0', '$otherPid']);
-    return r.exitCode == 0;
-  } catch (_) {
-    return true;
-  }
-}
+/// This used to be `Process.run('kill', ['-0', …])` with `catch (_) => true`,
+/// and the exception handler was doing most of the work:
+///
+///   * on Windows there is no `kill` binary, so EVERY call threw and every
+///     directory was "alive" — nothing was ever reaped, on any launch, ever;
+///   * on iOS starting a process throws outright, so the answer there was never
+///     an answer either (mobile happens not to ask — see [sweepStaleRuntimeDirs]
+///     — but the function did not know that);
+///   * and a bare command name is resolved through PATH, which is the
+///     substitutable oracle audit C-01 was about, here deciding what gets
+///     deleted.
+///
+/// The honest form of "I could not run `kill`" is null, not `true`. See
+/// [posixProcessAlive] for what each libc answer means, and
+/// [sweepStaleRuntimeDirs] for what the sweep does with the null.
+Future<bool?> defaultPidAlive(int otherPid) async =>
+    posixProcessAlive(otherPid);
 
 /// Most recent mtime under [dir] (the dir itself + every file inside). Errors
 /// on individual entries are skipped — the sweep must never throw.
@@ -80,12 +89,30 @@ Future<DateTime> newestMtimeUnder(Directory dir) async {
 /// weaker evidence it does have — the exact name, plus a full day in which
 /// nothing inside was touched (a live node keeps writing its outbox.db) — and
 /// that asymmetry is deliberate rather than an oversight.
+///
+/// ## When the pid cannot be asked about
+///
+/// [pidAlive] is three-valued, and null — "this host cannot tell" — is the
+/// interesting one. Neither guess is acceptable as a default:
+///
+///   * unknown-means-ALIVE (what the `Process.run('kill')` version did on every
+///     Windows launch) leaks every directory forever, which is precisely the
+///     standing on-disk record that XV-14 is about;
+///   * unknown-means-DEAD would point a recursive delete at a live instance's
+///     control socket on no evidence at all.
+///
+/// So an unanswerable pid is not answered — it is asked a different question,
+/// the one already trusted for `veil-deferred-*`: has anything inside been
+/// touched within [staleAfter]? A live node writes its sockets and its outbox;
+/// a full day of complete silence is the evidence, and the ownership marker
+/// still has to be there on top of it. Nothing leaks forever, and nothing that
+/// showed a sign of life in the last day is taken.
 Future<int> sweepStaleRuntimeDirs(
   String runtimeBase, {
   Duration staleAfter = const Duration(hours: 24),
   int? selfPid,
   bool singleInstanceHost = false,
-  Future<bool> Function(int pid)? pidAlive,
+  Future<bool?> Function(int pid)? pidAlive,
   DateTime Function()? now,
 }) async {
   final self = selfPid ?? pid;
@@ -109,7 +136,22 @@ Future<int> sweepStaleRuntimeDirs(
         if (ours != null) {
           final dirPid = int.parse(ours.group(1)!);
           if (dirPid == self) continue;
-          if (!singleInstance && await alive(dirPid)) continue;
+          if (!singleInstance) {
+            final live = await alive(dirPid);
+            if (live == true) continue;
+            // Liveness unknowable: fall back to the evidence of recency rather
+            // than to a guess in either direction (see the doc above).
+            if (live == null &&
+                clock().difference(await newestMtimeUnder(e)) < staleAfter) {
+              devLog(
+                () =>
+                    'xVeil[sweep]: cannot tell whether pid $dirPid is alive; '
+                    '$name was touched within ${staleAfter.inHours}h — leaving '
+                    'it alone',
+              );
+              continue;
+            }
+          }
           if (!runtimeDirIsOurs(e.path)) {
             devLog(
               () =>

@@ -133,6 +133,104 @@ void main() {
     );
   });
 
+  test('a pid nobody can answer for is judged on silence, not on a guess',
+      () async {
+    // `pidAlive` is three-valued and null means "this host cannot tell" — the
+    // permanent state of affairs on Windows, which has no `kill` at all. The
+    // old code answered that with `true`: every leftover directory looked
+    // alive, on every launch, so nothing was EVER reaped there — the standing
+    // on-disk record of an identity that XV-14 is about. Answering `false`
+    // instead would aim a recursive delete at a live node's control socket on
+    // no evidence.
+    //
+    // So the unanswerable pid is asked a different question: has anything
+    // inside been touched in the last day?
+    final silent = await ours('xveil-rt-5001');
+    final busy = await ours('xveil-rt-5002-4');
+    final asked = <int>[];
+    Future<bool?> cannotTell(int p) async {
+      asked.add(p);
+      return null;
+    }
+
+    // Two days on, with `busy` touched an hour ago. `silent` keeps the
+    // timestamps it was made with, so from two days out it has been quiet for
+    // two days.
+    final future = DateTime.now().add(const Duration(days: 2));
+    await File(
+      '${busy.path}/app.sock',
+    ).setLastModified(future.subtract(const Duration(hours: 1)));
+
+    final removed = await sweepStaleRuntimeDirs(
+      base.path,
+      selfPid: 1,
+      pidAlive: cannotTell,
+      now: () => future,
+    );
+
+    expect(asked, containsAll([5001, 5002]));
+    expect(
+      busy.existsSync(),
+      isTrue,
+      reason: 'something wrote in there an hour ago — that is a live node, and '
+          'unknown-means-dead would have deleted its sockets',
+    );
+    expect(
+      silent.existsSync(),
+      isFalse,
+      reason: 'two days of complete silence, and unknown-means-alive would '
+          'have kept it forever',
+    );
+    expect(removed, 1);
+  });
+
+  test('an unanswerable pid still cannot get a directory that is not ours '
+      'deleted', () async {
+    // The recency fallback is an extra hurdle, never a replacement for the
+    // ownership marker: it decides how long we wait, not whose directory it
+    // is. An ancient, untouched `xveil-rt-<pid>` planted by anything else in a
+    // shared base stays exactly where it is.
+    final impostor = Directory('${base.path}/xveil-rt-6001');
+    await impostor.create();
+    await File('${impostor.path}/somebody-elses-data').writeAsString('old');
+
+    final removed = await sweepStaleRuntimeDirs(
+      base.path,
+      selfPid: 1,
+      pidAlive: (_) async => null,
+      now: () => DateTime.now().add(const Duration(days: 30)),
+    );
+
+    expect(removed, 0);
+    expect(impostor.existsSync(), isTrue);
+  });
+
+  test('a live pid is recognised without running a subprocess', () async {
+    // `defaultPidAlive` is what the app actually uses, and it goes through
+    // `kill(2)` in libc — no `Process.run`, which iOS cannot do and Windows
+    // has no binary for. If the binding ever stops resolving this returns null
+    // everywhere and the sweep silently drops to the recency fallback, so the
+    // real answers are asserted rather than assumed.
+    expect(
+      await defaultPidAlive(pid),
+      isTrue,
+      reason: 'this very process is alive; a null here means the libc kill '
+          'binding did not resolve at all',
+    );
+    expect(
+      await defaultPidAlive(0x7FFFFFFF),
+      isFalse,
+      reason: 'above every pid_max there can be no such process (ESRCH), and '
+          'ESRCH is the only proof of death POSIX offers',
+    );
+    expect(
+      await defaultPidAlive(0),
+      isNull,
+      reason: 'pid 0 addresses a process GROUP in kill(2) — a different '
+          'question, so it gets no answer rather than a wrong one',
+    );
+  }, skip: Platform.isWindows ? 'no kill(2) on Windows' : null);
+
   test('a name that only looks like one of ours is not one of ours', () async {
     // Everything here carries the marker, so the marker cannot be what saves
     // them — the name is.
