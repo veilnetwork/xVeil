@@ -49,7 +49,12 @@ CT2_VERSION="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$CT2_SRC/python/ctransla
 CT2_VERSION="${CT2_VERSION:-unknown}"
 echo "==> ctranslate2 $CT2_VERSION"
 
-SPM_LIBS="$(find "$SPM_BUILD" -name '*.a' ! -name '*train*' ! -name 'libprotoc*' | tr '\n' ' ')"
+# libprotobuf-lite.a is excluded for the same reason the iOS script excludes it:
+# it duplicates libprotobuf.a's members. Grouped archives happen to tolerate
+# that -- members are pulled on demand -- but shipping two copies of the same
+# object to the linker is not something to rely on the linker to sort out.
+SPM_LIBS="$(find "$SPM_BUILD" -name '*.a' ! -name '*train*' ! -name 'libprotoc*' \
+  ! -name 'libprotobuf-lite.a' | tr '\n' ' ')"
 [ -n "$SPM_LIBS" ] || { echo "no static libraries under $SPM_BUILD" >&2; exit 1; }
 
 # Ruy, cpuinfo and friends are separate archives in a static CTranslate2 build.
