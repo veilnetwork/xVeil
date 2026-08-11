@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../state/identity_scoped_prefs.dart';
+import '../storage/storage.dart';
 import 'embedded_node.dart' show BootstrapPeerCfg, mergeBootstrapPeers;
 
 /// Whether this identity reaches the network through the SHARED seed nodes.
@@ -36,15 +37,53 @@ import 'embedded_node.dart' show BootstrapPeerCfg, mergeBootstrapPeers;
 ///
 /// ## Where the choice lives
 ///
-/// A profile-scoped preference, which is this codebase's identity function for
-/// posture that CONFIGURES THE NODE — the same store and the same reasoning as
-/// `proxy_routing`, `vpn_routing_policy` and `storage.lean_padding.v1` (see
-/// [identityScopedPrefKey]). It cannot live inside the container: it decides
-/// how the node that boots alongside the container is composed, and one file
-/// per profile is what keeps a decoy from inheriting the real identity's
-/// network posture.
+/// In the IDENTITY'S OWN SPACE, as a container setting
+/// ([kBundledSeedsSettingKey]), with the preference below as the pre-unlock
+/// fallback and the migration source.
+///
+/// It shipped as a preference alone, and the rationale written here was wrong.
+/// [identityScopedPrefKey] is the identity function; the separation it stands
+/// for comes entirely from WHICH preferences file is installed, and that file
+/// is installed once per process, from `main()`, per app PROFILE — which the
+/// codebase itself documents as "only a directory choice", not an identity and
+/// not a security boundary. So one answer was handed to every identity at once:
+/// with several online, each node resolved the same stored value, two
+/// identities could not disagree, and the last write won for all of them
+/// immediately.
+///
+/// The claim that "one file per profile is what keeps a decoy from inheriting
+/// the real identity's network posture" was untrue for the decoy this app
+/// actually ships. A duress master ([AppController.createDecoyMaster]) is
+/// another SPACE IN THE SAME CONTAINER, opened by the same process out of the
+/// same profile directory — so it read the same file and inherited the real
+/// identity's answer exactly. For a messenger whose purpose is deniability,
+/// a decoy that dials what the real identity dials is the failure, not a
+/// detail.
+///
+/// A container setting can carry it because of WHEN it is read: the node is
+/// composed AFTER the space is open ([RealVeilStack.startDeniable] receives the
+/// unlocked [Storage] and resolves the answer from it), unlike the padding
+/// preset, which decides how to OPEN the container and therefore cannot live
+/// inside it.
+///
+/// The preference keeps two jobs, and only those two:
+///
+///   * pre-unlock, where there is no space to ask — onboarding records the
+///     first answer before any container exists;
+///   * migration: a space with no answer of its own adopts the preference once,
+///     on the first read, and owns it from then on. An upgrade must not put an
+///     identity that declined back on the shared seeds, and only the preference
+///     remembers that it declined.
 String get kBundledSeedsPrefKey =>
     identityScopedPrefKey('network.bundled_seeds.v1');
+
+/// The identity's own answer, inside its space. Same string as the preference
+/// key deliberately: one name for one decision, so a grep finds both halves.
+///
+/// Stored as `'true'`/`'false'` — an ABSENT setting is the space never having
+/// answered, which is what triggers the one-time migration, and is why the
+/// value is spelled out rather than encoded as presence.
+const String kBundledSeedsSettingKey = 'network.bundled_seeds.v1';
 
 /// Whether the startup re-offer has been silenced for good ("don't show this
 /// again"). Separate from the decision itself: a person who declines and later
@@ -125,12 +164,15 @@ bool shouldOfferBundledSeeds({
   return ownNodeCount == 0 && configuredPeerCount == 0;
 }
 
-/// Read the decision for the profile this launch runs on.
+/// Read the PROFILE-level answer — the pre-unlock fallback, not an identity's.
 ///
 /// A free async read rather than a provider because the node config is composed
 /// in the data layer, below Riverpod — the same shape, for the same reason, as
-/// `leanStoragePaddingEnabled`. Every path that builds a node config resolves it
-/// here, so no caller can forget to pass it and quietly reinstate the seeds.
+/// `leanStoragePaddingEnabled`.
+///
+/// This is what `main()` seeds the live provider from, before any container is
+/// open. An identity's own answer comes from [bundledSeedsAllowedFor], which
+/// falls back to this one exactly once and then stops.
 Future<bool> bundledSeedsAllowed() async {
   try {
     final prefs = await SharedPreferences.getInstance();
@@ -163,8 +205,14 @@ Future<bool?> storedBundledSeedsAnswer() async {
   }
 }
 
-/// Record the decision. **False means it was not written** — the caller has to
-/// be able to say so rather than show a choice that did not stick.
+/// Record the PROFILE-level answer. **False means it was not written** — the
+/// caller has to be able to say so rather than show a choice that did not stick.
+///
+/// Only for the state where no space exists yet (onboarding). Everything with an
+/// open container writes [setBundledSeedsAllowedFor] instead: writing an
+/// identity's answer here would put it in plaintext outside every container AND
+/// hand it to the next identity that has none, which is the defect this file
+/// used to have.
 Future<bool> setBundledSeedsAllowed(bool allowed) async {
   try {
     final prefs = await SharedPreferences.getInstance();
@@ -172,6 +220,135 @@ Future<bool> setBundledSeedsAllowed(bool allowed) async {
   } catch (_) {
     return false;
   }
+}
+
+/// What a space says about itself: its own answer, nothing yet, or nothing at
+/// all because it would not answer.
+///
+/// The third case is not the second. Falling back to the profile preference is
+/// right for a space that never answered — that is the migration — and wrong for
+/// one whose read FAILED: the preference may hold a different identity's answer,
+/// and adopting it would write that identity's posture into this space for good.
+class _SpaceAnswer {
+  const _SpaceAnswer.answered(bool this.value) : readable = true;
+  const _SpaceAnswer.absent() : value = null, readable = true;
+  const _SpaceAnswer.unreadable() : value = null, readable = false;
+
+  final bool? value;
+  final bool readable;
+}
+
+Future<_SpaceAnswer> _answerInSpace(Storage storage) async {
+  // A closed space is not an unanswered one. Nothing may be written into it,
+  // and nothing may be concluded from its silence.
+  if (!storage.isOpen) return const _SpaceAnswer.unreadable();
+  try {
+    final raw = await storage.getSetting(kBundledSeedsSettingKey);
+    if (raw == null || raw.isEmpty) return const _SpaceAnswer.absent();
+    return _SpaceAnswer.answered(raw == 'true');
+  } catch (_) {
+    return const _SpaceAnswer.unreadable();
+  }
+}
+
+/// This IDENTITY's answer, from its own space — the value a node boot acts on.
+///
+/// A space that has never answered adopts the profile preference once and owns
+/// it from then on, so an upgrade keeps a refusal that only the preference
+/// remembers, and the two stop tracking each other immediately afterwards. The
+/// adoption is best-effort: a space that cannot be written to still boots on the
+/// value it would have stored, it simply migrates again next time.
+Future<bool> bundledSeedsAllowedFor(Storage storage) async {
+  final own = await _answerInSpace(storage);
+  final value = own.value;
+  if (value != null) return value;
+  final inherited = await bundledSeedsAllowed();
+  if (own.readable) {
+    // Only when the space really has no answer — see [_SpaceAnswer].
+    try {
+      await storage.putSetting(
+        kBundledSeedsSettingKey,
+        inherited ? 'true' : 'false',
+      );
+    } catch (_) {
+      /* boots on `inherited` either way; migrates again next launch */
+    }
+  }
+  return inherited;
+}
+
+/// This identity's stored answer, or NULL when nothing would answer.
+///
+/// The control's read, and it differs from [bundledSeedsAllowedFor] exactly
+/// where [storedBundledSeedsAnswer] differs from [bundledSeedsAllowed]: a node
+/// config has to be composed one way or the other, a SWITCH does not, and one
+/// that moved on a failed read would put an identity that refused the shared
+/// seeds back on them with nobody having asked. Never migrates — reading a
+/// control is not answering the question.
+Future<bool?> storedBundledSeedsAnswerFor(Storage storage) async {
+  final own = await _answerInSpace(storage);
+  if (own.value != null) return own.value;
+  // No space open (onboarding, or a locked app): the profile answer is the only
+  // one there is. An OPEN space that would not answer stays null — see above.
+  if (!own.readable && storage.isOpen) return null;
+  return storedBundledSeedsAnswer();
+}
+
+/// Record THIS identity's answer, in its own space. **False means it was not
+/// written.**
+///
+/// Deliberately does not touch the preference. That file is per profile, so
+/// writing an identity's answer there would both leave it in plaintext outside
+/// every container and hand it to every space that has not answered yet.
+Future<bool> setBundledSeedsAllowedFor(Storage storage, bool allowed) async {
+  // Before any container exists — the onboarding step — the preference IS the
+  // answer, and the space that gets created adopts it on its first read.
+  if (!storage.isOpen) return setBundledSeedsAllowed(allowed);
+  try {
+    await storage.putSetting(
+      kBundledSeedsSettingKey,
+      allowed ? 'true' : 'false',
+    );
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// The peers ONE identity is handed, given ITS answer. Built, never filtered —
+/// see [resolveBootstrapPeers].
+typedef IdentityPeers = List<BootstrapPeerCfg> Function(bool useBundledSeeds);
+
+/// What one identity boots with: its own answer, and the peer list built from it.
+///
+/// Both halves travel together because both are needed and neither is enough:
+/// the list decides what the app hands the node, [useBundledSeeds] decides
+/// `builtin_seed_policy`, and an empty list without the policy is the exact
+/// condition under which veil splices its compiled-in seeds back in.
+class IdentitySeedPlan {
+  const IdentitySeedPlan({
+    required this.useBundledSeeds,
+    required this.bootstrapPeers,
+  });
+
+  final bool useBundledSeeds;
+  final List<BootstrapPeerCfg> bootstrapPeers;
+}
+
+/// Resolve one identity's answer from its own space and build its peer list.
+///
+/// The single seam both boot paths go through — the one-active boot and every
+/// identity of an all-online session — so "which identity is this for" is asked
+/// in one place and cannot be forgotten in the other.
+Future<IdentitySeedPlan> planIdentitySeeds({
+  required Storage storage,
+  required IdentityPeers peersFor,
+}) async {
+  final allowed = await bundledSeedsAllowedFor(storage);
+  return IdentitySeedPlan(
+    useBundledSeeds: allowed,
+    bootstrapPeers: peersFor(allowed),
+  );
 }
 
 /// Whether the startup re-offer has been silenced for this profile.

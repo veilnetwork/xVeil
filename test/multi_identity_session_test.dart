@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/node/embedded_node.dart' show BootstrapPeerCfg;
 import 'package:xveil/data/storage/multi_space_store.dart';
+import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
@@ -17,6 +18,14 @@ import 'package:xveil/state/multi_identity_session.dart';
 import 'support/fake_multi_space.dart';
 
 Uint8List _keys(int seed) => Uint8List.fromList(List.filled(64, seed));
+
+/// One identity's storage view over an already-open space — what the session
+/// hands the planner so it can read that identity's own shared-seed answer
+/// before the node boots.
+Storage _viewOf(AsyncMultiSpaceBacking backing, int spaceId) =>
+    HiddenVolumeStorage.fromAsyncStore(
+      AsyncMultiSpaceKvLogStore(backing, spaceId),
+    );
 NodeId _nid(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
 RosterEntry _e(String label, int seed, {bool anonymous = false}) =>
     RosterEntry(label: label, spaceKeys: _keys(seed), anonymous: anonymous);
@@ -73,6 +82,8 @@ void main() {
         backing,
         runtimeDirBase: '/run',
         listenPortBase: 9000,
+        storageFor: (id) => _viewOf(backing, id),
+        peersFor: (_) => const [],
       );
 
       expect(specs.map((s) => s.label), ['alice', 'work', 'relatives']);
@@ -96,6 +107,8 @@ void main() {
         backing,
         runtimeDirBase: '/run',
         listenPortBase: 9000,
+        storageFor: (id) => _viewOf(backing, id),
+        peersFor: (_) => const [],
       );
       expect(again.single.runtimeBase, specs[1].runtimeBase);
     },
@@ -109,14 +122,17 @@ void main() {
       backing,
       runtimeDirBase: '/run',
       listenPortBase: 9000,
-      bootstrapPeers: const [
-        BootstrapPeerCfg(
-          publicKey: 'seed-key',
-          transport: 'quic://seed.example:443',
-          nonce: '7',
-          algo: 'sha256',
-        ),
-      ],
+      storageFor: (id) => _viewOf(backing, id),
+      peersFor: (useBundledSeeds) => useBundledSeeds
+          ? const [
+              BootstrapPeerCfg(
+                publicKey: 'seed-key',
+                transport: 'quic://seed.example:443',
+                nonce: '7',
+                algo: 'sha256',
+              ),
+            ]
+          : const [],
       obfs4Psk: 'PSKVALUE',
       udpReflectors: const ['127.0.0.1:39999'],
       lazyMining: true,

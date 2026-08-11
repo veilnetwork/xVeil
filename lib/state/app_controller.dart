@@ -10,6 +10,8 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import '../data/native_libs.dart';
 
+import '../data/node/bundled_seeds.dart'
+    show IdentitySeedPlan, planIdentitySeeds;
 import '../data/node/embedded_node.dart';
 import '../data/node/node_controller.dart';
 import '../data/node/proxy_routing.dart';
@@ -389,8 +391,15 @@ class AppController extends Notifier<AppState> {
   /// multi-second mine nothing in a test can hold open.
   ///
   /// Null in production, where the real boot runs with the composed config.
+  ///
+  /// Takes the [IdentitySeedPlan] the boot resolved for the identity being
+  /// started — the answer read out of ITS space and the peer list built from it.
+  /// Handed over rather than hidden behind the seam so a test can assert what a
+  /// given identity's node would actually have been composed with; the seam used
+  /// to swallow it, which is how a shared list reached every node unnoticed.
   @visibleForTesting
-  Future<RealVeilStack> Function()? debugDeniableStackStarter;
+  Future<RealVeilStack> Function(IdentitySeedPlan plan)?
+  debugDeniableStackStarter;
 
   /// Returning user: try to unlock the space with [password].
   Future<void> unlock(String password) async {
@@ -1098,7 +1107,11 @@ class AppController extends Notifier<AppState> {
       storePath: boot.storePath!,
       runtimeDir: boot.runtimeDir,
       listenPort: boot.listenPort,
-      bootstrapPeers: boot.bootstrapPeers,
+      // A BUILDER, not the finished list. Each identity in the session resolves
+      // its own answer from its own space and gets its own list built from it;
+      // handing one list down was what made two identities in one container
+      // unable to disagree.
+      peersFor: boot.peersFor,
       // Boot every always-online node with the SAME network/routing config the
       // single-identity path uses — otherwise these nodes start with no obfs4
       // PSK (cannot join the production network), no lazy-mining setting, and no
@@ -1166,6 +1179,14 @@ class AppController extends Notifier<AppState> {
     ref.read(activeIdentityProvider.notifier).state = label;
     final stack = session.stackFor(label);
     ref.read(realStackProvider.notifier).state = stack;
+    // Follow the identity being shown. Its node was booted with ITS answer; a
+    // screen still rendering the previously active identity's would report the
+    // wrong posture for this one and write over it if touched.
+    final seedsAnswer = session.usesBundledSeeds(label);
+    if (seedsAnswer != null &&
+        ref.read(bundledSeedsChoiceProvider) != seedsAnswer) {
+      ref.read(bundledSeedsChoiceProvider.notifier).state = seedsAnswer;
+    }
     final st = session.storageFor(label);
     // Same damaged-vs-absent split as the one-active path (audit XV-13), with
     // one honest difference: all-online has ALREADY booted every node by the
@@ -2180,11 +2201,27 @@ class AppController extends Notifier<AppState> {
     final identityPhrase = takePendingIdentityPhrase();
     // Taken before the boot — the longest await in the app (see [_lifecycle]).
     final gen = _lifecycle;
+    // THIS identity's answer, out of the space this boot is about to run on —
+    // and the peer list built from it. Resolved once, here, so the addresses the
+    // app hands the node over IPC and the `builtin_seed_policy` the node is
+    // composed with can never come from two different answers. It used to be a
+    // profile preference resolved inside `startDeniable`, i.e. one answer for
+    // every identity in the process, decoy masters included.
+    final storage = ref.read(storageProvider);
+    final seeds = await planIdentitySeeds(
+      storage: storage,
+      peersFor: boot.peersFor,
+    );
+    if (ref.read(bundledSeedsChoiceProvider) != seeds.useBundledSeeds) {
+      // The screens read the live value; leaving it on the previous identity's
+      // answer is the same lie in a different place.
+      ref.read(bundledSeedsChoiceProvider.notifier).state = seeds.useBundledSeeds;
+    }
     Future<RealVeilStack> startStack() async {
       final starter = debugDeniableStackStarter;
-      if (starter != null) return starter();
+      if (starter != null) return starter(seeds);
       return RealVeilStack.startDeniable(
-        storage: ref.read(storageProvider),
+        storage: storage,
         runtimeDirBase: boot.runtimeDir,
         // Offset alternates after every teardown (see _teardownRealStack) so
         // a switch/relock never rebinds the just-freed port.
@@ -2200,11 +2237,12 @@ class AppController extends Notifier<AppState> {
         // app-supplied set through IPC after the node is connected instead;
         // this starts connectors for bundle-only seeds without the reload bug.
         bootstrapPeers: const [],
-        runtimeBootstrapPeers: boot.bootstrapPeers,
+        runtimeBootstrapPeers: seeds.bootstrapPeers,
         udpReflectors: boot.udpReflectors,
         obfs4Psk: boot.obfs4Psk,
         proxy: ref.read(effectiveProxyRoutingProvider),
         identityPhrase: identityPhrase,
+        useBundledSeeds: seeds.useBundledSeeds,
       );
     }
 

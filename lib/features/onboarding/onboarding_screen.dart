@@ -121,13 +121,16 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _finishError = null;
     });
     try {
-      // BEFORE the container and the node exist, deliberately. The node config
-      // is composed during `completeOnboarding`, and it resolves this answer
-      // from the preference store — so writing it afterwards would boot the
-      // first node on the previous answer and hand the shared seeds to someone
-      // who had just declined them. The provider is set in the same breath
-      // because the boot config was assembled back in `main`, before the
-      // question was asked (see [bundledSeedsChoiceProvider]).
+      // BEFORE the container and the node exist, deliberately — which is also
+      // why this one write goes to the PREFERENCE and not to a space: there is
+      // no space yet. The container created by `completeOnboarding` adopts this
+      // answer the first time its node is composed
+      // ([bundledSeedsAllowedFor]) and owns it from then on. Writing it
+      // afterwards would boot the first node on the previous answer and hand
+      // the shared seeds to someone who had just declined them. The provider is
+      // set in the same breath because the boot config was assembled back in
+      // `main`, before the question was asked (see
+      // [bundledSeedsChoiceProvider]).
       final saved = await setBundledSeedsAllowed(_useBundledSeeds);
       ref.read(bundledSeedsChoiceProvider.notifier).state = _useBundledSeeds;
       if (!saved && mounted) {
