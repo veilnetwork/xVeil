@@ -2737,5 +2737,9 @@
   "modelProvenanceRisk": "At your own risk.",
   "modelSharingTitle": "Answer contacts asking for models",
   "modelSharingOn": "Contacts can see which language and speech models you have, and ask for a copy.",
-  "modelSharingOff": "Contacts get no answer. They cannot tell this from your having no models."
+  "modelSharingOff": "Contacts get no answer. They cannot tell this from your having no models.",
+  "askContactsTitle": "Ask contacts for models",
+  "askContactsWaiting": "Whoever answers appears here. Silence means nothing in particular.",
+  "askContactsAction": "Ask my contacts",
+  "modelProvenanceAskAnother": "Ask another contact"
 }

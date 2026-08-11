@@ -23,6 +23,11 @@ enum ProvenanceChoice {
   /// Go and get the model some other way. The bundle is left alone.
   loadManually,
 
+  /// Ask around instead: somebody else may have the published copy. Now a real
+  /// action rather than a label, because the contact exchange exists to answer
+  /// it — until it did, this option was left out rather than shipped dead.
+  askAnother,
+
   /// Change nothing.
   cancel,
 }
@@ -36,6 +41,13 @@ Future<ProvenanceChoice> askAboutProvenance(
   final choice = await showDialog<ProvenanceChoice>(
     context: context,
     builder: (context) => AlertDialog(
+      // Scrollable, because four actions and a paragraph do not fit a 320x640
+      // phone in Russian -- the widget test measured 376 points of overflow.
+      // The actions stack in list order and the overflow is at the BOTTOM, so
+      // what ran off the screen was the last of them; a person on a small
+      // phone would have been unable to reach part of the choice they were
+      // being asked to make.
+      scrollable: true,
       title: Text(
         mismatched
             ? l.modelProvenanceTitleMismatch
@@ -61,6 +73,11 @@ Future<ProvenanceChoice> askAboutProvenance(
         ],
       ),
       actions: [
+        TextButton(
+          onPressed: () =>
+              Navigator.of(context).pop(ProvenanceChoice.askAnother),
+          child: Text(l.modelProvenanceAskAnother),
+        ),
         TextButton(
           onPressed: () =>
               Navigator.of(context).pop(ProvenanceChoice.loadManually),

@@ -6207,4 +6207,17 @@ class AppL10nEs extends AppL10n {
   @override
   String get modelSharingOff =>
       'Tus contactos no reciben respuesta. No pueden distinguirlo de que no tengas modelos.';
+
+  @override
+  String get askContactsTitle => 'Pedir modelos a los contactos';
+
+  @override
+  String get askContactsWaiting =>
+      'Quien responda aparecerá aquí. El silencio no significa nada en concreto.';
+
+  @override
+  String get askContactsAction => 'Preguntar a mis contactos';
+
+  @override
+  String get modelProvenanceAskAnother => 'Preguntar a otro contacto';
 }
