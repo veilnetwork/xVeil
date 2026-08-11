@@ -2626,5 +2626,8 @@
   "modelProvenanceBodyUnknown": "Esta compilación no tiene un hash de referencia para este modelo, así que no hay con qué compararlo. No es una acusación: significa que aquí no se puede hacer la comprobación.",
   "modelProvenanceInstallAnyway": "Instalar de todos modos",
   "modelProvenanceLoadManually": "Buscarlo y cargarlo yo mismo",
-  "modelProvenanceRisk": "Bajo tu propia responsabilidad."
+  "modelProvenanceRisk": "Bajo tu propia responsabilidad.",
+  "modelSharingTitle": "Responder a los contactos que piden modelos",
+  "modelSharingOn": "Tus contactos ven qué modelos de idioma y de voz tienes, y pueden pedir una copia.",
+  "modelSharingOff": "Tus contactos no reciben respuesta. No pueden distinguirlo de que no tengas modelos."
 }

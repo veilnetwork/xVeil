@@ -9,6 +9,7 @@ import '../../domain/storage_compaction_policy.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
+import '../common/model_sharing_tile.dart';
 
 String fmtBytes(int b) {
   if (b >= 1 << 30) return '${(b / (1 << 30)).toStringAsFixed(1)} GB';
@@ -329,6 +330,10 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                 ),
                 const WhisperModelTile(),
                 const TranslationModelsTile(),
+                // Last of the three on purpose: it governs both tiles above
+                // it, and it reads as their shared footer rather than as a
+                // property of whichever one it sat next to.
+                const ModelSharingTile(),
               ],
             ),
     );
