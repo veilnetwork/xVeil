@@ -222,15 +222,64 @@ class ScreenLockController extends Notifier<ScreenLockState> {
   /// Returns true when the screen was unlocked. A wrong password only sets the
   /// error — there is nothing here to rate-limit or destroy, because the wrong
   /// password never had access to anything in the first place.
+  /// How long until another attempt is even looked at (audit report10 X-05).
+  ///
+  /// Zero when nothing is owed. Exposed so a lock screen can count down rather
+  /// than leaving a person tapping at a field that silently ignores them.
+  Duration get throttleRemaining {
+    final owed = _blockedUntil - _clock.elapsed;
+    return owed.isNegative ? Duration.zero : owed;
+  }
+
+  /// The wait after [failures] consecutive wrong answers.
+  ///
+  /// Nothing for the first two — fingers slip, and a person who mistypes once
+  /// should not be punished. Then doubling from a quarter second, capped at
+  /// thirty. The cap matters: an uncapped backoff locks a person out of their
+  /// own messenger for hours after a cat walks over the keyboard, and that is a
+  /// denial of service with extra steps.
+  @visibleForTesting
+  static Duration throttleAfter(int failures) {
+    if (failures <= 2) return Duration.zero;
+    final steps = failures - 2;
+    final ms = 250 * (1 << (steps - 1).clamp(0, 8));
+    return Duration(milliseconds: ms.clamp(0, 30000));
+  }
+
   bool tryUnlock(String password) {
-    final verifier = _verifier;
-    if (verifier == null || !verifier.matches(password)) {
+    // Refused before the HMAC is even computed. The check is deliberately
+    // cheap — see [ScreenLockVerifier] — so the only thing standing between a
+    // weak PIN and UI automation is how often it may be asked.
+    if (throttleRemaining > Duration.zero) {
       state = state.copyWith(wrongPassword: true);
       return false;
     }
+    final verifier = _verifier;
+    if (verifier == null || !verifier.matches(password)) {
+      _failures++;
+      // MONOTONIC, not wall time. A deadline compared against DateTime.now()
+      // is skipped by putting the device clock back, which is a setting, not
+      // an exploit.
+      _blockedUntil = _clock.elapsed + throttleAfter(_failures);
+      state = state.copyWith(wrongPassword: true);
+      return false;
+    }
+    _failures = 0;
+    _blockedUntil = Duration.zero;
     state = state.copyWith(locked: false, wrongPassword: false);
     return true;
   }
+
+  /// Counts from process start and cannot be moved. A `Stopwatch` rather than
+  /// a clock: the question is only ever "how much later than that", and no
+  /// answer to it should depend on what the device thinks the date is.
+  final Stopwatch _clock = Stopwatch()..start();
+  int _failures = 0;
+  Duration _blockedUntil = Duration.zero;
+
+  /// For tests: pretend [amount] of monotonic time has passed.
+  @visibleForTesting
+  void debugAdvance(Duration amount) => _blockedUntil -= amount;
 }
 
 final screenLockProvider =

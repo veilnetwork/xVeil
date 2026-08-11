@@ -890,4 +890,66 @@ void main() {
       );
     });
   });
+
+  group('the refusal happens where it counts', () {
+    late ProviderContainer container;
+    late ScreenLockController controller;
+
+    setUp(() async {
+      final storage = HiddenVolumeStorage(_memory());
+      await storage.open(password: 'pw', createIfMissing: true);
+      container = ProviderContainer(
+        overrides: [storageProvider.overrideWithValue(storage)],
+      );
+      addTearDown(container.dispose);
+      controller = container.read(screenLockProvider.notifier);
+      controller.now = () => DateTime(2026, 8, 11, 12);
+      controller.rememberPassword('pw');
+      await controller.setTimeout(ScreenLockTimeout.immediately);
+      controller.onLeftForeground();
+    });
+
+    test('the RIGHT password is refused while a wait is owed', () async {
+      // The assertion that makes this a defence. A curve that is never
+      // consulted is arithmetic, not a limit — and the correct password is
+      // used deliberately: if it gets in, so does the attacker's next guess.
+      for (var i = 0; i < 3; i++) {
+        expect(controller.tryUnlock('wrong'), isFalse);
+      }
+      expect(controller.throttleRemaining, greaterThan(Duration.zero));
+      expect(
+        controller.tryUnlock('pw'),
+        isFalse,
+        reason: 'an attempt inside the window must not be looked at at all',
+      );
+      expect(container.read(screenLockProvider).locked, isTrue);
+    });
+
+    test('and accepted once the wait has passed', () async {
+      // The positive control. Without it, "refused while owed" would also pass
+      // against a lock that never opens again.
+      for (var i = 0; i < 3; i++) {
+        controller.tryUnlock('wrong');
+      }
+      controller.debugAdvance(const Duration(minutes: 1));
+      expect(controller.throttleRemaining, Duration.zero);
+      expect(controller.tryUnlock('pw'), isTrue);
+      expect(container.read(screenLockProvider).locked, isFalse);
+    });
+
+    test('a success clears the debt', () async {
+      controller.tryUnlock('wrong');
+      controller.tryUnlock('wrong');
+      expect(controller.tryUnlock('pw'), isTrue);
+      controller.onLeftForeground();
+      controller.tryUnlock('wrong');
+      expect(
+        controller.throttleRemaining,
+        Duration.zero,
+        reason: 'the counter must reset, or every later session inherits a '
+            'punishment from an earlier one',
+      );
+    });
+  });
 }
+
