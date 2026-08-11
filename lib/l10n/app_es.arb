@@ -63,6 +63,8 @@
   "lockWipeLeftContainer": "No se ha podido borrar el contenedor y sigue en este dispositivo.",
   "lockWipeLeftFiles": "No se han podido borrar los archivos grandes guardados junto al contenedor y siguen en este dispositivo.",
   "lockWipeLeftBoth": "No se han podido borrar ni el contenedor ni los archivos grandes guardados junto a él, y ambos siguen en este dispositivo.",
+  "lockWipeLeftSpeechModel": "No se ha podido borrar el modelo de voz descargado y sigue en este dispositivo.",
+  "lockWipeLeftTranslations": "No se han podido borrar los idiomas de traducción descargados, y sus nombres siguen en este dispositivo.",
   "lockWipeLeftRest": "Todo lo demás se ha destruido. Vuelve a intentarlo; si sigue sin conseguirlo, es que algo más de este equipo lo está reteniendo, como una herramienta de copias de seguridad o un disco de solo lectura.",
   "lockWipeStopped": "El borrado se ha interrumpido a medias, así que parte de tus datos puede seguir en este dispositivo. Vuelve a intentarlo.",
   "lockWipeRetry": "Volver a intentarlo",
@@ -2052,6 +2054,8 @@
   "onboardPasswordMismatch": "Las contraseñas no coinciden",
   "recoveryPhraseHint": "Escribe tu frase de recuperación, con las palabras separadas por espacios",
   "securityCenterTooltip": "Seguridad",
+  "securityCenterAnonymousOn": "Esta identidad se enruta por onion",
+  "securityCenterAnonymousOff": "Esta identidad no se enruta por onion",
   "securityCenterTitle": "Seguridad y red",
   "callStartTooltip": "Llamar",
   "callAudio": "Llamada de voz",
@@ -2533,6 +2537,10 @@
   "folderSyncDeleteWarning": "Si borras un archivo aquí, también se borra en Almacenamiento.",
   "folderSyncNotAddedTitle": "No se ha añadido la carpeta",
   "folderSyncNotAdded": "{reason}. No se ha copiado nada ni ha cambiado nada en este equipo. Elige otra carpeta: una dentro de tu carpeta personal, en la que solo pueda escribir tu propia cuenta.",
+  "folderSyncRefusedOverlap": "se solapa con una carpeta que ya se está sincronizando",
+  "folderSyncRefusedUnresolvable": "no se ha podido determinar la ubicación real de {path} ({detail})",
+  "folderSyncRefusedUnreadable": "no se han podido leer los permisos de {path}",
+  "folderSyncRefusedWritable": "otras cuentas de este equipo pueden escribir en {path}, así que lo que se copie ahí podría redirigirse a otro sitio",
   "@folderSyncRefused": {
     "placeholders": {
       "reason": {

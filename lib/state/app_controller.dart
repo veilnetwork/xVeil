@@ -18,6 +18,7 @@ import '../data/storage/on_disk_blob_store.dart';
 import '../data/storage/storage.dart';
 import '../data/veil_stack.dart';
 import '../data/vpn/vpn_backend.dart' show VpnBackendPhase;
+import '../data/whisper_model_store.dart' show WhisperModelStore;
 import '../domain/storage_compaction_policy.dart';
 import '../domain/identity.dart';
 import '../domain/p2p_policy.dart';
@@ -2694,15 +2695,23 @@ class AppController extends Notifier<AppState> {
     // which deliberately leaves the container in place, and taking a 57 MiB
     // download away from someone who mistyped a password would be a surprise
     // rather than a wipe.
+    //
+    // The model's own directory is resolved and KEPT, because the re-stat at
+    // the end has to look at the place the delete aimed at. Asking the platform
+    // channel a second time down there would be a second answer to the same
+    // question — and the case worth reporting is precisely the one where that
+    // channel has already misbehaved.
+    Directory? speechRoot;
     try {
       // Bounded for the same reason as the tunnel: resolving the support
       // directory goes through a platform channel, and a wipe that hangs on an
       // unresponsive plugin is worse than one that leaves a re-downloadable
       // file behind.
-      await ref
-          .read(whisperModelStoreProvider)
-          .remove()
-          .timeout(const Duration(seconds: 3));
+      final store = ref.read(whisperModelStoreProvider);
+      speechRoot = await store.modelDirectory().timeout(
+        const Duration(seconds: 3),
+      );
+      await store.remove().timeout(const Duration(seconds: 3));
     } catch (e) {
       devLog(() => 'xVeil[wipe]: failed to remove the speech model: $e');
     }
@@ -2718,12 +2727,13 @@ class AppController extends Notifier<AppState> {
     // directory goes through a platform channel, and a wipe that hangs on an
     // unresponsive plugin is worse than one that leaves a re-downloadable
     // file behind.
+    Directory? translationRoot;
     try {
-      final root = await ref
+      translationRoot = await ref
           .read(translationModelsRootProvider)()
           .timeout(const Duration(seconds: 3));
-      if (root != null && root.existsSync()) {
-        root.deleteSync(recursive: true);
+      if (translationRoot != null && translationRoot.existsSync()) {
+        translationRoot.deleteSync(recursive: true);
       }
     } catch (e) {
       devLog(() => 'xVeil[wipe]: failed to remove translation models: $e');
@@ -2735,6 +2745,30 @@ class AppController extends Notifier<AppState> {
     if (path != null && File(path).existsSync()) remaining.add('container');
     if (path != null && blobRootFor(path).existsSync()) {
       remaining.add('files');
+    }
+    // The two model deletes belong here as much as the container does, and for
+    // a while they were the only steps of the wipe that could NOT be reported.
+    // They are also the likeliest to fail: each goes through a platform
+    // channel, each is bounded by a timeout, and each catch swallows
+    // everything. So the one arrangement in which a wipe most plausibly leaves
+    // something behind was the one arrangement it told the person nothing
+    // about — "everything went" over a directory that is still there.
+    //
+    // The `.part` file counts too. An interrupted download says the same thing
+    // about this person as a finished one does, and `remove()` deletes both.
+    if (speechRoot != null) {
+      final model = '${speechRoot.path}/${WhisperModelStore.fileName}';
+      if (File(model).existsSync() || File('$model.part').existsSync()) {
+        remaining.add('speech-model');
+      }
+    }
+    // Named apart from the speech model because what survives is different in
+    // kind. Whisper's file is generic: its presence says transcription was
+    // enabled. A translation model is one directory per DIRECTION, `ru-en`, so
+    // what is left is the list of languages this person reads — in plaintext
+    // directory names that need nothing unlocked to read.
+    if (translationRoot != null && translationRoot.existsSync()) {
+      remaining.add('translations');
     }
     if (remaining.isNotEmpty) {
       errorJournal.record(
@@ -2887,8 +2921,9 @@ class WipeReport {
   const WipeReport({required this.remaining, required this.stopped});
 
   /// The codes [AppController.wipeContainers] returns for what it re-stat'd and
-  /// found still present (`container`, `files`). Codes rather than sentences,
-  /// precisely so the sentence can be a translated one.
+  /// found still present (`container`, `files`, `speech-model`,
+  /// `translations`). Codes rather than sentences, precisely so the sentence
+  /// can be a translated one.
   final List<String> remaining;
 
   /// The wipe threw instead of returning. Nothing was verified, so a report

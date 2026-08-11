@@ -42,6 +42,16 @@ class _SecurityCenterSheet extends ConsumerStatefulWidget {
 class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
   bool _busy = false;
 
+  /// The onion setting as this sheet found it.
+  ///
+  /// Kept so the subtitle can tell "this is how it is set" apart from "you just
+  /// changed it, and it applies when the node next starts". Choosing the hint
+  /// from the current bool alone made a never-touched toggle announce a change
+  /// nobody had made: on a fresh install the line read "no longer routes over
+  /// onion — applies on its next start", which describes a pending restart for
+  /// a setting that has always been off.
+  bool? _anonymousAtOpen;
+
   Future<void> _switchIdentity(String label) async {
     final app = ref.read(appControllerProvider);
     if (_busy || label == app.activeIdentity) return;
@@ -53,11 +63,25 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
     if (_busy) return;
     final app = ref.read(appControllerProvider);
     final ctrl = ref.read(appControllerProvider.notifier);
-    Navigator.of(context).pop();
-    if (app.isMaster && app.activeIdentity != null) {
-      await ctrl.setIdentityAnonymous(app.activeIdentity!, enabled);
-    } else if (!app.isMaster) {
-      await ctrl.setSingleIdentityAnonymous(enabled);
+    // This one does NOT pop first, unlike the proxy and VPN toggles. Popping
+    // before the await is what made the pending state unobservable: the single
+    // moment at which the person has changed the setting and not yet seen it
+    // take effect is the moment this surface used to disappear, so the subtitle
+    // could only ever describe a state nobody had just changed — and it
+    // described every such state as a pending restart.
+    setState(() => _busy = true);
+    try {
+      if (app.isMaster && app.activeIdentity != null) {
+        await ctrl.setIdentityAnonymous(app.activeIdentity!, enabled);
+      } else if (!app.isMaster) {
+        await ctrl.setSingleIdentityAnonymous(enabled);
+      }
+    } finally {
+      // The reboot flips the phase, the router redirects, and this sheet is a
+      // route over the page the redirect removes — so it may well be gone by
+      // now. A disposed StateSetter throws, and that is the whole reason for
+      // the guard.
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -110,10 +134,17 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
     final routing = ref.watch(proxyRoutingProvider);
     final vpn = ref.watch(vpnControllerProvider);
     final vpnTransportReady = vpnTransportReadyForPolicy(routing, vpn.policy);
+    // The flags live on the NOTIFIER, not in AppState, and the toggle reboots
+    // the node without changing any watched field — so without this the sheet
+    // would keep drawing the pre-toggle value and nothing here could ever be
+    // pending. Same watch the account screen keeps, for the same reason.
+    ref.watch(anonymityRevisionProvider);
     final anonymous = app.isMaster
         ? (app.activeIdentity != null &&
               appCtrl.isIdentityAnonymous(app.activeIdentity!))
         : appCtrl.singleIdentityAnonymous;
+    _anonymousAtOpen ??= anonymous;
+    final anonymityPending = _anonymousAtOpen != anonymous;
     final connected = node?.phase == NodePhase.connected;
     final nodeLabel = switch (node?.phase) {
       NodePhase.connected => l.networkStatusConnected,
@@ -171,8 +202,14 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
           ] else
             ListTile(
               leading: const Icon(Icons.person_outline),
+              // The subtitle says what the row LEADS TO. It used to repeat
+              // `settingsCatAccount`, which is also the title's fallback — so
+              // for every identity without a display name, which is every
+              // fresh one, the row read "Identities & account" twice over and
+              // said nothing at all. The string written for this second line
+              // was sitting unused two files away.
               title: Text(app.identity?.displayName ?? l.settingsCatAccount),
-              subtitle: Text(l.settingsCatAccount),
+              subtitle: Text(l.settingsCatAccountHint),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _open('/settings/account'),
             ),
@@ -217,10 +254,19 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
               anonymous ? Icons.shield_moon : Icons.shield_moon_outlined,
             ),
             title: Text(l.settingsAnonymousRouting),
+            // Two different sentences for two different facts. Unchanged, this
+            // states what the setting IS; changed, it states what was just
+            // asked for and when it lands. The pending wording on its own was
+            // a claim about an act, and printing it for a toggle nobody had
+            // touched told a fresh install that a restart was outstanding.
             subtitle: Text(
-              anonymous
-                  ? l.settingsAnonymousEnabledHint
-                  : l.settingsAnonymousDisabledHint,
+              anonymityPending
+                  ? (anonymous
+                        ? l.settingsAnonymousEnabledHint
+                        : l.settingsAnonymousDisabledHint)
+                  : (anonymous
+                        ? l.securityCenterAnonymousOn
+                        : l.securityCenterAnonymousOff),
             ),
             value: anonymous,
             onChanged: _busy ? null : _setAnonymous,

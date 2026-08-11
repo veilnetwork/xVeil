@@ -337,16 +337,26 @@ class _WipeLeftoverDialog extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final container = remaining.contains('container');
     final files = remaining.contains('files');
-    final String what;
-    if (stopped || (!container && !files)) {
-      what = l.lockWipeStopped;
-    } else if (container && files) {
-      what = l.lockWipeLeftBoth;
-    } else if (container) {
-      what = l.lockWipeLeftContainer;
-    } else {
-      what = l.lockWipeLeftFiles;
-    }
+    // One line per surviving thing rather than one sentence for the whole
+    // outcome. The two model deletes were added to the survivor list after
+    // this dialog was written, and a combinatorial sentence cannot grow: with
+    // four codes it is fifteen strings a language for four facts. It also read
+    // as "the deletion stopped partway" — the honest-about-nothing message —
+    // whenever the container was fine and only a model was left behind.
+    final lines = <String>[
+      if (container && files)
+        l.lockWipeLeftBoth
+      else if (container)
+        l.lockWipeLeftContainer
+      else if (files)
+        l.lockWipeLeftFiles,
+      if (remaining.contains('speech-model')) l.lockWipeLeftSpeechModel,
+      if (remaining.contains('translations')) l.lockWipeLeftTranslations,
+    ];
+    // Nothing was verified: either the wipe threw, or it came back with codes
+    // this build has no sentence for. Saying "everything else is gone" over
+    // either would be a guess dressed as a reassurance.
+    final nothingKnown = stopped || lines.isEmpty;
     return AlertDialog(
       icon: Icon(Icons.warning_amber_rounded, color: scheme.error),
       title: Text(l.lockWipeLeftTitle),
@@ -355,7 +365,14 @@ class _WipeLeftoverDialog extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(what),
+            if (nothingKnown)
+              Text(l.lockWipeStopped)
+            else
+              for (final line in lines)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(line),
+                ),
             // Only when the wipe ran to the end. After a throw nothing was
             // verified, so "everything else was destroyed" would be a guess
             // dressed as a reassurance.

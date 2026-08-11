@@ -66,6 +66,8 @@
   "lockWipeLeftContainer": "The container could not be deleted and is still on this device.",
   "lockWipeLeftFiles": "The large files kept beside the container could not be deleted and are still on this device.",
   "lockWipeLeftBoth": "Neither the container nor the large files kept beside it could be deleted, and both are still on this device.",
+  "lockWipeLeftSpeechModel": "The downloaded speech model could not be deleted and is still on this device.",
+  "lockWipeLeftTranslations": "The downloaded translation languages could not be deleted, and their names are still on this device.",
   "lockWipeLeftRest": "Everything else was destroyed. Try again — if it keeps failing, something else on this computer is holding on to it, such as a backup tool or a read-only disk.",
   "lockWipeStopped": "The deletion stopped partway through, so some of your data may still be on this device. Try again.",
   "lockWipeRetry": "Try again",
@@ -2070,6 +2072,8 @@
   "onboardPasswordMismatch": "Passwords do not match",
   "recoveryPhraseHint": "Enter your recovery phrase, words separated by spaces",
   "securityCenterTooltip": "Security",
+  "securityCenterAnonymousOn": "This identity routes over onion",
+  "securityCenterAnonymousOff": "This identity does not route over onion",
   "securityCenterTitle": "Security & network",
   "callStartTooltip": "Call",
   "callAudio": "Audio call",
@@ -2572,6 +2576,34 @@
   "folderSyncDeleteWarning": "Deleting a file here deletes it in Storage too.",
   "folderSyncNotAddedTitle": "This folder was not added",
   "folderSyncNotAdded": "{reason}. Nothing was mirrored and nothing on this computer was changed. Choose a different folder — one inside your home folder, where only your own account can write.",
+  "folderSyncRefusedOverlap": "it overlaps a folder that is already synced",
+  "folderSyncRefusedUnresolvable": "the real location behind {path} could not be resolved ({detail})",
+  "folderSyncRefusedUnreadable": "the permissions of {path} could not be read",
+  "folderSyncRefusedWritable": "{path} can be written by other accounts on this computer, so what is mirrored into it could be redirected somewhere else",
+  "@folderSyncRefusedUnresolvable": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      },
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "@folderSyncRefusedUnreadable": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "@folderSyncRefusedWritable": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
   "@folderSyncRefused": {
     "placeholders": {
       "reason": {
