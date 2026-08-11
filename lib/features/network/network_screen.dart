@@ -9,9 +9,9 @@ import '../common/shown_cause.dart';
 import '../../core/error_journal.dart';
 import '../../data/node/bundled_seeds.dart'
     show
-        setBundledSeedsAllowed,
+        setBundledSeedsAllowedFor,
         shouldOfferBundledSeeds,
-        storedBundledSeedsAnswer;
+        storedBundledSeedsAnswerFor;
 import '../../data/node/node_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
@@ -262,9 +262,18 @@ class NetworkScreen extends ConsumerWidget {
 /// own: that drops every live session, and doing it silently under a settings
 /// toggle is worse than saying when the change lands.
 ///
-/// Profile-scoped, like the original answer — the preference store is one file
-/// per profile, so a decoy neither inherits nor discloses the real identity's
-/// network posture.
+/// ## Whose answer this is
+///
+/// The ACTIVE identity's, written into its own space
+/// ([setBundledSeedsAllowedFor]).
+///
+/// It used to say "profile-scoped… so a decoy neither inherits nor discloses
+/// the real identity's network posture", and that was false. The preference
+/// store is one file per app PROFILE — a directory choice, not an identity —
+/// and a duress master is another space in the SAME container, opened by the
+/// same process out of that same directory. So it read the same value, and with
+/// several identities online at once every node resolved the one answer: two
+/// identities could not disagree, and the last write won for all of them.
 class SharedSeedsSwitch extends ConsumerStatefulWidget {
   const SharedSeedsSwitch({super.key});
 
@@ -281,22 +290,26 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
     _syncFromStore();
   }
 
-  /// Re-read the identity's own answer from the store.
+  /// Re-read the ACTIVE identity's own answer, from its own space.
   ///
-  /// [bundledSeedsChoiceProvider] is seeded ONCE, by `main()`, from whichever
-  /// profile the process started on. Switching identity swaps the preference
-  /// file underneath it without touching the provider, so a control rendered
-  /// from the provider alone would show — and write from — the PREVIOUS
-  /// identity's answer. Reading the store when the control is opened makes that
-  /// self-correcting, the same shape as the cached node identity.
+  /// The stated reason for this re-read used to be fiction: "switching identity
+  /// swaps the preference file underneath it". Nothing swaps that file —
+  /// `switchIdentity` does not, and a PROFILE switch is restart-gated — so the
+  /// re-read corrected nothing, because there was only ever one value to read.
   ///
-  /// [storedBundledSeedsAnswer] rather than `bundledSeedsAllowed` because a
-  /// store that will not answer must move nothing: the latter reports `true` on
-  /// a failed read, which is the right default when a node config has to be
+  /// The real reason is the one that now holds. [bundledSeedsChoiceProvider] is
+  /// live UI state; the answer lives in the identity's space, and the control
+  /// must show the space it is about to write. The boot paths re-point the
+  /// provider on activation, so this is the belt to that braces — it also covers
+  /// an answer changed by something other than this switch.
+  ///
+  /// [storedBundledSeedsAnswerFor] rather than `bundledSeedsAllowedFor` because
+  /// a store that will not answer must move nothing: the latter reports `true`
+  /// on a failed read, which is the right default when a node config has to be
   /// composed regardless, and exactly the wrong one here — it would put an
   /// identity that refused the shared seeds back on them without anyone asking.
   Future<void> _syncFromStore() async {
-    final stored = await storedBundledSeedsAnswer();
+    final stored = await storedBundledSeedsAnswerFor(ref.read(storageProvider));
     if (!mounted || stored == null) return;
     if (ref.read(bundledSeedsChoiceProvider) != stored) {
       ref.read(bundledSeedsChoiceProvider.notifier).state = stored;
@@ -314,7 +327,14 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
       // boot. Moving the switch over a failed write would show an answer no
       // node will ever read, which is the exact shape of promise this control
       // exists to stop making.
-      final saved = await setBundledSeedsAllowed(allowed);
+      //
+      // Into the ACTIVE identity's space — the one whose node is composed from
+      // it. Writing the profile preference instead is what made this switch
+      // answer for every identity in the container at once.
+      final saved = await setBundledSeedsAllowedFor(
+        ref.read(storageProvider),
+        allowed,
+      );
       if (!mounted) return;
       if (!saved) {
         ScaffoldMessenger.of(context)

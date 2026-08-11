@@ -6259,7 +6259,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get seedsDeclineBody =>
-      'No shared node is contacted, so nobody else\'s server learns that this identity exists. Nothing works until you add a node yourself: messages cannot be sent and none will arrive.';
+      'No shared node is contacted for this identity, so nobody else\'s server learns that it exists. Other identities are unaffected. Nothing works until you add a node yourself: messages cannot be sent and none will arrive.';
 
   @override
   String get seedsChoiceChangeLater =>
@@ -6270,7 +6270,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get seedsReofferBody =>
-      'You chose to use only nodes you add yourself, and none has been added. Until one is, no message can be sent or received. You can add your own node now, or use the shared entry nodes after all — they learn that a node of yours exists and which address it connects from.';
+      'You chose to use only nodes you add yourself, and none has been added. Until one is, no message can be sent or received. You can add your own node now, or use the shared entry nodes after all — they learn that a node of yours exists and which address it connects from. Whichever you pick answers for this identity only.';
 
   @override
   String get seedsReofferUse => 'Use the shared nodes';
@@ -6300,11 +6300,11 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get seedsSwitchOnSub =>
-      'On: the app finds the network on its own. The project\'s nodes learn that a node of yours exists and which address it connects from.';
+      'On for this identity: the app finds the network on its own. The project\'s nodes learn that a node of yours exists and which address it connects from.';
 
   @override
   String get seedsSwitchOffSub =>
-      'Off: only nodes you add yourself. Nothing connects until you add one.';
+      'Off for this identity: only nodes you add yourself. Nothing connects until you add one. Your other identities are unaffected.';
 
   @override
   String get seedsSwitchSaveFailed =>

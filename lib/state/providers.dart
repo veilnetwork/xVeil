@@ -10,7 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/transport/bootstrap_invite.dart';
 
-import '../data/node/bundled_seeds.dart' show kBundledSeedsDefault;
+import '../data/node/bundled_seeds.dart'
+    show IdentityPeers, kBundledSeedsDefault, resolveBootstrapPeers;
 import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
 import '../data/node/fake_node_controller.dart';
 import '../data/node/node_controller.dart';
@@ -64,7 +65,7 @@ typedef SessionBuilder =
       required String storePath,
       required String runtimeDir,
       required int listenPort,
-      required List<BootstrapPeerCfg> bootstrapPeers,
+      required IdentityPeers peersFor,
       String? obfs4Psk,
       required List<String> udpReflectors,
       required bool lazyMining,
@@ -76,7 +77,7 @@ MultiIdentitySession _realSessionBuilder({
   required String storePath,
   required String runtimeDir,
   required int listenPort,
-  List<BootstrapPeerCfg> bootstrapPeers = const [],
+  IdentityPeers peersFor = _noSessionPeers,
   String? obfs4Psk,
   List<String> udpReflectors = const [],
   bool lazyMining = false,
@@ -92,7 +93,11 @@ MultiIdentitySession _realSessionBuilder({
   // The SAME large-file tier the single-identity boot opens — one directory
   // beside the container, shared by every space (XV-02).
   blobRoot: blobRootFor(storePath),
-  bootstrapPeers: bootstrapPeers,
+  // A BUILDER, not a finished list: every identity in the session resolves its
+  // own shared-seed answer from its own space, and its peer list is built from
+  // that. One list for the session is what let a refuser be handed the seeds
+  // because somebody else in the same container had kept them.
+  peersFor: peersFor,
   // Lockstep with the single-identity boot so always-online nodes join the
   // same (obfs4-protected) network and honour the same mining/routing config.
   obfs4Psk: obfs4Psk,
@@ -100,6 +105,9 @@ MultiIdentitySession _realSessionBuilder({
   lazyMining: lazyMining,
   proxy: proxy,
 );
+
+List<BootstrapPeerCfg> _noSessionPeers(bool useBundledSeeds) =>
+    const <BootstrapPeerCfg>[];
 
 final sessionBuilderProvider = Provider<SessionBuilder>(
   (ref) => _realSessionBuilder,
@@ -156,6 +164,8 @@ class DeniableBootConfig {
     this.listenPort = 9000,
     this.storePath,
     this.bootstrapPeers = const [],
+    this.operatorPeers = const [],
+    this.bundledSeeds = const [],
     this.udpReflectors = const [],
     this.obfs4Psk,
   });
@@ -175,7 +185,44 @@ class DeniableBootConfig {
   /// Bootstrap peers to dial at boot so the node joins a specific network
   /// (seed set / testnet). Empty = rely on the compiled-in BUILTIN_SEEDS.
   /// Loaded by main() from a local, gitignored file (never committed).
+  ///
+  /// The PROFILE-level list: built once in `main()` from the pre-unlock answer,
+  /// before any container is open. It is what the UI reports as "entry points
+  /// this app was configured with"; the list a NODE gets comes from [peersFor],
+  /// per identity.
   final List<BootstrapPeerCfg> bootstrapPeers;
+
+  /// The two halves [peersFor] builds from, kept apart on purpose.
+  ///
+  /// [operatorPeers] — `XVEIL_BOOTSTRAP_PEERS`, or anything else the user named
+  /// themselves — survives either answer: declining the SHARED seeds is not
+  /// declining your own node. [bundledSeeds] are the descriptors from
+  /// `assets/prod/seeds.json`, and they are added only for an identity that
+  /// keeps them.
+  final List<BootstrapPeerCfg> operatorPeers;
+  final List<BootstrapPeerCfg> bundledSeeds;
+
+  /// The peers ONE identity is handed, built from ITS OWN answer.
+  ///
+  /// Built, never filtered: a refuser's list never holds the shared descriptors
+  /// at all, so no layer downstream can decide to fall back to something it can
+  /// still see.
+  ///
+  /// A config assembled without the split (the loopback/dev paths, and tests
+  /// that only set [bootstrapPeers]) cannot tell the two halves apart any more —
+  /// so an identity that KEEPS the seeds gets that list unchanged, and one that
+  /// refuses gets nothing. That is the safe direction of the ambiguity: the
+  /// answer that must never be overruled is the refusal.
+  List<BootstrapPeerCfg> peersFor(bool useBundledSeeds) {
+    if (operatorPeers.isEmpty && bundledSeeds.isEmpty) {
+      return useBundledSeeds ? bootstrapPeers : const <BootstrapPeerCfg>[];
+    }
+    return resolveBootstrapPeers(
+      operatorPeers: operatorPeers,
+      bundledSeeds: bundledSeeds,
+      useBundledSeeds: useBundledSeeds,
+    );
+  }
 
   /// Static fallback endpoints, and what the simulator injects in its
   /// scenarios. Normal app boots leave this empty: authenticated live peers
@@ -188,10 +235,14 @@ class DeniableBootConfig {
   final String? obfs4Psk;
 }
 
-/// This profile's answer to the shared-seed question, as the RUNNING app knows
-/// it — seeded by main() from the stored preference.
+/// The ACTIVE identity's answer to the shared-seed question, as the RUNNING app
+/// knows it — seeded by main() from the pre-unlock preference, then re-pointed
+/// at each identity as it is activated (see `AppController`).
 ///
-/// It exists because of the first run. The boot config is assembled in `main`,
+/// Live UI state, never the source of truth: the answer that decides a node's
+/// config is read from that identity's own space at boot
+/// ([bundledSeedsAllowedFor]). This one exists so the screens do not have to be
+/// async, and because of the first run. The boot config is assembled in `main`,
 /// before onboarding has asked anything, so on the launch where the choice is
 /// actually made the stored preference still says what it said at process
 /// start. [deniableBootProvider] watches this, so recording a refusal REBUILDS
