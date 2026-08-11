@@ -6095,4 +6095,29 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get chatTranslateInto => 'Translate into…';
+
+  @override
+  String get modelProvenanceTitleMismatch =>
+      'This model does not match the published one';
+
+  @override
+  String get modelProvenanceTitleUnknown => 'This model cannot be checked';
+
+  @override
+  String modelProvenanceBodyMismatch(String files) {
+    return 'The hash of $files differs from the one built into this app. Either your contact\'s copy is not the published model, or it was altered. A model runs as input to the engine that reads your microphone and your messages.';
+  }
+
+  @override
+  String get modelProvenanceBodyUnknown =>
+      'This build has no reference hash for this model, so there is nothing to compare it against. That is not an accusation — it means the check cannot be made here.';
+
+  @override
+  String get modelProvenanceInstallAnyway => 'Install anyway';
+
+  @override
+  String get modelProvenanceLoadManually => 'Find and load it myself';
+
+  @override
+  String get modelProvenanceRisk => 'At your own risk.';
 }
