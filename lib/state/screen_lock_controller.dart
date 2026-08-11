@@ -219,13 +219,15 @@ class ScreenLockController extends Notifier<ScreenLockState> {
     state = state.copyWith(locked: true, wrongPassword: false);
   }
 
-  /// Returns true when the screen was unlocked. A wrong password only sets the
-  /// error — there is nothing here to rate-limit or destroy, because the wrong
-  /// password never had access to anything in the first place.
   /// How long until another attempt is even looked at (audit report10 X-05).
   ///
-  /// Zero when nothing is owed. Exposed so a lock screen can count down rather
-  /// than leaving a person tapping at a field that silently ignores them.
+  /// Zero when nothing is owed. Read by `ScreenLockCover`, which counts it down
+  /// in the field's error line rather than leaving a person tapping at a field
+  /// that silently ignores them. That consumer is not decoration: inside this
+  /// window [tryUnlock] refuses before it computes anything, so the CORRECT
+  /// password comes back indistinguishable from a wrong one — and for as long
+  /// as nothing said otherwise, the app told a person who had typed their own
+  /// password that it was wrong.
   Duration get throttleRemaining {
     final owed = _blockedUntil - _clock.elapsed;
     return owed.isNegative ? Duration.zero : owed;
@@ -246,6 +248,11 @@ class ScreenLockController extends Notifier<ScreenLockState> {
     return Duration(milliseconds: ms.clamp(0, 30000));
   }
 
+  /// Returns true when the screen was unlocked.
+  ///
+  /// A wrong password destroys nothing — it never had access to anything in the
+  /// first place — but it does buy the next attempt a wait; see [throttleAfter]
+  /// and [throttleRemaining].
   bool tryUnlock(String password) {
     // Refused before the HMAC is even computed. The check is deliberately
     // cheap — see [ScreenLockVerifier] — so the only thing standing between a

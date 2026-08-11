@@ -2,15 +2,28 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/features/lock/lock_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
+import 'package:xveil/routing/router.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/providers.dart';
 import 'dart:io';
 import 'package:xveil/data/whisper_model_store.dart';
 import 'package:xveil/state/whisper_model_controller.dart';
 import 'package:xveil/state/translation_model_controller.dart';
+
+/// `lib/app.dart`'s own arrangement: the wipe-report host lives in
+/// `MaterialApp.builder`, ABOVE whatever is being routed to, because the wipe's
+/// last act unmounts the screen that asked for it.
+Widget _appAround(Widget home) => MaterialApp(
+  localizationsDelegates: AppL10n.localizationsDelegates,
+  supportedLocales: AppL10n.supportedLocales,
+  builder: (context, child) =>
+      Stack(children: [child!, const WipeReportHost()]),
+  home: home,
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -196,11 +209,7 @@ void main() {
         child: Consumer(
           builder: (ctx, ref, _) {
             container = ProviderScope.containerOf(ctx);
-            return const MaterialApp(
-              localizationsDelegates: AppL10n.localizationsDelegates,
-              supportedLocales: AppL10n.supportedLocales,
-              home: LockScreen(),
-            );
+            return _appAround(const LockScreen());
           },
         ),
       ),
@@ -276,11 +285,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [appControllerProvider.overrideWith(() => ctrl)],
-        child: const MaterialApp(
-          localizationsDelegates: AppL10n.localizationsDelegates,
-          supportedLocales: AppL10n.supportedLocales,
-          home: LockScreen(),
-        ),
+        child: _appAround(const LockScreen()),
       ),
     );
     await tester.pumpAndSettle();
@@ -327,11 +332,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [appControllerProvider.overrideWith(() => ctrl)],
-        child: const MaterialApp(
-          localizationsDelegates: AppL10n.localizationsDelegates,
-          supportedLocales: AppL10n.supportedLocales,
-          home: LockScreen(),
-        ),
+        child: _appAround(const LockScreen()),
       ),
     );
     await tester.pumpAndSettle();
@@ -359,6 +360,128 @@ void main() {
       isNull,
       reason: 'the throw must be handled, not left to the zone',
     );
+  });
+
+  testWidgets('the report survives the ROUTER taking the lock screen away', (
+    tester,
+  ) async {
+    // The arrangement every other test in this file leaves out, and the only
+    // reason the defect could sit behind a green suite: they mount
+    // `MaterialApp(home: LockScreen())` with NO router, so no page is ever
+    // swapped and a dialog raised over the lock screen simply stays put.
+    // Production has a router. `wipeContainers` flips the phase to onboarding
+    // as its LAST act — on purpose, see the comment there — the router
+    // redirects on that flip, and the dialog, being a ROUTE over the `/lock`
+    // page, is removed together with it. (The `mounted` guard that used to
+    // stand in front of it was never the culprit and measured TRUE every time;
+    // see `_runWipe`.)
+    //
+    // So this one puts a real `GoRouter` in front of it, gated by the SAME
+    // pure function the app's router is gated by (`redirectForPhase`), with
+    // the report host in `MaterialApp.builder` exactly where `app.dart` mounts
+    // it. What makes it a reproduction rather than another polite fiction is
+    // the `findsNothing` below: the router really did take the lock screen and
+    // its page away at the moment the report is expected on screen.
+    final ctrl = _LeftoverWipeController();
+    final container = ProviderContainer(
+      overrides: [appControllerProvider.overrideWith(() => ctrl)],
+    );
+    addTearDown(container.dispose);
+    // The same ValueNotifier bridge `routerProvider` builds, so a phase change
+    // re-runs the redirect instead of waiting for an unrelated rebuild.
+    final refresh = ValueNotifier<AppPhase>(AppPhase.locked);
+    addTearDown(refresh.dispose);
+    container.listen(
+      appControllerProvider.select((s) => s.phase),
+      (_, next) => refresh.value = next,
+      fireImmediately: true,
+    );
+    final router = GoRouter(
+      initialLocation: '/lock',
+      refreshListenable: refresh,
+      redirect: (_, state) => redirectForPhase(
+        container.read(appControllerProvider).phase,
+        state.matchedLocation,
+      ),
+      routes: [
+        GoRoute(path: '/lock', builder: (_, _) => const LockScreen()),
+        GoRoute(
+          path: '/onboarding',
+          builder: (_, _) =>
+              const Scaffold(body: Center(child: Text('first launch'))),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          routerConfig: router,
+          builder: (context, child) =>
+              Stack(children: [child!, const WipeReportHost()]),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byType(LockScreen),
+      findsOneWidget,
+      reason: 'the fixture never reached the lock screen',
+    );
+    final l = AppL10n.of(tester.element(find.byType(LockScreen)));
+
+    await tester.tap(find.widgetWithText(TextButton, l.lockWipe));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      l.lockWipePhrase,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, l.lockWipeConfirm));
+    await tester.pumpAndSettle();
+
+    // The arrangement really is the one that broke it.
+    expect(
+      find.byType(LockScreen),
+      findsNothing,
+      reason:
+          'the router did not unmount the lock screen, so this test proves '
+          'exactly as little as the ones without a router',
+    );
+    expect(find.text('first launch'), findsOneWidget);
+
+    // THE assertion. It cannot pass while the report is raised as a ROUTE over
+    // the page the phase flip replaces.
+    expect(
+      find.text(l.lockWipeLeftBoth),
+      findsOneWidget,
+      reason: 'a wipe that could not delete the container must say so, and '
+          'the screen it was started from is not around to say it',
+    );
+    expect(find.text(l.lockWipeLeftRest), findsOneWidget);
+    // And it still WORKS from up there: Retry runs the wipe again with no lock
+    // screen left to run it.
+    expect(ctrl.calls, 1);
+    await tester.tap(find.widgetWithText(FilledButton, l.lockWipeRetry));
+    await tester.pumpAndSettle();
+    expect(
+      ctrl.calls,
+      2,
+      reason: 'Retry that cannot retry once its screen is gone is a decoration',
+    );
+    ctrl.leftovers = const [];
+    await tester.tap(find.widgetWithText(FilledButton, l.lockWipeRetry));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text('first launch'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('small iPhone stays scrollable above the software keyboard', (

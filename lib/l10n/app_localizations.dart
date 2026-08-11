@@ -5210,6 +5210,12 @@ abstract class AppL10n {
   /// **'Locked'**
   String get screenLockTitle;
 
+  /// No description provided for @screenLockWait.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many attempts. Try again in {seconds} s'**
+  String screenLockWait(int seconds);
+
   /// No description provided for @settingsScreenLock.
   ///
   /// In en, this message translates to:

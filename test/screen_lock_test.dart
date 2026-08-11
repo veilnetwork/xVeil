@@ -179,6 +179,25 @@ void main() {
     });
   });
 
+  group('what the countdown says', () {
+    test('rounds UP, so it never reads 0 while the attempt is refused', () {
+      // Truncating instead would spend the final second showing "0 s" over a
+      // field that is still refusing — the same lie the countdown replaced,
+      // just in smaller print.
+      expect(screenLockWaitSeconds(Duration.zero), 0);
+      expect(screenLockWaitSeconds(const Duration(milliseconds: 1)), 1);
+      expect(screenLockWaitSeconds(const Duration(milliseconds: 999)), 1);
+      expect(screenLockWaitSeconds(const Duration(seconds: 1)), 1);
+      expect(screenLockWaitSeconds(const Duration(milliseconds: 1001)), 2);
+      // The cap the backoff is clamped to, so the largest number a person can
+      // ever be shown is thirty and not something that reads as a lockout.
+      expect(
+        screenLockWaitSeconds(ScreenLockController.throttleAfter(99)),
+        30,
+      );
+    });
+  });
+
   group('the password that lifts it', () {
     test('recognises the one that opened the container, and nothing else', () {
       final verifier = ScreenLockVerifier.forPassword('correct horse');
@@ -818,6 +837,205 @@ void main() {
       await settle(tester);
       expect(find.byType(ScreenLockCover), findsNothing);
       expect(find.text('a message'), findsOneWidget);
+      await shutdown(tester, app.messaging);
+    });
+
+    /// The shipped English, resolved from inside the app so the assertions
+    /// name the same string the screen does.
+    AppL10n lang(WidgetTester tester) =>
+        AppL10n.of(tester.element(find.byType(ScreenLockHost)));
+
+    /// What the password field is currently complaining about, read off the
+    /// widget rather than off the pixels: `errorText` is the one line the
+    /// person gets, and this test is entirely about WHICH line it is.
+    String? errorLine(WidgetTester tester) => tester
+        .widget<TextField>(find.byKey(const ValueKey('screen-lock-password')))
+        .decoration!
+        .errorText;
+
+    /// Drive [count] consecutive counted failures.
+    ///
+    /// The clock is wound past the debt between them on purpose: an attempt
+    /// made INSIDE the window is refused before it is looked at and does not
+    /// increment anything, so a plain loop would stop counting at three and
+    /// never reach the capped wait this test needs.
+    void failTimes(ScreenLockController lock, int count) {
+      for (var i = 0; i < count; i++) {
+        lock.debugAdvance(const Duration(minutes: 1));
+        expect(lock.tryUnlock('not it'), isFalse);
+      }
+    }
+
+    testWidgets('the RIGHT password is not called wrong while a wait is owed', (
+      tester,
+    ) async {
+      // Live on macOS and on the simulator: after a few wrong tries the
+      // CORRECT password came back "Wrong password", and the same password
+      // worked once the wait had passed. Nothing was wrong with the throttle —
+      // `throttleRemaining` has been there, documented as the thing "a lock
+      // screen can count down" with — it had no consumer, so the screen said
+      // the only thing it knew how to say. Telling someone their own password
+      // is wrong is worse than saying nothing: the next thing they reach for
+      // is the recovery phrase.
+      final app = await mount(tester);
+      final lock = app.container.read(screenLockProvider.notifier);
+      lock.rememberPassword('pw');
+      await lock.setTimeout(ScreenLockTimeout.immediately);
+      await background(tester);
+      await foreground(tester);
+      await settle(tester);
+      expect(
+        find.byType(ScreenLockCover),
+        findsOneWidget,
+        reason: 'the screen did not lock, so the rest proves nothing',
+      );
+
+      // Ten counted failures here, and the ELEVENTH through the interface —
+      // the screen only learns what is owed from a submit, and a debt created
+      // behind its back is a different situation (covered below).
+      failTimes(lock, 10);
+      lock.debugAdvance(const Duration(minutes: 1));
+      await tester.enterText(
+        find.byKey(const ValueKey('screen-lock-password')),
+        'not it',
+      );
+      await tester.tap(find.byKey(const ValueKey('screen-lock-submit')));
+      await settle(tester);
+
+      // Now the correct password, inside the window. This is the live report,
+      // reproduced.
+      await tester.enterText(
+        find.byKey(const ValueKey('screen-lock-password')),
+        'pw',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await settle(tester);
+
+      expect(
+        find.byType(ScreenLockCover),
+        findsOneWidget,
+        reason: 'the throttle itself stopped working — see the controller '
+            'tests; this one is about what the screen SAYS about it',
+      );
+      // THE assertion.
+      expect(
+        find.text(lang(tester).lockWrong),
+        findsNothing,
+        reason: 'the password just typed was the right one, and the screen '
+            'called it wrong',
+      );
+      // Thirty seconds is the cap, and eleven failures is past it. One second
+      // of slack because the deadline is monotonic REAL time by design (a
+      // wall-clock one is defeated by changing a setting), so a widget test's
+      // clock cannot pin it exactly.
+      expect(
+        errorLine(tester),
+        anyOf(lang(tester).screenLockWait(30), lang(tester).screenLockWait(29)),
+        reason: 'the wait has to be NAMED — "try again in 30 s" is something '
+            'a person can act on, and it is also true',
+      );
+      // A field that ignores what is typed into it must not look ready for it.
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const ValueKey('screen-lock-submit')),
+            )
+            .onPressed,
+        isNull,
+        reason: 'the button still invites an attempt that is refused unread',
+      );
+      await shutdown(tester, app.messaging);
+    });
+
+    testWidgets('it counts DOWN, without redrawing the whole prompt', (
+      tester,
+    ) async {
+      final app = await mount(tester);
+      final lock = app.container.read(screenLockProvider.notifier);
+      lock.rememberPassword('pw');
+      await lock.setTimeout(ScreenLockTimeout.immediately);
+      await background(tester);
+      await foreground(tester);
+      await settle(tester);
+
+      failTimes(lock, 10);
+      lock.debugAdvance(const Duration(minutes: 1));
+      await tester.enterText(
+        find.byKey(const ValueKey('screen-lock-password')),
+        'not it',
+      );
+      await tester.tap(find.byKey(const ValueKey('screen-lock-submit')));
+      await settle(tester);
+      final before = errorLine(tester);
+      expect(before, anyOf(lang(tester).screenLockWait(30), lang(tester).screenLockWait(29)));
+
+      // Twenty of the thirty go by with nobody touching anything. A static
+      // sentence would still read "30 s" here, which is the difference between
+      // a countdown and a label.
+      screenLockCoverBuilds = 0;
+      lock.debugAdvance(const Duration(seconds: 20));
+      await settle(tester);
+      expect(
+        errorLine(tester),
+        anyOf(lang(tester).screenLockWait(10), lang(tester).screenLockWait(9)),
+        reason: 'the line never moved — nothing is ticking',
+      );
+      // And the ticker paid for that with ONE small subtree, not with the
+      // whole cover: the prompt carries a focused password field, and dragging
+      // it through a rebuild four times a second is not free.
+      expect(
+        screenLockCoverBuilds,
+        0,
+        reason: 'every tick rebuilt the entire lock prompt',
+      );
+
+      // The positive control, and the other half of the report: once the wait
+      // has passed the right password gets in. Without this, "does not say
+      // wrong password" would also pass against a lock that never opens.
+      lock.debugAdvance(const Duration(minutes: 1));
+      await settle(tester);
+      expect(
+        errorLine(tester),
+        lang(tester).lockWrong,
+        reason: 'nothing is owed any more, and the last attempt really was '
+            'wrong — hiding that would be the opposite mistake',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('screen-lock-password')),
+        'pw',
+      );
+      await tester.tap(find.byKey(const ValueKey('screen-lock-submit')));
+      await settle(tester);
+      expect(find.byType(ScreenLockCover), findsNothing);
+      await shutdown(tester, app.messaging);
+    });
+
+    testWidgets('a debt that predates the prompt is still counted down', (
+      tester,
+    ) async {
+      // The failures are counted in the CONTROLLER, which outlives the cover:
+      // lock, get it wrong, unlock, lock again — and the new prompt starts
+      // with a wait already owed that it never saw happen. Reading it only on
+      // submit would show "wrong password" over a wait, which is the same
+      // defect one lifecycle further along.
+      final app = await mount(tester);
+      final lock = app.container.read(screenLockProvider.notifier);
+      lock.rememberPassword('pw');
+      await lock.setTimeout(ScreenLockTimeout.immediately);
+      failTimes(lock, 10);
+      lock.debugAdvance(const Duration(minutes: 1));
+      expect(lock.tryUnlock('not it'), isFalse);
+
+      // Only NOW does the cover appear.
+      await background(tester);
+      await foreground(tester);
+      await settle(tester);
+      expect(find.byType(ScreenLockCover), findsOneWidget);
+      expect(
+        errorLine(tester),
+        anyOf(lang(tester).screenLockWait(30), lang(tester).screenLockWait(29)),
+        reason: 'a fresh prompt over an existing wait said nothing about it',
+      );
       await shutdown(tester, app.messaging);
     });
 

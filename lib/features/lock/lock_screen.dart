@@ -82,54 +82,35 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     if (confirmed == true) await _runWipe();
   }
 
-  /// Runs the wipe and says what it could not delete.
+  /// Starts the wipe. Deliberately does NOT wait around for the verdict.
   ///
   /// `wipeContainers` checks by RE-STATING rather than by trusting `delete()`,
-  /// and hands back what is still on disk — and this dropped that list on the
-  /// floor, so a person whose container survived saw exactly what a person
-  /// whose container was gone saw: the onboarding screen. In an app whose whole
-  /// promise is deniability that is the worst direction for a silence to point,
-  /// because the one thing it hides is the thing that can convict you.
+  /// and hands back what is still on disk. This screen used to raise the dialog
+  /// for that list itself and a person whose container survived was shown
+  /// nothing at all — which, in an app whose whole promise is deniability, is
+  /// the worst direction for a silence to point: the one thing it hides is the
+  /// thing that can convict you.
   ///
-  /// The phase flip stays inside the controller and stays unconditional, for
-  /// the reason recorded there: parking someone on a lock screen for a
-  /// container that may already be gone is its own disclosure. So this is a
-  /// dialog raised OVER whatever the flip lands on, not a reason to stay put.
+  /// Worth being exact about WHY, because the obvious reading is wrong. The
+  /// suspect was the `if (!mounted) return` that stood here, on the theory that
+  /// the wipe's last act — flipping the phase to onboarding — had the router
+  /// unmount this widget first. It does not: the flip lands during an async
+  /// gap, the router redirects on the NEXT FRAME, and `mounted` was measured
+  /// true every time. The dialog really was raised.
   ///
-  /// A loop rather than recursion: Retry is a user gesture with no bound on how
-  /// many times it can be pressed, and each pass must start from a fresh call.
-  Future<void> _runWipe() async {
-    while (true) {
-      List<String> remaining = const [];
-      var stopped = false;
-      try {
-        remaining = await ref
-            .read(appControllerProvider.notifier)
-            .wipeContainers();
-      } catch (error, stack) {
-        // There was NO handler here at all. A throw became an uncaught async
-        // error, the dialog closed and the screen sat there — which reads as
-        // "nothing happened" for the one action that cannot be undone.
-        stopped = true;
-        errorJournal.record(
-          kind: 'wipe',
-          error: error,
-          stack: stack,
-          atMs: DateTime.now().millisecondsSinceEpoch,
-        );
-      }
-      if (!mounted) return;
-      if (!stopped && remaining.isEmpty) return; // everything really went
-      final retry = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => _WipeLeftoverDialog(
-          remaining: remaining,
-          stopped: stopped,
-        ),
-      );
-      if (retry != true || !mounted) return;
-    }
-  }
+  /// It was then destroyed. `showDialog` PUSHES A ROUTE, and a route pushed
+  /// over a page-based one belongs to that page: when the redirect swapped
+  /// `/lock` out, Flutter's navigator took the dialog with it, and the pending
+  /// `showDialog` future completed with `null` as if the person had dismissed
+  /// it. No exception, no log, nothing to see. So the depth matters — anything
+  /// that answers this with a ROUTE, on any navigator, is the same bug wearing
+  /// a different hat, including a post-frame push that merely races the
+  /// redirect instead of losing to it outright.
+  ///
+  /// The answer is therefore published by [WipeReportController], which a route
+  /// change cannot dispose, and painted by [WipeReportHost], which is a WIDGET
+  /// above the router. All that is left here is to ask.
+  Future<void> _runWipe() => ref.read(wipeReportProvider.notifier).runWipe();
 
   @override
   Widget build(BuildContext context) {
@@ -269,6 +250,53 @@ class _LockScreenState extends ConsumerState<LockScreen> {
 /// delete it for good (routes to the phrase-gated wipe), or back out.
 enum _StartOverChoice { keep, delete, cancel }
 
+/// Paints [WipeReportController]'s verdict over whatever the phase flip landed
+/// on. Mounted in `MaterialApp.builder` (see `app.dart`), which is the one part
+/// of the tree the router cannot take away.
+///
+/// A widget rather than a `showDialog`, and that is the whole of it — see
+/// `_LockScreenState._runWipe` for the measurement. A dialog is a ROUTE, a
+/// route pushed over a page goes when that page goes, and the wipe's own last
+/// act is what takes the page away. Moving the same `showDialog` up to the root
+/// navigator would only have made the failure quieter. This is painted above
+/// the router instead, so it does not care what the router is doing and nothing
+/// about it depends on winning a race with a redirect.
+///
+/// Still UNDER the screen-lock cover and the task-switcher shield, which wrap
+/// this whole builder: what a wipe left behind is not something to show over a
+/// locked screen or leak into the app-switcher snapshot.
+class WipeReportHost extends ConsumerWidget {
+  const WipeReportHost({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final report = ref.watch(wipeReportProvider);
+    if (report == null) return const SizedBox.shrink();
+    return Positioned.fill(
+      // Nothing behind this is reachable while it is up — the same three
+      // meanings of "unreachable" the screen lock spells out: the barrier eats
+      // the pointer, and this drops what is underneath from the semantics tree
+      // so a screen reader cannot read past it either.
+      child: BlockSemantics(
+        child: Stack(
+          children: [
+            // NOT dismissible by tapping outside. This is the outcome of the
+            // one action in the app that cannot be undone, and an accidental
+            // tap on the scrim must not be how it goes unread.
+            const ModalBarrier(dismissible: false, color: Color(0x99000000)),
+            _WipeLeftoverDialog(
+              remaining: report.remaining,
+              stopped: report.stopped,
+              onDone: () => ref.read(wipeReportProvider.notifier).dismiss(),
+              onRetry: () => ref.read(wipeReportProvider.notifier).runWipe(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// What a wipe could not delete, named — and a Retry that runs it again.
 ///
 /// Names the survivors rather than saying something went wrong: "the container
@@ -277,9 +305,22 @@ enum _StartOverChoice { keep, delete, cancel }
 /// second line is what makes the first bearable and is equally true: everything
 /// else really is gone.
 ///
-/// Pops `true` for Retry, `false`/null for dismiss.
+/// Answers through callbacks rather than by popping a route: it is rendered
+/// directly by [WipeReportHost], which has no navigator of its own to pop.
 class _WipeLeftoverDialog extends StatelessWidget {
-  const _WipeLeftoverDialog({required this.remaining, required this.stopped});
+  const _WipeLeftoverDialog({
+    required this.remaining,
+    required this.stopped,
+    required this.onDone,
+    required this.onRetry,
+  });
+
+  /// The person has read it; the report is cleared.
+  final VoidCallback onDone;
+
+  /// Run the whole wipe again. A user gesture with no bound on how many times
+  /// it can be pressed, and each pass starts from a fresh call.
+  final VoidCallback onRetry;
 
   /// The codes `wipeContainers` returns for what it re-stat'd and found still
   /// present. Kept as codes rather than sentences precisely so the sentence can
@@ -329,14 +370,8 @@ class _WipeLeftoverDialog extends StatelessWidget {
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: Text(l.actionDone),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(true),
-          child: Text(l.lockWipeRetry),
-        ),
+        TextButton(onPressed: onDone, child: Text(l.actionDone)),
+        FilledButton(onPressed: onRetry, child: Text(l.lockWipeRetry)),
       ],
     );
   }
