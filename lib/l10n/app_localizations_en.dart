@@ -6120,4 +6120,15 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get modelProvenanceRisk => 'At your own risk.';
+
+  @override
+  String get modelSharingTitle => 'Answer contacts asking for models';
+
+  @override
+  String get modelSharingOn =>
+      'Contacts can see which language and speech models you have, and ask for a copy.';
+
+  @override
+  String get modelSharingOff =>
+      'Contacts get no answer. They cannot tell this from your having no models.';
 }

@@ -190,3 +190,28 @@ final modelExchangeServiceProvider = Provider<ModelExchangeService>((ref) {
   ref.onDispose(service.dispose);
   return service;
 });
+
+/// The setting behind the "answer contacts" switch.
+///
+/// Async because the answer lives in the container, which is not open until
+/// the person has unlocked. Loading rather than a guessed default while it
+/// reads: showing a switch in the wrong position and then flipping it under
+/// someone's hand is worse than a moment of nothing, and worse still when the
+/// thing being shown is what this device tells other people.
+class AnswerModelInventoryController extends AsyncNotifier<bool> {
+  @override
+  Future<bool> build() =>
+      ref.read(modelExchangeServiceProvider).answersAutomatically();
+
+  Future<void> set(bool enabled) async {
+    await ref
+        .read(modelExchangeServiceProvider)
+        .setAnswersAutomatically(enabled);
+    state = AsyncData(enabled);
+  }
+}
+
+final answerModelInventoryProvider =
+    AsyncNotifierProvider<AnswerModelInventoryController, bool>(
+      AnswerModelInventoryController.new,
+    );

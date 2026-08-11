@@ -10831,6 +10831,24 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'At your own risk.'**
   String get modelProvenanceRisk;
+
+  /// No description provided for @modelSharingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Answer contacts asking for models'**
+  String get modelSharingTitle;
+
+  /// No description provided for @modelSharingOn.
+  ///
+  /// In en, this message translates to:
+  /// **'Contacts can see which language and speech models you have, and ask for a copy.'**
+  String get modelSharingOn;
+
+  /// No description provided for @modelSharingOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Contacts get no answer. They cannot tell this from your having no models.'**
+  String get modelSharingOff;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
