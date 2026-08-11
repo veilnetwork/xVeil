@@ -18,6 +18,7 @@ import '../../state/group_service_providers.dart';
 import '../../state/providers.dart';
 import '../contacts/qr_scan_screen.dart';
 import '../common/relative_time.dart';
+import '../../core/secure_screen.dart';
 
 /// Whether the onboarding hand-off should open the join sheet on THIS build.
 ///
@@ -404,7 +405,17 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final usesCertificate = widget.credentialKind == 'certificate';
-    return SingleChildScrollView(
+    // The one screen in the app that shows a sovereign recovery capability:
+    // the certificate AND the code that unlocks it, at the same time. A
+    // screenshot, a screen recording or a shoulder is enough to reconstruct
+    // the signer and mint new device-group state as this identity — a
+    // long-lived capability, not a session secret.
+    //
+    // The lock overlay was the only place that asked for this protection.
+    // Nothing here did, so the most dangerous sheet in the app was the one
+    // screen a recorder could keep.
+    return SecureScreenGuard(
+      child: SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
         24,
         24,
@@ -486,6 +497,7 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
               ),
             ),
         ],
+      ),
       ),
     );
   }
