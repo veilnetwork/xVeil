@@ -1010,6 +1010,150 @@ void main() {
       await shutdown(tester, app.messaging);
     });
 
+    testWidgets('the wait expiring does not turn into "wrong password"', (
+      tester,
+    ) async {
+      // Live on an Android phone, sampled at 400ms. The countdown itself was
+      // right — "Try again in N s", ticking 8 down to 1 over 8.09 s, button
+      // disabled. What was wrong was the instant it ENDED: at 14.85 s the
+      // field read "Try again in 1 s" and at 15.56 s it read "Wrong password",
+      // with the CORRECT password still sitting visible in the box and nobody
+      // having touched the phone in between.
+      //
+      // The throttle path set `wrongPassword` before anything was compared, so
+      // the countdown was only ever hiding that claim, and expiring uncovered
+      // it. A refusal is not a verdict: nothing was read, so there is nothing
+      // to report about it.
+      final app = await mount(tester);
+      final lock = app.container.read(screenLockProvider.notifier);
+      lock.rememberPassword('pw');
+      await lock.setTimeout(ScreenLockTimeout.immediately);
+      await background(tester);
+      await foreground(tester);
+      await settle(tester);
+      expect(
+        find.byType(ScreenLockCover),
+        findsOneWidget,
+        reason: 'the screen did not lock, so the rest proves nothing',
+      );
+
+      // Wrong passwords until a wait is owed. The last one goes through the
+      // INTERFACE, so the screen has seen a genuine failure of its own and the
+      // "wrong password" the fix must not leave behind is really there to
+      // leave behind.
+      failTimes(lock, 10);
+      lock.debugAdvance(const Duration(minutes: 1));
+      await tester.enterText(
+        find.byKey(const ValueKey('screen-lock-password')),
+        'not it',
+      );
+      await tester.tap(find.byKey(const ValueKey('screen-lock-submit')));
+      await settle(tester);
+      expect(
+        errorLine(tester),
+        anyOf(lang(tester).screenLockWait(30), lang(tester).screenLockWait(29)),
+        reason: 'the fixture itself is broken — no wait is owed',
+      );
+
+      // The correct password, typed into the box and submitted from the
+      // keyboard, because the button is (rightly) disabled. Refused unread.
+      await tester.enterText(
+        find.byKey(const ValueKey('screen-lock-password')),
+        'pw',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await settle(tester);
+      expect(
+        errorLine(tester),
+        anyOf(lang(tester).screenLockWait(30), lang(tester).screenLockWait(29)),
+        reason: 'the wait is still the true answer while it is owed',
+      );
+
+      // And now NOBODY touches anything. This is the whole report: the wait
+      // simply runs out.
+      lock.debugAdvance(const Duration(minutes: 1));
+      await settle(tester);
+
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey('screen-lock-password')),
+            )
+            .controller!
+            .text,
+        'pw',
+        reason: 'the fixture itself is broken — the box no longer holds the '
+            'password the screen is about to pass judgement on',
+      );
+      // THE assertion: whatever the field says, it must not be that.
+      expect(
+        errorLine(tester),
+        isNot(lang(tester).lockWrong),
+        reason: 'the wait ended and uncovered a verdict on a password that '
+            'was never compared to anything — and it is the RIGHT one, still '
+            'visible in the box',
+      );
+      // And what it says instead, stated rather than left open: nothing. The
+      // app has no verdict to give, the button below is live again, and an
+      // empty error line over an enabled button is exactly "go ahead, try".
+      expect(
+        errorLine(tester),
+        isNull,
+        reason: 'a refusal that read nothing has nothing to report',
+      );
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const ValueKey('screen-lock-submit')),
+            )
+            .onPressed,
+        isNotNull,
+        reason: 'the wait is over and the person still cannot try',
+      );
+      await shutdown(tester, app.messaging);
+    });
+
+    testWidgets('a password that really was wrong is still called wrong', (
+      tester,
+    ) async {
+      // The positive control for the test above. "Never says wrong password"
+      // is also true of a screen that lost the message entirely, and of one
+      // that clears the verdict whenever a countdown ends — and that second
+      // one would be a real loss, because a person who typed a wrong password
+      // and then just waited HAS had an answer, and it was no.
+      //
+      // The difference is whether anything was read. Here it was.
+      final app = await mount(tester);
+      final lock = app.container.read(screenLockProvider.notifier);
+      lock.rememberPassword('pw');
+      await lock.setTimeout(ScreenLockTimeout.immediately);
+      await background(tester);
+      await foreground(tester);
+      await settle(tester);
+
+      failTimes(lock, 10);
+      lock.debugAdvance(const Duration(minutes: 1));
+      await tester.enterText(
+        find.byKey(const ValueKey('screen-lock-password')),
+        'not it',
+      );
+      await tester.tap(find.byKey(const ValueKey('screen-lock-submit')));
+      await settle(tester);
+
+      // Same shape as the report — wait it out, touching nothing — but with
+      // no refused attempt in between. The last thing this screen submitted
+      // was looked at, and it was wrong.
+      lock.debugAdvance(const Duration(minutes: 1));
+      await settle(tester);
+      expect(
+        errorLine(tester),
+        lang(tester).lockWrong,
+        reason: 'the answer to the last thing actually compared was no, and '
+            'the person is entitled to know that',
+      );
+      await shutdown(tester, app.messaging);
+    });
+
     testWidgets('a debt that predates the prompt is still counted down', (
       tester,
     ) async {
@@ -1153,6 +1297,50 @@ void main() {
       expect(controller.throttleRemaining, Duration.zero);
       expect(controller.tryUnlock('pw'), isTrue);
       expect(container.read(screenLockProvider).locked, isFalse);
+    });
+
+    test('a refusal records no verdict on what it never read', () async {
+      // The live Android report at controller level. `tryUnlock` returns false
+      // for two entirely different reasons — "I compared it and it was wrong"
+      // and "I refused to compare it" — and only one of them is an answer
+      // about the password. Recording the second as the first is a claim about
+      // a string nothing ever hashed, and it outlives the countdown that was
+      // hiding it.
+      for (var i = 0; i < 3; i++) {
+        expect(controller.tryUnlock('wrong'), isFalse);
+      }
+      expect(
+        container.read(screenLockProvider).wrongPassword,
+        isTrue,
+        reason: 'the fixture itself is broken — those three WERE wrong',
+      );
+      expect(controller.throttleRemaining, greaterThan(Duration.zero));
+
+      expect(controller.tryUnlock('pw'), isFalse);
+      expect(
+        container.read(screenLockProvider).wrongPassword,
+        isFalse,
+        reason: 'the flag answers "was the thing just submitted wrong", and '
+            'the thing just submitted was refused before the HMAC ran',
+      );
+    });
+
+    test('a verdict that WAS reached survives the wait it caused', () async {
+      // Why the clear belongs to the refusal and not to the countdown ending.
+      // A person who types a wrong password and then simply waits has been
+      // told no, truthfully, about the text still in the box. Wiping that when
+      // the timer runs out would be the opposite mistake, and "never says
+      // wrong password" would pass just as happily.
+      for (var i = 0; i < 3; i++) {
+        expect(controller.tryUnlock('wrong'), isFalse);
+      }
+      controller.debugAdvance(const Duration(minutes: 1));
+      expect(controller.throttleRemaining, Duration.zero);
+      expect(
+        container.read(screenLockProvider).wrongPassword,
+        isTrue,
+        reason: 'nothing was refused unread here — the answer was reached',
+      );
     });
 
     test('a success clears the debt', () async {
