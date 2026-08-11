@@ -80,8 +80,22 @@ DynamicLibrary? openTranslateLibrary({String? path}) {
     return null;
   }
   for (final symbol in kRequiredSymbols) {
-    if (!library.providesSymbol(symbol)) return null;
+    if (!library.providesSymbol(symbol)) {
+      // Which symbol, not just "unavailable". On iOS the archive is linked
+      // into the executable and an executable exports nothing by default, so
+      // "the app cannot find them" and "the build did not link them" look
+      // identical from the outside -- and one of those was true for a whole
+      // release configuration until the export flags were fixed.
+      devLog(
+        () => 'xVeil[translate]: unavailable — no $symbol '
+            '(${path ?? (Platform.isIOS ? kProcessImage : 'default path')})',
+      );
+      return null;
+    }
   }
+  devLog(
+    () => 'xVeil[translate]: ${kRequiredSymbols.length} entry points resolved',
+  );
   return library;
 }
 
