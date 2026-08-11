@@ -453,22 +453,60 @@ void main() {
     );
 
     for (final secret in ['_certificate!', '_code!']) {
-      final shown = source.indexOf('SelectableText(\n              $secret');
-      // Both are copied through SecretCopyButton now, which also bounds how
-      // long they stay on the clipboard — see devices_clipboard_lifetime_test.
-      // The claim here is unchanged: the control that copies them is enclosed
-      // by the guard, not merely the text that displays them.
+      // Both are shown through SecretText and copied through SecretCopyButton
+      // now: the first has no selection to copy from and the second bounds how
+      // long the value stays on the clipboard — see
+      // devices_clipboard_lifetime_test. The claim here is unchanged: the
+      // guard encloses both the display and the control, not merely one.
+      final shown = source.indexOf('SecretText($secret');
       final copied = source.indexOf('value: () => $secret');
+      expect(shown, isNonNegative, reason: 'display of $secret moved');
       expect(copied, isNonNegative, reason: 'copy button for $secret moved');
       expect(
         copied,
         greaterThan(guard),
         reason: '$secret is copied outside the guard',
       );
-      if (shown >= 0) {
-        expect(shown, greaterThan(guard), reason: '$secret is shown outside the guard');
-      }
+      expect(
+        shown,
+        greaterThan(guard),
+        reason: '$secret is shown outside the guard',
+      );
     }
   });
 
+  test('the device-adoption sheet is inside the capture guard too', () async {
+    // The recovery sheet was guarded and this one was not, and the reasoning
+    // that left it out does not survive being said aloud: a QR is not a
+    // picture of a secret, it IS the secret. `QrImageView` is handed the
+    // adoption token verbatim, so a screenshot — or a phone camera across a
+    // desk, which no flag stops but which the printed token beside it invites
+    // anyway — carries the whole capability to adopt a device into this
+    // identity's group. The sheet also takes the recovery code or phrase in
+    // its first branch, which is the same secret the guarded sheet protects.
+    final source =
+        await File('lib/features/settings/devices_screen.dart').readAsString();
+
+    final sheet = source.indexOf('class _SourceLinkSheetState');
+    expect(sheet, isNonNegative, reason: 'the adoption sheet was renamed');
+    // Bounded at the next class so a guard belonging to some later widget
+    // cannot be mistaken for this one's.
+    final end = source.indexOf('\nclass ', sheet);
+    expect(end, greaterThan(sheet));
+    final body = source.substring(sheet, end);
+
+    expect(
+      body.contains('SecureScreenGuard('),
+      isTrue,
+      reason: 'the sheet that shows the adoption token, as a QR and as text, '
+          'can be screenshotted and screen-recorded',
+    );
+    final qr = body.indexOf('QrImageView(data: _token!');
+    expect(qr, isNonNegative, reason: 'the adoption QR moved');
+    expect(
+      qr,
+      greaterThan(body.indexOf('SecureScreenGuard(')),
+      reason: 'the QR is rendered outside the guard',
+    );
+  });
 }
