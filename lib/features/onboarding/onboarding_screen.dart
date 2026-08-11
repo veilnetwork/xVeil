@@ -7,15 +7,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/log.dart';
 import '../../core/secure_screen.dart';
 import '../../data/identity/veil_identity.dart';
+import '../../data/node/bundled_seeds.dart';
 import '../../domain/identity.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
+import '../../state/providers.dart';
+import 'bundled_seeds_choice.dart';
 import 'recovery_phrase_input.dart';
 
 /// First-launch wizard. Steps:
-///   0 welcome → 1 choose path → 2 recovery phrase → 3 storage mode → 4 password
-///   restore:             1 → 5 phrase entry → 3 storage mode → 4 password
-///   link:                1 → 6 what happens → 3 storage mode → 4 password
+///   0 welcome → 1 choose path → 2 recovery phrase → 3 storage mode →
+///   7 network entry → 4 password
+///   restore:             1 → 5 phrase entry → 3 → 7 → 4
+///   link:                1 → 6 what happens → 3 → 7 → 4
 ///
 /// Create and restore both drive the deterministic first-boot identity
 /// derivation from the phrase (P2/P3). A file-based backup action is
@@ -50,6 +54,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// device waiting to be adopted.
   bool _joinExisting = false;
   StorageMode _mode = StorageMode.hiddenSpace;
+
+  /// Whether this identity may reach the network through the project's shared
+  /// seed nodes. Defaults to yes — the same answer every install made before
+  /// there was a question — so someone who walks through without reading has
+  /// the app that works, and only a deliberate tap takes it off the network.
+  bool _useBundledSeeds = kBundledSeedsDefault;
   final _passwordCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
   bool _busy = false;
@@ -111,6 +121,20 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _finishError = null;
     });
     try {
+      // BEFORE the container and the node exist, deliberately. The node config
+      // is composed during `completeOnboarding`, and it resolves this answer
+      // from the preference store — so writing it afterwards would boot the
+      // first node on the previous answer and hand the shared seeds to someone
+      // who had just declined them. The provider is set in the same breath
+      // because the boot config was assembled back in `main`, before the
+      // question was asked (see [bundledSeedsChoiceProvider]).
+      final saved = await setBundledSeedsAllowed(_useBundledSeeds);
+      ref.read(bundledSeedsChoiceProvider.notifier).state = _useBundledSeeds;
+      if (!saved && mounted) {
+        // Say so rather than show a choice that did not stick. Not fatal: the
+        // session that follows still runs on the answer just given.
+        setState(() => _finishError = AppL10n.of(context).seedsSaveFailed);
+      }
       await ref
           .read(appControllerProvider.notifier)
           .completeOnboarding(
@@ -148,7 +172,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             : IconButton(
                 icon: const Icon(Icons.arrow_back),
                 onPressed: () => _go(switch (_step) {
-                  4 => 3,
+                  4 => 7,
+                  7 => 3,
                   2 || 5 || 6 => 1,
                   _ => 0,
                 }),
@@ -179,6 +204,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             3 => _StorageChoice(
               mode: _mode,
               onChanged: (m) => setState(() => _mode = m),
+              onNext: () => _go(7),
+            ),
+            7 => BundledSeedsChoiceStep(
+              useBundledSeeds: _useBundledSeeds,
+              onChanged: (v) => setState(() => _useBundledSeeds = v),
               onNext: () => _go(4),
             ),
             _ => _PasswordStep(

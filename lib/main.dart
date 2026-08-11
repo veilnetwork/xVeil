@@ -18,6 +18,8 @@ import 'package:veil_flutter/veil_flutter.dart' as veil;
 import 'app.dart';
 import 'desktop/desktop_tray.dart';
 import 'domain/content_manifest.dart';
+import 'data/node/bundled_seeds.dart'
+    show bundledSeedsAllowed, resolveBootstrapPeers;
 import 'data/node/embedded_node.dart';
 import 'data/node/node_controller.dart';
 import 'data/storage/app_profile.dart';
@@ -475,9 +477,22 @@ Future<BootstrapResult> _bootstrapOverrides() async {
     // every production seed — trading one single point of failure for
     // another. Both sets ride together, env entries first (an operator who
     // names a host meant it to be tried), deduplicated by public key.
-    final bootstrapPeers = mergeBootstrapPeers(
-      _loadBootstrapPeers(),
-      await _loadBundledSeeds(),
+    //
+    // BUILT from this identity's answer to the shared-seed question, not
+    // filtered afterwards: when the seeds are declined they are never merged
+    // in, so nothing downstream is ever holding an address it could decide to
+    // fall back to. The operator's env file survives either answer — declining
+    // the SHARED seeds is not declining a node you named yourself. The other
+    // half of the opt-out is `builtin_seed_policy = "never"` in the composed
+    // node config (see [EmbeddedNode.withBuiltinSeedPolicy]); without it the
+    // node dials its compiled-in seeds regardless of what this list holds.
+    final useBundledSeeds = await bundledSeedsAllowed();
+    final operatorPeers = _loadBootstrapPeers();
+    final bundledSeeds = await _loadBundledSeeds();
+    final bootstrapPeers = resolveBootstrapPeers(
+      operatorPeers: operatorPeers,
+      bundledSeeds: bundledSeeds,
+      useBundledSeeds: useBundledSeeds,
     );
     // XVEIL_OBFS4_PSK: base64 deployment-wide obfs4 key for networks that pin
     // one (testnet/production). Without it, dialing obfs4 bootstrap peers fails
@@ -490,12 +505,25 @@ Future<BootstrapResult> _bootstrapOverrides() async {
     // deliberately inject no central endpoint into the per-identity config.
     const udpReflectors = <String>[];
     overrides.add(
-      deniableBootProvider.overrideWithValue(
-        DeniableBootConfig(
+      bundledSeedsChoiceProvider.overrideWith((ref) => useBundledSeeds),
+    );
+    // `overrideWith` rather than `overrideWithValue`: the peer list is REBUILT
+    // whenever the answer changes, which is what makes the choice effective on
+    // the launch it is made. Everything expensive (claiming the runtime dir,
+    // reading the asset) already happened above and is captured — the closure
+    // only composes an immutable value, so a rebuild has no side effects. Every
+    // consumer `ref.read`s this, so nothing re-renders off the back of it.
+    overrides.add(
+      deniableBootProvider.overrideWith(
+        (ref) => DeniableBootConfig(
           runtimeDir: runtimeDir,
           listenPort: port,
           storePath: storePath,
-          bootstrapPeers: bootstrapPeers,
+          bootstrapPeers: resolveBootstrapPeers(
+            operatorPeers: operatorPeers,
+            bundledSeeds: bundledSeeds,
+            useBundledSeeds: ref.watch(bundledSeedsChoiceProvider),
+          ),
           udpReflectors: udpReflectors,
           obfs4Psk: (obfs4Psk != null && obfs4Psk.isNotEmpty) ? obfs4Psk : null,
         ),
@@ -512,6 +540,7 @@ Future<BootstrapResult> _bootstrapOverrides() async {
       () =>
           'xVeil[real:deniable]: armed (runtimeDir=$runtimeDir port=$port '
           'bootstrapPeers=${bootstrapPeers.length} '
+          'bundledSeeds=$useBundledSeeds '
           'obfs4Psk=${obfs4Psk != null && obfs4Psk.isNotEmpty} '
           'udpReflectors=${udpReflectors.length})',
     );

@@ -7,6 +7,7 @@ import 'package:xveil/core/cleanup_legs.dart';
 import 'package:xveil/core/posix_file_facts.dart';
 
 import 'native_libs.dart' show openEnvLib, processLibFor;
+import 'node/bundled_seeds.dart' show bundledSeedsAllowed;
 import 'node/embedded_node.dart';
 import 'node/node_controller.dart';
 import 'node/proxy_routing.dart';
@@ -740,7 +741,18 @@ class RealVeilStack {
     // itself is never persisted (the derived [Identity] TOML goes into the
     // deniable container like the mined one always has).
     String? identityPhrase,
+    // Whether this identity may reach the network through the SHARED seed
+    // nodes. Null resolves it from the profile's own preference, which is what
+    // every real boot wants: the node config is composed down here, below the
+    // providers, and resolving it at this one point is what makes the opt-out
+    // impossible for a caller to forget. Tests pass it explicitly.
+    //
+    // It is NOT enough to hand over an empty peer list — see
+    // [EmbeddedNode.withBuiltinSeedPolicy] for the compiled-in seeds the node
+    // would otherwise dial entirely on its own.
+    bool? useBundledSeeds,
   }) async {
+    final seedsAllowed = useBundledSeeds ?? await bundledSeedsAllowed();
     // Time each phase so the log pinpoints where a slow boot/switch goes (the
     // boot is mining-free when the identity already exists, so a slow switch is
     // the node bind/connect, not PoW). Zero-cost diagnostic; reads at a glance.
@@ -791,6 +803,7 @@ class RealVeilStack {
         obfs4Psk: obfs4Psk,
         proxy: proxy,
         debugMetricsPort: debugMetricsPort,
+        useBundledSeeds: seedsAllowed,
       );
     } catch (_) {
       // A boot that never completed still made a directory; nothing else will
@@ -829,6 +842,7 @@ class RealVeilStack {
     required String? obfs4Psk,
     required ProxyRouting proxy,
     required int? debugMetricsPort,
+    required bool useBundledSeeds,
   }) async {
     final runtimeDir = lease.path;
     // iOS application-container paths exceed sockaddr_un's SUN_LEN on both
@@ -882,6 +896,7 @@ class RealVeilStack {
       udpReflectors: udpReflectors,
       obfs4PskFile: obfs4PskFile,
       proxy: proxy,
+      useBundledSeeds: useBundledSeeds,
     );
     // Debug stands only: loopback Prometheus metrics for the embedded node,
     // the per-node twin of a relay's [metrics] endpoint. Never binds a

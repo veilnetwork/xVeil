@@ -6180,4 +6180,59 @@ class AppL10nEn extends AppL10n {
   String settingsApiTokenCopiedClears(int seconds) {
     return 'Token copied. The clipboard will be cleared in $seconds seconds.';
   }
+
+  @override
+  String get seedsChoiceTitle => 'How this device finds the network';
+
+  @override
+  String get seedsChoiceBody =>
+      'xVeil has no central server, so a new device needs at least one node it can reach before anything else can happen. Choose how this identity gets its first one.';
+
+  @override
+  String get seedsUseTitle => 'Use the shared entry nodes (recommended)';
+
+  @override
+  String get seedsUseBody =>
+      'The app connects on its own, with nothing for you to configure. These nodes are run by the project, and they learn that a node of yours exists and which address it connects from — not who you are, and not what you send.';
+
+  @override
+  String get seedsDeclineTitle => 'Only nodes I add myself';
+
+  @override
+  String get seedsDeclineBody =>
+      'No shared node is contacted, so nobody else\'s server learns that this identity exists. Nothing works until you add a node yourself: messages cannot be sent and none will arrive.';
+
+  @override
+  String get seedsChoiceChangeLater =>
+      'You can change this later in Network settings.';
+
+  @override
+  String get seedsReofferTitle => 'This identity cannot reach the network';
+
+  @override
+  String get seedsReofferBody =>
+      'You chose to use only nodes you add yourself, and none has been added. Until one is, no message can be sent or received. You can add your own node now, or use the shared entry nodes after all — they learn that a node of yours exists and which address it connects from.';
+
+  @override
+  String get seedsReofferUse => 'Use the shared nodes';
+
+  @override
+  String get seedsReofferKeep => 'Keep my choice';
+
+  @override
+  String get seedsReofferDontAsk => 'Don\'t show this again';
+
+  @override
+  String get seedsNoNodeTitle => 'No way to reach the network yet';
+
+  @override
+  String get seedsNoNodeBody =>
+      'This identity does not use the shared entry nodes, so it needs a node of your own. Add one and the app will connect.';
+
+  @override
+  String get seedsNoNodeAction => 'Add my node';
+
+  @override
+  String get seedsSaveFailed =>
+      'That choice could not be saved. It applies to this session only.';
 }

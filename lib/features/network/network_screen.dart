@@ -7,6 +7,7 @@ import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../common/shown_cause.dart';
 import '../../core/error_journal.dart';
+import '../../data/node/bundled_seeds.dart' show shouldOfferBundledSeeds;
 import '../../data/node/node_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
@@ -96,6 +97,11 @@ class NetworkScreen extends ConsumerWidget {
             data: (s) =>
                 _StatusCard(phase: s.phase, peers: peers, message: s.message),
           ),
+          // An identity that declined the shared entry nodes and has added none
+          // of its own cannot reach anything, and the status card above says
+          // only "offline" — which reads as a fault. Name the actual reason and
+          // the way out, on the screen someone lands on when nothing works.
+          const _NoWayToTheNetworkCard(),
           const Divider(),
           // Secondary controls: proxy routing (oproxy SOCKS5 client + exit) is
           // live below; node management (ogate, SSH provisioning) is still a
@@ -203,6 +209,82 @@ class NetworkScreen extends ConsumerWidget {
           // and is merely switched off. The strings stay in the ARB files so
           // restoring the entry is one widget, not a translation round.
         ],
+      ),
+    );
+  }
+}
+
+/// Why this identity is offline, when the reason is that it was told to be.
+///
+/// Shown on exactly the state [shouldOfferBundledSeeds] describes — declined
+/// and nothing to connect through — minus the suppression, which silences the
+/// startup PROMPT and is not a request to be lied to on the network screen. The
+/// difference between a choice and a trap is whether the app says what to do
+/// next; a person who ticked "don't show this again" still deserves the answer
+/// when they come looking for it.
+class _NoWayToTheNetworkCard extends ConsumerWidget {
+  const _NoWayToTheNetworkCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (ref.watch(bundledSeedsChoiceProvider)) return const SizedBox.shrink();
+    // Here — unlike the startup prompt — the LIVE peer count is worth watching
+    // too: this screen is looked at over time, not sampled once at boot, so a
+    // node that has since connected to something should stop being told it
+    // cannot reach anything.
+    final livePeers = ref.watch(peersProvider).asData?.value.length ?? 0;
+    if (!shouldOfferBundledSeeds(
+      useBundledSeeds: false,
+      // The card answers "why is nothing working", which a silenced prompt does
+      // not stop being a fair question — so suppression is not consulted.
+      reofferSuppressed: false,
+      ownNodeCount: ref.watch(managedNodesProvider).asData?.value.length ?? 0,
+      configuredPeerCount:
+          (ref.watch(deniableBootProvider)?.bootstrapPeers.length ?? 0) +
+          livePeers,
+    )) {
+      return const SizedBox.shrink();
+    }
+    final l = AppL10n.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      color: scheme.errorContainer,
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.link_off, color: scheme.onErrorContainer),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    l.seedsNoNodeTitle,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: scheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              l.seedsNoNodeBody,
+              style: TextStyle(color: scheme.onErrorContainer),
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.icon(
+                icon: const Icon(Icons.add),
+                label: Text(l.seedsNoNodeAction),
+                onPressed: () => context.push('/nodes'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
