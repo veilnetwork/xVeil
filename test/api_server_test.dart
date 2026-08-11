@@ -3619,6 +3619,155 @@ void main() {
       },
     );
 
+    test(
+      'one endless message cannot outgrow the raw socket ceiling',
+      () async {
+        // Audit XV-M2. The budget above is charged in the `ws.listen`
+        // callback, which dart:io reaches only after it has JOINED every frame
+        // of a message: `websocket_impl.dart` assembles into a
+        // `BytesBuilder(copy: false)` with no length check on the path, and
+        // `WebSocketTransformer.upgrade` exposes no size parameter to add one.
+        // So a message that NEVER ENDS — FIN=0, then continuation frames
+        // forever — is allocated in full before a single byte of it is
+        // charged, and the budget never fires at all. The test above passes
+        // the whole time, because it sends messages that finish.
+        //
+        // Any token reaches this. The gate on the feed checks that the token
+        // exists, not what it is allowed to do, so the cheapest read-only
+        // credential in the app buys an unbounded allocation.
+        //
+        // RAW SOCKET, because a `WebSocket` client will not send a message it
+        // never finishes — the endless message has to be framed by hand.
+        final events = StreamController<Map<String, dynamic>>.broadcast();
+        final server = ApiServer(twoTokens(), events.stream);
+        final port = await server.start(0);
+        addTearDown(() async {
+          await events.close();
+          await server.stop();
+        });
+
+        final socket = await Socket.connect('127.0.0.1', port!);
+        addTearDown(socket.destroy);
+        unawaited(socket.done.catchError((Object _) => socket));
+
+        final fromServer = <int>[];
+        final dead = Completer<void>();
+        void die() {
+          if (!dead.isCompleted) dead.complete();
+        }
+
+        socket.listen(
+          fromServer.addAll,
+          onDone: die,
+          onError: (Object _) => die(),
+        );
+
+        socket.write(
+          'GET /v1/events?token=tok-a HTTP/1.1\r\n'
+          'Host: 127.0.0.1:$port\r\n'
+          'Upgrade: websocket\r\n'
+          'Connection: Upgrade\r\n'
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
+          'Sec-WebSocket-Version: 13\r\n'
+          '\r\n',
+        );
+        await socket.flush();
+        for (var spin = 0; spin < 500; spin++) {
+          if (String.fromCharCodes(fromServer).contains('\r\n\r\n')) break;
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        final head = String.fromCharCodes(fromServer);
+        expect(
+          head,
+          startsWith('HTTP/1.1 101'),
+          reason: 'the upgrade is now done by hand, so the handshake itself is '
+              'part of what this pins',
+        );
+        expect(
+          head.toLowerCase(),
+          contains('upgrade: websocket'),
+          reason: 'a 101 without the upgrade header is not an upgrade',
+        );
+        expect(
+          head,
+          // RFC 6455 §1.3's worked example for the key sent above. A cap
+          // bought with a handshake nobody can complete is not a fix.
+          contains('s3pPLMBiTxaQ9kYGzzhZRbK+xOo='),
+          reason: 'Sec-WebSocket-Accept must be base64(sha1(key + GUID))',
+        );
+        final handshakeBytes = fromServer.length;
+
+        // FIN=0 forever: the first fragment opens a binary message, every one
+        // after it continues the same message, and none of them ever ends it.
+        const payloadBytes = 0xFFFF;
+        const frameBytes = 8 + payloadBytes;
+        Uint8List fragment({required bool first}) {
+          final frame = Uint8List(frameBytes);
+          frame[0] = first ? 0x02 : 0x00; // FIN=0; binary, then continuation
+          frame[1] = 0x80 | 126; // MASKED, 16-bit length follows
+          frame[2] = 0xFF;
+          frame[3] = 0xFF;
+          // Bytes 4-7 are the masking key, left at zero: the server requires
+          // a key from a client, not an interesting one, and zeros make the
+          // payload its own plaintext.
+          return frame;
+        }
+
+        // The 256 KiB ceiling falls inside the fourth fragment. Sixteen is a
+        // megabyte — four times the room the cap needs, and an amount the old
+        // code swallowed whole without noticing.
+        const fragments = 16;
+        var written = 0;
+        for (var i = 0; i < fragments && !dead.isCompleted; i++) {
+          try {
+            socket.add(fragment(first: i == 0));
+            await socket.flush();
+          } catch (_) {
+            break; // dropped mid-write, which is the outcome under test
+          }
+          written += frameBytes;
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+
+        await dead.future.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => fail(
+            'one endless message was assembled without limit: the server held '
+            '${written ~/ 1024} KiB of a message it can never deliver, and '
+            'would have held as much again for the asking',
+          ),
+        );
+        expect(
+          written,
+          greaterThanOrEqualTo(ApiServer.kEventFeedRawSocketCeiling),
+          reason: 'the raw cap is a BACKSTOP under the inbound byte budget, '
+              'not a replacement for it — firing below the documented budget '
+              'would tear down clients that rule says are in good standing',
+        );
+        expect(
+          written,
+          lessThanOrEqualTo(ApiServer.kEventFeedRawSocketCeiling * 2),
+          reason: 'and it must stop NEAR the ceiling: a cap that only fires '
+              'eventually is a slower leak, not a bounded one',
+        );
+        expect(
+          fromServer,
+          hasLength(handshakeBytes),
+          reason: 'not one byte came back after the handshake, which is how we '
+              'know no message was ever delivered: a joined message would '
+              'have been charged to the inbound budget and answered with a '
+              '1008 close frame',
+        );
+
+        // A destroyed socket still has to give its slot back, or the cap has
+        // traded an unbounded allocation for the wedged-at-503 feed.
+        for (var spin = 0; spin < 200 && server.liveSocketCount > 0; spin++) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        expect(server.liveSocketCount, 0);
+      },
+    );
+
     test('stop() disconnects live subscribers', () async {
       // `HttpServer.close(force: true)` does NOT take upgraded WebSockets with
       // it — measured: the socket stays open and writable afterwards. This is
