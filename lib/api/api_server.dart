@@ -16,6 +16,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' as crypto;
+
 import '../domain/group_message.dart';
 import '../domain/space_abuse_report.dart';
 import '../domain/space_moderation.dart';
@@ -6496,6 +6498,117 @@ class _BodyOutcome {
 /// it back to a token, so revoking that token, switching off the API or moving
 /// to another identity left it connected and being fed. Binding it to the
 /// token id is what makes "close what this token opened" expressible at all.
+/// A [Socket] that counts the RAW BYTES a peer pushes at us and destroys the
+/// connection past [ceiling] (audit XV-M2).
+///
+/// ## Why the count has to live down here
+///
+/// The event feed already charges a subscriber for what it sends, but it does
+/// so in the `ws.listen` callback — which `dart:io` reaches only after it has
+/// JOINED every frame of a message. `websocket_impl.dart` assembles into a
+/// `BytesBuilder(copy: false)` with no length check anywhere on the path, and
+/// `WebSocketTransformer.upgrade` exposes no size parameter to supply one. So
+/// one message that never ends — FIN=0, then continuation frames forever —
+/// allocates without bound, and no counting the handler can do happens in
+/// time, because the allocation is what delivers the message.
+///
+/// A counter on the SOCKET has no such ordering problem. The assembly buffer
+/// can only ever hold bytes that crossed the socket, so bounding those bounds
+/// it, and it does so without knowing anything about framing: no opcode, no
+/// length field, no continuation state to be wrong about.
+///
+/// Past the ceiling the connection is DESTROYED rather than closed politely. A
+/// WebSocket close is a handshake, and a peer that is mid-message and not
+/// listening is exactly the peer that will not complete one; waiting for it
+/// would mean holding the buffer we are trying to drop.
+///
+/// The overriding is deliberately one method wide. `dart:io` touches the
+/// socket only as a stream (`transformer.bind`), and through `addStream`,
+/// `close` and `destroy` on the way out — all of which delegate untouched, so
+/// this class changes what the socket ADMITS and nothing about what it is.
+class _CappedSocket extends Stream<Uint8List> implements Socket {
+  _CappedSocket(this._inner, this.ceiling);
+
+  final Socket _inner;
+
+  /// Raw bytes this peer may send before the connection is destroyed.
+  final int ceiling;
+
+  int _read = 0;
+
+  @override
+  StreamSubscription<Uint8List> listen(
+    void Function(Uint8List event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) {
+    return _inner.listen(
+      (chunk) {
+        _read += chunk.length;
+        if (_read > ceiling) {
+          // NOT FORWARDED, and that is the whole point: the chunk that crosses
+          // the line is the one that must not reach the assembly buffer. The
+          // destroy below fires `onDone` through the inner stream, so the
+          // WebSocket above still learns the connection is over and the
+          // subscription slot comes back through the ordinary path.
+          _inner.destroy();
+          return;
+        }
+        onData?.call(chunk);
+      },
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: cancelOnError,
+    );
+  }
+
+  @override
+  Encoding get encoding => _inner.encoding;
+  @override
+  set encoding(Encoding value) => _inner.encoding = value;
+  @override
+  void add(List<int> data) => _inner.add(data);
+  @override
+  void addError(Object error, [StackTrace? stackTrace]) =>
+      _inner.addError(error, stackTrace);
+  @override
+  Future<void> addStream(Stream<List<int>> stream) => _inner.addStream(stream);
+  @override
+  Future<void> flush() => _inner.flush();
+  @override
+  Future<void> close() => _inner.close();
+  @override
+  Future<void> get done => _inner.done;
+  @override
+  void write(Object? object) => _inner.write(object);
+  @override
+  void writeAll(Iterable<Object?> objects, [String separator = '']) =>
+      _inner.writeAll(objects, separator);
+  @override
+  void writeCharCode(int charCode) => _inner.writeCharCode(charCode);
+  @override
+  void writeln([Object? object = '']) => _inner.writeln(object);
+  @override
+  void destroy() => _inner.destroy();
+  @override
+  bool setOption(SocketOption option, bool enabled) =>
+      _inner.setOption(option, enabled);
+  @override
+  Uint8List getRawOption(RawSocketOption option) =>
+      _inner.getRawOption(option);
+  @override
+  void setRawOption(RawSocketOption option) => _inner.setRawOption(option);
+  @override
+  InternetAddress get address => _inner.address;
+  @override
+  int get port => _inner.port;
+  @override
+  InternetAddress get remoteAddress => _inner.remoteAddress;
+  @override
+  int get remotePort => _inner.remotePort;
+}
+
 class _LiveSocket {
   _LiveSocket(this.socket, this.tokenId);
 
@@ -6668,18 +6781,24 @@ class ApiServer {
   ///
   /// It is counted AFTER each message is materialised, so ONE message larger
   /// than the whole budget is allocated in full before it is ever charged.
-  /// That is not an oversight and it is not fixable here: `dart:io` exposes no
+  /// That is not an oversight and it is not fixable HERE: `dart:io` exposes no
   /// per-message ceiling on a `WebSocket`. It joins every frame of a message
   /// into one `String`/`List<int>` and only then delivers it, so any counting
   /// this class can do necessarily happens downstream of the allocation. What
   /// the budget bounds is the SUM across messages, which is what stops a drip
-  /// feed; a single huge message is bounded only by the process.
+  /// feed.
   ///
-  /// What took the teeth out of that remainder is compression being OFF (see
-  /// the upgrade below). The danger was amplification — a few kilobytes of
-  /// zeros on the wire inflating to gigabytes in here, with no ratio limit —
-  /// and without deflate a peer now has to actually send every byte it wants
-  /// us to hold.
+  /// A single endless message is bounded a layer DOWN, by
+  /// [kEventFeedRawSocketCeiling] — see `_CappedSocket`. That is why this one
+  /// gets to stay the precise rule: it is the one that says what a subscriber
+  /// may send, and the raw ceiling only says what it may make us hold while
+  /// saying it.
+  ///
+  /// What took the teeth out of the remainder in the meantime is compression
+  /// being OFF (see the upgrade below). The danger was amplification — a few
+  /// kilobytes of zeros on the wire inflating to gigabytes in here, with no
+  /// ratio limit — and without deflate a peer now has to actually send every
+  /// byte it wants us to hold.
   ///
   /// ## Why the inbound stream is listened to at all
   ///
@@ -6693,6 +6812,65 @@ class ApiServer {
   /// restarted. The inbound stream is not read for its data. It is the
   /// disconnect signal, and there is no other.
   static const kEventFeedInboundByteBudget = 64 * 1024;
+
+  /// Raw bytes a subscriber may push across the SOCKET before the connection
+  /// is destroyed (audit XV-M2). The backstop under
+  /// [kEventFeedInboundByteBudget], enforced by `_CappedSocket`.
+  ///
+  /// STRICTLY ABOVE the app-level budget, and the order matters more than
+  /// either number. A subscriber that sends too much should be answered by the
+  /// rule that is written down — a 1008 close saying the feed is not an upload
+  /// — not by having its connection torn out from under it. Set this below 64
+  /// KiB and the raw cap starts firing first, so honest clients meet the blunt
+  /// instrument and the documented budget becomes unreachable.
+  ///
+  /// 256 KiB leaves room for the budget plus frame headers, masks and the
+  /// slack of a peer that sends its last message in one piece. It does not
+  /// need tuning: nothing legitimate sends anything here at all.
+  static const kEventFeedRawSocketCeiling = 256 * 1024;
+
+  /// RFC 6455's handshake constant, concatenated with the client's key and
+  /// hashed to prove we understood the request.
+  static const _webSocketGuid = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+
+  /// The upgrade `WebSocketTransformer.upgrade` would do, with the socket
+  /// wrapped in a byte cap on the way past (audit XV-M2).
+  ///
+  /// By hand because there is no seam: the transformer detaches the socket and
+  /// hands it to the `WebSocket` in one step, with nothing in between to wrap
+  /// and no size parameter to pass instead. The steps below mirror
+  /// `websocket_impl.dart` exactly — 101, `Connection: Upgrade`, `Upgrade:
+  /// websocket`, and `Sec-WebSocket-Accept` over the client's key.
+  ///
+  /// Nothing is validated here because `WebSocketTransformer.isUpgradeRequest`
+  /// already did it at the gate: method, both handshake headers, version 13
+  /// and the presence of the key. Re-checking would be a second opinion on the
+  /// same headers; the `!` below is that check's guarantee, not an assumption.
+  ///
+  /// No `Sec-WebSocket-Extensions` goes out, which is how deflate stays off —
+  /// the same outcome `CompressionOptions.compressionOff` bought before, now
+  /// by simply never agreeing to it.
+  Future<WebSocket> _upgradeCapped(HttpRequest req) async {
+    final key = req.headers.value('Sec-WebSocket-Key')!;
+    final accept = base64Encode(
+      crypto.sha1.convert(utf8.encode('$key$_webSocketGuid')).bytes,
+    );
+    final res = req.response
+      ..statusCode = HttpStatus.switchingProtocols
+      ..headers.add(HttpHeaders.connectionHeader, 'Upgrade')
+      ..headers.add(HttpHeaders.upgradeHeader, 'websocket')
+      ..headers.add('Sec-WebSocket-Accept', accept);
+    res.headers.contentLength = 0;
+    final sock = await res.detachSocket();
+    return WebSocket.fromUpgradedSocket(
+      _CappedSocket(sock, kEventFeedRawSocketCeiling),
+      // SERVER SIDE. Left off, the socket masks everything it sends — which is
+      // what a CLIENT does — and every subscriber drops the feed as a protocol
+      // error.
+      serverSide: true,
+      compression: CompressionOptions.compressionOff,
+    );
+  }
 
   Future<int?> start(int port) async {
     if (_server != null) return _server!.port;
@@ -6898,10 +7076,13 @@ class ApiServer {
         // It costs nothing to give up. This feed is one-way and its messages
         // are small JSON notices; deflate was never buying anything here, so
         // the whole class goes away rather than being bounded.
-        ws = await WebSocketTransformer.upgrade(
-          req,
-          compression: CompressionOptions.compressionOff,
-        );
+        //
+        // BY HAND (audit XV-M2), so the socket can be wrapped in a raw byte
+        // cap before the `WebSocket` starts assembling from it. See
+        // `_upgradeCapped`: the transformer offers no seam and no ceiling, so
+        // one endless message could allocate without bound under a token that
+        // is allowed nothing else.
+        ws = await _upgradeCapped(req);
       } catch (_) {
         release(); // an upgrade that failed must not hold a slot forever
         return;
