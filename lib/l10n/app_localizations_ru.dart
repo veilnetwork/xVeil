@@ -146,7 +146,12 @@ class AppL10nRu extends AppL10n {
       'Эти 24 слова — и есть ваша личность. Любой, у кого они есть, управляет ею; потеряете — восстановить будет невозможно. Запишите их на бумаге и храните в надёжном месте. Никогда не храните их в сети и не фотографируйте.';
 
   @override
-  String get recoveryConfirm => 'Я записал(а) фразу восстановления';
+  String get recoveryNumbered =>
+      'Слова пронумерованы с 1 по 24. Не продолжайте, пока не запишете слово номер 24.';
+
+  @override
+  String get recoveryConfirm =>
+      'Я записал(а) все 24 слова, последнее — номер 24';
 
   @override
   String get recoveryPlaceholderWarning =>
@@ -5267,6 +5272,21 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get devicesCopyCode => 'Копировать код восстановления';
+
+  @override
+  String devicesCertificateCopiedClears(int seconds) {
+    return 'Сертификат скопирован. Буфер обмена очистится через $seconds с.';
+  }
+
+  @override
+  String devicesCodeCopiedClears(int seconds) {
+    return 'Код восстановления скопирован. Буфер обмена очистится через $seconds с.';
+  }
+
+  @override
+  String devicesTokenCopiedClears(int seconds) {
+    return 'Токен настройки скопирован. Буфер обмена очистится через $seconds с.';
+  }
 
   @override
   String get devicesRecovered =>

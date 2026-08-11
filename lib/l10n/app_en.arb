@@ -39,7 +39,11 @@
   "startupFailedAction": "Close xVeil and open it again. If it keeps happening, reinstall it from the release page.",
   "recoveryTitle": "Save your recovery phrase",
   "recoveryBody": "These 24 words ARE your identity. Anyone with them controls it; lose them and it is gone forever. Write them on paper and store them somewhere safe. Never store them online or photograph them.",
-  "recoveryConfirm": "I have written down my recovery phrase",
+  "recoveryNumbered": "The words are numbered 1 to 24. Do not continue until you have written down number 24.",
+  "@recoveryNumbered": {
+    "description": "Says how many words there are and which one proves the list is complete. The grid used to end flush with the container edge, so a phone that could not fit all 24 showed a list that looked finished at 21."
+  },
+  "recoveryConfirm": "I have written down all 24 words, ending with number 24",
   "recoveryPlaceholderWarning": "These are PLACEHOLDER words. The identity generator is unavailable in this build, so the identity is being minted randomly and these words restore nothing. Do not write them down as a backup.",
   "storageTitle": "How should we store your data?",
   "storageHiddenTitle": "Hidden space (recommended)",
@@ -2237,6 +2241,30 @@
   "devicesCertificateWarning": "Anyone with both values controls your sovereign device identity. Store the certificate and code separately. The code is shown only now.",
   "devicesCopyCertificate": "Copy certificate",
   "devicesCopyCode": "Copy recovery code",
+  "devicesCertificateCopiedClears": "Certificate copied. The clipboard will be cleared in {seconds} seconds.",
+  "@devicesCertificateCopiedClears": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "devicesCodeCopiedClears": "Recovery code copied. The clipboard will be cleared in {seconds} seconds.",
+  "@devicesCodeCopiedClears": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "devicesTokenCopiedClears": "Setup token copied. The clipboard will be cleared in {seconds} seconds.",
+  "@devicesTokenCopiedClears": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
   "devicesRecovered": "Device registry recovered with the same sovereign node ID",
   "devicesFreshRegistryRequired": "Recovery requires a fresh device registry",
   "actionReject": "Reject",
