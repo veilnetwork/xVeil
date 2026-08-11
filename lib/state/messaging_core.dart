@@ -198,6 +198,17 @@ class MessagingService {
   }
 
   /// Attached by the P2P endpoint service: an inbound
+  /// A contact asking what translation or speech models this device holds.
+  ///
+  /// Answering is the service's decision, not this layer's: the set of
+  /// languages a device carries is information about the person, and there is
+  /// a setting for whether to give it out.
+  void Function(NodeId peer)? onModelInventoryRequest;
+
+  /// A contact's answer to that question — a JSON list of offer rows. The
+  /// service matches it against a question this device actually asked.
+  void Function(NodeId peer, String bodyJson)? onModelInventoryOffer;
+
   /// [WireKind.p2pEndpoints] direct-endpoint exchange ([bodyJson]) from an
   /// accepted [peer]. The service applies the LOCAL P2P policy before dialing
   /// anything or replying with its own endpoints — transport admission here
@@ -1260,6 +1271,27 @@ class MessagingService {
   /// [sentAtMs] so a refreshed endpoint set is a NEW frame (the old one may
   /// still be un-acked in the outbox); the receiver treats each frame
   /// idempotently and stale addresses simply fail to dial.
+  /// Ask [peer] what models they have, or answer that question.
+  ///
+  /// Live-only, on the realtime paths, exactly like a call heartbeat: nothing
+  /// durable, nothing acked, nothing re-driven, nothing in chat history. A
+  /// question the contact was not online to hear is a question nobody heard,
+  /// and a durable one would arrive days later to answer something long since
+  /// settled -- with a list of this device's languages attached.
+  Future<void> sendModelInventoryRequest(NodeId peer) =>
+      _realtimeControl.sendModelInventory(
+        peer,
+        const WireEnvelope.modelInventoryRequest(),
+        'model-ask',
+      );
+
+  Future<void> sendModelInventoryOffer(NodeId peer, String bodyJson) =>
+      _realtimeControl.sendModelInventory(
+        peer,
+        WireEnvelope.modelInventoryOffer(bodyJson),
+        'model-offer',
+      );
+
   Future<void> sendP2PEndpoints(
     NodeId peer,
     String bodyJson, {

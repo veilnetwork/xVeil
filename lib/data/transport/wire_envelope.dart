@@ -224,6 +224,27 @@ enum WireKind {
   /// removal outcome references, but never replaces, the ordinary signed
   /// moderation action that performed the deletion.
   spaceAbuseReportDecision,
+
+  /// "Which translation or speech models do you have?" Body is empty.
+  ///
+  /// The point of it is to work with no internet at all: a person on a network
+  /// where the publisher is unreachable can still get a model from someone
+  /// they already talk to. Accepted-contact gated on receive, and answering is
+  /// a local choice — the set of languages a device holds says something about
+  /// who is reading what, so a person can turn the answer off.
+  ///
+  /// Live-only and deliberately so: never durable, never ACKed, never written
+  /// to chat history, and never re-driven. A query that is lost because the
+  /// contact was offline is simply a question nobody heard, and a durable one
+  /// would arrive days later to answer a question long since settled.
+  /// Appended immediately before [unknown] (RULE WC).
+  modelInventoryRequest,
+
+  /// The answer to [modelInventoryRequest]: a JSON list of
+  /// `{kind, from?, to?, bytes}` rows and nothing else — no paths, no hashes,
+  /// nothing about the answering device. Same live-only, contact-gated
+  /// treatment as the request. Appended immediately before [unknown] (RULE WC).
+  modelInventoryOffer,
   unknown,
 }
 
@@ -264,7 +285,8 @@ const List<String> kWireKindOrder = [
   'spaceModerationAppealDecision', 'groupContentReceipt',
   'groupContentManifest', 'spacePublicFeedRequest', 'spacePublicFeedChunk',
   'spacePublicMediaGrantRequest', 'spaceAbuseReport',
-  'spaceAbuseReportDecision', 'unknown',
+  'spaceAbuseReportDecision', 'modelInventoryRequest', 'modelInventoryOffer',
+  'unknown',
 ];
 
 /// Slots that exist ONLY to hold their wire index, mapped to why they are dead.
@@ -487,6 +509,15 @@ class WireEnvelope {
   /// P2P direct-endpoint exchange frame — see [WireKind.p2pEndpoints].
   const WireEnvelope.p2pEndpoints(String bodyJson)
     : this(WireKind.p2pEndpoints, bodyJson);
+
+  /// "What models have you got?" — see [WireKind.modelInventoryRequest]. The
+  /// body is empty: the question has no parameters, and a version field would
+  /// only invite a sender to put something in it.
+  const WireEnvelope.modelInventoryRequest() : this(WireKind.modelInventoryRequest, '');
+
+  /// The answer — see [WireKind.modelInventoryOffer].
+  const WireEnvelope.modelInventoryOffer(String bodyJson)
+    : this(WireKind.modelInventoryOffer, bodyJson);
 
   const WireEnvelope.spaceInvite(String bodyJson)
     : this(WireKind.spaceInvite, bodyJson);
