@@ -58,6 +58,13 @@
   "lockWipeTypePrompt": "To confirm permanent deletion, type this phrase exactly:",
   "lockWipePhrase": "I understand the consequences",
   "lockWipeConfirm": "Delete forever",
+  "lockWipeLeftTitle": "Some of it is still on this device",
+  "lockWipeLeftContainer": "The container could not be deleted and is still on this device.",
+  "lockWipeLeftFiles": "The large files kept beside the container could not be deleted and are still on this device.",
+  "lockWipeLeftBoth": "Neither the container nor the large files kept beside it could be deleted, and both are still on this device.",
+  "lockWipeLeftRest": "Everything else was destroyed. Try again — if it keeps failing, something else on this computer is holding on to it, such as a backup tool or a read-only disk.",
+  "lockWipeStopped": "The deletion stopped partway through, so some of your data may still be on this device. Try again.",
+  "lockWipeRetry": "Try again",
   "navChats": "Chats",
   "navCommunities": "Communities",
   "navFeed": "Feed",
@@ -2527,7 +2534,16 @@
   "folderSyncCloudRoot": "Storage root",
   "folderSyncBusy": "Syncing…",
   "folderSyncDeleteWarning": "Deleting a file here deletes it in Storage too.",
+  "folderSyncNotAddedTitle": "This folder was not added",
+  "folderSyncNotAdded": "{reason}. Nothing was mirrored and nothing on this computer was changed. Choose a different folder — one inside your home folder, where only your own account can write.",
   "@folderSyncRefused": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "@folderSyncNotAdded": {
     "placeholders": {
       "reason": {
         "type": "String"

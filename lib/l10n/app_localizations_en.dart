@@ -209,6 +209,32 @@ class AppL10nEn extends AppL10n {
   String get lockWipeConfirm => 'Delete forever';
 
   @override
+  String get lockWipeLeftTitle => 'Some of it is still on this device';
+
+  @override
+  String get lockWipeLeftContainer =>
+      'The container could not be deleted and is still on this device.';
+
+  @override
+  String get lockWipeLeftFiles =>
+      'The large files kept beside the container could not be deleted and are still on this device.';
+
+  @override
+  String get lockWipeLeftBoth =>
+      'Neither the container nor the large files kept beside it could be deleted, and both are still on this device.';
+
+  @override
+  String get lockWipeLeftRest =>
+      'Everything else was destroyed. Try again — if it keeps failing, something else on this computer is holding on to it, such as a backup tool or a read-only disk.';
+
+  @override
+  String get lockWipeStopped =>
+      'The deletion stopped partway through, so some of your data may still be on this device. Try again.';
+
+  @override
+  String get lockWipeRetry => 'Try again';
+
+  @override
   String get navChats => 'Chats';
 
   @override
@@ -5833,6 +5859,14 @@ class AppL10nEn extends AppL10n {
   @override
   String get folderSyncDeleteWarning =>
       'Deleting a file here deletes it in Storage too.';
+
+  @override
+  String get folderSyncNotAddedTitle => 'This folder was not added';
+
+  @override
+  String folderSyncNotAdded(String reason) {
+    return '$reason. Nothing was mirrored and nothing on this computer was changed. Choose a different folder — one inside your home folder, where only your own account can write.';
+  }
 
   @override
   String get settingsCopyErrors => 'Copy error report';

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/features/lock/lock_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/app_controller.dart';
+import 'package:xveil/state/providers.dart';
 import 'dart:io';
 import 'package:xveil/data/whisper_model_store.dart';
 import 'package:xveil/state/whisper_model_controller.dart';
@@ -146,6 +147,220 @@ void main() {
     expect(container.read(appControllerProvider).phase, AppPhase.onboarding);
   });
 
+  testWidgets('a container the wipe could not delete is NAMED on screen', (
+    tester,
+  ) async {
+    // The whole point of the returned list. `wipeContainers` re-stats what it
+    // deleted instead of trusting `delete()`, and the screen threw that answer
+    // away — so someone whose container survived saw the onboarding screen,
+    // the same screen someone whose container is gone sees.
+    //
+    // Real chmod, not a fake, for this one: the assertion is about the answer
+    // reaching the interface, and a fake that returns `['container']` on
+    // command cannot show that the real path produces it. The async file work
+    // this drives is confined to a temp directory and to the container's own
+    // `exists`/`delete`; every platform channel the wipe touches is overridden
+    // below, because THOSE are what leave a widget test hanging.
+    final dir = Directory.systemTemp.createTempSync('lock_wipe_locked_');
+    final store = File('${dir.path}/test.store')..writeAsStringSync('container');
+    // Unwritable DIRECTORY: the file stays readable, the unlink cannot happen.
+    // What a read-only volume or a backup agent holding the directory looks
+    // like from here.
+    expect(Process.runSync('chmod', ['a-w', dir.path]).exitCode, 0);
+    addTearDown(() {
+      Process.runSync('chmod', ['u+w', dir.path]);
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+
+    final modelDir = Directory.systemTemp.createTempSync('lock_wipe_model_');
+    addTearDown(() {
+      if (modelDir.existsSync()) modelDir.deleteSync(recursive: true);
+    });
+
+    late ProviderContainer container;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          translationModelsRootProvider.overrideWithValue(() async => null),
+          whisperModelStoreProvider.overrideWithValue(
+            WhisperModelStore(supportDirectory: () async => modelDir),
+          ),
+          deniableBootProvider.overrideWithValue(
+            DeniableBootConfig(
+              runtimeDir: '${dir.path}/rt',
+              listenPort: 9000,
+              storePath: store.path,
+            ),
+          ),
+        ],
+        child: Consumer(
+          builder: (ctx, ref, _) {
+            container = ProviderScope.containerOf(ctx);
+            return const MaterialApp(
+              localizationsDelegates: AppL10n.localizationsDelegates,
+              supportedLocales: AppL10n.supportedLocales,
+              home: LockScreen(),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(LockScreen)));
+
+    await tester.tap(find.widgetWithText(TextButton, l.lockWipe));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      l.lockWipePhrase,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, l.lockWipeConfirm));
+    await tester.pump();
+    // The wipe does REAL file work here — exists, delete, then the re-stat that
+    // produces the answer — and a widget test's clock is fake, so none of those
+    // futures complete under `pumpAndSettle` alone. It does not hang: it sails
+    // straight past a wipe that never finished and the dialog is simply
+    // absent, which looks exactly like the bug this test is about. So REAL
+    // event-loop turns are alternated with pumps: one hand-off is not enough
+    // either, because the wipe awaits file work several times over and each
+    // completion is only picked up by the following pump. Bounded, and it
+    // stops the moment the wipe has landed.
+    for (var i = 0; i < 60; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+      if (container.read(appControllerProvider).phase == AppPhase.onboarding) {
+        break;
+      }
+    }
+    await tester.pumpAndSettle();
+
+    expect(store.existsSync(), isTrue, reason: 'precondition: it survived');
+    // THE assertion. It cannot pass while the screen drops the list.
+    expect(
+      find.text(l.lockWipeLeftContainer),
+      findsOneWidget,
+      reason: 'a wipe that could not delete the container must say so',
+    );
+    expect(find.text(l.lockWipeLeftRest), findsOneWidget);
+    expect(
+      find.widgetWithText(FilledButton, l.lockWipeRetry),
+      findsOneWidget,
+      reason: 'naming it without offering another go is only half an answer',
+    );
+    // GUARDS — both stay green with the fix removed, and are here to pin the
+    // deliberate behaviour around it rather than to prove it:
+    //   * the phase still flips (see `wipeContainers`: parking someone on a
+    //     lock screen for a container that may already be gone is its own
+    //     disclosure), so the dialog is raised OVER onboarding;
+    //   * nothing was thrown on the way.
+    expect(container.read(appControllerProvider).phase, AppPhase.onboarding);
+    expect(tester.takeException(), isNull);
+    // `testWidgets` takes no `testOn`, so the platform gate is a `skip`: the
+    // fixture is a POSIX mode, and Windows says nothing about rights in mode
+    // bits.
+  }, skip: Platform.isWindows);
+
+  testWidgets('Retry runs the wipe again; both leftovers are named at once', (
+    tester,
+  ) async {
+    // Faked here on purpose: what is under test is that Retry CALLS again, and
+    // a second call has to be counted, not inferred. The fake also produces
+    // the container+files case, which no single-file fixture can.
+    final ctrl = _LeftoverWipeController();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [appControllerProvider.overrideWith(() => ctrl)],
+        child: const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: LockScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(LockScreen)));
+
+    await tester.tap(find.widgetWithText(TextButton, l.lockWipe));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      l.lockWipePhrase,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, l.lockWipeConfirm));
+    await tester.pumpAndSettle();
+
+    expect(ctrl.calls, 1);
+    expect(find.text(l.lockWipeLeftBoth), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, l.lockWipeRetry));
+    await tester.pumpAndSettle();
+    expect(ctrl.calls, 2, reason: 'Retry that does not retry is a decoration');
+    // Still failing, so it says so again rather than closing on a lie.
+    expect(find.text(l.lockWipeLeftBoth), findsOneWidget);
+
+    // The third pass succeeds: the dialog closes and does not come back.
+    ctrl.leftovers = const [];
+    await tester.tap(find.widgetWithText(FilledButton, l.lockWipeRetry));
+    await tester.pumpAndSettle();
+    expect(ctrl.calls, 3);
+    expect(find.text(l.lockWipeLeftBoth), findsNothing);
+    expect(find.byType(AlertDialog), findsNothing);
+  });
+
+  testWidgets('a wipe that THROWS says so instead of vanishing', (
+    tester,
+  ) async {
+    // `_wipe` had no catch at all, so a throw became an uncaught async error:
+    // the confirm dialog closed, the screen sat there, and the person read
+    // that as "nothing happened" — on the one action that cannot be undone.
+    final ctrl = _ThrowingWipeController();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [appControllerProvider.overrideWith(() => ctrl)],
+        child: const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: LockScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l = AppL10n.of(tester.element(find.byType(LockScreen)));
+
+    await tester.tap(find.widgetWithText(TextButton, l.lockWipe));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      l.lockWipePhrase,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, l.lockWipeConfirm));
+    await tester.pumpAndSettle();
+
+    expect(find.text(l.lockWipeStopped), findsOneWidget);
+    // Nothing was verified after a throw, so the dialog must NOT claim the
+    // rest was destroyed.
+    expect(find.text(l.lockWipeLeftRest), findsNothing);
+    expect(
+      tester.takeException(),
+      isNull,
+      reason: 'the throw must be handled, not left to the zone',
+    );
+  });
+
   testWidgets('small iPhone stays scrollable above the software keyboard', (
     tester,
   ) async {
@@ -252,4 +467,37 @@ void main() {
 class _LockedErrorController extends AppController {
   @override
   AppState build() => const AppState(AppPhase.locked, unlockError: true);
+}
+
+/// A wipe that keeps failing to delete both tiers, and counts how often it was
+/// asked to try.
+///
+/// Extends the real controller so everything the screen does around the wipe —
+/// the phase, the unlock state — behaves as production does.
+class _LeftoverWipeController extends AppController {
+  int calls = 0;
+  List<String> leftovers = const ['container', 'files'];
+
+  @override
+  AppState build() => const AppState(AppPhase.locked);
+
+  @override
+  Future<List<String>> wipeContainers() async {
+    calls++;
+    // The real one flips the phase whatever happens; keeping that here means
+    // the dialog is exercised over the same screen it will be raised over.
+    state = const AppState(AppPhase.onboarding);
+    return leftovers;
+  }
+}
+
+/// A wipe that throws — a wedged platform channel, a plugin that never answers.
+class _ThrowingWipeController extends AppController {
+  @override
+  AppState build() => const AppState(AppPhase.locked);
+
+  @override
+  Future<List<String>> wipeContainers() async {
+    throw StateError('the wipe could not run');
+  }
 }

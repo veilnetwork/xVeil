@@ -79,8 +79,55 @@ class _LockScreenState extends ConsumerState<LockScreen> {
       context: context,
       builder: (ctx) => const _WipeConfirmDialog(),
     );
-    if (confirmed == true) {
-      await ref.read(appControllerProvider.notifier).wipeContainers();
+    if (confirmed == true) await _runWipe();
+  }
+
+  /// Runs the wipe and says what it could not delete.
+  ///
+  /// `wipeContainers` checks by RE-STATING rather than by trusting `delete()`,
+  /// and hands back what is still on disk — and this dropped that list on the
+  /// floor, so a person whose container survived saw exactly what a person
+  /// whose container was gone saw: the onboarding screen. In an app whose whole
+  /// promise is deniability that is the worst direction for a silence to point,
+  /// because the one thing it hides is the thing that can convict you.
+  ///
+  /// The phase flip stays inside the controller and stays unconditional, for
+  /// the reason recorded there: parking someone on a lock screen for a
+  /// container that may already be gone is its own disclosure. So this is a
+  /// dialog raised OVER whatever the flip lands on, not a reason to stay put.
+  ///
+  /// A loop rather than recursion: Retry is a user gesture with no bound on how
+  /// many times it can be pressed, and each pass must start from a fresh call.
+  Future<void> _runWipe() async {
+    while (true) {
+      List<String> remaining = const [];
+      var stopped = false;
+      try {
+        remaining = await ref
+            .read(appControllerProvider.notifier)
+            .wipeContainers();
+      } catch (error, stack) {
+        // There was NO handler here at all. A throw became an uncaught async
+        // error, the dialog closed and the screen sat there — which reads as
+        // "nothing happened" for the one action that cannot be undone.
+        stopped = true;
+        errorJournal.record(
+          kind: 'wipe',
+          error: error,
+          stack: stack,
+          atMs: DateTime.now().millisecondsSinceEpoch,
+        );
+      }
+      if (!mounted) return;
+      if (!stopped && remaining.isEmpty) return; // everything really went
+      final retry = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => _WipeLeftoverDialog(
+          remaining: remaining,
+          stopped: stopped,
+        ),
+      );
+      if (retry != true || !mounted) return;
     }
   }
 
@@ -221,6 +268,79 @@ class _LockScreenState extends ConsumerState<LockScreen> {
 /// Outcome of the "start over" dialog: keep the container (deniable reset),
 /// delete it for good (routes to the phrase-gated wipe), or back out.
 enum _StartOverChoice { keep, delete, cancel }
+
+/// What a wipe could not delete, named — and a Retry that runs it again.
+///
+/// Names the survivors rather than saying something went wrong: "the container
+/// is still on this device" is a fact a person can act on (delete it, unmount
+/// the volume, stop the backup agent), and "an error occurred" is not. The
+/// second line is what makes the first bearable and is equally true: everything
+/// else really is gone.
+///
+/// Pops `true` for Retry, `false`/null for dismiss.
+class _WipeLeftoverDialog extends StatelessWidget {
+  const _WipeLeftoverDialog({required this.remaining, required this.stopped});
+
+  /// The codes `wipeContainers` returns for what it re-stat'd and found still
+  /// present. Kept as codes rather than sentences precisely so the sentence can
+  /// be a translated one.
+  final List<String> remaining;
+
+  /// The wipe threw instead of returning. Nothing was verified, so this cannot
+  /// claim the rest was destroyed — it says only what is honestly known.
+  final bool stopped;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final container = remaining.contains('container');
+    final files = remaining.contains('files');
+    final String what;
+    if (stopped || (!container && !files)) {
+      what = l.lockWipeStopped;
+    } else if (container && files) {
+      what = l.lockWipeLeftBoth;
+    } else if (container) {
+      what = l.lockWipeLeftContainer;
+    } else {
+      what = l.lockWipeLeftFiles;
+    }
+    return AlertDialog(
+      icon: Icon(Icons.warning_amber_rounded, color: scheme.error),
+      title: Text(l.lockWipeLeftTitle),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(what),
+            // Only when the wipe ran to the end. After a throw nothing was
+            // verified, so "everything else was destroyed" would be a guess
+            // dressed as a reassurance.
+            if (!stopped) ...[
+              const SizedBox(height: 12),
+              Text(
+                l.lockWipeLeftRest,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(l.actionDone),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(l.lockWipeRetry),
+        ),
+      ],
+    );
+  }
+}
 
 /// Irreversible-wipe confirmation gated behind typing an exact phrase, so an
 /// accidental double-tap can't destroy the container. Owns its own controller
