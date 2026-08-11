@@ -5,6 +5,7 @@ import '../../data/translation_model_store.dart';
 import '../../data/veil_bundle.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/translation_model_controller.dart';
+import 'ask_contacts_for_models_sheet.dart';
 
 /// Translation languages: what is installed, install another, give the space
 /// back.
@@ -88,6 +89,13 @@ class TranslationModelsTile extends ConsumerWidget {
               ],
             ),
           ),
+        // Before the file picker, because it is the answer to the same
+        // question and needs neither a file nor a connection to the publisher.
+        ListTile(
+          leading: const Icon(Icons.people_outline),
+          title: Text(l.askContactsAction),
+          onTap: () => showAskContactsForModels(context),
+        ),
         ListTile(
           leading: const Icon(Icons.folder_open),
           title: Text(l.translationModelsImport),

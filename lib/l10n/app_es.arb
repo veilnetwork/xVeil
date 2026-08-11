@@ -2629,5 +2629,9 @@
   "modelProvenanceRisk": "Bajo tu propia responsabilidad.",
   "modelSharingTitle": "Responder a los contactos que piden modelos",
   "modelSharingOn": "Tus contactos ven qué modelos de idioma y de voz tienes, y pueden pedir una copia.",
-  "modelSharingOff": "Tus contactos no reciben respuesta. No pueden distinguirlo de que no tengas modelos."
+  "modelSharingOff": "Tus contactos no reciben respuesta. No pueden distinguirlo de que no tengas modelos.",
+  "askContactsTitle": "Pedir modelos a los contactos",
+  "askContactsWaiting": "Quien responda aparecerá aquí. El silencio no significa nada en concreto.",
+  "askContactsAction": "Preguntar a mis contactos",
+  "modelProvenanceAskAnother": "Preguntar a otro contacto"
 }

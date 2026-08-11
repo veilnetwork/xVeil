@@ -10849,6 +10849,30 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Contacts get no answer. They cannot tell this from your having no models.'**
   String get modelSharingOff;
+
+  /// No description provided for @askContactsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask contacts for models'**
+  String get askContactsTitle;
+
+  /// No description provided for @askContactsWaiting.
+  ///
+  /// In en, this message translates to:
+  /// **'Whoever answers appears here. Silence means nothing in particular.'**
+  String get askContactsWaiting;
+
+  /// No description provided for @askContactsAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask my contacts'**
+  String get askContactsAction;
+
+  /// No description provided for @modelProvenanceAskAnother.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask another contact'**
+  String get modelProvenanceAskAnother;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
