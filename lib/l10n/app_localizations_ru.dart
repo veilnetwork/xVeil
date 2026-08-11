@@ -230,6 +230,14 @@ class AppL10nRu extends AppL10n {
       'Ни контейнер, ни крупные файлы рядом с ним удалить не удалось — они всё ещё на этом устройстве.';
 
   @override
+  String get lockWipeLeftSpeechModel =>
+      'Загруженную модель распознавания речи удалить не удалось — она всё ещё на этом устройстве.';
+
+  @override
+  String get lockWipeLeftTranslations =>
+      'Загруженные языки перевода удалить не удалось — их названия всё ещё на этом устройстве.';
+
+  @override
   String get lockWipeLeftRest =>
       'Всё остальное уничтожено. Повторите попытку — если снова не выйдет, значит, файл удерживает что-то ещё на этом компьютере: например, программа резервного копирования или диск только для чтения.';
 
@@ -4853,6 +4861,13 @@ class AppL10nRu extends AppL10n {
   String get securityCenterTooltip => 'Безопасность';
 
   @override
+  String get securityCenterAnonymousOn => 'Эта личность работает через onion';
+
+  @override
+  String get securityCenterAnonymousOff =>
+      'Эта личность работает не через onion';
+
+  @override
   String get securityCenterTitle => 'Безопасность и сеть';
 
   @override
@@ -5944,6 +5959,25 @@ class AppL10nRu extends AppL10n {
   @override
   String folderSyncNotAdded(String reason) {
     return '$reason. Ничего не скопировано, и на этом компьютере ничего не изменилось. Выберите другую папку — внутри своей домашней папки, куда может писать только ваша учётная запись.';
+  }
+
+  @override
+  String get folderSyncRefusedOverlap =>
+      'она пересекается с папкой, которая уже синхронизируется';
+
+  @override
+  String folderSyncRefusedUnresolvable(String path, String detail) {
+    return 'не удалось определить, где на самом деле находится $path ($detail)';
+  }
+
+  @override
+  String folderSyncRefusedUnreadable(String path) {
+    return 'не удалось прочитать права доступа к $path';
+  }
+
+  @override
+  String folderSyncRefusedWritable(String path) {
+    return 'в $path могут писать другие учётные записи этого компьютера, поэтому то, что копируется в эту папку, может быть перенаправлено в другое место';
   }
 
   @override

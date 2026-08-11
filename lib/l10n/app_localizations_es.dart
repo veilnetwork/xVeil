@@ -231,6 +231,14 @@ class AppL10nEs extends AppL10n {
       'No se han podido borrar ni el contenedor ni los archivos grandes guardados junto a él, y ambos siguen en este dispositivo.';
 
   @override
+  String get lockWipeLeftSpeechModel =>
+      'No se ha podido borrar el modelo de voz descargado y sigue en este dispositivo.';
+
+  @override
+  String get lockWipeLeftTranslations =>
+      'No se han podido borrar los idiomas de traducción descargados, y sus nombres siguen en este dispositivo.';
+
+  @override
   String get lockWipeLeftRest =>
       'Todo lo demás se ha destruido. Vuelve a intentarlo; si sigue sin conseguirlo, es que algo más de este equipo lo está reteniendo, como una herramienta de copias de seguridad o un disco de solo lectura.';
 
@@ -4872,6 +4880,13 @@ class AppL10nEs extends AppL10n {
   String get securityCenterTooltip => 'Seguridad';
 
   @override
+  String get securityCenterAnonymousOn => 'Esta identidad se enruta por onion';
+
+  @override
+  String get securityCenterAnonymousOff =>
+      'Esta identidad no se enruta por onion';
+
+  @override
   String get securityCenterTitle => 'Seguridad y red';
 
   @override
@@ -5966,6 +5981,25 @@ class AppL10nEs extends AppL10n {
   @override
   String folderSyncNotAdded(String reason) {
     return '$reason. No se ha copiado nada ni ha cambiado nada en este equipo. Elige otra carpeta: una dentro de tu carpeta personal, en la que solo pueda escribir tu propia cuenta.';
+  }
+
+  @override
+  String get folderSyncRefusedOverlap =>
+      'se solapa con una carpeta que ya se está sincronizando';
+
+  @override
+  String folderSyncRefusedUnresolvable(String path, String detail) {
+    return 'no se ha podido determinar la ubicación real de $path ($detail)';
+  }
+
+  @override
+  String folderSyncRefusedUnreadable(String path) {
+    return 'no se han podido leer los permisos de $path';
+  }
+
+  @override
+  String folderSyncRefusedWritable(String path) {
+    return 'otras cuentas de este equipo pueden escribir en $path, así que lo que se copie ahí podría redirigirse a otro sitio';
   }
 
   @override

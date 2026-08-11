@@ -229,6 +229,14 @@ class AppL10nEn extends AppL10n {
       'Neither the container nor the large files kept beside it could be deleted, and both are still on this device.';
 
   @override
+  String get lockWipeLeftSpeechModel =>
+      'The downloaded speech model could not be deleted and is still on this device.';
+
+  @override
+  String get lockWipeLeftTranslations =>
+      'The downloaded translation languages could not be deleted, and their names are still on this device.';
+
+  @override
   String get lockWipeLeftRest =>
       'Everything else was destroyed. Try again — if it keeps failing, something else on this computer is holding on to it, such as a backup tool or a read-only disk.';
 
@@ -4809,6 +4817,13 @@ class AppL10nEn extends AppL10n {
   String get securityCenterTooltip => 'Security';
 
   @override
+  String get securityCenterAnonymousOn => 'This identity routes over onion';
+
+  @override
+  String get securityCenterAnonymousOff =>
+      'This identity does not route over onion';
+
+  @override
   String get securityCenterTitle => 'Security & network';
 
   @override
@@ -5891,6 +5906,25 @@ class AppL10nEn extends AppL10n {
   @override
   String folderSyncNotAdded(String reason) {
     return '$reason. Nothing was mirrored and nothing on this computer was changed. Choose a different folder — one inside your home folder, where only your own account can write.';
+  }
+
+  @override
+  String get folderSyncRefusedOverlap =>
+      'it overlaps a folder that is already synced';
+
+  @override
+  String folderSyncRefusedUnresolvable(String path, String detail) {
+    return 'the real location behind $path could not be resolved ($detail)';
+  }
+
+  @override
+  String folderSyncRefusedUnreadable(String path) {
+    return 'the permissions of $path could not be read';
+  }
+
+  @override
+  String folderSyncRefusedWritable(String path) {
+    return '$path can be written by other accounts on this computer, so what is mirrored into it could be redirected somewhere else';
   }
 
   @override
