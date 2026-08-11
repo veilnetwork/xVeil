@@ -65,6 +65,92 @@ void main() {
     secureScreen.debugReset();
   });
 
+  group('a platform that refuses is retried, not believed', () {
+    // audit report10 X-06. The flag used to be told to the platform only on the
+    // transition into engaged, and a PlatformException there was swallowed: the
+    // app believed a screen was protected while nothing had been applied, and
+    // no later hold retried because the transition had already happened.
+
+    void answerWith(Object? Function(bool secure) reply) {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel(SecureScreen.channelName),
+            (call) async {
+              if (call.method != 'setSecure') return null;
+              final secure = (call.arguments as Map)['secure'] as bool;
+              secureCalls.add(secure);
+              final answer = reply(secure);
+              if (answer is PlatformException) throw answer;
+              return null;
+            },
+          );
+    }
+
+    test('a refused hold does not read as protected', () async {
+      answerWith((_) => PlatformException(code: 'no-window'));
+      final screen = SecureScreen();
+      await screen.hold('a');
+      expect(screen.engaged, isTrue, reason: 'the app still wants it');
+      expect(
+        screen.secured,
+        isFalse,
+        reason: 'nothing was applied — saying otherwise is the fail-open',
+      );
+    });
+
+    test('the next hold tries again', () async {
+      var fail = true;
+      answerWith((_) => fail ? PlatformException(code: 'no-window') : null);
+      final screen = SecureScreen();
+      await screen.hold('a');
+      expect(secureCalls, [true]);
+
+      fail = false;
+      await screen.hold('b');
+      // Two calls, not one: the second holder is what retries. Under the old
+      // shape this was a single call and the second hold was a no-op.
+      expect(secureCalls, [true, true]);
+      expect(screen.secured, isTrue);
+    });
+
+    test('once applied, further holds do not call the platform again', () async {
+      // The positive control for the retry: without it, "retries" could mean
+      // "calls the platform on every hold forever", which is a channel round
+      // trip per screen for nothing.
+      answerWith((_) => null);
+      final screen = SecureScreen();
+      await screen.hold('a');
+      await screen.hold('b');
+      await screen.hold('c');
+      expect(secureCalls, [true]);
+    });
+
+    test('a platform with no answer at all is not retried', () async {
+      // Windows and Linux. There is nothing to apply and nothing will ever
+      // succeed, so treating it as failure would put a channel call in front
+      // of every hold forever.
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel(SecureScreen.channelName),
+            null,
+          );
+      final screen = SecureScreen();
+      await screen.hold('a');
+      expect(screen.secured, isTrue);
+    });
+
+    test('releasing the last hold clears both the want and the flag', () async {
+      answerWith((_) => null);
+      final screen = SecureScreen();
+      await screen.hold('a');
+      await screen.release('a');
+      expect(screen.engaged, isFalse);
+      expect(secureCalls, [true, false]);
+      // Left true, the next hold would skip the platform call it needs.
+      expect(screen.secured, isFalse);
+    });
+  });
+
   // Shaped like the real app root (lib/app.dart): the shield wraps everything,
   // so a "just make it global" implementation would show up here.
   Widget host(Widget child) =>
