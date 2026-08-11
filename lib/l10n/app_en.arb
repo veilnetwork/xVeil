@@ -1287,6 +1287,14 @@
   "settingsSignaturePolicy": "Signature requests",
   "settingsSignaturePolicyHint": "How to answer when a contact asks you to prove you wrote a message",
   "screenLockTitle": "Locked",
+  "screenLockWait": "Too many attempts. Try again in {seconds} s",
+  "@screenLockWait": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
   "settingsScreenLock": "Lock the screen in the background",
   "settingsScreenLockHint": "Ask for the password again after the app has been away. Messages keep arriving and notifications keep working — only the screen is covered.",
   "screenLockOff": "Off",

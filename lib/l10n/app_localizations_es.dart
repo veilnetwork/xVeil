@@ -2995,6 +2995,11 @@ class AppL10nEs extends AppL10n {
   String get screenLockTitle => 'Bloqueado';
 
   @override
+  String screenLockWait(int seconds) {
+    return 'Demasiados intentos. Inténtalo de nuevo en $seconds s';
+  }
+
+  @override
   String get settingsScreenLock => 'Bloquear la pantalla en segundo plano';
 
   @override

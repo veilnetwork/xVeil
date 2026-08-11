@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -103,11 +105,46 @@ class ScreenLockCover extends ConsumerStatefulWidget {
   ConsumerState<ScreenLockCover> createState() => _ScreenLockCoverState();
 }
 
+/// How many whole seconds to SAY are left, from what is actually owed.
+///
+/// Rounded up, not down: 200ms left displayed as "0 s" is a countdown that
+/// spends its last tick claiming the wait is over while the attempt is still
+/// being refused, which is the same lie in smaller print.
+@visibleForTesting
+int screenLockWaitSeconds(Duration owed) => (owed.inMilliseconds / 1000).ceil();
+
+/// Counts how often [ScreenLockCover] rebuilt, so a test can prove the ticker
+/// does NOT drag the whole prompt through a rebuild once per tick — the cover
+/// carries a password field with live focus and an autofocus, and rebuilding
+/// all of it four times a second to change one number is not free.
+@visibleForTesting
+int screenLockCoverBuilds = 0;
+
 class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
   final _controller = TextEditingController();
 
+  /// What the throttle still owes, as its own listenable.
+  ///
+  /// The value the ticker writes has to reach the screen without a `setState`:
+  /// see [screenLockCoverBuilds]. Only the small subtree inside the
+  /// [ValueListenableBuilder] below is rebuilt per tick.
+  final _owed = ValueNotifier<Duration>(Duration.zero);
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    // A debt can predate this widget: the cover is rebuilt whenever the host
+    // re-locks, and the failures are counted in the CONTROLLER, which outlives
+    // it. Starting at zero would show "wrong password" over a wait already
+    // owed — the exact confusion this exists to remove.
+    _syncOwed();
+  }
+
   @override
   void dispose() {
+    _ticker?.cancel();
+    _owed.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -116,10 +153,32 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
     if (ref.read(screenLockProvider.notifier).tryUnlock(_controller.text)) {
       _controller.clear();
     }
+    // Either way: a success clears the debt and a failure creates or extends
+    // one, and both have to be on screen before the next frame.
+    _syncOwed();
+  }
+
+  /// Read what is owed now, and run a ticker for exactly as long as some is.
+  void _syncOwed() {
+    final owed = ref.read(screenLockProvider.notifier).throttleRemaining;
+    _owed.value = owed;
+    if (owed > Duration.zero) {
+      // Four times a second, not once: a countdown driven at exactly its own
+      // resolution shows each number for anywhere between 0 and 1 second, and
+      // visibly skips one whenever the two clocks drift apart.
+      _ticker ??= Timer.periodic(
+        const Duration(milliseconds: 250),
+        (_) => _syncOwed(),
+      );
+    } else {
+      _ticker?.cancel();
+      _ticker = null;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    screenLockCoverBuilds++;
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final wrong = ref.watch(screenLockProvider.select((s) => s.wrongPassword));
@@ -150,22 +209,55 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
                     const SizedBox(height: 32),
-                    TextField(
-                      key: const ValueKey('screen-lock-password'),
-                      controller: _controller,
-                      obscureText: true,
-                      autofocus: true,
-                      onSubmitted: (_) => _submit(),
-                      decoration: InputDecoration(
-                        labelText: l.lockPasswordHint,
-                        errorText: wrong ? l.lockWrong : null,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    FilledButton(
-                      key: const ValueKey('screen-lock-submit'),
-                      onPressed: _submit,
-                      child: Text(l.lockUnlock),
+                    // The field and its button, and NOTHING else, are what the
+                    // ticker redraws — see [screenLockCoverBuilds].
+                    ValueListenableBuilder<Duration>(
+                      valueListenable: _owed,
+                      builder: (context, owed, _) {
+                        final waiting = owed > Duration.zero;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            TextField(
+                              key: const ValueKey('screen-lock-password'),
+                              controller: _controller,
+                              obscureText: true,
+                              autofocus: true,
+                              onSubmitted: (_) => _submit(),
+                              decoration: InputDecoration(
+                                labelText: l.lockPasswordHint,
+                                // The wait WINS over "wrong password", and
+                                // that ordering is the whole fix. Inside the
+                                // window `tryUnlock` refuses before it looks at
+                                // anything, so the CORRECT password comes back
+                                // flagged exactly like a wrong one — and the
+                                // person, who knows perfectly well what their
+                                // password is, is told they do not. The debt is
+                                // the true answer, and it is one a person can
+                                // act on: wait, then try.
+                                errorText: waiting
+                                    ? l.screenLockWait(
+                                        screenLockWaitSeconds(owed),
+                                      )
+                                    : (wrong ? l.lockWrong : null),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            FilledButton(
+                              key: const ValueKey('screen-lock-submit'),
+                              // Disabled for as long as the answer is fixed.
+                              // Leaving it live would keep handing back the
+                              // same refusal for a password that is right,
+                              // which is what "tapping at a field that
+                              // silently ignores them" looks like from the
+                              // other side of the screen.
+                              onPressed: waiting ? null : _submit,
+                              child: Text(l.lockUnlock),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),

@@ -2963,6 +2963,11 @@ class AppL10nEn extends AppL10n {
   String get screenLockTitle => 'Locked';
 
   @override
+  String screenLockWait(int seconds) {
+    return 'Too many attempts. Try again in $seconds s';
+  }
+
+  @override
   String get settingsScreenLock => 'Lock the screen in the background';
 
   @override
