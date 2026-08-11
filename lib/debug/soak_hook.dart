@@ -15,6 +15,7 @@ import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import '../core/ids.dart';
 import '../core/log.dart';
+import '../core/posix_file_facts.dart' show posixChmod;
 import '../data/serve_source.dart';
 import '../data/storage/storage.dart' show OutboxFrame;
 import '../data/storage/storage_write_census.dart';
@@ -328,17 +329,27 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       final f = File(path);
       await f.writeAsString(_soakKey!, flush: true);
       if (!Platform.isWindows) {
-        // VERIFIED, not attempted (audit XV-15). `chmod` exiting zero is not
-        // evidence the mode took — the same lesson as the runtime dir. A key
-        // file every local user can read is the hole this file exists to close,
-        // so if it cannot be made owner-only the hook does not start: a stand
-        // that fails loudly beats one that runs with an open control plane.
-        await Process.run('chmod', ['600', path]);
+        // VERIFIED, not attempted (audit XV-15). A chmod reporting success is
+        // not evidence the mode took — the same lesson as the runtime dir. A
+        // key file every local user can read is the hole this file exists to
+        // close, so if it cannot be made owner-only the hook does not start: a
+        // stand that fails loudly beats one that runs with an open control
+        // plane.
+        //
+        // Through libc, never `Process.run('chmod', …)`. Besides the PATH
+        // oracle audit C-01 was about, iOS cannot start a subprocess at all —
+        // `Starting new processes is not supported on iOS` — so the throw
+        // landed in the catch below, deleted the key, and reported the hook as
+        // not listening. The debug control plane could therefore never arm on
+        // iOS, on any build, which is not a hardening failure but a whole
+        // platform's worth of stand missing.
+        final applied = posixChmod(path, 0x180); // 0600
         final mode = f.statSync().mode;
         if (mode & 0x3F != 0) {
           throw StateError(
             'soak key at $path is mode ${(mode & 0x1FF).toRadixString(8)}, '
-            'not 600 — refusing to arm the debug hook',
+            'not 600 (chmod(2) returned $applied) — refusing to arm the debug '
+            'hook',
           );
         }
       }

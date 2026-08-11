@@ -45,8 +45,7 @@ void main() {
     addTearDown(() => dir.deleteSync(recursive: true));
     await Process.run('chmod', ['755', dir.path]);
 
-    Future<ProcessResult> lies(String _) async =>
-        ProcessResult(0, 0, '', ''); // "success", changes nothing
+    Future<String?> lies(String _) async => null; // "applied", changes nothing
 
     if (runtimeDirMustBePrivate()) {
       await expectLater(
@@ -67,8 +66,8 @@ void main() {
     addTearDown(() => dir.deleteSync(recursive: true));
     await Process.run('chmod', ['755', dir.path]);
 
-    Future<ProcessResult> explodes(String _) async =>
-        throw const ProcessException('chmod', <String>[], 'not found', 2);
+    Future<String?> explodes(String _) async =>
+        throw StateError('no chmod(2) binding on this host');
 
     if (runtimeDirMustBePrivate()) {
       await expectLater(
@@ -78,6 +77,24 @@ void main() {
     } else {
       await restrictRuntimeDir(dir.path, chmod: explodes);
     }
+  }, skip: skipReason);
+
+  test('an unapplicable chmod over an ALREADY owner-only directory is not a '
+      'failure', () async {
+    // The honest half of "chmod(2) is not available on this host". A host with
+    // no libc binding cannot apply the mode, but that says nothing about what
+    // the mode IS: `mkdir(2)` or a strict umask may have left it owner-only
+    // already. Refusing the boot there would be failing on the report rather
+    // than on the fact — and the read-back is the fact.
+    final dir = Directory.systemTemp.createTempSync('xveil_rt_already700');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    await Process.run('chmod', ['700', dir.path]);
+
+    Future<String?> cannot(String _) async =>
+        'chmod(2) is not available on this host';
+
+    await restrictRuntimeDir(dir.path, chmod: cannot);
+    expect(dir.statSync().mode & 0x3F, 0);
   }, skip: skipReason);
 
   test('a symlink at the runtime BASE is refused, not followed', () async {
