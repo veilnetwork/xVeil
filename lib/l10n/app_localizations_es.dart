@@ -146,7 +146,12 @@ class AppL10nEs extends AppL10n {
       'Estas 24 palabras SON tu identidad. Quien las tenga la controla; si las pierdes, se pierde para siempre. Escríbelas en papel y guárdalas en un lugar seguro. Nunca las guardes en internet ni les hagas una foto.';
 
   @override
-  String get recoveryConfirm => 'He anotado mi frase de recuperación';
+  String get recoveryNumbered =>
+      'Las palabras están numeradas del 1 al 24. No continúes hasta haber anotado la número 24.';
+
+  @override
+  String get recoveryConfirm =>
+      'He anotado las 24 palabras, hasta la número 24';
 
   @override
   String get recoveryPlaceholderWarning =>
@@ -5290,6 +5295,21 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get devicesCopyCode => 'Copiar código de recuperación';
+
+  @override
+  String devicesCertificateCopiedClears(int seconds) {
+    return 'Certificado copiado. El portapapeles se borrará en $seconds segundos.';
+  }
+
+  @override
+  String devicesCodeCopiedClears(int seconds) {
+    return 'Código de recuperación copiado. El portapapeles se borrará en $seconds segundos.';
+  }
+
+  @override
+  String devicesTokenCopiedClears(int seconds) {
+    return 'Token de configuración copiado. El portapapeles se borrará en $seconds segundos.';
+  }
 
   @override
   String get devicesRecovered =>

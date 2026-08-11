@@ -12,6 +12,8 @@ import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/providers.dart';
 
+import 'support/onboarding_walk.dart';
+
 /// A node controller with no timers (FakeNodeController uses delayed/periodic
 /// timers that leak past a widget test).
 class _NoopNode implements NodeController {
@@ -62,11 +64,9 @@ void main() {
     // 1 choose -> Create a new identity
     await tester.tap(find.text(l().onboardCreateIdentity));
     await tester.pumpAndSettle();
-    // 2 recovery -> confirm checkbox, Continue
-    await tester.tap(find.byType(Checkbox));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(l().actionContinue));
-    await tester.pumpAndSettle();
+    // 2 recovery -> confirm checkbox, Continue. Both sit below word 24 in
+    // the step's own scroll now, so the walk scrolls to them.
+    await confirmRecoveryPhrase(tester, continueLabel: l().actionContinue);
     // 3 storage -> Continue (default hidden space)
     await tester.tap(find.text(l().actionContinue));
     await tester.pumpAndSettle();
@@ -253,10 +253,10 @@ void main() {
       await toChoosePath(tester);
       await tester.tap(find.text(l(tester).onboardCreateIdentity));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(Checkbox));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(l(tester).actionContinue));
-      await tester.pumpAndSettle();
+      await confirmRecoveryPhrase(
+        tester,
+        continueLabel: l(tester).actionContinue,
+      );
       await tester.tap(find.text(l(tester).actionContinue));
       await tester.pumpAndSettle();
       // 7 network entry -> Continue (default: keep the shared seed nodes)
@@ -295,10 +295,10 @@ void main() {
       );
       await tester.tap(find.text(l(tester).onboardCreateIdentity));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(Checkbox));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(l(tester).actionContinue));
-      await tester.pumpAndSettle();
+      await confirmRecoveryPhrase(
+        tester,
+        continueLabel: l(tester).actionContinue,
+      );
       await tester.tap(find.text(l(tester).actionContinue));
       await tester.pumpAndSettle();
       // 7 network entry -> Continue (default: keep the shared seed nodes)
@@ -349,10 +349,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text(l().onboardCreateIdentity));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(Checkbox));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(l().actionContinue));
-      await tester.pumpAndSettle();
+      await confirmRecoveryPhrase(tester, continueLabel: l().actionContinue);
       await tester.tap(find.text(l().actionContinue));
       await tester.pumpAndSettle();
       // 7 network entry -> Continue (default: keep the shared seed nodes)
@@ -562,10 +559,10 @@ void main() {
       expect(secureCalls, [true], reason: 'the words are on screen unprotected');
 
       // Off the step -> the flag goes back, so sharing works again.
-      await tester.tap(find.byType(Checkbox));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(l(tester).actionContinue));
-      await tester.pumpAndSettle();
+      await confirmRecoveryPhrase(
+        tester,
+        continueLabel: l(tester).actionContinue,
+      );
       expect(find.text(l(tester).storageTitle), findsOneWidget);
       expect(secureCalls, [true, false]);
     });

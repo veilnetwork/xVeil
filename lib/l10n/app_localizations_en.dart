@@ -145,7 +145,12 @@ class AppL10nEn extends AppL10n {
       'These 24 words ARE your identity. Anyone with them controls it; lose them and it is gone forever. Write them on paper and store them somewhere safe. Never store them online or photograph them.';
 
   @override
-  String get recoveryConfirm => 'I have written down my recovery phrase';
+  String get recoveryNumbered =>
+      'The words are numbered 1 to 24. Do not continue until you have written down number 24.';
+
+  @override
+  String get recoveryConfirm =>
+      'I have written down all 24 words, ending with number 24';
 
   @override
   String get recoveryPlaceholderWarning =>
@@ -5220,6 +5225,21 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get devicesCopyCode => 'Copy recovery code';
+
+  @override
+  String devicesCertificateCopiedClears(int seconds) {
+    return 'Certificate copied. The clipboard will be cleared in $seconds seconds.';
+  }
+
+  @override
+  String devicesCodeCopiedClears(int seconds) {
+    return 'Recovery code copied. The clipboard will be cleared in $seconds seconds.';
+  }
+
+  @override
+  String devicesTokenCopiedClears(int seconds) {
+    return 'Setup token copied. The clipboard will be cleared in $seconds seconds.';
+  }
 
   @override
   String get devicesRecovered =>
