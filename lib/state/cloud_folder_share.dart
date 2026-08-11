@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:math';
+
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'dart:typed_data';
 
 import '../domain/cloud_capability.dart';
@@ -592,6 +595,12 @@ class _FolderChunkResponse {
   }
 }
 
+/// The default nonce source, exposed so a test can assert what an omitted
+/// argument actually costs.
+@visibleForTesting
+Uint8List debugDefaultShareRandom(int count) =>
+    CloudFolderShareClient._defaultRandom(count);
+
 /// Client side: fetch the current listing, then reassemble one file's bytes
 /// through the folder share, verifying every chunk and the manifest piece.
 class CloudFolderShareClient {
@@ -628,7 +637,25 @@ class CloudFolderShareClient {
   final Uint8List Function(int count) _randomBytes;
 
   // Default zero-filled nonce source; real callers pass a CSPRNG generator.
-  static Uint8List _defaultRandom(int count) => Uint8List(count);
+  /// The default source of nonces (audit report10 X-11).
+  ///
+  /// This used to return `Uint8List(count)` — a buffer of ZEROS. The
+  /// production caller passes a CSPRNG, so nothing was broken; what was broken
+  /// was the shape. A parameter that is optional and silently degrades to a
+  /// constant hands the next caller repeated nonces, correlation across
+  /// requests and a replay window, with nothing anywhere to notice it by.
+  ///
+  /// `Random.secure` is the floor, not the intent: callers should still pass
+  /// the same generator the rest of the stack uses. But an omitted argument
+  /// now costs a slightly different source of randomness rather than none.
+  static Uint8List _defaultRandom(int count) {
+    final rng = Random.secure();
+    final out = Uint8List(count);
+    for (var i = 0; i < count; i++) {
+      out[i] = rng.nextInt(256);
+    }
+    return out;
+  }
 
   /// The listing is exposed to the same silent drop as a chunk, and it is
   /// asked for first — so losing it loses the whole download before a single

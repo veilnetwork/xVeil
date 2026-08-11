@@ -33,33 +33,84 @@ class SecureScreen {
 
   int get holderCount => _holders.length;
 
-  /// Take a hold. The platform is told only on the transition into engaged.
+  /// Whether the PLATFORM is currently holding the flag, as distinct from
+  /// whether this app wants it to (audit report10 X-06).
+  ///
+  /// They used to be the same bit. `hold` called the platform only on the
+  /// transition into engaged, and a `PlatformException` there was swallowed —
+  /// so a failed first hold left the app believing a screen was protected
+  /// while nothing had been applied, and no later hold retried because the
+  /// transition had already happened. A silent fail-open on the one control
+  /// that stands between a recovery certificate and a screenshot.
+  bool get secured => _applied;
+  bool _applied = false;
+
+  /// The platform call in flight, so overlapping holders share one.
+  ///
+  /// `hold` is called from `initState`, which does not await it, so a dialog
+  /// opening over a phrase screen issues both holds before the first channel
+  /// round trip returns. Without this they would each send their own — twice
+  /// the round trips for an idempotent flag, and the "asked once, not twice"
+  /// property that the overlapping-holders test exists to protect.
+  Future<bool>? _applying;
+
+  /// Take a hold. The platform is told whenever it is not already holding —
+  /// not only on the first holder, so a call that failed is retried by the
+  /// next screen that needs it rather than never again.
   Future<void> hold(Object holder) async {
-    final wasEngaged = engaged;
-    if (!_holders.add(holder) || wasEngaged) return;
-    await _apply(true);
+    _holders.add(holder);
+    if (_applied) return;
+    final inFlight = _applying ??= _apply(true);
+    try {
+      _applied = await inFlight;
+    } finally {
+      // Cleared either way: on failure the next hold must be able to start a
+      // fresh attempt, which is the whole point.
+      if (identical(_applying, inFlight)) _applying = null;
+    }
   }
 
-  /// Give it back. The platform is told only when the last hold goes.
+  /// Give it back. The platform is told when the last hold goes.
   Future<void> release(Object holder) async {
     if (!_holders.remove(holder) || engaged) return;
+    // Deliberately unconditional on the result: if clearing the flag fails the
+    // screen stays MORE protected than asked, which is the safe direction, and
+    // insisting otherwise would leave `_applied` true with no holders — the
+    // next hold would then skip the platform call it needs.
     await _apply(false);
+    _applied = false;
   }
 
   @visibleForTesting
-  void debugReset() => _holders.clear();
+  void debugReset() {
+    _holders.clear();
+    _applied = false;
+    _applying = null;
+  }
 
-  Future<void> _apply(bool secure) async {
+  /// True when the platform took the request, or when there is no platform
+  /// side to take it.
+  Future<bool> _apply(bool secure) async {
     try {
       await _channel.invokeMethod<void>('setSecure', {'secure': secure});
+      return true;
     } on MissingPluginException {
       // Windows and Linux, which have no runner-side answer at all. Nothing to
       // do and nothing to shout about: [TaskSwitcherShield] is what covers
       // those. Android answers with `FLAG_SECURE`, iOS with a cover while the
       // screen is being recorded, macOS with `NSWindow.sharingType`.
+      //
+      // Reported as applied ON PURPOSE. There is nothing to retry on these
+      // platforms, and treating it as a failure would put a channel call in
+      // front of every hold forever, on the two platforms where it can never
+      // succeed.
+      return true;
     } on PlatformException {
       // The window may be gone (a route torn down during a lifecycle change).
-      // Failing to clear a flag on a dead window is not worth an error.
+      // Not an error to shout about — but not a success either: the next hold
+      // tries again, because the alternative is a screen the app believes is
+      // protected and is not.
+      return false;
     }
   }
 }
