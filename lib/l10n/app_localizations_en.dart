@@ -2999,9 +2999,6 @@ class AppL10nEn extends AppL10n {
   String get settingsApiCopyToken => 'Copy token';
 
   @override
-  String get settingsApiTokenCopied => 'Token copied';
-
-  @override
   String get settingsCommunication => 'Communication';
 
   @override
@@ -6144,4 +6141,9 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get modelProvenanceAskAnother => 'Ask another contact';
+
+  @override
+  String settingsApiTokenCopiedClears(int seconds) {
+    return 'Token copied. The clipboard will be cleared in $seconds seconds.';
+  }
 }

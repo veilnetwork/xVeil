@@ -3033,9 +3033,6 @@ class AppL10nRu extends AppL10n {
   String get settingsApiCopyToken => 'Копировать токен';
 
   @override
-  String get settingsApiTokenCopied => 'Токен скопирован';
-
-  @override
   String get settingsCommunication => 'Связь';
 
   @override
@@ -6205,4 +6202,9 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get modelProvenanceAskAnother => 'Спросить другой контакт';
+
+  @override
+  String settingsApiTokenCopiedClears(int seconds) {
+    return 'Токен скопирован. Буфер обмена очистится через $seconds с.';
+  }
 }
