@@ -10927,6 +10927,102 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Token copied. The clipboard will be cleared in {seconds} seconds.'**
   String settingsApiTokenCopiedClears(int seconds);
+
+  /// Heading of the onboarding step that asks whether to use the project's shared seed nodes.
+  ///
+  /// In en, this message translates to:
+  /// **'How this device finds the network'**
+  String get seedsChoiceTitle;
+
+  /// Explains why the question is being asked at all: there is no central server to fall back on.
+  ///
+  /// In en, this message translates to:
+  /// **'xVeil has no central server, so a new device needs at least one node it can reach before anything else can happen. Choose how this identity gets its first one.'**
+  String get seedsChoiceBody;
+
+  /// Label of the option that keeps the shared seed nodes.
+  ///
+  /// In en, this message translates to:
+  /// **'Use the shared entry nodes (recommended)'**
+  String get seedsUseTitle;
+
+  /// What keeping the shared seed nodes costs: convenience in exchange for those nodes observing that this node exists.
+  ///
+  /// In en, this message translates to:
+  /// **'The app connects on its own, with nothing for you to configure. These nodes are run by the project, and they learn that a node of yours exists and which address it connects from — not who you are, and not what you send.'**
+  String get seedsUseBody;
+
+  /// Label of the option that refuses the shared seed nodes.
+  ///
+  /// In en, this message translates to:
+  /// **'Only nodes I add myself'**
+  String get seedsDeclineTitle;
+
+  /// What refusing costs: nothing works until the person adds a node themselves.
+  ///
+  /// In en, this message translates to:
+  /// **'No shared node is contacted, so nobody else\'s server learns that this identity exists. Nothing works until you add a node yourself: messages cannot be sent and none will arrive.'**
+  String get seedsDeclineBody;
+
+  /// Reassurance that the choice is not permanent.
+  ///
+  /// In en, this message translates to:
+  /// **'You can change this later in Network settings.'**
+  String get seedsChoiceChangeLater;
+
+  /// Heading of the startup prompt shown to someone who declined and has added no node.
+  ///
+  /// In en, this message translates to:
+  /// **'This identity cannot reach the network'**
+  String get seedsReofferTitle;
+
+  /// Body of that prompt: says why the app is not working and what the two ways out cost.
+  ///
+  /// In en, this message translates to:
+  /// **'You chose to use only nodes you add yourself, and none has been added. Until one is, no message can be sent or received. You can add your own node now, or use the shared entry nodes after all — they learn that a node of yours exists and which address it connects from.'**
+  String get seedsReofferBody;
+
+  /// Button that switches this identity onto the shared seed nodes.
+  ///
+  /// In en, this message translates to:
+  /// **'Use the shared nodes'**
+  String get seedsReofferUse;
+
+  /// Button that leaves the refusal in place.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep my choice'**
+  String get seedsReofferKeep;
+
+  /// Checkbox that silences the startup prompt for good.
+  ///
+  /// In en, this message translates to:
+  /// **'Don\'t show this again'**
+  String get seedsReofferDontAsk;
+
+  /// Heading on the network screen when this identity declined the seeds and has no node.
+  ///
+  /// In en, this message translates to:
+  /// **'No way to reach the network yet'**
+  String get seedsNoNodeTitle;
+
+  /// Tells the person what to do next, so a deliberate choice does not read as a broken app.
+  ///
+  /// In en, this message translates to:
+  /// **'This identity does not use the shared entry nodes, so it needs a node of your own. Add one and the app will connect.'**
+  String get seedsNoNodeBody;
+
+  /// Button leading to the screen where a node is added.
+  ///
+  /// In en, this message translates to:
+  /// **'Add my node'**
+  String get seedsNoNodeAction;
+
+  /// Shown when the preference store refused the write.
+  ///
+  /// In en, this message translates to:
+  /// **'That choice could not be saved. It applies to this session only.'**
+  String get seedsSaveFailed;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

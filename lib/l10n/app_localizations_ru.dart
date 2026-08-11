@@ -6241,4 +6241,59 @@ class AppL10nRu extends AppL10n {
   String settingsApiTokenCopiedClears(int seconds) {
     return 'Токен скопирован. Буфер обмена очистится через $seconds с.';
   }
+
+  @override
+  String get seedsChoiceTitle => 'Как это устройство находит сеть';
+
+  @override
+  String get seedsChoiceBody =>
+      'У xVeil нет центрального сервера, поэтому новому устройству нужен хотя бы один узел, до которого оно может достучаться, — без этого не начнётся ничего. Выберите, как эта личность получит первый.';
+
+  @override
+  String get seedsUseTitle => 'Использовать общие входные узлы (рекомендуется)';
+
+  @override
+  String get seedsUseBody =>
+      'Приложение подключится само, настраивать ничего не нужно. Эти узлы держит проект, и они узнают, что ваш узел существует и с какого адреса он подключается, — но не кто вы и не что вы отправляете.';
+
+  @override
+  String get seedsDeclineTitle => 'Только узлы, которые я добавлю сам';
+
+  @override
+  String get seedsDeclineBody =>
+      'Ни один общий узел не будет опрошен, поэтому чужой сервер не узнает, что эта личность существует. До того как вы добавите свой узел, не работает ничего: сообщения не уйдут и не придут.';
+
+  @override
+  String get seedsChoiceChangeLater =>
+      'Это можно изменить позже в настройках сети.';
+
+  @override
+  String get seedsReofferTitle => 'Эта личность не может достучаться до сети';
+
+  @override
+  String get seedsReofferBody =>
+      'Вы выбрали пользоваться только своими узлами, но ни одного не добавили. Пока его нет, сообщения не отправляются и не приходят. Можно добавить свой узел сейчас — или всё-таки взять общие входные узлы: они узнают, что ваш узел существует и с какого адреса подключается.';
+
+  @override
+  String get seedsReofferUse => 'Взять общие узлы';
+
+  @override
+  String get seedsReofferKeep => 'Оставить как есть';
+
+  @override
+  String get seedsReofferDontAsk => 'Больше не показывать';
+
+  @override
+  String get seedsNoNodeTitle => 'Пока нет способа достучаться до сети';
+
+  @override
+  String get seedsNoNodeBody =>
+      'Эта личность не пользуется общими входными узлами, поэтому ей нужен ваш собственный. Добавьте его — и приложение подключится.';
+
+  @override
+  String get seedsNoNodeAction => 'Добавить свой узел';
+
+  @override
+  String get seedsSaveFailed =>
+      'Выбор не удалось сохранить. Он действует только до перезапуска.';
 }

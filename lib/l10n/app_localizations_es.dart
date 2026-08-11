@@ -6257,4 +6257,60 @@ class AppL10nEs extends AppL10n {
   String settingsApiTokenCopiedClears(int seconds) {
     return 'Token copiado. El portapapeles se borrará en $seconds segundos.';
   }
+
+  @override
+  String get seedsChoiceTitle => 'Cómo encuentra la red este dispositivo';
+
+  @override
+  String get seedsChoiceBody =>
+      'xVeil no tiene servidor central, así que un dispositivo nuevo necesita al menos un nodo al que llegar antes de que pueda ocurrir nada más. Elige cómo consigue el primero esta identidad.';
+
+  @override
+  String get seedsUseTitle =>
+      'Usar los nodos de entrada compartidos (recomendado)';
+
+  @override
+  String get seedsUseBody =>
+      'La aplicación se conecta sola, sin que tengas que configurar nada. Esos nodos los mantiene el proyecto, y se enteran de que existe un nodo tuyo y desde qué dirección se conecta; no de quién eres ni de lo que envías.';
+
+  @override
+  String get seedsDeclineTitle => 'Solo los nodos que añada yo';
+
+  @override
+  String get seedsDeclineBody =>
+      'No se contacta con ningún nodo compartido, así que el servidor de nadie más sabrá que esta identidad existe. Nada funciona hasta que añadas un nodo tú: no se podrán enviar mensajes ni llegará ninguno.';
+
+  @override
+  String get seedsChoiceChangeLater =>
+      'Puedes cambiarlo más adelante en los ajustes de red.';
+
+  @override
+  String get seedsReofferTitle => 'Esta identidad no puede llegar a la red';
+
+  @override
+  String get seedsReofferBody =>
+      'Elegiste usar solo nodos añadidos por ti, y no has añadido ninguno. Mientras no lo hagas, no se puede enviar ni recibir ningún mensaje. Puedes añadir tu nodo ahora o usar después de todo los nodos de entrada compartidos: se enteran de que existe un nodo tuyo y desde qué dirección se conecta.';
+
+  @override
+  String get seedsReofferUse => 'Usar los nodos compartidos';
+
+  @override
+  String get seedsReofferKeep => 'Mantener mi elección';
+
+  @override
+  String get seedsReofferDontAsk => 'No volver a mostrar';
+
+  @override
+  String get seedsNoNodeTitle => 'Todavía no hay forma de llegar a la red';
+
+  @override
+  String get seedsNoNodeBody =>
+      'Esta identidad no usa los nodos de entrada compartidos, así que necesita uno tuyo. Añádelo y la aplicación se conectará.';
+
+  @override
+  String get seedsNoNodeAction => 'Añadir mi nodo';
+
+  @override
+  String get seedsSaveFailed =>
+      'No se pudo guardar esa elección. Solo se aplica a esta sesión.';
 }

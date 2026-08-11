@@ -12,6 +12,7 @@ import '../chat/chats_screen.dart';
 import '../chat/notification_binder.dart';
 import '../chat/signature_ask_host.dart';
 import '../groups/group_tile.dart' show showCreateGroupDialog;
+import '../onboarding/bundled_seeds_choice.dart' show maybeOfferBundledSeeds;
 import '../spaces/space_feed_screen.dart';
 import '../spaces/space_list_screen.dart';
 import 'home_section_scaffold.dart';
@@ -50,6 +51,11 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             .read(whisperModelControllerProvider.notifier)
             .ensureDownloadedInBackground(),
       );
+      // An identity that declined the shared entry nodes and never added one of
+      // its own cannot send or receive anything. Said here, once the session is
+      // actually open, rather than left as a messenger that quietly never
+      // connects. Silent for everyone else — see [maybeOfferBundledSeeds].
+      unawaited(maybeOfferBundledSeeds(context, ref));
     });
   }
 
