@@ -142,6 +142,27 @@ Future<bool> bundledSeedsAllowed() async {
   }
 }
 
+/// The stored answer, or NULL when the store would not answer.
+///
+/// [bundledSeedsAllowed] deliberately reports `true` for an unreadable store: a
+/// node config has to be composed one way or the other, and falling back to the
+/// historical behaviour rather than to the opt-out is right there. A CONTROL is
+/// the opposite case. A store that will not answer is not a person changing
+/// their mind, and a switch that moved on its behalf would put an identity that
+/// refused the shared seeds back on them — silently, and in the live boot
+/// config. So the two callers want different things from the same read, and
+/// this is the one that can tell "no answer" from "no".
+Future<bool?> storedBundledSeedsAnswer() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    // Absent still means yes — see [kBundledSeedsDefault]. Only an unreadable
+    // store is nothing at all.
+    return prefs.getBool(kBundledSeedsPrefKey) ?? kBundledSeedsDefault;
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Record the decision. **False means it was not written** — the caller has to
 /// be able to say so rather than show a choice that did not stick.
 Future<bool> setBundledSeedsAllowed(bool allowed) async {
