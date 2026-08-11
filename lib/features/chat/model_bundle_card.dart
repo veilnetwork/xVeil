@@ -8,6 +8,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/model_import.dart';
 import '../../state/model_message.dart';
 import '../../state/translation_model_controller.dart' show translationBundlePickerProvider;
+import '../common/ask_contacts_for_models_sheet.dart';
 import 'model_provenance_dialog.dart';
 import '../../state/providers.dart';
 
@@ -115,6 +116,11 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
               );
               if (!mounted) return;
             }
+          case ProvenanceChoice.askAnother:
+            // Nothing is installed and the file is left where it is: the
+            // person may still come back to it if nobody else answers.
+            await showAskContactsForModels(context);
+            return;
           case ProvenanceChoice.cancel:
             return;
         }

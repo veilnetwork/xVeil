@@ -6192,4 +6192,17 @@ class AppL10nRu extends AppL10n {
   @override
   String get modelSharingOff =>
       'Контакты не получают ответа. Отличить это от «моделей нет» они не смогут.';
+
+  @override
+  String get askContactsTitle => 'Спросить модели у контактов';
+
+  @override
+  String get askContactsWaiting =>
+      'Кто ответит — появится здесь. Молчание само по себе ничего не значит.';
+
+  @override
+  String get askContactsAction => 'Спросить у контактов';
+
+  @override
+  String get modelProvenanceAskAnother => 'Спросить другой контакт';
 }

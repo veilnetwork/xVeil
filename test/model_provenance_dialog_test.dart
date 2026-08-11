@@ -58,8 +58,42 @@ void main() {
   testWidgets('every way out is offered', (tester) async {
     await _show(tester, const ProvenanceVerdict(ModelProvenance.unknown));
     expect(find.text('Install anyway'), findsOneWidget);
+    expect(find.text('Ask another contact'), findsOneWidget);
     expect(find.text('Find and load it myself'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
+  });
+
+  testWidgets('four Russian actions fit a narrow phone', (tester) async {
+    // Four actions, and Russian labels are the long ones. This project has
+    // already crushed a title into a column this way once; an overflow here
+    // would hide whichever action ran off the edge.
+    tester.view.physicalSize = const Size(320 * 3, 640 * 3);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('ru'),
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => askAboutProvenance(
+              context,
+              const ProvenanceVerdict(
+                ModelProvenance.mismatched,
+                offending: ['model.bin'],
+              ),
+            ),
+            child: const Text('go'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('go'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('Всё равно установить'), findsOneWidget);
+    expect(find.text('Спросить другой контакт'), findsOneWidget);
   });
 
   testWidgets('installing anyway is what it says', (tester) async {
