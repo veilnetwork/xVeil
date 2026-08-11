@@ -179,6 +179,14 @@ typedef _OpenNative = Int32 Function(Pointer<Utf8>, Int32);
 typedef _OpenDart = int Function(Pointer<Utf8>, int);
 typedef _FdIntNative = Int32 Function(Int32);
 typedef _FdIntDart = int Function(int);
+typedef _KillNative = Int32 Function(Int32, Int32);
+typedef _KillDart = int Function(int, int);
+
+/// `__error()` / `__errno_location()` — the function that hands back a pointer
+/// to THIS thread's `errno`. There is no global symbol to read: on every
+/// platform here `errno` is a macro over one of these.
+typedef _ErrnoLocationNative = Pointer<Int32> Function();
+typedef _ErrnoLocationDart = Pointer<Int32> Function();
 
 class _Libc {
   _Libc(
@@ -190,6 +198,8 @@ class _Libc {
     this.open,
     this.fsync,
     this.close,
+    this.kill,
+    this.errnoLocation,
   );
 
   final _StatLayout layout;
@@ -200,6 +210,8 @@ class _Libc {
   final _OpenDart? open;
   final _FdIntDart? fsync;
   final _FdIntDart? close;
+  final _KillDart? kill;
+  final _ErrnoLocationDart? errnoLocation;
 }
 
 _Libc? _libc;
@@ -275,6 +287,26 @@ _Libc? _resolveLibc() {
   } on ArgumentError {
     close = null;
   }
+  _KillDart? kill;
+  try {
+    kill = process
+        .lookup<NativeFunction<_KillNative>>('kill')
+        .asFunction<_KillDart>();
+  } on ArgumentError {
+    kill = null;
+  }
+  _ErrnoLocationDart? errnoLocation;
+  // Darwin calls it `__error`, glibc `__errno_location`, bionic `__errno`.
+  for (final name in const ['__error', '__errno_location', '__errno']) {
+    try {
+      errnoLocation = process
+          .lookup<NativeFunction<_ErrnoLocationNative>>(name)
+          .asFunction<_ErrnoLocationDart>();
+      break;
+    } on ArgumentError {
+      continue;
+    }
+  }
   return _libc = _Libc(
     layout,
     lstat,
@@ -284,6 +316,8 @@ _Libc? _resolveLibc() {
     open,
     fsync,
     close,
+    kill,
+    errnoLocation,
   );
 }
 
@@ -386,6 +420,58 @@ int? posixMkdir(String path, int mode) {
 
 /// The effective uid of this process, or null when it cannot be read.
 int? posixEuid() => _resolveLibc()?.geteuid?.call();
+
+const _eperm = 1; // EPERM — same number on Linux and Darwin
+const _esrch = 3; // ESRCH
+
+/// Whether a process with [processId] exists — `kill(2)` with signal 0.
+///
+/// Signal 0 sends nothing; it runs the permission and existence checks and
+/// stops. That is the POSIX way to ask "is this pid still there", and asking it
+/// through libc rather than through `Process.run('kill', …)` matters three
+/// times over:
+///
+///   * `kill` is a bare command name resolved through PATH — the substitutable
+///     oracle audit C-01 was about, here deciding whether a directory gets
+///     deleted;
+///   * iOS and (increasingly) Android cannot start a subprocess AT ALL:
+///     `Process.run` throws `Starting new processes is not supported on iOS`,
+///     so every answer on those platforms was really an exception handler's
+///     guess;
+///   * Windows has no `kill` binary, so the subprocess version answered
+///     "cannot tell" there on every single call, forever.
+///
+/// Three-valued on purpose. True and false are answers; **null means this host
+/// could not be asked**, and a caller must decide what to do about that rather
+/// than be handed a guess dressed up as a fact:
+///
+///   * `kill` returning 0 — the process exists and we may signal it: ALIVE.
+///   * `ESRCH` — no such process: DEAD. This is the only proof of death POSIX
+///     offers, and it is why the errno read is not optional; a bare `-1` is
+///     ambiguous.
+///   * `EPERM` — it exists, it just is not ours to signal: ALIVE.
+///   * anything else, no libc binding, no `errno` symbol: null.
+///
+/// [processId] must be positive. Zero and negatives address process GROUPS in
+/// `kill(2)`, which is a different question than the one this asks, so they
+/// come back null rather than quietly answering about the caller's own group.
+bool? posixProcessAlive(int processId) {
+  if (processId <= 0) return null;
+  final libc = _resolveLibc();
+  final kill = libc?.kill;
+  final errnoLocation = libc?.errnoLocation;
+  if (kill == null || errnoLocation == null) return null;
+  // Resolve the (thread-local) errno slot BEFORE the call, so nothing runs
+  // between `kill` setting errno and this reading it.
+  final errno = errnoLocation();
+  errno.value = 0;
+  if (kill(processId, 0) == 0) return true;
+  return switch (errno.value) {
+    _esrch => false,
+    _eperm => true,
+    _ => null,
+  };
+}
 
 /// `fsync(2)` on the DIRECTORY at [path].
 ///

@@ -53,23 +53,24 @@ class RuntimeDirNotPrivate implements Exception {
 /// an outage.
 bool runtimeDirMustBePrivate() => Platform.isMacOS || Platform.isLinux;
 
-/// `chmod 700`, through libc where there is one.
+/// `chmod 700`, through libc. Null when the mode was applied, otherwise WHY it
+/// was not.
 ///
-/// `Process.run('chmod', …)` resolves a bare command name through PATH — the
-/// same substitutable oracle audit C-01 was about. The subprocess stays only as
-/// the fallback for a host with no usable libc binding, and the result is
-/// verified by reading the mode back either way.
-Future<ProcessResult> _chmod700(String dir) async {
+/// There is no subprocess fallback, and that is not a simplification. The
+/// fallback was `Process.run('chmod', …)`, which resolves a bare command name
+/// through PATH — the substitutable oracle audit C-01 was about — and which on
+/// iOS does not run at all: `Starting new processes is not supported on iOS`.
+/// A "fallback" that throws on the platform it exists for is worse than none,
+/// because it converts "I could not apply the mode" into an exception nobody
+/// reads as that.
+///
+/// Where libc genuinely cannot answer, this says so and lets
+/// [restrictRuntimeDir] read the mode back: what the directory IS decides,
+/// never what a call claimed about it.
+Future<String?> _chmod700(String dir) async {
   final rc = posixChmod(dir, 0x1C0); // 0700
-  if (rc != null) {
-    return ProcessResult(
-      0,
-      rc == 0 ? 0 : 1,
-      '',
-      rc == 0 ? '' : 'chmod(2) refused $dir',
-    );
-  }
-  return Process.run('chmod', ['700', dir]);
+  if (rc == null) return 'chmod(2) is not available on this host';
+  return rc == 0 ? null : 'chmod(2) refused $dir';
 }
 
 /// Create [path] as a directory that MUST NOT already exist.
@@ -424,37 +425,39 @@ class RuntimeDirLease {
 /// `mkdir(2)` with the mode in the same call. This is now the verification
 /// half only, which is why it no longer creates anything.
 ///
-/// [chmod] exists for tests only. A filesystem that accepts the call and keeps
+/// [chmod] exists for tests only — null from it means "applied", a string means
+/// "not applied, and here is why". A filesystem that accepts the call and keeps
 /// the old mode is the case the read-back guards against, and there is no way
 /// to produce one on demand — so it is injected rather than described, and the
 /// verification stays covered.
 Future<void> restrictRuntimeDir(
   String dir, {
-  Future<ProcessResult> Function(String dir)? chmod,
+  Future<String?> Function(String dir)? chmod,
 }) async {
   if (Platform.isWindows) return;
-  String? failure;
+  String? notApplied;
   try {
-    final result = await (chmod ?? _chmod700)(dir);
-    if (result.exitCode != 0) {
-      failure = 'chmod exited ${result.exitCode}: ${result.stderr}';
-    }
+    notApplied = await (chmod ?? _chmod700)(dir);
   } catch (e) {
-    failure = 'chmod could not be run: $e';
+    notApplied = 'chmod could not be run: $e';
   }
 
-  // Read the mode back rather than believing the exit code. This is the check
-  // that catches a filesystem which accepts chmod and ignores it.
-  if (failure == null) {
-    try {
-      final mode = Directory(dir).statSync().mode;
-      if (mode & 0x3F != 0) {
-        failure =
-            'mode is ${(mode & 0x1FF).toRadixString(8)} after chmod, not 700';
-      }
-    } catch (e) {
-      failure = 'could not stat the directory back: $e';
+  // The mode read back is what decides, never the call's own account of
+  // itself. That catches the filesystem which accepts chmod and ignores it —
+  // and, in the other direction, it means a host with no `chmod(2)` binding is
+  // not failed for that alone: if `mkdir(2)` or the umask already left the
+  // directory owner-only, the guarantee holds and the boot goes on.
+  String? failure;
+  try {
+    final mode = Directory(dir).statSync().mode;
+    if (mode & 0x3F != 0) {
+      final octal = (mode & 0x1FF).toRadixString(8);
+      failure = notApplied == null
+          ? 'mode is $octal after chmod, not 700'
+          : 'mode is $octal and the mode could not be applied ($notApplied)';
     }
+  } catch (e) {
+    failure = 'could not stat the directory back: $e';
   }
 
   if (failure == null) return;
