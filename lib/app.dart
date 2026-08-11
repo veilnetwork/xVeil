@@ -5,6 +5,7 @@ import 'core/secure_screen.dart';
 import 'features/calls/call_overlay.dart';
 import 'features/calls/group_call_overlay.dart';
 import 'features/calls/call_lifecycle_bridge.dart';
+import 'features/lock/lock_screen.dart' show WipeReportHost;
 import 'features/lock/screen_lock_overlay.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/router.dart';
@@ -63,6 +64,11 @@ class XVeilApp extends ConsumerWidget {
               // "enabled" flag re-opens the loopback server on boot (off by
               // default).
               const _ApiBridge(),
+              // What an irreversible wipe could not delete, named. It has to
+              // be raised from HERE, above the router: the wipe's last act is
+              // to send the app to onboarding, so the lock screen that asked
+              // for it is gone before the answer arrives.
+              const WipeReportHost(),
             ],
           ),
         ),

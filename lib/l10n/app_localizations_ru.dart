@@ -2997,6 +2997,11 @@ class AppL10nRu extends AppL10n {
   String get screenLockTitle => 'Заблокировано';
 
   @override
+  String screenLockWait(int seconds) {
+    return 'Слишком много попыток. Повторите через $seconds с';
+  }
+
+  @override
   String get settingsScreenLock => 'Блокировать экран в фоне';
 
   @override

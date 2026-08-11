@@ -1287,6 +1287,7 @@
   "settingsSignaturePolicy": "Solicitudes de firma",
   "settingsSignaturePolicyHint": "Qué responder cuando un contacto te pide demostrar que escribiste un mensaje",
   "screenLockTitle": "Bloqueado",
+  "screenLockWait": "Demasiados intentos. Inténtalo de nuevo en {seconds} s",
   "settingsScreenLock": "Bloquear la pantalla en segundo plano",
   "settingsScreenLockHint": "Vuelve a pedir la contraseña después de que la aplicación haya estado fuera de foco. Los mensajes siguen llegando y las notificaciones siguen funcionando: solo se tapa la pantalla.",
   "screenLockOff": "Desactivado",

@@ -2877,3 +2877,89 @@ final class StorageReclaim {
 final appControllerProvider = NotifierProvider<AppController, AppState>(
   AppController.new,
 );
+
+/// What a wipe could not delete, as a fact about the app rather than about a
+/// screen.
+///
+/// See [WipeReportController] for why it has to be one.
+@immutable
+class WipeReport {
+  const WipeReport({required this.remaining, required this.stopped});
+
+  /// The codes [AppController.wipeContainers] returns for what it re-stat'd and
+  /// found still present (`container`, `files`). Codes rather than sentences,
+  /// precisely so the sentence can be a translated one.
+  final List<String> remaining;
+
+  /// The wipe threw instead of returning. Nothing was verified, so a report
+  /// with this set cannot claim the rest was destroyed.
+  final bool stopped;
+}
+
+/// Runs the irreversible wipe and holds its verdict until something has shown
+/// it.
+///
+/// This exists because the screen that ASKS for a wipe cannot be the screen
+/// that reports it. [AppController.wipeContainers] flips the phase to
+/// `onboarding` as its last act — deliberately, and for a reason recorded
+/// there: parking someone on a lock screen for a container that may already be
+/// gone is its own disclosure. The lock screen used to raise the dialog itself,
+/// and nobody ever saw it: the router redirects on that flip, and the dialog is
+/// a ROUTE over the page the redirect removes, so the navigator took it away
+/// again in the same frame it appeared. See `_LockScreenState._runWipe` for the
+/// measurement, including which suspect turned out to be innocent.
+///
+/// What made it invisible is that every test mounted the lock screen with no
+/// router at all: nothing ever swapped a page, the dialog stayed, and the suite
+/// was green over an app that never showed it.
+///
+/// A provider is what outlives the flip. It is not disposed by a route change,
+/// so the verdict is written from here, after the phase has already moved, and
+/// a host above the router paints it over wherever the flip landed.
+class WipeReportController extends Notifier<WipeReport?> {
+  @override
+  WipeReport? build() => null;
+
+  /// Guards Retry against a second press while the first is still running —
+  /// the dialog stays up for the whole wipe, so the button is live throughout.
+  bool _running = false;
+
+  /// Run the wipe and publish what survived. Never throws: a wipe that failed
+  /// to report is the defect this whole class is about, and an exception
+  /// escaping into an unawaited future would be exactly that again.
+  Future<void> runWipe() async {
+    if (_running) return;
+    _running = true;
+    try {
+      final remaining = await ref
+          .read(appControllerProvider.notifier)
+          .wipeContainers();
+      if (!ref.mounted) return;
+      state = remaining.isEmpty
+          ? null
+          : WipeReport(remaining: remaining, stopped: false);
+    } catch (error, stack) {
+      // A throw became an uncaught async error, the confirmation closed and the
+      // screen sat there — which reads as "nothing happened" for the one action
+      // that cannot be undone.
+      errorJournal.record(
+        kind: 'wipe',
+        error: error,
+        stack: stack,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      if (!ref.mounted) return;
+      state = const WipeReport(remaining: [], stopped: true);
+    } finally {
+      _running = false;
+    }
+  }
+
+  /// The person has read it.
+  void dismiss() => state = null;
+}
+
+final wipeReportProvider =
+    NotifierProvider<WipeReportController, WipeReport?>(
+      WipeReportController.new,
+    );
