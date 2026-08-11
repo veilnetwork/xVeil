@@ -6156,4 +6156,29 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get chatTranslateInto => 'Перевести на…';
+
+  @override
+  String get modelProvenanceTitleMismatch =>
+      'Эта модель не совпадает с опубликованной';
+
+  @override
+  String get modelProvenanceTitleUnknown => 'Эту модель нечем сверить';
+
+  @override
+  String modelProvenanceBodyMismatch(String files) {
+    return 'Хеш $files отличается от заложенного в приложение. Либо у контакта не опубликованная модель, либо её изменили. Модель — это входные данные движка, который читает ваш микрофон и ваши сообщения.';
+  }
+
+  @override
+  String get modelProvenanceBodyUnknown =>
+      'В этой сборке нет эталонного хеша для такой модели, сверить не с чем. Это не обвинение — это значит, что проверка здесь невозможна.';
+
+  @override
+  String get modelProvenanceInstallAnyway => 'Всё равно установить';
+
+  @override
+  String get modelProvenanceLoadManually => 'Найти и загрузить самому';
+
+  @override
+  String get modelProvenanceRisk => 'На ваш страх и риск.';
 }

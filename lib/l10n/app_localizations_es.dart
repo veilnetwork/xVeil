@@ -6171,4 +6171,29 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get chatTranslateInto => 'Traducir a…';
+
+  @override
+  String get modelProvenanceTitleMismatch =>
+      'Este modelo no coincide con el publicado';
+
+  @override
+  String get modelProvenanceTitleUnknown => 'Este modelo no se puede comprobar';
+
+  @override
+  String modelProvenanceBodyMismatch(String files) {
+    return 'El hash de $files difiere del incluido en esta aplicación. O la copia de tu contacto no es el modelo publicado, o fue alterada. Un modelo es la entrada del motor que lee tu micrófono y tus mensajes.';
+  }
+
+  @override
+  String get modelProvenanceBodyUnknown =>
+      'Esta compilación no tiene un hash de referencia para este modelo, así que no hay con qué compararlo. No es una acusación: significa que aquí no se puede hacer la comprobación.';
+
+  @override
+  String get modelProvenanceInstallAnyway => 'Instalar de todos modos';
+
+  @override
+  String get modelProvenanceLoadManually => 'Buscarlo y cargarlo yo mismo';
+
+  @override
+  String get modelProvenanceRisk => 'Bajo tu propia responsabilidad.';
 }
