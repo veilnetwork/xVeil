@@ -96,9 +96,13 @@ jobs:
             Sort-Object -Unique
           # A gate keyed on discovery passes trivially when discovery breaks.
           if ($wanted.Count -lt 5) { throw "found only $($wanted.Count) entry points in the header - discovery is broken, not the DLL" }
+          # The name column of the export TABLE. Matching dumpbin's whole output
+          # instead picks up its own header -- "Dump of file ...veil_translate.dll"
+          # -- so veil_translate reads as exported by a DLL that exports nothing.
           $exports = (& dumpbin.exe /EXPORTS $dll) |
-            Select-String -Pattern '\bveil_translate[a-z_]*\b' -AllMatches |
-            ForEach-Object { $_.Matches } | ForEach-Object { $_.Value } | Sort-Object -Unique
+            Select-String -Pattern '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+(\S+)' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value } |
+            Where-Object { $_ -match '^veil_translate[a-z_]*$' } | Sort-Object -Unique
           $missing = $wanted | Where-Object { $_ -notin $exports }
           if ($missing) { throw "the DLL does not export: $($missing -join ', ')" }
           Write-Host "ok: $($exports.Count) entry points"
