@@ -16,7 +16,9 @@ import 'package:veil_flutter/veil_flutter.dart' as veil;
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../core/posix_file_facts.dart' show posixChmod;
+import '../data/runtime_dir_sweep.dart' show sweepStaleRuntimeDirs;
 import '../data/serve_source.dart';
+import '../data/veil_stack.dart' show claimRuntimeDirUnder;
 import '../data/storage/storage.dart' show OutboxFrame;
 import '../data/storage/storage_write_census.dart';
 import 'package:veil_media/veil_media.dart';
@@ -128,18 +130,42 @@ String? _soakKey;
 /// readable only, replaced every start.
 String soakKeyPath(String runtimeDir) => '$runtimeDir/soak.key';
 
-/// Render [uri] for a log line with the soak key removed.
+/// Query parameters whose VALUE is a secret and must never reach a log.
 ///
-/// Whole-value replacement, not a prefix trim: a partial key in a log is still
-/// a partial key, and `?k=` is accepted from the query precisely because a
-/// stand driver cannot always set a header.
+/// `k` is the hook's own bearer key. The rest are the store password under the
+/// spellings a driver might reach for. Redaction is keyed on the NAME rather
+/// than on the endpoint for a reason worth stating: the request line is logged
+/// before any handler runs, so an endpoint that refuses a `?password=` has
+/// already lost — the value was in the dev-log ring that `/dev_log` serves by
+/// the time the handler saw it. Refusing it at the endpoint (which `/compact`
+/// now does) stops the habit; only this stops the leak. And the next endpoint
+/// to take a secret will not remember to ask.
+const Set<String> kSecretQueryParams = {
+  'k',
+  'password',
+  'passphrase',
+  'phrase',
+  'pass',
+  'secret',
+  'token',
+};
+
+/// Whether a query parameter's value is a secret, case-insensitively.
+bool isSecretQueryParam(String name) =>
+    kSecretQueryParams.contains(name.toLowerCase());
+
+/// Render [uri] for a log line with every secret parameter removed.
+///
+/// Whole-value replacement, not a prefix trim: a partial secret in a log is
+/// still a partial secret, and `?k=` is accepted from the query precisely
+/// because a stand driver cannot always set a header.
 @visibleForTesting
-String redactSoakKey(Uri uri) {
-  if (!uri.queryParameters.containsKey('k')) return uri.toString();
+String redactSecrets(Uri uri) {
+  if (!uri.queryParameters.keys.any(isSecretQueryParam)) return uri.toString();
   return uri.replace(
     queryParameters: {
       for (final e in uri.queryParameters.entries)
-        e.key: e.key == 'k' ? 'REDACTED' : e.value,
+        e.key: isSecretQueryParam(e.key) ? 'REDACTED' : e.value,
     },
   ).toString();
 }
@@ -315,8 +341,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         _soakKey = null;
         devLog(
           () =>
-              'xVeil[debug-hook]: NOT listening — the per-run key could not be '
-              'written owner-only, and an ungated hook drives the whole app',
+              'xVeil[debug-hook]: NOT listening — the per-run key is not on '
+              'disk owner-only, and an ungated hook drives the whole app. '
+              'The line above says which step failed; this one used to name '
+              'the permissions step regardless, which pointed at chmod when '
+              'the real answer was that no runtime directory existed at all.',
         );
         return;
       }
@@ -343,13 +372,51 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
 
   String? _soakKeyFile;
 
+  /// A private directory of our own, for the boots that claim none.
+  ///
+  /// Only the DENIABLE boot claims a runtime dir (lib/main.dart). The
+  /// config-file boot — `XVEIL_VEIL_CLI` + `XVEIL_VEIL_CONFIG`, which is how a
+  /// stand points the app at an external node — takes a different branch and
+  /// claims nothing, so `deniableBootProvider` was null, the key had nowhere to
+  /// go, and the hook refused to arm. Nothing about that looked wrong from
+  /// outside: same build, same `XVEIL_DEBUG_HOOK=true`, the app came up, showed
+  /// its window and served the Dart VM service. Only the hook port was never
+  /// bound, and the two env vars that caused it are the ones a stand always
+  /// sets. That was diagnosed as "the stand never came up" for a whole session.
+  ///
+  /// The define is an explicit request for the hook. An unrelated choice of
+  /// node plumbing must not overrule it.
+  ///
+  /// Named with the bare pid — `xveil-rt-<pid>`, the same convention
+  /// `claimRuntimeDirUnder` produces for everyone else, collision suffix and
+  /// all. A distinguishing name like `<pid>-hook` would read as ours to a human
+  /// and match nothing in the launch sweeper's `xveil-rt-(\d+)(?:-(\d+))?`, so
+  /// it would never be reaped on any launch — which is the leak that file
+  /// already documents at length.
+  Future<String?> _claimRuntimeDir() async {
+    try {
+      final base =
+          Platform.environment['XVEIL_RUNTIME_DIR'] ?? Directory.systemTemp.path;
+      final dir = await claimRuntimeDirUnder(base, uniqueSuffix: '$pid');
+      // Nobody sweeps on this boot path either, so leftovers from previous
+      // non-graceful exits would accumulate under the same base forever.
+      unawaited(sweepStaleRuntimeDirs(base));
+      return dir;
+    } catch (e) {
+      devLog(() => 'xVeil[debug-hook]: no runtime dir for the key: $e');
+      return null;
+    }
+  }
+
   /// Write the per-run key where the stand can read it, owner-only.
   ///
   /// False means the key is NOT safely on disk and the hook must not start.
   Future<bool> _publishSoakKey() async {
-    final runtimeDir = ref.read(deniableBootProvider)?.runtimeDir;
-    // No runtime dir (loopback/test boot): there is nowhere to hand the key to
-    // a stand, so there is no point arming a listener nobody can talk to.
+    // The deniable boot claims a runtime dir and the hook borrows it. Every
+    // OTHER boot claims none, and this used to give up there — which is how the
+    // hook came to be off in exactly the mode a stand uses.
+    final runtimeDir =
+        ref.read(deniableBootProvider)?.runtimeDir ?? await _claimRuntimeDir();
     if (runtimeDir == null) return false;
     try {
       final path = soakKeyPath(runtimeDir);
@@ -420,7 +487,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     // the gate accepts — so the per-run key landed in the dev-log ring, which
     // this same hook serves over `/dev_log`. The secret leaked through the
     // diagnostic channel it was meant to protect.
-    devLog(() => 'xVeil[debug-hook]: ${req.method} ${redactSoakKey(req.uri)}');
+    devLog(() => 'xVeil[debug-hook]: ${req.method} ${redactSecrets(req.uri)}');
     // ONE choke point for the per-run key (audit X-06). Every route below is a
     // privileged command — unlock, send, hand over the automation API token —
     // so the gate belongs here rather than route by route, where the next
@@ -6103,6 +6170,18 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   Future<void> _compact(HttpRequest req) async {
     final ready = _requireReady(req);
     if (!ready) return;
+    // The store password comes from the BODY, the way `/unlock` takes it, and
+    // a query-string one is REFUSED rather than quietly accepted. `_mergedParams`
+    // merges the query in, so without this the password could arrive on the
+    // request line — which is logged before this handler runs and served back
+    // by `/dev_log`. Redaction covers the value; this covers the habit, and
+    // says so out loud so a driver learns the right shape on the first try.
+    if (req.uri.queryParameters.containsKey('password')) {
+      return _json(req, {
+        'ok': false,
+        'error': 'send the password in the JSON body, not the query string',
+      }, status: 400);
+    }
     final params = await _mergedParams(req);
     final password = params['password']?.trim() ?? '';
     if (password.isEmpty) {

@@ -60,6 +60,42 @@ void main() {
     expect(collidedAgain.existsSync(), isFalse);
   });
 
+  test('a directory claimed the way the debug hook claims one is reapable',
+      () async {
+    // The coupling that is easy to break and silent when broken.
+    //
+    // The debug hook now claims its OWN runtime dir on the boots that make
+    // none — the config-file boot a stand uses — because it needs somewhere
+    // owner-only to publish the per-run key. The tempting name is a
+    // distinguishing one, `xveil-rt-<pid>-hook`, so a human reading /tmp can
+    // tell whose it is. That name matches nothing in `_ourRuntimeDirName`, so
+    // the directory (with the key inside it) would survive every launch
+    // forever — the same permanent-record leak this file's first test is about.
+    //
+    // So the hook claims with the bare pid, and this pins the claim and the
+    // sweep to each other rather than to a comment.
+    final claimed = await claimRuntimeDirUnder(base.path, uniqueSuffix: '4321');
+    await File('$claimed/soak.key').writeAsString('deadbeef');
+    expect(Directory(claimed).existsSync(), isTrue);
+
+    expect(await sweep(), 1);
+    expect(
+      Directory(claimed).existsSync(),
+      isFalse,
+      reason: 'the name the claim produces must be one the sweep recognises',
+    );
+  });
+
+  test('a decorated runtime-dir name is NOT reaped', () async {
+    // The positive control for the test above — without it, that one also
+    // passes against a sweeper that deletes whatever it finds, and the point
+    // being made (that the NAME is what carries the reapability) would be
+    // untested. This is the outcome the hook avoids by not decorating.
+    final decorated = await ours('xveil-rt-4321-hook');
+    expect(await sweep(), 0);
+    expect(decorated.existsSync(), isTrue);
+  });
+
   test('a directory wearing our name without our marker is left alone',
       () async {
     // The other half, and the one that matters more: this code deletes
