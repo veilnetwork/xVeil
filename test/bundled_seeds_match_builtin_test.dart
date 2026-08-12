@@ -1,4 +1,10 @@
-// The two production seed lists must say the same thing.
+// What the app promises about the shared seeds, checked against the node it
+// actually ships — the one file here that reads the veil submodule's Rust.
+//
+// Two promises, both cross-language, both of which have been broken by a change
+// that was locally correct on one side of the boundary.
+//
+// ## 1. The two production seed lists must say the same thing.
 //
 // There are two of them, and they are written in different languages by
 // different hands:
@@ -29,6 +35,27 @@
 // "Connected, 0 nodes" symptom (measured: 0 sessions, 33 handshake failures)
 // and this gate cannot see it. That gap is named here rather than left for
 // someone to assume it is covered.
+//
+// ## 2. The node's DEFERRED BOOT must not dial those seeds behind the setting.
+//
+// `EmbeddedNode.startDeferred` boots from a config this app never sees:
+// `build_stub_config_with_ephemeral_identity` on the native side. The real
+// config — the one carrying `builtin_seed_policy` and therefore the whole
+// answer to "may this identity use the shared seeds" — arrives afterwards, as
+// an apply-config.
+//
+// So for as long as the stub said `auto` (the `Config::default()` value, whose
+// condition "no peers, no bootstrap_peers" the stub satisfies by construction),
+// an identity that DECLINED the shared seeds still opened connectors to all
+// four production hosts on every single start. Measured on a real node start:
+// `bootstrap.builtin dialing 4 entry point(s): 0 configured + 4 builtin
+// seed(s) (policy=auto)`, followed by four `bootstrap.connecting` lines.
+//
+// The whole of `bundled_seeds.dart`, the onboarding choice, and
+// `withBuiltinSeedPolicy` were green throughout: every one of them tests the
+// config the app COMPOSES, and the composed config is the second one the node
+// reads. Nothing on this side of the boundary could see it, which is why the
+// guard has to reach across.
 import 'dart:convert';
 import 'dart:io';
 
@@ -154,5 +181,56 @@ void main() {
             'would ship an unobfuscated bootstrap',
       );
     }
+  });
+
+  test('the deferred-boot stub refuses the compiled-in seeds', () {
+    // The body of `build_stub_config_with_ephemeral_identity` — the config
+    // `EmbeddedNode.startDeferred` boots from, which this app cannot inspect at
+    // runtime because `veil_node_start_deferred(sock, len, anonymous, err)`
+    // takes no config and returns none.
+    //
+    // Bounded at the function's own closing brace for the same reason the
+    // `builtin_seeds()` parse above is: reading to EOF would swallow the crate's
+    // other writers of this field and pass on somebody else's line.
+    final storeFile = File('third_party/veil/crates/veil-cfg/src/store.rs');
+    final source = storeFile.readAsStringSync();
+    final start = source.indexOf(
+      'pub fn build_stub_config_with_ephemeral_identity(',
+    );
+    expect(
+      start,
+      greaterThan(-1),
+      reason: 'build_stub_config_with_ephemeral_identity moved or was renamed '
+          'in ${storeFile.path} — this gate is reading nothing',
+    );
+    final close = source.indexOf('\n}', start);
+    expect(close, greaterThan(-1), reason: 'the stub builder has no closing brace');
+    final body = source.substring(start, close);
+
+    // On the ASSIGNMENT, not on the word "never" appearing somewhere in the
+    // function. The prose around this code says "never" a dozen times, and a
+    // gate that a comment can satisfy is a gate that fails open.
+    final assigned = RegExp(
+      r'builtin_seed_policy\s*=\s*(?:crate::model::|veil_cfg::|)BuiltinSeedPolicy::(\w+)\s*;',
+    ).allMatches(body).map((m) => m.group(1)!).toList();
+
+    expect(
+      assigned,
+      isNotEmpty,
+      reason: 'the deferred stub sets no builtin_seed_policy, so it boots on '
+          "veil's default `auto` — whose condition (no peers, no "
+          'bootstrap_peers) the stub meets by construction. Every start, '
+          'including one by an identity that DECLINED the shared seeds, opens '
+          'connectors to the production seed hosts before the app config that '
+          'says otherwise has been applied.',
+    );
+    expect(
+      assigned,
+      everyElement('Never'),
+      reason: 'the deferred stub boots with builtin_seed_policy = $assigned. '
+          'Only `Never` keeps the boot off the shared seed hosts; the app has '
+          'no other way to reach that decision, because startDeferred takes no '
+          'config.',
+    );
   });
 }
