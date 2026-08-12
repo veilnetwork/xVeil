@@ -78,6 +78,15 @@ bottom of this entry.
   so a release build returned a wrong digest for longer inputs — reachable,
   because a peer's node id is derived from their public key and the hybrid
   post-quantum key is 1825 bytes.
+- **A store password can no longer reach the debug log.** The loopback stand
+  hook writes each request line to a ring buffer it then serves back, and it
+  wrote that line before any handler ran — so a password passed as a query
+  parameter was recorded whatever the endpoint did about it afterwards. The
+  test covering this had the defect written in as intent: it asserted the
+  password stayed readable, as though only the hook's own key were secret.
+  Secrets are now redacted by parameter name at the log, and the compaction
+  endpoint refuses a password on the request line outright. Debug builds only —
+  the hook is not present in a release build.
 - **The error report stops naming people.** It carried IP addresses, hostnames,
   URLs, e-mail addresses, paths and short tokens — and the active profile's
   name, when the existence of a second profile is the fact worth hiding.
@@ -130,6 +139,38 @@ bottom of this entry.
 - Onboarding no longer dead-ends on a failed container creation; folder sync no
   longer wedges a pair as busy forever; API-token ids no longer throw about one
   creation in 585.
+- **Being removed from a group, or banned from a community, now reaches the
+  person it happened to.** The owner's side was right throughout — nothing
+  leaked, and every message from a removed member was refused. The removed
+  member saw none of it: minutes later they still held the old epoch, still
+  read as a member, and their posts still came back accepted while reaching
+  nobody.
+
+  The delivery list is built by folding the control log and taking the current
+  members, and that fold runs AFTER the removal is recorded — so the one person
+  the entry is about was the one person excluded from carrying it. They are now
+  sent that entry, and only that entry: no keys, no messages, no posts, no
+  receipt. A removed member must learn they were removed without learning
+  anything that happened after.
+- **A file or image you received is reachable over the local API.** The message
+  showed a paperclip and a name with no way to obtain the bytes, and the
+  download endpoint answered "not found" for every id the caller could see. A
+  large file arrives as an OFFER first, and that is the state the API forgot to
+  describe: it published a handle only once the blob was already local, which
+  for a received file is never, because nothing rewrites the row after the
+  download. There is now a handle for an offered file and a step that fetches
+  it, mirroring what group files already had.
+- **Community channels keep the order they were given.** Every channel created
+  by anything other than the management screen landed on the same position as
+  the default one, after which their order was decided by a hash of their ids —
+  arbitrary, and shown to the person as an arrangement they had chosen. A
+  channel created without an explicit position now goes after its siblings.
+- **The headless daemon no longer publishes an API it cannot serve.** Its
+  OpenAPI document described the cloud endpoints, the post comments, the
+  account lock and the call operations; asked for any of them, the running
+  daemon refused. Each host now describes itself, and the daemon will not start
+  if its wiring and its document disagree. The post comments, which it turned
+  out could work and simply had not been connected, now work.
 
 ### Release checklist
 
