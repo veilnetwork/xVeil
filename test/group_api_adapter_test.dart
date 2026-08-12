@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -976,6 +977,87 @@ void main() {
     },
   );
 
+  // A legacy inline image carries its whole payload INSIDE the signed message
+  // and therefore has no contentId. The projection emitted only
+  // {kind,width,height}, and both halves of the group pair required a
+  // contentId to resolve at all — so a received inline picture was visible in
+  // the list and reachable by nothing: fetch 404, download 404. Same shape of
+  // hole as the 1:1 offer handle, at the other end of the API.
+  test('a received INLINE group image is obtainable', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(41);
+    final service = GroupService(storage, _Signer(owner));
+    final api = GroupApiAdapter(
+      service,
+      registerContentSource:
+          (name, size, read, {required close, sourcePath, sourceRoots = const <String>[]}) async {
+            await close();
+            return 'b' * 64;
+          },
+      loadContent: (cid) => storedBlobSource(storage, cid),
+    );
+    try {
+      final group = (await api.create('Pictures'))!;
+      final pixels = Uint8List.fromList(const [137, 80, 78, 71, 13, 10, 26, 10]);
+      expect(
+        await service.postMessage(
+          NodeId.fromHex(group),
+          'look',
+          attachment: MediaObject(
+            kind: 'image',
+            dataB64: base64.encode(pixels),
+            w: 2,
+            h: 2,
+          ),
+        ),
+        isTrue,
+        reason: 'sanity: the inline post must actually land',
+      );
+      final message = (await service.messagesOf(
+        NodeId.fromHex(group),
+      )).firstWhere((m) => m.attachment != null);
+      expect(
+        message.attachment?.cid,
+        isNull,
+        reason: 'sanity: an inline attachment genuinely has no contentId',
+      );
+
+      // 1. The projection says the bytes are reachable.
+      final json = GroupApiAdapter.messageJson(message);
+      final attachment = json['attachment'] as Map<String, dynamic>;
+      expect(
+        attachment['inline'],
+        isTrue,
+        reason:
+            'THE DEFECT: the caller was handed {kind,width,height} and no way '
+            'to tell that anything was obtainable',
+      );
+
+      // 2. The two-step pair works on it, in the order a client would use.
+      expect(
+        await api.fetchFile(group, message.ref),
+        isNull,
+        reason: 'nothing to pull — but the step must not fail either',
+      );
+      final loaded = await api.loadFile(group, message.ref);
+      expect(loaded.error, isNull);
+      expect(await drainBlobSource(loaded.source!), pixels);
+
+      // 3. …and a handle naming no message is still refused.
+      expect(
+        (await api.loadFile(group, '${owner.hex}:999')).error,
+        'group message attachment not found',
+      );
+      expect(
+        await api.fetchFile(group, '${owner.hex}:999'),
+        'group message attachment not found',
+      );
+    } finally {
+      await service.dispose();
+    }
+  });
+
   test('an authored upload renders as itself, or is refused', () async {
     final storage = FakeHvContainer().storage();
     await storage.open(password: 'pw', createIfMissing: true);
@@ -1952,6 +2034,96 @@ void main() {
         'role reaches or exceeds your permission ceiling',
       );
       expect((await managerApi.spaceAccess(space))?['revision'], 2);
+    },
+  );
+
+  test(
+    'the group send API refuses a removed member instead of answering ok',
+    () async {
+      // Measured live: a removed member kept posting into a group they had
+      // been thrown out of and the API answered {"ok":true} every time, while
+      // the owner received nothing. The delivery half of that is fixed in
+      // GroupService.broadcastDelta; this pins the half the caller SEES.
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final owner = _id(91);
+      final bob = _id(92);
+      final ownerService = GroupService(ownerStorage, _Signer(owner));
+      final bobService = GroupService(bobStorage, _Signer(bob));
+      addTearDown(ownerService.dispose);
+      addTearDown(bobService.dispose);
+
+      GroupApiAdapter apiFor(GroupService service) => GroupApiAdapter(
+        service,
+        registerContentSource:
+            (
+              String name,
+              int size,
+              Future<Uint8List> Function(int, int) read, {
+              required Future<void> Function() close,
+              String? sourcePath,
+              List<String> sourceRoots = const [],
+            }) async {
+              await close();
+              return 'unused';
+            },
+        loadContent: (_) async => null,
+      );
+      final bobApi = apiFor(bobService);
+
+      final group = NodeId.fromHex((await apiFor(ownerService).create('Crew'))!);
+      expect(
+        await ownerService.addControlOp(
+          group,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(group))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        await bobApi.sendMessage(group.hex, 'while a member', null),
+        isNull,
+        reason: 'probe precondition: this exact call succeeds for a member',
+      );
+
+      expect(
+        await ownerService.addControlOp(
+          group,
+          ControlOp.removeMember,
+          target: bob,
+        ),
+        isTrue,
+      );
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            (await ownerService.load(group))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      // Two independent gates refuse: the adapter stops resolving a group the
+      // caller is no longer a member of, and behind it GroupService's ACL
+      // denies `publishMessages` to a non-member. Either way the API says no.
+      expect(
+        await bobApi.sendMessage(group.hex, 'after removal', null),
+        isNotNull,
+        reason: 'the API must say no, not ok, for a write that goes nowhere',
+      );
+      expect((await bobApi.list()).map((entry) => entry['groupId']), isEmpty);
     },
   );
 }

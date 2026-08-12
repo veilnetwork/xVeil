@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/api_server.dart';
 import '../api/blob_sources.dart';
 import '../api/cloud_api_adapter.dart';
+import '../api/direct_file_api.dart';
 import '../api/group_api_adapter.dart';
 import '../api/webhook_pump.dart';
 import '../core/ids.dart';
@@ -300,23 +301,21 @@ class ApiServerController extends Notifier<ApiConfig> {
     } catch (_) {
       return const [];
     }
-    final msgs = await ref
-        .read(storageProvider)
-        .loadMessages(peer.hex, limit: limit);
-    return [
-      for (final m in msgs)
-        {
-          'id': m.id,
-          'body': m.body,
-          'direction': m.direction.name,
-          'sentAt': m.timestamp.millisecondsSinceEpoch,
-          'status': m.status.name,
-          if (m.fileName != null) 'fileName': m.fileName,
-          // The id a bot passes to GET /v1/files/download to fetch the blob.
-          if (m.fileId != null) 'fileId': m.fileId,
-        },
-    ];
+    final storage = ref.read(storageProvider);
+    final msgs = await storage.loadMessages(peer.hex, limit: limit);
+    // One shared projection with the headless daemon's `_messages`. The two
+    // used to spell this out separately and both dropped the offer handle.
+    return apiMessagesJson(msgs, storage);
   }
+
+  /// Start the opt-in download of an offered 1:1 file. See [fetchDirectFile].
+  Future<String?> _fetchFile(String peerHex, String messageId) =>
+      fetchDirectFile(
+        ref.read(storageProvider),
+        ref.read(messagingServiceProvider),
+        peerHex,
+        messageId,
+      );
 
   /// Opens the file a `POST /v1/files` send streams from. TESTS ONLY — the
   /// production value is [veilOpenSourceForSend] and nothing else sets it.
@@ -762,6 +761,7 @@ class ApiServerController extends Notifier<ApiConfig> {
       send: _send,
       messages: _messages,
       sendFile: _sendFile,
+      fetchFile: _fetchFile,
       loadFile: _loadFile,
       placeCall: _placeCall,
       callState: _callState,

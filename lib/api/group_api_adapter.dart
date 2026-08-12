@@ -2,11 +2,13 @@
 // Flutter-free headless daemon use this adapter, so validation, visibility and
 // policy outcomes cannot drift between the two runtimes.
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import '../core/ids.dart';
 import 'api_server.dart';
+import 'blob_sources.dart';
 import '../data/serve_source.dart';
 import '../domain/group.dart';
 import '../domain/group_message.dart';
@@ -820,8 +822,32 @@ final class GroupApiAdapter {
         if (message.attachment!.name != null) 'name': message.attachment!.name,
         if (message.attachment!.cid != null)
           'contentId': message.attachment!.cid,
+        // A legacy inline image has NO contentId: its bytes are the message.
+        // Emitting kind/width/height and nothing else said "there is a picture
+        // here" and gave no way to reach it — the same dead end the 1:1 offer
+        // handle was. `inline` says the bytes are already local, so
+        // GET /v1/groups/files/download serves them with no fetch first.
+        if (_inlineBytes(message.attachment!) != null) 'inline': true,
       },
   };
+
+  /// The whole-image payload of a LEGACY inline attachment, or null when there
+  /// is none (or it is unusable).
+  ///
+  /// Only consulted when the attachment has no contentId. An attachment that
+  /// has BOTH carries this field as a bounded PREVIEW of external bytes, and
+  /// serving a preview as if it were the file would be a quiet lie — so the
+  /// callers below never reach for it in that case.
+  static Uint8List? _inlineBytes(MediaObject attachment) {
+    final encoded = attachment.dataB64;
+    if (encoded.isEmpty) return null;
+    try {
+      final bytes = base64.decode(encoded);
+      return bytes.isEmpty ? null : bytes;
+    } catch (_) {
+      return null;
+    }
+  }
 
   static Map<String, dynamic> commentJson(SpacePostCommentView comment) => {
     'id': comment.ref,
@@ -2085,13 +2111,19 @@ final class GroupApiAdapter {
   Future<String?> fetchFile(String groupHex, String messageRef) async {
     final resolved = await _resolveAttachment(groupHex, messageRef);
     if (resolved == null) return 'group message attachment not found';
+    final cid = resolved.$2.cid;
+    if (cid == null) {
+      // Inline: the bytes came with the message, so there is nothing to fetch
+      // and nothing that can fail. Succeeding here keeps the two-step shape
+      // usable for every attachment — a client fetches, then downloads,
+      // without having to know which kind it is holding.
+      return _inlineBytes(resolved.$2) == null
+          ? 'group message attachment not found'
+          : null;
+    }
     try {
-      if (await loadContent(resolved.$2) != null) return null;
-      return await _groups.fetchGroupContent(
-            resolved.$1,
-            resolved.$2,
-            resolved.$3,
-          )
+      if (await loadContent(cid) != null) return null;
+      return await _groups.fetchGroupContent(resolved.$1, cid, resolved.$3)
           ? null
           : 'group content fetch unavailable';
     } catch (_) {
@@ -2109,8 +2141,18 @@ final class GroupApiAdapter {
     if (resolved == null) {
       return (error: 'group message attachment not found', source: null);
     }
+    final cid = resolved.$2.cid;
+    if (cid == null) {
+      // Inline attachment: the whole image is in the signed row we just
+      // validated. It travels the same range-served response as every other
+      // download, so the caller sees one contract, not two.
+      final bytes = _inlineBytes(resolved.$2);
+      return bytes == null
+          ? (error: 'group message attachment not found', source: null)
+          : (error: null, source: inMemoryBlobSource(bytes));
+    }
     try {
-      final source = await loadContent(resolved.$2);
+      final source = await loadContent(cid);
       return source == null
           ? (error: 'group content not downloaded', source: null)
           : (error: null, source: source);
@@ -2119,15 +2161,22 @@ final class GroupApiAdapter {
     }
   }
 
-  Future<(NodeId, String, NodeId)?> _resolveAttachment(
+  /// The validated group, the attachment itself, and its author.
+  ///
+  /// Resolution is by (group, messageRef) and never by a bare contentId — that
+  /// would answer "do you hold this?" for any hash anyone cares to try. It
+  /// yields the whole attachment rather than just its cid because an inline
+  /// image HAS no cid and still has bytes; requiring one here is what made a
+  /// received inline image unreachable through both fetch and download.
+  Future<(NodeId, MediaObject, NodeId)?> _resolveAttachment(
     String groupHex,
     String messageRef,
   ) async {
     final visible = await _visible(groupHex, isSpace: false);
     if (visible == null) return null;
     for (final message in await _groups.messagesOf(visible.$1)) {
-      if (message.ref == messageRef && message.attachment?.cid != null) {
-        return (visible.$1, message.attachment!.cid!, message.author);
+      if (message.ref == messageRef && message.attachment != null) {
+        return (visible.$1, message.attachment!, message.author);
       }
     }
     return null;
