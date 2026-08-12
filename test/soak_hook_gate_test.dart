@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/debug/soak_hook.dart';
 
@@ -62,29 +64,133 @@ void main() {
       // including the `?k=` the gate accepts — so the per-run key landed in the
       // dev-log ring, which the hook itself serves over `/dev_log`. The secret
       // leaked through the diagnostic channel it was meant to protect.
-      final uri = Uri.parse('/unlock?k=deadbeefcafe&password=hunter2');
-      final line = redactSoakKey(uri);
+      final uri = Uri.parse('/unlock?k=deadbeefcafe&limit=5');
+      final line = redactSecrets(uri);
       expect(line, isNot(contains('deadbeefcafe')));
       expect(line, contains('REDACTED'));
       // Everything else still readable — a log that hides the request is not a
       // diagnostic.
       expect(line, contains('/unlock'));
-      expect(line, contains('hunter2'));
+      expect(line, contains('limit=5'));
+    });
+
+    test('the store password never reaches the log either', () {
+      // The half this test used to get WRONG. It asserted the password stayed
+      // readable — `expect(line, contains('hunter2'))` — as if only the hook's
+      // own key were a secret. `/compact` reads its password through
+      // `_mergedParams`, which merges the QUERY STRING, so a `?password=` was a
+      // reachable spelling; and this line runs before any handler, so refusing
+      // it at the endpoint could not have kept it out of the log.
+      for (final name in ['password', 'passphrase', 'phrase', 'pass']) {
+        final line = redactSecrets(Uri.parse('/compact?$name=hunter2'));
+        expect(
+          line,
+          isNot(contains('hunter2')),
+          reason: '$name= put the store password in the dev-log ring',
+        );
+        expect(line, contains('REDACTED'));
+      }
+    });
+
+    test('the name is matched however it is cased', () {
+      // A driver that writes `?Password=` is not a different threat.
+      expect(redactSecrets(Uri.parse('/compact?Password=hunter2')),
+          isNot(contains('hunter2')));
+      expect(redactSecrets(Uri.parse('/health?K=deadbeef')),
+          isNot(contains('deadbeef')));
     });
 
     test('a partial key is not good enough', () {
       // Whole-value replacement, not a prefix trim: half a key in a log is
       // still half a key.
       const key = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
-      final line = redactSoakKey(Uri.parse('/health?k=$key'));
+      final line = redactSecrets(Uri.parse('/health?k=$key'));
       for (var i = 8; i <= key.length; i += 8) {
         expect(line, isNot(contains(key.substring(0, i))));
       }
     });
 
-    test('a URI with no key is passed through untouched', () {
+    test('a URI with no secret is passed through untouched', () {
       final uri = Uri.parse('/health?limit=5');
-      expect(redactSoakKey(uri), uri.toString());
+      expect(redactSecrets(uri), uri.toString());
+    });
+  });
+
+  group('the hook arms whatever boot the app took', () {
+    // Structural, for the same reason as the group below: the handler lives in
+    // a widget the test build compiles out.
+    //
+    // The defect: `_publishSoakKey` read `deniableBootProvider?.runtimeDir` and
+    // returned false when it was null. Only the DENIABLE boot claims a runtime
+    // dir; the config-file boot — `XVEIL_VEIL_CLI` + `XVEIL_VEIL_CONFIG`, which
+    // is how a stand points the app at an external node — claims none. So the
+    // two env vars a stand always sets were also the ones that turned the hook
+    // off, with nothing to see from outside: same build, `XVEIL_DEBUG_HOOK=true`
+    // honoured, window up, Dart VM service answering, and the hook port simply
+    // never bound.
+    final source = File('lib/debug/soak_hook.dart').readAsStringSync();
+
+    test('no runtime dir from the boot is not the end of it', () {
+      final publish = source.substring(source.indexOf('Future<bool> _publishSoakKey('));
+      final body = publish.substring(0, publish.indexOf('\n  Future<'));
+      expect(
+        body,
+        contains('_claimRuntimeDir()'),
+        reason: 'a boot that claims no runtime dir must not decide whether the '
+            'explicitly-requested hook arms',
+      );
+      expect(
+        RegExp(r'runtimeDir == null\)\s*return false;').hasMatch(body) &&
+            !body.contains('_claimRuntimeDir()'),
+        isFalse,
+        reason: 'the bare give-up on a null runtime dir must not come back',
+      );
+    });
+
+    test('the hook claims with the bare pid, so the sweeper can reap it', () {
+      // The other half of that fix, and the one with a real cost if it drifts:
+      // the per-run key sits in this directory. `test/runtime_dir_sweep_test.dart`
+      // pins the claim/sweep coupling behaviourally; this pins the call site so
+      // a later edit cannot decorate the name without tripping something.
+      final claim = source.substring(source.indexOf('Future<String?> _claimRuntimeDir('));
+      final body = claim.substring(0, claim.indexOf('\n  /// Write the per-run key'));
+      expect(body, contains(r"uniqueSuffix: '$pid'"));
+      expect(
+        body,
+        isNot(contains(r"uniqueSuffix: '$pid-")),
+        reason: 'a decorated name matches nothing in the launch sweeper and '
+            'would leave the key on disk through every future launch',
+      );
+    });
+  });
+
+  group('/compact refuses a query-string password', () {
+    // The endpoint half. Redaction keeps the value out of the log; this keeps
+    // the spelling from being offered at all, so a stand driver does not learn
+    // a shape that only works because something downstream cleans up after it.
+    // Structural, on the source, because the handler lives inside a widget the
+    // test build compiles out — `_debugHookEnabled` is a const `false` there,
+    // so no test can drive a request through the real server.
+    final source = File('lib/debug/soak_hook.dart').readAsStringSync();
+
+    test('the handler rejects a password on the request line', () {
+      final compact = source.substring(source.indexOf('Future<void> _compact('));
+      final body = compact.substring(0, compact.indexOf('\n  Future<'));
+      expect(
+        body,
+        contains("req.uri.queryParameters.containsKey('password')"),
+        reason: '_mergedParams merges the query string, so without this check '
+            'the password is accepted from the request line',
+      );
+      // Against the CALL, not the word — the comment above the check names
+      // `_mergedParams` too, and matching that made this assertion compare the
+      // check against its own explanation.
+      expect(
+        body.indexOf("queryParameters.containsKey('password')"),
+        lessThan(body.indexOf('await _mergedParams(req)')),
+        reason: 'the refusal must come before the body is read, or a caller '
+            'that sends it both ways is served rather than corrected',
+      );
     });
   });
 }
