@@ -13,7 +13,14 @@ storage it was built against.
 ## [0.9.2] — unreleased
 
 Built on [veil v0.4.2](https://github.com/veilnetwork/veil/releases/tag/v0.4.2)
-and [hidden-volume v1.2.3](https://github.com/veilnetwork/hidden-volume/releases/tag/v1.2.3).
+and [hidden-volume v2.0.0](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.0).
+
+hidden-volume's major bump is about ITS public API, not about the container
+on disk: `PARAMS_VERSION` stays at 3 and a container written by the version
+v0.9.1 shipped opens here with no conversion and no tool. What a 2.0 costs is
+the other direction — a container this app writes can be refused by an older
+build — so a downgrade to v0.9.1 is not a supported move. See that release's
+own entry for the two changes that cause it.
 
 All three call engines are now built and pinned (`ENGINE_RUN` for android,
 linux and windows), so the release workflow no longer stops on a missing
