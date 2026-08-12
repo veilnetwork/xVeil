@@ -27,6 +27,18 @@ import 'embedded_node.dart' show BootstrapPeerCfg, mergeBootstrapPeers;
 /// only thing that answers the question at the point where the config is BUILT
 /// rather than after the node has already been handed the addresses.
 ///
+/// There is a THIRD place, and it is not in this app. The deniable boot starts
+/// the node from a stub config built on the native side, and the composed
+/// config above only arrives afterwards as an apply-config — so while that stub
+/// carried veil's default `auto` policy, a declining identity opened connectors
+/// to all four production seed hosts on every start, before either mechanism
+/// here had been consulted. Closed in veil, by a stub that boots
+/// `builtin_seed_policy = "never"`; this app can only assert it, which
+/// `test/bundled_seeds_match_builtin_test.dart` does against the submodule's
+/// source. Worth knowing about because it is invisible from here: nothing in
+/// this file, in the onboarding choice, or in `withBuiltinSeedPolicy` could go
+/// red for it.
+///
 /// The cost of each answer, which is what the wording on screen has to say:
 /// keeping the seeds means the app finds the network with nothing to configure,
 /// and those operator-run nodes learn that a node of yours exists and dials

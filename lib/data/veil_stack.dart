@@ -539,13 +539,22 @@ Future<void> restrictRuntimeDir(
 
 /// Register every application-supplied seed on the already-running node.
 ///
-/// Deferred boot applies the real config as a reload. The native runtime keeps
-/// its boot-time builtin connectors, but a reload does not spawn outbound
-/// connector tasks for newly appended `[[bootstrap_peers]]`. Consequently a
-/// seed present only in the bundled/runtime list could remain visible in the
-/// composed config without ever being dialled. Redeeming the same public
-/// descriptor over IPC closes that lifecycle gap; already-known builtin seeds
-/// are harmless refreshes and one bad seed never blocks the rest.
+/// The app's deniable boot composes its config with `bootstrapPeers: const []`
+/// on purpose — injecting them made `veil_node_apply_config` fail with ENOENT on
+/// Android (a per-peer persist path that does not exist in the ephemeral runtime
+/// dir). So the bundled seeds and the operator's own entry points are in NO
+/// config the node ever reads: veil's compiled-in list is what a keeper's reload
+/// splices in, and anything outside that list — a `XVEIL_BOOTSTRAP_PEERS` host,
+/// a seed bundled ahead of a submodule bump — would otherwise never be dialled
+/// at all. Redeeming each descriptor over IPC is how they reach the running
+/// node; already-known builtin seeds are harmless refreshes and one bad seed
+/// never blocks the rest.
+///
+/// Not a workaround for a reload that drops connectors — it does not. The
+/// reload apply-config performs re-runs veil's bootstrap task and opens
+/// connectors for every `[[bootstrap_peers]]` entry the applied config carries
+/// (pinned by `the_applied_config_is_what_puts_a_deferred_node_on_the_network`
+/// in veil-node-runtime). This exists because the applied config carries none.
 Future<int> registerRuntimeBootstrapPeers(
   List<BootstrapPeerCfg> peers,
   Future<void> Function(String uri) join,
@@ -1025,6 +1034,36 @@ class RealVeilStack {
 
     // 4. Boot deferred (anonymity armed in the stub when requested), then apply
     // the real config IN MEMORY (no file) to promote the real identity.
+    //
+    // The first thing the node does is ignore this config. `startDeferred`
+    // boots from a stub built on the native side
+    // (`veil-cfg/src/store.rs::build_stub_config_with_ephemeral_identity`),
+    // which is `Config::default()` plus a fixed throwaway identity — so it
+    // carries no `[[bootstrap_peers]]` and no `obfs4_psk_file`, and there is no
+    // way to hand it any: `veil_node_start_deferred(sock, len, anonymous, err)`
+    // takes no config.
+    //
+    // That used to mean the boot dialled the network on its own. The stub met
+    // veil's `builtin_seed_policy = "auto"` condition — neither `peers` nor
+    // `[[bootstrap_peers]]` set — so every start logged
+    // `dialing 4 entry point(s): 0 configured + 4 builtin seed(s)` and opened
+    // connectors to the compiled-in production seeds, seconds before this
+    // config had been applied and therefore before anything had consulted the
+    // shared-seed setting at all. An identity that DECLINED them still touched
+    // those hosts once per start, on the app and on the daemon alike, and
+    // `useBundledSeeds` — which only ever reached [composeConfig] below — could
+    // not have stopped it.
+    //
+    // The stub now sets `builtin_seed_policy = "never"`: a deferred boot
+    // reaches nothing, and the network arrives with the config that was asked
+    // about. Nothing is lost for an identity that KEPT the seeds — apply-config
+    // is a full reload, so veil re-runs its bootstrap task against the config
+    // below and splices the same seeds in there, over connectors that outlive
+    // the boot. Pinned on the veil side by `deferred_stub_boot_dials_no_builtin
+    // _seed` and `the_applied_config_is_what_puts_a_deferred_node_on_the_
+    // network`, and from here by the deferred-stub gate in
+    // `test/bundled_seeds_match_builtin_test.dart` — this app cannot observe
+    // the stub at runtime, so a submodule bump is the way it would come back.
     final controller = EmbeddedNodeController(
       appSocketPath: ipcSock,
       starter: () {

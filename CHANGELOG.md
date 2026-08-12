@@ -22,6 +22,28 @@ bottom of this entry.
 
 ### Security
 
+- **Declining the shared seed nodes now holds from the first packet.** Someone
+  who turns that off at onboarding was still contacting all four production
+  seed hosts once per start, on every launch, on the app and on the headless
+  daemon alike.
+
+  The setting was correct everywhere it could be seen. It reaches the node
+  config the app composes, which carries `builtin_seed_policy = "never"` — but
+  that is the SECOND config the node reads. The deniable boot starts the node
+  from a stub built inside the veil library, and `veil_node_start_deferred`
+  takes no config at all, so nothing on this side could reach it. That stub
+  carried veil's default policy, whose condition is "no peers configured" —
+  exactly what a stub is — so the node spliced in its compiled-in seed list and
+  opened connectors to it, seconds before the answer arrived.
+
+  Fixed in veil: the stub now boots refusing the compiled-in seeds, so a
+  deferred boot reaches nothing and the network arrives with the config that
+  was asked about. Nothing changes for someone who KEEPS the seeds — applying
+  the real config is a full reload, and veil re-runs its bootstrap against it.
+  This app cannot observe the stub at runtime, so the guard against it coming
+  back with a submodule bump reads the veil source directly
+  (`test/bundled_seeds_match_builtin_test.dart`).
+
 - **A shipped build no longer runs on the in-memory fake store.** When the
   hidden-volume library failed to load, the app carried on: every non-empty
   password opened the SAME unencrypted space and nothing survived the process.
