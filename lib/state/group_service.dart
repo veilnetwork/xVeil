@@ -17159,6 +17159,35 @@ class GroupService {
     final peers = sparse
         ? nearestGroupNodesByXor(_signer.selfId, candidates, k: neighborCount)
         : candidates;
+    // The one place a membership-ending decision is handed to the person it
+    // ends. `state` is folded AFTER the removal is already in the log, so the
+    // target is gone from `state.members` and the ordinary recipient list above
+    // excludes them from the very delta that carries the news about them. That
+    // is right for `leave` (see [_leaveGroup]) and wrong for every authority
+    // decision: measured live, a removed member sat on epoch 2 with
+    // `selfRole: member` four minutes later and was told `ok` for writes that
+    // reached nobody.
+    //
+    // They are served OUT of that loop, never inside it. Measured on the
+    // ordinary per-peer tailoring: `_epochEnvelopesFor` /
+    // `_channelEpochEnvelopesFor` do come back empty for the target of the very
+    // delta that removes them (the new epoch is sealed without them, and their
+    // retained old envelopes verify against no descriptor this delta carries) —
+    // but the CONTENT filters do not. With encryption not yet established, or
+    // for any epoch the target still holds an envelope for,
+    // `_peerCanDecryptEpoch` says yes and the ordinary loop hands them message,
+    // reaction and post rows (pinned in test/removed_member_notice_test.dart).
+    // So the notice is built here from the control rows alone rather than
+    // filtered down to them, and no envelope helper is consulted for it at all.
+    final departed = control.isEmpty
+        ? const <NodeId>[]
+        : [
+            for (final target in _membershipEndedTargets(state, control))
+              if (target != _signer.selfId &&
+                  !exclude.contains(target) &&
+                  (!b.manifest.isSovereignDevice || target != b.manifest.owner))
+                target,
+          ];
     final deltaId = sparse
         ? (overlayId ??
               _overlayDeltaId(
@@ -17280,6 +17309,23 @@ class GroupService {
         }
         n++;
       }
+      for (final target in departed) {
+        // Manifest + the signed control rows, and nothing else. No epoch
+        // envelope, no message, reaction or post row, no overlay id — and no
+        // delivery receipt either: a node that has just been removed is not a
+        // replication holder and must not be counted as one.
+        await send(
+          target,
+          groupId,
+          jsonEncode({
+            'm': b.manifest.toJson(),
+            'c': control.map((entry) => entry.toJson()).toList(),
+            'g': const <Map<String, dynamic>>[],
+            'r': const <Map<String, dynamic>>[],
+          }),
+        );
+        n++;
+      }
     } catch (_) {
       if (b.manifest.isSpace) {
         _observeSpace(
@@ -17303,6 +17349,34 @@ class GroupService {
       );
     }
     return n;
+  }
+
+  /// The nodes whose membership THIS delta ends: an authority decision
+  /// (`removeMember`, `ban`, or a membership-removing `moderate`) whose target
+  /// [state] no longer holds as a member.
+  ///
+  /// A `leave` is deliberately absent. The person who left authored the row and
+  /// already holds it, and [_leaveGroup] depends on the fanout reaching only
+  /// the members who remain.
+  static List<NodeId> _membershipEndedTargets(
+    GroupState state,
+    Iterable<ControlEntry> control,
+  ) {
+    final ended = <String, NodeId>{};
+    for (final entry in control) {
+      final target = switch (entry.op) {
+        ControlOp.removeMember || ControlOp.ban => entry.target,
+        ControlOp.moderate
+            when entry.moderationAction?.kind.removesMembership == true =>
+          entry.moderationAction!.target,
+        _ => null,
+      };
+      // A remove that a later row in the same delta undid leaves a member, and
+      // a member is served by the ordinary recipient list.
+      if (target == null || state.isMember(target)) continue;
+      ended[target.hex] = target;
+    }
+    return ended.values.toList(growable: false);
   }
 
   /// The identity of an overlay delta: WHAT it carries, not how many times.

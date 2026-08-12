@@ -14962,11 +14962,21 @@ void main() {
         ),
         isTrue,
       );
-      expect(
-        toBob,
-        isEmpty,
-        reason: 'a revoked member is absent from post-fold delivery fanout',
-      );
+      // A revoked member is absent from the post-fold CONTENT fanout, and the
+      // one frame they do get says so and carries nothing else. "No frame at
+      // all" used to stand in for this, and that proxy was the defect: the
+      // removed member kept a live-looking Space for as long as nobody told
+      // them (see test/removed_member_notice_test.dart).
+      final revocationNotice = jsonDecode(toBob.single) as Map;
+      expect((revocationNotice['c'] as List).single['op'], 'removeMember');
+      for (final field in ['p', 'g', 'r', 'pc', 'pr', 'ke', 'cke', 'rcpt']) {
+        final value = revocationNotice[field];
+        expect(
+          value == null || (value as List).isEmpty,
+          isTrue,
+          reason: 'a revoked member must receive no $field: $value',
+        );
+      }
       expect(await ownerSvc.handleGroupSyncRequest(bob, request), isFalse);
       final afterRevoke = await ownerSvc.spaceObservabilitySnapshot();
       expect(afterRevoke.counters['revokedDeliveryPrevented.rejected'], 1);
