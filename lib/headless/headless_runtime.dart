@@ -640,22 +640,23 @@ class HeadlessRuntime {
     }
   }
 
+  /// The headless twin of `ApiServerController._requestContact`, and it carried
+  /// the same defect: a bare node id was accepted and answered `ok`, having
+  /// handed the node nothing to seal to. One [contactRequestRefusal] decides it
+  /// for both, so the two cannot drift into disagreeing about what is
+  /// deliverable.
   static Future<String?> _requestContact(
     RealVeilStack stack,
     MessagingService messaging,
     String target,
     String greeting,
   ) async {
+    final refusal = contactRequestRefusal(target);
+    if (refusal != null) return refusal;
     try {
-      final NodeId peer;
-      if (target.startsWith('veil:bootstrap?')) {
-        final invite = BootstrapInvite.parse(target);
-        peer = invite.nodeId;
-        await stack.addContact(invite);
-      } else {
-        peer = NodeId.fromHex(target);
-      }
-      await messaging.sendRequest(peer, greeting);
+      final invite = BootstrapInvite.parse(target);
+      await stack.addContact(invite);
+      await messaging.sendRequest(invite.nodeId, greeting);
       return null;
     } catch (e) {
       return '$e';
