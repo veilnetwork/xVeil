@@ -1704,7 +1704,10 @@ final class GroupApiAdapter {
     String name,
     String kindName,
     String? categoryHex,
-    int position,
+    // Nullable, and passed straight through: the service places an unspecified
+    // channel after its siblings. Substituting a 0 here would silently make
+    // every API-created channel collide with the default one.
+    int? position,
     String historyName,
     int? historySinceMs,
     String accessName,

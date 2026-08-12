@@ -4436,7 +4436,7 @@ class ApiHandler {
     String name,
     String kind,
     String? categoryHex,
-    int position,
+    int? position,
     String history,
     int? historySinceMs,
     String access,
@@ -6233,7 +6233,10 @@ class ApiHandler {
       final name = rawName is String ? rawName.trim() : '';
       final kind = body?['kind'] ?? 'text';
       final category = body?['categoryId'];
-      final position = body?['position'] ?? 0;
+      // No `?? 0`. An omitted position means the caller had no opinion, and
+      // the service then places the channel after its siblings; a 0 here would
+      // be an opinion nobody expressed, colliding with the default channel.
+      final position = body?['position'];
       final history = body?['history'] ?? 'fromJoin';
       final historySince = body?['historySince'];
       final access = body?['access'] ?? 'space';
@@ -6244,7 +6247,7 @@ class ApiHandler {
           name.length > 100 ||
           kind is! String ||
           (category != null && category is! String) ||
-          position is! int ||
+          (position != null && position is! int) ||
           history is! String ||
           access is! String ||
           members is! List ||
@@ -6257,7 +6260,7 @@ class ApiHandler {
         name,
         kind,
         category as String?,
-        position,
+        position as int?,
         history,
         historySince as int?,
         access,

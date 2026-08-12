@@ -7215,7 +7215,19 @@ class GroupService {
     required SpaceChannelKind kind,
     String description = '',
     NodeId? categoryId,
-    int position = 0,
+    // Null means "put it after its siblings", which is what a caller who did
+    // not think about ordering meant. It used to default to 0, and only the
+    // Space management screen ever passed anything else — so every channel
+    // made through the API, the daemon or the debug hook landed on the same
+    // position as the auto-created default, and `orderSpaceChannelsForDisplay`
+    // fell through to its tiebreak on channel-id hex. That is a random order
+    // presented as a deliberate one, and it is what "two channels named
+    // general, both at position 0" actually was.
+    //
+    // `nextSpaceChannelPosition` was written for exactly this and was called
+    // from one place. A helper that is correct and bypassed at the call site
+    // is the shape this project keeps getting caught by.
+    int? position,
     bool isDefault = false,
     SpaceChannelHistory history = SpaceChannelHistory.fromJoin,
     int? historySinceMs,
@@ -7252,7 +7264,12 @@ class GroupService {
       name: name.trim(),
       description: description,
       categoryId: categoryId,
-      position: position,
+      position:
+          position ??
+          nextSpaceChannelPosition(
+            state.channels.values,
+            categoryId: categoryId,
+          ),
       isDefault: kind == SpaceChannelKind.text && (isDefault || firstText),
       archived: false,
       history: history,

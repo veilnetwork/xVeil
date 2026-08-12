@@ -19918,4 +19918,122 @@ void main() {
       },
     );
   });
+
+  group('where a new channel goes when nobody said where', () {
+    // `createChannel` defaulted `position` to 0, and exactly one caller in the
+    // tree — the Space management screen — ever passed anything else. So a
+    // channel made through the API, the headless daemon or the debug hook
+    // landed on the same position as the auto-created default channel, and
+    // both this service's sort and `orderSpaceChannelsForDisplay` fell through
+    // to their tiebreak on channel-id hex. The id is random, so the order is
+    // random — and it is shown to the person as an arrangement they can drag.
+    //
+    // Observed on a live stand as "two channels named general, both at
+    // position 0", which reads as a name-uniqueness problem and is not one.
+    // Naming two channels the same thing is a choice a person may make; having
+    // them silently share a slot is not.
+    //
+    // `nextSpaceChannelPosition` was written for exactly this and had one
+    // caller. A helper that is correct in isolation and bypassed at the call
+    // site is a shape this project has been caught by before, so these are
+    // about the CALL SITE rather than about the helper.
+
+    test('it goes after its siblings, not on top of the default', () async {
+      final (svc, _) = await setup();
+      final spaceId = await svc.createSpace('Ordering');
+
+      final before = await svc.channelsOf(spaceId);
+      expect(
+        before,
+        isNotEmpty,
+        reason: 'the Space auto-creates a default channel; without one there '
+            'is nothing here to collide with and this proves nothing',
+      );
+      final defaultPosition = before.first.position;
+
+      final second = await svc.createChannel(
+        spaceId,
+        name: 'second',
+        kind: SpaceChannelKind.text,
+      );
+      expect(second, isNotNull);
+
+      final made = (await svc.channelsOf(
+        spaceId,
+      )).firstWhere((c) => c.channelId == second);
+      expect(
+        made.position,
+        isNot(defaultPosition),
+        reason: 'it shares a slot with the default channel, so which comes '
+            'first is decided by a hash of their ids',
+      );
+      expect(
+        made.position,
+        greaterThan(defaultPosition),
+        reason: 'a channel added later belongs after the ones already there',
+      );
+    });
+
+    test('each further one lands after the last', () async {
+      // Two would be enough to catch a constant; three catches a fix that
+      // returns any single value other than the default's — which would pass
+      // the test above and still pile everything onto one slot.
+      final (svc, _) = await setup();
+      final spaceId = await svc.createSpace('Ordering');
+
+      const names = ['alpha', 'beta', 'gamma'];
+      for (final name in names) {
+        expect(
+          await svc.createChannel(
+            spaceId,
+            name: name,
+            kind: SpaceChannelKind.text,
+          ),
+          isNotNull,
+        );
+      }
+
+      final channels = await svc.channelsOf(spaceId);
+      final positions = [for (final c in channels) c.position];
+      expect(
+        positions.toSet().length,
+        positions.length,
+        reason: 'two channels share a position: '
+            '${channels.map((c) => '${c.name}@${c.position}').join(', ')}',
+      );
+
+      // And the order shown is the order they were made in.
+      expect(
+        orderSpaceChannelsForDisplay(
+          channels,
+        ).map((c) => c.name).where(names.contains).toList(),
+        names,
+      );
+    });
+
+    test('an explicit position is still obeyed', () async {
+      // The positive control. Without it a "fix" that ignored the caller and
+      // always appended would pass everything above — and would break the
+      // drag-to-reorder in the management screen, which is the one caller that
+      // was getting this right all along.
+      final (svc, _) = await setup();
+      final spaceId = await svc.createSpace('Ordering');
+
+      final pinned = await svc.createChannel(
+        spaceId,
+        name: 'pinned',
+        kind: SpaceChannelKind.text,
+        position: -500,
+      );
+      expect(pinned, isNotNull);
+
+      final channels = await svc.channelsOf(spaceId);
+      expect(channels.firstWhere((c) => c.channelId == pinned).position, -500);
+      expect(
+        orderSpaceChannelsForDisplay(channels).first.channelId,
+        pinned,
+        reason: 'a negative position must sort ahead of the default channel',
+      );
+    });
+  });
 }
