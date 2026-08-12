@@ -1417,7 +1417,39 @@ class AppController extends Notifier<AppState> {
   /// without changing the user's persisted manual-SOCKS preference. The VPN
   /// controller uses this when it acquires/releases its internal SOCKS
   /// transport.
-  Future<bool> reapplyProxyRouting() async {
+  Future<bool> reapplyProxyRouting() => rebootHostedNodes();
+
+  /// Reboot the hosted node(s) so a setting that is armed AT NODE BOOT takes
+  /// effect NOW rather than at the next app start.
+  ///
+  /// The one mechanism, and deliberately so: anonymity
+  /// ([setSingleIdentityAnonymous]), lazy mining ([setSingleLazyMining]) and
+  /// traffic routing ([reapplyProxyRouting]) are all boot-time facts, and each
+  /// used to spell out the same three steps — stop the node, re-read the
+  /// profile, enter the session again — which is three places for the
+  /// all-online branch to be forgotten in. Callers persist their setting FIRST;
+  /// the boot that follows re-reads the store, so what is written is what the
+  /// new node is composed from.
+  ///
+  /// Both session shapes:
+  ///
+  ///   * ALL-ONLINE rebuilds the whole session, because a hosted identity's
+  ///     node cannot be restarted alone; every identity re-reads its own space
+  ///     on the way back up ([planIdentitySeeds]), so a per-identity setting
+  ///     still lands on the identity that owns it;
+  ///   * ONE-ACTIVE restarts just the active node and keeps the already-open
+  ///     deniable space intact — no password, no re-unlock.
+  ///
+  /// `true` when there is a live node again (or there was never one to reboot:
+  /// no embedded boot configured, or no session yet — nothing was promised and
+  /// nothing was broken). `false` says the node did NOT come back, which is the
+  /// caller's cue to say so rather than report a change that did not land.
+  ///
+  /// Every live session this identity holds goes down with the node. That is
+  /// why this is not wired to a plain settings switch — see [SharedSeedsSwitch]
+  /// — and why the callers that do use it either have nothing live to lose or
+  /// are changing the very thing the connections run over.
+  Future<bool> rebootHostedNodes() async {
     if (state.phase != AppPhase.ready ||
         ref.read(deniableBootProvider) == null) {
       return true;
@@ -1445,7 +1477,7 @@ class AppController extends Notifier<AppState> {
       await _enterSession(profile);
       return true;
     } catch (e, st) {
-      devLog(() => 'xVeil[proxy]: apply/reboot failed: $e\n$st');
+      devLog(() => 'xVeil[reboot]: hosted node reboot failed: $e\n$st');
       return false;
     }
   }

@@ -524,6 +524,202 @@ void main() {
       expect(await bundledSeedsAllowed(), isTrue);
       expect(captured.read(bundledSeedsChoiceProvider), isTrue);
     });
+
+    // The defect the assertions above could not see, found on Android and iOS
+    // on the same day: accepting wrote the setting and the provider and left
+    // the RUNNING node exactly as it was — `relays=0`, no mailbox, every send
+    // logging `stash SKIP … NO mailbox` — while the dialog closed as if
+    // something had happened. A force-stop and relaunch registered the seeds in
+    // seconds, so the answer was right and only the moment it was read was
+    // wrong. And the write was what made it terminal: an identity on the seeds
+    // is never prompted again, so the one thing that could still have explained
+    // anything had spent itself.
+    //
+    // Nothing above catches it. "The preference says true" and "the provider
+    // says true" are both satisfied by an app that never boots a node again —
+    // they are the two writes the defect consisted of. What has to be asserted
+    // is the thing the person came for: a node running on the shared seeds,
+    // without a restart.
+    testWidgets('accepting REBOOTS the node onto the seeds, without a restart',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({'onboarded': true});
+      final container = FakeHvContainer();
+      // An identity in exactly the state the prompt exists for: it declined,
+      // and it has nothing of its own to reach the network through.
+      final seeding = container.storage();
+      expect(
+        await seeding.open(password: 'pw', createIfMissing: true),
+        isTrue,
+      );
+      await seeding.saveProfile(UserProfile(displayName: 'refuser'));
+      await seeding.putSetting(kBundledSeedsSettingKey, 'false');
+      await seeding.close();
+
+      final c = ProviderContainer(
+        overrides: [
+          singleSpaceStorageProvider.overrideWith((ref) => container.storage()),
+          managedNodesProvider.overrideWith(() => _FakeManagedNodes(const [])),
+          deniableBootProvider.overrideWithValue(
+            const DeniableBootConfig(
+              runtimeDir: '/run',
+              listenPort: 9000,
+              storePath: '/x',
+              bundledSeeds: [_seed1, _seed2],
+            ),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      // Every node boot this app performs, in order. The seam the real boot
+      // path goes through, so what is recorded is what a node would have been
+      // composed from — not what any screen believes.
+      final plans = <IdentitySeedPlan>[];
+      ctrl.debugDeniableStackStarter = (plan) async {
+        plans.add(plan);
+        return RealVeilStack.overParts(
+          controller: _NoopNode(),
+          transport: _NoopTransport(),
+          myInvite: BootstrapInvite(
+            publicKey: Uint8List(32),
+            nonce: Uint8List(8),
+          ),
+        );
+      };
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: c,
+          child: MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: Consumer(
+              builder: (context, ref, _) => Scaffold(
+                body: Builder(
+                  builder: (inner) => TextButton(
+                    onPressed: () => maybeOfferBundledSeeds(inner, ref),
+                    child: const Text('go'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      /// Pump until [done] or the budget runs out. Never fails on its own — the
+      /// assertions do that, so a timeout reads as the state it actually
+      /// reached rather than as a stack trace from a helper.
+      Future<void> until(bool Function() done) async {
+        for (var i = 0; i < 200 && !done(); i++) {
+          await tester.pump(const Duration(milliseconds: 10));
+        }
+      }
+
+      // Never `await` a controller future in a widget test: the body suspends,
+      // nothing pumps, and the microtasks it is waiting on are never flushed.
+      unawaited(ctrl.unlock('pw'));
+      await until(() => c.read(appControllerProvider).phase == AppPhase.ready);
+
+      // The CONTROL, and it comes first: the identity really is running a node
+      // composed from its refusal. Without it, "the second boot has the seeds"
+      // would pass just as well against an app that always boots with them.
+      expect(plans, hasLength(1), reason: 'the first node boot never ran');
+      expect(plans.single.useBundledSeeds, isFalse);
+      expect(plans.single.bootstrapPeers, isEmpty);
+
+      await tester.tap(find.text('go'));
+      // Two bare pumps first: the offer awaits both count providers, and those
+      // futures complete in microtasks that pumpAndSettle alone does not drain
+      // when nothing has scheduled a frame yet.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 10));
+      await tester.pumpAndSettle();
+      expect(find.byType(BundledSeedsReofferDialog), findsOneWidget);
+      final l = AppL10n.of(
+        tester.element(find.byType(BundledSeedsReofferDialog)),
+      );
+      await tester.tap(find.text(l.seedsReofferUse));
+      await until(() => plans.length > 1);
+
+      // THE ASSERTION. A second node boot happened because the button was
+      // pressed, and it was composed with the shared seeds. The shipped code
+      // reaches neither: it writes two values and stops, and this identity goes
+      // on running the node it booted from its refusal until the app is killed.
+      expect(
+        plans,
+        hasLength(2),
+        reason: 'the choice never reached a node: the app kept running the '
+            'node composed from the refusal, with no relay and no mailbox, '
+            'and the prompt that could have said so can never appear again',
+      );
+      expect(plans.last.useBundledSeeds, isTrue);
+      expect(plans.last.bootstrapPeers.map((p) => p.publicKey), [
+        'SEED1=',
+        'SEED2=',
+      ]);
+      // The boot read the SPACE, not the provider — `planIdentitySeeds`
+      // resolves the identity's own answer — so the reboot also proves the
+      // answer was persisted before the node was rebuilt from it.
+      expect(c.read(appControllerProvider).phase, AppPhase.ready);
+    });
+
+    testWidgets('a reboot that does not come back is SAID, not swallowed', (
+      tester,
+    ) async {
+      // The dead end, one layer down. Accepting spends the prompt for good —
+      // an identity on the seeds is never asked again — so if the node does
+      // not come back and nothing says so, the person is left exactly where
+      // the original defect left them: an app that cannot reach anything, and
+      // nothing on screen to act on. The restart has to be named.
+      await setBundledSeedsAllowed(false);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bundledSeedsChoiceProvider.overrideWith((ref) => false),
+            managedNodesProvider.overrideWith(() => _FakeManagedNodes(const [])),
+            storageProvider.overrideWith((ref) => _OpenSettingStorage()),
+            appControllerProvider.overrideWith(_RebootRefusingAppController.new),
+            deniableBootProvider.overrideWithValue(
+              const DeniableBootConfig(runtimeDir: '/tmp/x'),
+            ),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: Consumer(
+              builder: (context, ref, _) => Scaffold(
+                body: Builder(
+                  builder: (inner) => TextButton(
+                    onPressed: () => maybeOfferBundledSeeds(inner, ref),
+                    child: const Text('go'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('go'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 10));
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(
+        tester.element(find.byType(BundledSeedsReofferDialog)),
+      );
+      await tester.tap(find.text(l.seedsReofferUse));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(BundledSeedsReofferDialog), findsNothing);
+      expect(
+        find.text(l.seedsRestartToApply),
+        findsOneWidget,
+        reason: 'the answer was recorded and no node took it, and the person '
+            'was told nothing — the prompt cannot fire again, so this notice '
+            'is the only thing left that mentions the restart',
+      );
+    });
   });
 
   group('the answer can be changed after onboarding', () {
@@ -1204,6 +1400,27 @@ class _NoopTransport implements VeilTransport {
   Future<List<PeerInfo>> peers() async => const [];
   @override
   Future<void> dispose() async => _c.close();
+}
+
+/// An open space that takes settings — enough for the re-offer's write to
+/// succeed, so what happens NEXT is what is under test.
+class _OpenSettingStorage extends FakeSettingStorage {
+  @override
+  bool get isOpen => true;
+}
+
+/// A ready session whose node will not come back. Not a stub for the reboot —
+/// the reboot's real behaviour is asserted above, against real boots; this is
+/// the branch where it fails, which no fake node can produce on demand.
+class _RebootRefusingAppController extends AppController {
+  @override
+  AppState build() => AppState(
+    AppPhase.ready,
+    identity: Identity(nodeId: NodeId(Uint8List(32))),
+  );
+
+  @override
+  Future<bool> rebootHostedNodes() async => false;
 }
 
 /// A space that is open and will not answer — a damaged container, not an
