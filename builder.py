@@ -105,6 +105,27 @@ def _path_remap_env() -> dict[str, str]:
     return env
 
 
+def _debug_hook_define() -> list[str]:
+    """The stand hook, passed through from the environment. Empty unless asked.
+
+    The hook is COMPILE-time: soak_hook.dart reads a `bool.fromEnvironment`, so
+    a build made without the define has no hook and no way to gain one. What
+    that looks like from outside is a node that never bootstrapped — no port
+    answers, no runtime key is written — which is where the search then goes.
+
+    A function rather than the same six lines per platform, because those six
+    lines were copied and the copy was missed three times over: Android came up
+    mute until 948adbb, Linux until the comment in `_linux` was written, and
+    macOS was mute for every build on a machine with an Apple account the whole
+    time — the SIGNED branch never had it, while the comments in the other two
+    asserted that macOS already did. Passed through rather than always on: a
+    debug build is still an ordinary build unless someone asks for a stand.
+    """
+    if os.environ.get("XVEIL_DEBUG_HOOK", "").lower() in ("1", "true", "yes"):
+        return ["--dart-define=XVEIL_DEBUG_HOOK=true"]
+    return []
+
+
 def _pubspec_version() -> str:
     """The version the error report will name.
 
@@ -526,21 +547,10 @@ def _android(release: bool) -> list[Step]:
                 argv=[
                     "flutter", "build", "apk", "--debug",
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
-                    # The stand hook is compile-time (soak_hook.dart reads a
-                    # bool.fromEnvironment), so an APK built without the define
-                    # has no hook and no way to gain one. Passed through from
-                    # the environment rather than always-on: a debug APK is
-                    # still an ordinary build unless someone asks for a stand.
-                    # Without this the macOS script had the pass-through and
-                    # the Android path did not, and a phone came up mute --
-                    # /health answering nothing looks exactly like a node that
-                    # failed to bootstrap, which is where the search then goes.
-                    *(
-                        ["--dart-define=XVEIL_DEBUG_HOOK=true"]
-                        if os.environ.get("XVEIL_DEBUG_HOOK", "").lower()
-                        in ("1", "true", "yes")
-                        else []
-                    ),
+                    # See _debug_hook_define: without this an APK comes up mute
+                    # and /health answering nothing looks exactly like a node
+                    # that failed to bootstrap, which is where the search goes.
+                    *_debug_hook_define(),
                 ],
                 env=_path_remap_env(),
             )
@@ -581,19 +591,11 @@ def _linux(release: bool) -> list[Step]:
                 "build",
                 "linux",
                 "--release" if release else "--debug",
-                # Same pass-through the macOS and Android paths already have.
-                # Without it a Linux build comes up MUTE: the hook is compiled
-                # out, no port answers, no runtime key is written, and a node
-                # that never bootstrapped looks exactly the same from outside —
-                # which is where the search then goes. The Android path had
-                # this same gap until 948adbb; this is the third host and the
-                # last one that was missing it.
-                *(
-                    ["--dart-define=XVEIL_DEBUG_HOOK=true"]
-                    if os.environ.get("XVEIL_DEBUG_HOOK", "").lower()
-                    in ("1", "true", "yes")
-                    else []
-                ),
+                # See _debug_hook_define. This was called "the third host and
+                # the last one that was missing it" — it was not: the SIGNED
+                # macOS branch had never had it, and the ad-hoc script that
+                # does is only reached on a machine with no Apple account.
+                *_debug_hook_define(),
             ],
         )
     )
@@ -677,7 +679,18 @@ def _macos(release: bool) -> list[Step]:
         steps.append(
             Step(
                 "flutter bundle (signed)",
-                argv=["flutter", "build", "macos", f"--{config}"],
+                argv=[
+                    "flutter", "build", "macos", f"--{config}",
+                    # Both defines were on the AD-HOC path only — the script
+                    # taken when this machine has NO Apple account. So the
+                    # better-equipped machine produced the worse build: a stand
+                    # asked for with XVEIL_DEBUG_HOOK=true came up mute, and
+                    # every error report from a signed bundle named no version.
+                    # The other two platforms carried comments asserting macOS
+                    # already had this.
+                    f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                    *_debug_hook_define(),
+                ],
             )
         )
         steps.append(

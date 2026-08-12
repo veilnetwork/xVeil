@@ -7,7 +7,12 @@ import 'package:xveil/core/cleanup_legs.dart';
 import 'package:xveil/core/posix_file_facts.dart';
 
 import 'native_libs.dart' show openEnvLib, processLibFor;
-import 'node/bundled_seeds.dart' show bundledSeedsAllowedFor;
+// The DECISION only, never `bundled_seeds_prefs.dart`: the preference store is
+// package:shared_preferences, which is package:flutter, and this file is on the
+// headless daemon's import path — one such import stopped `dart build cli`
+// producing the daemon at all while every app build stayed green (709f3b9).
+import 'node/bundled_seeds.dart'
+    show bundledSeedsAllowedFromSpace, kBundledSeedsDefault;
 import 'node/embedded_node.dart';
 import 'node/node_controller.dart';
 import 'node/proxy_routing.dart';
@@ -807,12 +812,11 @@ class RealVeilStack {
     String? identityPhrase,
     // Whether this identity may reach the network through the SHARED seed
     // nodes. Null resolves it from THIS identity's own space — the [storage]
-    // this boot already holds open — which is what every real boot wants: the
-    // node config is composed down here, below the providers, and resolving it
-    // at this one point is what makes the opt-out impossible for a caller to
-    // forget. Callers that resolved it themselves (both app boot paths, which
-    // need the same answer to build the peer list) pass it in rather than
-    // reading twice; tests pass it explicitly.
+    // this boot already holds open — which is what makes the opt-out impossible
+    // for a caller to forget. Callers that resolved it themselves (both app
+    // boot paths, which need the same answer to build the peer list) pass it in
+    // rather than reading twice; the daemon passes what its config file said,
+    // or null when the file did not say; tests pass it explicitly.
     //
     // Resolved from the SPACE and not from a preference: the preference store is
     // one file per app profile, so a decoy master — another space in the same
@@ -824,7 +828,17 @@ class RealVeilStack {
     // would otherwise dial entirely on its own.
     bool? useBundledSeeds,
   }) async {
-    final seedsAllowed = useBundledSeeds ?? await bundledSeedsAllowedFor(storage);
+    // The SPACE alone, with no preference behind it. This runs inside the
+    // headless daemon too, which has no app profile and therefore no preference
+    // to read or migrate from; the one-time migration off the profile
+    // preference belongs to the app and happens above, in `planIdentitySeeds`,
+    // which is why both app boot paths pass the answer in.
+    final seedsAllowed =
+        useBundledSeeds ??
+        await bundledSeedsAllowedFromSpace(
+          storage,
+          ifUnanswered: kBundledSeedsDefault,
+        );
     // Time each phase so the log pinpoints where a slow boot/switch goes (the
     // boot is mining-free when the identity already exists, so a slow switch is
     // the node bind/connect, not PoW). Zero-cost diagnostic; reads at a glance.
