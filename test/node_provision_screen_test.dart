@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/managed_node.dart';
@@ -52,7 +54,42 @@ Widget _host() => ProviderScope(
   ),
 );
 
+// Any non-empty value will do: the screen only asks whether a deployment PSK
+// exists at all, and the checksum/base64 rules live in the provisioner.
+const _pskAsset = 'assets/prod/obfs4_psk.b64';
+const _testPsk = 'dGVzdC1vYmZzNC1wc2s=';
+
 void main() {
+  // This screen renders NOTHING but "PSK missing" when the bundled deployment
+  // PSK cannot be read — `_loadPsk` reads `assets/prod/obfs4_psk.b64` and an
+  // empty result replaces the whole body. That asset is a network secret and
+  // is gitignored, so it is present only on a machine that was handed one:
+  // on CI, and on any clean clone, it is not there, and every test below was
+  // silently asking whether this host holds a production secret rather than
+  // what it says it asks. Serve the asset instead of depending on the host.
+  setUp(() {
+    final binding = TestWidgetsFlutterBinding.ensureInitialized();
+    // `rootBundle` caches per key, and a cached entry belongs to the zone of
+    // the test that filled it — a later test awaiting it waits forever. Clear
+    // it so each test resolves the PSK in its own zone and no test depends on
+    // running first.
+    rootBundle.clear();
+    binding.defaultBinaryMessenger.setMockMessageHandler(
+      'flutter/assets',
+      (message) async {
+        final key = utf8.decode(Uint8List.sublistView(message!));
+        if (key != _pskAsset) return null;
+        return ByteData.sublistView(utf8.encode(_testPsk));
+      },
+    );
+  });
+
+  tearDown(() {
+    TestWidgetsFlutterBinding.ensureInitialized().defaultBinaryMessenger
+        .setMockMessageHandler('flutter/assets', null);
+    rootBundle.clear();
+  });
+
   // The release URL decides which binary a remote machine downloads and runs.
   // `isSafeHttpsUrl` is the check that says whether it is one this app will
   // fetch, and the screen never consulted it — so a plain-http or malformed
