@@ -11096,6 +11096,12 @@ abstract class AppL10n {
   /// **'Add my node'**
   String get seedsNoNodeAction;
 
+  /// Shown after the startup prompt records the shared seeds but the node reboot that would apply them now did not come back.
+  ///
+  /// In en, this message translates to:
+  /// **'The shared nodes are saved for this identity, but the running node could not be restarted. Close the app and open it again to connect.'**
+  String get seedsRestartToApply;
+
   /// Shown when the preference store refused the write.
   ///
   /// In en, this message translates to:

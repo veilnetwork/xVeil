@@ -2893,6 +2893,10 @@
   "@seedsNoNodeAction": {
     "description": "Button leading to the screen where a node is added."
   },
+  "seedsRestartToApply": "The shared nodes are saved for this identity, but the running node could not be restarted. Close the app and open it again to connect.",
+  "@seedsRestartToApply": {
+    "description": "Shown after the startup prompt records the shared seeds but the node reboot that would apply them now did not come back."
+  },
   "seedsSaveFailed": "That choice could not be saved. It applies to this session only.",
   "@seedsSaveFailed": {
     "description": "Shown when the preference store refused the write."
