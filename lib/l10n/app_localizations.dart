@@ -8624,6 +8624,12 @@ abstract class AppL10n {
   /// **'Mic off'**
   String get callMicOff;
 
+  /// No description provided for @callPeerMicOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Muted their microphone'**
+  String get callPeerMicOff;
+
   /// No description provided for @callCameraOn.
   ///
   /// In en, this message translates to:

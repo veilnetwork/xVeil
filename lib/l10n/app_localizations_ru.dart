@@ -4916,6 +4916,9 @@ class AppL10nRu extends AppL10n {
   String get callMicOff => 'Микрофон выкл';
 
   @override
+  String get callPeerMicOff => 'Выключил микрофон';
+
+  @override
   String get callCameraOn => 'Камера вкл';
 
   @override

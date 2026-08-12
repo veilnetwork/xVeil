@@ -2065,6 +2065,7 @@
   "callEnded": "Звонок завершён",
   "callMicOn": "Микрофон вкл",
   "callMicOff": "Микрофон выкл",
+  "callPeerMicOff": "Выключил микрофон",
   "callCameraOn": "Камера вкл",
   "callCameraOff": "Камера выкл",
   "callDevices": "Устройства",
