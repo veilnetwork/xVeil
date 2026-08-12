@@ -6353,6 +6353,10 @@ class AppL10nRu extends AppL10n {
   String get seedsNoNodeAction => 'Добавить свой узел';
 
   @override
+  String get seedsRestartToApply =>
+      'Общие узлы сохранены для этой личности, но перезапустить работающий узел не удалось. Закройте приложение и откройте его снова, чтобы подключиться.';
+
+  @override
   String get seedsSaveFailed =>
       'Выбор не удалось сохранить. Он действует только до перезапуска.';
 

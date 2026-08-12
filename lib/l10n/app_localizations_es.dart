@@ -6370,6 +6370,10 @@ class AppL10nEs extends AppL10n {
   String get seedsNoNodeAction => 'Añadir mi nodo';
 
   @override
+  String get seedsRestartToApply =>
+      'Los nodos compartidos se han guardado para esta identidad, pero no se pudo reiniciar el nodo en ejecución. Cierra la aplicación y vuelve a abrirla para conectarte.';
+
+  @override
   String get seedsSaveFailed =>
       'No se pudo guardar esa elección. Solo se aplica a esta sesión.';
 

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/node/bundled_seeds.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/app_controller.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/providers.dart';
 
@@ -276,12 +277,56 @@ class _BundledSeedsReofferDialogState
     if (mounted) Navigator.of(context).pop(false);
   }
 
-  /// Accept the shared seeds after all.
+  /// Accept the shared seeds after all — and REBOOT the node onto them.
   ///
-  /// The stored answer and the live provider are both updated: the provider is
-  /// what rebuilds the boot config, so the seeds are available to the next node
-  /// boot without waiting for a restart, and the stored answer is what survives
-  /// one. Suppression is irrelevant here — the prompt cannot fire again for an
+  /// ## Why the reboot is the whole of the fix
+  ///
+  /// This shipped writing the setting and the provider and nothing else, under
+  /// a comment claiming the seeds would reach "the next node boot without
+  /// waiting for a restart". Nothing booted a node. Confirmed on Android and
+  /// iOS: the button closed the dialog and the running node stayed exactly as
+  /// it was — `relays=0`, no mailbox, every send logging `stash SKIP … NO
+  /// mailbox` — for as long as anyone watched. Force-stopping the app and
+  /// launching it again registered the seeds in seconds, so the answer was
+  /// correct and only the moment it was read was wrong.
+  ///
+  /// And the write made it unrecoverable rather than merely late:
+  /// [shouldOfferBundledSeeds] goes quiet for an identity that is on the seeds,
+  /// so the one prompt that could have explained anything could never appear
+  /// again. A person who pressed the button that says it fixes the app was left
+  /// in a dead app with nothing left to press.
+  ///
+  /// So the choice is applied where it is made. [AppController.rebootHostedNodes]
+  /// is the path identity switching, the anonymity toggle and the routing
+  /// toggle already take — stop the node, re-read the space, boot again — and
+  /// the space is re-read on the way up ([planIdentitySeeds]), so the answer
+  /// written a line earlier is the answer the new node is composed from.
+  ///
+  /// The settings switch ([SharedSeedsSwitch]) deliberately does NOT do this
+  /// and says "applies at the next start" instead, because a reboot drops every
+  /// live session and a settings toggle must not do that silently. That
+  /// argument does not reach here, and its absence is the reason: this dialog
+  /// is shown only in the state [shouldOfferBundledSeeds] describes — declined,
+  /// no node of one's own, no configured peer — where there is no session, no
+  /// relay and no mailbox to lose. The reboot costs nothing because nothing is
+  /// running that works.
+  ///
+  /// ## Order, and what is said when a step fails
+  ///
+  ///   * a REFUSED write changes nothing at all — not the provider either. The
+  ///     old code moved the live value anyway, which is how a screen ends up
+  ///     showing an answer no node will ever read; the switch on the network
+  ///     screen already refuses that, for the same reason, in the same words;
+  ///   * the dialog is popped BEFORE the reboot. The reboot walks the app
+  ///     through `preparingNode`, which replaces this route's subtree — so the
+  ///     messenger and the strings are captured while there is still a context
+  ///     to read them from;
+  ///   * a reboot that does not come back is SAID. Otherwise this is the same
+  ///     defect one layer down: the prompt is spent, the app still cannot
+  ///     reach anything, and nothing on screen mentions the restart that would
+  ///     fix it.
+  ///
+  /// Suppression is irrelevant here — the prompt cannot fire again for an
   /// identity that is using the seeds — but an unticked box must not silently
   /// clear a suppression the person set earlier, so it is only ever written on.
   ///
@@ -292,19 +337,40 @@ class _BundledSeedsReofferDialogState
   Future<void> _accept() async {
     if (_busy) return;
     setState(() => _busy = true);
+    // Captured before the first await: after the pop below — and certainly
+    // after the reboot — this State's context is gone, and with it the only
+    // route to the localizations and the messenger that has to carry the
+    // failure notice.
+    final l = AppL10n.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final app = ref.read(appControllerProvider.notifier);
     final saved = await setBundledSeedsAllowedFor(
       ref.read(storageProvider),
       true,
     );
     if (!mounted) return;
-    ref.read(bundledSeedsChoiceProvider.notifier).state = true;
     if (!saved) {
-      final l = AppL10n.of(context);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l.seedsSaveFailed)));
+      // Nothing was recorded, so nothing is applied and nothing is rebooted.
+      // The refusal stands, which also means the prompt is still allowed to
+      // speak next launch — the dead end only exists when the write succeeds.
+      messenger.showSnackBar(SnackBar(content: Text(l.seedsSwitchSaveFailed)));
+      navigator.pop(false);
+      return;
     }
-    Navigator.of(context).pop(true);
+    ref.read(bundledSeedsChoiceProvider.notifier).state = true;
+    navigator.pop(true);
+    if (!await app.rebootHostedNodes()) {
+      // Recorded but not live. Long, because it is the only thing standing
+      // between the person and an app that looks accepted and still does
+      // nothing.
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(l.seedsRestartToApply),
+          duration: const Duration(seconds: 10),
+        ),
+      );
+    }
   }
 
   @override

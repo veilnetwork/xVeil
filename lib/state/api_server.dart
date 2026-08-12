@@ -230,19 +230,25 @@ class ApiServerController extends Notifier<ApiConfig> {
     ];
   }
 
+  /// Ask [target] to be a contact. Null on success, else the reason, which the
+  /// handler returns as a 400.
+  ///
+  /// The refusal comes FIRST and is a real answer, not a validation nicety: a
+  /// bare node id gives the node no key to seal to, so the request it would
+  /// send can never arrive — see [contactRequestRefusal] for what was measured.
+  /// This used to accept one and report `200 {"ok":true}`, having done nothing
+  /// but write a `pendingOutgoing` contact nobody would ever answer.
   Future<String?> _requestContact(String target, String greeting) async {
+    final refusal = contactRequestRefusal(target);
+    if (refusal != null) return refusal;
     try {
-      final NodeId peer;
-      if (target.startsWith('veil:bootstrap?')) {
-        final invite = BootstrapInvite.parse(target);
-        peer = invite.nodeId;
-        final stack = ref.read(realStackProvider);
-        if (stack == null) return 'node unavailable';
-        await stack.addContact(invite);
-      } else {
-        peer = NodeId.fromHex(target);
-      }
-      await ref.read(messagingServiceProvider).sendRequest(peer, greeting);
+      final invite = BootstrapInvite.parse(target);
+      final stack = ref.read(realStackProvider);
+      if (stack == null) return 'node unavailable';
+      await stack.addContact(invite);
+      await ref
+          .read(messagingServiceProvider)
+          .sendRequest(invite.nodeId, greeting);
       return null;
     } catch (e) {
       return '$e';

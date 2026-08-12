@@ -6292,6 +6292,10 @@ class AppL10nEn extends AppL10n {
   String get seedsNoNodeAction => 'Add my node';
 
   @override
+  String get seedsRestartToApply =>
+      'The shared nodes are saved for this identity, but the running node could not be restarted. Close the app and open it again to connect.';
+
+  @override
   String get seedsSaveFailed =>
       'That choice could not be saved. It applies to this session only.';
 
