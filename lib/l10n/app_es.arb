@@ -2072,6 +2072,7 @@
   "callEnded": "Llamada finalizada",
   "callMicOn": "Micrófono activado",
   "callMicOff": "Micrófono silenciado",
+  "callPeerMicOff": "Silenció su micrófono",
   "callCameraOn": "Cámara activada",
   "callCameraOff": "Cámara apagada",
   "callDevices": "Dispositivos",

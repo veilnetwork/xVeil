@@ -4935,6 +4935,9 @@ class AppL10nEs extends AppL10n {
   String get callMicOff => 'Micrófono silenciado';
 
   @override
+  String get callPeerMicOff => 'Silenció su micrófono';
+
+  @override
   String get callCameraOn => 'Cámara activada';
 
   @override

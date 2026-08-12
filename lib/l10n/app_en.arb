@@ -2090,6 +2090,7 @@
   "callEnded": "Call ended",
   "callMicOn": "Mic on",
   "callMicOff": "Mic off",
+  "callPeerMicOff": "Muted their microphone",
   "callCameraOn": "Camera on",
   "callCameraOff": "Camera off",
   "callDevices": "Devices",

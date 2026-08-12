@@ -506,11 +506,43 @@ class CallService {
   }
 
   /// Toggle the local mic on/off during a live call (the in-call mic button).
+  ///
+  /// Muting is not a private act: the other side hears nothing and, told
+  /// nothing, reads the silence as a broken call. The peer is sent our posture
+  /// straight away, and the heartbeat keeps repeating it.
   Future<void> setMicEnabled(bool on) async {
     final c = _current;
     if (c == null || !c.isLive || c.micOn == on) return;
     _set(c.copyWith(micOn: on)); // reflect immediately; the UI watches Call
     await _media?.setMicMuted(!on);
+    await _announceCapture();
+  }
+
+  /// What this endpoint is capturing right now. Mirrors the group call's
+  /// per-participant posture: intent AND the call's shape, so a camera that is
+  /// "on" in an audio-only call does not claim to be sending video.
+  CallMedia _localCapture(Call c) => CallMedia(
+    audio: c.micOn,
+    video: c.media.video && c.cameraOn,
+    screen: c.media.video && c.screenOn,
+  );
+
+  /// Push the local capture posture to the peer out of the heartbeat's cycle,
+  /// so a mute lands on their screen now rather than up to a beat later. The
+  /// periodic heartbeat carries the same field, which is what makes a dropped
+  /// frame here self-correcting rather than permanent.
+  Future<void> _announceCapture() async {
+    final cur = _current;
+    if (cur == null || !cur.isLive || cur.isSettingUp) return;
+    await _messaging.sendCallSignal(
+      cur.peer,
+      CallSignal(
+        callId: cur.callId,
+        type: CallSignalType.health,
+        capture: _localCapture(cur),
+        protocolVersion: _signalProtocolVersion,
+      ),
+    );
   }
 
   Future<List<CallMediaDevice>> listCameras() =>
@@ -642,6 +674,7 @@ class CallService {
         live.peer == peer) {
       _lastPeerSignalAt = _now();
       if (_heartbeatTimer != null) _peerConfirmedAfterConnect = true;
+      _foldPeerCapture(sig);
     }
     switch (sig.type) {
       case CallSignalType.offer:
@@ -693,6 +726,27 @@ class CallService {
       case CallSignalType.unknown:
         break;
     }
+  }
+
+  /// Fold the peer's live capture posture (mic/camera/screen) out of any
+  /// signal that carries one — today the heartbeat, the same carrier the group
+  /// call uses. Applied newest-wins by SENDER timestamp: signals can overtake
+  /// each other on the overlay, and a late older beat must never put the
+  /// microphone back on after the peer has muted it.
+  void _foldPeerCapture(CallSignal sig) {
+    final capture = sig.capture;
+    if (capture == null) return;
+    final c = _current;
+    if (c == null) return;
+    final at = sig.sentAtMs ?? 0;
+    if (c.peerCapture != null && at < c.peerCaptureAtMs) return;
+    if (c.peerCapture != null &&
+        c.peerCapture!.audio == capture.audio &&
+        c.peerCapture!.video == capture.video &&
+        c.peerCapture!.screen == capture.screen) {
+      return; // unchanged — every heartbeat must not churn the UI
+    }
+    _set(c.copyWith(peerCapture: capture, peerCaptureAtMs: at));
   }
 
   /// Mid-call media change from the peer (their screen share started/ended).
@@ -1068,6 +1122,7 @@ class CallService {
                       _media?.lastMediaRxAt ?? c.connectedAt ?? c.startedAt,
                     ) >=
                     kCallMediaRepairAfter,
+            capture: _localCapture(c),
             sentAtMs: _now().millisecondsSinceEpoch,
             protocolVersion: _signalProtocolVersion,
           ),
