@@ -35,9 +35,17 @@ if (-not $SpmSrc) { $SpmSrc = Join-Path $HOME 'sentencepiece' }
 $ct2Build = if ($env:CT2_BUILD) { $env:CT2_BUILD } else { Join-Path $Ct2Src 'build-windows-static' }
 $spmBuild = if ($env:SPM_BUILD) { $env:SPM_BUILD } else { Join-Path $SpmSrc 'build-windows-x64' }
 
-$ct2Lib = Get-ChildItem -Path $ct2Build -Filter 'ctranslate2.lib' -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
+# A developer who has configured a multi-config generator has BOTH Debug and
+# Release next to each other, and a recursive search returns both. Two hazards,
+# neither of which announces itself: `Select-Object -First 1` takes whichever
+# the filesystem enumerates first -- alphabetically that is Debug -- and the
+# dependency sweep below would hand link.exe one archive of each configuration,
+# built against a different CRT than the /MD this compiles with.
+$notDebug = { $_.FullName -notmatch '[\\/]Debug[\\/]' }
+
+$ct2Lib = Get-ChildItem -Path $ct2Build -Filter 'ctranslate2.lib' -Recurse -File -ErrorAction SilentlyContinue | Where-Object $notDebug | Select-Object -First 1
 if (-not $ct2Lib) { throw "no ctranslate2.lib under $ct2Build - build CTranslate2 static first" }
-$spmLib = Get-ChildItem -Path $spmBuild -Filter 'sentencepiece.lib' -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
+$spmLib = Get-ChildItem -Path $spmBuild -Filter 'sentencepiece.lib' -Recurse -File -ErrorAction SilentlyContinue | Where-Object $notDebug | Select-Object -First 1
 if (-not $spmLib) { throw "no sentencepiece.lib under $spmBuild - build SentencePiece static first" }
 
 $abslInc = Join-Path $spmBuild '_deps\abseil-cpp-src'
@@ -54,9 +62,9 @@ Write-Host "==> ctranslate2 $version"
 # two copies of the same object to a linker is not something to rely on the
 # linker to sort out.
 $deps = @()
-$deps += Get-ChildItem -Path $ct2Build -Filter '*.lib' -Recurse -File |
+$deps += Get-ChildItem -Path $ct2Build -Filter '*.lib' -Recurse -File | Where-Object $notDebug |
   Where-Object { $_.Name -ne 'ctranslate2.lib' } | ForEach-Object { $_.FullName }
-$deps += Get-ChildItem -Path $spmBuild -Filter '*.lib' -Recurse -File |
+$deps += Get-ChildItem -Path $spmBuild -Filter '*.lib' -Recurse -File | Where-Object $notDebug |
   Where-Object { $_.Name -notmatch 'train' -and $_.Name -ne 'protoc.lib' -and
                  $_.Name -ne 'libprotoc.lib' -and $_.Name -ne 'protobuf-lite.lib' } |
   ForEach-Object { $_.FullName }
@@ -81,7 +89,13 @@ $header = Join-Path $PSScriptRoot 'veil_translate.h'
 $wanted = Select-String -Path $header -Pattern 'veil_translate[a-z_]*\(' -AllMatches |
   ForEach-Object { $_.Matches } | ForEach-Object { $_.Value.TrimEnd('(') } |
   Sort-Object -Unique
-if ($wanted.Count -eq 0) { throw "no entry points found in $header" }
+# A floor, not a non-empty test. Every check below is keyed on this list, so a
+# regex that stops matching does not fail -- it shrinks the .def, shrinks what
+# the DLL exports, and the set comparison agrees with itself on the remainder.
+# The header declares six; five is the alarm.
+if ($wanted.Count -lt 5) {
+  throw "found only $($wanted.Count) entry points in $header - discovery is broken, not the header"
+}
 $defPath = Join-Path $tmp 'veil_translate.def'
 @('EXPORTS') + $wanted | Set-Content -Path $defPath -Encoding ASCII
 
@@ -106,9 +120,20 @@ Get-Item $dll | Format-List Length, LastWriteTime | Out-String | Write-Host
 # the question GetProcAddress answers. `nm`-style symbol listings would report a
 # symbol that is defined but not exported, which is a green check for a DLL the
 # app cannot call into; the mac-side symbol gate learned that the same week.
-$exports = (& dumpbin.exe /EXPORTS $dll) |
-  Select-String -Pattern '\bveil_translate[a-z_]*\b' -AllMatches |
-  ForEach-Object { $_.Matches } | ForEach-Object { $_.Value } | Sort-Object -Unique
+#
+# Read the ROWS of that table -- ordinal, hint, RVA, name -- and take the name
+# column, the way the Linux sibling takes nm's last field. A pattern run over
+# the whole of dumpbin's output instead matches dumpbin's own prose: it prints
+# "Dump of file ...\veil_translate.dll" and "the following exports for
+# veil_translate.dll" before the table, so the string veil_translate is present
+# even when the export table is EMPTY. That made this gate certify a DLL whose
+# primary entry point -- veil_translate itself, the call that translates -- was
+# not exported at all, and report "exports 1" for a library exporting nothing.
+$dumped = & dumpbin.exe /EXPORTS $dll
+$exports = $dumped |
+  Select-String -Pattern '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+(\S+)' |
+  ForEach-Object { $_.Matches[0].Groups[1].Value } |
+  Where-Object { $_ -match '^veil_translate[a-z_]*$' } | Sort-Object -Unique
 
 # Set EQUALITY, not a count: a count passes when a symbol the app looks up is
 # missing and an unrelated one took its place, which is the shape a rename
@@ -122,8 +147,10 @@ if ($extra) { throw "::error::the DLL exports names the header does not declare:
 # And what it must NOT reach. A leaked protobuf or abseil export is the whole
 # reason the .def exists, so the check is here rather than in a comment saying
 # it was considered.
-$leaked = (& dumpbin.exe /EXPORTS $dll) |
-  Select-String -Pattern '\b(google|absl|sentencepiece|ctranslate2)' |
+$leaked = $dumped |
+  Select-String -Pattern '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+(\S+)' |
+  ForEach-Object { $_.Matches[0].Groups[1].Value } |
+  Where-Object { $_ -match '(google|absl|sentencepiece|ctranslate2)' } |
   Measure-Object | Select-Object -ExpandProperty Count
 if ($leaked -ne 0) {
   throw "::error::$leaked protobuf/abseil/engine names are exported - they can collide with another library in the same process"
