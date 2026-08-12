@@ -75,4 +75,91 @@ void main() {
       throwsFormatException,
     );
   });
+
+  group('the shared seed nodes, for a node with no app profile', () {
+    // A daemon has no SharedPreferences and no onboarding screen, so the file
+    // it composes its node from is where it states this — and the key has to
+    // have THREE states, because "false" (a refusal) and "absent" (ask the
+    // identity's own space) are different instructions. A two-state flag with a
+    // default would silently answer for every operator who never wrote the key.
+    late Map<String, Object?> base;
+    setUp(() {
+      base = <String, Object?>{
+        'store': '${temp.path}/store.hv',
+        'runtime_dir': '${temp.path}/runtime',
+        'blob_dir': '${temp.path}/blobs',
+        'bootstrap_peers': <Object>[],
+      };
+    });
+
+    Future<HeadlessConfig> load(
+      Map<String, Object?> value, {
+      Map<String, String> environment = const {},
+    }) async {
+      final file = File('${temp.path}/headless.json');
+      await file.writeAsString(jsonEncode(value));
+      return HeadlessConfig.load(file.path, environment: environment);
+    }
+
+    test('a file that does not mention it says NOTHING, not yes', () async {
+      final config = await load(base);
+      expect(
+        config.useBundledSeeds,
+        isNull,
+        reason: 'null is what hands the question to the identity\'s own space; '
+            'a default here would compose every daemon the same way and call '
+            'it the operator\'s choice',
+      );
+    });
+
+    test('a stated answer is carried, either way', () async {
+      expect(
+        (await load({...base, 'use_bundled_seeds': false})).useBundledSeeds,
+        isFalse,
+      );
+      expect(
+        (await load({...base, 'use_bundled_seeds': true})).useBundledSeeds,
+        isTrue,
+      );
+    });
+
+    test('the environment states it too, and an EMPTY variable is unset', () async {
+      expect(
+        (await load(
+          base,
+          environment: {'XVEIL_USE_BUNDLED_SEEDS': 'no'},
+        )).useBundledSeeds,
+        isFalse,
+      );
+      expect(
+        (await load(
+          {...base, 'use_bundled_seeds': false},
+          environment: {'XVEIL_USE_BUNDLED_SEEDS': 'yes'},
+        )).useBundledSeeds,
+        isTrue,
+        reason: 'the environment wins over the file, as it does for every other '
+            'key here',
+      );
+      expect(
+        (await load(
+          {...base, 'use_bundled_seeds': true},
+          environment: {'XVEIL_USE_BUNDLED_SEEDS': ''},
+        )).useBundledSeeds,
+        isTrue,
+        reason: 'an exported-but-empty variable is unset — it must not read as '
+            '"off" and take a working daemon off the network',
+      );
+    });
+
+    test('a value that is not a boolean is refused, not guessed at', () async {
+      await expectLater(
+        load({...base, 'use_bundled_seeds': 'sometimes'}),
+        throwsFormatException,
+      );
+    });
+
+    test('the example config states it, so it can be found', () async {
+      expect(HeadlessConfig.example.containsKey('use_bundled_seeds'), isTrue);
+    });
+  });
 }
