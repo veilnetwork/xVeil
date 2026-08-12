@@ -113,6 +113,40 @@ jobs:
           # for all four targets up front, even when asked for three ABIs.
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
 
+      # The targets above land on the toolchain THIS action installs, which is
+      # `stable`. The build below runs in third_party/hidden-volume, and that
+      # directory has a rust-toolchain.toml pinning 1.97.1 with
+      # `targets = ["aarch64-linux-android", "x86_64-pc-windows-gnu"]` — so
+      # rustup switches toolchains on entering it and three of the four targets
+      # are simply not there. The job failed with
+      # `missing Rust targets: armv7-linux-androideabi x86_64-linux-android
+      # i686-linux-android` while the step above had named all four, which
+      # reads as the action having ignored its own input.
+      #
+      # So they are added again HERE, from inside that directory, where rustup
+      # resolves the pinned toolchain and puts them where the build will look.
+      # Same defect and same fix as veil's Windows gate, which lost its
+      # aarch64 leg to this for a week, and as mobile-build.yml, which already
+      # carries this step with a comment saying why.
+      - name: Android targets on the pinned toolchain
+        working-directory: third_party/hidden-volume
+        run: |
+          set -euo pipefail
+          rustup show active-toolchain
+          for t in aarch64-linux-android armv7-linux-androideabi \
+                   x86_64-linux-android i686-linux-android; do
+            rustup target add "$t"
+          done
+          # Assert rather than trust: `target add` is a no-op on an unknown
+          # name in some rustup versions, and the build's own preflight is the
+          # thing this exists to satisfy.
+          installed="$(rustup target list --installed)"
+          for t in aarch64-linux-android armv7-linux-androideabi \
+                   x86_64-linux-android i686-linux-android; do
+            grep -qx "$t" <<< "$installed" || {
+              echo "::error::$t still missing from the pinned toolchain"; exit 1; }
+          done
+
       - name: cargo-ndk
         run: cargo install cargo-ndk --locked
 
