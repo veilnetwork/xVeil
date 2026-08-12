@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import '../api/api_server.dart';
 import '../api/blob_sources.dart';
+import '../api/direct_file_api.dart';
 import '../api/group_api_adapter.dart';
 import '../api/webhook_pump.dart';
 import '../core/ids.dart';
@@ -350,9 +351,19 @@ class HeadlessRuntime {
           'nodePhase': stack.controller.current.phase.name,
           'peerCount': stack.controller.current.peerCount,
         },
-        // No lock or identity switch: a headless host has one identity, opened
-        // by whoever started it, and "locking" it would mean shutting the
-        // daemon down — which is the supervisor's job, not an API call's.
+        // No lock and no identity switch, and both absences are load-bearing
+        // rather than unfinished work — see [ApiCapabilities.headless], which
+        // is what keeps them out of the document this host publishes.
+        //
+        // Lock: the app's lock returns to a screen you unlock with the
+        // password. This host has no unlock route, so "lock" here could only
+        // mean terminating the process — a different capability wearing the
+        // same name, and a remote kill switch on an API token besides. Stopping
+        // the daemon is the supervisor's job.
+        //
+        // Identity switch: one container, one password, opened at start. The
+        // answer below says so (`isMaster: false`, no identities) — there is
+        // nothing to switch to.
         account: () async => {
           'ok': stack!.controller.current.phase == NodePhase.connected,
           // Whether this node can be reached first. False means no mailbox:
@@ -379,6 +390,8 @@ class HeadlessRuntime {
         messages: (peer, limit) => _messages(storage, peer, limit),
         sendFile: (to, path, name, roots) =>
             _sendFile(messaging!, to, path, name, roots),
+        fetchFile: (peer, messageId) =>
+            fetchDirectFile(storage, messaging!, peer, messageId),
         loadFile: (fileId) => storedBlobSource(storage, fileId),
         placeCall: (_, _) async => 'calls unavailable in headless mode',
         callState: () => null,
@@ -411,6 +424,14 @@ class HeadlessRuntime {
         scheduleSpacePost: groupApi.schedulePost,
         cancelScheduledSpacePost: groupApi.cancelScheduledPost,
         publishScheduledSpacePostNow: groupApi.publishScheduledPostNow,
+        // The daemon already syncs Space posts and their public feed; the
+        // comments came down the same wire and sat there unreachable, because
+        // the four callbacks that read and write them were the only ones in
+        // this block nobody passed. Nothing new is needed to serve them.
+        spacePostComments: groupApi.postComments,
+        publishSpacePostComment: groupApi.postComment,
+        editSpacePostComment: groupApi.editPostComment,
+        deleteSpacePostComment: groupApi.deletePostComment,
         publishSpacePost: groupApi.publishPost,
         editSpacePost: groupApi.editPost,
         deleteSpacePost: groupApi.deletePost,
@@ -491,6 +512,19 @@ class HeadlessRuntime {
           await webhookPump!.setTarget(url);
         },
       );
+      // `xveil print-openapi` has no runtime to ask, so it publishes
+      // [ApiCapabilities.headless] — which is a claim about THIS wiring. Check
+      // it here, where the wiring exists, and refuse to start rather than serve
+      // a contract the published document disagrees with. The gate in
+      // `test/headless_api_contract_test.dart` catches this in CI; this catches
+      // it on a host nobody ran the tests on.
+      if (handler.capabilities != ApiCapabilities.headless) {
+        throw StateError(
+          'headless API wiring does not match the published contract: this '
+          'daemon serves ${handler.capabilities}, `xveil print-openapi` '
+          'describes ${ApiCapabilities.headless}',
+        );
+      }
       api = ApiServer(handler, events);
       await api.start(config.apiPort);
       await webhookPump.setTarget(webhookUrl);
@@ -701,18 +735,13 @@ class HeadlessRuntime {
     } catch (_) {
       return const [];
     }
-    return [
-      for (final m in await storage.loadMessages(peer.hex, limit: limit))
-        {
-          'id': m.id,
-          'body': m.body,
-          'direction': m.direction.name,
-          'sentAt': m.timestamp.millisecondsSinceEpoch,
-          'status': m.status.name,
-          if (m.fileName != null) 'fileName': m.fileName,
-          if (m.fileId != null) 'fileId': m.fileId,
-        },
-    ];
+    // One shared projection with the GUI controller's `_messages`. The two used
+    // to spell this out separately and both dropped the offer handle, so a
+    // received file was visible and unobtainable on either host.
+    return apiMessagesJson(
+      await storage.loadMessages(peer.hex, limit: limit),
+      storage,
+    );
   }
 
   /// The daemon's twin of the GUI controller's send, and the one that matters

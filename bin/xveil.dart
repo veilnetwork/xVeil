@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:xveil/api/api_server.dart' show openApiSpec;
+import 'package:xveil/api/api_server.dart' show ApiCapabilities, openApiSpec;
 import 'package:xveil/headless/headless_config.dart';
 import 'package:xveil/headless/headless_runtime.dart';
 import 'package:xveil/headless/secret_file.dart';
@@ -30,8 +30,14 @@ Future<void> main(List<String> args) async {
       case 'generate-token':
         stdout.writeln(_generateToken());
       case 'print-openapi':
+        // THIS binary's contract. It used to print the union of every host's,
+        // so a client generated from it was built against `/v1/cloud/*`,
+        // `/v1/calls/*` and an account lock the daemon answers 501/404 to —
+        // discovered at runtime, by the person who trusted the document.
         stdout.writeln(
-          const JsonEncoder.withIndent('  ').convert(openApiSpec()),
+          const JsonEncoder.withIndent(
+            '  ',
+          ).convert(openApiSpec(capabilities: ApiCapabilities.headless)),
         );
       case 'run':
         await _run(args.sublist(1));

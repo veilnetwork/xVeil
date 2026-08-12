@@ -16,6 +16,9 @@ void main() {
   // handler hands downstream, not the one the caller typed (audit XV-08).
   final pathsSent = <String>[];
   final rootsSent = <List<String>>[];
+  // (peer, messageId) pairs that reached the 1:1 opt-in file fetch — the step
+  // a received file had no way to reach at all.
+  final filesFetched = <(String, String)>[];
   // …and the same for the GROUP send, which had no grant to record at all
   // (audit XV-04).
   final groupRootsSent = <List<String>>[];
@@ -117,6 +120,7 @@ void main() {
     sent.clear();
     pathsSent.clear();
     rootsSent.clear();
+    filesFetched.clear();
     groupRootsSent.clear();
     groupPosts.clear();
     groupActions.clear();
@@ -273,6 +277,14 @@ void main() {
         pathsSent.add(path);
         rootsSent.add(roots);
         return to == 'bad' ? 'invalid peer' : null;
+      },
+      fetchFile: (peer, messageId) async {
+        filesFetched.add((peer, messageId));
+        return switch (messageId) {
+          'ghost' => 'message attachment not found',
+          'gone' => 'file fetch unavailable',
+          _ => null,
+        };
       },
       loadFile: (fileId) async => fileId == 'known'
           ? inMemoryBlobSource(Uint8List.fromList(const [1, 2, 3]))
@@ -1432,6 +1444,7 @@ void main() {
         send: (to, body) async => null,
         messages: (peer, limit) async => const [],
         sendFile: (to, path, name, roots) async => null,
+        fetchFile: (peer, messageId) async => null,
         loadFile: (fileId) async => null,
         placeCall: (to, media) async => null,
         callState: () => null,
@@ -3279,6 +3292,7 @@ void main() {
       send: (to, body) async => null,
       messages: (peer, limit) async => const [],
       sendFile: (to, path, name, roots) async => null,
+      fetchFile: (peer, messageId) async => null,
       loadFile: (fileId) async => null,
       placeCall: (to, media) async => null,
       callState: () => null,
@@ -4040,6 +4054,7 @@ void main() {
       send: base.send,
       messages: base.messages,
       sendFile: base.sendFile,
+      fetchFile: base.fetchFile,
       loadFile: base.loadFile,
       placeCall: base.placeCall,
       callState: base.callState,
@@ -4719,6 +4734,147 @@ void main() {
     },
   );
 
+  // The step 1:1 was missing entirely. A received file is an OFFER — name,
+  // size, content hash — and until somebody asks for the bytes there is
+  // nothing for `/v1/files/download` to find. Groups have had the pair
+  // (fetch, download) all along; this is its twin, deliberately the same
+  // shape rather than a new one.
+  group('POST /v1/files/fetch', () {
+    const peer =
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+    test('starts the opt-in download for an offered message', () async {
+      final h = make();
+      final res = await h.handle(
+        'POST',
+        u('/v1/files/fetch'),
+        'Bearer secret-token',
+        body: {'peer': peer, 'messageId': 'msg-1'},
+      );
+      expect(res.status, 200);
+      expect(res.body, {'ok': true, 'started': true});
+      expect(
+        filesFetched,
+        [(peer, 'msg-1')],
+        reason: 'the route must reach the fetch, not merely answer 200',
+      );
+    });
+
+    test('validates peer and messageId', () async {
+      final h = make();
+      Future<int> status(Map<String, dynamic> body) async => (await h.handle(
+        'POST',
+        u('/v1/files/fetch'),
+        'Bearer secret-token',
+        body: body,
+      )).status;
+      expect(await status(const {}), 400);
+      expect(await status({'peer': peer}), 400);
+      expect(await status({'messageId': 'm'}), 400);
+      expect(
+        await status({'peer': 'not-hex', 'messageId': 'm'}),
+        400,
+        reason: 'a peer is a 64-hex node id or it is nothing',
+      );
+      expect(await status({'peer': peer, 'messageId': ''}), 400);
+      expect(
+        filesFetched,
+        isEmpty,
+        reason: 'nothing malformed may reach the fetch',
+      );
+    });
+
+    test('maps the refusals: unknown message 404, no source 409', () async {
+      final h = make();
+      final ghost = await h.handle(
+        'POST',
+        u('/v1/files/fetch'),
+        'Bearer secret-token',
+        body: {'peer': peer, 'messageId': 'ghost'},
+      );
+      expect(ghost.status, 404);
+      expect(
+        (ghost.body! as Map)['error'],
+        'message attachment not found',
+      );
+      final gone = await h.handle(
+        'POST',
+        u('/v1/files/fetch'),
+        'Bearer secret-token',
+        body: {'peer': peer, 'messageId': 'gone'},
+      );
+      expect(
+        gone.status,
+        409,
+        reason: 'no source right now is a "try later", not a "never"',
+      );
+    });
+
+    test('a read-only token may not fetch, like every other write', () async {
+      final h = make(readOnly: true);
+      final res = await h.handle(
+        'POST',
+        u('/v1/files/fetch'),
+        'Bearer secret-token',
+        body: {'peer': peer, 'messageId': 'msg-1'},
+      );
+      expect(res.status, 403);
+      expect(filesFetched, isEmpty);
+    });
+
+    test(
+      'a token denied local files may still fetch INTO the node, like the '
+      'group pair',
+      () async {
+        // `fileRoots` is the grant to read a path off the HOST's disk and send
+        // it out. Pulling a file a peer already offered into this node's own
+        // store touches no host path, so it is not that permission — and the
+        // group fetch has never asked for it either. Inventing a stricter rule
+        // here would be a policy of one route's own.
+        final h = make(fileRoots: const []);
+        expect(
+          (await h.handle(
+            'POST',
+            u('/v1/files'),
+            'Bearer secret-token',
+            body: {'to': 'beef', 'path': '/etc/passwd'},
+          )).status,
+          403,
+          reason: 'sanity: this token genuinely may not send local files',
+        );
+        final res = await h.handle(
+          'POST',
+          u('/v1/files/fetch'),
+          'Bearer secret-token',
+          body: {'peer': peer, 'messageId': 'msg-1'},
+        );
+        expect(res.status, 200);
+        expect(filesFetched, [(peer, 'msg-1')]);
+      },
+    );
+
+    test('the published contract describes it', () async {
+      final h = make();
+      final spec =
+          (await h.handle('GET', u('/v1/openapi.json'), 'Bearer secret-token'))
+                  .body!
+              as Map<String, dynamic>;
+      final paths = spec['paths'] as Map<String, dynamic>;
+      expect(
+        paths.containsKey('/files/fetch'),
+        isTrue,
+        reason: 'a served route missing from the contract is its own defect',
+      );
+      final message =
+          ((spec['components'] as Map<String, dynamic>)['schemas']
+                  as Map<String, dynamic>)['Message']
+              as Map<String, dynamic>;
+      final props = message['properties'] as Map<String, dynamic>;
+      // The fields a client needs to tell "offered" from "held" and act on it.
+      expect(props.keys, containsAll(['fileContentId', 'fileDownloaded']));
+    });
+  });
+
   test(
     'calls: place validates to; GET reflects state; actions clear it',
     () async {
@@ -4858,6 +5014,7 @@ void main() {
           '/groups/calls/end',
           '/groups/calls/posture',
           '/files',
+          '/files/fetch',
           '/files/download',
           '/calls',
           '/calls/hangup',
@@ -5095,6 +5252,7 @@ void main() {
         send: (to, body) async => null,
         messages: (peer, limit) async => const [],
         sendFile: (to, path, name, roots) async => null,
+        fetchFile: (peer, messageId) async => null,
         loadFile: (fileId) async => null,
         placeCall: (to, media) async => null,
         callState: () => null,
