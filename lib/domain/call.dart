@@ -47,6 +47,8 @@ class Call {
     this.peerProtocolVersion,
     this.localMediaKey,
     this.peerMediaKey,
+    this.peerCapture,
+    this.peerCaptureAtMs = 0,
   });
 
   /// Stable id shared with the peer for the whole call (see [CallSignal.callId]).
@@ -112,6 +114,25 @@ class Call {
   final String? localMediaKey;
   final String? peerMediaKey;
 
+  /// What the PEER is capturing right now (their mic/camera/screen), learned
+  /// from the posture they put on their heartbeat. [media] stays the call's
+  /// negotiated shape; this is the live posture inside it — the same split the
+  /// group call makes between its room media and each participant's.
+  ///
+  /// Null until the peer has told us once. That silence is deliberate: a build
+  /// that never sends a posture must leave the screen saying nothing rather
+  /// than accusing the person of being muted.
+  final CallMedia? peerCapture;
+
+  /// Sender timestamp of the newest posture folded into [peerCapture]. Signals
+  /// can overtake each other on the overlay, and an older one arriving late
+  /// must not restore a microphone the peer has already turned off.
+  final int peerCaptureAtMs;
+
+  /// The peer has told us their microphone is off. False while they have said
+  /// nothing at all — see [peerCapture].
+  bool get peerMicOff => peerCapture != null && !peerCapture!.audio;
+
   bool get isIncoming => direction == CallDirection.incoming;
   bool get isOutgoing => direction == CallDirection.outgoing;
 
@@ -138,6 +159,8 @@ class Call {
     int? peerProtocolVersion,
     String? localMediaKey,
     String? peerMediaKey,
+    CallMedia? peerCapture,
+    int? peerCaptureAtMs,
   }) => Call(
     callId: callId,
     peer: peer,
@@ -157,6 +180,8 @@ class Call {
     peerProtocolVersion: peerProtocolVersion ?? this.peerProtocolVersion,
     localMediaKey: localMediaKey ?? this.localMediaKey,
     peerMediaKey: peerMediaKey ?? this.peerMediaKey,
+    peerCapture: peerCapture ?? this.peerCapture,
+    peerCaptureAtMs: peerCaptureAtMs ?? this.peerCaptureAtMs,
   );
 
   @override

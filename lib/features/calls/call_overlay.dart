@@ -410,7 +410,7 @@ class _CallBody extends ConsumerWidget {
       children: [
         CallSurfaceHeader(
           title: call.peer.short,
-          subtitle: _statusLabel(l, call.status),
+          subtitle: callStatusLabel(l, call),
           onMinimize: onMinimize,
           onSettings: () => onShowDevices(svc),
         ),
@@ -431,7 +431,7 @@ class _CallBody extends ConsumerWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          _statusLabel(l, call.status),
+          callStatusLabel(l, call),
           style: Theme.of(
             context,
           ).textTheme.bodyLarge?.copyWith(color: Colors.white70),
@@ -486,7 +486,7 @@ class _CallBody extends ConsumerWidget {
           right: 0,
           child: CallSurfaceHeader(
             title: call.peer.short,
-            subtitle: _statusLabel(l, call.status),
+            subtitle: callStatusLabel(l, call),
             onMinimize: onMinimize,
             onSettings: () => onShowDevices(svc),
           ),
@@ -538,8 +538,24 @@ class _CallBody extends ConsumerWidget {
       ],
     );
   }
+}
 
-  static String _statusLabel(AppL10n l, CallStatus s) => switch (s) {
+/// What the call screen says under the peer's name.
+///
+/// A connected call whose peer has muted reports THAT instead of a bare "In
+/// call": their silence is the thing the person is trying to explain, and
+/// "In call" actively misleads them into hunting a broken microphone of their
+/// own. It reverts the moment the peer unmutes — the posture arrives on their
+/// heartbeat, so this cannot stick after the fact.
+///
+/// Only a peer that has actually told us is reported. A build that never sends
+/// a posture leaves [Call.peerMicOff] false and this label unchanged, rather
+/// than accusing a peer who is talking normally.
+String callStatusLabel(AppL10n l, Call call) {
+  if (call.status == CallStatus.active && call.peerMicOff) {
+    return l.callPeerMicOff;
+  }
+  return switch (call.status) {
     CallStatus.dialing => l.callDialing,
     CallStatus.ringing => l.callIncoming,
     CallStatus.connecting => l.callConnecting,

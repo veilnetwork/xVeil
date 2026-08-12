@@ -4872,6 +4872,9 @@ class AppL10nEn extends AppL10n {
   String get callMicOff => 'Mic off';
 
   @override
+  String get callPeerMicOff => 'Muted their microphone';
+
+  @override
   String get callCameraOn => 'Camera on';
 
   @override

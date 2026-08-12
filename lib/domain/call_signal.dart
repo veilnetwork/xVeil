@@ -13,7 +13,7 @@ import 'dart:typed_data';
 ///
 /// Wire form is compact JSON with short keys so re-sends stay cheap:
 ///   {c:callId, k:type, m:{a,v,s}, p:posture, t:{k,r,e}, mk:mediaKey, r:reason,
-///    mr:mediaRepairRequested, v:protocolVersion, ts:sentAtMs}
+///    mr:mediaRepairRequested, cm:{a,v,s} capture, v:protocolVersion, ts:sentAtMs}
 /// Unknown keys are ignored on decode, and an unknown [type]/[posture]/[kind]
 /// enum index decodes to its `.unknown` sentinel so a newer peer's additions
 /// degrade gracefully instead of throwing.
@@ -244,6 +244,7 @@ class CallSignal {
     this.transport,
     this.mediaKey,
     this.reason,
+    this.capture,
     this.mediaRepairRequested = false,
     this.protocolVersion = kCallSignalProtocolVersion,
     this.sentAtMs,
@@ -273,6 +274,20 @@ class CallSignal {
   /// Present on reject/end/cancel/busy.
   final CallEndReason? reason;
 
+  /// What the sender is actually CAPTURING right now — mic muted, camera off,
+  /// screen shared. Distinct from [media], which is the media set the call
+  /// negotiated and keeps: muting the microphone does not un-negotiate audio,
+  /// so folding a posture into [media] would tear the call's shape down.
+  ///
+  /// Rides on [CallSignalType.health], exactly as the group call carries each
+  /// participant's posture on its heartbeat. That makes it self-healing: the
+  /// heartbeat repeats every few seconds, so a posture whose realtime frame was
+  /// dropped corrects itself instead of leaving the peer's screen lying.
+  ///
+  /// An additive key, like `mr` before it — a build that predates it simply
+  /// ignores `cm` and shows what it always showed.
+  final CallMedia? capture;
+
   /// End-to-end liveness feedback carried on [CallSignalType.health]. `true`
   /// means signaling still reaches the sender but no RTP/RTCP has arrived at
   /// this receiver for the repair grace period. The sender should refresh its
@@ -295,6 +310,7 @@ class CallSignal {
     CallTransportProposal? transport,
     String? mediaKey,
     CallEndReason? reason,
+    CallMedia? capture,
     bool? mediaRepairRequested,
     int? sentAtMs,
   }) => CallSignal(
@@ -305,6 +321,7 @@ class CallSignal {
     transport: transport ?? this.transport,
     mediaKey: mediaKey ?? this.mediaKey,
     reason: reason ?? this.reason,
+    capture: capture ?? this.capture,
     mediaRepairRequested: mediaRepairRequested ?? this.mediaRepairRequested,
     protocolVersion: protocolVersion,
     sentAtMs: sentAtMs ?? this.sentAtMs,
@@ -318,6 +335,10 @@ class CallSignal {
     if (transport != null) 't': transport!.toJson(),
     if (mediaKey != null) 'mk': mediaKey,
     if (reason != null) 'r': reason!.index,
+    // Emitted even when every flag is false — unlike `m`, an EMPTY capture is
+    // the whole point (mic off, camera off). Dropping it because it encodes to
+    // `{}` would silently delete the one posture the peer most needs to see.
+    if (capture != null) 'cm': capture!.toJson(),
     if (mediaRepairRequested) 'mr': true,
     'v': protocolVersion,
     if (sentAtMs != null) 'ts': sentAtMs,
@@ -358,6 +379,9 @@ class CallSignal {
                 j['r'],
                 CallEndReason.unknown,
               ),
+        capture: j['cm'] == null
+            ? null
+            : CallMedia.fromJson((j['cm'] as Map).cast<String, dynamic>()),
         mediaRepairRequested: j['mr'] == true,
         protocolVersion: (j['v'] as num?)?.toInt() ?? 1,
         sentAtMs: (j['ts'] as num?)?.toInt(),
