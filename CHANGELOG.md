@@ -15,10 +15,10 @@ storage it was built against.
 Built on [veil v0.4.2](https://github.com/veilnetwork/veil/releases/tag/v0.4.2)
 and [hidden-volume v1.2.3](https://github.com/veilnetwork/hidden-volume/releases/tag/v1.2.3).
 
-⚠️ **This version cannot be published yet.** The release workflow deliberately
-fails until the two call-engine runs are pinned (`ENGINE_RUN` for android and
-for windows), and the Windows engine has never been compiled. See the release
-checklist at the bottom of this entry.
+All three call engines are now built and pinned (`ENGINE_RUN` for android,
+linux and windows), so the release workflow no longer stops on a missing
+engine. What remains before publishing is in the release checklist at the
+bottom of this entry.
 
 ### Security
 
@@ -113,10 +113,12 @@ checklist at the bottom of this entry.
 
 1. ~~Tag veil and hidden-volume, and repoint the pins at those tags.~~ Done:
    v0.4.2 and v1.2.3.
-2. Run the `webrtc-linux` workflow (job `engine-android`), pin its run id in
-   `release.yml`.
-3. Run `webrtc-windows`, fix what the never-compiled port gets wrong, pin its
-   run id.
+2. ~~Run the `webrtc-linux` workflow (job `engine-android`), pin its run id in
+   `release.yml`.~~ Done: run 31609030118, artifact
+   `libveil_media-android-arm64`, 87/87 symbols. The same run repins linux,
+   which was pointing at a run whose overall conclusion was `failure`.
+3. ~~Run `webrtc-windows`, fix what the never-compiled port gets wrong, pin its
+   run id.~~ Done: run 30665287484, artifact `libveil_media-win-x64`.
 4. Tag xVeil; then DOWNLOAD the published artifacts and open them before
    announcing anything — that is what v0.9.1 skipped.
 

@@ -230,11 +230,18 @@ jobs:
       - name: Prebuilt call engine
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Run webrtc-linux (engine-android job) once, then pin its run id
-          # here. Empty on purpose until that happens: failing this job is the
-          # correct outcome, because the alternative is another release that
-          # cannot record a voice message.
-          ENGINE_RUN: ''
+          # webrtc-linux run 31609030118 (12 August), the FIRST run whose
+          # engine-android job ever finished. Every earlier run carried
+          # libveil_media-linux-x64 and nothing else, so there was no android
+          # id to pin rather than a forgotten one — the job died in WebRTC's
+          # Java dep validation ("AUTONINJA_BUILD_ID is not set"), which reads
+          # like a broken runner and is really a gn argument
+          # (android_static_analysis="off", fixed in webrtc-linux.yml).
+          #
+          # Verified by asking the API for that run's artifact list, not by
+          # reading the green tick: libveil_media-android-arm64, 2227014 bytes,
+          # and the job's own check reports 87 exported / 87 looked up by Dart.
+          ENGINE_RUN: '31609030118'
         run: |
           set -euo pipefail
           if [ -z "$ENGINE_RUN" ]; then
@@ -341,14 +348,17 @@ jobs:
       # push, each a dlsym failure at first call. The check below could not
       # catch it, because it only ever ran against what this pin downloads.
       #
-      # 31411542466's linux-x64 job is green and its artifact checks 87/87. The
-      # RUN shows "failure" — its android-arm64 job failed — and that is not a
-      # reason to move this back: the download is per-artifact, and this one is
-      # verified.
+      # It was then 31411542466, whose linux-x64 artifact is fine but whose RUN
+      # concluded "failure" — its android-arm64 job died. Pinning a red run
+      # works and reads as a mistake, so both engines now come from
+      # 31609030118 (12 August), which is green in both jobs. Verified through
+      # the artifact API rather than the tick: libveil_media-linux-x64,
+      # 2421749 bytes — byte-identical in size to what 31411542466 produced
+      # from the same WebRTC pin — and 87 exported / 87 looked up by Dart.
       - name: Prebuilt call engine
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ENGINE_RUN: '31411542466'
+          ENGINE_RUN: '31609030118'
         run: |
           set -euo pipefail
           dest=third_party/veil/flutter/veil_media/linux
@@ -447,11 +457,13 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Run webrtc-windows once, then pin its run id here. Empty on purpose
-          # until that happens: failing this job is the correct outcome while
-          # the alternative is another bundle that cannot record a voice
-          # message.
-          ENGINE_RUN: ''
+          # webrtc-windows run 30665287484 (2026-07-31), the newest SUCCESSFUL
+          # one, carrying artifact libveil_media-win-x64. Verified by asking
+          # the API for that run's artifact list rather than by reading the
+          # green tick: a run can succeed overall and upload nothing, and a
+          # run can fail overall while the artifact this job wants is already
+          # safely uploaded from an earlier step.
+          ENGINE_RUN: '30665287484'
         run: |
           set -euo pipefail
           if [ -z "$ENGINE_RUN" ]; then
