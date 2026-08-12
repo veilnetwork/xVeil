@@ -67,12 +67,231 @@ String? webhookUrlError(String url) {
   return null;
 }
 
+/// What a host's `/v1` surface can actually answer.
+///
+/// A published contract that does not match the server is worse than a smaller
+/// one: anyone generating a client from `xveil print-openapi` builds against
+/// endpoints that will never answer and finds out at runtime. So the document
+/// is FILTERED by this — [openApiSpec] and `GET /v1/openapi.json` describe THE
+/// HOST THEY RUN ON rather than the union of every host.
+///
+/// Every flag mirrors a refusal [ApiHandler.handle] already makes (501
+/// "unavailable on this host"), and [ApiHandler.capabilities] derives its value
+/// from the callbacks a host actually wired — there is no second place to
+/// declare it. `test/headless_api_contract_test.dart` holds the two together by
+/// PROBING the router for every operation the document claims, rather than
+/// trusting either side's word for it.
+class ApiCapabilities {
+  const ApiCapabilities({
+    this.account = true,
+    this.accountInvite = true,
+    this.accountLock = true,
+    this.identitySwitch = true,
+    this.cloud = true,
+    this.contactRequests = true,
+    this.contactActions = true,
+    this.calls = true,
+    this.groups = true,
+    this.groupMedia = true,
+    this.groupCalls = true,
+    this.spaceVoiceSessions = true,
+    this.spacePostComments = true,
+    this.webhook = true,
+  });
+
+  /// The daemon (`xveil run`), and therefore what `xveil print-openapi`
+  /// publishes. Each `false` here is a capability the daemon genuinely cannot
+  /// have, not one nobody got round to wiring:
+  ///
+  /// - `cloud`: the cloud surface is `CloudService`, which imports
+  ///   `package:flutter/foundation.dart` and `package:flutter_riverpod`. The
+  ///   daemon is a Flutter-free AOT binary (`test/headless_is_flutter_free_test`
+  ///   is the gate) — there is no cloud backend on this host to serve from.
+  /// - `calls`/`groupCalls`/`spaceVoiceSessions`: no audio/video engine. The
+  ///   handler already answers 501 for these; only the document lagged.
+  /// - `accountLock`: locking means "close the store and come back with the
+  ///   password". The daemon has no unlock route — locking it could only mean
+  ///   terminating the process, which is the supervisor's job and a different
+  ///   capability wearing the same name.
+  /// - `identitySwitch`: one container, one password, opened at start. The
+  ///   daemon's own `/v1/account` reports `isMaster:false` and no identities,
+  ///   so there is nothing to switch to.
+  ///
+  /// Everything else the daemon serves for real, Space post comments included.
+  static const headless = ApiCapabilities(
+    accountLock: false,
+    identitySwitch: false,
+    cloud: false,
+    calls: false,
+    groupCalls: false,
+    spaceVoiceSessions: false,
+  );
+
+  /// `/v1/account*` at all (the router refuses the whole prefix without it).
+  final bool account;
+  final bool accountInvite;
+  final bool accountLock;
+  final bool identitySwitch;
+  final bool cloud;
+
+  /// `POST /v1/contacts` — asking to be let in somewhere.
+  final bool contactRequests;
+
+  /// `/v1/contacts/accept` and `/v1/contacts/block`.
+  final bool contactActions;
+  final bool calls;
+
+  /// The group/Space/feed core. Off takes `/v1/groups`, `/v1/spaces` and
+  /// `/v1/feed` with it, exactly as the router's own gate does.
+  final bool groups;
+  final bool groupMedia;
+  final bool groupCalls;
+  final bool spaceVoiceSessions;
+  final bool spacePostComments;
+  final bool webhook;
+
+  /// Whether this host answers [method] (upper-case) on [path] (`/v1/…`) at
+  /// all. False means the router refuses it as unavailable, so the document
+  /// must not describe it.
+  ///
+  /// Ordered exactly like the router's own gates, narrow prefixes first:
+  /// `/v1/groups/calls` is refused by the call gate before the group gate ever
+  /// looks at it, and a reordering here would publish a different contract from
+  /// the one served.
+  bool serves(String method, String path) {
+    if (path.startsWith('/v1/account')) {
+      if (!account) return false;
+      if (path == '/v1/account/invite') return accountInvite;
+      if (path == '/v1/account/lock') return accountLock;
+      if (path == '/v1/account/identity') return identitySwitch;
+      return true;
+    }
+    if (path.startsWith('/v1/cloud')) return cloud;
+    if (path == '/v1/contacts') return method != 'POST' || contactRequests;
+    if (path == '/v1/contacts/accept' || path == '/v1/contacts/block') {
+      return contactActions;
+    }
+    if (path.startsWith('/v1/calls')) return calls;
+    if (path.startsWith('/v1/groups/calls')) return groups && groupCalls;
+    if (path.startsWith('/v1/groups/files')) return groups && groupMedia;
+    if (path == '/v1/spaces/voice-sessions') {
+      return groups && groupCalls && spaceVoiceSessions;
+    }
+    if (path == '/v1/spaces/posts/comments') return groups && spacePostComments;
+    if (path.startsWith('/v1/groups') ||
+        path.startsWith('/v1/spaces') ||
+        path.startsWith('/v1/feed')) {
+      return groups;
+    }
+    if (path == '/v1/webhook') return webhook;
+    return true;
+  }
+
+  /// The flags that are off, by name — what a failing gate should print.
+  List<String> get missing => [
+    for (final entry in _byName.entries)
+      if (!entry.value) entry.key,
+  ];
+
+  Map<String, bool> get _byName => {
+    'account': account,
+    'accountInvite': accountInvite,
+    'accountLock': accountLock,
+    'identitySwitch': identitySwitch,
+    'cloud': cloud,
+    'contactRequests': contactRequests,
+    'contactActions': contactActions,
+    'calls': calls,
+    'groups': groups,
+    'groupMedia': groupMedia,
+    'groupCalls': groupCalls,
+    'spaceVoiceSessions': spaceVoiceSessions,
+    'spacePostComments': spacePostComments,
+    'webhook': webhook,
+  };
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! ApiCapabilities) return false;
+    final mine = _byName;
+    final theirs = other._byName;
+    for (final key in mine.keys) {
+      if (mine[key] != theirs[key]) return false;
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode => Object.hashAll(_byName.values);
+
+  @override
+  String toString() {
+    final off = missing;
+    return off.isEmpty
+        ? 'ApiCapabilities(everything)'
+        : 'ApiCapabilities(without ${off.join(", ")})';
+  }
+}
+
+/// Which [ApiHandler] callbacks each optional capability owns, and which
+/// booleans back the rest.
+///
+/// Data rather than prose because the gate reads it: a host that leaves a
+/// callback out without turning its capability off is publishing a promise it
+/// will not keep, and `test/headless_api_contract_test.dart` compares these
+/// against the real constructor and the real headless wiring. A NEW optional
+/// callback that headless does not wire belongs to no capability here, so the
+/// gate fails until somebody decides which it is — wired, or declared absent.
+const Map<String, List<String>> kApiCapabilityHandlers = {
+  'account': ['account'],
+  'accountInvite': ['accountInvite'],
+  'accountLock': ['lockAccount'],
+  'identitySwitch': ['switchIdentity'],
+  'cloud': [
+    'cloudItems',
+    'cloudFolders',
+    'cloudUsage',
+    'cloudFile',
+    'saveCloudNote',
+    'deleteCloudItem',
+  ],
+  'contactRequests': ['requestContact'],
+  'contactActions': ['contactAction'],
+  'spaceVoiceSessions': ['startSpaceVoiceSession'],
+  'spacePostComments': [
+    'spacePostComments',
+    'publishSpacePostComment',
+    'editSpacePostComment',
+    'deleteSpacePostComment',
+  ],
+  'webhook': ['webhook', 'setWebhook'],
+};
+
+/// The capabilities carried by a boolean rather than by the presence of a
+/// callback. `groups` owns every nullable Space/group projection too: hosts
+/// wire those as one block (`groupApi?.…`, `groupsAvailable: … != null`), so
+/// the flag is the honest unit.
+const Map<String, String> kApiCapabilityFlags = {
+  'calls': 'callsAvailable',
+  'groups': 'groupsAvailable',
+  'groupMedia': 'groupMediaAvailable',
+  'groupCalls': 'groupCallsAvailable',
+};
+
 /// The OpenAPI 3.0 contract for the implemented `/v1` surface, so a client can
 /// be generated in any language (`openapi-generator -i .../v1/openapi.json`).
 /// Hand-authored (small surface); kept in lockstep with [ApiHandler.handle].
 /// The realtime `/v1/events` WebSocket is described in `info.description`
 /// because OpenAPI 3.0 has no first-class WebSocket schema.
-Map<String, dynamic> openApiSpec() {
+///
+/// [capabilities] decides WHICH of it is published. The default is every
+/// capability — the union, i.e. what a fully wired app host serves. A caller
+/// that knows its host (the daemon, or [ApiHandler] answering
+/// `/v1/openapi.json` about itself) passes its own, and the operations that
+/// host would refuse are struck out rather than advertised.
+Map<String, dynamic> openApiSpec({
+  ApiCapabilities capabilities = const ApiCapabilities(),
+}) {
   Map<String, dynamic> ok(Map<String, dynamic> schema) => {
     '200': {
       'description': 'OK',
@@ -96,7 +315,7 @@ Map<String, dynamic> openApiSpec() {
       'duration': {'type': 'integer', 'format': 'int64', 'minimum': 0},
     },
   };
-  return {
+  final spec = <String, dynamic>{
     'openapi': '3.0.3',
     'info': {
       'title': 'xVeil Automation API',
@@ -140,6 +359,10 @@ Map<String, dynamic> openApiSpec() {
         },
         'Message': {
           'type': obj,
+          'description':
+              'A file message carries `fileId`, `fileContentId`, or both. '
+              'Pass `fileId ?? fileContentId` to GET /v1/files/download; when '
+              '`fileDownloaded` is false, POST /v1/files/fetch first.',
           'properties': {
             'id': {'type': 'string'},
             'body': {'type': 'string'},
@@ -150,7 +373,39 @@ Map<String, dynamic> openApiSpec() {
             'sentAt': {'type': 'integer', 'format': 'int64'},
             'status': {'type': 'string'},
             'fileName': {'type': 'string'},
-            'fileId': {'type': 'string'},
+            'fileId': {
+              'type': 'string',
+              'description':
+                  'Store key of a blob already held (small/inline file, or one '
+                  'this node sent). Absent on a received large file until it '
+                  'is fetched — use `fileContentId` there.',
+            },
+            'fileContentId': {
+              'type': 'string',
+              'description':
+                  'Content hash of an OFFERED file — the handle to fetch and '
+                  'then download it. Also the store key once fetched.',
+            },
+            'fileSize': {
+              'type': 'integer',
+              'format': 'int64',
+              'description':
+                  'Total bytes, known from the offer BEFORE any are '
+                  'transferred, so a client can decide whether to fetch.',
+            },
+            'thumb': {
+              'type': 'string',
+              'description':
+                  'base64 micro-thumbnail (PNG) of an image, carried in the '
+                  'message itself. Present before the file is fetched.',
+            },
+            'fileDownloaded': {
+              'type': 'boolean',
+              'description':
+                  'Present on file messages only. True when the blob is in '
+                  'this node\'s store and GET /v1/files/download will serve '
+                  'it; false when the file has only been offered.',
+            },
           },
         },
         'Group': {
@@ -471,7 +726,23 @@ Map<String, dynamic> openApiSpec() {
             'updatedAt': {'type': 'integer', 'format': 'int64'},
             'replyTo': {'type': 'string'},
             'media': {r'$ref': '#/components/schemas/MediaObject'},
-            'attachment': {'type': obj},
+            'attachment': {
+              'type': obj,
+              'description':
+                  'Either `contentId` or `inline` is present, and each says '
+                  'how to get the bytes: with a `contentId`, POST '
+                  '/v1/groups/files/fetch then GET /v1/groups/files/download; '
+                  'with `inline`, the bytes ride inside the signed message and '
+                  'the download serves them straight away.',
+              'properties': {
+                'kind': {'type': 'string'},
+                'width': {'type': 'integer'},
+                'height': {'type': 'integer'},
+                'name': {'type': 'string'},
+                'contentId': {'type': 'string'},
+                'inline': {'type': 'boolean'},
+              },
+            },
           },
         },
         'GroupMember': {
@@ -538,6 +809,20 @@ Map<String, dynamic> openApiSpec() {
       },
     },
     'paths': {
+      // Served since the first brick, described since never: a client that
+      // asked the host what it could do got an undocumented answer. It is in
+      // the document now — and, because the host filters the document by its
+      // own capabilities, this is also how a client learns what THIS host
+      // dropped.
+      '/openapi.json': {
+        'get': {
+          'summary': "This host's own OpenAPI document",
+          'description':
+              'The contract as THIS host serves it: operations the host '
+              'cannot answer are absent rather than described and refused.',
+          'responses': ok({'type': obj}),
+        },
+      },
       '/health': {
         'get': {
           'summary': 'Node / account status',
@@ -3047,6 +3332,55 @@ Map<String, dynamic> openApiSpec() {
           }),
         },
       },
+      '/files/fetch': {
+        'post': {
+          'summary':
+              'Start the opt-in download of a file OFFERED by a 1:1 message',
+          'description':
+              'A received large file arrives as an offer — name, size, content '
+              'hash — and the bytes are only pulled when asked for. Identify '
+              'it the way you identify a group attachment: by the conversation '
+              'and the message, not by a bare content hash. Returns as soon as '
+              'the fetch STARTS; poll GET /v1/files/download (or watch '
+              '`fileDownloaded` on GET /v1/messages) for completion. Calling '
+              'it for a file already held succeeds and does nothing. This does '
+              'NOT need the local-file grant that POST /v1/files needs — '
+              'nothing on the host\'s disk is read.',
+          'requestBody': {
+            'required': true,
+            'content': {
+              'application/json': {
+                'schema': {
+                  'type': obj,
+                  'required': ['peer', 'messageId'],
+                  'properties': {
+                    'peer': {'type': 'string', 'pattern': r'^[0-9a-fA-F]{64}$'},
+                    'messageId': {'type': 'string'},
+                  },
+                },
+              },
+            },
+          },
+          'responses': {
+            '200': {
+              'description': 'OK',
+              'content': {
+                'application/json': {
+                  'schema': {
+                    'type': obj,
+                    'properties': {
+                      'ok': {'type': 'boolean'},
+                      'started': {'type': 'boolean'},
+                    },
+                  },
+                },
+              },
+            },
+            '404': {'description': 'No such message, or it carries no file'},
+            '409': {'description': 'No source can serve the file right now'},
+          },
+        },
+      },
       '/files/download': {
         'get': {
           'summary': 'Download a stored file blob by id',
@@ -3055,6 +3389,10 @@ Map<String, dynamic> openApiSpec() {
               'name': 'fileId',
               'in': 'query',
               'required': true,
+              'description':
+                  'The `fileId` or the `fileContentId` of a message — both are '
+                  'store keys. A fetched file is stored under its content '
+                  'hash, so `fileContentId` is what a received file uses.',
               'schema': {'type': 'string'},
             },
           ],
@@ -3067,7 +3405,11 @@ Map<String, dynamic> openApiSpec() {
                 },
               },
             },
-            '404': {'description': 'Unknown file id'},
+            '404': {
+              'description':
+                  'Unknown file id, or the file has only been offered — POST '
+                  '/v1/files/fetch and try again',
+            },
           },
         },
       },
@@ -3171,6 +3513,41 @@ Map<String, dynamic> openApiSpec() {
       },
     },
   };
+  _keepOnlyServed(spec, capabilities);
+  return spec;
+}
+
+/// Strike out of [spec] every operation [capabilities] says this host refuses,
+/// and drop a path once nothing is left of it.
+///
+/// Per OPERATION, not per path: `POST /v1/contacts` can be absent from a host
+/// that still lists its contacts, and describing the path while dropping the
+/// verb is the difference between a smaller contract and a wrong one.
+void _keepOnlyServed(
+  Map<String, dynamic> spec,
+  ApiCapabilities capabilities,
+) {
+  const verbs = {
+    'get',
+    'put',
+    'post',
+    'delete',
+    'patch',
+    'head',
+    'options',
+    'trace',
+  };
+  final paths = spec['paths'] as Map<String, dynamic>;
+  for (final key in paths.keys.toList()) {
+    final operations = paths[key] as Map<String, dynamic>;
+    for (final verb in operations.keys.toList()) {
+      if (!verbs.contains(verb)) continue;
+      if (!capabilities.serves(verb.toUpperCase(), '/v1$key')) {
+        operations.remove(verb);
+      }
+    }
+    if (!operations.keys.any(verbs.contains)) paths.remove(key);
+  }
 }
 
 /// POST one JSON [event] to the webhook [url] (`X-XVeil-Event` carries the
@@ -3579,6 +3956,7 @@ class ApiHandler {
     required this.send,
     required this.messages,
     required this.sendFile,
+    required this.fetchFile,
     required this.loadFile,
     required this.placeCall,
     required this.callState,
@@ -3727,10 +4105,24 @@ class ApiHandler {
   )
   sendFile;
 
+  /// Start the opt-in download of the file OFFERED by [messageId] in the
+  /// conversation with [peerHex]; null once a fetch is under way (or the bytes
+  /// were already held), else an error string.
+  ///
+  /// The 1:1 twin of [fetchGroupFile]. A received large file is an OFFER —
+  /// name, size, content hash — and nothing else until somebody asks for the
+  /// bytes. Without this step `GET /v1/files/download` had nothing to find and
+  /// every received file was a dead end over the API.
+  final Future<String?> Function(String peerHex, String messageId) fetchFile;
+
   /// Load the bytes of a stored file by [fileId], or null if unknown.
   /// Opens a stored file as a streamable range source. Deliberately NOT
   /// `Future<List<int>?>`: that signature forced every caller to materialise
   /// the whole blob just to hand it to the socket.
+  ///
+  /// [fileId] is whichever handle the message carried — `fileId` for a blob
+  /// already in the store, `fileContentId` for one fetched through the content
+  /// path, which stores under the content hash. Both are store keys.
   final Future<ApiBlobSource?> Function(String fileId) loadFile;
 
   /// Place a call to [toHex] ([media] = audio|video|screen); null on success.
@@ -4160,6 +4552,39 @@ class ApiHandler {
 
   final Future<String?> Function(String id)? deleteCloudItem;
 
+  /// What this host can answer, READ OFF the wiring rather than declared
+  /// beside it.
+  ///
+  /// A separately declared capability set is a second answer to the same
+  /// question, and the two would drift the first time somebody wired a handler
+  /// without touching the declaration — which is exactly how the daemon came to
+  /// publish `/v1/cloud/*` it refuses. Deriving it means the document a host
+  /// serves cannot describe a callback that host did not pass.
+  ///
+  /// [ApiCapabilities.serves] then has to agree with the router's own gates.
+  /// Nothing here can prove that, which is why the gate probes: see
+  /// `test/headless_api_contract_test.dart`.
+  ApiCapabilities get capabilities => ApiCapabilities(
+    account: account != null,
+    accountInvite: accountInvite != null,
+    accountLock: lockAccount != null,
+    identitySwitch: switchIdentity != null,
+    cloud: cloudItems != null,
+    contactRequests: requestContact != null,
+    contactActions: contactAction != null,
+    calls: callsAvailable,
+    groups: groupsAvailable,
+    groupMedia: groupMediaAvailable,
+    groupCalls: groupCallsAvailable,
+    spaceVoiceSessions: startSpaceVoiceSession != null,
+    spacePostComments:
+        spacePostComments != null &&
+        publishSpacePostComment != null &&
+        editSpacePostComment != null &&
+        deleteSpacePostComment != null,
+    webhook: webhook != null && setWebhook != null,
+  );
+
   /// Constant-time compare of a raw token (localhost, but no reason to leak
   /// length/prefix). Used directly by the WebSocket path (token in the query,
   /// since a browser/ws client can't set an Authorization header on upgrade).
@@ -4279,7 +4704,9 @@ class ApiHandler {
     }
     final path = uri.path;
     if (method == 'GET' && path == '/v1/openapi.json') {
-      return ApiResponse(200, openApiSpec());
+      // THIS host's contract, not the union of every host's. Anything this
+      // handler would refuse as unavailable is absent from what it hands back.
+      return ApiResponse(200, openApiSpec(capabilities: capabilities));
     }
     if (method == 'GET' && path == '/v1/health') {
       return ApiResponse(200, status());
@@ -6340,6 +6767,24 @@ class ApiHandler {
           ? const ApiResponse(200, {'ok': true})
           : ApiResponse(400, {'error': err});
     }
+    // The missing middle step, mirroring `/v1/groups/files/fetch`: a received
+    // file is an OFFER until somebody asks for the bytes, and a bot had no way
+    // to ask. Keyed by (peer, messageId) rather than a bare content hash for
+    // the same reason the group route is — see [fetchFile].
+    if (method == 'POST' && path == '/v1/files/fetch') {
+      final peer = body?['peer'];
+      final message = body?['messageId'];
+      if (peer is! String ||
+          !RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(peer) ||
+          message is! String ||
+          message.isEmpty) {
+        return const ApiResponse(400, {'error': 'peer + messageId required'});
+      }
+      final error = await fetchFile(peer, message);
+      return error == null
+          ? const ApiResponse(200, {'ok': true, 'started': true})
+          : _directFileError(error);
+    }
     if (method == 'GET' && path == '/v1/files/download') {
       final fileId = uri.queryParameters['fileId'];
       if (fileId == null || fileId.isEmpty) {
@@ -6447,6 +6892,21 @@ class ApiHandler {
       'group content not downloaded' => 409,
       'group content load failed' => 500,
       'content registration failed' => 500,
+      _ => 400,
+    };
+    return ApiResponse(status, {'error': error});
+  }
+
+  /// Status for a 1:1 file-fetch failure. The same three shapes the group pair
+  /// uses: a handle that names nothing is 404, a fetch with no reachable source
+  /// is 409 (ask again later — the sender may come back), a broken store is
+  /// 500.
+  ApiResponse _directFileError(String error) {
+    final status = switch (error) {
+      'message attachment not found' => 404,
+      'file fetch unavailable' => 409,
+      'message attachment load failed' => 500,
+      'file fetch failed' => 500,
       _ => 400,
     };
     return ApiResponse(status, {'error': error});
