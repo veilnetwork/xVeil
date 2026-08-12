@@ -191,6 +191,78 @@ except RuntimeError as error:
       expect(result.stdout.toString(), isNot(contains('signing check')));
     });
 
+    test('a macOS stand build carries the hook on EITHER signing path', () {
+      // The hook is compile-time, so a bundle built without the define cannot
+      // be driven at all: nothing answers on the port and the stand looks like
+      // a node that never bootstrapped. The ad-hoc script (no Apple account on
+      // this machine) passed it through; the SIGNED branch never did. So the
+      // machine with an Apple account produced the mute build, while the
+      // comments in the Android and Linux branches said macOS already had it.
+      //
+      // Forced rather than observed: which branch runs depends on whether this
+      // particular machine has a provisioning profile, and a test that asserts
+      // whatever the host happens to do asserts nothing.
+      final temp = Directory.systemTemp.createTempSync('xveil_macos_hook');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final probe = File('${temp.path}/probe.py')..writeAsStringSync('''
+import sys
+sys.path.insert(0, ${_pyStr(Directory.current.path)})
+import builder
+builder._apple_signing_available = lambda: True
+for step in builder._macos(release=False):
+    if step.argv[:3] == ["flutter", "build", "macos"]:
+        print("SIGNED " + " ".join(step.argv))
+builder._apple_signing_available = lambda: False
+for step in builder._macos(release=False):
+    print("ADHOC " + " ".join(step.argv))
+''');
+      ProcessResult probeWith(Map<String, String> env) => Process.runSync(
+        python!,
+        [probe.path],
+        environment: env,
+        workingDirectory: Directory.current.path,
+      );
+
+      final asked = probeWith({'XVEIL_DEBUG_HOOK': 'true'});
+      expect(asked.exitCode, 0, reason: asked.stderr.toString());
+      final signed = asked.stdout
+          .toString()
+          .split('\n')
+          .firstWhere((line) => line.startsWith('SIGNED '), orElse: () => '');
+      expect(
+        signed,
+        contains('--dart-define=XVEIL_DEBUG_HOOK=true'),
+        reason:
+            'XVEIL_DEBUG_HOOK=true builder.py macos --debug produced a mute '
+            'stand on any machine with an Apple account',
+      );
+      expect(
+        signed,
+        contains('--dart-define=XVEIL_VERSION=${_pubspecVersion()}'),
+        reason:
+            'the ad-hoc script names the version; a signed bundle used to '
+            'report as whatever the default is, which ties to no build',
+      );
+      // The ad-hoc branch reaches the script, which reads the same variable —
+      // the pass-through is not duplicated into the argv here.
+      expect(
+        asked.stdout.toString(),
+        contains('ADHOC bash'),
+        reason: 'the ad-hoc path still goes through build-macos-adhoc.sh',
+      );
+
+      // ...and a build nobody asked for stays an ordinary build.
+      final plain = probeWith({});
+      expect(plain.exitCode, 0, reason: plain.stderr.toString());
+      expect(
+        plain.stdout.toString(),
+        isNot(contains('XVEIL_DEBUG_HOOK')),
+        reason:
+            'the hook opens a loopback port that drives the whole app; it is '
+            'opt-in per build, not on because the platform can',
+      );
+    });
+
     test('prepare names the target it prepares for', () {
       final result = run(['prepare.py', 'android', '--dry-run']);
       expect(result.exitCode, 0);

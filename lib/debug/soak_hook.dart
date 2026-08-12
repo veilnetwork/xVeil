@@ -195,6 +195,34 @@ String groupPostHookText(Uri uri) {
   return q['text'] ?? q['body'] ?? '';
 }
 
+/// What `/folder_sync_add` answers — the REFUSAL included.
+///
+/// `addPair` returns why it would not take a folder: a root another local
+/// account can write to, or one that overlaps a pair already mirrored. Neither
+/// creates a pair. The hook used to await that answer, drop it, and reply
+/// `{"ok": true, "id": ...}` regardless — so a stand went on believing it had a
+/// pair that does not exist, and the first thing to actually fail was several
+/// steps later and somewhere else. The UI caller had the same bug and it was
+/// fixed there ([FolderSyncScreen]); this is the hook's copy of it.
+///
+/// The CODE, not a sentence: a stand asserts on `refused`, and the wording
+/// belongs to the app's translations. Answered with `ok: false` at HTTP 200,
+/// like the other refusals here — the request was well formed, the answer is
+/// simply no.
+@visibleForTesting
+Map<String, Object?> folderSyncAddHookAnswer({
+  required String id,
+  required FolderSyncRefusal? refusal,
+}) => refusal == null
+    ? {'ok': true, 'id': id}
+    : {
+        'ok': false,
+        'error': 'refused',
+        'refused': refusal.code.name,
+        if (refusal.path != null) 'path': refusal.path,
+        if (refusal.detail != null) 'detail': refusal.detail,
+      };
+
 /// Debug-only loopback HTTP hook for automated soak tests.
 ///
 /// Disabled unless the app is launched with:
@@ -2334,14 +2362,14 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final id =
         req.uri.queryParameters['id'] ??
         'pair-${DateTime.now().microsecondsSinceEpoch}';
-    await ref
+    final refusal = await ref
         .read(folderSyncControllerProvider.notifier)
         .addPair(
           localPath: path,
           cloudFolderId: req.uri.queryParameters['folder'],
           id: id,
         );
-    return _json(req, {'ok': true, 'id': id});
+    return _json(req, folderSyncAddHookAnswer(id: id, refusal: refusal));
   }
 
   Future<void> _folderSyncRemoveHook(HttpRequest req) async {

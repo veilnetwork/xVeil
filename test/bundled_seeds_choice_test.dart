@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/data/node/bundled_seeds.dart';
+import 'package:xveil/data/node/bundled_seeds_prefs.dart';
 import 'package:xveil/data/node/embedded_node.dart';
 import 'package:xveil/data/node/managed_node.dart';
 import 'package:xveil/data/node/node_controller.dart';
@@ -1317,6 +1319,107 @@ void main() {
       // to the historical behaviour rather than to the opt-out.
       expect(await bundledSeedsAllowedFor(refusing), isFalse);
       expect(await setBundledSeedsAllowedFor(refusing, true), isFalse);
+    });
+  });
+
+  group('a process with no preference store at all', () {
+    // The headless daemon. `bundled_seeds.dart` used to reach for
+    // SharedPreferences, and because `lib/data/veil_stack.dart` imports it, the
+    // daemon's AOT build died on `dart:ui` while every app build stayed green
+    // (709f3b9). The preference half now lives in `bundled_seeds_prefs.dart`
+    // and the daemon resolves its answer from the only two things it really
+    // has: what its config file said, and what the identity's own space says.
+    //
+    // These are about the second one. The preference is deliberately left
+    // saying the opposite, so a path that still reads it cannot pass.
+
+    Storage viewOf(FakeMultiSpaceBacking backing, Uint8List keys) =>
+        HiddenVolumeStorage.fromStore(
+          MultiSpaceKvLogStore(backing, backing.openSpace(keys)),
+        );
+
+    test('the identity\'s own answer wins over the fallback, both ways', () async {
+      SharedPreferences.setMockInitialValues({
+        'network.bundled_seeds.v1': true,
+      });
+      final backing = FakeMultiSpaceBacking();
+      final refuser = viewOf(backing, _spaceKeys(11));
+      await refuser.putSetting(kBundledSeedsSettingKey, 'false');
+      expect(
+        await bundledSeedsAllowedFromSpace(refuser, ifUnanswered: true),
+        isFalse,
+        reason: 'a daemon starting up must not undo a refusal recorded in the '
+            'container just because its own config said nothing',
+      );
+
+      final allower = viewOf(backing, _spaceKeys(12));
+      await allower.putSetting(kBundledSeedsSettingKey, 'true');
+      expect(
+        await bundledSeedsAllowedFromSpace(allower, ifUnanswered: false),
+        isTrue,
+      );
+    });
+
+    test('a space that never answered takes the fallback and WRITES NOTHING', () async {
+      // Unlike the app's read, which migrates the preference into the space on
+      // first sight. A daemon has nothing to migrate FROM, and freezing a
+      // fallback into the container would answer a question nobody asked — the
+      // config file it came from can say something different tomorrow.
+      SharedPreferences.setMockInitialValues({
+        'network.bundled_seeds.v1': false,
+      });
+      final backing = FakeMultiSpaceBacking();
+      final space = viewOf(backing, _spaceKeys(13));
+      expect(
+        await bundledSeedsAllowedFromSpace(space, ifUnanswered: true),
+        isTrue,
+        reason: 'the preference belongs to an app profile the daemon is not',
+      );
+      expect(
+        await space.getSetting(kBundledSeedsSettingKey),
+        isNull,
+        reason: 'reading a config is not answering the question',
+      );
+      expect(
+        await bundledSeedsAllowedFromSpace(space, ifUnanswered: false),
+        isFalse,
+        reason: 'and the next boot is still free to be told otherwise',
+      );
+    });
+
+    test('a store that will not answer takes the fallback too', () async {
+      // Same reasoning as `bundledSeedsAllowedFor`: a node config has to be
+      // composed one way or the other, so an unreadable space resolves to what
+      // the caller said rather than to the opt-out.
+      expect(
+        await bundledSeedsAllowedFromSpace(
+          _RefusingStorage(),
+          ifUnanswered: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test('the daemon boot HANDS its config answer to the stack', () {
+      // Read off the source because there is no seam to inject: `start` opens a
+      // real container and dials FFI before it composes anything. What can go
+      // wrong is small and specific — the argument is dropped, and then
+      // `use_bundled_seeds` in an operator's config file is parsed, carried,
+      // and silently ignored, which is worse than not having the key.
+      final source = File(
+        'lib/headless/headless_runtime.dart',
+      ).readAsStringSync();
+      final call = RegExp(
+        r'RealVeilStack\.startDeniable\((?<args>[\s\S]*?)\n      \);',
+      ).firstMatch(source);
+      expect(call, isNotNull, reason: 'the daemon no longer starts a stack?');
+      expect(
+        call!.namedGroup('args'),
+        contains('useBundledSeeds: config.useBundledSeeds'),
+        reason: 'the daemon must pass what its config file said (and the null '
+            'that means it said nothing) — dropping it leaves the key parsed, '
+            'documented and inert',
+      );
     });
   });
 

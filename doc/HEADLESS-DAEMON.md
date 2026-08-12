@@ -45,9 +45,33 @@ that safely). A bot should normally use its own identity/store.
 
 Environment overrides for public configuration are `XVEIL_CONFIG`,
 `XVEIL_STORE`, `XVEIL_RUNTIME_DIR`, `XVEIL_BLOB_DIR`, `XVEIL_LISTEN_PORT`,
-`XVEIL_API_PORT`, `XVEIL_ANONYMOUS`, `XVEIL_OBFS4_PSK_FILE`. Secret file paths
+`XVEIL_API_PORT`, `XVEIL_ANONYMOUS`, `XVEIL_OBFS4_PSK_FILE`,
+`XVEIL_USE_BUNDLED_SEEDS`. Secret file paths
 may be supplied as `XVEIL_PASSWORD_FILE`, `XVEIL_IDENTITY_PHRASE_FILE`, and
 `XVEIL_API_TOKEN_FILE`; secret values themselves have no environment option.
+
+### `use_bundled_seeds`: the shared entry nodes
+
+Whether this daemon may reach the network through the operator-run SEED nodes
+compiled into the native library. Three states, and the third is not a bug:
+
+* **stated** (`true`/`false`, or `XVEIL_USE_BUNDLED_SEEDS`) — that is the
+  answer. `false` composes the node with `builtin_seed_policy = "never"`, so it
+  dials nothing but the peers you named yourself, and a daemon with no
+  `bootstrap_peers` then reaches nothing at all;
+* **absent** — the answer stored in the identity's own space is used
+  (`network.bundled_seeds.v1`, written by the GUI app when someone answers the
+  question during onboarding). A daemon opened on a container whose owner
+  refused the shared seeds does not put them back on;
+* absent, on a store that has never answered — the seeds are used, which is what
+  every install did before the question existed.
+
+There is deliberately no fourth source. The app keeps a per-profile preference
+as its own pre-unlock fallback; that file belongs to an app profile a daemon
+does not have, and reading it would drag `package:shared_preferences` — and so
+`package:flutter`, and so `dart:ui` — into an AOT binary that cannot have it.
+That import is exactly what stopped this daemon building at all in `709f3b9`,
+with every app build and the Flutter-free gate still green.
 
 ### Secret files, and what they are checked for
 

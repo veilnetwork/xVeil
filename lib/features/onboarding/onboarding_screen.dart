@@ -8,6 +8,7 @@ import '../../core/log.dart';
 import '../../core/secure_screen.dart';
 import '../../data/identity/veil_identity.dart';
 import '../../data/node/bundled_seeds.dart';
+import '../../data/node/bundled_seeds_prefs.dart';
 import '../../domain/identity.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';

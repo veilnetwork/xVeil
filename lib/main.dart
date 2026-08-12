@@ -18,8 +18,8 @@ import 'package:veil_flutter/veil_flutter.dart' as veil;
 import 'app.dart';
 import 'desktop/desktop_tray.dart';
 import 'domain/content_manifest.dart';
-import 'data/node/bundled_seeds.dart'
-    show bundledSeedsAllowed, resolveBootstrapPeers;
+import 'data/node/bundled_seeds.dart' show resolveBootstrapPeers;
+import 'data/node/bundled_seeds_prefs.dart' show bundledSeedsAllowed;
 import 'data/node/embedded_node.dart';
 import 'data/node/node_controller.dart';
 import 'data/storage/app_profile.dart';

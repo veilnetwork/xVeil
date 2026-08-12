@@ -125,6 +125,13 @@ class HeadlessRuntime {
         obfs4Psk: psk,
         identityPhrase: identityPhrase,
         debugMetricsPort: debugMetricsPort,
+        // What the config file said, and NULL when it said nothing — in which
+        // case the boot reads the identity's own space and falls back to the
+        // historical default. A daemon has no app profile and therefore no
+        // preference store to consult, which is the whole reason this is
+        // passed from here rather than resolved down there
+        // ([HeadlessConfig.useBundledSeeds]).
+        useBundledSeeds: config.useBundledSeeds,
         lib: _veilNativeHandle(),
       );
       final nodeId = await stack.transport.nodeId();
