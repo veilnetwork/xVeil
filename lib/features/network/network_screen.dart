@@ -7,11 +7,9 @@ import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../common/shown_cause.dart';
 import '../../core/error_journal.dart';
-import '../../data/node/bundled_seeds.dart'
-    show
-        setBundledSeedsAllowedFor,
-        shouldOfferBundledSeeds,
-        storedBundledSeedsAnswerFor;
+import '../../data/node/bundled_seeds.dart' show shouldOfferBundledSeeds;
+import '../../data/node/bundled_seeds_prefs.dart'
+    show setBundledSeedsAllowedFor, storedBundledSeedsAnswerFor;
 import '../../data/node/node_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';

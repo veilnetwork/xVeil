@@ -10,8 +10,8 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import '../data/native_libs.dart';
 
-import '../data/node/bundled_seeds.dart'
-    show IdentitySeedPlan, planIdentitySeeds;
+import '../data/node/bundled_seeds.dart' show IdentitySeedPlan;
+import '../data/node/bundled_seeds_prefs.dart' show planIdentitySeeds;
 import '../data/node/embedded_node.dart';
 import '../data/node/node_controller.dart';
 import '../data/node/proxy_routing.dart';

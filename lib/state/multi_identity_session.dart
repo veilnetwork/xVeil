@@ -7,7 +7,8 @@ import '../data/serve_source.dart';
 import 'dart:async';
 
 import '../data/node/bundled_seeds.dart'
-    show IdentityPeers, kBundledSeedsDefault, planIdentitySeeds;
+    show IdentityPeers, kBundledSeedsDefault;
+import '../data/node/bundled_seeds_prefs.dart' show planIdentitySeeds;
 import '../data/node/embedded_node.dart' show BootstrapPeerCfg;
 import '../data/node/proxy_routing.dart';
 import '../data/storage/hidden_volume_storage.dart';
