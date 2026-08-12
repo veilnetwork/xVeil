@@ -1123,7 +1123,16 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       rec.dispose();
       return _json(req, {'ok': false, 'error': 'start failed'}, status: 500);
     }
+    // Time already on the recorder's clock the instant start() returned. The
+    // clip's clock is stamped INSIDE start(); anything start() still does after
+    // stamping it (bringing the microphone up) is recorded before the caller's
+    // own timer even begins. That is the difference between "the clip runs long
+    // because the clock started too early" and "the clip runs long because this
+    // timer fired late", which delayMs measures separately.
+    final startCostMs = rec.elapsedMs;
+    final delayWatch = Stopwatch()..start();
     await Future<void>.delayed(Duration(milliseconds: ms));
+    final delayMs = delayWatch.elapsedMilliseconds;
     final preview = rec.frame();
     final clip = rec.stop();
     rec.dispose();
@@ -1146,6 +1155,14 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'width': vn ? (b[6] | (b[7] << 8)) : 0,
       'height': vn ? (b[8] | (b[9] << 8)) : 0,
       'frames': vn ? (b[20] | (b[21] << 8) | (b[22] << 16) | (b[23] << 24)) : 0,
+      // Audio block size (VN01 header bytes 16..19). Audio only starts once the
+      // microphone is up, so a clip whose audio is short against its duration
+      // was running its clock before the microphone reached it.
+      'audioBytes': vn
+          ? (b[16] | (b[17] << 8) | (b[18] << 16) | (b[19] << 24))
+          : 0,
+      'startCostMs': startCostMs,
+      'delayMs': delayMs,
       'previewW': preview?.width ?? 0,
     });
   }
