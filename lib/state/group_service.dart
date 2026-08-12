@@ -17183,7 +17183,8 @@ class GroupService {
     // is right for `leave` (see [_leaveGroup]) and wrong for every authority
     // decision: measured live, a removed member sat on epoch 2 with
     // `selfRole: member` four minutes later and was told `ok` for writes that
-    // reached nobody.
+    // reached nobody. `revokeAuthority` reaches the same end without naming
+    // anybody — see [_membershipEndedTargets], which answers for both.
     //
     // They are served OUT of that loop, never inside it. Measured on the
     // ordinary per-peer tailoring: `_epochEnvelopesFor` /
@@ -17199,7 +17200,7 @@ class GroupService {
     final departed = control.isEmpty
         ? const <NodeId>[]
         : [
-            for (final target in _membershipEndedTargets(state, control))
+            for (final target in _membershipEndedTargets(b, state, control))
               if (target != _signer.selfId &&
                   !exclude.contains(target) &&
                   (!b.manifest.isSovereignDevice || target != b.manifest.owner))
@@ -17368,19 +17369,48 @@ class GroupService {
     return n;
   }
 
-  /// The nodes whose membership THIS delta ends: an authority decision
-  /// (`removeMember`, `ban`, or a membership-removing `moderate`) whose target
-  /// [state] no longer holds as a member.
+  /// The nodes whose membership THIS delta ends — however it ends it. [state]
+  /// is [b]'s log folded WITH [control] already in it; [control] are the rows
+  /// this delta carries.
   ///
-  /// A `leave` is deliberately absent. The person who left authored the row and
-  /// already holds it, and [_leaveGroup] depends on the fanout reaching only
-  /// the members who remain.
-  static List<NodeId> _membershipEndedTargets(
+  /// Two derivations, and they live in this one function on purpose. A second
+  /// function answering the same question is a second answer waiting to drift
+  /// from the first, and the whole class of defect here is exactly that: a
+  /// decision that ends someone's membership while the recipient list is
+  /// computed somewhere that does not know it did.
+  ///
+  ///  1. The decision that NAMES its target — `removeMember`, `ban`, a
+  ///     membership-removing `moderate`. Read straight off the rows, so it
+  ///     still answers for a delta whose rows this device has not (or not yet)
+  ///     appended to [b], where there is nothing to fold a difference against.
+  ///
+  ///  2. The decision that does not name anyone. `revokeAuthority` carries a
+  ///     boundary that reaches BACKWARDS over its target's chain, and a
+  ///     withdrawn `addMember` takes the person who was admitted out of the
+  ///     Space without mentioning them in any op above. It can also work at one
+  ///     remove — withdrawing a `revokeModeration` re-arms a readmission bar,
+  ///     which rejects a later, perfectly valid `addMember` by someone else
+  ///     entirely. Neither is reachable by asking an op what it is called, so
+  ///     this asks the fold instead: who did the log hold as a member before
+  ///     these rows, and no longer holds now. That question needs no
+  ///     maintenance when a new op joins [ControlOp].
+  ///
+  /// A `leave` is excluded, and only a `leave` is. The person who left authored
+  /// the row and already holds it, and [_leaveGroup] depends on the fanout
+  /// reaching only the members who remain.
+  List<NodeId> _membershipEndedTargets(
+    GroupBundle b,
     GroupState state,
-    Iterable<ControlEntry> control,
+    List<ControlEntry> control,
   ) {
     final ended = <String, NodeId>{};
+    final rowsInThisDelta = <String>{};
+    final departedOfTheirOwnAccord = <String>{};
     for (final entry in control) {
+      rowsInThisDelta.add('${entry.author.hex}:${entry.seq}');
+      if (entry.op == ControlOp.leave) {
+        departedOfTheirOwnAccord.add(entry.author.hex);
+      }
       final target = switch (entry.op) {
         ControlOp.removeMember || ControlOp.ban => entry.target,
         ControlOp.moderate
@@ -17388,11 +17418,35 @@ class GroupService {
           entry.moderationAction!.target,
         _ => null,
       };
-      // A remove that a later row in the same delta undid leaves a member, and
-      // a member is served by the ordinary recipient list.
-      if (target == null || state.isMember(target)) continue;
+      if (target == null) continue;
       ended[target.hex] = target;
     }
+    // The same log without this delta's rows. Every caller appends before it
+    // broadcasts, so these are the tail of their author's chain and removing
+    // them leaves the remaining chains intact.
+    //
+    // A difference is not the whole answer, which is why derivation (1) above
+    // stays: a catch-up delta carrying both someone's admission AND their
+    // removal folds to no difference at all — the log without those rows never
+    // held them either — and they are still exactly the person it is about
+    // (pinned in test/removed_member_notice_test.dart).
+    final before = foldControlLog(
+      owner: b.manifest.owner,
+      entries: [
+        for (final entry in b.control)
+          if (!rowsInThisDelta.contains('${entry.author.hex}:${entry.seq}'))
+            entry,
+      ],
+      verify: (e) => _validControlFor(b.manifest, e),
+    ).state;
+    for (final member in before.members.values) {
+      if (departedOfTheirOwnAccord.contains(member.nodeId.hex)) continue;
+      ended[member.nodeId.hex] = member.nodeId;
+    }
+    // Whoever the folded state still holds is a member, and a member is served
+    // by the ordinary recipient list: a remove that a later row in the same
+    // delta undid, or someone a withdrawal put BACK into the Space.
+    ended.removeWhere((hex, _) => state.members.containsKey(hex));
     return ended.values.toList(growable: false);
   }
 
