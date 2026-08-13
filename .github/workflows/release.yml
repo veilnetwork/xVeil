@@ -690,7 +690,45 @@ jobs:
           echo "toolchain: $msvc_bin"
           python builder.py windows --release
 
-      - name: The bundle carries the PSK and the engine
+      # THE VISUAL C++ RUNTIME, shipped rather than assumed.
+      #
+      # Every binary in this bundle — all fourteen, xveil.exe included — imports
+      # MSVCP140.dll, VCRUNTIME140.dll and VCRUNTIME140_1.dll, and Flutter's
+      # Windows template copies none of them. A machine with the Visual C++
+      # Redistributable installed runs fine, which is every developer machine
+      # and this runner; a clean Windows does not. The loader fails on the first
+      # statically-imported DLL that needs the runtime and names THAT file, so
+      # the first report from v0.10.0 read "the system cannot find
+      # hidden_volume_plugin.dll" — a file that is present and correct, sitting
+      # right next to the executable.
+      #
+      # These three are on Microsoft's redistributable-files list; shipping them
+      # beside the app is the documented arrangement.
+      - name: Visual C++ runtime into the bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'build/windows/x64/runner/Release'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -property installationPath
+          if (-not $vs) { throw "vswhere found no Visual Studio installation" }
+          $want = @('msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')
+          # Searched rather than spelled out: the redist directory is versioned
+          # (…\VC\Redist\MSVC\14.4x.xxxxx\x64\Microsoft.VC143.CRT), and both the
+          # version and the VC14x folder name move with the toolchain. onecore,
+          # debug and spectre variants are not what a normal app links against.
+          $found = Get-ChildItem "$vs\VC\Redist\MSVC" -Recurse -File -Include $want -ErrorAction SilentlyContinue |
+                   Where-Object { $_.FullName -match '\\x64\\' -and
+                                  $_.FullName -notmatch 'onecore|debug|spectre' } |
+                   Sort-Object FullName -Descending
+          foreach ($n in $want) {
+            $f = $found | Where-Object { $_.Name -ieq $n } | Select-Object -First 1
+            if (-not $f) { throw "no $n under $vs\VC\Redist\MSVC — the bundle would need the redistributable installed on the user's machine" }
+            Copy-Item $f.FullName (Join-Path $root $f.Name) -Force
+            Write-Host ("  copied {0}  {1:N0} bytes  from {2}" -f $f.Name, $f.Length, $f.DirectoryName)
+          }
+
+      - name: The bundle carries the PSK, the engine and the C++ runtime
         shell: bash
         run: |
           set -euo pipefail
@@ -701,6 +739,16 @@ jobs:
           [ -n "$engine" ] || { echo "::error::veil_media.dll is not in the bundle — voice messages and calls would fail at LoadLibrary"; exit 1; }
           echo "  ok $psk"
           echo "  ok $engine"
+          # Asserted against the BUNDLE, deliberately, and never against the
+          # runner's System32. The runner has the redistributable installed —
+          # every check that consults the machine passes here and reproduces
+          # exactly the bug it was meant to catch.
+          for dll in MSVCP140.dll VCRUNTIME140.dll VCRUNTIME140_1.dll; do
+            [ -s "$root/$dll" ] || {
+              echo "::error::$dll is not in the bundle. Every binary here imports it, so on a Windows without the Visual C++ Redistributable the app dies at startup naming some other DLL entirely."
+              exit 1; }
+            echo "  ok $root/$dll"
+          done
 
       - name: Archive
         shell: pwsh
