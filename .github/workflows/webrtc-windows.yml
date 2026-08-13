@@ -340,7 +340,21 @@ jobs:
           # ASCII, not PowerShell's default UTF-16: this file is read on a Linux
           # runner and by anyone who downloads it, and a BOM'd UTF-16 text file
           # reads as binary garbage there.
-          $lines | Set-Content -Path "provenance\veil_media-win-x64.dll.provenance" -Encoding ascii
+          #
+          # And LF, not Set-Content's CRLF, for the same reason one line lower
+          # down than the encoding. The record is parsed with
+          # `awk '/^sha256:/{print $2}'`, and under CRLF that field comes back
+          # 65 characters long — the hash plus a carriage return — so the
+          # release job's `[ "$want" = "$got" ]` compares unequal against a
+          # byte-identical DLL and refuses it with "the downloaded engine is
+          # not the one its provenance describes". Measured on the first
+          # published win-x64 record: want 65, got 64, hashes visually the same
+          # because the CR returns the cursor before the difference can show.
+          # WriteAllText is used because Set-Content has no line-ending switch.
+          [IO.File]::WriteAllText(
+            (Join-Path (Get-Location) "provenance\veil_media-win-x64.dll.provenance"),
+            (($lines -join "`n") + "`n"),
+            [Text.Encoding]::ASCII)
           Get-Content "provenance\veil_media-win-x64.dll.provenance"
 
       # Unchanged: the old run-id route still reads this artifact, by this
