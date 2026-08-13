@@ -10,6 +10,41 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.10.1] — 2026-08-13
+
+Built on the same [veil v0.5.2](https://github.com/veilnetwork/veil/releases/tag/v0.5.2)
+and [hidden-volume v2.0.0](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.0)
+as 0.10.0. Windows only — the Android and Linux artifacts are unchanged in
+behaviour, and there is no reason to reinstall those.
+
+### Fixed
+
+- **The Windows bundle now carries the Visual C++ runtime it needs.**
+  `MSVCP140.dll`, `VCRUNTIME140.dll` and `VCRUNTIME140_1.dll` were absent from
+  the zip, and all fourteen binaries in it import them, `xveil.exe` included —
+  Flutter's Windows template copies none of them. A Windows without the Visual
+  C++ Redistributable therefore could not start the app at all.
+
+  It went unnoticed because every machine that had built or tested this app had
+  the redistributable installed, the CI runner included. That is also why the
+  new gate asserts the three files are **in the bundle** rather than asking
+  whether the machine can resolve them: a check that consults the runner passes
+  here and ships the same broken zip.
+
+  Anyone holding the 0.10.0 zip can either take this one or install the
+  Microsoft Visual C++ Redistributable (x64); both fix it.
+
+  **This was found while investigating a startup report, and it is not what
+  that report was.** The dialog there named `hidden_volume_plugin.dll`, and the
+  import table of `xveil.exe` rules the runtime out as the cause: the loader
+  walks that table in order, `connectivity_plus_plugin.dll` sits ahead of
+  `hidden_volume_plugin.dll`, and both need the runtime equally — so a missing
+  runtime, or a launch with no sibling DLLs present at all, would have named
+  the earlier file. Three DLLs resolving and the fourth not means that one file
+  specifically was not there, which points at extraction or at antivirus
+  quarantine of an unsigned binary, not at the bundle's contents. That report
+  is still open.
+
 ## [0.10.0] — 2026-08-13
 
 Built on [veil v0.5.2](https://github.com/veilnetwork/veil/releases/tag/v0.5.2)
