@@ -342,7 +342,12 @@ jobs:
             curl -fL --retry 3 --retry-delay 5 --max-time 300 -o "$dest/libveil_media.so" "$base/$ASSET"
             curl -fL --retry 3 --retry-delay 5 --max-time 60 -o "$prov" "$base/$ASSET.provenance"
             echo "--- provenance ---"; cat "$prov"; echo "------------------"
-            want="$(awk '/^sha256:/{print $2}' "$prov")"
+            # tr -d '\r': a provenance written on a Windows runner arrives
+            # CRLF, and awk hands back the hash with a carriage return glued to
+            # it, so this compares unequal against a byte-identical file. The
+            # producer writes LF now; this strips it anyway, because the record
+            # travels and the next one may come from a host that does not.
+            want="$(awk '/^sha256:/{print $2}' "$prov" | tr -d '\r')"
             got="$(sha256sum "$dest/libveil_media.so" | cut -d' ' -f1)"
             [ -n "$want" ] || { echo "::error::$ASSET.provenance carries no sha256 line — it is not the record it claims to be"; exit 1; }
             [ "$want" = "$got" ] || { echo "::error::the downloaded engine is not the one its provenance describes (recorded $want, got $got)"; exit 1; }
@@ -483,7 +488,12 @@ jobs:
             curl -fL --retry 3 --retry-delay 5 --max-time 300 -o "$dest/libveil_media.so" "$base/$ASSET"
             curl -fL --retry 3 --retry-delay 5 --max-time 60 -o "$prov" "$base/$ASSET.provenance"
             echo "--- provenance ---"; cat "$prov"; echo "------------------"
-            want="$(awk '/^sha256:/{print $2}' "$prov")"
+            # tr -d '\r': a provenance written on a Windows runner arrives
+            # CRLF, and awk hands back the hash with a carriage return glued to
+            # it, so this compares unequal against a byte-identical file. The
+            # producer writes LF now; this strips it anyway, because the record
+            # travels and the next one may come from a host that does not.
+            want="$(awk '/^sha256:/{print $2}' "$prov" | tr -d '\r')"
             got="$(sha256sum "$dest/libveil_media.so" | cut -d' ' -f1)"
             [ -n "$want" ] || { echo "::error::$ASSET.provenance carries no sha256 line — it is not the record it claims to be"; exit 1; }
             [ "$want" = "$got" ] || { echo "::error::the downloaded engine is not the one its provenance describes (recorded $want, got $got)"; exit 1; }
@@ -602,7 +612,7 @@ jobs:
           # safely uploaded from an earlier step.
           #
           # EXPIRES 2026-11-10.
-          ENGINE_RUN: '30665287484'
+          ENGINE_RUN: '30665287484
           ASSET: 'veil_media-win-x64.dll'
         run: |
           set -euo pipefail
@@ -618,7 +628,12 @@ jobs:
             curl -fL --retry 3 --retry-delay 5 --max-time 300 -o "$dest/veil_media.dll" "$base/$ASSET"
             curl -fL --retry 3 --retry-delay 5 --max-time 60 -o "$prov" "$base/$ASSET.provenance"
             echo "--- provenance ---"; cat "$prov"; echo "------------------"
-            want="$(awk '/^sha256:/{print $2}' "$prov")"
+            # tr -d '\r': a provenance written on a Windows runner arrives
+            # CRLF, and awk hands back the hash with a carriage return glued to
+            # it, so this compares unequal against a byte-identical file. The
+            # producer writes LF now; this strips it anyway, because the record
+            # travels and the next one may come from a host that does not.
+            want="$(awk '/^sha256:/{print $2}' "$prov" | tr -d '\r')"
             got="$(sha256sum "$dest/veil_media.dll" | cut -d' ' -f1)"
             [ -n "$want" ] || { echo "::error::$ASSET.provenance carries no sha256 line — it is not the record it claims to be"; exit 1; }
             [ "$want" = "$got" ] || { echo "::error::the downloaded engine is not the one its provenance describes (recorded $want, got $got)"; exit 1; }
