@@ -126,6 +126,44 @@ void main() {
       }
     });
 
+    // "No obfs4_psk.b64 in the directory" reads as two different failures —
+    // the app had no key to write, or it had one and stopped earlier — and
+    // guessing wrong sends the next investigation at the wrong half of the
+    // system. It is known for certain where the error is raised, so it is said
+    // rather than left to be inferred.
+    group('the obfs4 key is stated, not inferred', () {
+      test('no key: says so, and says what it costs', () {
+        final text = describeBootFailure(
+          phase: NodePhase.stopped,
+          message: null,
+          runtimeDirEntries: const ['.xveil-runtime'],
+          hadObfs4Psk: false,
+        );
+        expect(text, contains('NO obfs4 key'));
+        expect(text, contains('refused by the transport'));
+      });
+
+      test('key present: the absent file means something else', () {
+        final text = describeBootFailure(
+          phase: NodePhase.stopped,
+          message: null,
+          runtimeDirEntries: const ['.xveil-runtime'],
+          hadObfs4Psk: true,
+        );
+        expect(text, contains('did have an obfs4 key'));
+        expect(text, isNot(contains('NO obfs4 key')));
+      });
+
+      test('unknown stays silent rather than guessing', () {
+        final text = describeBootFailure(
+          phase: NodePhase.stopped,
+          message: null,
+          runtimeDirEntries: const ['.xveil-runtime'],
+        );
+        expect(text, isNot(contains('obfs4 key')));
+      });
+    });
+
     test('the phase is still named, whatever else is said', () {
       for (final phase in NodePhase.values) {
         expect(
