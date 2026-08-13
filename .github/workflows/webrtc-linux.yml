@@ -83,7 +83,25 @@ env:
   # PINNED BY COMMIT, for exactly the reason depot_tools was (audit X-08):
   # fetch-sdk.sh is code from another repository, executed in this job. A
   # commit sha is immutable; `main` is whatever was pushed this morning.
-  VEIL_SDK_SCRIPT_PIN: '913e29d08d80c9e3e442b5400eb7dd1e4ec9ec42'
+  #
+  # NOTE: this commit is on veilnetwork/libwebrtc-builds' branch
+  # `fix/windows-setup-needs-pwsh`, not on its main — it is the fix that makes
+  # the win-x64 branch work at all (see webrtc-windows.yml). Repoint this at
+  # the merge commit once that branch lands; until then the branch must not be
+  # deleted, or this sha stops being fetchable.
+  VEIL_SDK_SCRIPT_PIN: 'deef316260886f36e2fde02e037d6bd5d1315c77'
+  # The gn arguments the published bundles were built with, copied verbatim
+  # from each manifest's `gn_args` (gn's own normalised form: one `key = value`
+  # per line of args.gn, sorted, joined with spaces).
+  #
+  # These are here because the argument list used to live in this file, as a
+  # real `gn gen` line, and test/webrtc_android_args_test.dart compared it
+  # against the script a person runs on a Linux host — the two had drifted once
+  # already. The build moved out of this workflow; the DUPLICATION did not, so
+  # neither does the check. The bundle side is asserted below, at fetch time,
+  # against the manifest; the local-script side is asserted by that test.
+  WEBRTC_GN_ARGS_LINUX: 'enable_libaom = false is_component_build = false is_debug = false rtc_build_examples = false rtc_build_tools = false rtc_enable_protobuf = false rtc_include_opus = true rtc_include_tests = false rtc_use_h264 = false symbol_level = 0 target_cpu = "x64" target_os = "linux" treat_warnings_as_errors = false'
+  WEBRTC_GN_ARGS_ANDROID: 'android_static_analysis = "off" enable_libaom = false is_component_build = false is_debug = false rtc_build_examples = false rtc_build_tools = false rtc_enable_protobuf = false rtc_include_opus = true rtc_include_tests = false rtc_use_h264 = false symbol_level = 0 target_cpu = "arm64" target_os = "android" treat_warnings_as_errors = false'
 
 jobs:
   engine:
@@ -155,6 +173,18 @@ jobs:
             || { echo "::error::this bundle was built from WebRTC $got; these sources expect $WEBRTC_PIN"; exit 1; }
           [ "$target" = "linux-x64" ] \
             || { echo "::error::this bundle is for $target; this job builds linux-x64"; exit 1; }
+          # The pin says WHICH WebRTC; this says HOW it was configured. Two
+          # bundles from the same commit with different gn args produce
+          # different engines — rtc_include_opus alone is the difference
+          # between voice messages working and not — and nothing downstream
+          # would notice.
+          args="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["gn_args"])' "$manifest")"
+          if [ "$args" != "$WEBRTC_GN_ARGS_LINUX" ]; then
+            echo "::error::the bundle's gn args are not the ones this repository expects"
+            echo "  bundle:   $args"
+            echo "  expected: $WEBRTC_GN_ARGS_LINUX"
+            exit 1
+          fi
           cc="$WEBRTC_SRC/$WEBRTC_OUT/compile_commands.json"
           [ -f "$cc" ] || { echo "::error::no $cc — setup.sh did not run, or the bundle is incomplete"; exit 1; }
           # The wrapper build does not read "a compile command", it reads
@@ -300,6 +330,17 @@ jobs:
             || { echo "::error::this bundle was built from WebRTC $got; these sources expect $WEBRTC_PIN"; exit 1; }
           [ "$target" = "android-arm64" ] \
             || { echo "::error::this bundle is for $target; this job builds android-arm64"; exit 1; }
+          # See the linux job. android_static_analysis="off" lives in this list
+          # and is not an optimisation — it is what makes the build finish at
+          # all — which is the sort of thing that must not differ between the
+          # bundle and the script a person runs locally.
+          args="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["gn_args"])' "$manifest")"
+          if [ "$args" != "$WEBRTC_GN_ARGS_ANDROID" ]; then
+            echo "::error::the bundle's gn args are not the ones this repository expects"
+            echo "  bundle:   $args"
+            echo "  expected: $WEBRTC_GN_ARGS_ANDROID"
+            exit 1
+          fi
           # build_veil_media_so.sh takes WEBRTC_BUILD and derives the rest, with
           # out/android-arm64 written into the script rather than passed in. So
           # a bundle whose out_dir were anything else would be looked for in a

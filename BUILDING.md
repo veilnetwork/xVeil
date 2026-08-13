@@ -577,6 +577,19 @@ revision itself in `WEBRTC_PIN`. `release.yml` then pins the *run id* it
 downloads each artifact from, and checks the result against the symbols the
 Dart layer looks up before building anything with it.
 
+Neither of those workflows builds WebRTC any more. They download a prebuilt
+**WebRTC SDK bundle** — a pruned slice of the checkout: `libwebrtc.a`, the
+clang that compiled it, its `__Cr` libc++ headers and objects, the sysroot and
+the generated headers, at the same relative paths a real checkout has — from
+[`veilnetwork/libwebrtc-builds`](https://github.com/veilnetwork/libwebrtc-builds),
+which publishes one release per WebRTC pin. The wrapper build scripts are
+unchanged by that: they replay `call.cc`'s own compile command out of
+`compile_commands.json`, and the bundle carries one. `WEBRTC_PIN` is now the
+*expected* pin — `fetch-sdk.sh` refuses before downloading when the published
+manifest disagrees, and each job then re-checks the pin and the gn args against
+the manifest inside the extract before compiling anything. A job that took
+forty minutes takes about one.
+
 For a local build on those three targets, use:
 
 ```sh
@@ -712,10 +725,27 @@ Both need `WEBRTC_ROOT`/`WEBRTC_SRC` to name a checkout that has already been
 built with `gn`/`ninja`, plus `depot_tools` beside it — the iOS script uses
 `$WEBRTC_ROOT/depot_tools/gn` and the WebRTC checkout's own bundled clang, and
 exits immediately if either is missing. Producing that checkout is the hours
-and tens of gigabytes described above; this repository does not automate it.
-`webrtc-linux.yml` is the most complete worked example of the `fetch`/`gclient
-sync`/`gn gen` sequence, and `third_party/veil/flutter/veil_media/BUILD-INTEGRATION.md`
-records the codec-stripped GN args.
+and tens of gigabytes described above; this repository does not automate it,
+and no longer contains a worked example of it either — the `fetch`/`gclient
+sync`/`gn gen` sequence now lives in
+[`veilnetwork/libwebrtc-builds`](https://github.com/veilnetwork/libwebrtc-builds),
+whose `build.yml` runs it once per pin and publishes the result.
+`third_party/veil/flutter/veil_media/BUILD-INTEGRATION.md` records the
+codec-stripped GN args.
+
+A **mac-arm64** and an **ios-arm64** bundle are published there too, so the
+33 GB checkout is avoidable on Apple as well: extract the bundle, run its
+`setup.sh` (which repoints `-isysroot` at the locally installed Xcode SDK), and
+point `WEBRTC_SRC`/`WEBRTC_OUT` at it. The macOS script takes those directly.
+The iOS one still runs `gn gen`/`autoninja` itself, so it needs a real checkout
+until that guard lands in `veil`.
+
+**If you build WebRTC from source for android anyway**, keep
+`build_libwebrtc_android_linux.sh`'s `ARGS` identical to the argument list
+`webrtc-linux.yml` pins in `WEBRTC_GN_ARGS_ANDROID` — that is what the
+published bundle was configured with, and
+`test/webrtc_android_args_test.dart` fails when the two diverge. An engine
+built from different gn args is a different engine, and both of them link.
 
 ### On-device speech-to-text (whisper.cpp)
 
@@ -1530,6 +1560,19 @@ Copy-Item third_party\veil\target\release\veilclient_ffi.dll `
 закреплена в `WEBRTC_PIN`. `release.yml` закрепляет уже *id прогона*, из
 которого качает, и проверяет скачанное по символам, которые ищет Dart.
 
+Сам WebRTC эти воркфлоу больше не собирают. Они скачивают готовый **комплект
+WebRTC** — обрезанный срез чекаута: `libwebrtc.a`, тот самый clang, заголовки и
+объекты его `__Cr` libc++, sysroot и сгенерированные заголовки, по тем же
+относительным путям, что и в настоящем чекауте — из
+[`veilnetwork/libwebrtc-builds`](https://github.com/veilnetwork/libwebrtc-builds),
+где на каждый пин WebRTC публикуется свой релиз. Скрипты сборки обёртки от
+этого не меняются: они берут точную команду компиляции `call.cc` из
+`compile_commands.json`, а комплект её несёт. `WEBRTC_PIN` теперь ОЖИДАЕМЫЙ
+пин — `fetch-sdk.sh` отказывается ещё до скачивания, если манифест говорит
+другое, а затем задача сама перепроверяет пин и аргументы gn по манифесту
+внутри распакованного комплекта, прежде чем что-либо компилировать. Задача,
+занимавшая сорок минут, занимает около одной.
+
 Локально для этих трёх целей:
 
 ```sh
@@ -1663,10 +1706,25 @@ WEBRTC_ROOT=~/Projects/veilnetwork/webrtc-checkout \
 
 Обоим нужен уже собранный чекаут и `depot_tools` рядом с ним; iOS-скрипт берёт
 `$WEBRTC_ROOT/depot_tools/gn` и клang из самого чекаута и завершается сразу,
-если чего-то из этого нет. Наиболее полный рабочий пример последовательности
-`fetch`/`gclient sync`/`gn gen` — в `webrtc-linux.yml`, а GN-аргументы с
-урезанными кодеками записаны в
+если чего-то из этого нет. Полного рабочего примера последовательности
+`fetch`/`gclient sync`/`gn gen` в этом репозитории больше нет — она переехала в
+[`veilnetwork/libwebrtc-builds`](https://github.com/veilnetwork/libwebrtc-builds),
+где `build.yml` прогоняет её один раз на пин и публикует результат.
+GN-аргументы с урезанными кодеками записаны в
 `third_party/veil/flutter/veil_media/BUILD-INTEGRATION.md`.
+
+Для **mac-arm64** и **ios-arm64** там тоже публикуются комплекты, так что 33 ГБ
+чекаута можно не разворачивать и на Apple: распаковать, запустить `setup.sh`
+(он переставит `-isysroot` на локальный Xcode SDK) и указать
+`WEBRTC_SRC`/`WEBRTC_OUT` на него. macOS-скрипт их принимает напрямую;
+iOS-скрипт пока сам зовёт `gn gen`/`autoninja`, и ему нужен настоящий чекаут.
+
+**Если всё же собираете WebRTC из исходников под android**, держите `ARGS` в
+`build_libwebrtc_android_linux.sh` в точности такими же, как список в
+`WEBRTC_GN_ARGS_ANDROID` из `webrtc-linux.yml`: именно с ними собран
+опубликованный комплект, и `test/webrtc_android_args_test.dart` краснеет, когда
+они расходятся. Движок с другими аргументами gn — это другой движок, и оба
+слинкуются.
 
 ### Распознавание речи на устройстве (whisper.cpp)
 
