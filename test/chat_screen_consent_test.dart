@@ -11,6 +11,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/features/chat/chat_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
+import 'package:xveil/state/media_ffi.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/providers.dart';
 
@@ -52,6 +53,17 @@ class _CountingStorage extends HiddenVolumeStorage {
 }
 
 void main() {
+  // These describe a build that HAS a call media engine. The mic, video-note
+  // and call affordances are wired to `callMediaAvailableProvider`, and a test
+  // binary carries no libveil_media, so saying so is the difference between
+  // asserting the shipped shape and asserting an accident of the test host.
+  // The last test asserts the other shape.
+  setUp(() => VeilMediaNative.debugForceAvailable = true);
+  tearDown(() {
+    VeilMediaNative.debugForceAvailable = null;
+    VeilMediaNative.forgetProbe();
+  });
+
   testWidgets('incoming request shows Accept / Block, no composer', (
     tester,
   ) async {
@@ -82,8 +94,28 @@ void main() {
       await tester.pump();
       expect(find.byIcon(Icons.send), findsOneWidget);
       expect(find.byIcon(Icons.mic), findsNothing);
+      // With an engine an accepted contact can be dialled.
+      expect(find.byIcon(Icons.call), findsOneWidget);
     },
   );
+
+  // The build the desktop plugin CMake now allows on purpose: assembled with
+  // no libveil_media. Recording and dialling are not offered, rather than
+  // offered and broken. Typing still works, so the chat is not crippled —
+  // only the parts that need the engine are gone.
+  testWidgets('with no media engine an accepted chat offers no mic and no call',
+      (tester) async {
+    VeilMediaNative.debugForceAvailable = false;
+    await tester.pumpWidget(_host(_c(ContactStatus.accepted)));
+    await tester.pump();
+    expect(find.byIcon(Icons.mic), findsNothing);
+    expect(find.byIcon(Icons.call), findsNothing);
+    expect(find.byKey(const ValueKey('composer-video-note')), findsNothing);
+    // The composer is otherwise intact.
+    await tester.enterText(find.byType(TextField), 'hi');
+    await tester.pump();
+    expect(find.byIcon(Icons.send), findsOneWidget);
+  });
 
   testWidgets('no contact yet shows a connection-request composer', (
     tester,

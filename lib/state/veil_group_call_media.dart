@@ -18,6 +18,7 @@ import 'call_service.dart' show CallMediaDevice, screenSourceDeviceKind;
 import 'call_audio_route.dart';
 import 'group_call_service.dart';
 import 'mac_media_permissions.dart';
+import 'media_ffi.dart';
 
 abstract interface class GroupMediaChannelTransport {
   Future<Uint8List> localNodeId();
@@ -310,13 +311,17 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   @override
   Stream<void> get screenShareStopped => _screenShareStops.stream;
 
+  // Guarded for the same reason as the 1:1 controller's pair: read from the
+  // overlay outside any catch, and meaningless without an engine anyway.
   @override
   bool get screenCaptureAccessGranted =>
-      !Platform.isMacOS || platformScreenCaptureAccessGranted;
+      !Platform.isMacOS ||
+      (VeilMediaNative.guard(() => platformScreenCaptureAccessGranted) ?? false);
 
   @override
   bool requestScreenCaptureAccess() =>
-      !Platform.isMacOS || requestPlatformScreenCaptureAccess();
+      !Platform.isMacOS ||
+      (VeilMediaNative.guard(requestPlatformScreenCaptureAccess) ?? false);
 
   @override
   Future<bool> start(GroupCall call) => _locked(() async {

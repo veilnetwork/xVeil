@@ -26,6 +26,7 @@ import 'package:veil_media/veil_media.dart';
 import 'package:video_player/video_player.dart';
 
 import '../domain/range_source.dart';
+import 'media_ffi.dart';
 import 'media_stream_server.dart';
 import 'providers.dart';
 
@@ -50,7 +51,11 @@ class _WavVoicePlayer implements VoicePlayer {
   final VideoPlayerController _c;
 
   static Future<_WavVoicePlayer?> create(Uint8List voiceOpus) async {
-    final wav = decodeVoiceWav(voiceOpus);
+    // The Opus decode is native, so this path needs the engine on EVERY
+    // platform, not only the Linux one below — the loopback/video_player half
+    // is fed by libveil_media.
+    if (!VeilMediaNative.available()) return null;
+    final wav = VeilMediaNative.guard(() => decodeVoiceWav(voiceOpus));
     if (wav == null) return null;
     final server = LocalMediaServer();
     try {
@@ -107,7 +112,8 @@ class _NativeVoicePlayer implements VoicePlayer {
   final VeilAudioPlayer _p;
 
   static Future<VoicePlayer?> create(Uint8List voiceOpus) async {
-    final p = VeilAudioPlayer.create(voiceOpus);
+    if (!VeilMediaNative.available()) return null;
+    final p = VeilMediaNative.guard(() => VeilAudioPlayer.create(voiceOpus));
     return p == null ? null : _NativeVoicePlayer._(p);
   }
 

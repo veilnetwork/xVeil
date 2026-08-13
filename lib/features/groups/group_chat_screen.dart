@@ -29,6 +29,7 @@ import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/group_call_service.dart';
+import '../../state/media_availability.dart';
 import '../../state/messaging.dart'
     show
         conversationsProvider,
@@ -185,6 +186,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   String get _conversationKey => _channelId == null
       ? 'group:${widget.groupIdHex}'
       : 'space:${widget.groupIdHex}:channel:${widget.channelIdHex}';
+
+  /// Whether this build has a call media engine at all. `read`, not `watch`:
+  /// a library that failed to load does not appear later.
+  bool get _mediaAvailable => ref.read(callMediaAvailableProvider);
 
   /// The message the composer is replying to, or null.
   GroupMessage? _replyTarget;
@@ -1445,7 +1450,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
           },
         ),
         actions: [
-          if (_channelId == null) ...[
+          // No engine, no group call. Without this gate a start attempt fails
+          // inside the FSM and the only feedback is `groupCallBusy` — a build
+          // that cannot do calls at all telling everyone the call is busy.
+          if (_channelId == null && _mediaAvailable) ...[
             IconButton(
               key: const ValueKey('group-call-start-audio'),
               icon: const Icon(Icons.call_outlined),
@@ -1609,10 +1617,13 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                               const [],
                           onAttachmentAction: (action) =>
                               _handleAttachmentAction(svc, action),
-                          onVoice: (clip) =>
-                              unawaited(_sendVoiceClip(svc, clip)),
-                          onVideoNote: (clip) =>
-                              unawaited(_sendVnoteClip(svc, clip)),
+                          // Null with no engine — see the 1:1 composer.
+                          onVoice: _mediaAvailable
+                              ? (clip) => unawaited(_sendVoiceClip(svc, clip))
+                              : null,
+                          onVideoNote: _mediaAvailable
+                              ? (clip) => unawaited(_sendVnoteClip(svc, clip))
+                              : null,
                           onSticker: protected
                               ? null
                               : (itemId) =>

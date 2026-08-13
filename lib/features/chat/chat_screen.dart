@@ -34,6 +34,8 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/call_service.dart';
 import '../../state/chat_page_size_controller.dart';
+import '../../state/media_availability.dart';
+import '../../state/media_ffi.dart';
 import '../../state/messaging.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/nickname_peers.dart';
@@ -197,6 +199,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// True when this is the Saved Messages chat (peer == our own node id) —
   /// set at the top of build, read by _submit / _bottom / the app bar.
   bool _saved = false;
+
+  /// Whether this build has a call media engine at all.
+  ///
+  /// `read`, not `watch`: a library that failed to load does not appear later,
+  /// so there is nothing to rebuild for.
+  bool get _mediaAvailable => ref.read(callMediaAvailableProvider);
 
   // ── Pinned message (LOCAL, one per conversation) ────────────────────────────
   // Stored in the settings KV as JSON {id, t} — the snippet travels with the
@@ -829,7 +837,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// ship the clip through the content path.
   Future<void> _sendVnoteClip(VnoteClip clip) async {
     String? thumb;
-    final player = VeilVnotePlayer.create(clip.bytes);
+    // The thumbnail is a nicety, and the only reason this touches the engine
+    // at all. A build with no engine sends the note without one rather than
+    // throwing out of the send path — reachable because a note recorded on
+    // another device can be forwarded from a build that cannot record.
+    final player = VeilMediaNative.available()
+        ? VeilMediaNative.guard(() => VeilVnotePlayer.create(clip.bytes))
+        : null;
     if (player != null) {
       try {
         final f = player.frameAt(0);
@@ -2127,9 +2141,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 onPressed: _enterChatSearch,
               ),
               // Start a call — only an accepted contact can be dialled (never
-              // in Saved Messages). Picks the media set; the CallService FSM
-              // sends the offer + negotiates the path.
-              if (!_saved && status == ContactStatus.accepted)
+              // in Saved Messages), and only when there is an engine to carry
+              // it. Without one the FSM would place the call, fail to start
+              // media and end it as "call ended", which reads as the far side
+              // hanging up rather than as this build not doing calls.
+              // Picks the media set; the CallService FSM sends the offer +
+              // negotiates the path.
+              if (!_saved &&
+                  status == ContactStatus.accepted &&
+                  _mediaAvailable)
                 PopupMenuButton<CallMedia>(
                   icon: const Icon(Icons.call),
                   tooltip: l.callStartTooltip,
@@ -2419,8 +2439,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               onSend: () => _submit(status),
               mentionTargets: [_peer],
               onAttachmentAction: _pickAttachment,
-              onVoice: _sendVoiceClip,
-              onVideoNote: _sendVnoteClip,
+              // Null when this build carries no media engine: the composer
+              // already reads that as "this chat cannot record", and hides the
+              // mic and video-note buttons the way the Transcribe affordance
+              // hides itself without whisper. Offering them would produce a
+              // failure toast and nothing else.
+              onVoice: _mediaAvailable ? _sendVoiceClip : null,
+              onVideoNote: _mediaAvailable ? _sendVnoteClip : null,
               onSticker: _sendSticker,
             ),
           ],
