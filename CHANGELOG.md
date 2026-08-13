@@ -12,7 +12,7 @@ storage it was built against.
 
 ## [0.9.2] — unreleased
 
-Built on [veil v0.5.1](https://github.com/veilnetwork/veil/releases/tag/v0.5.1)
+Built on [veil v0.5.2](https://github.com/veilnetwork/veil/releases/tag/v0.5.2)
 and [hidden-volume v2.0.0](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.0).
 
 hidden-volume's major bump is about ITS public API, not about the container
