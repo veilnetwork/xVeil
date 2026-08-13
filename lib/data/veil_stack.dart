@@ -183,6 +183,82 @@ String _randomSecret() {
 /// lock/wipe into a recursive delete of whatever it pointed at (audit X-12).
 const kRuntimeDirMarker = '.xveil-runtime';
 
+/// Why a deniable boot did not reach [NodePhase.connected], in words that
+/// survive a shipped build.
+///
+/// The first Windows report of this failure read, in full:
+/// `deniable node did not connect: NodePhase.stopped (null)`. That is not a
+/// diagnosis, and it could not have been one: `NodeStatus.stopped` is a const
+/// whose `message` is null, so a boot that never left its initial state has
+/// nothing to say, and everything that WOULD have said something goes through
+/// `devLog`, which a release build compiles out. The only record left of how
+/// far the boot got is the runtime directory, and the old code threw it away —
+/// the cleanup that stops the node deletes the directory — before anyone could
+/// look.
+///
+/// So the directory listing is folded into the message. What is in there is
+/// exactly the fork:
+///
+///  - only the claim marker: the node bound nothing and this app wrote nothing
+///    either — the failure is before, or inside, the node's own start;
+///  - `obfs4_psk.b64` but no port sidecars: this app got as far as staging its
+///    config and the node still bound nothing;
+///  - `ipc.port` / `ipc.token`: the node DID bind, and the app failed to reach
+///    a node that was running.
+///
+/// Names only, never contents. `obfs4_psk.b64` is a file whose presence is
+/// evidence and whose bytes are the deployment key.
+///
+/// Pure, so every branch is reachable from a test without a node, a container
+/// or a platform.
+String describeBootFailure({
+  required NodePhase phase,
+  required String? message,
+  required List<String> runtimeDirEntries,
+}) {
+  final names = [...runtimeDirEntries]..sort();
+  final bound = names.any((n) => n == 'ipc.port' || n == 'admin.port');
+  final staged = names.contains('obfs4_psk.b64');
+
+  final String reading;
+  if (names.isEmpty) {
+    reading = 'the runtime directory is empty — not even the claim marker, so '
+        'this app never finished claiming it';
+  } else if (bound) {
+    reading = 'the node DID bind (port sidecars are present) and this app did '
+        'not reach it';
+  } else if (staged) {
+    reading = 'this app staged its config and the node bound nothing';
+  } else {
+    reading = 'nothing was written past the claim marker: the node bound '
+        'nothing and this app did not get as far as staging its config';
+  }
+
+  // `message` is the one part that may legitimately be absent, so it is never
+  // interpolated bare — "(null)" is what made the original report useless.
+  final said = (message == null || message.isEmpty)
+      ? 'the node reported no reason'
+      : 'the node said "$message"';
+
+  return '$phase — $said; $reading '
+      '[runtime dir: ${names.isEmpty ? '<empty>' : names.join(', ')}]';
+}
+
+/// The names in [runtimeDir], for [describeBootFailure].
+///
+/// Never throws: this runs on the failure path, and a diagnosis that can itself
+/// fail is how the original error came to say nothing at all.
+List<String> _runtimeDirEntries(String runtimeDir) {
+  try {
+    return Directory(runtimeDir)
+        .listSync(followLinks: false)
+        .map((e) => e.path.split(Platform.pathSeparator).last)
+        .toList();
+  } catch (e) {
+    return ['<unreadable: $e>'];
+  }
+}
+
 /// Claim a runtime directory we CREATED, and return its path.
 ///
 /// ## Why this returns a child rather than marking [base]
@@ -1115,11 +1191,20 @@ class RealVeilStack {
       // Through a leg so a throw out of `stop()` cannot swallow the diagnosis
       // below — the phase and message are the only record of WHY the node did
       // not come up (audit XV-12).
-      await runCleanupLegs('veil-stack-boot', [('controller', controller.stop)]);
-      throw StateError(
-        'deniable node did not connect: ${controller.current.phase}'
-        ' (${controller.current.message})',
+      //
+      // The evidence is read BEFORE that cleanup, and this order is the whole
+      // point: stopping the node takes the runtime directory with it, and the
+      // runtime directory is the only thing that distinguishes "the node never
+      // bound anything" from "the node bound and this app never reached it".
+      // Collected after the cleanup, it would always describe an empty
+      // directory.
+      final why = describeBootFailure(
+        phase: controller.current.phase,
+        message: controller.current.message,
+        runtimeDirEntries: _runtimeDirEntries(runtimeDir),
       );
+      await runCleanupLegs('veil-stack-boot', [('controller', controller.stop)]);
+      throw StateError('deniable node did not connect: $why');
     }
 
     // 4b. Hand the stored ratchet sessions back to veil, before ANY of this
