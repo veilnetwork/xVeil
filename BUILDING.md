@@ -38,6 +38,27 @@ tens of gigabytes — Flutter itself, Xcode, Visual Studio — because starting
 those unattended because someone typed a word is worse than asking. Running it
 twice is safe: the second run reports what is already satisfied.
 
+It finishes by fetching the three native dependencies that are **not in the
+checkout at all** — the WebRTC call engine, a whisper.cpp checkout at the
+pinned revision, and (on request) the two translation source trees — and then
+printing what this host has, what it does not, and what each absence costs.
+That last part is the reason to read its output rather than skim it: a missing
+engine is not a build error on every platform, and on the ones where it is not,
+the app builds, starts, looks healthy and has no voice messages.
+
+To do only that part — after an expired pin, on a machine whose toolchains are
+already in place, or in CI:
+
+```sh
+./fetch-deps.py [target] [--with-translate]
+```
+
+It never builds CTranslate2 or SentencePiece (hours), never moves a submodule
+(they are pinned at release tags), and never checks out over an existing
+whisper.cpp working tree (that can throw away uncommitted work). Each of those
+is reported with the exact command instead. See
+[Native dependencies](#native-dependencies-what-is-not-in-the-checkout).
+
 `builder.py` calls the scripts documented below rather than replacing them, so
 the per-platform sections stay the reference for what actually happens, and
 anything unusual (staging a single DLL, a signing workaround) can still be run
@@ -91,17 +112,45 @@ wrapper.
 apt, dnf, pacman or zypper. On a Debian-family system that is:
 
 ```sh
-sudo apt-get install -y clang cmake ninja-build pkg-config \
-  libgtk-3-dev liblzma-dev libstdc++-12-dev libayatana-appindicator3-dev \
+sudo apt-get install -y build-essential binutils clang cmake ninja-build \
+  pkg-config libgtk-3-dev liblzma-dev libayatana-appindicator3-dev \
   unzip curl git
+sudo apt-get install -y libclang-dev        # tried separately; see below
 ```
 
-That list is exactly what `prepare.py` installs. **`libmpv-dev` is not in it**
-and is needed for in-chat video, so install it separately:
+That list is exactly what `prepare.py` installs. Three of those names are there
+for reasons the Flutter documentation does not cover, and were missing until
+the list was checked against what this tree actually invokes:
 
-```sh
-sudo apt-get install -y libmpv-dev
-```
+- **`build-essential`** — `native/whisper/build_veil_whisper_linux.sh` calls
+  `g++` outright, and the translate script defaults `CXX`/`CC` to `g++`/`gcc`.
+  Having `clang` does not provide either name. It also supplies `make`, which
+  cmake needs because neither the whisper build nor the `cmake-rs` calls inside
+  `btls-sys` and `librocksdb-sys` pass `-G` — so cmake picks Unix Makefiles and
+  the `ninja-build` in this list is never selected.
+- **`binutils`** — the `nm` and `strip` that the whisper and translate scripts
+  and `scripts/check-media-symbols.sh` run.
+- **`libclang-dev`** — what bindgen dlopens for `btls-sys` and
+  `librocksdb-sys`. `prepare.py` installs it as its own step, and a failure is
+  a warning rather than the end of the run, because distributions disagree
+  about whether the plain `clang` package carries the unversioned `libclang.so`
+  bindgen looks for. On Ubuntu 26.04 it does not.
+
+`prepare.py` also tries the `libayatana-appindicator*` package individually on
+dnf, pacman and zypper. It used to omit it on all three — only the apt spelling
+had been verified against a live archive, and an unverified name inside a
+single `install a b c` transaction takes every other package down with it. The
+risk was real and the conclusion was not: the result was that
+`flutter build linux` failed at CMake configure on every non-Debian distro
+*after* a `prepare.py` run that reported success. Installed one at a time, a
+name that distro spells differently costs one line of output.
+
+**`libmpv-dev` is deliberately not in the list.** This document used to ask for
+it and that was wrong: `media_kit`/libmpv is rejected by decision (`pubspec.yaml`
+says so, as do three files under `lib/`), `linux/CMakeLists.txt` probes for GTK
+and nothing else, and the release job builds the Linux bundle without it. Linux
+plays video attachments through the native `veil_media` path instead. If you
+have it installed, nothing here uses it.
 
 Flutter has no official linux-arm64 tarball; on an ARM machine clone the SDK
 instead (`git clone -b stable https://github.com/flutter/flutter.git`) — the
@@ -145,10 +194,9 @@ Additional platform requirements:
 - macOS/iOS: current Xcode command-line tools and CocoaPods;
 - Android: Android SDK, Android NDK, JDK 17, `cargo-ndk`, and the four Android
   Rust targets;
-- Linux: the Flutter Linux desktop prerequisites, including CMake, Ninja, GTK
-  development packages, and the system libmpv development package
-  (`libmpv-dev` on Debian/Ubuntu); end-user systems need the matching libmpv
-  runtime (`libmpv2` on Debian/Ubuntu);
+- Linux: the Flutter Linux desktop prerequisites, including CMake, Ninja and
+  the GTK development packages, plus a C++ compiler and `make` — see the
+  Linux-host list above for the three names that are easy to miss;
 - Windows: Visual Studio with the Desktop development with C++ workload and
   Windows SDK.
 
@@ -179,6 +227,39 @@ assets/prod/obfs4_psk.b64
 Keep this file private and never commit it. A build without it can compile, but
 the embedded node cannot bootstrap through production obfs4 seeds and may fall
 back to a non-live development posture.
+
+### Native dependencies: what is not in the checkout
+
+Three native pieces are gitignored or live outside this repository entirely, so
+a fresh clone has none of them, and each arrives by a different route:
+
+| Piece | What it is for | How it arrives | Absent, you lose |
+|---|---|---|---|
+| `libveil_media` | WebRTC call engine | prebuilt, downloaded from a pinned CI run | calls, voice messages, video notes, in-chat video and speech-to-text |
+| whisper.cpp | on-device speech-to-text | upstream checkout at a pinned commit, built by a wrapper script | the Transcribe affordance |
+| CTranslate2 + SentencePiece | on-device translation | two out-of-repo checkouts, built static with specific cmake flags | the translation affordance |
+
+One command gets everything this host can have and reports the rest:
+
+```sh
+./fetch-deps.py [target] [--with-translate]
+```
+
+`./prepare.py` already ends by running it. It detects the host, fetches only
+what is relevant, and finishes with a report naming what it did *not* get and
+what that costs — because only the engine, and only on some platforms, is
+visible as a build failure. Everything else fails by the app quietly not having
+a feature.
+
+What it will not do: build CTranslate2 or SentencePiece (hours — it clones them
+on `--with-translate` and stops there); move a submodule (they are pinned at
+release tags); or check out over an existing whisper.cpp working tree. Each is
+reported with the exact command instead.
+
+The three sections that follow the per-platform ones are the detail:
+[Call media engine](#call-media-engine-webrtc),
+[On-device speech-to-text](#on-device-speech-to-text-whispercpp) and
+[On-device translation](#on-device-translation).
 
 ### macOS
 
@@ -399,9 +480,12 @@ checks that the resulting Runner contains an ARM64 slice. Device and simulator
 ### Linux
 
 The Linux CMake integration bundles both native `.so` files into the Flutter
-application automatically. In-chat video uses the distribution's libmpv rather
-than bundling a second codec stack. On Debian/Ubuntu, prepare the build host with
-`apt install libmpv-dev`; deployed systems need `libmpv2`.
+application automatically. In-chat video needs no system media stack at all:
+`media_kit`/libmpv was rejected (LGPL, plus 40-80 MB of codecs), so Linux plays
+video attachments through the native `veil_media` path — WebM demuxed in Dart,
+VP8 through the windowed player, Opus through the voice player. Nothing here
+needs `libmpv-dev` on the build host or `libmpv2` on a deployed one; this
+document asked for both until the claim was checked against the source.
 
 **A clean checkout cannot complete this build.** The prebuilt call engine
 `libveil_media.so` is gitignored, and `veil_media/linux/CMakeLists.txt` raises a
@@ -493,8 +577,16 @@ revision itself in `WEBRTC_PIN`. `release.yml` then pins the *run id* it
 downloads each artifact from, and checks the result against the symbols the
 Dart layer looks up before building anything with it.
 
-For a local build on those three targets, the cheapest route is the same
-download, given an authenticated `gh`:
+For a local build on those three targets, use:
+
+```sh
+./fetch-deps.py [target]
+```
+
+It reads `ENGINE_RUN` out of `release.yml` rather than keeping a second copy,
+picks the artifact for the target, stages it in the right directory, runs
+`scripts/check-media-symbols.sh` on the result, and prints how many days are
+left on the pin. Doing it by hand is still fine:
 
 ```sh
 # linux-x64 — the id is the ENGINE_RUN pinned in .github/workflows/release.yml
@@ -509,15 +601,51 @@ The same shape works for `libveil_media-android-arm64` into
 `third_party/veil/flutter/veil_media/windows`. Run
 `scripts/check-media-symbols.sh` afterwards either way: a stale engine links
 and then fails at `dlsym` on the first call, which is a much worse place to
-find out.
+find out. It is not a hypothetical — the engine staged on one machine here was
+short six symbols, including every screen-sharing entry point.
 
-**When the pinned run has expired.** GitHub deletes run artifacts after its
-retention window, so a pin that worked last month can start returning 404 —
-this is expected, not a broken repository. There is no way to recover the
-artifact from an expired run. Re-run the workflow that produces it
-(`webrtc-linux` or `webrtc-windows`) from the Actions tab, take the new run id,
-and update `ENGINE_RUN` in `release.yml`. The runs pinned there today are from
-late July and August 2026, so they lapse in the autumn.
+**A token is required, and there is no way around it.** A run artifact is not
+public even on a public repository. The artifact *list* endpoint answers
+without credentials — which is how `fetch-deps.py` can tell you an artifact has
+expired before it asks you for anything — but the download answers `401`.
+`GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth login` all satisfy it; `gh` is not
+otherwise needed, and `fetch-deps.py` reads it only as a place a token may
+already be sitting.
+
+**The engine cannot be had at all on some hosts.** The published Linux engine is
+x86-64 only, and WebRTC's own build asserts on the host architecture and ships
+`linux-x86_64` toolchains only — so an aarch64 Linux machine can neither
+download one nor build one. `fetch-deps.py` says so rather than failing at the
+download. Use an x86-64 host for a Linux build with calls.
+
+#### Why the pins expire, and what to do about it
+
+GitHub deletes run artifacts after its retention window — 90 days here — so a
+pin that worked last month starts returning `410 Gone`. This is expected, not a
+broken repository, and there is no way to recover the artifact from an expired
+run. `fetch-deps.py` reports it as its own outcome with the options; by hand,
+re-run `webrtc-linux` or `webrtc-windows` from the Actions tab (3-5 hours),
+take the new run id and update `ENGINE_RUN` in `release.yml`. The runs pinned
+today lapse on 2026-11-10 (linux, android) and 2026-10-29 (windows).
+
+**This is worth fixing rather than living with**, and the fix is cheap: attach
+the engine binaries to a GitHub **Release** instead of leaving them as run
+artifacts. Release assets on a public repository never expire and are served
+without a token — both checked against this organisation's live releases, not
+assumed. `veilnetwork/veil` already publishes 43 assets per release and xVeil
+itself attaches five, so the machinery is in place on both sides.
+
+The one thing that makes it a decision rather than a chore: the jobs that
+*build* the engine run depot_tools and thousands of lines of third-party build
+script, and giving those `contents: write` is precisely the privilege that
+audit X-08 took away from them. So the upload belongs in a small separate job
+that downloads the artifact from the same run and attaches it, with the write
+permission scoped to that job alone — the same shape `release.yml` already uses
+for `publish`.
+
+`fetch-deps.py` is ready for it: give a job an `ENGINE_RELEASE` alongside its
+`ENGINE_RUN` in `release.yml` and the release route is taken instead, with no
+token and no expiry. Until then the run-artifact route stays.
 
 **Apple platforms have no published artifact at all.** Neither workflow builds
 a macOS or iOS engine, so there is nothing to download and the only route is
@@ -550,7 +678,12 @@ Transcribe affordance stays hidden and nothing else changes. It is a build
 artifact, gitignored, so a fresh clone has none.
 
 One prerequisite, shared by all four scripts: a whisper.cpp checkout, upstream
-rather than a fork.
+rather than a fork. `./fetch-deps.py` fetches it at the pin, into the directory
+that target's script will look in — the `WHISPER_SRC` default is `~/whisper.cpp`
+for linux and windows but `~/Projects/veilnetwork/whisper.cpp` for macOS and
+android, which is easy to get wrong by hand. It fetches the single pinned
+commit rather than cloning, since the scripts refuse every other revision
+anyway. By hand:
 
 ```sh
 git clone https://github.com/ggml-org/whisper.cpp
@@ -567,6 +700,17 @@ explicitly that you are building from something else:
 git -C "$WHISPER_SRC" fetch origin && git -C "$WHISPER_SRC" checkout <WHISPER_PIN>
 WHISPER_ALLOW_UNPINNED=1 native/whisper/build_veil_whisper_<platform>.sh   # or this
 ```
+
+`WHISPER_ALLOW_UNPINNED=1` is the documented escape and it is not free: it
+produces an engine whose provenance is not recorded, which is the exact drift
+the pin exists to stop — two machines building different engines from the same
+commit of xVeil, with nothing saying so. Use it knowingly, and say so in the
+commit if the result goes anywhere.
+
+`fetch-deps.py` will not move an existing checkout to the pin either. It
+reports the mismatch and the two commands above, for the same reason
+`whisper_pin.sh` refuses: checking out over a working tree can throw away
+uncommitted work, and that is not a build script's decision to make.
 
 `WHISPER_SRC` points at the checkout and its default is not the same on every
 platform, so it is worth setting explicitly. `WHISPER_BUILD_DIR` overrides where
@@ -615,7 +759,11 @@ Translation is **optional** on every platform. Without the wrapper library the
 provider returns null and no translation affordance appears; nothing else in
 the app changes and no build fails.
 
-Prerequisites, both out-of-repo checkouts beside this one:
+Prerequisites, both out-of-repo checkouts beside this one. `./fetch-deps.py
+--with-translate` clones both to the default locations in the table below; it
+does not build them, because that is hours of compilation with per-platform
+cmake flags, and a bootstrapper that starts one because you typed a word is
+worse than one that tells you what to run.
 
 - `CTranslate2` (the fork, `https://github.com/veilnetwork/CTranslate2`) —
   `mobile/build-android.sh`, `mobile/build-ios.sh`, and for the host a static
@@ -810,6 +958,27 @@ Android и NDK, системные пакеты Linux, CocoaPods, git-подмо
 одно слово, хуже, чем спросить. Повторный запуск безопасен: скрипт сообщает,
 что уже сделано.
 
+В конце он забирает три нативные зависимости, которых **в чекауте нет вообще**
+— движок звонков WebRTC, чекаут whisper.cpp на закреплённой ревизии и (по
+запросу) два дерева исходников для перевода, — а затем печатает, что на этом
+хосте есть, чего нет и чего стоит каждое отсутствие. Последнее и есть причина
+читать вывод, а не пролистывать его: отсутствующий движок ломает сборку не на
+всех платформах, а там, где не ломает, приложение собирается, запускается,
+выглядит здоровым и не умеет голосовые.
+
+Только эта часть — после истёкшего пина, на машине с уже готовыми
+инструментами или в CI:
+
+```sh
+./fetch-deps.py [target] [--with-translate]
+```
+
+Он никогда не собирает CTranslate2 и SentencePiece (это часы), не двигает
+подмодули (они закреплены на релизных тегах) и не делает checkout поверх
+существующего рабочего дерева whisper.cpp (так можно потерять незакоммиченное).
+Вместо этого он называет точную команду. См.
+[Нативные зависимости](#нативные-зависимости-чего-нет-в-чекауте).
+
 `builder.py` вызывает скрипты, описанные ниже, а не заменяет их — поэтому
 разделы по платформам остаются источником правды о происходящем, а всё
 нестандартное (выкладка одной DLL, обход подписи) по-прежнему можно выполнить
@@ -862,17 +1031,45 @@ Build Tools для `flutter build windows` не хватает. Git for Windows 
 pacman и zypper. Для семейства Debian это:
 
 ```sh
-sudo apt-get install -y clang cmake ninja-build pkg-config \
-  libgtk-3-dev liblzma-dev libstdc++-12-dev libayatana-appindicator3-dev \
+sudo apt-get install -y build-essential binutils clang cmake ninja-build \
+  pkg-config libgtk-3-dev liblzma-dev libayatana-appindicator3-dev \
   unzip curl git
+sudo apt-get install -y libclang-dev        # ставится отдельно, см. ниже
 ```
 
-Этот список — ровно то, что ставит `prepare.py`. **`libmpv-dev` в него не
-входит**, а он нужен для видео в чате, поэтому поставьте его отдельно:
+Этот список — ровно то, что ставит `prepare.py`. Три имени в нём стоят по
+причинам, которых нет в документации Flutter, и до сверки списка с тем, что
+это дерево на самом деле вызывает, их не было:
 
-```sh
-sudo apt-get install -y libmpv-dev
-```
+- **`build-essential`** — `native/whisper/build_veil_whisper_linux.sh` прямо
+  вызывает `g++`, а скрипт перевода берёт `g++`/`gcc` по умолчанию в `CXX`/`CC`.
+  `clang` ни одного из этих имён не даёт. Оттуда же берётся `make`: ни сборка
+  whisper, ни вызовы `cmake-rs` внутри `btls-sys` и `librocksdb-sys` не
+  передают `-G`, поэтому cmake выбирает Unix Makefiles, а `ninja-build` из
+  этого списка не используется вовсе.
+- **`binutils`** — `nm` и `strip`, которые вызывают скрипты whisper и перевода
+  и `scripts/check-media-symbols.sh`.
+- **`libclang-dev`** — то, что bindgen открывает через dlopen для `btls-sys` и
+  `librocksdb-sys`. `prepare.py` ставит его отдельным шагом, и неудача там —
+  предупреждение, а не конец работы: дистрибутивы расходятся в том, лежит ли
+  неверсионированный `libclang.so` в обычном пакете `clang`. В Ubuntu 26.04 —
+  не лежит.
+
+`prepare.py` также ставит `libayatana-appindicator*` отдельным пакетом на dnf,
+pacman и zypper. Раньше на всех трёх его не было вовсе: против живого архива
+проверено только имя для apt, а непроверенное имя внутри одной транзакции
+`install a b c` уронило бы вместе с собой все остальные пакеты. Риск был
+настоящий, а вывод — нет: получалось, что `flutter build linux` падал на
+configure на любом не-Debian дистрибутиве *после* успешного отчёта
+`prepare.py`. Если ставить по одному, иначе названный пакет стоит одной строки
+вывода.
+
+**`libmpv-dev` в списке нет намеренно.** Этот документ раньше его требовал, и
+это было неверно: `media_kit`/libmpv отвергнут решением (об этом говорят
+`pubspec.yaml` и три файла в `lib/`), `linux/CMakeLists.txt` проверяет GTK и
+больше ничего, а релизная задача собирает Linux-бандл без него. Видео в чате
+Linux проигрывает нативным путём `veil_media`. Если он у вас установлен —
+ничто здесь его не использует.
 
 Официального архива Flutter под linux-arm64 не существует: на ARM-машине
 клонируйте SDK (`git clone -b stable https://github.com/flutter/flutter.git`) —
@@ -915,10 +1112,9 @@ packet-tunnel, и приложение вместе с расширением п
 - macOS/iOS: актуальные Xcode Command Line Tools и CocoaPods;
 - Android: Android SDK, Android NDK, JDK 17, `cargo-ndk` и четыре Android target
   для Rust;
-- Linux: зависимости Flutter Desktop для Linux, включая CMake, Ninja,
-  заголовочные файлы GTK и системный пакет разработки libmpv (`libmpv-dev` в
-  Debian/Ubuntu); на компьютере пользователя нужен runtime-пакет libmpv
-  (`libmpv2` в Debian/Ubuntu);
+- Linux: зависимости Flutter Desktop для Linux, включая CMake, Ninja и
+  заголовочные файлы GTK, плюс компилятор C++ и `make` — три легко
+  пропускаемых имени перечислены в разделе про Linux-хост выше;
 - Windows: Visual Studio с workload «Desktop development with C++» и Windows
   SDK.
 
@@ -949,6 +1145,40 @@ assets/prod/obfs4_psk.b64
 Не коммитьте и не публикуйте этот файл. Сборка без него завершится, но
 встроенный узел не сможет подключиться к production seed-узлам через obfs4 и
 может перейти в режим разработки, непригодный для production-сети.
+
+### Нативные зависимости: чего нет в чекауте
+
+Три нативных куска лежат в gitignore или вообще вне этого репозитория, так что
+в свежем клоне их нет, и каждый добывается своим способом:
+
+| Кусок | Для чего | Как приходит | Без него теряется |
+|---|---|---|---|
+| `libveil_media` | движок звонков WebRTC | прибилт, скачивается из закреплённого прогона CI | звонки, голосовые, видеозаметки, видео в чате и распознавание речи |
+| whisper.cpp | распознавание речи на устройстве | чекаут апстрима на закреплённом коммите, собирается обёрткой | кнопка «Расшифровать» |
+| CTranslate2 + SentencePiece | перевод на устройстве | два чекаута вне репозитория, собираются статически с конкретными флагами cmake | перевод |
+
+Одна команда забирает всё, что этот хост может иметь, и сообщает об остальном:
+
+```sh
+./fetch-deps.py [target] [--with-translate]
+```
+
+`./prepare.py` уже вызывает её в конце. Она определяет хост, забирает только
+уместное и заканчивает отчётом, где названо, чего она НЕ получила и чего это
+стоит, — потому что только движок и только на части платформ виден как ошибка
+сборки. Всё остальное отказывает тем, что приложение молча остаётся без
+функции.
+
+Чего она не делает: не собирает CTranslate2 и SentencePiece (это часы — с
+`--with-translate` она их клонирует и на этом останавливается), не двигает
+подмодули (они закреплены на релизных тегах) и не делает checkout поверх
+существующего рабочего дерева whisper.cpp. В каждом случае она называет точную
+команду.
+
+Подробности — в трёх разделах после платформенных:
+[Движок звонков](#движок-звонков-webrtc),
+[Распознавание речи](#распознавание-речи-на-устройстве-whispercpp) и
+[Перевод](#перевод-на-устройстве).
 
 ### macOS
 
@@ -1165,9 +1395,12 @@ slice в готовом Runner. Device- и simulator-варианты `veilclien
 ### Linux
 
 Linux-интеграция CMake автоматически добавляет обе нативные `.so` в Flutter-
-приложение. Для видео в чате используется системный libmpv вместо ещё одного
-встроенного набора кодеков. В Debian/Ubuntu установите на машине сборки
-`apt install libmpv-dev`; на машинах пользователей нужен `libmpv2`.
+приложение. Никакой системный медиастек для видео в чате не нужен:
+`media_kit`/libmpv отвергнут (LGPL плюс 40-80 МБ кодеков), поэтому Linux
+проигрывает видеовложения нативным путём `veil_media` — WebM разбирается в
+Dart, VP8 идёт через оконный плеер, Opus — через плеер голосовых. Ни
+`libmpv-dev` на машине сборки, ни `libmpv2` у пользователя не требуются; этот
+документ требовал и то и другое, пока утверждение не сверили с исходниками.
 
 **Чистый чекаут эту сборку не доведёт до конца.** Прибилт движка звонков
 `libveil_media.so` лежит в gitignore, и `veil_media/linux/CMakeLists.txt`
@@ -1250,7 +1483,16 @@ Copy-Item third_party\veil\target\release\veilclient_ffi.dll `
 закреплена в `WEBRTC_PIN`. `release.yml` закрепляет уже *id прогона*, из
 которого качает, и проверяет скачанное по символам, которые ищет Dart.
 
-Локально проще всего скачать то же самое, если `gh` авторизован:
+Локально для этих трёх целей:
+
+```sh
+./fetch-deps.py [target]
+```
+
+Он читает `ENGINE_RUN` из `release.yml`, а не держит вторую копию, выбирает
+артефакт для цели, кладёт его в нужный каталог, прогоняет по результату
+`scripts/check-media-symbols.sh` и печатает, сколько дней осталось у пина.
+Руками тоже можно:
 
 ```sh
 gh run download <ENGINE_RUN> -n libveil_media-linux-x64 \
@@ -1264,15 +1506,51 @@ bash scripts/check-media-symbols.sh \
 `android/app/src/main/jniLibs/arm64-v8a` и `libveil_media-win-x64` в
 `third_party/veil/flutter/veil_media/windows`. Проверку символов делайте в
 любом случае: устаревший движок линкуется молча и падает на `dlsym` при первом
-звонке.
+звонке. Это не гипотеза — движок, лежавший на одной из здешних машин, оказался
+без шести символов, включая все точки входа демонстрации экрана.
 
-**Если закреплённый прогон истёк.** GitHub удаляет артефакты прогонов по
-истечении срока хранения, поэтому пин, работавший месяц назад, начинает
-отдавать 404 — это ожидаемо, а не поломка репозитория. Вернуть артефакт
-истёкшего прогона нельзя: перезапустите нужный воркфлоу (`webrtc-linux` или
-`webrtc-windows`) со вкладки Actions и пропишите новый id в `ENGINE_RUN`.
-Сейчас там закреплены прогоны за конец июля и август 2026 — значит, истекут
-осенью.
+**Нужен токен, и обойти это нельзя.** Артефакт прогона не публичен даже в
+публичном репозитории. Эндпоинт со *списком* артефактов отвечает без
+учётных данных — именно поэтому `fetch-deps.py` может сказать, что артефакт
+истёк, ещё до того, как что-то у вас попросит, — а скачивание отвечает `401`.
+Годится `GH_TOKEN`, `GITHUB_TOKEN` или `gh auth login`; сам `gh` больше ни для
+чего не нужен, `fetch-deps.py` читает его только как место, где токен может уже
+лежать.
+
+**На части хостов движка не будет вовсе.** Опубликованный Linux-движок — только
+x86-64, а сборка WebRTC проверяет архитектуру хоста и содержит тулчейны лишь
+под `linux-x86_64`, так что машина на aarch64 не может ни скачать его, ни
+собрать. `fetch-deps.py` говорит это прямо, а не падает на скачивании. Для
+Linux-сборки со звонками нужен хост x86-64.
+
+#### Почему пины истекают и что с этим делать
+
+GitHub удаляет артефакты прогонов по истечении срока хранения — здесь это 90
+дней, — поэтому пин, работавший месяц назад, начинает отдавать `410 Gone`. Это
+ожидаемо, а не поломка репозитория, и вернуть артефакт истёкшего прогона
+нельзя. `fetch-deps.py` сообщает об этом отдельным исходом со списком
+вариантов; руками — перезапустите `webrtc-linux` или `webrtc-windows` со
+вкладки Actions (3-5 часов) и пропишите новый id в `ENGINE_RUN`. Закреплённые
+сейчас прогоны истекают 2026-11-10 (linux, android) и 2026-10-29 (windows).
+
+**Это стоит починить, а не терпеть**, и починка дешёвая: прикладывать бинарники
+движка к **релизу** GitHub вместо артефактов прогона. Ассеты релиза в публичном
+репозитории не истекают никогда и отдаются без токена — оба факта проверены на
+живых релизах этой организации, а не приняты на веру. `veilnetwork/veil` уже
+публикует по 43 ассета на релиз, а сам xVeil прикладывает пять, так что
+механика есть с обеих сторон.
+
+Единственное, что делает это решением, а не рутиной: задачи, которые *собирают*
+движок, гоняют depot_tools и тысячи строк стороннего build-скрипта, а выдать им
+`contents: write` — ровно та привилегия, которую у них отобрал аудит X-08.
+Поэтому выгрузка должна жить в отдельной маленькой задаче, которая скачивает
+артефакт того же прогона и прикладывает его, с правом записи, ограниченным
+только этой задачей, — той же формы, что уже используется для `publish` в
+`release.yml`.
+
+`fetch-deps.py` к этому готов: добавьте задаче `ENGINE_RELEASE` рядом с её
+`ENGINE_RUN` в `release.yml`, и будет выбран путь через релиз — без токена и
+без срока годности. До тех пор остаётся путь через артефакт прогона.
 
 **Для платформ Apple артефактов нет вообще.** Ни один воркфлоу не собирает
 движок под macOS или iOS, качать нечего, и единственный путь — из исходников,
@@ -1302,7 +1580,12 @@ WEBRTC_ROOT=~/Projects/veilnetwork/webrtc-checkout \
 расшифровки просто не появляется. Это артефакт сборки, он в gitignore, и в
 свежем клоне его нет.
 
-Нужен один чекаут — апстрим, не форк:
+Нужен один чекаут — апстрим, не форк. `./fetch-deps.py` забирает его на пине,
+причём в тот каталог, куда смотрит скрипт именно этой цели: умолчание
+`WHISPER_SRC` — `~/whisper.cpp` для linux и windows, но
+`~/Projects/veilnetwork/whisper.cpp` для macOS и android, и руками это легко
+перепутать. Забирается один закреплённый коммит, а не клон: скрипты всё равно
+отвергают любую другую ревизию. Руками:
 
 ```sh
 git clone https://github.com/ggml-org/whisper.cpp
@@ -1319,6 +1602,17 @@ git clone https://github.com/ggml-org/whisper.cpp
 git -C "$WHISPER_SRC" fetch origin && git -C "$WHISPER_SRC" checkout <WHISPER_PIN>
 WHISPER_ALLOW_UNPINNED=1 native/whisper/build_veil_whisper_<платформа>.sh
 ```
+
+`WHISPER_ALLOW_UNPINNED=1` — это задокументированный обход, и он не бесплатный:
+получается движок с незаписанным происхождением, ровно тот дрейф, ради которого
+пин и существует, — две машины собирают разные движки из одного коммита xVeil, и
+ничто об этом не говорит. Пользуйтесь осознанно и упоминайте в коммите, если
+результат куда-то уходит.
+
+`fetch-deps.py` тоже не переводит существующий чекаут на пин: он сообщает о
+расхождении и печатает две команды выше — по той же причине, по которой
+отказывается `whisper_pin.sh`. Checkout поверх рабочего дерева может стереть
+незакоммиченное, и это не то решение, которое принимает build-скрипт.
 
 `WHISPER_SRC` указывает на чекаут, и умолчание у него на разных платформах
 разное — задавайте явно. `WHISPER_BUILD_DIR` меняет каталог сборки whisper.cpp.
@@ -1365,7 +1659,11 @@ CTranslate2 не поддерживает Android и iOS — запрос вис
 возвращает null, интерфейс перевода не появляется, больше в приложении ничего
 не меняется и ни одна сборка не падает.
 
-Что нужно рядом, двумя отдельными чекаутами:
+Что нужно рядом, двумя отдельными чекаутами. `./fetch-deps.py --with-translate`
+клонирует оба в умолчания из таблицы ниже; собирать их он не будет — это часы
+компиляции с разными для каждой платформы флагами cmake, а бутстраппер, который
+запускает такое из-за одного введённого слова, хуже того, который называет
+команду.
 
 - `CTranslate2` (форк, `https://github.com/veilnetwork/CTranslate2`) —
   `mobile/build-android.sh`, `mobile/build-ios.sh`, а для хоста статическая

@@ -287,21 +287,31 @@ def run(steps: list[Step], *, dry_run: bool) -> None:
             raise Abort(f"{step.title} failed: {error}") from None
 
 
-def main(build_plan, description: str) -> None:
-    """Argument handling shared by both entry points."""
+def main(build_plan, description: str, flags: tuple[tuple[str, str], ...] = ()) -> None:
+    """Argument handling shared by every entry point.
+
+    `flags` lets one entry point add boolean options of its own — as
+    ((name, help), ...) — without a second argument parser growing beside this
+    one and drifting from it. Each is passed to `build_plan` as a keyword with
+    the leading dashes stripped and inner dashes turned into underscores, so
+    `--with-translate` arrives as `with_translate=True`.
+    """
     args = sys.argv[1:]
     dry_run = False
     release = None
+    extra = {name.lstrip("-").replace("-", "_"): False for name, _ in flags}
     positional: list[str] = []
     for arg in args:
         if arg in ("-h", "--help"):
+            own = "".join(f" [{name}]" for name, _ in flags)
             print(
                 f"{description}\n\n"
                 f"usage: {os.path.basename(sys.argv[0])} [target] "
-                f"[--debug|--release] [--dry-run]\n\n"
+                f"[--debug|--release] [--dry-run]{own}\n\n"
                 f"  target     defaults to this machine's own system\n"
                 f"             one of: {', '.join(TARGETS)}\n"
                 f"  --dry-run  print the plan and execute nothing\n"
+                + "".join(f"  {name:<10} {help_text}\n" for name, help_text in flags)
             )
             return
         if arg == "--dry-run":
@@ -310,6 +320,8 @@ def main(build_plan, description: str) -> None:
             release = True
         elif arg == "--debug":
             release = False
+        elif arg in dict(flags):
+            extra[arg.lstrip("-").replace("-", "_")] = True
         elif arg.startswith("-"):
             raise Abort(f"unknown option {arg!r}")
         else:
@@ -321,7 +333,7 @@ def main(build_plan, description: str) -> None:
         positional[0] if positional else None, dry_run=dry_run
     )
     print(f"target: {target} (host {host()})")
-    steps = build_plan(target, release=True if release is None else release)
+    steps = build_plan(target, release=True if release is None else release, **extra)
     run(steps, dry_run=dry_run)
     print("dry run — nothing was executed" if dry_run else "done")
 

@@ -8,14 +8,23 @@ windows, macos or ios. Runs on Windows, Linux and macOS.
 
 What it will do for you: install Rust, add the cross-compilation targets,
 install cargo-ndk, fetch the Android command-line tools and the NDK, pull the
-git submodules the native libraries live in, fetch Dart packages, and install
-CocoaPods where Apple needs them.
+git submodules the native libraries live in, fetch Dart packages, install
+CocoaPods where Apple needs them, and finally fetch the native dependencies
+that are not in the checkout at all — the WebRTC call engine and a whisper.cpp
+checkout at the pinned revision (see scripts/xveil_native_deps.py, which
+`./fetch-deps.py` runs on its own).
+
+It ends by printing what this host has, what it does not, and what each
+absence costs the APP rather than the build — "calls, voice messages and video
+notes will be unavailable", which is the sentence that tells a newcomer
+something, rather than "engine missing", which does not.
 
 What it will NOT do quietly: install Xcode, Visual Studio, or anything else
 that wants a license agreement, a reboot, or tens of gigabytes. Those are
 detected and reported with the exact command, because a bootstrapper that
 starts a 40-minute unattended download because you typed a word is worse than
-one that asks.
+one that asks. Building CTranslate2 and SentencePiece falls on the same side
+of that line and is reported, never started.
 
 Everything is idempotent: a second run reports what is already satisfied
 rather than doing it again.
@@ -45,6 +54,7 @@ from xveil_build_support import (  # noqa: E402
     package_manager,
     sh,
 )
+from xveil_native_deps import plan as native_deps_plan  # noqa: E402
 
 # Rust targets per platform, from BUILDING.md's per-platform sections.
 RUST_TARGETS = {
@@ -61,31 +71,74 @@ RUST_TARGETS = {
 
 # System packages a Linux build needs beyond a Flutter install: the GTK
 # headers the desktop embedder links against, plus the C/C++ toolchain the
-# Rust crates' build scripts shell out to.
+# Rust crates' build scripts and the two native wrappers shell out to.
+#
+# ## What was wrong with this list, and how it was checked
+#
+# It was inherited from flutter.dev's desktop-Linux page and then not compared
+# against what this tree actually invokes. Three things a build reaches for
+# were absent:
+#
+#   * a C++ compiler. native/whisper/build_veil_whisper_linux.sh calls `g++`
+#     outright and native/translate/build_veil_translate_linux.sh defaults
+#     CXX/CC to g++/gcc. `clang` being here does not provide either name.
+#   * make. Neither whisper's cmake call nor the cmake-rs invocations inside
+#     btls-sys and librocksdb-sys pass `-G`, and nothing in the tree sets
+#     CMAKE_GENERATOR, so cmake picks Unix Makefiles — `ninja-build` is
+#     installed and never selected.
+#   * binutils, for the `nm` and `strip` that the whisper and translate
+#     scripts and scripts/check-media-symbols.sh run. Usually pulled in by a
+#     compiler package; named here so it does not depend on that.
+#
+# build-essential is one name for the first three on Debian, and base-devel is
+# on Arch. `libmpv-dev` is deliberately NOT here: BUILDING.md used to ask for
+# it, but media_kit/libmpv is rejected by decision (pubspec.yaml, and three
+# files under lib/ say so), linux/CMakeLists.txt probes for GTK and nothing
+# else, and the release job builds the Linux bundle without it. The
+# documentation was stale, not this list.
 LINUX_PACKAGES = {
-    # libayatana-appindicator3-dev is for tray_manager, which stops the CMake
-    # configure with "requires ayatana-appindicator3-0.1 or appindicator3-0.1"
-    # when it is absent — an error that names a pkg-config module and no
-    # package, from a plugin nothing in this repo mentions. It is listed only
-    # for apt because that is the one name verified against a live archive;
-    # the equivalents are libayatana-appindicator-gtk3-devel (dnf),
-    # libayatana-appindicator (pacman) and libayatana-appindicator3-devel
-    # (zypper), and adding an unverified name would break the whole install
-    # step on a distro nobody here can test.
     "apt-get": [
-        "clang", "cmake", "ninja-build", "pkg-config",
-        "libgtk-3-dev", "liblzma-dev", "libstdc++-12-dev",
+        "build-essential", "binutils", "clang", "cmake", "ninja-build",
+        "pkg-config", "libgtk-3-dev", "liblzma-dev",
         "libayatana-appindicator3-dev", "unzip", "curl", "git",
     ],
     "dnf": [
-        "clang", "cmake", "ninja-build", "pkgconf-pkg-config",
-        "gtk3-devel", "xz-devel", "unzip", "curl", "git",
+        "gcc-c++", "make", "binutils", "clang", "cmake", "ninja-build",
+        "pkgconf-pkg-config", "gtk3-devel", "xz-devel", "unzip", "curl", "git",
     ],
-    "pacman": ["clang", "cmake", "ninja", "pkgconf", "gtk3", "xz", "unzip", "curl", "git"],
+    "pacman": [
+        "base-devel", "clang", "cmake", "ninja", "pkgconf", "gtk3", "xz",
+        "unzip", "curl", "git",
+    ],
     "zypper": [
-        "clang", "cmake", "ninja", "pkg-config",
-        "gtk3-devel", "xz-devel", "unzip", "curl", "git",
+        "gcc-c++", "make", "binutils", "clang", "cmake", "ninja",
+        "pkg-config", "gtk3-devel", "xz-devel", "unzip", "curl", "git",
     ],
+}
+
+# Tried one at a time, and a failure is a warning rather than the end of the
+# run. Two different reasons a package belongs here rather than above:
+#
+# tray_manager needs libayatana-appindicator or the CMake configure stops with
+# "requires ayatana-appindicator3-0.1 or appindicator3-0.1" — a message naming
+# a pkg-config module and no package, from a plugin nothing in this repo
+# mentions. Only the apt spelling has ever been checked against a live
+# archive, which is why the other three were previously left out ENTIRELY: an
+# unverified name in a single `install a b c` transaction takes every other
+# package down with it. That reasoning was right about the risk and wrong
+# about the conclusion — the result was that `flutter build linux` failed at
+# configure on every non-Debian distro AFTER a prepare.py run that reported
+# success. Installing them individually keeps the risk contained and fixes the
+# hole: a name this distro spells differently costs one line of output.
+#
+# libclang is what bindgen dlopens, for btls-sys and librocksdb-sys. Some
+# distributions ship the .so bindgen looks for in the plain clang package and
+# some only in the -dev one, and there is no name that is right everywhere.
+LINUX_OPTIONAL = {
+    "apt-get": ["libclang-dev"],
+    "dnf": ["libayatana-appindicator-gtk3-devel", "clang-devel"],
+    "pacman": ["libayatana-appindicator"],
+    "zypper": ["libayatana-appindicator3-devel", "clang-devel"],
 }
 
 # sdkmanager and gradle are both JVM programs: without a JDK the Android steps
@@ -365,6 +418,17 @@ def plan(target: str, *, release: bool) -> list[Step]:
                     argv=manager[1] + LINUX_PACKAGES[manager[0]],
                 )
             )
+            # Separate steps, one package each, all optional — see the note on
+            # LINUX_OPTIONAL. Bundling these into the transaction above is what
+            # made a name nobody could verify too expensive to attempt.
+            for package in LINUX_OPTIONAL.get(manager[0], []):
+                steps.append(
+                    Step(
+                        f"{package} (optional, via {manager[0]})",
+                        argv=manager[1] + [package],
+                        optional=True,
+                    )
+                )
         else:
             steps.append(
                 Step(
@@ -520,6 +584,17 @@ def plan(target: str, *, release: bool) -> list[Step]:
             optional=True,
         )
     )
+
+    # LAST, and after flutter doctor on purpose. Toolchains are what this
+    # script is for; the three native dependencies that are not in the checkout
+    # are what a newcomer then discovers by hand, one confusing failure at a
+    # time. Running them here is what makes `./prepare.py` the one command.
+    #
+    # It goes after `flutter doctor -v` because doctor prints screens of
+    # output, and the dependency report — what this host has, what it does not,
+    # and what each absence costs — is the part worth being the last thing on
+    # screen. `./fetch-deps.py` runs the same steps on their own.
+    steps += native_deps_plan(target)
     return steps
 
 
