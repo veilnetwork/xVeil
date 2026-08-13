@@ -297,10 +297,21 @@ jobs:
           # over ENGINE_RUN below, and once it is set the run id is dead
           # weight kept only for the record.
           #
-          # Empty on purpose right now: no engine release exists yet, and a
-          # pin naming a release that is not there would break every tag from
-          # the moment it was written. Filling it in is a one-line change.
-          ENGINE_RELEASE: ''
+          # FILLED 2026-08-13. Release `engine-2026.08.13`, published by
+          # webrtc-linux run 31696608908 — the first run to attach the engine
+          # to a Release instead of leaving it as a run artifact.
+          #
+          # Verified the way a consumer gets it, not by the green tick: fetched
+          # with plain curl and NO credential (HTTP 200), a real x86-64 ELF
+          # shared object, 87 exported symbols — the same 87 the gate below
+          # looks up. Its `.provenance` sidecar records the WebRTC and
+          # depot_tools pins, the xVeil commit and the veil submodule commit it
+          # was built from.
+          #
+          # Release assets do not expire. The ENGINE_RUN below is kept as the
+          # fallback route and as the record of where this came from, but it is
+          # no longer what a tag depends on.
+          ENGINE_RELEASE: 'engine-2026.08.13'
           # webrtc-linux run 31609030118 (12 August), the FIRST run whose
           # engine-android job ever finished. Every earlier run carried
           # libveil_media-linux-x64 and nothing else, so there was no android
@@ -453,11 +464,12 @@ jobs:
       - name: Prebuilt call engine
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # THE DURABLE PIN — see the android job for the full note. Empty
-          # until the first engine release exists; then this one line replaces
-          # the expiring route below.
-          ENGINE_RELEASE: ''
-          # EXPIRES 2026-11-10.
+          # THE DURABLE PIN — see the android job for the full note. Filled
+          # 2026-08-13 from the same run that produced the android engine, so
+          # both come from one release and one WebRTC pin.
+          ENGINE_RELEASE: 'engine-2026.08.13'
+          # Kept as the fallback route and as the record of where this came
+          # from. EXPIRES 2026-11-10; the release above does not.
           ENGINE_RUN: '31609030118'
           ASSET: 'libveil_media-linux-x64.so'
         run: |
