@@ -20,6 +20,7 @@ import 'package:path_provider/path_provider.dart';
 import '../core/log.dart';
 import '../data/native_libs.dart';
 import '../data/storage/app_profile.dart';
+import 'media_ffi.dart';
 
 /// Everything the worker isolate needs to transcribe, all sendable.
 class WhisperJob {
@@ -267,11 +268,26 @@ class WhisperTranscriber {
   /// the person can fix by tapping Download, no native library is not (there
   /// is no whisper build for this platform, e.g. Linux on arm64), and offering
   /// a 57 MiB download that cannot help would be a lie.
+  /// The desktop arm asks TWO questions about veil_media, and it has to.
+  ///
+  /// [_libRef] answers "is there a file at a path the worker isolate can
+  /// reopen", which the isolate genuinely needs — it takes a path, not a
+  /// handle. But a file is not an engine: an aarch64 Linux checkout was seen
+  /// carrying an x86-64 `libveil_media.so`, which satisfies every existence
+  /// check in this project and cannot be dlopen'd on that host. On that
+  /// machine this said "native ready" and the UI offered a 57 MiB model
+  /// download that could not have helped.
+  ///
+  /// [VeilMediaNative.available] answers "does it load and export what we
+  /// call", by loading it. The Android arm already did that through
+  /// [_canOpen]; this is the desktop half of the same question.
   static bool nativeReady() {
     if (Platform.isAndroid) {
       return _canOpen('veil_media') && _canOpen('veil_whisper');
     }
-    return _libRef('veil_media') != null && _libRef('veil_whisper') != null;
+    return _libRef('veil_media') != null &&
+        _libRef('veil_whisper') != null &&
+        VeilMediaNative.available();
   }
 
   /// True when the native libs + a model are present (drives whether the UI

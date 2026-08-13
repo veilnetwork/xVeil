@@ -18,6 +18,7 @@ import 'package:xveil/features/chat/chat_screen.dart';
 import 'package:xveil/features/chat/composer_expression_panel.dart';
 import 'package:xveil/features/chat/emoji_data.dart';
 import 'package:xveil/l10n/app_localizations.dart';
+import 'package:xveil/state/media_ffi.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/providers.dart';
 
@@ -54,6 +55,16 @@ SpaceOpener _mem() {
 final _peer = NodeId(Uint8List.fromList(List.filled(32, 2)));
 
 void main() {
+  // The panel tests below check where the mic and video-note buttons sit
+  // relative to the expression panel, so they need the build that HAS those
+  // buttons: they hang off `callMediaAvailableProvider`, and a test binary
+  // carries no libveil_media.
+  setUp(() => VeilMediaNative.debugForceAvailable = true);
+  tearDown(() {
+    VeilMediaNative.debugForceAvailable = null;
+    VeilMediaNative.forgetProbe();
+  });
+
   test('dataset is well-formed and search finds by name', () {
     expect(emojiGroups, isNotEmpty);
     for (final g in emojiGroups) {

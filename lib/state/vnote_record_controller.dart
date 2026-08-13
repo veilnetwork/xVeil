@@ -13,6 +13,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_media/veil_media.dart';
 
+import 'media_ffi.dart';
+
 import 'dart:io' show Platform;
 
 import '../core/log.dart';
@@ -48,8 +50,12 @@ class NativeVnoteRecorder implements VnoteRecorder {
   final VeilVnoteRecorder _rec;
   AndroidCameraCapture? _cam;
 
+  /// Null when there is no engine to record with, as well as when the engine
+  /// declined — see [NativeVoiceRecorder.create] for why those became one
+  /// answer.
   static NativeVnoteRecorder? create() {
-    final rec = VeilVnoteRecorder.create();
+    if (!VeilMediaNative.available()) return null;
+    final rec = VeilMediaNative.guard(VeilVnoteRecorder.create);
     return rec == null ? null : NativeVnoteRecorder(rec);
   }
 

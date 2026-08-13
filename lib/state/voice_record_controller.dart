@@ -13,6 +13,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_media/veil_media.dart';
 
+import 'media_ffi.dart';
+
 import '../core/log.dart';
 import 'mac_media_permissions.dart';
 
@@ -47,9 +49,18 @@ class NativeVoiceRecorder implements VoiceRecorder {
   NativeVoiceRecorder(this._rec);
   final VeilAudioRecorder _rec;
 
-  /// Create the native recorder, or null if unavailable (no dylib / no encoder).
+  /// Create the native recorder, or null if unavailable (no engine / no
+  /// encoder).
+  ///
+  /// "No engine" used to be a different outcome from "no encoder": a build
+  /// without libveil_media threw an uncaught `ArgumentError` out of
+  /// `VeilAudioRecorder.create` — out of the mic button's tap handler — while a
+  /// null from the native side landed in the caller's error phase and showed a
+  /// toast. They are one outcome now, and it is the one that was already
+  /// handled.
   static NativeVoiceRecorder? create() {
-    final rec = VeilAudioRecorder.create();
+    if (!VeilMediaNative.available()) return null;
+    final rec = VeilMediaNative.guard(VeilAudioRecorder.create);
     return rec == null ? null : NativeVoiceRecorder(rec);
   }
 
