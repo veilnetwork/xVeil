@@ -121,6 +121,8 @@ if [ ! -f "$SPM_BUILD/src/libsentencepiece.a" ]; then
     -DSPM_PROTOC_EXECUTABLE="$PROTOC" \
     -DSPM_ENABLE_SHARED=OFF -DSPM_BUILD_TEST=OFF \
     -DSPM_ENABLE_NFKC_COMPILE=OFF -DSPM_ENABLE_TCMALLOC=OFF \
+    -DCMAKE_C_FLAGS="-ffile-prefix-map=$SPM_SRC=/sentencepiece" \
+    -DCMAKE_CXX_FLAGS="-ffile-prefix-map=$SPM_SRC=/sentencepiece" \
     -DCMAKE_BUILD_TYPE=Release
   cmake --build "$SPM_BUILD" -j "$jobs"
 fi
@@ -139,9 +141,26 @@ CLANGXX="$(xcrun --sdk "$SDKNAME" --find clang++)"
 mkdir -p "$DEST"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
+# Same maps as the android and macos scripts. iOS is the platform where this
+# matters most and is hardest to see: the output is a static archive that gets
+# -force_load'ed into Runner, so a path baked into an object here travels all
+# the way into the app binary rather than being resolved away at link time.
+#
+# NOT MEASURED on iOS. The SentencePiece configure above carries the same flag
+# and that one WAS measured, on macOS, where it took the bundled translate
+# dylib from 51 hits to 0 — but nobody has rebuilt the iOS archives since, so
+# the staged libveil_translate.a still measures 132. Rebuild it to find out.
+PREFIX_MAPS=(
+  "-ffile-prefix-map=$CT2_SRC=/ctranslate2"
+  "-ffile-prefix-map=$SPM_SRC=/sentencepiece"
+  "-ffile-prefix-map=$(cd "$SRCDIR/../.." && pwd)=/xveil"
+  "-ffile-prefix-map=$HOME=/build"
+)
+
 "$CLANGXX" -target "$TRIPLE" -isysroot "$SDK" \
   -std=c++17 -O2 -fPIC -c "$SRCDIR/veil_translate.cc" \
   -I"$SRCDIR" -I"$CT2_SRC/include" -I"$SPM_SRC/src" -I"$SPM_SRC" -I"$ABSL_INC" \
+  "${PREFIX_MAPS[@]}" \
   -DVEIL_TRANSLATE_CT2_VERSION="\"$CT2_VERSION\"" \
   -o "$TMP/veil_translate.o"
 
