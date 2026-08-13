@@ -22,6 +22,7 @@ import 'call_bitrate_adapter.dart';
 import 'call_audio_route.dart';
 import 'call_service.dart';
 import 'mac_media_permissions.dart';
+import 'media_ffi.dart';
 
 /// Latest decoded remote video frame for the active call (RGBA), or null. The
 /// media controller pumps it at the display rate; the fallback call UI watches
@@ -649,13 +650,19 @@ class VeilCallMediaController implements CallMediaController {
   @override
   Stream<void> get screenShareStopped => _screenShareStops.stream;
 
+  // Both of these reach the engine, and both are read from the call overlay's
+  // build/tap paths — OUTSIDE the blanket catch that wraps _startMedia. On a
+  // build with no engine they were an uncaught throw from a widget. No engine
+  // means no screen to capture, so the honest answer is "not granted".
   @override
   bool get screenCaptureAccessGranted =>
-      !Platform.isMacOS || platformScreenCaptureAccessGranted;
+      !Platform.isMacOS ||
+      (VeilMediaNative.guard(() => platformScreenCaptureAccessGranted) ?? false);
 
   @override
   bool requestScreenCaptureAccess() =>
-      !Platform.isMacOS || requestPlatformScreenCaptureAccess();
+      !Platform.isMacOS ||
+      (VeilMediaNative.guard(requestPlatformScreenCaptureAccess) ?? false);
 
   @override
   Future<bool> start(Call call) async {

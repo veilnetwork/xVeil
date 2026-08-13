@@ -16,6 +16,7 @@ import 'package:xveil/features/groups/group_chat_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/group_epoch_service.dart';
+import 'package:xveil/state/media_ffi.dart';
 import 'package:xveil/state/providers.dart';
 
 import 'support/fake_hv_container.dart';
@@ -118,6 +119,18 @@ class _Signer implements GroupSigner {
 }
 
 void main() {
+  // The composer contract below is the one for a build that HAS a call media
+  // engine, and that is now a thing worth saying out loud: the mic and
+  // video-note buttons are wired to `callMediaAvailableProvider`, and a test
+  // binary carries no libveil_media, so without this both tests would be
+  // asserting the shape of a build nobody ships. The last test in this file
+  // asserts the other shape.
+  setUp(() => VeilMediaNative.debugForceAvailable = true);
+  tearDown(() {
+    VeilMediaNative.debugForceAvailable = null;
+    VeilMediaNative.forgetProbe();
+  });
+
   testWidgets('group chat uses the same unified composer contract', (
     tester,
   ) async {
@@ -284,5 +297,55 @@ void main() {
     expect(find.text('Upload photo'), findsOneWidget);
     expect(find.text('Upload video'), findsOneWidget);
     expect(find.text('Upload file'), findsOneWidget);
+  });
+
+  // The other shape: a build assembled with no libveil_media, which the
+  // desktop plugin CMake now allows on purpose. Recording is not offered
+  // rather than offered and broken — the same answer the Transcribe
+  // affordance gives without whisper. Everything else in the composer is
+  // untouched, because nothing else needs the engine.
+  testWidgets('with no media engine the composer offers no recording', (
+    tester,
+  ) async {
+    VeilMediaNative.debugForceAvailable = false;
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final self = NodeId(Uint8List.fromList(List<int>.filled(32, 9)));
+    final service = GroupService(storage, _Signer(self));
+    addTearDown(service.dispose);
+    final groupId = await service.createGroup('No engine here');
+
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          storageProvider.overrideWithValue(storage),
+          groupServiceProvider.overrideWithValue(service),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: GroupChatScreen(groupIdHex: groupId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('composer-video-note')), findsNothing);
+    expect(find.byKey(const ValueKey('composer-voice-note')), findsNothing);
+    // Starting a group call is gated on the same answer: without it the
+    // attempt fails inside the FSM and the only feedback is "busy".
+    expect(find.byKey(const ValueKey('group-call-start-audio')), findsNothing);
+    expect(find.byKey(const ValueKey('group-call-start-video')), findsNothing);
+    // The rest of the composer is unaffected.
+    expect(
+      find.byKey(const ValueKey('group-message-composer')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('composer-attachment-button')),
+      findsOneWidget,
+    );
   });
 }
