@@ -5,16 +5,23 @@ name: webrtc-linux
 # HOST must be x86_64 Linux for both, not because the targets are.)
 #
 # veil_media/linux/CMakeLists.txt stops the build outright when that .so is
-# missing, and making it needs a from-source WebRTC: depot_tools, a full
-# checkout, gclient sync, then a codec-stripped libwebrtc.a. That is hours of
-# work and tens of GB, so it does not belong in the release pipeline — it runs
-# here, by hand, and its result is carried forward as an artifact.
+# missing. Making it used to need a from-source WebRTC in this very job:
+# depot_tools, `fetch webrtc`, `gclient sync`, then a codec-stripped
+# libwebrtc.a — tens of GB and, measured on run 31696608908, 24m 28s of sync
+# plus 12m 55s of ninja to produce an input the actual wrapper build consumes
+# in NINETEEN SECONDS.
 #
-# It runs on a runner rather than a laptop for the same reason the release
-# builds do: an x86_64 Linux host is required (WebRTC's gn asserts on the host
-# OS and ships linux-x86_64 toolchains only), and the runner is one, natively,
-# for free. Emulating x86_64 elsewhere would put the most expensive build in
-# the stack on the slowest possible hardware.
+# That WebRTC now arrives PREBUILT. veilnetwork/libwebrtc-builds publishes, per
+# WebRTC pin and per target, a pruned slice of the checkout that produced it —
+# libwebrtc.a, the clang that compiled it, its __Cr libc++ headers and objects,
+# the sysroot, the generated headers — at the same relative paths a real
+# checkout has. The wrapper build scripts are therefore unchanged: they replay
+# call.cc's own compile command out of compile_commands.json, and that command
+# names every one of those things by path.
+#
+# It still runs on an x86_64 Linux host, because the veil translation units are
+# compiled with the bundle's linux-x86_64 clang; and android still needs the
+# same host for the same reason it always did.
 #
 # The result is attached to a GitHub RELEASE, not left as a run artifact. Run
 # artifacts expire — GitHub deletes them after the retention window and answers
@@ -22,8 +29,10 @@ name: webrtc-linux
 # where the repository is public: the artifact METADATA endpoint answers 200
 # unauthenticated, the zip answers 401. So a pinned run id is a link that both
 # rots on a known date and cannot be followed by a contributor without a token,
-# and the recovery is this five-hour workflow. Release assets on a public repo
-# have neither property. The `publish` job at the bottom is what does it.
+# and the recovery is a re-run. Release assets on a public repo have neither
+# property. The `publish` job at the bottom is what does it. The prebuilt
+# WebRTC is delivered the same way, from the same reasoning, and downloads
+# unauthenticated for the same reason.
 on:
   workflow_dispatch:
     inputs:
@@ -63,103 +72,97 @@ env:
   # between revisions (SendRtp's span, DeliverRtpPacket's arity), so a
   # different pin does not fail to link — it fails to compile, later, in a way
   # that reads like our code is wrong.
+  #
+  # It is now also the EXPECTED pin handed to fetch-sdk.sh, which refuses —
+  # before downloading anything — when the published bundle says otherwise.
   WEBRTC_PIN: '4ef980bc2c70834276c791e71e7834b8809f24ad'
-  WEBRTC_ROOT: /home/runner/webrtc
-  # PINNED (audit X-08); the long note is on the depot_tools step below. It
-  # lives up here as ONE value because both jobs need it and the publish job
-  # records it as provenance — three copies of a pin is how the pin and the
-  # thing it describes drift apart, which this repository has paid for before.
-  DEPOT_TOOLS_PIN: 'e154c8eda5e63cbe85a765ae9d06e2b7af05139e'
+  # Where the prebuilt WebRTC comes from. Each pin gets its own release there,
+  # tagged webrtc-<full sha>, so an old bundle stays downloadable forever and
+  # this pin resolves to one immutable set of assets.
+  VEIL_SDK_REPO: 'veilnetwork/libwebrtc-builds'
+  # PINNED BY COMMIT, for exactly the reason depot_tools was (audit X-08):
+  # fetch-sdk.sh is code from another repository, executed in this job. A
+  # commit sha is immutable; `main` is whatever was pushed this morning.
+  VEIL_SDK_SCRIPT_PIN: '913e29d08d80c9e3e442b5400eb7dd1e4ec9ec42'
 
 jobs:
   engine:
     name: libveil_media.so (linux-x64)
     runs-on: ubuntu-latest
-    # A GitHub-hosted job is killed at six hours. The checkout and sync take
-    # well under one; the rest is ninja on four cores.
-    timeout-minutes: 350
+    # Was 350, for a job that spent thirty-seven of its forty minutes building
+    # WebRTC. What is left is a 187 MB download, an extract, and a nineteen-
+    # second wrapper build. A timeout is a statement about what "wedged" means
+    # for this job, so it moves with the job.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
-      # The WebRTC checkout plus its build tree does not fit beside the
-      # runner's preinstalled toolchains, and the failure comes as a confusing
-      # write error deep inside gclient rather than as "no space".
-      - name: Reclaim disk
-        run: |
-          echo "before:"; df -h / | tail -1
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-                      /usr/local/share/boost /usr/local/share/powershell \
-                      /usr/local/lib/node_modules "${AGENT_TOOLSDIRECTORY:-}" || true
-          sudo apt-get clean
-          echo "after:"; df -h / | tail -1
-
-      # PINNED (audit X-08). depot_tools ships auto-updating build tooling that
-      # runs with full permissions in this job; `--depth 1` off HEAD meant every
-      # run executed whatever was pushed to `main` that day, and a compromise
-      # upstream would land straight in the artifacts we publish. Bump the SHA
-      # deliberately, the same way the WebRTC commit below is bumped.
-      - name: depot_tools
+      # `Reclaim disk` used to stand here: the WebRTC checkout plus its build
+      # tree did not fit beside the runner's preinstalled toolchains. The
+      # bundle is ~930 MB extracted, so there is nothing left to reclaim for.
+      #
+      # --expect-pin is the safety of this whole arrangement, and fetch-sdk.sh
+      # exits 2 without one. The manifest is published as its own 2 KB asset
+      # precisely so the comparison costs one request and happens BEFORE the
+      # bundle is downloaded.
+      - name: WebRTC SDK for linux-x64
         run: |
           set -euo pipefail
-          DEPOT_TOOLS_COMMIT="$DEPOT_TOOLS_PIN"
-          git clone --filter=blob:none \
-            https://chromium.googlesource.com/chromium/tools/depot_tools.git \
-            "$HOME/depot_tools"
-          git -C "$HOME/depot_tools" checkout --detach "$DEPOT_TOOLS_COMMIT"
-          # Bootstrap the pinned checkout's own vpython3 + cipd binaries.
-          #
-          # `gclient` brings them up on first use; `gn` does not, and its
-          # wrapper then dies with "python3_bin_reldir.txt not found. need to
-          # initialize depot_tools by running gclient, update_depot_tools or
-          # ensure_bootstrap" — which is exactly what killed run 31399122057,
-          # in both jobs, after twenty-five minutes of syncing WebRTC.
-          #
-          # It has to run BEFORE the line below: `GITHUB_ENV` applies to later
-          # steps, so `DEPOT_TOOLS_UPDATE` is still unset here and the bootstrap
-          # is allowed to fetch what the pinned commit asks for. It fetches
-          # those packages, not a newer depot_tools, so the pin stands.
-          "$HOME/depot_tools/ensure_bootstrap"
-          # depot_tools self-updates on first use unless told not to, which
-          # would undo the pin a moment after we set it.
-          echo "DEPOT_TOOLS_UPDATE=0" >> "$GITHUB_ENV"
-          echo "$HOME/depot_tools" >> "$GITHUB_PATH"
-
-      # Full history, not a shallow fetch: the pin has to be checked out by
-      # SHA, and a shallow clone can only do that when the server happens to
-      # allow fetching an arbitrary object. Disk is the cheaper thing to spend.
-      - name: WebRTC at the pinned commit
-        run: |
-          set -euo pipefail
-          mkdir -p "$WEBRTC_ROOT"
-          cd "$WEBRTC_ROOT"
-          fetch --nohooks webrtc
-          cd src
-          git checkout "$WEBRTC_PIN"
-          # Transient 429s from the Google mirrors are normal under load; the
-          # macOS build needed the retries too.
-          ok=0
-          for attempt in 1 2 3 4 5 6; do
-            echo "sync attempt $attempt"
-            if gclient sync --with_branch_heads --reset --jobs 4; then ok=1; break; fi
-            sleep $((attempt * 20))
+          curl -fsSL --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/fetch-sdk.sh" \
+            "https://raw.githubusercontent.com/$VEIL_SDK_REPO/$VEIL_SDK_SCRIPT_PIN/scripts/fetch-sdk.sh"
+          # NOT `eval "$(fetch-sdk.sh …)"`, which is how the SDK repository's
+          # README spells it. `eval` reports the status of what it EVALUATES,
+          # so a refusal — wrong pin, no release for this pin — hands eval an
+          # empty string, eval exits 0, `set -e` sees nothing wrong, and the
+          # build below quietly falls back to the compiled-in default
+          # /webrtc/src. The one check this route rests on would be skippable
+          # by accident. Run it as its own command, let a non-zero status kill
+          # the step, and only then eval what it printed.
+          bash "$RUNNER_TEMP/fetch-sdk.sh" --target linux-x64 \
+            --expect-pin "$WEBRTC_PIN" --into "$RUNNER_TEMP/webrtc-sdk" \
+            > "$RUNNER_TEMP/sdk-env.sh"
+          cat "$RUNNER_TEMP/sdk-env.sh"
+          eval "$(cat "$RUNNER_TEMP/sdk-env.sh")"
+          for v in WEBRTC_SRC WEBRTC_OUT WEBRTC_BUILD; do
+            [ -n "${!v:-}" ] || { echo "::error::fetch-sdk.sh printed no $v"; exit 1; }
+            echo "$v=${!v}" >> "$GITHUB_ENV"
           done
-          [ "$ok" = 1 ] || { echo "::error::gclient sync failed after 6 attempts"; exit 1; }
 
-      # Same switches as the verified Android build, retargeted at linux-x64.
-      # --export-compile-commands is not decoration: build_veil_media_so_linux.sh
-      # reads call.cc's exact command out of compile_commands.json to compile
-      # the engine with the identical clang, sysroot and libc++ namespace.
-      - name: Build libwebrtc.a
+      # A SECOND pin check, on the bundle that actually landed, made by this
+      # repository rather than by the script that fetched it. fetch-sdk.sh
+      # compares against the PUBLISHED manifest before downloading; this one
+      # compares against the manifest inside the extract, so it also stands
+      # when a bundle is already present from an earlier pin (fetch-sdk.sh's
+      # own fast path), when --into is pointed at one by hand, or if the
+      # fetch script upstream ever changes shape.
+      #
+      # And it is placed here, before anything is compiled, because the failure
+      # being designed against is a mismatch discovered at the LINK — or worse,
+      # inside a WebRTC header, where it reads like veil_media is broken.
+      - name: The bundle is the WebRTC these sources expect
         run: |
           set -euo pipefail
-          cd "$WEBRTC_ROOT/src"
-          gn gen out/linux-x64 --export-compile-commands --args='target_os="linux" target_cpu="x64" is_debug=false is_component_build=false symbol_level=0 rtc_include_tests=false rtc_build_examples=false rtc_build_tools=false rtc_enable_protobuf=false rtc_use_h264=false enable_libaom=false rtc_include_opus=true treat_warnings_as_errors=false'
-          test -f out/linux-x64/compile_commands.json \
-            || { echo "::error::gn produced no compile_commands.json — the engine build reads call.cc's command from it"; exit 1; }
-          ninja -C out/linux-x64 webrtc
-          ls -la out/linux-x64/obj/libwebrtc.a
+          manifest="$WEBRTC_BUILD/veil-webrtc-sdk.json"
+          [ -f "$manifest" ] || { echo "::error::no $manifest — no bundle was laid out"; exit 1; }
+          info="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["webrtc_pin"], m["target"], m["out_dir"])' "$manifest")"
+          got="$(echo "$info" | cut -d' ' -f1)"
+          target="$(echo "$info" | cut -d' ' -f2)"
+          out="$(echo "$info" | cut -d' ' -f3)"
+          echo "bundle: target=$target webrtc=$got out=$out"
+          [ "$got" = "$WEBRTC_PIN" ] \
+            || { echo "::error::this bundle was built from WebRTC $got; these sources expect $WEBRTC_PIN"; exit 1; }
+          [ "$target" = "linux-x64" ] \
+            || { echo "::error::this bundle is for $target; this job builds linux-x64"; exit 1; }
+          cc="$WEBRTC_SRC/$WEBRTC_OUT/compile_commands.json"
+          [ -f "$cc" ] || { echo "::error::no $cc — setup.sh did not run, or the bundle is incomplete"; exit 1; }
+          # The wrapper build does not read "a compile command", it reads
+          # call/call.cc's. No entry, no build — and the message it fails with
+          # otherwise names neither the bundle nor the pin.
+          python3 -c 'import json,sys; sys.exit(0 if [x for x in json.load(open(sys.argv[1])) if x.get("file","").endswith("call/call.cc")] else 1)' "$cc" \
+            || { echo "::error::$cc has no call/call.cc entry — the wrapper build compiles every veil TU with that exact command"; exit 1; }
+          ls -la "$WEBRTC_SRC/$WEBRTC_OUT/obj/libwebrtc.a"
 
       - name: Build libveil_media.so
         env:
@@ -170,8 +173,11 @@ jobs:
           # the script warns and carries on, and the loader fails to resolve
           # the two datagram symbols at runtime instead.
           sudo apt-get update && sudo apt-get install -y patchelf
-          WEBRTC_SRC="$WEBRTC_ROOT/src" WEBRTC_OUT=out/linux-x64 \
-            bash third_party/veil/flutter/veil_media/linux/build_veil_media_so_linux.sh
+          # WEBRTC_SRC and WEBRTC_OUT come from the SDK step, through
+          # GITHUB_ENV. The script itself is untouched by this migration —
+          # that is the point of shipping a checkout slice rather than a
+          # library: the same relative paths, so the same recipe.
+          bash third_party/veil/flutter/veil_media/linux/build_veil_media_so_linux.sh
 
       # The reason this workflow exists at all: the previous out-of-band .so
       # was 12 commits behind and short 10 of the symbols the app looks up. It
@@ -191,15 +197,22 @@ jobs:
       # An asset with no provenance is the pinned-run problem in a nicer
       # wrapper: you can download it forever and still not know what it was
       # built from. This is written HERE, by the job that knows — the WebRTC
-      # and depot_tools pins it actually used, the submodule commit it compiled,
-      # whether it was stripped, and what the symbol gate counted — rather than
-      # reconstructed later by the job that uploads it.
+      # pin it actually used, the bundle that supplied it, the submodule commit
+      # it compiled, whether it was stripped, and what the symbol gate counted
+      # — rather than reconstructed later by the job that uploads it.
+      #
+      # depot_tools is no longer OURS to record: this job does not run it. The
+      # value below is read out of the bundle's manifest, so it says what built
+      # the libwebrtc.a that is actually inside this .so, not what this
+      # workflow would have used had it built one.
       - name: Provenance for the linux-x64 asset
         env:
           KEEP_SYMBOLS: ${{ inputs.keep_symbols }}
         run: |
           set -euo pipefail
           so=third_party/veil/flutter/veil_media/linux/libveil_media.so
+          manifest="$WEBRTC_BUILD/veil-webrtc-sdk.json"
+          field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$manifest" "$1"; }
           mkdir -p provenance
           {
             echo "asset:           libveil_media-linux-x64.so"
@@ -208,7 +221,11 @@ jobs:
             echo "size:            $(stat -c%s "$so") bytes"
             echo "built:           $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "webrtc:          $WEBRTC_PIN"
-            echo "depot_tools:     $DEPOT_TOOLS_PIN"
+            echo "webrtc-sdk:      $VEIL_SDK_REPO webrtc-$WEBRTC_PIN veil-webrtc-sdk-linux-x64.tar.xz"
+            echo "libwebrtc.a:     sha256 $(field libwebrtc_sha256) ($(field libwebrtc_bytes) bytes)"
+            echo "sdk-built-by:    $(field built_by)"
+            echo "depot_tools:     $(field depot_tools_pin) (the SDK's, recorded by the run that built libwebrtc.a)"
+            echo "clang:           $(field clang_revision)"
             echo "xveil-commit:    $GITHUB_SHA"
             echo "veil-submodule:  $(git -C third_party/veil rev-parse HEAD)"
             echo "workflow:        webrtc-linux.yml (job: engine)"
@@ -243,95 +260,59 @@ jobs:
   engine-android:
     name: libveil_media.so (android-arm64)
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
-      - name: Reclaim disk
-        run: |
-          echo "before:"; df -h / | tail -1
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-                      /usr/local/share/boost /usr/local/share/powershell \
-                      /usr/local/lib/node_modules "${AGENT_TOOLSDIRECTORY:-}" || true
-          sudo apt-get clean
-          echo "after:"; df -h / | tail -1
-
-      # PINNED (audit X-08). depot_tools ships auto-updating build tooling that
-      # runs with full permissions in this job; `--depth 1` off HEAD meant every
-      # run executed whatever was pushed to `main` that day, and a compromise
-      # upstream would land straight in the artifacts we publish. Bump the SHA
-      # deliberately, the same way the WebRTC commit below is bumped.
-      - name: depot_tools
+      # The android bundle carries what the android checkout used to have to
+      # fetch through `target_os = ['android']` in .gclient: the NDK's aarch64
+      # sysroot (pruned to the one architecture) and the generated headers, plus
+      # the libunwind objects this link needs and the linux one does not.
+      - name: WebRTC SDK for android-arm64
         run: |
           set -euo pipefail
-          DEPOT_TOOLS_COMMIT="$DEPOT_TOOLS_PIN"
-          git clone --filter=blob:none \
-            https://chromium.googlesource.com/chromium/tools/depot_tools.git \
-            "$HOME/depot_tools"
-          git -C "$HOME/depot_tools" checkout --detach "$DEPOT_TOOLS_COMMIT"
-          # Bootstrap the pinned checkout's own vpython3 + cipd binaries.
-          #
-          # `gclient` brings them up on first use; `gn` does not, and its
-          # wrapper then dies with "python3_bin_reldir.txt not found. need to
-          # initialize depot_tools by running gclient, update_depot_tools or
-          # ensure_bootstrap" — which is exactly what killed run 31399122057,
-          # in both jobs, after twenty-five minutes of syncing WebRTC.
-          #
-          # It has to run BEFORE the line below: `GITHUB_ENV` applies to later
-          # steps, so `DEPOT_TOOLS_UPDATE` is still unset here and the bootstrap
-          # is allowed to fetch what the pinned commit asks for. It fetches
-          # those packages, not a newer depot_tools, so the pin stands.
-          "$HOME/depot_tools/ensure_bootstrap"
-          # depot_tools self-updates on first use unless told not to, which
-          # would undo the pin a moment after we set it.
-          echo "DEPOT_TOOLS_UPDATE=0" >> "$GITHUB_ENV"
-          echo "$HOME/depot_tools" >> "$GITHUB_PATH"
-
-      # target_os=android has to be in .gclient BEFORE the sync, or the NDK and
-      # the android sysroot are simply never fetched and gn fails later on a
-      # missing toolchain rather than on the thing that is actually wrong.
-      - name: WebRTC at the pinned commit
-        run: |
-          set -euo pipefail
-          mkdir -p "$WEBRTC_ROOT"
-          cd "$WEBRTC_ROOT"
-          fetch --nohooks webrtc
-          grep -q "target_os" .gclient || echo "target_os = ['android']" >> .gclient
-          cd src
-          git checkout "$WEBRTC_PIN"
-          ok=0
-          for attempt in 1 2 3 4 5 6; do
-            echo "sync attempt $attempt"
-            if gclient sync --with_branch_heads --reset --jobs 4; then ok=1; break; fi
-            sleep $((attempt * 20))
+          curl -fsSL --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/fetch-sdk.sh" \
+            "https://raw.githubusercontent.com/$VEIL_SDK_REPO/$VEIL_SDK_SCRIPT_PIN/scripts/fetch-sdk.sh"
+          # See the linux job for why this is not `eval "$(fetch-sdk.sh …)"`.
+          bash "$RUNNER_TEMP/fetch-sdk.sh" --target android-arm64 \
+            --expect-pin "$WEBRTC_PIN" --into "$RUNNER_TEMP/webrtc-sdk" \
+            > "$RUNNER_TEMP/sdk-env.sh"
+          cat "$RUNNER_TEMP/sdk-env.sh"
+          eval "$(cat "$RUNNER_TEMP/sdk-env.sh")"
+          for v in WEBRTC_SRC WEBRTC_OUT WEBRTC_BUILD; do
+            [ -n "${!v:-}" ] || { echo "::error::fetch-sdk.sh printed no $v"; exit 1; }
+            echo "$v=${!v}" >> "$GITHUB_ENV"
           done
-          [ "$ok" = 1 ] || { echo "::error::gclient sync failed after 6 attempts"; exit 1; }
 
-      # Same args as veil_media/android/build_libwebrtc_android_linux.sh, which
-      # now carries --export-compile-commands itself (it used to omit the flag
-      # and then print a line claiming the file existed; build_veil_media_so.sh
-      # reads call.cc's exact command out of that file and refuses to start
-      # without it). Kept inline here anyway, mirroring the linux job above.
-      #
-      # android_static_analysis="off" is what makes this finish rather than an
-      # optimisation — see the long note in that script. WebRTC's default hands
-      # the Java lint/ErrorProne/bytecode checks to a daemon that only exists
-      # under depot_tools' autoninja, so under plain ninja every
-      # *__validate_deps action dies on "AUTONINJA_BUILD_ID is not set" after
-      # fifteen minutes of real compiling. Chromium's docs say the mode does not
-      # work on bots. Those targets analyse WebRTC's Java SDK; this job wants
-      # libwebrtc.a, and the Java is neither linked nor shipped.
-      - name: Build libwebrtc.a
+      - name: The bundle is the WebRTC these sources expect
         run: |
           set -euo pipefail
-          cd "$WEBRTC_ROOT/src"
-          gn gen out/android-arm64 --export-compile-commands --args='target_os="android" target_cpu="arm64" is_debug=false is_component_build=false symbol_level=0 rtc_include_tests=false rtc_build_examples=false rtc_build_tools=false rtc_enable_protobuf=false rtc_use_h264=false enable_libaom=false rtc_include_opus=true treat_warnings_as_errors=false android_static_analysis="off"'
-          test -f out/android-arm64/compile_commands.json \
-            || { echo "::error::gn produced no compile_commands.json — the engine build reads call.cc's command from it"; exit 1; }
-          ninja -C out/android-arm64 webrtc
-          ls -la out/android-arm64/obj/libwebrtc.a
+          manifest="$WEBRTC_BUILD/veil-webrtc-sdk.json"
+          [ -f "$manifest" ] || { echo "::error::no $manifest — no bundle was laid out"; exit 1; }
+          info="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["webrtc_pin"], m["target"], m["out_dir"])' "$manifest")"
+          got="$(echo "$info" | cut -d' ' -f1)"
+          target="$(echo "$info" | cut -d' ' -f2)"
+          out="$(echo "$info" | cut -d' ' -f3)"
+          echo "bundle: target=$target webrtc=$got out=$out"
+          [ "$got" = "$WEBRTC_PIN" ] \
+            || { echo "::error::this bundle was built from WebRTC $got; these sources expect $WEBRTC_PIN"; exit 1; }
+          [ "$target" = "android-arm64" ] \
+            || { echo "::error::this bundle is for $target; this job builds android-arm64"; exit 1; }
+          # build_veil_media_so.sh takes WEBRTC_BUILD and derives the rest, with
+          # out/android-arm64 written into the script rather than passed in. So
+          # a bundle whose out_dir were anything else would be looked for in a
+          # directory that does not exist, and the script would report "no
+          # compile_commands.json — run build_libwebrtc_android_linux.sh first",
+          # which would be a lie. Assert the agreement instead.
+          [ "$out" = "out/android-arm64" ] \
+            || { echo "::error::the bundle's out_dir is $out; build_veil_media_so.sh looks in out/android-arm64"; exit 1; }
+          cc="$WEBRTC_SRC/$out/compile_commands.json"
+          [ -f "$cc" ] || { echo "::error::no $cc — setup.sh did not run, or the bundle is incomplete"; exit 1; }
+          python3 -c 'import json,sys; sys.exit(0 if [x for x in json.load(open(sys.argv[1])) if x.get("file","").endswith("call/call.cc")] else 1)' "$cc" \
+            || { echo "::error::$cc has no call/call.cc entry — the wrapper build compiles every veil TU with that exact command"; exit 1; }
+          ls -la "$WEBRTC_SRC/$out/obj/libwebrtc.a"
 
       - name: Build libveil_media.so
         env:
@@ -343,8 +324,10 @@ jobs:
           # script only WARNS when it is missing, and the .so it produces then
           # fails at load on the phone instead of here.
           sudo apt-get update && sudo apt-get install -y patchelf
-          WEBRTC_BUILD="$WEBRTC_ROOT" \
-            bash third_party/veil/flutter/veil_media/android/build_veil_media_so.sh \
+          # WEBRTC_BUILD is the bundle root and has the same shape the old
+          # checkout root had — a src/ with out/android-arm64 under it — so the
+          # script is called exactly as before.
+          bash third_party/veil/flutter/veil_media/android/build_veil_media_so.sh \
             "$GITHUB_WORKSPACE/engine-out"
 
       # pipefail, for the reason spelled out in the linux job: tee always exits
@@ -361,6 +344,8 @@ jobs:
         run: |
           set -euo pipefail
           so="$GITHUB_WORKSPACE/engine-out/libveil_media.so"
+          manifest="$WEBRTC_BUILD/veil-webrtc-sdk.json"
+          field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$manifest" "$1"; }
           mkdir -p provenance
           {
             echo "asset:           libveil_media-android-arm64.so"
@@ -369,7 +354,11 @@ jobs:
             echo "size:            $(stat -c%s "$so") bytes"
             echo "built:           $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "webrtc:          $WEBRTC_PIN"
-            echo "depot_tools:     $DEPOT_TOOLS_PIN"
+            echo "webrtc-sdk:      $VEIL_SDK_REPO webrtc-$WEBRTC_PIN veil-webrtc-sdk-android-arm64.tar.xz"
+            echo "libwebrtc.a:     sha256 $(field libwebrtc_sha256) ($(field libwebrtc_bytes) bytes)"
+            echo "sdk-built-by:    $(field built_by)"
+            echo "depot_tools:     $(field depot_tools_pin) (the SDK's, recorded by the run that built libwebrtc.a)"
+            echo "clang:           $(field clang_revision)"
             echo "xveil-commit:    $GITHUB_SHA"
             echo "veil-submodule:  $(git -C third_party/veil rev-parse HEAD)"
             echo "workflow:        webrtc-linux.yml (job: engine-android)"
@@ -393,20 +382,21 @@ jobs:
 
   # THE ONLY JOB HERE THAT CAN WRITE.
   #
-  # Everything above runs depot_tools, `gclient sync` and a WebRTC build:
-  # thousands of lines of third-party build script, executing with whatever
-  # token this workflow hands it. That is exactly why the workflow-wide
-  # `contents: write` was removed from release.yml (audit X-08), and attaching
-  # release assets must not quietly put it back. So the write lives in a job
-  # that does not build anything — it downloads two artifacts, renames them and
-  # uploads. Nothing it runs comes from outside this repository.
+  # The jobs above no longer run depot_tools or `gclient sync`, but they still
+  # execute code fetched from another repository (fetch-sdk.sh, pinned by
+  # commit) and a toolchain downloaded from a release. That is exactly why the
+  # workflow-wide `contents: write` was removed from release.yml (audit X-08),
+  # and attaching release assets must not quietly put it back. So the write
+  # lives in a job that does not build anything — it downloads two artifacts,
+  # renames them and uploads. Nothing it runs comes from outside this
+  # repository.
   publish:
     name: attach to the engine release
     needs: [engine, engine-android]
-    # `!cancelled()` plus an OR, not the implicit `success()`: these two builds
-    # take five hours each and fail independently. When android dies and linux
-    # does not, the linux engine should still end up somewhere durable rather
-    # than being thrown away for its sibling's sake.
+    # `!cancelled()` plus an OR, not the implicit `success()`: the two builds
+    # fail independently. When android dies and linux does not, the linux
+    # engine should still end up somewhere durable rather than being thrown
+    # away for its sibling's sake.
     # Kept on lines of EQUAL indentation so `>-` folds them into one line.
     # A deeper-indented continuation is literal in YAML and would leave real
     # newlines inside the expression.
@@ -537,8 +527,9 @@ jobs:
             even from a public repository. These do neither.
 
             **Every asset has a sibling `.provenance` file — that is the
-            authoritative record** of the WebRTC pin, the depot_tools pin, the
-            submodule commit, the sha256 and what the symbol gate counted.
+            authoritative record** of the WebRTC pin, the prebuilt SDK bundle it
+            was linked from, the submodule commit, the sha256 and what the
+            symbol gate counted.
 
             ---
 
@@ -547,7 +538,7 @@ jobs:
             | | |
             |---|---|
             | WebRTC pin | `${{ env.WEBRTC_PIN }}` |
-            | depot_tools pin | `${{ env.DEPOT_TOOLS_PIN }}` |
+            | WebRTC SDK | `${{ env.VEIL_SDK_REPO }}` @ `webrtc-${{ env.WEBRTC_PIN }}` |
             | xVeil commit | `${{ github.sha }}` |
             | built by | ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} |
 
