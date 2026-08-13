@@ -82,8 +82,8 @@ env:
   # one bundle, back to back on one runner: 5.1.26100.33158 exits 1, pwsh
   # 7.6.4 exits 0 (run 31714489182). The pinned commit prefers pwsh.
   #
-  # It is on veilnetwork/libwebrtc-builds' branch fix/windows-setup-needs-pwsh,
-  # not on its main. Repoint at the merge commit when it lands.
+  # It landed on veilnetwork/libwebrtc-builds' main by fast-forward, so this
+  # sha IS a commit on that branch's history — nothing to repoint.
   VEIL_SDK_SCRIPT_PIN: 'deef316260886f36e2fde02e037d6bd5d1315c77'
   # Copied verbatim from the published manifest's `gn_args` — see the same
   # block in webrtc-linux.yml for why the argument list is pinned here.
