@@ -583,17 +583,23 @@ For a local build on those three targets, use:
 ./fetch-deps.py [target]
 ```
 
-It reads `ENGINE_RUN` out of `release.yml` rather than keeping a second copy,
-picks the artifact for the target, stages it in the right directory, runs
-`scripts/check-media-symbols.sh` on the result, and prints how many days are
-left on the pin. Doing it by hand is still fine:
+It reads the pins out of `release.yml` rather than keeping a second copy, picks
+the route (`ENGINE_RELEASE` if that job has one, `ENGINE_RUN` otherwise), stages
+the result in the right directory, runs `scripts/check-media-symbols.sh` on it,
+and — on the run route — prints how many days are left on the pin. Doing it by
+hand is still fine:
 
 ```sh
-# linux-x64 — the id is the ENGINE_RUN pinned in .github/workflows/release.yml
-gh run download <ENGINE_RUN> -n libveil_media-linux-x64 \
-  -D third_party/veil/flutter/veil_media/linux
+# linux-x64 via the release route — no token, nothing expires
+tag=<the ENGINE_RELEASE pinned in .github/workflows/release.yml>
+curl -fL -o third_party/veil/flutter/veil_media/linux/libveil_media.so \
+  "https://github.com/veilnetwork/xVeil/releases/download/$tag/libveil_media-linux-x64.so"
 bash scripts/check-media-symbols.sh \
   third_party/veil/flutter/veil_media/linux/libveil_media.so
+
+# or via the older run route, which needs a token and expires
+gh run download <ENGINE_RUN> -n libveil_media-linux-x64 \
+  -D third_party/veil/flutter/veil_media/linux
 ```
 
 The same shape works for `libveil_media-android-arm64` into
@@ -618,34 +624,75 @@ x86-64 only, and WebRTC's own build asserts on the host architecture and ships
 download one nor build one. `fetch-deps.py` says so rather than failing at the
 download. Use an x86-64 host for a Linux build with calls.
 
-#### Why the pins expire, and what to do about it
+#### Two routes to the engine: releases, and the expiring one
 
 GitHub deletes run artifacts after its retention window — 90 days here — so a
-pin that worked last month starts returning `410 Gone`. This is expected, not a
-broken repository, and there is no way to recover the artifact from an expired
-run. `fetch-deps.py` reports it as its own outcome with the options; by hand,
-re-run `webrtc-linux` or `webrtc-windows` from the Actions tab (3-5 hours),
-take the new run id and update `ENGINE_RUN` in `release.yml`. The runs pinned
-today lapse on 2026-11-10 (linux, android) and 2026-10-29 (windows).
+pin that worked last month starts returning `410 Gone`, and there is no way to
+recover the artifact from an expired run. The runs pinned today lapse on
+2026-11-10 (linux, android) and 2026-10-29 (windows).
 
-**This is worth fixing rather than living with**, and the fix is cheap: attach
-the engine binaries to a GitHub **Release** instead of leaving them as run
-artifacts. Release assets on a public repository never expire and are served
-without a token — both checked against this organisation's live releases, not
-assumed. `veilnetwork/veil` already publishes 43 assets per release and xVeil
-itself attaches five, so the machinery is in place on both sides.
+**So the engines are published as GitHub Release assets**, which on a public
+repository never expire and download with no credential at all. Both
+`webrtc-linux.yml` and `webrtc-windows.yml` end in a `publish` job that attaches
+what they built:
 
-The one thing that makes it a decision rather than a chore: the jobs that
-*build* the engine run depot_tools and thousands of lines of third-party build
-script, and giving those `contents: write` is precisely the privilege that
-audit X-08 took away from them. So the upload belongs in a small separate job
-that downloads the artifact from the same run and attaches it, with the write
-permission scoped to that job alone — the same shape `release.yml` already uses
-for `publish`.
+| asset | from |
+|---|---|
+| `libveil_media-linux-x64.so` | `webrtc-linux.yml`, job `engine` |
+| `libveil_media-android-arm64.so` | `webrtc-linux.yml`, job `engine-android` |
+| `veil_media-win-x64.dll` | `webrtc-windows.yml`, job `engine-windows` |
 
-`fetch-deps.py` is ready for it: give a job an `ENGINE_RELEASE` alongside its
-`ENGINE_RUN` in `release.yml` and the release route is taken instead, with no
-token and no expiry. Until then the run-artifact route stays.
+The release is tagged **`engine-YYYY.MM.DD`** and marked a **prerelease** — not
+because it is unfinished, but because these are build inputs rather than
+something a person downloads, and GitHub never marks a prerelease "Latest", so
+the app's own `vX.Y.Z` release stays the one the front page offers. The windows
+engine is built on a different host by a different workflow, so it joins the
+release as a second run: pass the linux run's tag as `release_tag` and all three
+engines from one WebRTC pin sit together.
+
+**Every asset has a sibling `.provenance` file**, and that is the authoritative
+record — the WebRTC pin, the depot_tools pin, the xVeil commit, the veil
+submodule commit, the sha256, whether it was stripped, and what the symbol gate
+counted. It is written by the job that built the binary, not reconstructed by
+the job that uploads it. An asset with no provenance is the pinned-run problem
+in a nicer wrapper: downloadable forever, and still no way to tell what it came
+from.
+
+Downloading one needs nothing at all:
+
+```sh
+tag=engine-2026.08.13   # whatever release.yml pins
+base=https://github.com/veilnetwork/xVeil/releases/download/$tag
+curl -fLO "$base/libveil_media-linux-x64.so"
+curl -fLO "$base/libveil_media-linux-x64.so.provenance"
+sha256sum libveil_media-linux-x64.so   # compare with the provenance record
+```
+
+**Which route a job takes is decided by which variable is set, never by which
+download happened to work.** `ENGINE_RELEASE` in a `release.yml` job takes the
+release route; a job with only `ENGINE_RUN` keeps the old one. A job with
+`ENGINE_RELEASE` set does **not** fall back to `ENGINE_RUN` when the release
+download fails — a silent fallback would answer "the durable pin is broken" by
+quietly building against an older engine, which is the stale-prebuilt failure
+this repository keeps paying for. `fetch-deps.py` makes the same choice in the
+same order, so a laptop and CI cannot disagree about which engine they built
+against.
+
+The permission split is the part worth not getting wrong. The jobs that *build*
+the engine run depot_tools and thousands of lines of third-party build script,
+and giving those `contents: write` is precisely the privilege audit X-08 took
+away. So each `publish` job holds the write alone, does not check out the
+repository, and runs nothing but a download, a rename and an upload.
+
+Publishing refuses to overwrite an asset already present under a tag, because a
+pin names a tag: replacing an asset would change what every existing pin
+resolves to without any pin changing. Dispatch with a fresh `release_tag`, or
+set `replace_assets` when deliberately correcting a bad upload.
+
+To cut a new engine release: run `webrtc-linux` from the Actions tab (3-5
+hours), note the tag its `publish` job reports, run `webrtc-windows` with that
+tag as `release_tag`, then set `ENGINE_RELEASE` in the matching `release.yml`
+jobs.
 
 **Apple platforms have no published artifact at all.** Neither workflow builds
 a macOS or iOS engine, so there is nothing to download and the only route is
@@ -1489,16 +1536,23 @@ Copy-Item third_party\veil\target\release\veilclient_ffi.dll `
 ./fetch-deps.py [target]
 ```
 
-Он читает `ENGINE_RUN` из `release.yml`, а не держит вторую копию, выбирает
-артефакт для цели, кладёт его в нужный каталог, прогоняет по результату
-`scripts/check-media-symbols.sh` и печатает, сколько дней осталось у пина.
-Руками тоже можно:
+Он читает пины из `release.yml`, а не держит вторую копию, выбирает путь
+(`ENGINE_RELEASE`, если он есть у этой задачи, иначе `ENGINE_RUN`), кладёт
+результат в нужный каталог, прогоняет по нему `scripts/check-media-symbols.sh`
+и — на пути через прогон — печатает, сколько дней осталось у пина. Руками тоже
+можно:
 
 ```sh
-gh run download <ENGINE_RUN> -n libveil_media-linux-x64 \
-  -D third_party/veil/flutter/veil_media/linux
+# через релиз — без токена, ничего не истекает
+tag=<значение ENGINE_RELEASE из .github/workflows/release.yml>
+curl -fL -o third_party/veil/flutter/veil_media/linux/libveil_media.so \
+  "https://github.com/veilnetwork/xVeil/releases/download/$tag/libveil_media-linux-x64.so"
 bash scripts/check-media-symbols.sh \
   third_party/veil/flutter/veil_media/linux/libveil_media.so
+
+# либо через прогон — нужен токен, и артефакт истекает
+gh run download <ENGINE_RUN> -n libveil_media-linux-x64 \
+  -D third_party/veil/flutter/veil_media/linux
 ```
 
 `<ENGINE_RUN>` — это значение из `.github/workflows/release.yml`. Так же
@@ -1523,34 +1577,75 @@ x86-64, а сборка WebRTC проверяет архитектуру хос�
 собрать. `fetch-deps.py` говорит это прямо, а не падает на скачивании. Для
 Linux-сборки со звонками нужен хост x86-64.
 
-#### Почему пины истекают и что с этим делать
+#### Два пути к движку: релизы и истекающий
 
 GitHub удаляет артефакты прогонов по истечении срока хранения — здесь это 90
-дней, — поэтому пин, работавший месяц назад, начинает отдавать `410 Gone`. Это
-ожидаемо, а не поломка репозитория, и вернуть артефакт истёкшего прогона
-нельзя. `fetch-deps.py` сообщает об этом отдельным исходом со списком
-вариантов; руками — перезапустите `webrtc-linux` или `webrtc-windows` со
-вкладки Actions (3-5 часов) и пропишите новый id в `ENGINE_RUN`. Закреплённые
-сейчас прогоны истекают 2026-11-10 (linux, android) и 2026-10-29 (windows).
+дней, — поэтому пин, работавший месяц назад, начинает отдавать `410 Gone`, и
+вернуть артефакт истёкшего прогона нельзя. Закреплённые сейчас прогоны истекают
+2026-11-10 (linux, android) и 2026-10-29 (windows).
 
-**Это стоит починить, а не терпеть**, и починка дешёвая: прикладывать бинарники
-движка к **релизу** GitHub вместо артефактов прогона. Ассеты релиза в публичном
-репозитории не истекают никогда и отдаются без токена — оба факта проверены на
-живых релизах этой организации, а не приняты на веру. `veilnetwork/veil` уже
-публикует по 43 ассета на релиз, а сам xVeil прикладывает пять, так что
-механика есть с обеих сторон.
+**Поэтому движки публикуются ассетами релиза GitHub**: в публичном репозитории
+они не истекают никогда и качаются вообще без учётных данных. И `webrtc-linux.yml`,
+и `webrtc-windows.yml` заканчиваются задачей `publish`, которая прикладывает
+собранное:
 
-Единственное, что делает это решением, а не рутиной: задачи, которые *собирают*
-движок, гоняют depot_tools и тысячи строк стороннего build-скрипта, а выдать им
-`contents: write` — ровно та привилегия, которую у них отобрал аудит X-08.
-Поэтому выгрузка должна жить в отдельной маленькой задаче, которая скачивает
-артефакт того же прогона и прикладывает его, с правом записи, ограниченным
-только этой задачей, — той же формы, что уже используется для `publish` в
-`release.yml`.
+| ассет | откуда |
+|---|---|
+| `libveil_media-linux-x64.so` | `webrtc-linux.yml`, задача `engine` |
+| `libveil_media-android-arm64.so` | `webrtc-linux.yml`, задача `engine-android` |
+| `veil_media-win-x64.dll` | `webrtc-windows.yml`, задача `engine-windows` |
 
-`fetch-deps.py` к этому готов: добавьте задаче `ENGINE_RELEASE` рядом с её
-`ENGINE_RUN` в `release.yml`, и будет выбран путь через релиз — без токена и
-без срока годности. До тех пор остаётся путь через артефакт прогона.
+Тег релиза — **`engine-YYYY.MM.DD`**, и он помечен **предрелизом**: не потому
+что незакончен, а потому что это входные данные сборки, а не то, что качает
+человек. Предрелиз GitHub никогда не помечает «Latest», так что на главной
+странице репозитория по-прежнему предлагается релиз приложения `vX.Y.Z`.
+Windows-движок собирается на другом хосте другим воркфлоу и присоединяется к
+релизу вторым прогоном: передайте тег linux-прогона в `release_tag`, и все три
+движка от одного пина WebRTC окажутся вместе.
+
+**У каждого ассета есть файл-спутник `.provenance`** — и это авторитетная
+запись: пин WebRTC, пин depot_tools, коммит xVeil, коммит сабмодуля veil,
+sha256, стрипнут ли бинарник и что насчитал гейт символов. Его пишет задача,
+которая собрала бинарник, а не та, что его выгружает. Ассет без происхождения —
+это та же проблема закреплённого прогона в красивой обёртке: качать можно
+вечно, а откуда он взялся — по-прежнему не узнать.
+
+Скачивание не требует ничего:
+
+```sh
+tag=engine-2026.08.13   # то, что закреплено в release.yml
+base=https://github.com/veilnetwork/xVeil/releases/download/$tag
+curl -fLO "$base/libveil_media-linux-x64.so"
+curl -fLO "$base/libveil_media-linux-x64.so.provenance"
+sha256sum libveil_media-linux-x64.so   # сверить с записью в provenance
+```
+
+**Какой путь выберет задача, решает то, какая переменная задана, а не то, какое
+скачивание случайно удалось.** `ENGINE_RELEASE` в задаче `release.yml` включает
+путь через релиз; задача, у которой есть только `ENGINE_RUN`, остаётся на
+старом. Задача с заданным `ENGINE_RELEASE` **не** откатывается на `ENGINE_RUN`
+при неудачном скачивании: молчаливый откат отвечал бы на «долговечный пин
+сломан» тихой сборкой против более старого движка — ровно тот отказ через
+устаревший prebuilt, за который этот репозиторий уже не раз платил.
+`fetch-deps.py` делает тот же выбор в том же порядке, поэтому ноутбук и CI не
+могут разойтись в том, против какого движка собирали.
+
+Разделение прав — та часть, которую важно не испортить. Задачи, которые
+*собирают* движок, гоняют depot_tools и тысячи строк стороннего build-скрипта, а
+выдать им `contents: write` — ровно та привилегия, которую отобрал аудит X-08.
+Поэтому право записи держит только задача `publish`: она не делает checkout
+репозитория и не делает ничего, кроме скачивания, переименования и выгрузки.
+
+Публикация отказывается перезаписать ассет, уже лежащий под этим тегом: пин
+называет тег, и подмена ассета изменила бы то, во что разрешается каждый
+существующий пин, при том что сам пин не менялся. Запускайте с новым
+`release_tag` либо задайте `replace_assets`, если осознанно исправляете плохую
+выгрузку.
+
+Как выпустить новый движок: запустите `webrtc-linux` со вкладки Actions (3-5
+часов), запомните тег, который сообщит её задача `publish`, запустите
+`webrtc-windows` с этим тегом в `release_tag`, затем пропишите `ENGINE_RELEASE`
+в соответствующих задачах `release.yml`.
 
 **Для платформ Apple артефактов нет вообще.** Ни один воркфлоу не собирает
 движок под macOS или iOS, качать нечего, и единственный путь — из исходников,
