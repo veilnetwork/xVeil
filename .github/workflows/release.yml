@@ -601,18 +601,20 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # THE DURABLE PIN — see the android job for the full note. Empty
-          # until the first engine release exists.
-          ENGINE_RELEASE: ''
-          # webrtc-windows run 30665287484 (2026-07-31), the newest SUCCESSFUL
-          # one, carrying artifact libveil_media-win-x64. Verified by asking
-          # the API for that run's artifact list rather than by reading the
-          # green tick: a run can succeed overall and upload nothing, and a
-          # run can fail overall while the artifact this job wants is already
-          # safely uploaded from an earlier step.
-          #
-          # EXPIRES 2026-11-10.
-          ENGINE_RUN: '30665287484
+          # THE DURABLE PIN — see the android job for the full note. FILLED
+          # 2026-08-13, last of the three, because Windows was the last engine
+          # to reach the release: the from-source route took an hour and five
+          # minutes and had to be replaced by the prebuilt WebRTC SDK first.
+          # It now builds in under two minutes, which is what made publishing
+          # it a two-minute errand instead of a scheduled event.
+          ENGINE_RELEASE: 'engine-2026.08.13'
+          # DEAD once ENGINE_RELEASE above is set — the branch below is never
+          # taken. Kept as the record of where this engine used to come from:
+          # webrtc-windows run 30665287484 (2026-07-31), whose artifact expires
+          # 2026-10-29. The comment here said 2026-11-10 until the API was
+          # asked; that date belongs to the android artifact. A pin whose
+          # expiry is written down from memory is not pinned to anything.
+          ENGINE_RUN: '30665287484'
           ASSET: 'veil_media-win-x64.dll'
         run: |
           set -euo pipefail
