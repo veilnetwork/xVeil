@@ -15,11 +15,41 @@ name: webrtc-linux
 # OS and ships linux-x86_64 toolchains only), and the runner is one, natively,
 # for free. Emulating x86_64 elsewhere would put the most expensive build in
 # the stack on the slowest possible hardware.
+#
+# The result is attached to a GitHub RELEASE, not left as a run artifact. Run
+# artifacts expire — GitHub deletes them after the retention window and answers
+# 410 Gone forever after — and downloading one needs a credential even here,
+# where the repository is public: the artifact METADATA endpoint answers 200
+# unauthenticated, the zip answers 401. So a pinned run id is a link that both
+# rots on a known date and cannot be followed by a contributor without a token,
+# and the recovery is this five-hour workflow. Release assets on a public repo
+# have neither property. The `publish` job at the bottom is what does it.
 on:
   workflow_dispatch:
     inputs:
       keep_symbols:
         description: 'Skip the strip (bigger .so, symbolicated crashes)'
+        required: false
+        type: boolean
+        default: false
+      publish_release:
+        description: 'Attach the result to a GitHub Release (durable, no token to download)'
+        required: false
+        type: boolean
+        default: true
+      release_tag:
+        description: >-
+          Release to attach to. Blank means engine-YYYY.MM.DD for today (UTC).
+          Name the linux run''s tag here when the windows run should join the
+          same release.
+        required: false
+        type: string
+        default: ''
+      replace_assets:
+        description: >-
+          Overwrite assets already published under that tag. Off by default:
+          a pin names a tag, so replacing an asset changes what every existing
+          pin resolves to.
         required: false
         type: boolean
         default: false
@@ -35,6 +65,11 @@ env:
   # that reads like our code is wrong.
   WEBRTC_PIN: '4ef980bc2c70834276c791e71e7834b8809f24ad'
   WEBRTC_ROOT: /home/runner/webrtc
+  # PINNED (audit X-08); the long note is on the depot_tools step below. It
+  # lives up here as ONE value because both jobs need it and the publish job
+  # records it as provenance — three copies of a pin is how the pin and the
+  # thing it describes drift apart, which this repository has paid for before.
+  DEPOT_TOOLS_PIN: 'e154c8eda5e63cbe85a765ae9d06e2b7af05139e'
 
 jobs:
   engine:
@@ -68,7 +103,7 @@ jobs:
       - name: depot_tools
         run: |
           set -euo pipefail
-          DEPOT_TOOLS_COMMIT=e154c8eda5e63cbe85a765ae9d06e2b7af05139e
+          DEPOT_TOOLS_COMMIT="$DEPOT_TOOLS_PIN"
           git clone --filter=blob:none \
             https://chromium.googlesource.com/chromium/tools/depot_tools.git \
             "$HOME/depot_tools"
@@ -143,13 +178,61 @@ jobs:
       # linked, it bundled, and it would have failed at dlsym on the first
       # call. Comparing the export table against what Dart actually references
       # is the check that turns that into a build failure.
+      # `set -o pipefail` is load-bearing now that this is a pipeline: without
+      # it the exit status would be tee's, which is always 0, and the gate that
+      # exists to catch a stale engine would report success for every engine.
       - name: Every symbol Dart looks up is exported
-        run: bash scripts/check-media-symbols.sh third_party/veil/flutter/veil_media/linux/libveil_media.so
+        run: |
+          set -euo pipefail
+          bash scripts/check-media-symbols.sh \
+            third_party/veil/flutter/veil_media/linux/libveil_media.so \
+            | tee symbol-check.txt
 
+      # An asset with no provenance is the pinned-run problem in a nicer
+      # wrapper: you can download it forever and still not know what it was
+      # built from. This is written HERE, by the job that knows — the WebRTC
+      # and depot_tools pins it actually used, the submodule commit it compiled,
+      # whether it was stripped, and what the symbol gate counted — rather than
+      # reconstructed later by the job that uploads it.
+      - name: Provenance for the linux-x64 asset
+        env:
+          KEEP_SYMBOLS: ${{ inputs.keep_symbols }}
+        run: |
+          set -euo pipefail
+          so=third_party/veil/flutter/veil_media/linux/libveil_media.so
+          mkdir -p provenance
+          {
+            echo "asset:           libveil_media-linux-x64.so"
+            echo "installs-as:     libveil_media.so"
+            echo "sha256:          $(sha256sum "$so" | cut -d' ' -f1)"
+            echo "size:            $(stat -c%s "$so") bytes"
+            echo "built:           $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "webrtc:          $WEBRTC_PIN"
+            echo "depot_tools:     $DEPOT_TOOLS_PIN"
+            echo "xveil-commit:    $GITHUB_SHA"
+            echo "veil-submodule:  $(git -C third_party/veil rev-parse HEAD)"
+            echo "workflow:        webrtc-linux.yml (job: engine)"
+            echo "run:             $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "stripped:        $([ "$KEEP_SYMBOLS" = "true" ] && echo no || echo yes)"
+            echo "symbol-check:    $(cat symbol-check.txt | tr '\n' ' ')"
+          } > "provenance/libveil_media-linux-x64.so.provenance"
+          cat "provenance/libveil_media-linux-x64.so.provenance"
+
+      # Unchanged on purpose: the old run-id route still reads this artifact,
+      # by this name, expecting exactly this one file. The provenance goes up
+      # beside it as its OWN artifact rather than into this one — a second file
+      # here would land in android/app/src/main/jniLibs/arm64-v8a on the android
+      # consumer, which is a directory gradle packages into the APK.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: libveil_media-linux-x64
           path: third_party/veil/flutter/veil_media/linux/libveil_media.so
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: libveil_media-linux-x64-provenance
+          path: provenance/libveil_media-linux-x64.so.provenance
           if-no-files-found: error
 
   # Android needs the same treatment and never got it, which is how v0.9.1
@@ -183,7 +266,7 @@ jobs:
       - name: depot_tools
         run: |
           set -euo pipefail
-          DEPOT_TOOLS_COMMIT=e154c8eda5e63cbe85a765ae9d06e2b7af05139e
+          DEPOT_TOOLS_COMMIT="$DEPOT_TOOLS_PIN"
           git clone --filter=blob:none \
             https://chromium.googlesource.com/chromium/tools/depot_tools.git \
             "$HOME/depot_tools"
@@ -264,11 +347,209 @@ jobs:
             bash third_party/veil/flutter/veil_media/android/build_veil_media_so.sh \
             "$GITHUB_WORKSPACE/engine-out"
 
+      # pipefail, for the reason spelled out in the linux job: tee always exits
+      # 0, so without it this gate would pass on every engine ever built.
       - name: Every symbol Dart looks up is exported
-        run: bash scripts/check-media-symbols.sh "$GITHUB_WORKSPACE/engine-out/libveil_media.so"
+        run: |
+          set -euo pipefail
+          bash scripts/check-media-symbols.sh "$GITHUB_WORKSPACE/engine-out/libveil_media.so" \
+            | tee symbol-check.txt
+
+      - name: Provenance for the android-arm64 asset
+        env:
+          KEEP_SYMBOLS: ${{ inputs.keep_symbols }}
+        run: |
+          set -euo pipefail
+          so="$GITHUB_WORKSPACE/engine-out/libveil_media.so"
+          mkdir -p provenance
+          {
+            echo "asset:           libveil_media-android-arm64.so"
+            echo "installs-as:     libveil_media.so"
+            echo "sha256:          $(sha256sum "$so" | cut -d' ' -f1)"
+            echo "size:            $(stat -c%s "$so") bytes"
+            echo "built:           $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "webrtc:          $WEBRTC_PIN"
+            echo "depot_tools:     $DEPOT_TOOLS_PIN"
+            echo "xveil-commit:    $GITHUB_SHA"
+            echo "veil-submodule:  $(git -C third_party/veil rev-parse HEAD)"
+            echo "workflow:        webrtc-linux.yml (job: engine-android)"
+            echo "run:             $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "stripped:        $([ "$KEEP_SYMBOLS" = "true" ] && echo no || echo yes)"
+            echo "symbol-check:    $(cat symbol-check.txt | tr '\n' ' ')"
+          } > "provenance/libveil_media-android-arm64.so.provenance"
+          cat "provenance/libveil_media-android-arm64.so.provenance"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: libveil_media-android-arm64
           path: engine-out/libveil_media.so
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: libveil_media-android-arm64-provenance
+          path: provenance/libveil_media-android-arm64.so.provenance
+          if-no-files-found: error
+
+  # THE ONLY JOB HERE THAT CAN WRITE.
+  #
+  # Everything above runs depot_tools, `gclient sync` and a WebRTC build:
+  # thousands of lines of third-party build script, executing with whatever
+  # token this workflow hands it. That is exactly why the workflow-wide
+  # `contents: write` was removed from release.yml (audit X-08), and attaching
+  # release assets must not quietly put it back. So the write lives in a job
+  # that does not build anything — it downloads two artifacts, renames them and
+  # uploads. Nothing it runs comes from outside this repository.
+  publish:
+    name: attach to the engine release
+    needs: [engine, engine-android]
+    # `!cancelled()` plus an OR, not the implicit `success()`: these two builds
+    # take five hours each and fail independently. When android dies and linux
+    # does not, the linux engine should still end up somewhere durable rather
+    # than being thrown away for its sibling's sake.
+    # Kept on lines of EQUAL indentation so `>-` folds them into one line.
+    # A deeper-indented continuation is literal in YAML and would leave real
+    # newlines inside the expression.
+    if: >-
+      ${{ !cancelled() && inputs.publish_release
+      && (needs.engine.result == 'success'
+      || needs['engine-android'].result == 'success') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: The release this run attaches to
+        id: tag
+        env:
+          REQUESTED: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag="${REQUESTED:-}"
+          [ -n "$tag" ] || tag="engine-$(date -u +%Y.%m.%d)"
+          # The engine releases share a tag namespace with the app's own
+          # v0.9.1-style releases in this same repository. A mistyped tag would
+          # not fail — it would silently staple a 2 MB .so onto a user-facing
+          # release. The prefix is cheap and makes that impossible.
+          case "$tag" in
+            engine-*) ;;
+            *) echo "::error::release_tag must start with 'engine-' (got '$tag'). Engine releases share this repository with the app's vX.Y.Z releases."; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "attaching to release $tag"
+
+      - name: linux-x64 engine and its provenance
+        if: needs.engine.result == 'success'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: libveil_media-linux-x64*
+          path: incoming/linux
+          merge-multiple: true
+
+      - name: android-arm64 engine and its provenance
+        if: needs['engine-android'].result == 'success'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: libveil_media-android-arm64*
+          path: incoming/android
+          merge-multiple: true
+
+      # The published NAME differs from the built name on purpose: three
+      # platforms all build a file called libveil_media.so, and release assets
+      # share one flat namespace per tag. These names are not free-form — they
+      # are what scripts/xveil_native_deps.py looks for by exact string.
+      - name: Stage the assets under their published names
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          if [ -d incoming/linux ]; then
+            cp incoming/linux/libveil_media.so dist/libveil_media-linux-x64.so
+            cp incoming/linux/libveil_media-linux-x64.so.provenance dist/
+          fi
+          if [ -d incoming/android ]; then
+            cp incoming/android/libveil_media.so dist/libveil_media-android-arm64.so
+            cp incoming/android/libveil_media-android-arm64.so.provenance dist/
+          fi
+          # A publish step that uploads nothing succeeds, and this job's whole
+          # purpose is that it did not.
+          [ -n "$(ls -A dist)" ] || { echo "::error::nothing staged to publish — both engine jobs were skipped or produced no artifact"; exit 1; }
+          ls -la dist/
+          sha256sum dist/*.so
+
+      # A pin names a TAG. Replacing an asset under a tag that is already
+      # pinned changes, silently and retroactively, what every checkout that
+      # names it resolves to — the same class of failure as a run id that
+      # quietly points at a different build. Re-runs of the same day are the
+      # normal way to hit this (a second dispatch, or keep_symbols flipped), so
+      # it refuses by default rather than warning.
+      - name: Refuse to change what an existing pin means
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          REPLACE: ${{ inputs.replace_assets }}
+        run: |
+          set -euo pipefail
+          existing="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+                        --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          if [ -z "$existing" ]; then
+            echo "release $TAG carries no assets yet — nothing can be clobbered"
+            exit 0
+          fi
+          echo "release $TAG already carries:"; echo "$existing" | sed 's/^/  /'
+          clash=0
+          for staged in dist/*; do
+            name="$(basename "$staged")"
+            if grep -qxF -- "$name" <<< "$existing"; then
+              echo "  CLASH: $name is already published under $TAG"
+              clash=1
+            fi
+          done
+          if [ "$clash" = 1 ] && [ "$REPLACE" != "true" ]; then
+            echo "::error::$TAG already carries assets this run would replace. Anything already pinned to $TAG would change meaning without its pin changing. Either dispatch again with a fresh release_tag, or set replace_assets=true if you are deliberately correcting a bad upload."
+            exit 1
+          fi
+
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: call engine ${{ steps.tag.outputs.tag }}
+          # A PRERELEASE, and not because it is unfinished. These are build
+          # INPUTS, not something a person downloads and runs. GitHub never
+          # marks a prerelease "Latest", so the app's own vX.Y.Z release stays
+          # the one the repository front page offers — which it would not if
+          # every engine build outranked it by date.
+          prerelease: true
+          # The windows engine is built by a different workflow on a different
+          # host and lands here as a SECOND run against the same tag. Appending
+          # lets it add its own block instead of overwriting linux's.
+          append_body: true
+          # The tag is created at the commit of whichever run got here first;
+          # the other run's commit is recorded in its own .provenance asset, so
+          # nothing is lost when they differ.
+          target_commitish: ${{ github.sha }}
+          files: dist/*
+          fail_on_unmatched_files: true
+          body: |
+            Prebuilt `libveil_media` call engines. Build inputs, not a download
+            for users — the app releases are the `v*` tags.
+
+            These are Release assets rather than run artifacts because run
+            artifacts expire on a fixed date and need a credential to download
+            even from a public repository. These do neither.
+
+            **Every asset has a sibling `.provenance` file — that is the
+            authoritative record** of the WebRTC pin, the depot_tools pin, the
+            submodule commit, the sha256 and what the symbol gate counted.
+
+            ---
+
+            ### From webrtc-linux.yml
+
+            | | |
+            |---|---|
+            | WebRTC pin | `${{ env.WEBRTC_PIN }}` |
+            | depot_tools pin | `${{ env.DEPOT_TOOLS_PIN }}` |
+            | xVeil commit | `${{ github.sha }}` |
+            | built by | ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} |
+
+            Consumed by pinning `ENGINE_RELEASE: '${{ steps.tag.outputs.tag }}'`
+            in the matching job of `.github/workflows/release.yml`.
