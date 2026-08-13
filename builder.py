@@ -499,6 +499,15 @@ def _android(release: bool) -> list[Step]:
             skip_if=(
                 "" if have("bash") else "needs bash — the freshness gate below decides"
             ),
+            # THIS is the step libhidden_volume_ffi.so comes out of, and it was
+            # the one step in an APK build without the remap. The flutter step
+            # below has carried it since the 186-hit APK, which made the
+            # environment look handled — but gradle never builds this library
+            # (see the comment above), so nothing the flutter step exports can
+            # reach it. A release APK built here still named its owner 49 times,
+            # one $HOME/.cargo/registry path per panic site in tokio, uniffi,
+            # argon2 and the rest.
+            env=_path_remap_env(),
         )
     ]
     whisper = _whisper_script("android")
@@ -512,6 +521,8 @@ def _android(release: bool) -> list[Step]:
                 if whisper and have("bash")
                 else "no build script for this host"
             ),
+            # Same reason: it compiles C++ here rather than under gradle.
+            env=_path_remap_env(),
         )
     )
     if release:

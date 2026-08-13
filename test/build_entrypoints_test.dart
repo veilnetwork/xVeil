@@ -183,6 +183,55 @@ except RuntimeError as error:
       expect(out, contains('ACCEPTED-WITH-ENGINE'));
     });
 
+    test('every android step that compiles carries the path remap', () {
+      // `_path_remap_env()` existed, was documented, and was attached to the
+      // `flutter build apk` step only. That looked like the environment was
+      // handled — but gradle does not build libhidden_volume_ffi.so (see the
+      // comment on the first android step), so the one library the flutter
+      // step cannot reach was also the one library nothing remapped. A release
+      // APK built here carried 49 $HOME/.cargo paths inside it, one per panic
+      // site in tokio, uniffi, argon2 and the rest, while the published APK
+      // built on a runner carried none.
+      //
+      // Asserted over EVERY argv step rather than by naming the one that was
+      // wrong: the defect is "a step that compiles was added without the
+      // environment", so the next such step has to fail this too.
+      final temp = Directory.systemTemp.createTempSync('xveil_remap');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final probe = File('${temp.path}/probe.py')..writeAsStringSync('''
+import sys
+sys.path.insert(0, ${_pyStr(Directory.current.path)})
+import builder
+for step in builder._android(release=True):
+    if not step.argv:
+        continue
+    rustflags = step.env.get("CARGO_BUILD_RUSTFLAGS", "")
+    cxxflags = step.env.get("CXXFLAGS", "")
+    ok = "--remap-path-prefix=" in rustflags and "-ffile-prefix-map=" in cxxflags
+    print(("REMAPPED " if ok else "BARE ") + step.title)
+''');
+      final result = Process.runSync(python!, [probe.path]);
+      expect(result.exitCode, 0, reason: result.stderr.toString());
+      final bare = result.stdout
+          .toString()
+          .split('\n')
+          .where((line) => line.startsWith('BARE '))
+          .toList();
+      expect(
+        bare,
+        isEmpty,
+        reason:
+            'these steps compile native code with no path remapping, so the '
+            "builder's account name goes into the APK: ${bare.join(', ')}",
+      );
+      expect(
+        result.stdout.toString(),
+        contains('REMAPPED'),
+        reason:
+            'no argv steps at all would make this pass by checking nothing',
+      );
+    });
+
     test('a debug android build does NOT claim to check signing', () {
       // The check belongs to the build that gets distributed. Running it on a
       // debug build would train people to ignore it.
