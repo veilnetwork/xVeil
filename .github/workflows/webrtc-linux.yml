@@ -84,11 +84,11 @@ env:
   # fetch-sdk.sh is code from another repository, executed in this job. A
   # commit sha is immutable; `main` is whatever was pushed this morning.
   #
-  # NOTE: this commit is on veilnetwork/libwebrtc-builds' branch
-  # `fix/windows-setup-needs-pwsh`, not on its main — it is the fix that makes
-  # the win-x64 branch work at all (see webrtc-windows.yml). Repoint this at
-  # the merge commit once that branch lands; until then the branch must not be
-  # deleted, or this sha stops being fetchable.
+  # This revision is the pwsh fix that makes the win-x64 branch work at all
+  # (see webrtc-windows.yml). It was merged into that repository's main by
+  # fast-forward, which is why the sha here did not change on merging: the
+  # commit itself is now on main's history, so nothing has to be repointed and
+  # no branch has to be kept alive for this pin to stay fetchable.
   VEIL_SDK_SCRIPT_PIN: 'deef316260886f36e2fde02e037d6bd5d1315c77'
   # The gn arguments the published bundles were built with, copied verbatim
   # from each manifest's `gn_args` (gn's own normalised form: one `key = value`
