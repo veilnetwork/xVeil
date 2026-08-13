@@ -14,11 +14,37 @@ name: webrtc-windows
 # DEPOT_TOOLS_WIN_TOOLCHAIN=0 is not optional: without it depot_tools tries to
 # fetch Google's internal Visual Studio package and fails with an access error
 # that reads like a network problem.
+#
+# Like webrtc-linux.yml, the result is attached to a GitHub RELEASE and not
+# left as a run artifact — artifacts expire and need a credential to download.
+# It attaches to the SAME release as the linux engines: pass that run's tag as
+# `release_tag` so all three engines from one WebRTC pin sit together.
 on:
   workflow_dispatch:
     inputs:
       keep_symbols:
         description: 'Skip the strip (bigger .dll, symbolicated crashes)'
+        required: false
+        type: boolean
+        default: false
+      publish_release:
+        description: 'Attach the result to a GitHub Release (durable, no token to download)'
+        required: false
+        type: boolean
+        default: true
+      release_tag:
+        description: >-
+          Release to attach to. Blank means engine-YYYY.MM.DD for today (UTC).
+          Set this to the tag the webrtc-linux run used so all three engines
+          land in one release.
+        required: false
+        type: string
+        default: ''
+      replace_assets:
+        description: >-
+          Overwrite assets already published under that tag. Off by default:
+          a pin names a tag, so replacing an asset changes what every existing
+          pin resolves to.
         required: false
         type: boolean
         default: false
@@ -33,6 +59,9 @@ env:
   WEBRTC_PIN: '4ef980bc2c70834276c791e71e7834b8809f24ad'
   WEBRTC_ROOT: 'C:\webrtc'
   DEPOT_TOOLS_WIN_TOOLCHAIN: '0'
+  # PINNED (audit X-08) — see webrtc-linux.yml. Hoisted out of the step so the
+  # publish job can record which one built the .dll.
+  DEPOT_TOOLS_PIN: 'e154c8eda5e63cbe85a765ae9d06e2b7af05139e'
 
 jobs:
   engine-windows:
@@ -66,7 +95,7 @@ jobs:
         shell: pwsh
         run: |
           git clone --filter=blob:none https://chromium.googlesource.com/chromium/tools/depot_tools.git C:\depot_tools
-          git -C C:\depot_tools checkout --detach e154c8eda5e63cbe85a765ae9d06e2b7af05139e
+          git -C C:\depot_tools checkout --detach $env:DEPOT_TOOLS_PIN
           # Without this depot_tools self-updates on first use and undoes the pin.
           "DEPOT_TOOLS_UPDATE=0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "C:\depot_tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
@@ -193,13 +222,175 @@ jobs:
           $looked = $looked | Where-Object { $_ -notin @('veil_media_send_datagram', 'veil_media_set_recv_callback') }
           $missing = $looked | Where-Object { $_ -notin $exported }
           Write-Host "exported: $($exported.Count), looked up: $($looked.Count)"
+          # Recorded for the provenance asset. Written before the verdict, not
+          # instead of it: the exit below is untouched, so a short engine still
+          # kills the job and nothing reaches the release.
+          "PE: exported $($exported.Count)   looked up by Dart: $($looked.Count)" |
+            Set-Content -Path "$env:GITHUB_WORKSPACE\symbol-check.txt" -Encoding utf8
           if ($missing) {
             Write-Host "::error::the engine does not export: $($missing -join ', ')"
             exit 1
           }
 
+      # An asset with no provenance is the pinned-run problem in a nicer
+      # wrapper. Written by the job that knows what it actually used.
+      - name: Provenance for the win-x64 asset
+        shell: pwsh
+        env:
+          KEEP_SYMBOLS: ${{ inputs.keep_symbols }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dll = "$env:GITHUB_WORKSPACE\engine-out\veil_media.dll"
+          $sha = (Get-FileHash -Algorithm SHA256 $dll).Hash.ToLower()
+          $size = (Get-Item $dll).Length
+          $veil = (& git -C third_party\veil rev-parse HEAD).Trim()
+          $check = (Get-Content "$env:GITHUB_WORKSPACE\symbol-check.txt" -Raw).Trim()
+          $stripped = if ($env:KEEP_SYMBOLS -eq 'true') { 'no' } else { 'yes' }
+          New-Item -ItemType Directory -Force -Path provenance | Out-Null
+          $lines = @(
+            "asset:           veil_media-win-x64.dll"
+            "installs-as:     veil_media.dll"
+            "sha256:          $sha"
+            "size:            $size bytes"
+            "built:           $((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))"
+            "webrtc:          $env:WEBRTC_PIN"
+            "depot_tools:     $env:DEPOT_TOOLS_PIN"
+            "xveil-commit:    $env:GITHUB_SHA"
+            "veil-submodule:  $veil"
+            "workflow:        webrtc-windows.yml (job: engine-windows)"
+            "run:             $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            "stripped:        $stripped"
+            "symbol-check:    $check"
+          )
+          # ASCII, not PowerShell's default UTF-16: this file is read on a Linux
+          # runner and by anyone who downloads it, and a BOM'd UTF-16 text file
+          # reads as binary garbage there.
+          $lines | Set-Content -Path "provenance\veil_media-win-x64.dll.provenance" -Encoding ascii
+          Get-Content "provenance\veil_media-win-x64.dll.provenance"
+
+      # Unchanged: the old run-id route still reads this artifact, by this
+      # name, expecting exactly this one file.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: libveil_media-win-x64
           path: engine-out/veil_media.dll
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: libveil_media-win-x64-provenance
+          path: provenance/veil_media-win-x64.dll.provenance
+          if-no-files-found: error
+
+  # THE ONLY JOB HERE THAT CAN WRITE — same split as webrtc-linux.yml and for
+  # the same reason (audit X-08). The build job above runs depot_tools, gclient
+  # and a multi-hour WebRTC build under a read-only token; this one downloads
+  # two artifacts and uploads them, and runs nothing from outside this
+  # repository.
+  #
+  # On ubuntu, not windows: it does not touch the DLL, and a Windows runner for
+  # two downloads and an upload is a slower, more expensive way to do the same
+  # thing in a second shell dialect.
+  publish:
+    name: attach to the engine release
+    needs: [engine-windows]
+    if: ${{ !cancelled() && inputs.publish_release && needs['engine-windows'].result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: The release this run attaches to
+        id: tag
+        env:
+          REQUESTED: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag="${REQUESTED:-}"
+          [ -n "$tag" ] || tag="engine-$(date -u +%Y.%m.%d)"
+          # See webrtc-linux.yml: engine releases share a tag namespace with the
+          # app's own vX.Y.Z releases, and a mistyped tag would staple a DLL
+          # onto a user-facing release rather than fail.
+          case "$tag" in
+            engine-*) ;;
+            *) echo "::error::release_tag must start with 'engine-' (got '$tag'). Engine releases share this repository with the app's vX.Y.Z releases."; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "attaching to release $tag"
+
+      - name: win-x64 engine and its provenance
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: libveil_media-win-x64*
+          path: incoming/windows
+          merge-multiple: true
+
+      # veil_media-win-x64.dll, not libveil_media-win-x64.dll: the Windows
+      # engine has never carried the lib prefix, and this name is not
+      # free-form — scripts/xveil_native_deps.py looks for it by exact string.
+      - name: Stage the assets under their published names
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp incoming/windows/veil_media.dll dist/veil_media-win-x64.dll
+          cp incoming/windows/veil_media-win-x64.dll.provenance dist/
+          ls -la dist/
+          sha256sum dist/*.dll
+
+      - name: Refuse to change what an existing pin means
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          REPLACE: ${{ inputs.replace_assets }}
+        run: |
+          set -euo pipefail
+          existing="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+                        --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          if [ -z "$existing" ]; then
+            echo "release $TAG carries no assets yet — nothing can be clobbered"
+            exit 0
+          fi
+          echo "release $TAG already carries:"; echo "$existing" | sed 's/^/  /'
+          clash=0
+          for staged in dist/*; do
+            name="$(basename "$staged")"
+            if grep -qxF -- "$name" <<< "$existing"; then
+              echo "  CLASH: $name is already published under $TAG"
+              clash=1
+            fi
+          done
+          if [ "$clash" = 1 ] && [ "$REPLACE" != "true" ]; then
+            echo "::error::$TAG already carries assets this run would replace. Anything already pinned to $TAG would change meaning without its pin changing. Either dispatch again with a fresh release_tag, or set replace_assets=true if you are deliberately correcting a bad upload."
+            exit 1
+          fi
+
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: call engine ${{ steps.tag.outputs.tag }}
+          # Build inputs, not a user download — see webrtc-linux.yml.
+          prerelease: true
+          # This run is usually the SECOND one against this tag (linux first,
+          # windows after). Appending adds this block instead of overwriting
+          # what the linux run wrote.
+          append_body: true
+          target_commitish: ${{ github.sha }}
+          files: dist/*
+          fail_on_unmatched_files: true
+          # Repeats the one-line pointer rather than assuming the linux run
+          # already wrote the preamble: windows can be the first run against a
+          # tag, and a release whose body is a bare table explains nothing.
+          body: |
+            ### From webrtc-windows.yml
+
+            Prebuilt call engine — a build input, not a download for users. The
+            sibling `.provenance` asset is the authoritative record.
+
+            | | |
+            |---|---|
+            | WebRTC pin | `${{ env.WEBRTC_PIN }}` |
+            | depot_tools pin | `${{ env.DEPOT_TOOLS_PIN }}` |
+            | xVeil commit | `${{ github.sha }}` |
+            | built by | ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} |
+
+            Consumed by pinning `ENGINE_RELEASE: '${{ steps.tag.outputs.tag }}'`
+            in the `windows` job of `.github/workflows/release.yml`.

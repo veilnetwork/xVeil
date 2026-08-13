@@ -13,13 +13,32 @@ name: release
 # Gatekeeper refuses the result outright, so the build would produce something
 # nobody can run. Windows has no such gate — see the SmartScreen note there.
 #
-# Linux carries one thing this job cannot build: the call engine is a prebuilt
-# libveil_media.so, and producing it needs a from-source WebRTC checkout —
-# hours and tens of GB, more than a release job should hold. The webrtc-linux
-# workflow makes it by hand and this one pins the run that did. That pin is the
-# part that rots, so the engine is checked against the symbols Dart looks up
-# before anything is built with it: the copy this replaced was twelve commits
-# behind and would have failed at dlsym on the first call.
+# Every platform here carries one thing this job cannot build: the call engine
+# is a prebuilt libveil_media, and producing it needs a from-source WebRTC
+# checkout — hours and tens of GB, more than a release job should hold. The
+# webrtc-linux and webrtc-windows workflows make it by hand and this one pins
+# what they produced.
+#
+# TWO ROUTES, and which one a job takes is decided by which variable is set,
+# never by which download happened to work:
+#
+#   ENGINE_RELEASE — a GitHub Release tag. Preferred. Release assets on a
+#     public repository never expire and download with no credential at all.
+#   ENGINE_RUN — a workflow run id, whose ARTIFACTS expire on a fixed date and
+#     need a token even here. This is the old route, kept working so the switch
+#     is per-platform rather than a flag day.
+#
+# A job with ENGINE_RELEASE set does NOT fall back to ENGINE_RUN when the
+# release download fails. A silent fallback would answer "the durable pin is
+# broken" by quietly building against an older engine, which is the exact
+# stale-prebuilt failure this repository keeps paying for. scripts/
+# xveil_native_deps.py makes the same choice in the same order, so a laptop and
+# CI cannot disagree about which engine they are building against.
+#
+# Whichever route delivers it, the engine is then checked against the symbols
+# Dart looks up, from OUTSIDE the branch that fetched it — the copy this
+# replaced was twelve commits behind and would have failed at dlsym on the
+# first call, and a new download path must not be a way around that.
 on:
   push:
     tags:
@@ -49,6 +68,14 @@ env:
   # whoever pushed to it last.
   WHISPER_REPO: 'https://github.com/ggml-org/whisper.cpp.git'
   WHISPER_COMMIT: '7695a5331230c585f5ce92291c4256973985ae5a'
+  # Where the engine RELEASES live, spelled out rather than taken from
+  # github.repository. A fork's releases are its own and it has never run the
+  # five-hour WebRTC build, so a fork resolving its own name would 404 on
+  # something it was never going to have. Release assets are public, so
+  # fetching upstream's needs no credential and no arrangement — which is the
+  # whole reason this route exists. Same constant as UPSTREAM in
+  # scripts/xveil_native_deps.py.
+  ENGINE_REPO: 'veilnetwork/xVeil'
 
 jobs:
   # THE GATE. A tag runs it unconditionally, and nothing is built until it is
@@ -264,6 +291,16 @@ jobs:
       - name: Prebuilt call engine
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # THE DURABLE PIN. Set this to the engine release tag once the
+          # android engine has been published to one — webrtc-linux.yml's
+          # publish job prints the exact line to paste. It takes precedence
+          # over ENGINE_RUN below, and once it is set the run id is dead
+          # weight kept only for the record.
+          #
+          # Empty on purpose right now: no engine release exists yet, and a
+          # pin naming a release that is not there would break every tag from
+          # the moment it was written. Filling it in is a one-line change.
+          ENGINE_RELEASE: ''
           # webrtc-linux run 31609030118 (12 August), the FIRST run whose
           # engine-android job ever finished. Every earlier run carried
           # libveil_media-linux-x64 and nothing else, so there was no android
@@ -275,17 +312,42 @@ jobs:
           # Verified by asking the API for that run's artifact list, not by
           # reading the green tick: libveil_media-android-arm64, 2227014 bytes,
           # and the job's own check reports 87 exported / 87 looked up by Dart.
+          #
+          # THIS ARTIFACT EXPIRES on 2026-11-10. That is the date this pin
+          # becomes a dead link and the recovery becomes a 43-minute run.
           ENGINE_RUN: '31609030118'
+          ASSET: 'libveil_media-android-arm64.so'
         run: |
           set -euo pipefail
-          if [ -z "$ENGINE_RUN" ]; then
-            echo "::error::ANDROID call engine is not pinned. Run the webrtc-linux workflow (engine-android job), then set ENGINE_RUN here to its run id. Without it the APK builds and cannot do voice messages, video notes, calls or speech-to-text."
-            exit 1
-          fi
           dest=android/app/src/main/jniLibs/arm64-v8a
           mkdir -p "$dest"
-          gh run download "$ENGINE_RUN" -n libveil_media-android-arm64 -D "$dest"
+          if [ -n "${ENGINE_RELEASE:-}" ]; then
+            echo "engine: release $ENGINE_RELEASE from $ENGINE_REPO (no credential)"
+            base="$GITHUB_SERVER_URL/$ENGINE_REPO/releases/download/$ENGINE_RELEASE"
+            # Into RUNNER_TEMP, not into dest: everything in a jniLibs ABI
+            # directory is a candidate for packaging into the APK, and the
+            # provenance record is documentation, not a native library.
+            prov="$RUNNER_TEMP/$ASSET.provenance"
+            curl -fL --retry 3 --retry-delay 5 --max-time 300 -o "$dest/libveil_media.so" "$base/$ASSET"
+            curl -fL --retry 3 --retry-delay 5 --max-time 60 -o "$prov" "$base/$ASSET.provenance"
+            echo "--- provenance ---"; cat "$prov"; echo "------------------"
+            want="$(awk '/^sha256:/{print $2}' "$prov")"
+            got="$(sha256sum "$dest/libveil_media.so" | cut -d' ' -f1)"
+            [ -n "$want" ] || { echo "::error::$ASSET.provenance carries no sha256 line — it is not the record it claims to be"; exit 1; }
+            [ "$want" = "$got" ] || { echo "::error::the downloaded engine is not the one its provenance describes (recorded $want, got $got)"; exit 1; }
+            echo "sha256 matches the published provenance"
+          elif [ -n "${ENGINE_RUN:-}" ]; then
+            echo "engine: run artifact $ENGINE_RUN — the EXPIRING route"
+            echo "::warning::the android engine still comes from a run artifact, which expires and needs a token. Publish it to an engine release and set ENGINE_RELEASE."
+            gh run download "$ENGINE_RUN" -n libveil_media-android-arm64 -D "$dest"
+          else
+            echo "::error::ANDROID call engine is not pinned. Run the webrtc-linux workflow (engine-android job) and set ENGINE_RELEASE here to the tag its publish job attached to. Without it the APK builds and cannot do voice messages, video notes, calls or speech-to-text."
+            exit 1
+          fi
           ls -la "$dest/libveil_media.so"
+          # OUTSIDE the branch, deliberately. This is the check that caught an
+          # engine twelve commits behind, and a new way of fetching the file
+          # must not also be a new way around it.
           bash scripts/check-media-symbols.sh "$dest/libveil_media.so"
 
       # builder.py is the same entry point used by hand, so CI and a laptop
@@ -371,10 +433,9 @@ jobs:
       # checkout that does not fit in a release job. The webrtc-linux workflow
       # produces it by hand; this pins the run that did.
       #
-      # Update ENGINE_RUN whenever veil_media/src changes, and note that run
-      # artifacts expire — if the download 404s, re-run webrtc-linux and pin
-      # the new id. The symbol check below is what makes a stale pin loud
-      # rather than a call that fails at dlsym on someone's machine.
+      # Update the pin whenever veil_media/src changes. The symbol check below
+      # is what makes a stale pin loud rather than a call that fails at dlsym
+      # on someone's machine.
       #
       # This pin WAS 30377834797 (28 July), whose artifact exports 78 of the 87
       # symbols the Dart layer looks up — camera-device selection, all five
@@ -392,12 +453,39 @@ jobs:
       - name: Prebuilt call engine
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # THE DURABLE PIN — see the android job for the full note. Empty
+          # until the first engine release exists; then this one line replaces
+          # the expiring route below.
+          ENGINE_RELEASE: ''
+          # EXPIRES 2026-11-10.
           ENGINE_RUN: '31609030118'
+          ASSET: 'libveil_media-linux-x64.so'
         run: |
           set -euo pipefail
           dest=third_party/veil/flutter/veil_media/linux
-          gh run download "$ENGINE_RUN" -n libveil_media-linux-x64 -D "$dest"
+          mkdir -p "$dest"
+          if [ -n "${ENGINE_RELEASE:-}" ]; then
+            echo "engine: release $ENGINE_RELEASE from $ENGINE_REPO (no credential)"
+            base="$GITHUB_SERVER_URL/$ENGINE_REPO/releases/download/$ENGINE_RELEASE"
+            prov="$RUNNER_TEMP/$ASSET.provenance"
+            curl -fL --retry 3 --retry-delay 5 --max-time 300 -o "$dest/libveil_media.so" "$base/$ASSET"
+            curl -fL --retry 3 --retry-delay 5 --max-time 60 -o "$prov" "$base/$ASSET.provenance"
+            echo "--- provenance ---"; cat "$prov"; echo "------------------"
+            want="$(awk '/^sha256:/{print $2}' "$prov")"
+            got="$(sha256sum "$dest/libveil_media.so" | cut -d' ' -f1)"
+            [ -n "$want" ] || { echo "::error::$ASSET.provenance carries no sha256 line — it is not the record it claims to be"; exit 1; }
+            [ "$want" = "$got" ] || { echo "::error::the downloaded engine is not the one its provenance describes (recorded $want, got $got)"; exit 1; }
+            echo "sha256 matches the published provenance"
+          elif [ -n "${ENGINE_RUN:-}" ]; then
+            echo "engine: run artifact $ENGINE_RUN — the EXPIRING route"
+            echo "::warning::the linux engine still comes from a run artifact, which expires and needs a token. Publish it to an engine release and set ENGINE_RELEASE."
+            gh run download "$ENGINE_RUN" -n libveil_media-linux-x64 -D "$dest"
+          else
+            echo "::error::LINUX call engine is not pinned. Run the webrtc-linux workflow and set ENGINE_RELEASE here to the tag its publish job attached to. Without it veil_media/linux/CMakeLists.txt refuses to configure."
+            exit 1
+          fi
           ls -la "$dest/libveil_media.so"
+          # OUTSIDE the branch — see the android job.
           bash scripts/check-media-symbols.sh "$dest/libveil_media.so"
 
       - name: Build the bundle
@@ -491,21 +579,59 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # THE DURABLE PIN — see the android job for the full note. Empty
+          # until the first engine release exists.
+          ENGINE_RELEASE: ''
           # webrtc-windows run 30665287484 (2026-07-31), the newest SUCCESSFUL
           # one, carrying artifact libveil_media-win-x64. Verified by asking
           # the API for that run's artifact list rather than by reading the
           # green tick: a run can succeed overall and upload nothing, and a
           # run can fail overall while the artifact this job wants is already
           # safely uploaded from an earlier step.
+          #
+          # EXPIRES 2026-11-10.
           ENGINE_RUN: '30665287484'
+          ASSET: 'veil_media-win-x64.dll'
         run: |
           set -euo pipefail
-          if [ -z "$ENGINE_RUN" ]; then
-            echo "::error::WINDOWS call engine is not pinned. Run the webrtc-windows workflow, then set ENGINE_RUN here to its run id. Without it the bundle builds and cannot do voice messages, video notes, calls or speech-to-text."
+          dest=third_party/veil/flutter/veil_media/windows
+          mkdir -p "$dest"
+          if [ -n "${ENGINE_RELEASE:-}" ]; then
+            echo "engine: release $ENGINE_RELEASE from $ENGINE_REPO (no credential)"
+            base="$GITHUB_SERVER_URL/$ENGINE_REPO/releases/download/$ENGINE_RELEASE"
+            # A plain relative path, not RUNNER_TEMP: this is Git Bash, where
+            # RUNNER_TEMP is a backslashed Windows path and every tool that
+            # touches it needs a different opinion about escaping.
+            prov="engine-win-x64.provenance"
+            curl -fL --retry 3 --retry-delay 5 --max-time 300 -o "$dest/veil_media.dll" "$base/$ASSET"
+            curl -fL --retry 3 --retry-delay 5 --max-time 60 -o "$prov" "$base/$ASSET.provenance"
+            echo "--- provenance ---"; cat "$prov"; echo "------------------"
+            want="$(awk '/^sha256:/{print $2}' "$prov")"
+            got="$(sha256sum "$dest/veil_media.dll" | cut -d' ' -f1)"
+            [ -n "$want" ] || { echo "::error::$ASSET.provenance carries no sha256 line — it is not the record it claims to be"; exit 1; }
+            [ "$want" = "$got" ] || { echo "::error::the downloaded engine is not the one its provenance describes (recorded $want, got $got)"; exit 1; }
+            # Windows is the one platform where this job does NOT re-run the
+            # symbol gate: check-media-symbols.sh reads a PE with objdump, and
+            # a windows-latest runner has no objdump to read it with — the
+            # gate would abort on a missing tool rather than judge the engine.
+            # It runs at BUILD time instead, in webrtc-windows.yml, via
+            # dumpbin. The sha256 above proves this DLL is that exact binary,
+            # so the line below is that gate's verdict travelling with it.
+            # Asserted rather than printed: a provenance record nobody checks
+            # decays into decoration.
+            grep -q '^symbol-check: *PE: exported [0-9]' "$prov" \
+              || { echo "::error::$ASSET.provenance records no symbol-check verdict. This is the only evidence the Windows engine exports what Dart looks up, because the gate cannot run on this host."; exit 1; }
+            echo "sha256 matches the published provenance, which records:"
+            grep '^symbol-check:' "$prov"
+            rm -f "$prov"
+          elif [ -n "${ENGINE_RUN:-}" ]; then
+            echo "engine: run artifact $ENGINE_RUN — the EXPIRING route"
+            echo "::warning::the windows engine still comes from a run artifact, which expires and needs a token. Publish it to an engine release and set ENGINE_RELEASE."
+            gh run download "$ENGINE_RUN" -n libveil_media-win-x64 -D "$dest"
+          else
+            echo "::error::WINDOWS call engine is not pinned. Run the webrtc-windows workflow and set ENGINE_RELEASE here to the tag its publish job attached to. Without it the bundle builds and cannot do voice messages, video notes, calls or speech-to-text."
             exit 1
           fi
-          dest=third_party/veil/flutter/veil_media/windows
-          gh run download "$ENGINE_RUN" -n libveil_media-win-x64 -D "$dest"
           ls -la "$dest/veil_media.dll"
 
       # `python3` is not the name on a Windows runner.
