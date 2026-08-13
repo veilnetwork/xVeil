@@ -35,10 +35,11 @@ bundle shipped a `veilclient_ffi.dll` that exported nothing at all, so the app
 on Windows had no way to reach the network; it now exports 131 entry points,
 measured on the built artifact rather than inferred from a green build.
 
-All three call engines are now built and pinned (`ENGINE_RUN` for android,
-linux and windows), so the release workflow no longer stops on a missing
-engine. What remains before publishing is in the release checklist at the
-bottom of this entry.
+All three call engines are now built and pinned to a GitHub Release
+(`ENGINE_RELEASE: engine-2026.08.13`), whose assets never expire and download
+with no credential — the run-artifact route they used before needed a token
+and would have gone dead in October. What remains before publishing is in the
+release checklist at the bottom of this entry.
 
 ### Security
 
@@ -210,13 +211,26 @@ bottom of this entry.
    which was pointing at a run whose overall conclusion was `failure`.
 3. ~~Run `webrtc-windows`, fix what the never-compiled port gets wrong, pin its
    run id.~~ Done: run 30665287484, artifact `libveil_media-win-x64`.
-4. Publish the first engine release and fill `ENGINE_RELEASE` in `release.yml`.
-   The workflows now attach `libveil_media` to a GitHub Release instead of
-   leaving it as a run artifact, and the consumer takes that route when the
-   variable is set. It is deliberately EMPTY today: no engine release exists
-   yet, and pinning a tag that is not there would break every tag push at once.
-   Until it is filled, the run-id pins still work — and they **expire on
-   2026-11-10**, which is the whole reason this item exists.
+4. ~~Publish the first engine release and fill `ENGINE_RELEASE` in
+   `release.yml`.~~ Done: **`engine-2026.08.13`**, carrying all three engines
+   with a provenance record each. Every one was checked by downloading it back
+   with no credential and comparing its sha256 against its own record — android
+   4 462 721 B, linux 5 519 456 B, windows 5 755 392 B, and 87 of 87 symbols on
+   each. Release assets do not expire; the run artifacts these replace would
+   have died on 2026-10-29 (windows) and 2026-11-10 (android and linux — the
+   date this item quoted for all of them, which was only ever the android one).
+
+   Windows was filled last and separately, because its engine took an hour and
+   five minutes to build from source. Moving both engine workflows onto a
+   prebuilt WebRTC SDK cut that to one minute fifty-four, and linux and android
+   from forty-five minutes to one — after which publishing the missing engine
+   was a two-minute errand rather than something to schedule.
+
+   Verifying it the way the release job does is what caught the last defect
+   before this tag: the windows record was written with CRLF line endings, so
+   the hash parsed out of it carried a carriage return and compared unequal to
+   a byte-identical DLL. A tag pushed an hour earlier would have failed on
+   Windows, accusing a correct engine of being the wrong binary.
 5. Tag xVeil; then DOWNLOAD the published artifacts and open them before
    announcing anything — that is what v0.9.1 skipped.
 
