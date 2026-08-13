@@ -38,6 +38,20 @@ manager — copy it to the phone and open it there if `adb install` is blocked.
 does not have a certificate yet, so this warning is expected rather than a sign
 of a bad download. Verify the file against the release page if in doubt.
 
+**Unpack it somewhere OneDrive does not sync — not the Desktop, not Documents.**
+Those folders are redirected into OneDrive on most Windows installs, and with
+Files On-Demand a file is a placeholder until something opens it: Explorer shows
+the name and the size, and the bytes are not on the disk. Windows cannot load a
+DLL that is a placeholder, and the app cannot read its bundled configuration
+from one. The first three reports of v0.10.0 were all this, wearing three
+different masks — *"the system cannot find hidden_volume_plugin.dll"* for a file
+sitting right there, then a node that would not start. `C:\Users\<you>\Apps\xveil`
+or anywhere off the synced tree is fine.
+
+If you would rather keep it where it is: right-click the extracted folder →
+*Always keep on this device*, and wait until every file shows a green tick
+rather than the blue sync arrows.
+
 ### Linux
 
 Built on Ubuntu 24.04, so it needs that glibc or newer. It will not start on
@@ -148,6 +162,20 @@ APK ставится напрямую. Некоторые оболочки (за
 PC»: *Подробнее* → *Выполнить в любом случае*. Подпись Authenticode стоит
 денег, сертификата у проекта пока нет — то есть предупреждение ожидаемо и не
 означает испорченной загрузки. Сомневаетесь — сверьте файл со страницей релиза.
+
+**Распаковывайте туда, где нет синхронизации OneDrive — не на Рабочий стол и не
+в Документы.** На большинстве установок Windows эти папки перенаправлены в
+OneDrive, а при включённой подгрузке по требованию файл до первого обращения
+остаётся заполнителем: имя и размер в проводнике видны, а байтов на диске нет.
+Windows не может загрузить библиотеку-заполнитель, а приложение не может
+прочитать из неё свою настройку. Первые три отчёта о v0.10.0 оказались именно
+этим в трёх разных обличьях — «система не обнаружила hidden_volume_plugin.dll»
+про файл, лежащий на месте, а затем узел, который не стартует. Подойдёт
+`C:\Users\<вы>\Apps\xveil` или любое место вне синхронизируемого дерева.
+
+Если переносить не хочется: правой кнопкой по распакованной папке → «Всегда
+сохранять на этом устройстве», и дождитесь, чтобы у всех файлов была зелёная
+галочка, а не синие стрелки синхронизации.
 
 ### Linux
 
