@@ -195,15 +195,37 @@ bottom of this entry.
 ### Release checklist
 
 1. ~~Tag veil and hidden-volume, and repoint the pins at those tags.~~ Done:
-   v0.4.2 and v1.2.3.
+   **veil v0.5.2** and **hidden-volume v2.0.0**, both published with their
+   assets and both opened before publishing rather than after — the mac
+   `veil-cli` runs and reports `0.5.2`, and its published checksum matches the
+   binary downloaded back from the release.
+
+   This item said v0.4.2 and v1.2.3 for a while after it stopped being true.
+   Both pins had drifted off their tags — hidden-volume by one commit, veil by
+   164 — so the line naming what this release was built on was wrong, which is
+   the one thing the header of this file promises it is not.
 2. ~~Run the `webrtc-linux` workflow (job `engine-android`), pin its run id in
    `release.yml`.~~ Done: run 31609030118, artifact
    `libveil_media-android-arm64`, 87/87 symbols. The same run repins linux,
    which was pointing at a run whose overall conclusion was `failure`.
 3. ~~Run `webrtc-windows`, fix what the never-compiled port gets wrong, pin its
    run id.~~ Done: run 30665287484, artifact `libveil_media-win-x64`.
-4. Tag xVeil; then DOWNLOAD the published artifacts and open them before
+4. Publish the first engine release and fill `ENGINE_RELEASE` in `release.yml`.
+   The workflows now attach `libveil_media` to a GitHub Release instead of
+   leaving it as a run artifact, and the consumer takes that route when the
+   variable is set. It is deliberately EMPTY today: no engine release exists
+   yet, and pinning a tag that is not there would break every tag push at once.
+   Until it is filled, the run-id pins still work — and they **expire on
+   2026-11-10**, which is the whole reason this item exists.
+5. Tag xVeil; then DOWNLOAD the published artifacts and open them before
    announcing anything — that is what v0.9.1 skipped.
+
+   A dry run (`workflow_dispatch`, which cannot reach `publish`) already builds
+   all three bundles green, so the build half is proven. What a tag exercises
+   for the first time is the half after it: the draft release and the artifact
+   scan. Note veil's own workflow drafts rather than publishes, and three
+   releases sat finished-but-invisible until someone looked — expect the same
+   shape here and check for a draft rather than assuming silence means failure.
 
 ## [0.9.1] — 2026-07-28
 
