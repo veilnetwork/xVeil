@@ -111,6 +111,36 @@ if [ ! -f "$SPM_BUILD/src/libsentencepiece.a" ]; then
     echo "  protoc for the TARGET and tries to run it here, which surfaces as Error 126." >&2
     exit 1; }
 
+  # SentencePiece is where nearly all of the leak lived: 130 of the 132 absolute
+  # paths in the staged archive came from this tree. darts_clone bakes __FILE__
+  # and a line number into every exception message it throws, and the abseil and
+  # protobuf that SentencePiece fetches do the same in their check macros — all
+  # of it .rodata inside a static archive, which no flag on the link below can
+  # reach, because this script links these archives and does not compile them.
+  #
+  # -g0 is a GUARD here, not the fix, and it is labelled that way because the
+  # measurement says so. On Android it was load-bearing: clang emits one ident
+  # record per `#pragma omp` region, formatted ";file;function;line;col;;", built
+  # from the raw presumed location where -ffile-prefix-map cannot reach it, and
+  # emitted only when debug info is on. None of that applies on iOS — there are
+  # no omp pragmas in this tree, CTranslate2 is built OPENMP_RUNTIME=NONE, and
+  # CMake's Release is -O3 -DNDEBUG with no -g at all.
+  #
+  # Measured rather than assumed, and the decisive one is a break-check on a
+  # whole staged archive: libveil_translate-sim.a was built from these same two
+  # trees with -ffile-prefix-map and NO -g0, and it measured 0 — the count did
+  # not come back. Three smaller measurements agree. The pre-fix archives held
+  # zero strings of the ident shape and no reference to any omp runtime;
+  # compiling darts_clone with -ffile-prefix-map alone and with
+  # -ffile-prefix-map -g0 gave the same 10 -> 0; and -g0 alone left all 10.
+  #
+  # So -g0 is not what fixes iOS, and it is written down that way so the next
+  # person does not have to re-derive it. It stays because it costs nothing and
+  # holds the line if a build type ever acquires -g or OPENMP_RUNTIME stops
+  # being NONE — the android archives are where dropping it actually reopens
+  # the leak.
+  SPM_FLAGS_CLEAN="-ffile-prefix-map=$SPM_SRC=/sentencepiece -g0"
+
   echo "==> building SentencePiece for $WANT_PLATFORM_NAME (protoc: $PROTOC)"
   cmake -S "$SPM_SRC" -B "$SPM_BUILD" \
     -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 \
@@ -121,8 +151,8 @@ if [ ! -f "$SPM_BUILD/src/libsentencepiece.a" ]; then
     -DSPM_PROTOC_EXECUTABLE="$PROTOC" \
     -DSPM_ENABLE_SHARED=OFF -DSPM_BUILD_TEST=OFF \
     -DSPM_ENABLE_NFKC_COMPILE=OFF -DSPM_ENABLE_TCMALLOC=OFF \
-    -DCMAKE_C_FLAGS="-ffile-prefix-map=$SPM_SRC=/sentencepiece" \
-    -DCMAKE_CXX_FLAGS="-ffile-prefix-map=$SPM_SRC=/sentencepiece" \
+    -DCMAKE_C_FLAGS="$SPM_FLAGS_CLEAN" \
+    -DCMAKE_CXX_FLAGS="$SPM_FLAGS_CLEAN" \
     -DCMAKE_BUILD_TYPE=Release
   cmake --build "$SPM_BUILD" -j "$jobs"
 fi
@@ -146,21 +176,29 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 # -force_load'ed into Runner, so a path baked into an object here travels all
 # the way into the app binary rather than being resolved away at link time.
 #
-# NOT MEASURED on iOS. The SentencePiece configure above carries the same flag
-# and that one WAS measured, on macOS, where it took the bundled translate
-# dylib from 51 hits to 0 — but nobody has rebuilt the iOS archives since, so
-# the staged libveil_translate.a still measures 132. Rebuild it to find out.
-PREFIX_MAPS=(
+# MEASURED on iOS now: the staged libveil_translate.a went from 132 absolute
+# paths to 0. The flags had been written down before the archives were rebuilt,
+# so the two stale build trees still carried an empty CMAKE_CXX_FLAGS and the
+# staged archive was the artifact of a build that predated all of this. Nothing
+# was wrong with the recipe; nothing had run it. 130 of the 132 came from the
+# SentencePiece tree and 2 from ruy inside CTranslate2.
+#
+# -g0 is carried for the same reason it is carried in the SentencePiece
+# configure above, and with the same caveat: on iOS it removes nothing that
+# -ffile-prefix-map has not already removed. See the note there for the three
+# measurements that establish that.
+CLEAN_FLAGS=(
   "-ffile-prefix-map=$CT2_SRC=/ctranslate2"
   "-ffile-prefix-map=$SPM_SRC=/sentencepiece"
   "-ffile-prefix-map=$(cd "$SRCDIR/../.." && pwd)=/xveil"
   "-ffile-prefix-map=$HOME=/build"
+  "-g0"
 )
 
 "$CLANGXX" -target "$TRIPLE" -isysroot "$SDK" \
   -std=c++17 -O2 -fPIC -c "$SRCDIR/veil_translate.cc" \
   -I"$SRCDIR" -I"$CT2_SRC/include" -I"$SPM_SRC/src" -I"$SPM_SRC" -I"$ABSL_INC" \
-  "${PREFIX_MAPS[@]}" \
+  "${CLEAN_FLAGS[@]}" \
   -DVEIL_TRANSLATE_CT2_VERSION="\"$CT2_VERSION\"" \
   -o "$TMP/veil_translate.o"
 
