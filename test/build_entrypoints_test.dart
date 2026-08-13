@@ -183,7 +183,7 @@ except RuntimeError as error:
       expect(out, contains('ACCEPTED-WITH-ENGINE'));
     });
 
-    test('every android step that compiles carries the path remap', () {
+    test('every step that compiles, on EVERY platform, carries the remap', () {
       // `_path_remap_env()` existed, was documented, and was attached to the
       // `flutter build apk` step only. That looked like the environment was
       // handled — but gradle does not build libhidden_volume_ffi.so (see the
@@ -193,43 +193,60 @@ except RuntimeError as error:
       // site in tokio, uniffi, argon2 and the rest, while the published APK
       // built on a runner carried none.
       //
-      // Asserted over EVERY argv step rather than by naming the one that was
+      // Every platform, not only the one that was measured first: android was
+      // fixed alone, and macOS, linux, ios and windows were then the same
+      // defect sitting untouched — linux and windows worse than untouched,
+      // because their flutter step DID carry an `env=` (the engine policy) and
+      // so read as handled. Nothing about `env=` at a call site says which of
+      // the two environments was meant.
+      //
+      // Asserted over EVERY argv step rather than by naming the ones that were
       // wrong: the defect is "a step that compiles was added without the
-      // environment", so the next such step has to fail this too.
+      // environment", so the next such step has to fail this too — on whichever
+      // platform someone adds it to.
       final temp = Directory.systemTemp.createTempSync('xveil_remap');
       addTearDown(() => temp.deleteSync(recursive: true));
       final probe = File('${temp.path}/probe.py')..writeAsStringSync('''
 import sys
 sys.path.insert(0, ${_pyStr(Directory.current.path)})
 import builder
-for step in builder._android(release=True):
-    if not step.argv:
-        continue
-    rustflags = step.env.get("CARGO_BUILD_RUSTFLAGS", "")
-    cxxflags = step.env.get("CXXFLAGS", "")
-    ok = "--remap-path-prefix=" in rustflags and "-ffile-prefix-map=" in cxxflags
-    print(("REMAPPED " if ok else "BARE ") + step.title)
+# Both branches of the Apple ones, so the answer does not depend on whether
+# THIS machine happens to have a provisioning profile — that is how the signed
+# macOS branch went years without the debug-hook define.
+for target in ("android", "linux", "macos", "ios", "windows"):
+    plan = getattr(builder, "_" + target)
+    for signing in (True, False):
+        builder._apple_signing_available = lambda ok=signing: ok
+        for step in plan(release=True):
+            if not step.argv:
+                continue
+            rustflags = step.env.get("CARGO_BUILD_RUSTFLAGS", "")
+            cxxflags = step.env.get("CXXFLAGS", "")
+            ok = ("--remap-path-prefix=" in rustflags
+                  and "-ffile-prefix-map=" in cxxflags)
+            print(("REMAPPED " if ok else "BARE ") + target + ": " + step.title)
 ''');
       final result = Process.runSync(python!, [probe.path]);
       expect(result.exitCode, 0, reason: result.stderr.toString());
-      final bare = result.stdout
-          .toString()
-          .split('\n')
-          .where((line) => line.startsWith('BARE '))
-          .toList();
+      final lines = result.stdout.toString().split('\n');
+      final bare = lines.where((line) => line.startsWith('BARE ')).toSet();
       expect(
         bare,
         isEmpty,
         reason:
-            'these steps compile native code with no path remapping, so the '
-            "builder's account name goes into the APK: ${bare.join(', ')}",
+            'these steps compile with no path remapping, so the builder\'s '
+            'account name goes into what they produce: ${bare.join(' | ')}',
       );
-      expect(
-        result.stdout.toString(),
-        contains('REMAPPED'),
-        reason:
-            'no argv steps at all would make this pass by checking nothing',
-      );
+      // A platform that contributed no argv steps would pass by checking
+      // nothing, and `plan()` refusing a foreign target is exactly how that
+      // could happen without anyone noticing.
+      for (final target in ['android', 'linux', 'macos', 'ios', 'windows']) {
+        expect(
+          lines.any((line) => line.startsWith('REMAPPED $target:')),
+          isTrue,
+          reason: '$target contributed no steps at all to this check',
+        );
+      }
     });
 
     test('a debug android build does NOT claim to check signing', () {
