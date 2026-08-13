@@ -62,9 +62,33 @@ SPM_LIBS="$(find "$SPM_BUILD" -name '*.a' ! -name '*train*' ! -name 'libprotoc*'
 mkdir -p "$DEST"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
+# Keep the builder's paths out of the .so. Assertions and #pragma omp both bake
+# the presumed source filename into .rodata, and .rodata survives the strip
+# below — so a release APK carried three absolute paths naming the account that
+# built it, all of them from CTranslate2 and ruy.
+#
+# Every root this compile can see gets a map, longest first because clang
+# applies them in order and CT2/SPM live under $HOME:
+#   the CT2 and SentencePiece checkouts, whose location is the leak;
+#   this repository, so a panic site in veil_translate.cc names /xveil;
+#   $HOME last, which catches the NDK sysroot headers under ~/Library.
+#
+# The archives this links against were compiled elsewhere and keep whatever
+# their own build gave them. That is why CTranslate2's mobile/build-android.sh
+# passes the same flag through CMAKE_CXX_FLAGS: the three strings that reached
+# the APK came out of libctranslate2.a and libruy_*.a, not out of this compile,
+# and no flag here could have removed them.
+PREFIX_MAPS=(
+  "-ffile-prefix-map=$CT2_SRC=/ctranslate2"
+  "-ffile-prefix-map=$SPM_SRC=/sentencepiece"
+  "-ffile-prefix-map=$(cd "$SRCDIR/../.." && pwd)=/xveil"
+  "-ffile-prefix-map=$HOME=/build"
+)
+
 "$CLANGXX" --target="aarch64-linux-android$API" -std=c++17 -O2 -fPIC -c \
   "$SRCDIR/veil_translate.cc" \
   -I"$SRCDIR" -I"$CT2_SRC/include" -I"$SPM_SRC/src" -I"$SPM_SRC" -I"$ABSL_INC" \
+  "${PREFIX_MAPS[@]}" \
   -DVEIL_TRANSLATE_CT2_VERSION="\"$CT2_VERSION\"" \
   -o "$TMP/veil_translate.o"
 
@@ -114,6 +138,7 @@ echo "exports $exported veil_translate_* entry points"
 # `git add -A` away from being committed — and one AGP packaging rule away
 # from shipping.
 "$CLANGXX" --target="aarch64-linux-android$API" "$SRCDIR/selftest.c" \
+  "${PREFIX_MAPS[@]}" \
   -I"$SRCDIR" -L"$DEST" -lveil_translate -o "$TMP/selftest"
 
 MODEL="${VEIL_TRANSLATE_TEST_MODEL:-}"
