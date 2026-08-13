@@ -90,10 +90,18 @@ scripts/build-mobile.sh ios
 flutter build ios --release
 ```
 
-Open `ios/Runner.xcworkspace` in Xcode to pick a signing team. A **free** Apple
-ID works for installing on your own device, with one catch worth knowing before
-you start: the provisioning profile expires after **7 days** and the app stops
-launching until you rebuild. A paid account raises that to a year.
+Open `ios/Runner.xcworkspace` in Xcode to pick a signing team.
+
+Two things are worth knowing before you start, because they cost a day if you
+find them halfway. First, `scripts/build-mobile.sh ios` builds the call engine
+from a from-source WebRTC checkout — hours and tens of gigabytes, with no
+prebuilt to download for Apple platforms — and the build fails at link time
+without it. Second, the app and its packet-tunnel extension both request the
+Network Extension entitlement in every configuration, and unlike macOS there is
+no `NoVpn` variant to fall back on, so the signing team you pick has to be one
+that can provision that capability. Without provisioning profiles the only
+thing you can produce is `flutter build ios --no-codesign`, which compiles but
+cannot be installed on a device. `BUILDING.md` covers both in detail.
 
 ### Before it can do anything
 
@@ -192,10 +200,16 @@ flutter build ios --release
 ```
 
 Откройте `ios/Runner.xcworkspace` в Xcode и выберите команду для подписи.
-**Бесплатного** Apple ID достаточно, чтобы поставить приложение на своё
-устройство, но с оговоркой, которую лучше знать заранее: profile истекает через
-**7 дней**, и приложение перестанет запускаться, пока не пересоберёте. Платная
-учётная запись поднимает срок до года.
+
+Две вещи, которые лучше знать заранее, — иначе они стоят дня, когда
+обнаруживаются на середине. Во-первых, `scripts/build-mobile.sh ios` собирает
+движок звонков из исходного чекаута WebRTC: часы и десятки гигабайт, готового
+прибилта для платформ Apple нет нигде, а без него падает линковка. Во-вторых,
+приложение и его расширение packet-tunnel просят право Network Extension во
+всех конфигурациях, и, в отличие от macOS, варианта `NoVpn` здесь нет — значит,
+выбранная команда должна уметь провизионить эту возможность. Без
+provisioning-профилей собрать можно только `flutter build ios --no-codesign`:
+оно компилируется, но на устройство не ставится. Подробности — в `BUILDING.md`.
 
 ### Чтобы приложение заработало
 
