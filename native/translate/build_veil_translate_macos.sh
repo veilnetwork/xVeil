@@ -8,11 +8,21 @@
 # their transitive halves is three chances to arrive incomplete — and this
 # repository has already lost days to exactly that with the call engine.
 #
-# Prereqs, both built where this script expects them:
+# Prereqs, both built where this script expects them — and both with the
+# prefix-map flags, which are part of the recipe and not a nicety:
 #   CTranslate2 (static):  CT2_SRC/build-macos-static/libctranslate2.a
 #     mobile/build-ios.sh's flags with BUILD_SHARED_LIBS=OFF, on the host
 #   SentencePiece (static): SPM_SRC/build-macos-arm64/src/libsentencepiece.a
-#     cmake -DSPM_ENABLE_SHARED=OFF -DSPM_BUILD_TEST=OFF -DSPM_ENABLE_TCMALLOC=OFF
+#     cmake -DSPM_ENABLE_SHARED=OFF -DSPM_BUILD_TEST=OFF -DSPM_ENABLE_TCMALLOC=OFF \
+#           -DCMAKE_C_FLAGS="-ffile-prefix-map=$SPM_SRC=/sentencepiece" \
+#           -DCMAKE_CXX_FLAGS="-ffile-prefix-map=$SPM_SRC=/sentencepiece"
+#
+# Without them the .app named a third checkout 51 times: darts_clone throws
+# with __FILE__ and a line number baked into the message, so every one of those
+# exception strings inside libsentencepiece.a carries the absolute path of
+# whoever built it. They are .rodata in a static archive, so no flag on the
+# link below can take them out — this script links those archives, it does not
+# compile them. Measured on the bundled dylib: 51 -> 0.
 #
 # SentencePiece pulls in abseil AND protobuf through FetchContent, so the link
 # takes every static library under its build tree. That is not tidy, but it is
@@ -56,8 +66,19 @@ CT2_DEP_LIBS="$(find "$CT2_BUILD" -name '*.a' ! -name 'libctranslate2.a' | tr '\
 mkdir -p "$DEST"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
+# What this compile CAN keep out of the artifact: its own paths. Mirrors the
+# android script; the archives are the other half, and they are the recipe
+# above rather than anything reachable from here.
+PREFIX_MAPS=(
+  "-ffile-prefix-map=$CT2_SRC=/ctranslate2"
+  "-ffile-prefix-map=$SPM_SRC=/sentencepiece"
+  "-ffile-prefix-map=$(cd "$SRCDIR/../.." && pwd)=/xveil"
+  "-ffile-prefix-map=$HOME=/build"
+)
+
 clang++ -std=c++17 -O2 -fPIC -c "$SRCDIR/veil_translate.cc" \
   -I"$SRCDIR" -I"$CT2_SRC/include" -I"$SPM_SRC/src" -I"$SPM_SRC" -I"$ABSL_INC" \
+  "${PREFIX_MAPS[@]}" \
   -DVEIL_TRANSLATE_CT2_VERSION="\"$CT2_VERSION\"" \
   -o "$TMP/veil_translate.o"
 

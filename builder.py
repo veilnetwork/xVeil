@@ -105,6 +105,18 @@ def _path_remap_env() -> dict[str, str]:
     return env
 
 
+def _build_env(**extra: str) -> dict[str, str]:
+    """The path remap, plus whatever else this particular step needs.
+
+    Every step that compiles anything gets the remap; the platform variables
+    ride along rather than replacing it. This exists because they were spelled
+    separately: the linux and windows flutter steps carried
+    `env=_engine_policy_env(release)` and therefore carried no remap, and
+    nothing about `env=` at a call site says which of the two was meant.
+    """
+    return {**_path_remap_env(), **extra}
+
+
 def _debug_hook_define() -> list[str]:
     """The stand hook, passed through from the environment. Empty unless asked.
 
@@ -632,6 +644,7 @@ def _linux(release: bool) -> list[Step]:
         Step(
             "native libraries",
             argv=sh("scripts/build-native.sh") + (["--release"] if release else []),
+            env=_build_env(),
         ),
         Step(
             "native libraries are current",
@@ -645,6 +658,7 @@ def _linux(release: bool) -> list[Step]:
             argv=["bash", whisper] if whisper else [],
             optional=True,
             skip_if="" if whisper else "no build script for this platform",
+            env=_build_env(),
         )
     )
     steps.append(
@@ -661,7 +675,7 @@ def _linux(release: bool) -> list[Step]:
                 # does is only reached on a machine with no Apple account.
                 *_debug_hook_define(),
             ],
-            env=_engine_policy_env(release),
+            env=_build_env(**_engine_policy_env(release)),
         )
     )
     if release:
@@ -741,12 +755,20 @@ def _macos(release: bool) -> list[Step]:
         Step(
             "native libraries",
             argv=sh("scripts/build-native.sh") + (["--release"] if release else []),
+            # The macOS twin of the android defect: this is where all three
+            # host libraries are compiled, and it ran with a bare environment.
+            env=_build_env(),
         ),
         Step(
             "whisper wrapper (transcription)",
             argv=["bash", whisper] if whisper else [],
             optional=True,
             skip_if="" if whisper else "no build script for this platform",
+            # CXXFLAGS reaches the clang++ that builds the wrapper. It does NOT
+            # reach the whisper.cpp archives it links: those are built by hand
+            # in a separate checkout, the same shape as CTranslate2, and what
+            # survives from them has to be measured rather than assumed.
+            env=_build_env(),
         ),
     ]
     if _apple_signing_available():
@@ -765,10 +787,18 @@ def _macos(release: bool) -> list[Step]:
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
                     *_debug_hook_define(),
                 ],
+                # The Xcode build runs build-packet-tunnel-macos.sh, which is a
+                # cargo build several processes down. The environment is the
+                # only channel that reaches it.
+                env=_build_env(),
             )
         )
         steps.append(
-            Step("bundle native dylibs", argv=sh("scripts/bundle-macos-dylibs.sh", config))
+            Step(
+                "bundle native dylibs",
+                argv=sh("scripts/bundle-macos-dylibs.sh", config),
+                env=_build_env(),
+            )
         )
         steps.append(
             Step(
@@ -784,6 +814,9 @@ def _macos(release: bool) -> list[Step]:
             Step(
                 "app bundle, ad-hoc (no Apple account here — VPN dropped)",
                 argv=sh("scripts/build-macos-adhoc.sh", config),
+                # Same reason as the signed branch: this script reaches
+                # xcodebuild, and xcodebuild reaches cargo.
+                env=_build_env(),
             )
         )
         # The ad-hoc script bundles too, so the same question applies to what
@@ -852,13 +885,21 @@ def _check_ios_engine() -> None:
 
 def _ios(release: bool) -> list[Step]:
     steps = [
-        Step("native libraries for iOS", argv=sh("scripts/build-mobile.sh", "ios")),
+        Step(
+            "native libraries for iOS",
+            argv=sh("scripts/build-mobile.sh", "ios"),
+            # iOS is the one platform where the paths go into a STATIC archive
+            # rather than a shared object, so they are carried through the link
+            # into Runner instead of being resolved away.
+            env=_build_env(),
+        ),
     ]
     if _apple_signing_available():
         steps.append(
             Step(
                 "flutter build ios",
                 argv=["flutter", "build", "ios", "--release" if release else "--debug"],
+                env=_build_env(),
             )
         )
     else:
@@ -869,6 +910,7 @@ def _ios(release: bool) -> list[Step]:
                     "flutter", "build", "ios",
                     "--release" if release else "--debug", "--no-codesign",
                 ],
+                env=_build_env(),
             )
         )
     # Release only, for the same reason as windows above: this refused a plain
@@ -945,14 +987,14 @@ def _windows(release: bool) -> list[Step]:
         cargo_hv.append(profile)
         cargo_veil.append(profile)
     return [
-        Step("hidden-volume FFI", argv=cargo_hv),
+        Step("hidden-volume FFI", argv=cargo_hv, env=_build_env()),
         # The plugin's CMake picks the DLL up from windows/lib; without this
         # the app builds and then cannot open its own container at runtime.
         Step(
             f"stage hidden_volume_ffi.dll -> {hv_stage}",
             call=lambda: _copy(hv_dll, hv_stage),
         ),
-        Step("veil client FFI", argv=cargo_veil),
+        Step("veil client FFI", argv=cargo_veil, env=_build_env()),
         # Optional like every other platform's: without it the app still
         # builds and runs, and `WhisperFfi.nativeReady()` reports transcription
         # as unavailable rather than offering a 57 MiB model download that
@@ -966,11 +1008,12 @@ def _windows(release: bool) -> list[Step]:
                 if whisper_win and have("bash")
                 else "no build script for this host"
             ),
+            env=_build_env(),
         ),
         Step(
             "flutter bundle",
             argv=["flutter", "build", "windows", "--release" if release else "--debug"],
-            env=_engine_policy_env(release),
+            env=_build_env(**_engine_policy_env(release)),
         ),
         # Staged after the Flutter build, which creates the runner directory.
         Step(

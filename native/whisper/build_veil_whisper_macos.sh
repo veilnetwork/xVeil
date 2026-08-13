@@ -6,8 +6,19 @@
 #
 # Prereq: whisper.cpp checked out + built static (CPU) at WHISPER_SRC:
 #   cmake -B build-mac -DGGML_METAL=OFF -DBUILD_SHARED_LIBS=OFF \
-#         -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=OFF
+#         -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=OFF \
+#         -DCMAKE_C_FLAGS="-ffile-prefix-map=$WHISPER_SRC=/whisper.cpp" \
+#         -DCMAKE_CXX_FLAGS="-ffile-prefix-map=$WHISPER_SRC=/whisper.cpp"
 #   cmake --build build-mac -j
+#
+# The two prefix-map flags are not optional and cannot be added here. GGML_ASSERT
+# expands __FILE__, so every ggml source path is a .rodata string inside
+# libggml-*.a — fifteen of them reached the shipped .app naming the checkout,
+# and therefore the account. This script links those archives; it does not
+# compile them, so CXXFLAGS reaching this clang++ cannot remove what is already
+# baked in. Whoever builds whisper.cpp owns that, which is why the recipe is
+# here rather than a flag below. Measured: 15 -> 0 with the flags, on the dylib
+# that goes into the bundle.
 #
 # Usage: WHISPER_SRC=~/Projects/veilnetwork/whisper.cpp ./build_veil_whisper_macos.sh [dest_dir]
 set -euo pipefail
