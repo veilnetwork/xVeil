@@ -12,7 +12,7 @@ storage it was built against.
 
 ## [0.9.2] — unreleased
 
-Built on [veil v0.4.2](https://github.com/veilnetwork/veil/releases/tag/v0.4.2)
+Built on [veil v0.5.1](https://github.com/veilnetwork/veil/releases/tag/v0.5.1)
 and [hidden-volume v2.0.0](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.0).
 
 hidden-volume's major bump is about ITS public API, not about the container
@@ -21,6 +21,19 @@ v0.9.1 shipped opens here with no conversion and no tool. What a 2.0 costs is
 the other direction — a container this app writes can be refused by an older
 build — so a downgrade to v0.9.1 is not a supported move. See that release's
 own entry for the two changes that cause it.
+
+**veil v0.5.1 is a flag day for the NETWORK, and that is the sharper one.** A
+node built from it cannot exchange a single frame with one built from the
+v0.4.2 the previous release named — the wire header's version byte moved and
+the check is exact equality, so an older peer is refused before it can identify
+itself. Every node has to be rolled together: clients, relays and the seed
+fleet. Auto-update is deliberately not opened to the 0.4.x line, so nothing
+upgrades itself into a partition while the roll is half done.
+
+It is also the release in which **Windows stops being hollow**. The v0.9.1
+bundle shipped a `veilclient_ffi.dll` that exported nothing at all, so the app
+on Windows had no way to reach the network; it now exports 131 entry points,
+measured on the built artifact rather than inferred from a green build.
 
 All three call engines are now built and pinned (`ENGINE_RUN` for android,
 linux and windows), so the release workflow no longer stops on a missing
