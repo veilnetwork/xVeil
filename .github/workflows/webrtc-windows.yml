@@ -90,19 +90,74 @@ jobs:
           }
           Get-PSDrive C | Select-Object Used, Free
 
-      # PINNED (audit X-08) — see the note in webrtc-linux.yml.
+      # PINNED (audit X-08) — see the note in webrtc-linux.yml. And the pin is
+      # exactly why this step has to run the bootstrap by hand.
+      #
+      # depot_tools on Windows does not call `git`. It calls `git.bat`
+      # (`git_cache.py`: `git_exe = "git.bat" if sys.platform.startswith("win")`),
+      # a stub that is NOT in the repository — its .gitignore lists it — because
+      # `bootstrap/bootstrap.py` GENERATES it, pointed at whatever Git the
+      # machine has. CreateProcess resolves a name that already carries an
+      # extension by exact match along PATH, so Git for Windows' `git.exe`
+      # cannot stand in for it, and `GetCachePath` catches `CalledProcessError`,
+      # not `FileNotFoundError` — so it surfaces raw.
+      #
+      # Normally `fetch` triggers that generation: `fetch.bat` calls
+      # `update_depot_tools.bat`, which ends in `bootstrap\win_tools.bat`. But
+      # that script returns at `IF "%DEPOT_TOOLS_UPDATE%" == "0"`, several lines
+      # BEFORE the call — and this job sets `DEPOT_TOOLS_UPDATE=0`, because the
+      # lines after it are `git fetch origin` and `git checkout origin/main`,
+      # which would discard the pin. **Pinning depot_tools switches its Windows
+      # bootstrap off.**
+      #
+      # That is why run 31708602122 died six minutes in with
+      # `FileNotFoundError: [WinError 2]` out of `gclient sync`, and why this
+      # same job built green on 2026-07-31: back then depot_tools was not
+      # pinned, `update_depot_tools.bat` ran to the end, and `git.bat` appeared
+      # as a side effect nobody knew they depended on. Diagnosed and fixed first
+      # in veilnetwork/libwebrtc-builds; this is the same remedy.
       - name: depot_tools
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           git clone --filter=blob:none https://chromium.googlesource.com/chromium/tools/depot_tools.git C:\depot_tools
+          if ($LASTEXITCODE -ne 0) { throw 'depot_tools clone failed' }
           git -C C:\depot_tools checkout --detach $env:DEPOT_TOOLS_PIN
-          # Without this depot_tools self-updates on first use and undoes the pin.
+          if ($LASTEXITCODE -ne 0) { throw "depot_tools has no commit $env:DEPOT_TOOLS_PIN" }
+
+          # The state that killed run 31708602122, recorded rather than assumed.
+          Write-Host "system git.exe:           $((Get-Command git.exe -ErrorAction SilentlyContinue).Source)"
+          Write-Host "git.bat before bootstrap: $(Test-Path C:\depot_tools\git.bat)"
+
+          # bootstrap.py applies these itself, but only after being told it may
+          # touch the global config. autocrlf is not cosmetic on a Chromium
+          # checkout: Git for Windows defaults it on, and a tree rewritten to
+          # CRLF fails later in places that do not mention line endings.
+          git config --global depot-tools.allowGlobalGitConfig true
+          git config --global core.autocrlf false
+          git config --global core.longpaths true
+
+          & C:\depot_tools\bootstrap\win_tools.bat
+          if ($LASTEXITCODE -ne 0) { throw "depot_tools bootstrap failed ($LASTEXITCODE)" }
+
+          # The ARTIFACT, not the exit code. This is the file whose absence was
+          # the whole failure, so its presence is what gets asserted.
+          if (-not (Test-Path C:\depot_tools\git.bat)) {
+            throw 'bootstrap reported success and produced no C:\depot_tools\git.bat'
+          }
+          & C:\depot_tools\git.bat --version
+          if ($LASTEXITCODE -ne 0) { throw 'the generated git.bat does not run' }
+
           "DEPOT_TOOLS_UPDATE=0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "C:\depot_tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: WebRTC at the pinned commit
         shell: cmd
         run: |
+          rem Resolve the exact name depot_tools will spawn, before paying 25
+          rem minutes to be told the same thing by a traceback. `where` searches
+          rem PATH the way CreateProcess does and exits 1 when it finds nothing.
+          where git.bat || exit /b 1
           mkdir %WEBRTC_ROOT%
           cd /d %WEBRTC_ROOT%
           call fetch --nohooks webrtc || exit /b 1
