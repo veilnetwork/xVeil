@@ -42,6 +42,26 @@ import 'package:flutter_test/flutter_test.dart';
 /// The account name is derived from the environment at run time and appears
 /// nowhere in this file — putting it in the source to test for it would be the
 /// leak.
+///
+/// WHY THE TREE SCAN STEPS ASIDE ON A CI RUNNER, and only there.
+///
+/// The note above lists `/home/runner` in two workflows among the deliberate
+/// placeholders the generic pattern would trip over. On a GitHub runner the
+/// account running this suite IS `runner`, so `/home/runner/` is precisely the
+/// form this gate looks for, and release.yml names it on purpose — in the
+/// comment explaining that a CI build does NOT carry the builder's home. The
+/// gate found its own documentation and failed the release for it.
+///
+/// A shared, ephemeral build account has no home path worth protecting: it is
+/// published in the runner documentation and appears in every log. The
+/// question this gate asks is meaningful only where a PERSON commits, which is
+/// also the only machine that can leak that person's name. So on a recognised
+/// CI account the tree scan is skipped WITH ITS REASON PRINTED, and the
+/// matcher tests below still run, because they need no tree.
+///
+/// Recognition is narrow on purpose — an explicit account name AND `CI` set —
+/// so it cannot become a way to switch the gate off. `_isSharedCiAccount` is
+/// asserted both ways below.
 void main() {
   group("the builder's home path", () {
     final home = _homeDirectory();
@@ -66,7 +86,18 @@ void main() {
     });
 
     test('appears in no tracked file, in this repo or either submodule', () {
-      final forms = _homePathForms(account!);
+      if (_isSharedCiAccount(account!, onCi: _onCi())) {
+        // Not silence: the reason travels with the skip, so a reader of the
+        // run sees WHY this did not run rather than a blank.
+        markTestSkipped(
+          'running as the shared CI account "$account", whose home path is '
+          'public and is named on purpose in release.yml. This gate guards a '
+          "person's home path and only a developer machine can leak one.",
+        );
+        return;
+      }
+
+      final forms = _homePathForms(account);
       final tracked = _trackedFiles();
 
       // The file list itself is an assertion. `git ls-files` returning nothing
@@ -128,6 +159,29 @@ void main() {
       }
     });
 
+    test('steps aside for a build account, and for nothing else', () {
+      // The escape hatch, held to its width. If this ever widens — a bare
+      // `CI` check, a name like "build", an env var — the gate can be turned
+      // off by the environment and nobody would see it happen.
+      expect(_isSharedCiAccount('runner', onCi: true), isTrue);
+      expect(_isSharedCiAccount('root', onCi: true), isTrue);
+
+      // A person's account is never a build account, on CI or off it. The
+      // names here are the placeholders this repository already uses in its
+      // fixtures, so no real one is written down.
+      for (final person in const ['alice', 'someone', 'u', 'docs']) {
+        expect(_isSharedCiAccount(person, onCi: true), isFalse,
+            reason: '"$person" is a person, and CI is not a reason to stop '
+                'looking for a person\'s home path');
+        expect(_isSharedCiAccount(person, onCi: false), isFalse);
+      }
+
+      // And off CI, not even the build names excuse it: a developer whose
+      // account happens to be called `runner` still gets the full scan.
+      expect(_isSharedCiAccount('runner', onCi: false), isFalse);
+      expect(_isSharedCiAccount('root', onCi: false), isFalse);
+    });
+
     test('is not confused with the bare account name inside an identifier', () {
       // The trap that made a whole-name scan unusable: a four-letter handle is
       // a substring of ordinary identifiers. If someone ever "strengthens"
@@ -163,6 +217,21 @@ String? _lastSegment(String path) {
       .where((part) => part.isNotEmpty)
       .toList();
   return parts.isEmpty ? null : parts.last;
+}
+
+/// Whether this suite is running as a shared build account rather than as a
+/// person.
+///
+/// Deliberately narrow, and BOTH conditions are required. The account names
+/// are the ones GitHub-hosted and container runners actually use; `CI` alone
+/// would let any environment switch the gate off, and the name alone would
+/// excuse a developer whose account is called `root`.
+bool _isSharedCiAccount(String account, {required bool onCi}) =>
+    onCi && const {'runner', 'runneradmin', 'root'}.contains(account);
+
+bool _onCi() {
+  final ci = Platform.environment['CI'];
+  return ci == 'true' || ci == '1';
 }
 
 /// The three spellings a home directory has, as a PATH — never the bare name.
