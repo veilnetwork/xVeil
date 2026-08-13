@@ -72,7 +72,22 @@ env:
   VEIL_SDK_REPO: 'veilnetwork/libwebrtc-builds'
   # PINNED BY COMMIT — see webrtc-linux.yml. Same value in both workflows on
   # purpose: one script, one revision of it, whatever host runs it.
-  VEIL_SDK_SCRIPT_PIN: '913e29d08d80c9e3e442b5400eb7dd1e4ec9ec42'
+  #
+  # This particular revision is what makes THIS workflow work. fetch-sdk.sh's
+  # win-x64 branch had never been run by anything, and it laid the bundle out
+  # with `powershell.exe` — Windows PowerShell 5.1 — where the bundle's own
+  # setup.ps1 needs PowerShell 7: it assigns through a variable property name
+  # on what ConvertFrom-Json returned, and 5.1 answers "The property
+  # 'directory' cannot be found on this object" at setup.ps1:81. Both hosts,
+  # one bundle, back to back on one runner: 5.1.26100.33158 exits 1, pwsh
+  # 7.6.4 exits 0 (run 31714489182). The pinned commit prefers pwsh.
+  #
+  # It is on veilnetwork/libwebrtc-builds' branch fix/windows-setup-needs-pwsh,
+  # not on its main. Repoint at the merge commit when it lands.
+  VEIL_SDK_SCRIPT_PIN: 'deef316260886f36e2fde02e037d6bd5d1315c77'
+  # Copied verbatim from the published manifest's `gn_args` — see the same
+  # block in webrtc-linux.yml for why the argument list is pinned here.
+  WEBRTC_GN_ARGS_WIN: 'enable_libaom = false is_component_build = false is_debug = false rtc_build_examples = false rtc_build_tools = false rtc_enable_protobuf = false rtc_include_opus = true rtc_include_tests = false rtc_use_h264 = false symbol_level = 0 target_cpu = "x64" target_os = "win" treat_warnings_as_errors = false'
 
 jobs:
   engine-windows:
@@ -126,6 +141,12 @@ jobs:
             > "$RUNNER_TEMP/sdk-env.sh"
           cat "$RUNNER_TEMP/sdk-env.sh"
           eval "$(cat "$RUNNER_TEMP/sdk-env.sh")"
+          # fetch-sdk.sh prints WEBRTC_SRC through `cygpath -w`, because that is
+          # what clang-cl has to open, but WEBRTC_BUILD — the bundle root — in
+          # bash's own form, /d/a/_temp/…. Every step after this one is
+          # PowerShell, where that reads as \d\a\_temp\… and Test-Path answers
+          # no. Convert it here rather than teaching each consumer both spellings.
+          WEBRTC_BUILD="$(cygpath -w "$WEBRTC_BUILD")"
           for v in WEBRTC_SRC WEBRTC_OUT WEBRTC_BUILD; do
             [ -n "${!v:-}" ] || { echo "::error::fetch-sdk.sh printed no $v"; exit 1; }
             echo "$v=${!v}" >> "$GITHUB_ENV"
@@ -150,6 +171,14 @@ jobs:
           }
           if ($m.target -ne 'win-x64') {
             Write-Host "::error::this bundle is for $($m.target); this job builds win-x64"
+            exit 1
+          }
+          # The pin says WHICH WebRTC; this says HOW it was configured. Same
+          # check as the two linux jobs, same reason.
+          if ($m.gn_args -ne $env:WEBRTC_GN_ARGS_WIN) {
+            Write-Host "::error::the bundle's gn args are not the ones this repository expects"
+            Write-Host "  bundle:   $($m.gn_args)"
+            Write-Host "  expected: $env:WEBRTC_GN_ARGS_WIN"
             exit 1
           }
           $cc = Join-Path (Join-Path $env:WEBRTC_SRC $env:WEBRTC_OUT) 'compile_commands.json'
