@@ -563,6 +563,59 @@ def _android(release: bool) -> list[Step]:
     return steps
 
 
+def _engine_policy_env(release: bool) -> dict[str, str]:
+    """Tell the veil_media plugin CMake whether a missing engine is fatal.
+
+    The plugin used to answer that itself, with a FATAL_ERROR, for everyone —
+    so a clean clone could not START a linux or windows build. It now decides
+    from VEIL_MEDIA_REQUIRE_ENGINE, defaulting to permissive off a CI runner
+    (see veil_media/cmake/veil_media_engine_policy.cmake), and this is where a
+    release says which build it is.
+
+    An environment variable and not a -D because `flutter build linux` drives
+    cmake itself and forwards no cmake arguments; the environment is the only
+    channel that reaches it.
+
+    Only set for a release. A debug build that says nothing gets the permissive
+    path — which is the whole point, and the same answer the plugin would reach
+    on its own.
+    """
+    return {"VEIL_MEDIA_REQUIRE_ENGINE": "1"} if release else {}
+
+
+_LINUX_ENGINE_SO = "libveil_media.so"
+
+
+def _check_linux_engine(bundle: str) -> None:
+    """Refuse a linux bundle with no call media, the way windows already does.
+
+    Linux had no such check: the plugin's FATAL_ERROR was the only thing
+    standing between a clean clone and a bundle with no engine, and that gate
+    is now conditional. release.yml greps the bundle for the same file after
+    this runs — two artifact checks, because an artifact check is the only kind
+    a forgotten flag cannot satisfy.
+    """
+    for directory, _, files in os.walk(os.path.join(ROOT, bundle)):
+        if _LINUX_ENGINE_SO in files:
+            found = os.path.join(directory, _LINUX_ENGINE_SO)
+            print(f"    {os.path.relpath(found, ROOT)}")
+            return
+    raise RuntimeError(
+        f"MISSING {_LINUX_ENGINE_SO} — this bundle has no call media.\n"
+        f"    Expected it bundled from {_LINUX_ENGINE_STAGE}\n"
+        "    It is gitignored, so a fresh clone never has it. Voice messages,\n"
+        "    video notes, in-chat video, calls and speech-to-text all load it.\n"
+        "    Build it on an x86_64 Linux host with a from-source WebRTC:\n"
+        "      veil_media/linux/build_veil_media_so_linux.sh\n"
+        "    or download the artifact the webrtc-linux workflow produces."
+    )
+
+
+_LINUX_ENGINE_STAGE = os.path.join(
+    VEIL, "flutter", "veil_media", "linux", _LINUX_ENGINE_SO
+)
+
+
 def _linux(release: bool) -> list[Step]:
     steps = [
         Step(
@@ -597,8 +650,18 @@ def _linux(release: bool) -> list[Step]:
                 # does is only reached on a machine with no Apple account.
                 *_debug_hook_define(),
             ],
+            env=_engine_policy_env(release),
         )
     )
+    if release:
+        steps.append(
+            Step(
+                "call engine in the bundle",
+                call=lambda: _check_linux_engine(
+                    os.path.join("build", "linux", "x64", "release", "bundle")
+                ),
+            )
+        )
     return steps
 
 
@@ -797,7 +860,17 @@ def _ios(release: bool) -> list[Step]:
                 ],
             )
         )
-    steps.append(Step("call engine in the iOS build", call=_check_ios_engine))
+    # Release only, for the same reason as windows above: this refused a plain
+    # `builder.py ios --debug` on a clean checkout, which is the build someone
+    # runs to find out whether the project compiles at all.
+    steps.append(
+        Step(
+            "call engine in the iOS build",
+            call=_check_ios_engine,
+            optional=not release,
+            skip_if="" if release else "debug build — calls may be absent",
+        )
+    )
     return steps
 
 
@@ -886,6 +959,7 @@ def _windows(release: bool) -> list[Step]:
         Step(
             "flutter bundle",
             argv=["flutter", "build", "windows", "--release" if release else "--debug"],
+            env=_engine_policy_env(release),
         ),
         # Staged after the Flutter build, which creates the runner directory.
         Step(
@@ -906,9 +980,15 @@ def _windows(release: bool) -> list[Step]:
                 "" if os.path.isfile(translate_dll) else "translation not built"
             ),
         ),
+        # Release only. A debug bundle without an engine is now a supported
+        # thing to have — the plugin CMake warns and the app reports calls,
+        # voice messages, video notes and speech-to-text as unavailable. What
+        # must not exist is a RELEASE without one.
         Step(
             "call engine in the bundle",
             call=lambda: _check_windows_engine(runner),
+            optional=not release,
+            skip_if="" if release else "debug build — calls may be absent",
         ),
         Step(
             "reminder: what must travel with xveil.exe",

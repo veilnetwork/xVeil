@@ -16,6 +16,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_media/veil_media.dart';
 
+import 'media_ffi.dart';
 import 'providers.dart';
 import 'voice_play_controller.dart' show VoicePlayer, voicePlayerFactoryProvider;
 
@@ -35,8 +36,12 @@ class _NativeVnoteFramePlayer implements VnoteFramePlayer {
   _NativeVnoteFramePlayer(this._p);
   final VeilVnotePlayer _p;
 
+  /// Null when the note cannot be decoded — including because this build has
+  /// no engine at all, which the caller already renders as "nothing happens"
+  /// rather than as a crash.
   static _NativeVnoteFramePlayer? create(Uint8List bytes) {
-    final p = VeilVnotePlayer.create(bytes);
+    if (!VeilMediaNative.available()) return null;
+    final p = VeilMediaNative.guard(() => VeilVnotePlayer.create(bytes));
     return p == null ? null : _NativeVnoteFramePlayer(p);
   }
 
