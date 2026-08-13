@@ -18,6 +18,7 @@ commands are spelled out here, mirroring BUILDING.md.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sys
 
@@ -115,6 +116,160 @@ def _build_env(**extra: str) -> dict[str, str]:
     nothing about `env=` at a call site says which of the two was meant.
     """
     return {**_path_remap_env(), **extra}
+
+
+# ---------------------------------------------------------------------------
+# The one absolute path no compile flag can reach.
+#
+# Flutter generates `.dart_tool/flutter_build/dart_plugin_registrant.dart` at
+# build time, and the Dart AOT snapshot records that file's source URI. It
+# cannot become a `package:` URI — the file sits outside the package's lib/ —
+# so the builder's ABSOLUTE path is embedded, and nothing remaps it:
+# `--filesystem-scheme` is not an option of `flutter build apk`, and the
+# remapping in _path_remap_env() reaches rustc and cc only. Every other
+# absolute path in a shipped binary is something a compiler WROTE and some flag
+# can move; this one is what the compiler was ASKED to compile.
+#
+# A pattern rather than os.path.expanduser("~"), which is the whole point:
+#
+#   - no account name in this file, in argv, or in the environment, so nothing
+#     about the person building can reach the index or a build log;
+#   - it holds for any builder, not only the machine this was measured on;
+#   - the replacement is the same number of bytes as what it matched, which is
+#     what makes the edit safe at all. A snapshot stores each string behind a
+#     length prefix, so a shorter or longer name would move every offset after
+#     it and the image would no longer load.
+#
+# Two things it must NOT do, both measured in the artifacts in this tree:
+#
+#   - it must never match a BARE account name. In one macOS binary here the
+#     letters of this account occur 17 times and the path form exactly once;
+#     the other sixteen are a word in the translation table and a BoringSSL
+#     constant-time symbol suffix, neither of which has anything to do with a
+#     home directory. scripts/scan-artifacts.py carries the same lesson from
+#     the detection side — and quotes no real example, because an earlier
+#     version of it that did flagged itself.
+#   - `/home/` must START a path, not merely appear inside one. Without the
+#     lookbehind, `package:xveil/features/home/home_shell.dart` matches — and
+#     because a Dart snapshot's strings are length-PREFIXED rather than
+#     NUL-terminated, the run then eats whatever follows: 65, 110 and 133 bytes
+#     of unrelated symbol names in one release libapp.so, six such matches in
+#     the macOS App. Bounding the component with the next separator is the same
+#     idea as the lookbehind in ErrorJournal._frameLocation, where a scheme has
+#     to start a URI rather than merely appear in one.
+_HOME_PATH = re.compile(
+    rb'(?<![\w.\-])'
+    rb'(?:(/Users/|/home/)([^/\x00"\s]{1,64})/'
+    rb'|([A-Za-z]:\\Users\\)([^\\\x00"\s]{1,64})\\)'
+)
+
+# The GENERATED registrant, as the snapshot records it — the anchor this step
+# is aimed at. `package:flutter/src/dart_plugin_registrant.dart` also appears in
+# every snapshot and is a proper package URI carrying nothing; only the
+# `file://` form under .dart_tool/ names the builder.
+_REGISTRANT_URI = re.compile(
+    rb'file://[^\x00"\s]{0,512}/\.dart_tool/flutter_build/'
+    rb'dart_plugin_registrant\.dart'
+)
+
+
+def _mask_home(match: re.Match) -> bytes:
+    """The account name replaced by as many `a`s as it had characters."""
+    if match.group(1) is not None:
+        return match.group(1) + b"a" * len(match.group(2)) + b"/"
+    return match.group(3) + b"a" * len(match.group(4)) + b"\\"
+
+
+def _snapshot_slices(data: bytes) -> int:
+    """How many architectures this image holds, and so how many snapshots.
+
+    A macOS App.framework is a universal binary — x86_64 and arm64 — and each
+    slice carries its own AOT snapshot and therefore its own copy of the
+    registrant URI. That is the whole of why macOS shows two occurrences where
+    Android's single-ABI ELF shows one. Derived rather than configured, so the
+    expected count cannot go stale when an architecture is added or dropped.
+    """
+    if data[:4] in (b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"):
+        return int.from_bytes(data[4:8], "big")
+    return 1
+
+
+def _scrub_snapshot(data: bytes, *, label: str) -> bytes:
+    """Mask the account name in the registrant URI, or refuse to touch anything.
+
+    Asserted, never swept. A step that deleted anything path-shaped would hide
+    the NEXT leak, which is why no strip step existed here before. Three
+    questions, in order, and each one stops the build rather than guessing:
+
+      - is this the file this step thinks it is? Exactly one generated
+        registrant URI per architecture slice, or Flutter has moved something
+        and nothing should be edited blind.
+      - does every home path sit INSIDE one of those URIs? A home path anywhere
+        else in the snapshot is something new that arrived by another route;
+        the build stops and prints the surrounding bytes instead of quietly
+        erasing the evidence.
+      - is the count the expected one? One per slice when the checkout lives
+        under a home directory, and none at all when it does not — a container
+        building in /build or a CI runner outside /home has nothing to remove
+        here, which is a fact to report rather than a failure.
+    """
+    slices = _snapshot_slices(data)
+    spans = [match.span() for match in _REGISTRANT_URI.finditer(data)]
+    if len(spans) != slices:
+        raise RuntimeError(
+            f"{label}: expected {slices} generated-registrant URI(s), one per\n"
+            f"    architecture slice, but found {len(spans)}. This is not the\n"
+            "    image this step was written against — Flutter may have changed\n"
+            "    where the generated registrant lives. Re-measure before scrubbing."
+        )
+    inside, outside = [], []
+    for match in _HOME_PATH.finditer(data):
+        target = inside if any(a <= match.start() < b for a, b in spans) else outside
+        target.append(match)
+    if outside:
+        context = "\n      ".join(
+            repr(data[max(0, m.start() - 60):m.end() + 60]) for m in outside[:3]
+        )
+        raise RuntimeError(
+            f"{label}: {len(outside)} home path(s) OUTSIDE the generated\n"
+            "    registrant URI. Something new leaked, by a route this step does\n"
+            "    not know about, and masking it here would hide that:\n      "
+            + context
+        )
+    if not inside:
+        print(f"    {label}: {slices} registrant URI(s), none under a home directory")
+        return data
+    if len(inside) != slices:
+        raise RuntimeError(
+            f"{label}: found {len(inside)} home path(s) across {slices}\n"
+            "    architecture slice(s); expected exactly one each, or none at all."
+        )
+    scrubbed = _HOME_PATH.sub(_mask_home, data)
+    if len(scrubbed) != len(data):
+        raise RuntimeError(
+            f"{label}: the mask changed the image length "
+            f"({len(data)} -> {len(scrubbed)}); every offset after it would move."
+        )
+    # Idempotence, not absence. Masking leaves `/Users/aaaa/` behind, which is
+    # still a home path by shape — the account NAME is what had to go. So the
+    # question that actually means something is whether a second pass would
+    # change anything: if it would, some component escaped the first.
+    if _HOME_PATH.sub(_mask_home, scrubbed) != scrubbed:
+        raise RuntimeError(f"{label}: an account name survived the mask")
+    print(f"    {label}: masked {len(inside)} home path(s) in {slices} slice(s)")
+    return scrubbed
+
+
+def _snapshot_not_handled(reason: str) -> Step:
+    """Say out loud that a platform's AOT image still names whoever built it.
+
+    A step that skips with its reason, rather than a comment nobody runs. The
+    two platforms this build cannot produce here were never measured, and iOS
+    was measured but is not distributed from anything builder.py produces —
+    those are different situations and neither is "handled", so neither gets to
+    look handled. Same spelling as every other unasked question in this build.
+    """
+    return Step("builder's home path out of the AOT image", skip_if=reason)
 
 
 def _debug_hook_define() -> list[str]:
@@ -497,6 +652,228 @@ def _check_android_native_libs() -> None:
         )
 
 
+def _android_sdk_root() -> str:
+    """Where the SDK is, by the same precedence prepare.py uses.
+
+    Spelled again rather than imported: prepare.py is a sibling entry point,
+    not a library, and importing it here would run its module-level toolchain
+    discovery on every build. The precedence is the part that must not drift,
+    so it is the part written identically.
+    """
+    return os.environ.get(
+        "ANDROID_SDK_ROOT",
+        os.environ.get(
+            "ANDROID_HOME",
+            os.path.expanduser(
+                "~/Library/Android/sdk" if host() == "Darwin" else "~/Android/Sdk"
+            ),
+        ),
+    )
+
+
+def _build_tool(name: str) -> str | None:
+    """The newest installed build-tools copy of `name`, else whatever is on PATH.
+
+    Sorted by parsed version and not as text: `sorted()` over the directory
+    names puts "9.0.0" above "34.0.0", which is how a tool-picker silently
+    settles on a decade-old copy.
+    """
+    root = os.path.join(_android_sdk_root(), "build-tools")
+    if os.path.isdir(root):
+        def version_key(entry: str) -> tuple[int, ...]:
+            return tuple(int(p) if p.isdigit() else -1 for p in entry.split("."))
+
+        for version in sorted(os.listdir(root), key=version_key, reverse=True):
+            for spelling in (name, f"{name}.bat", f"{name}.exe"):
+                candidate = os.path.join(root, version, spelling)
+                if os.path.isfile(candidate):
+                    return candidate
+    return shutil.which(name)
+
+
+def _java_home() -> str | None:
+    """A JDK apksigner can actually run under.
+
+    Being on PATH is not the same as being usable: macOS ships a /usr/bin/java
+    shim whose entire behaviour is to print "Unable to locate a Java Runtime",
+    and apksigner is a shell wrapper around it. prepare.py learned this for
+    keytool; this is the same stub answering for a different tool.
+    """
+    java = "java.exe" if os.name == "nt" else "java"
+    candidates = [os.environ["JAVA_HOME"]] if os.environ.get("JAVA_HOME") else []
+    candidates += [
+        "/Applications/Android Studio.app/Contents/jbr/Contents/Home",
+        os.path.expanduser(
+            "~/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+        ),
+    ]
+    for candidate in candidates:
+        if os.path.isfile(os.path.join(candidate, "bin", java)):
+            return candidate
+    return None
+
+
+def _android_key() -> dict[str, str]:
+    """The release signing key, as android/key.properties spells it."""
+    path = os.path.join(ROOT, "android", "key.properties")
+    values: dict[str, str] = {}
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip()
+    missing = [k for k in ("storeFile", "storePassword", "keyAlias") if k not in values]
+    if missing:
+        raise RuntimeError(
+            f"android/key.properties has no {', '.join(missing)} — the APK "
+            "cannot be re-signed after the mask."
+        )
+    return values
+
+
+def _is_v1_signature(name: str) -> bool:
+    """A JAR-signature file, which apksigner regenerates and must not inherit."""
+    if not name.startswith("META-INF/"):
+        return False
+    return name.endswith((".SF", ".RSA", ".DSA", ".EC")) or name == "META-INF/MANIFEST.MF"
+
+
+def _scrub_release_apk(abi: str) -> None:
+    """Take the account name out of the APK's AOT image, and re-sign properly.
+
+    `flutter build apk` hands back an APK that gradle has ALREADY signed, so
+    there is no seam between the snapshot being written and the archive being
+    sealed: editing a .so inside it invalidates the signature, and an APK whose
+    signature does not verify will not install. There is no gradle hook between
+    the two either — the AOT image is produced and packaged inside the same
+    task — so the honest seam is after the fact: unpack, mask, repack, align,
+    sign with the release key this build already requires, and then ASK the
+    result whether it verifies rather than assuming it does.
+
+    Ordered before the APK content checks, so everything after this reads the
+    archive that will actually be handed out rather than the one gradle wrote.
+
+    Release only. A debug APK is debug-signed and is not handed to anyone; the
+    one thing worse than the account name in a debug build would be re-signing
+    a debug artifact with the release key and making it look distributable.
+    """
+    import hashlib
+    import subprocess
+    import tempfile
+    import zipfile
+
+    apk = os.path.join(
+        ROOT, "build", "app", "outputs", "flutter-apk", f"app-{abi}-release.apk"
+    )
+    entry = f"lib/{abi}/libapp.so"
+    if not os.path.isfile(apk):
+        raise RuntimeError(f"no APK at {apk}")
+    with zipfile.ZipFile(apk) as bundle:
+        data = bundle.read(entry)
+    scrubbed = _scrub_snapshot(data, label=f"{os.path.basename(apk)}:{entry}")
+    if scrubbed is data:
+        return
+
+    zipalign = _build_tool("zipalign")
+    apksigner = _build_tool("apksigner")
+    java_home = _java_home()
+    absent = [
+        label
+        for label, found in (
+            ("zipalign", zipalign), ("apksigner", apksigner), ("a JDK", java_home)
+        )
+        if not found
+    ]
+    if absent:
+        raise RuntimeError(
+            f"cannot re-sign the APK after masking: no {', '.join(absent)}.\n"
+            f"    Looked under {os.path.join(_android_sdk_root(), 'build-tools')}\n"
+            "    and for a JDK in JAVA_HOME and Android Studio's bundled one.\n"
+            "    Set ANDROID_SDK_ROOT and JAVA_HOME, or run prepare.py android."
+        )
+
+    key = _android_key()
+    store = key["storeFile"]
+    if not os.path.isabs(store):
+        store = os.path.join(ROOT, "android", store)
+    # Passwords through the ENVIRONMENT, never argv: a command line is visible
+    # to every process on the machine through ps, and a failing step prints its
+    # own argv.
+    env = {
+        **os.environ,
+        "JAVA_HOME": java_home,
+        "PATH": os.path.join(java_home, "bin") + os.pathsep + os.environ.get("PATH", ""),
+        "XVEIL_STORE_PASS": key["storePassword"],
+        "XVEIL_KEY_PASS": key.get("keyPassword", key["storePassword"]),
+    }
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repacked = os.path.join(tmp, "repacked.apk")
+        with zipfile.ZipFile(apk) as source:
+            with zipfile.ZipFile(repacked, "w") as target:
+                for info in source.infolist():
+                    if _is_v1_signature(info.filename):
+                        continue
+                    payload = scrubbed if info.filename == entry else source.read(info)
+                    # Carry each entry's own compression across. Gradle stores
+                    # some entries and deflates others, and a repack that
+                    # normalised them would change what the installer has to
+                    # page in as well as what zipalign then has to align.
+                    copied = zipfile.ZipInfo(info.filename, date_time=info.date_time)
+                    copied.compress_type = info.compress_type
+                    copied.external_attr = info.external_attr
+                    copied.internal_attr = info.internal_attr
+                    copied.create_system = info.create_system
+                    target.writestr(copied, payload)
+        aligned = os.path.join(tmp, "aligned.apk")
+        subprocess.run([zipalign, "-f", "-p", "4", repacked, aligned], check=True)
+        signed = os.path.join(tmp, "signed.apk")
+        subprocess.run(
+            [
+                apksigner, "sign",
+                "--ks", store,
+                "--ks-pass", "env:XVEIL_STORE_PASS",
+                "--ks-key-alias", key["keyAlias"],
+                "--key-pass", "env:XVEIL_KEY_PASS",
+                "--out", signed, aligned,
+            ],
+            env=env, check=True,
+        )
+        # The artifact is asked, not assumed. This is the whole reason the
+        # re-sign is safe to do at all.
+        #
+        # One deliberate difference from what gradle hands over: gradle signs
+        # v2 only, apksigner adds v3 as well. Same certificate either way — a
+        # different one would make Android treat this as a different app and no
+        # tester could update over what they have — and v2 stays present for
+        # anything older than Android 9, so nothing loses the ability to
+        # install it.
+        verified = subprocess.run(
+            [apksigner, "verify", "--verbose", signed],
+            env=env, capture_output=True, check=False,
+        )
+        said = (verified.stdout + verified.stderr).decode("utf-8", "replace").strip()
+        if verified.returncode != 0:
+            raise RuntimeError(
+                "THE RE-SIGNED APK DOES NOT VERIFY — do not hand this out.\n    "
+                + said.replace("\n", "\n    ")
+            )
+        # Into place only now, so a failure anywhere above leaves the APK
+        # gradle produced rather than a half-written one.
+        shutil.move(signed, apk)
+    for line in said.splitlines():
+        if line.startswith("Verified using"):
+            print(f"    {line}")
+    # The sidecar names the file gradle wrote; after a repack it names nothing.
+    with open(apk, "rb") as handle:
+        digest = hashlib.sha1(handle.read()).hexdigest()
+    with open(apk + ".sha1", "w", encoding="utf-8") as handle:
+        handle.write(digest)
+    print(f"    {os.path.basename(apk)}: re-signed, verified, sha1 refreshed")
+
+
 def _android(release: bool) -> list[Step]:
     # NOT optional, and the previous comment here ("gradle builds the .so
     # anyway") was false: gradle builds ONE of the two. This step is the only
@@ -556,6 +933,15 @@ def _android(release: bool) -> list[Step]:
                 env=_path_remap_env(),
             )
         )
+        # Before the APK content checks, so every one of them reads the archive
+        # that will be handed out rather than the one gradle wrote.
+        for abi in _RELEASE_APK_ABIS:
+            steps.append(
+                Step(
+                    f"builder's home path out of {abi} AOT image",
+                    call=lambda abi=abi: _scrub_release_apk(abi),
+                )
+            )
         steps.append(
             Step("native libraries are current", call=_check_android_native_fresh)
         )
@@ -678,6 +1064,13 @@ def _linux(release: bool) -> list[Step]:
             env=_build_env(**_engine_policy_env(release)),
         )
     )
+    steps.append(
+        _snapshot_not_handled(
+            "never measured — no linux bundle can be produced on the host this "
+            "was written on, and an expected count nobody has counted is a "
+            "guess that would fail somebody else's build"
+        )
+    )
     if release:
         steps.append(
             Step(
@@ -748,6 +1141,96 @@ def _check_macos_bundle(config: str) -> None:
             print(f'    {name} ABSENT — this build has no {feature}')
 
 
+def _macos_app(config: str) -> str:
+    subdir = 'Release' if config == 'release' else 'Debug'
+    return os.path.join(
+        ROOT, 'build', 'macos', 'Build', 'Products', subdir, 'xveil.app'
+    )
+
+
+def _scrub_macos_snapshot(config: str, *, resign: bool) -> None:
+    """Take the account name out of the macOS AOT image.
+
+    `resign` says which seam this is standing at, and the two are not
+    symmetric:
+
+      - FALSE on the signed branch, where this runs between `flutter build
+        macos` and scripts/bundle-macos-dylibs.sh. That script already signs
+        every framework bundle deepest-first and then seals the app, so the
+        edit is covered by a signature that has to be applied anyway, and its
+        own `codesign --verify --deep` is the proof. Nothing about entitlements
+        or identities is duplicated here.
+      - TRUE on the ad-hoc branch, where scripts/build-macos-adhoc.sh does the
+        xcodebuild, the bundling AND the final seal in one step, so there is no
+        seam inside it to stand at. App.framework is re-signed, and the app is
+        re-sealed with the entitlements read back OUT of the app rather than
+        from a filename spelled again here. That matters: the ad-hoc script
+        exists precisely because the restricted networkextension key must NOT
+        survive into an ad-hoc signature — AMFI kills the process at launch —
+        and re-deriving the entitlement set from the bundle keeps this step
+        from ever putting it back.
+
+    Release only. A debug bundle runs a kernel snapshot rather than an AOT
+    image, so there is no snapshot here to edit, and a debug build is not
+    something anybody hands out.
+    """
+    import subprocess
+    import tempfile
+
+    app = _macos_app(config)
+    framework = os.path.join(app, 'Contents', 'Frameworks', 'App.framework')
+    snapshot = os.path.join(framework, 'Versions', 'A', 'App')
+    if not os.path.isfile(snapshot):
+        raise RuntimeError(
+            f'no AOT image at {snapshot}\n'
+            '    The bundle was not produced, or was produced somewhere else.'
+        )
+    with open(snapshot, 'rb') as handle:
+        data = handle.read()
+    scrubbed = _scrub_snapshot(data, label=os.path.relpath(snapshot, ROOT))
+    if scrubbed is data:
+        return
+    with open(snapshot, 'wb') as handle:
+        handle.write(scrubbed)
+    if not resign:
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        entitlements = os.path.join(tmp, 'entitlements.plist')
+        with open(entitlements, 'wb') as handle:
+            done = subprocess.run(
+                ['codesign', '-d', '--entitlements', '-', '--xml', app],
+                stdout=handle, stderr=subprocess.PIPE, check=False,
+            )
+        if done.returncode != 0:
+            raise RuntimeError(
+                'cannot read the entitlements back out of the bundle:\n    '
+                + done.stderr.decode('utf-8', 'replace').strip()
+            )
+        # The nested bundle first, then the container: an app's seal records
+        # the hash of every code object inside it, so re-signing the framework
+        # without re-sealing the app leaves a bundle that will not launch.
+        for target, extra in (
+            (framework, []),
+            (app, ['--entitlements', entitlements, '--timestamp=none']),
+        ):
+            subprocess.run(
+                ['codesign', '--force', '--sign', '-', *extra, target],
+                check=True,
+            )
+    guard_check = subprocess.run(
+        ['codesign', '-dv', '--entitlements', '-', app],
+        capture_output=True, check=False,
+    )
+    if b'networkextension' in guard_check.stdout + guard_check.stderr:
+        raise RuntimeError(
+            'the VPN entitlement came back during the re-sign — the app would\n'
+            '    be killed at launch. See scripts/build-macos-adhoc.sh.'
+        )
+    subprocess.run(['codesign', '--verify', '--deep', app], check=True)
+    print('    codesign OK — the bundle seal matches the masked image')
+
+
 def _macos(release: bool) -> list[Step]:
     config = "release" if release else "debug"
     whisper = _whisper_script("macos")
@@ -793,6 +1276,18 @@ def _macos(release: bool) -> list[Step]:
                 env=_build_env(),
             )
         )
+        # BEFORE the bundling script, deliberately: it signs every framework
+        # and then seals the app, so the masked image is covered by a signature
+        # that was going to be applied anyway and no signing knowledge is
+        # duplicated here. See _scrub_macos_snapshot.
+        steps.append(
+            Step(
+                "builder's home path out of the AOT image",
+                call=lambda: _scrub_macos_snapshot(config, resign=False),
+                optional=not release,
+                skip_if="" if release else "debug build — kernel snapshot, no AOT image",
+            )
+        )
         steps.append(
             Step(
                 "bundle native dylibs",
@@ -817,6 +1312,17 @@ def _macos(release: bool) -> list[Step]:
                 # Same reason as the signed branch: this script reaches
                 # xcodebuild, and xcodebuild reaches cargo.
                 env=_build_env(),
+            )
+        )
+        # AFTER the script, because it does the xcodebuild, the bundling and
+        # the final seal in one piece — so this one has to re-sign what it
+        # edited. See _scrub_macos_snapshot.
+        steps.append(
+            Step(
+                "builder's home path out of the AOT image",
+                call=lambda: _scrub_macos_snapshot(config, resign=True),
+                optional=not release,
+                skip_if="" if release else "debug build — kernel snapshot, no AOT image",
             )
         )
         # The ad-hoc script bundles too, so the same question applies to what
@@ -913,6 +1419,14 @@ def _ios(release: bool) -> list[Step]:
                 env=_build_env(),
             )
         )
+    steps.append(
+        _snapshot_not_handled(
+            "measured at 1 occurrence in App.framework/App, and NOT removed: "
+            "what ships is an IPA that Xcode's archive and export re-sign, and "
+            "builder.py runs neither, so a patch here could not be proved to "
+            "survive into the artifact anyone installs"
+        )
+    )
     # Release only, for the same reason as windows above: this refused a plain
     # `builder.py ios --debug` on a clean checkout, which is the build someone
     # runs to find out whether the project compiles at all.
@@ -1033,6 +1547,11 @@ def _windows(release: bool) -> list[Step]:
             skip_if=(
                 "" if os.path.isfile(translate_dll) else "translation not built"
             ),
+        ),
+        _snapshot_not_handled(
+            "never measured — no windows bundle can be produced on the host "
+            "this was written on, and the path form there is a third one "
+            "(C:\\Users\\...) that nobody has seen in an artifact yet"
         ),
         # Release only. A debug bundle without an engine is now a supported
         # thing to have — the plugin CMake warns and the app reports calls,
