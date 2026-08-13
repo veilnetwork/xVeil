@@ -24,6 +24,7 @@
 // nothing injected.
 
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -182,6 +183,51 @@ void main() {
       final first = VeilMediaNative.available();
       expect(first, isA<bool>());
       expect(VeilMediaNative.available(), first);
+    });
+  });
+
+  group('speech-to-text asks whether the engine LOADS, not whether it exists', () {
+    // The gap this closes was found by break-check and reported as uncovered:
+    // reverting the tightening in `nativeReady()` left every test green.
+    //
+    // What it protects against is specific and was observed, not imagined. An
+    // aarch64 Linux checkout was carrying an x86-64 `libveil_media.so`. That
+    // file satisfies every existence check in this project — `_libRef` finds
+    // it, the build stages it, the bundle ships it — and it cannot be
+    // `dlopen`'d on that host. `nativeReady()` therefore said the native side
+    // was ready, and the UI offered a 57 MiB model download that could not
+    // possibly have helped. Too strict for a clean clone and too weak for a
+    // wrong-arch file, at the same time.
+    //
+    // ## Why this is a source assertion and not a behavioural one
+    //
+    // The two file probes are a private static that reads the filesystem, with
+    // no seam. So a behavioural test can only observe THIS machine: here the
+    // library files are present, so forcing availability false does
+    // discriminate — but on a host without them `nativeReady()` is false
+    // either way and the same assertion would pass against the reverted code,
+    // vouching for nothing. A test whose meaning depends on which machine ran
+    // it is the shape this project has been caught by repeatedly, so the check
+    // is on the decision instead, where it holds everywhere.
+    test('nativeReady consults the load probe, not only the paths', () {
+      final source = File('lib/state/whisper_ffi.dart').readAsStringSync();
+      final start = source.indexOf('static bool nativeReady()');
+      expect(start, greaterThan(-1), reason: 'nativeReady moved or was renamed');
+      final body = source.substring(start, source.indexOf('\n  }', start));
+
+      expect(
+        body,
+        contains('VeilMediaNative.available()'),
+        reason: 'a file on disk is not an engine — an existence check passes '
+            'for a library built for another architecture',
+      );
+      // The Android arm already asked this, through `_canOpen`. Both arms have
+      // to, or the answer depends on the platform rather than on the engine.
+      expect(
+        body,
+        contains("_canOpen('veil_media')"),
+        reason: 'the Android arm must keep asking whether it opens',
+      );
     });
   });
 }
