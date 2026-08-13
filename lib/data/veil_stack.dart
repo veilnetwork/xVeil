@@ -215,6 +215,7 @@ String describeBootFailure({
   required NodePhase phase,
   required String? message,
   required List<String> runtimeDirEntries,
+  bool? hadObfs4Psk,
 }) {
   final names = [...runtimeDirEntries]..sort();
   final bound = names.any((n) => n == 'ipc.port' || n == 'admin.port');
@@ -240,7 +241,24 @@ String describeBootFailure({
       ? 'the node reported no reason'
       : 'the node said "$message"';
 
-  return '$phase — $said; $reading '
+  // Stated rather than inferred from the listing. "No obfs4_psk.b64 in the
+  // directory" has two very different causes — the app had no key to write, or
+  // it had one and never got that far — and reading the absence the wrong way
+  // sends the next investigation at the wrong half of the system. This is known
+  // for certain at the moment of failure, so it is said out loud.
+  //
+  // `_loadBundledObfs4Psk` returns null both for "clean clone, no asset" and
+  // for "asset is there and could not be read", which is why a shipped build
+  // that quietly has no key looks exactly like a developer build that never
+  // had one.
+  final key = hadObfs4Psk == null
+      ? ''
+      : hadObfs4Psk
+      ? '; the app did have an obfs4 key'
+      : '; the app had NO obfs4 key — without one every bootstrap peer is '
+            'refused by the transport before any handshake';
+
+  return '$phase — $said; $reading$key '
       '[runtime dir: ${names.isEmpty ? '<empty>' : names.join(', ')}]';
 }
 
@@ -1202,6 +1220,7 @@ class RealVeilStack {
         phase: controller.current.phase,
         message: controller.current.message,
         runtimeDirEntries: _runtimeDirEntries(runtimeDir),
+        hadObfs4Psk: obfs4Psk != null && obfs4Psk.isNotEmpty,
       );
       await runCleanupLegs('veil-stack-boot', [('controller', controller.stop)]);
       throw StateError('deniable node did not connect: $why');
