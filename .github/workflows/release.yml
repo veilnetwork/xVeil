@@ -754,13 +754,44 @@ jobs:
     permissions:
       contents: write
     steps:
+      # BEFORE download-artifact, not after: checkout cleans the workspace by
+      # default, and a checkout running second would delete the artifacts this
+      # job exists to attach.
+      #
+      # Submodules are not fetched — this job reads one file.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
+      # The release page's text, from the CHANGELOG entry for this tag.
+      #
+      # This job used to attach files and write nothing at all, so the page went
+      # out blank and the text was added by hand afterwards — if anyone
+      # remembered. v0.9.1's notes were written that way, and v0.10.0 reached
+      # the point of being published with an empty body before it was caught.
+      # Artifacts nobody can read the notes for are artifacts nobody can check.
+      - name: Release notes from the CHANGELOG entry for this tag
+        run: |
+          set -euo pipefail
+          v="${GITHUB_REF_NAME#v}"
+          # index(...) == 1 rather than a regex: the version is full of dots,
+          # and as a pattern 0.1.0 would match the heading of 0.10.0. The
+          # closing bracket is part of the needle for the same reason.
+          awk -v v="$v" 'index($0, "## [" v "]") == 1 {f=1; print; next}
+                         f && /^## \[/ {exit}
+                         f {print}' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if [ ! -s "$RUNNER_TEMP/notes.md" ]; then
+            echo "::error::CHANGELOG.md has no section for $v, so this release would publish with an empty page. Add the entry, then move the tag."
+            exit 1
+          fi
+          echo "notes: $(wc -l < "$RUNNER_TEMP/notes.md") lines from the $v entry"
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_name }}
           name: xVeil ${{ github.ref_name }}
+          body_path: ${{ runner.temp }}/notes.md
           draft: true
           files: artifacts/**/*
           fail_on_unmatched_files: true
