@@ -76,7 +76,16 @@ void main() {
     // that flag produces, and the workflow asserts it carries call/call.cc.
     // The local script still has to ask for it, and build_veil_media_so.sh
     // still refuses to start without the file.
-    expect(script, contains('--export-compile-commands'));
+    //
+    // Asserted on the `gn gen` INVOCATION rather than on the file, because the
+    // script also explains the flag in a comment three lines above the command.
+    // A whole-file `contains` is satisfied by that comment on its own, so
+    // deleting the flag from the line that runs — while leaving the paragraph
+    // saying it is load-bearing — passed. Break-checked: it now fails.
+    final gnGen = RegExp(r'^gn gen .*$', multiLine: true).firstMatch(script);
+    expect(gnGen, isNotNull,
+        reason: 'no `gn gen` invocation in the script — it moved or changed shape');
+    expect(gnGen!.group(0), contains('--export-compile-commands'));
 
     // Guards the parse itself: if a regex ever matched something that is not an
     // argument list, the comparison above could pass on nonsense.
