@@ -36,6 +36,15 @@ name: webrtc-linux
 on:
   workflow_dispatch:
     inputs:
+      targets:
+        description: >-
+          Space-separated: linux-x64 linux-arm64. Defaults to what every run
+          built before the arm64 target existed, so a run that does not ask for
+          it behaves exactly as it always did — and a target whose SDK has not
+          been published yet cannot fail a run nobody aimed at it.
+        required: false
+        type: string
+        default: 'linux-x64'
       keep_symbols:
         description: 'Skip the strip (bigger .so, symbolicated crashes)'
         required: false
@@ -101,12 +110,25 @@ env:
   # neither does the check. The bundle side is asserted below, at fetch time,
   # against the manifest; the local-script side is asserted by that test.
   WEBRTC_GN_ARGS_LINUX: 'enable_libaom = false is_component_build = false is_debug = false rtc_build_examples = false rtc_build_tools = false rtc_enable_protobuf = false rtc_include_opus = true rtc_include_tests = false rtc_use_h264 = false symbol_level = 0 target_cpu = "x64" target_os = "linux" treat_warnings_as_errors = false'
+  # Same line, arm64. Kept as its own variable rather than built by string
+  # surgery: this value is compared BYTE-FOR-BYTE against the manifest the SDK
+  # bundle carries, and a mismatch is how a bundle built with other flags gets
+  # noticed instead of linked.
+  WEBRTC_GN_ARGS_LINUX_ARM64: 'enable_libaom = false is_component_build = false is_debug = false rtc_build_examples = false rtc_build_tools = false rtc_enable_protobuf = false rtc_include_opus = true rtc_include_tests = false rtc_use_h264 = false symbol_level = 0 target_cpu = "arm64" target_os = "linux" treat_warnings_as_errors = false'
   WEBRTC_GN_ARGS_ANDROID: 'android_static_analysis = "off" enable_libaom = false is_component_build = false is_debug = false rtc_build_examples = false rtc_build_tools = false rtc_enable_protobuf = false rtc_include_opus = true rtc_include_tests = false rtc_use_h264 = false symbol_level = 0 target_cpu = "arm64" target_os = "android" treat_warnings_as_errors = false'
 
 jobs:
   engine:
-    name: libveil_media.so (linux-x64)
+    name: libveil_media.so (${{ matrix.target }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            gn_args_var: WEBRTC_GN_ARGS_LINUX
+          - target: linux-arm64
+            gn_args_var: WEBRTC_GN_ARGS_LINUX_ARM64
     # Was 350, for a job that spent thirty-seven of its forty minutes building
     # WebRTC. What is left is a 187 MB download, an extract, and a nineteen-
     # second wrapper build. A timeout is a statement about what "wedged" means
@@ -117,6 +139,19 @@ jobs:
         with:
           submodules: recursive
 
+      # A target nobody asked for must not fail the run. The arm64 SDK is
+      # published separately, and a run aimed at x64 should not depend on it
+      # existing yet.
+      - name: Skip targets not asked for
+        id: want
+        run: |
+          if echo "${{ inputs.targets }}" | grep -qw "${{ matrix.target }}"; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=no" >> "$GITHUB_OUTPUT"
+            echo "${{ matrix.target }} was not requested"
+          fi
+
       # `Reclaim disk` used to stand here: the WebRTC checkout plus its build
       # tree did not fit beside the runner's preinstalled toolchains. The
       # bundle is ~930 MB extracted, so there is nothing left to reclaim for.
@@ -125,7 +160,8 @@ jobs:
       # exits 2 without one. The manifest is published as its own 2 KB asset
       # precisely so the comparison costs one request and happens BEFORE the
       # bundle is downloaded.
-      - name: WebRTC SDK for linux-x64
+      - name: WebRTC SDK for ${{ matrix.target }}
+        if: steps.want.outputs.run == 'yes'
         run: |
           set -euo pipefail
           curl -fsSL --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/fetch-sdk.sh" \
@@ -138,7 +174,7 @@ jobs:
           # /webrtc/src. The one check this route rests on would be skippable
           # by accident. Run it as its own command, let a non-zero status kill
           # the step, and only then eval what it printed.
-          bash "$RUNNER_TEMP/fetch-sdk.sh" --target linux-x64 \
+          bash "$RUNNER_TEMP/fetch-sdk.sh" --target ${{ matrix.target }} \
             --expect-pin "$WEBRTC_PIN" --into "$RUNNER_TEMP/webrtc-sdk" \
             > "$RUNNER_TEMP/sdk-env.sh"
           cat "$RUNNER_TEMP/sdk-env.sh"
@@ -160,6 +196,10 @@ jobs:
       # being designed against is a mismatch discovered at the LINK — or worse,
       # inside a WebRTC header, where it reads like veil_media is broken.
       - name: The bundle is the WebRTC these sources expect
+        env:
+          # Which of the per-target gn-args variables this run compares against.
+          GN_ARGS_VAR: ${{ matrix.gn_args_var }}
+        if: steps.want.outputs.run == 'yes'
         run: |
           set -euo pipefail
           manifest="$WEBRTC_BUILD/veil-webrtc-sdk.json"
@@ -171,15 +211,15 @@ jobs:
           echo "bundle: target=$target webrtc=$got out=$out"
           [ "$got" = "$WEBRTC_PIN" ] \
             || { echo "::error::this bundle was built from WebRTC $got; these sources expect $WEBRTC_PIN"; exit 1; }
-          [ "$target" = "linux-x64" ] \
-            || { echo "::error::this bundle is for $target; this job builds linux-x64"; exit 1; }
+          [ "$target" = "${{ matrix.target }}" ] \
+            || { echo "::error::this bundle is for $target; this job builds ${{ matrix.target }}"; exit 1; }
           # The pin says WHICH WebRTC; this says HOW it was configured. Two
           # bundles from the same commit with different gn args produce
           # different engines — rtc_include_opus alone is the difference
           # between voice messages working and not — and nothing downstream
           # would notice.
           args="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["gn_args"])' "$manifest")"
-          if [ "$args" != "$WEBRTC_GN_ARGS_LINUX" ]; then
+          if [ "$args" != "${!GN_ARGS_VAR}" ]; then
             echo "::error::the bundle's gn args are not the ones this repository expects"
             echo "  bundle:   $args"
             echo "  expected: $WEBRTC_GN_ARGS_LINUX"
@@ -195,6 +235,7 @@ jobs:
           ls -la "$WEBRTC_SRC/$WEBRTC_OUT/obj/libwebrtc.a"
 
       - name: Build libveil_media.so
+        if: steps.want.outputs.run == 'yes'
         env:
           VEIL_MEDIA_NO_STRIP: ${{ inputs.keep_symbols && '1' || '' }}
         run: |
@@ -218,6 +259,7 @@ jobs:
       # it the exit status would be tee's, which is always 0, and the gate that
       # exists to catch a stale engine would report success for every engine.
       - name: Every symbol Dart looks up is exported
+        if: steps.want.outputs.run == 'yes'
         run: |
           set -euo pipefail
           bash scripts/check-media-symbols.sh \
@@ -235,7 +277,8 @@ jobs:
       # value below is read out of the bundle's manifest, so it says what built
       # the libwebrtc.a that is actually inside this .so, not what this
       # workflow would have used had it built one.
-      - name: Provenance for the linux-x64 asset
+      - name: Provenance for the ${{ matrix.target }} asset
+        if: steps.want.outputs.run == 'yes'
         env:
           KEEP_SYMBOLS: ${{ inputs.keep_symbols }}
         run: |
@@ -245,13 +288,13 @@ jobs:
           field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$manifest" "$1"; }
           mkdir -p provenance
           {
-            echo "asset:           libveil_media-linux-x64.so"
+            echo "asset:           libveil_media-${{ matrix.target }}.so"
             echo "installs-as:     libveil_media.so"
             echo "sha256:          $(sha256sum "$so" | cut -d' ' -f1)"
             echo "size:            $(stat -c%s "$so") bytes"
             echo "built:           $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "webrtc:          $WEBRTC_PIN"
-            echo "webrtc-sdk:      $VEIL_SDK_REPO webrtc-$WEBRTC_PIN veil-webrtc-sdk-linux-x64.tar.xz"
+            echo "webrtc-sdk:      $VEIL_SDK_REPO webrtc-$WEBRTC_PIN veil-webrtc-sdk-${{ matrix.target }}.tar.xz"
             echo "libwebrtc.a:     sha256 $(field libwebrtc_sha256) ($(field libwebrtc_bytes) bytes)"
             echo "sdk-built-by:    $(field built_by)"
             echo "depot_tools:     $(field depot_tools_pin) (the SDK's, recorded by the run that built libwebrtc.a)"
@@ -262,8 +305,8 @@ jobs:
             echo "run:             $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo "stripped:        $([ "$KEEP_SYMBOLS" = "true" ] && echo no || echo yes)"
             echo "symbol-check:    $(cat symbol-check.txt | tr '\n' ' ')"
-          } > "provenance/libveil_media-linux-x64.so.provenance"
-          cat "provenance/libveil_media-linux-x64.so.provenance"
+          } > "provenance/libveil_media-${{ matrix.target }}.so.provenance"
+          cat "provenance/libveil_media-${{ matrix.target }}.so.provenance"
 
       # Unchanged on purpose: the old run-id route still reads this artifact,
       # by this name, expecting exactly this one file. The provenance goes up
@@ -272,14 +315,14 @@ jobs:
       # consumer, which is a directory gradle packages into the APK.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: libveil_media-linux-x64
+          name: libveil_media-${{ matrix.target }}
           path: third_party/veil/flutter/veil_media/linux/libveil_media.so
           if-no-files-found: error
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: libveil_media-linux-x64-provenance
-          path: provenance/libveil_media-linux-x64.so.provenance
+          name: libveil_media-${{ matrix.target }}-provenance
+          path: provenance/libveil_media-${{ matrix.target }}.so.provenance
           if-no-files-found: error
 
   # Android needs the same treatment and never got it, which is how v0.9.1
@@ -476,6 +519,18 @@ jobs:
           path: incoming/linux
           merge-multiple: true
 
+      # Its own directory, not incoming/linux: both architectures build a file
+      # called libveil_media.so, and merging them would have one silently
+      # overwrite the other — published under a name that says the wrong thing.
+      - name: linux-arm64 engine and its provenance
+        if: needs.engine.result == 'success'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: libveil_media-linux-arm64*
+          path: incoming/linux-arm64
+          merge-multiple: true
+        continue-on-error: true
+
       - name: android-arm64 engine and its provenance
         if: needs['engine-android'].result == 'success'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -495,6 +550,13 @@ jobs:
           if [ -d incoming/linux ]; then
             cp incoming/linux/libveil_media.so dist/libveil_media-linux-x64.so
             cp incoming/linux/libveil_media-linux-x64.so.provenance dist/
+          fi
+          # Absent whenever the arm64 target was not requested — the matrix job
+          # skipped it and uploaded nothing. Not an error: a run aimed at x64
+          # publishes x64.
+          if [ -d incoming/linux-arm64 ]; then
+            cp incoming/linux-arm64/libveil_media.so dist/libveil_media-linux-arm64.so
+            cp incoming/linux-arm64/libveil_media-linux-arm64.so.provenance dist/
           fi
           if [ -d incoming/android ]; then
             cp incoming/android/libveil_media.so dist/libveil_media-android-arm64.so
