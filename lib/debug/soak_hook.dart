@@ -1972,6 +1972,16 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   static String? _hexOf(Uint8List? bytes) =>
       bytes?.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
+  /// This device's stored identity document, or null when it has none.
+  Future<Uint8List?> _ownDocument() async {
+    final raw = await ref
+        .read(storageProvider)
+        .getSetting(kSovereignIdentitySetting);
+    if (raw == null) return null;
+    final doc = decodeSovereignIdentity(raw)?[kIdentityDocumentFile];
+    return (doc == null || doc.isEmpty) ? null : doc;
+  }
+
   /// THIS device's own bootstrap invite — its transport key and nonce, out of
   /// the config it booted on.
   ///
@@ -2069,7 +2079,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (own == null) {
       return _json(req, {'ok': false, 'error': 'no device config'});
     }
-    final link = DeviceLinkInvite(device: own);
+    // The document travels WITH the invite — see [DeviceLinkInvite.document]
+    // for the deadlock that breaks.
+    final link = DeviceLinkInvite(device: own, document: await _ownDocument());
     return _json(req, {
       'ok': true,
       'invite': link.toUri(),
@@ -2105,9 +2117,20 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       )) {
         return _json(req, {'ok': false, 'error': 'self device'});
       }
-      // The sibling's OWN invite, so it becomes a reachable, sealable peer —
-      // the device group entry below is its device id, and delivery to it is
-      // an ordinary send.
+      // MERGE THE DOCUMENT FIRST. Until this device's document names the
+      // sibling, the registry it publishes lists one instance, sealing for
+      // "my other devices" finds none, and the snapshot below is deposited
+      // for nobody. The sibling's own document arrives with its invite
+      // precisely so this can happen before anything is sent.
+      final theirDoc = link.document;
+      if (theirDoc != null && theirDoc.isNotEmpty) {
+        final merged = await RealVeilStack.adoptSovereignDocument(
+          ref.read(storageProvider),
+          document: theirDoc,
+          stagingBase: Directory.systemTemp.path,
+        );
+        devLog(() => 'xVeil[link]: sibling document merged=$merged');
+      }
       await stack.addContact(target);
       sovereign = await svc.openLocalSovereign(phrase.trim());
       // No snapshot yet: the target must record its admission first, or it
