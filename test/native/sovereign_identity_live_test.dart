@@ -26,6 +26,10 @@ import 'package:xveil/data/veil_stack.dart';
 /// Env-gated on VEIL_FFI_DYLIB, like the other live tests here.
 class _MemStorage implements Storage {
   final settings = <String, String>{};
+  String? config;
+
+  @override
+  Future<String?> loadNodeConfig() async => config;
 
   @override
   Future<void> putSetting(String key, String value) async =>
@@ -138,43 +142,46 @@ void main() {
   // one key and the SAME node_id — both published under that id, the later
   // publisher displacing the earlier, the displaced device online and
   // unreachable. One of them has to end up carrying both keys.
-  test('a restored device can add itself to the other one\'s document',
-      () async {
-    final lib = DynamicLibrary.open(dylib!);
-    final phrase = veilGeneratePhrase()!;
-    final a = '${tmp.path}/a';
-    final b = '${tmp.path}/b';
-    EmbeddedNode.provisionSovereignIdentity(
-      phrase,
-      veilDir: a,
-      instanceLabel: 'desktop',
-      lib: lib,
-    );
-    EmbeddedNode.provisionSovereignIdentity(
-      phrase,
-      veilDir: b,
-      instanceLabel: 'phone',
-      lib: lib,
-    );
-    final aDoc = await File('$a/$kIdentityDocumentFile').readAsBytes();
-    final bDocBefore = await File('$b/$kIdentityDocumentFile').readAsBytes();
-    expect(aDoc, isNot(orderedEquals(bDocBefore)), reason: 'two devices');
+  test(
+    'a restored device can add itself to the other one\'s document',
+    () async {
+      final lib = DynamicLibrary.open(dylib!);
+      final phrase = veilGeneratePhrase()!;
+      final a = '${tmp.path}/a';
+      final b = '${tmp.path}/b';
+      EmbeddedNode.provisionSovereignIdentity(
+        phrase,
+        veilDir: a,
+        instanceLabel: 'desktop',
+        lib: lib,
+      );
+      EmbeddedNode.provisionSovereignIdentity(
+        phrase,
+        veilDir: b,
+        instanceLabel: 'phone',
+        lib: lib,
+      );
+      final aDoc = await File('$a/$kIdentityDocumentFile').readAsBytes();
+      final bDocBefore = await File('$b/$kIdentityDocumentFile').readAsBytes();
+      expect(aDoc, isNot(orderedEquals(bDocBefore)), reason: 'two devices');
 
-    // B receives A's document over the linking channel and adopts it, then
-    // adds itself. It cannot sign with A's subkey — that secret is on A.
-    await File('$b/$kIdentityDocumentFile').writeAsBytes(aDoc, flush: true);
-    EmbeddedNode.delegateDeviceFromPhrase(phrase, veilDir: b, lib: lib);
+      // B receives A's document over the linking channel and adopts it, then
+      // adds itself. It cannot sign with A's subkey — that secret is on A.
+      await File('$b/$kIdentityDocumentFile').writeAsBytes(aDoc, flush: true);
+      EmbeddedNode.delegateDeviceFromPhrase(phrase, veilDir: b, lib: lib);
 
-    final merged = await File('$b/$kIdentityDocumentFile').readAsBytes();
-    // A second delegated key is roughly a pubkey, a device id, two timestamps
-    // and a 64-byte signature. The document cannot have merely been rewritten.
-    expect(
-      merged.length,
-      greaterThan(aDoc.length + 100),
-      reason: 'the merged document carries a second key',
-    );
-    expect(merged, isNot(orderedEquals(aDoc)));
-  }, skip: skip);
+      final merged = await File('$b/$kIdentityDocumentFile').readAsBytes();
+      // A second delegated key is roughly a pubkey, a device id, two timestamps
+      // and a 64-byte signature. The document cannot have merely been rewritten.
+      expect(
+        merged.length,
+        greaterThan(aDoc.length + 100),
+        reason: 'the merged document carries a second key',
+      );
+      expect(merged, isNot(orderedEquals(aDoc)));
+    },
+    skip: skip,
+  );
 
   // A wrong phrase must be refused here, not produce a document that verifies
   // against a different identity and fails much later as peers refusing a node
@@ -211,37 +218,40 @@ void main() {
   // phrase is long gone — consumed at setup, never stored — so delegation has
   // to work from what the app kept: its node config, whose private key IS the
   // master secret for a phrase-provisioned identity.
-  test('the stored config carries enough authority to admit a device',
-      () async {
-    final lib = DynamicLibrary.open(dylib!);
-    final phrase = minePhrase!;
-    final toml = mineToml!;
-    final a = '${tmp.path}/ca';
-    final b = '${tmp.path}/cb';
-    EmbeddedNode.provisionSovereignIdentity(
-      phrase,
-      veilDir: a,
-      instanceLabel: 'desktop',
-      lib: lib,
-    );
-    EmbeddedNode.provisionSovereignIdentity(
-      phrase,
-      veilDir: b,
-      instanceLabel: 'phone',
-      lib: lib,
-    );
+  test(
+    'the stored config carries enough authority to admit a device',
+    () async {
+      final lib = DynamicLibrary.open(dylib!);
+      final phrase = minePhrase!;
+      final toml = mineToml!;
+      final a = '${tmp.path}/ca';
+      final b = '${tmp.path}/cb';
+      EmbeddedNode.provisionSovereignIdentity(
+        phrase,
+        veilDir: a,
+        instanceLabel: 'desktop',
+        lib: lib,
+      );
+      EmbeddedNode.provisionSovereignIdentity(
+        phrase,
+        veilDir: b,
+        instanceLabel: 'phone',
+        lib: lib,
+      );
 
-    final aDoc = await File('$a/$kIdentityDocumentFile').readAsBytes();
-    await File('$b/$kIdentityDocumentFile').writeAsBytes(aDoc, flush: true);
-    EmbeddedNode.delegateDeviceFromConfig(toml, veilDir: b, lib: lib);
+      final aDoc = await File('$a/$kIdentityDocumentFile').readAsBytes();
+      await File('$b/$kIdentityDocumentFile').writeAsBytes(aDoc, flush: true);
+      EmbeddedNode.delegateDeviceFromConfig(toml, veilDir: b, lib: lib);
 
-    final merged = await File('$b/$kIdentityDocumentFile').readAsBytes();
-    expect(
-      merged.length,
-      greaterThan(aDoc.length + 100),
-      reason: 'the merged document carries a second key',
-    );
-  }, skip: skip);
+      final merged = await File('$b/$kIdentityDocumentFile').readAsBytes();
+      expect(
+        merged.length,
+        greaterThan(aDoc.length + 100),
+        reason: 'the merged document carries a second key',
+      );
+    },
+    skip: skip,
+  );
 
   test('a config from another identity is refused', () async {
     final lib = DynamicLibrary.open(dylib!);
@@ -268,6 +278,122 @@ void main() {
       orderedEquals(before),
     );
   }, skip: skip);
+
+  // THE WHOLE DEFECT, END TO END, through the app's own API.
+  //
+  // Two devices set up from one master phrase. Before this each held a document
+  // naming only itself while both carried the same node_id, so both published
+  // under that id, the later publisher displaced the earlier, and the displaced
+  // device stayed online believing it was reachable. Linking answered "self
+  // device" because they were, at the identity layer, one node.
+  test(
+    'two devices from one phrase end up as one identity with two keys',
+    () async {
+      final lib = DynamicLibrary.open(dylib!);
+      final phrase = minePhrase!;
+      final toml = mineToml!;
+
+      final desktop = _MemStorage()..config = toml;
+      final phone = _MemStorage()..config = toml;
+      final deskMat = await RealVeilStack.ensureSovereignIdentity(
+        desktop,
+        stagingBase: tmp.path,
+        identityPhrase: phrase,
+        lib: lib,
+      );
+      final phoneMat = await RealVeilStack.ensureSovereignIdentity(
+        phone,
+        stagingBase: tmp.path,
+        identityPhrase: phrase,
+        lib: lib,
+      );
+      expect(deskMat, isNotNull);
+      expect(phoneMat, isNotNull);
+      expect(
+        deskMat![kDeviceIdentitySkFile],
+        isNot(orderedEquals(phoneMat![kDeviceIdentitySkFile]!)),
+      );
+
+      // The phone receives the desktop's document over the linking channel and
+      // adds itself.
+      final merged = await RealVeilStack.adoptSovereignDocument(
+        phone,
+        document: deskMat[kIdentityDocumentFile]!,
+        stagingBase: tmp.path,
+        lib: lib,
+      );
+      expect(merged, isTrue, reason: 'the phone appends itself');
+
+      // The desktop receives the merged document back. It is already named in
+      // it, so there is nothing to append — but it MUST record its own subkey
+      // index, or it signs with the phone's key and comes up with no identity.
+      final phoneNow = decodeSovereignIdentity(
+        phone.settings[kSovereignIdentitySetting]!,
+      )!;
+      final adopted = await RealVeilStack.adoptSovereignDocument(
+        desktop,
+        document: phoneNow[kIdentityDocumentFile]!,
+        stagingBase: tmp.path,
+        lib: lib,
+      );
+      expect(adopted, isTrue, reason: 'the desktop adopts');
+
+      final deskNow = decodeSovereignIdentity(
+        desktop.settings[kSovereignIdentitySetting]!,
+      )!;
+      // One document, held by both.
+      expect(
+        deskNow[kIdentityDocumentFile],
+        orderedEquals(phoneNow[kIdentityDocumentFile]!),
+      );
+      // Two devices: each keeps its own key and its own subkey index, and the
+      // indices differ — that file is what stops each from signing as the other.
+      expect(
+        deskNow[kDeviceIdentitySkFile],
+        isNot(orderedEquals(phoneNow[kDeviceIdentitySkFile]!)),
+      );
+      expect(deskNow[kDeviceSigKeyIdxFile], isNotNull);
+      expect(phoneNow[kDeviceSigKeyIdxFile], isNotNull);
+      expect(
+        deskNow[kDeviceSigKeyIdxFile],
+        isNot(orderedEquals(phoneNow[kDeviceSigKeyIdxFile]!)),
+      );
+    },
+    skip: skip,
+  );
+
+  test(
+    'a document from another identity is refused and changes nothing',
+    () async {
+      final lib = DynamicLibrary.open(dylib!);
+      final mine = _MemStorage()..config = mineToml!;
+      await RealVeilStack.ensureSovereignIdentity(
+        mine,
+        stagingBase: tmp.path,
+        identityPhrase: minePhrase!,
+        lib: lib,
+      );
+      final before = mine.settings[kSovereignIdentitySetting];
+
+      final stranger = _MemStorage()..config = strangerToml!;
+      final strangerMat = await RealVeilStack.ensureSovereignIdentity(
+        stranger,
+        stagingBase: tmp.path,
+        identityPhrase: veilGeneratePhrase()!,
+        lib: lib,
+      );
+
+      final ok = await RealVeilStack.adoptSovereignDocument(
+        mine,
+        document: strangerMat![kIdentityDocumentFile]!,
+        stagingBase: tmp.path,
+        lib: lib,
+      );
+      expect(ok, isFalse);
+      expect(mine.settings[kSovereignIdentitySetting], before);
+    },
+    skip: skip,
+  );
 
   test('an unusable phrase provisions nothing and stores nothing', () async {
     // The failure has to stay quiet and empty: a half-written entry would be

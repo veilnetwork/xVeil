@@ -161,6 +161,31 @@ typedef _DelegateDeviceDart =
       int,
       Pointer<Pointer<Utf8>>,
     );
+// int veil_adopt_identity_document_from_config_zeroize(
+//     config_toml*, len, veil_dir*, len, document*, len,
+//     key_idx_out*, err_out**): 0 on success. The config is wiped in place.
+typedef _AdoptDocNative =
+    Int32 Function(
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint16>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _AdoptDocDart =
+    int Function(
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint16>,
+      Pointer<Pointer<Utf8>>,
+    );
 typedef _ConfigInitNative =
     Pointer<Utf8> Function(Uint32, Pointer<Pointer<Utf8>>);
 typedef _ConfigInitDart = Pointer<Utf8> Function(int, Pointer<Pointer<Utf8>>);
@@ -567,6 +592,74 @@ class EmbeddedNode {
       calloc.free(tomlPtr);
       calloc.free(dirC);
       if (pkPtr != nullptr) calloc.free(pkPtr);
+      calloc.free(errOut);
+    }
+  }
+
+  /// Merge a document received from ANOTHER device of this identity into
+  /// [veilDir], and return which subkey index this device ends up as.
+  ///
+  /// One call for both directions, because they are not symmetric. The device
+  /// that merges first receives a document naming only the other and appends
+  /// itself; the device that merges second receives one that already names it.
+  /// Either way the native side records this device's own subkey index — the
+  /// document's own `sig_key_idx` names whichever device signed it, and a
+  /// device that stores that without recording its own index signs with a key
+  /// it does not have and comes up with no identity at all.
+  ///
+  /// Refuses, writing nothing, a document that does not decode, does not
+  /// verify, or belongs to a different identity.
+  static int adoptIdentityDocument(
+    String identityToml, {
+    required String veilDir,
+    required Uint8List document,
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? _veilLib();
+    final adoptFn = dl.lookupFunction<_AdoptDocNative, _AdoptDocDart>(
+      'veil_adopt_identity_document_from_config_zeroize',
+    );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final tomlBytes = utf8.encode(identityToml);
+    final tomlPtr = calloc<Uint8>(tomlBytes.length);
+    final dirC = veilDir.toNativeUtf8();
+    // from_raw_parts needs a non-null pointer even for length 0.
+    final docPtr = calloc<Uint8>(document.isEmpty ? 1 : document.length);
+    final idxOut = calloc<Uint16>();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      tomlPtr.asTypedList(tomlBytes.length).setAll(0, tomlBytes);
+      if (document.isNotEmpty) {
+        docPtr.asTypedList(document.length).setAll(0, document);
+      }
+      final rc = adoptFn(
+        tomlPtr,
+        tomlBytes.length,
+        dirC.cast<Uint8>(),
+        dirC.length,
+        docPtr,
+        document.length,
+        idxOut,
+        errOut,
+      );
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_adopt_identity_document failed: $msg');
+      }
+      return idxOut.value;
+    } finally {
+      // The config holds the master private key (audit XV-22). The document is
+      // public.
+      wipeNativeSecret(tomlPtr, tomlBytes.length);
+      wipeSecretBytes(tomlBytes);
+      calloc.free(tomlPtr);
+      calloc.free(dirC);
+      calloc.free(docPtr);
+      calloc.free(idxOut);
       calloc.free(errOut);
     }
   }
