@@ -6409,4 +6409,11 @@ class AppL10nEs extends AppL10n {
   @override
   String get devicesSendNoTargets =>
       'Todavía no hay ningún dispositivo vinculado al que enviar';
+
+  @override
+  String get networkBackgroundOfferBody =>
+      'Sin esto Android detiene xVeil en cuanto se apaga la pantalla: el nodo se para, dejan de llegar mensajes y la aplicación sigue pareciendo correcta. Algunos teléfonos (Xiaomi, Samsung) esconden además un “Inicio automático” en los ajustes de la propia aplicación que también debe estar activado.\n\nPuedes activarlo más tarde en cualquier momento: Ajustes → Red overlay → Funcionar en segundo plano.';
+
+  @override
+  String get networkBackgroundNeverAsk => 'No volver a preguntar';
 }

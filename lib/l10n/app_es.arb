@@ -2688,5 +2688,7 @@
   "devicesResendSetup": "Enviar de nuevo la configuración cifrada",
   "devicesResendHint": "Para un dispositivo ya vinculado que nunca la recibió",
   "devicesSendUnreachable": "El otro dispositivo no respondió. Abre xVeil allí, espera a que se conecte e inténtalo de nuevo.",
-  "devicesSendNoTargets": "Todavía no hay ningún dispositivo vinculado al que enviar"
+  "devicesSendNoTargets": "Todavía no hay ningún dispositivo vinculado al que enviar",
+  "networkBackgroundOfferBody": "Sin esto Android detiene xVeil en cuanto se apaga la pantalla: el nodo se para, dejan de llegar mensajes y la aplicación sigue pareciendo correcta. Algunos teléfonos (Xiaomi, Samsung) esconden además un “Inicio automático” en los ajustes de la propia aplicación que también debe estar activado.\n\nPuedes activarlo más tarde en cualquier momento: Ajustes → Red overlay → Funcionar en segundo plano.",
+  "networkBackgroundNeverAsk": "No volver a preguntar"
 }
