@@ -1,101 +1,84 @@
 // The invite a device shows to ANOTHER DEVICE of the same identity.
 //
-// The ceremony opens by asking "is this me?". Once an invite began naming the
-// IDENTITY instead of the device, every device of one identity handed out a
-// byte-identical string and that question stopped having an answer — linking a
-// genuine second device was refused as "self device". These tests pin the
-// answer down, and pin the contact invite OUT of it.
+// A contact invite names the IDENTITY — every device of one identity hands out
+// the same string, deliberately, because that is the address mail goes to. The
+// ceremony cannot open on it: it asks "is this me?" and, later, "where do I
+// send the snapshot?", and neither has an answer in a string all my devices
+// share. So linking gets the device's OWN invite, and these tests pin that
+// split down — including keeping it OUT of what contacts receive.
 
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/transport/device_link_invite.dart';
 
-BootstrapInvite _invite({int keyByte = 7}) => BootstrapInvite(
-  publicKey: Uint8List.fromList(List.filled(32, keyByte)),
-  nonce: Uint8List.fromList([0, 11, 22, 33]),
+BootstrapInvite _invite(int seed) => BootstrapInvite(
+  publicKey: Uint8List.fromList(List.filled(32, seed)),
+  nonce: Uint8List.fromList([seed, seed + 1, seed + 2, seed + 3]),
   algo: 'ed25519',
 );
 
-Uint8List _inst(int b) => Uint8List.fromList(List.filled(16, b));
-
 void main() {
-  test('a device-link invite round-trips through its uri', () {
-    final src = DeviceLinkInvite(invite: _invite(), instance: _inst(0xA1));
+  test('a device-link invite round-trips its own key', () {
+    final src = DeviceLinkInvite(device: _invite(7));
     final back = DeviceLinkInvite.parse(src.toUri());
-    expect(back.instance, _inst(0xA1));
-    expect(base64.encode(back.invite.publicKey), base64.encode(_invite().publicKey));
-    expect(base64.encode(back.invite.nonce), base64.encode(_invite().nonce));
-    expect(back.invite.algo, 'ed25519');
+    expect(back.namesTheDevice, isTrue);
+    expect(back.nodeId, _invite(7).nodeId);
+    expect(back.device.algo, 'ed25519');
   });
 
   test('it is a different string from the contact invite', () {
-    final d = DeviceLinkInvite(invite: _invite(), instance: _inst(1));
+    final d = DeviceLinkInvite(device: _invite(7));
     expect(d.toUri().startsWith(DeviceLinkInvite.scheme), isTrue);
     expect(d.toUri().startsWith(BootstrapInvite.scheme), isFalse);
-    // THE PRIVACY POINT: what a contact receives carries no device value.
-    expect(_invite().toUri().contains('inst='), isFalse);
   });
 
-  // An older device's QR is a plain bootstrap invite. Refusing it would break
-  // linking to exactly the devices most likely to need it.
-  test('a plain bootstrap invite is still accepted, with no instance', () {
-    final back = DeviceLinkInvite.parse(_invite().toUri());
-    expect(back.instance, isNull);
-    expect(back.invite.nodeId, _invite().nodeId);
+  // An older device's QR is a plain bootstrap invite naming its identity.
+  // Refusing it would break linking to exactly the devices most likely to need
+  // it, so it parses — flagged as not naming a device.
+  test('a plain bootstrap invite parses as identity-naming', () {
+    final back = DeviceLinkInvite.parse(_invite(7).toUri());
+    expect(back.namesTheDevice, isFalse);
+    expect(back.nodeId, _invite(7).nodeId);
   });
 
   group('is this me', () {
-    final mine = _inst(0x11);
+    final identity = _invite(1).nodeId;
+    final me = _invite(2).nodeId;
 
-    test('same instance is this device', () {
-      final d = DeviceLinkInvite(invite: _invite(), instance: mine);
+    // THE ONE THE DEFECT WAS ABOUT. Two devices of one identity: the identity
+    // ids match and the device ids do not. Comparing identities says "me" and
+    // refuses a legitimate link.
+    test('a sibling device is not me', () {
+      final sibling = DeviceLinkInvite(device: _invite(3));
       expect(
-        d.isSelf(myInstance: mine, myNodeId: _invite().nodeId),
-        isTrue,
-      );
-    });
-
-    // THE ONE THE DEFECT WAS ABOUT. Same identity — so the node ids match —
-    // and a different device. Comparing node ids says "me"; comparing
-    // instances says what is true.
-    test('same identity, different instance is NOT this device', () {
-      final d = DeviceLinkInvite(invite: _invite(), instance: _inst(0x22));
-      expect(
-        d.isSelf(myInstance: mine, myNodeId: _invite().nodeId),
+        sibling.isSelf(myDeviceNodeId: me, myIdentityId: identity),
         isFalse,
         reason: 'a second device of my identity must be linkable',
       );
     });
 
-    test('no instance on either side falls back to the node id', () {
-      final same = DeviceLinkInvite(invite: _invite());
-      expect(same.isSelf(myInstance: null, myNodeId: _invite().nodeId), isTrue);
-      final other = DeviceLinkInvite(invite: _invite(keyByte: 9));
+    test('my own device invite is me', () {
+      final mine = DeviceLinkInvite(device: _invite(2));
+      expect(mine.isSelf(myDeviceNodeId: me, myIdentityId: identity), isTrue);
+    });
+
+    // The conservative fallback: nothing here names a device, so the only
+    // comparison left is the identity — which for a sibling means "self" and a
+    // refusal. Refusing is recoverable; linking on an identifier that cannot
+    // tell two devices apart is not.
+    test('an identity-naming invite falls back to the identity', () {
+      final legacy = DeviceLinkInvite.parse(_invite(1).toUri());
       expect(
-        other.isSelf(myInstance: null, myNodeId: _invite().nodeId),
+        legacy.isSelf(myDeviceNodeId: me, myIdentityId: identity),
+        isTrue,
+      );
+      final other = DeviceLinkInvite.parse(_invite(9).toUri());
+      expect(
+        other.isSelf(myDeviceNodeId: me, myIdentityId: identity),
         isFalse,
       );
     });
-
-    test('an instance of a different length is not a match', () {
-      final d = DeviceLinkInvite(
-        invite: _invite(),
-        instance: Uint8List.fromList([0x11, 0x11]),
-      );
-      expect(d.isSelf(myInstance: mine, myNodeId: _invite().nodeId), isFalse);
-    });
-  });
-
-  test('a malformed instance does not take the invite down with it', () {
-    final uri = '${DeviceLinkInvite.scheme}'
-        'pk=${base64.encode(_invite().publicKey)}'
-        '&a=ed25519&nc=${base64.encode(_invite().nonce)}&inst=zznothex';
-    final back = DeviceLinkInvite.parse(uri);
-    expect(back.instance, isNull);
-    expect(back.invite.nodeId, _invite().nodeId);
   });
 }

@@ -19,11 +19,12 @@ import '../core/posix_file_facts.dart' show posixChmod;
 import '../data/runtime_dir_sweep.dart' show sweepStaleRuntimeDirs;
 import '../data/serve_source.dart';
 import '../data/veil_stack.dart' show claimRuntimeDirUnder, RealVeilStack;
+import '../data/transport/bootstrap_invite.dart';
+import '../data/node/identity_config_fields.dart';
 import '../data/transport/device_link_invite.dart';
 import '../data/node/sovereign_identity_material.dart'
     show
         decodeSovereignIdentity,
-        instanceIdFrom,
         kDeviceSigKeyIdxFile,
         kIdentityDocumentFile,
         kInstanceIdFile,
@@ -1971,6 +1972,24 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   static String? _hexOf(Uint8List? bytes) =>
       bytes?.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
+  /// THIS device's own bootstrap invite — its transport key and nonce, out of
+  /// the config it booted on.
+  ///
+  /// Not [RealVeilStack.myInvite]: that one carries the IDENTITY's key by
+  /// design, so every device of an identity produces the same string and the
+  /// ceremony cannot tell two of them apart, nor address one.
+  Future<BootstrapInvite?> _ownDeviceInvite() async {
+    final toml = await ref.read(storageProvider).loadNodeConfig();
+    if (toml == null) return null;
+    final f = identityConfigFields(toml);
+    if (f == null) return null;
+    return BootstrapInvite(
+      publicKey: f.publicKey,
+      nonce: f.nonce,
+      algo: f.algo,
+    );
+  }
+
   /// The three identifiers this device answers to, each from its own source.
   ///
   /// They are easy to confuse and were, for a while, the same number — which is
@@ -2044,16 +2063,18 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (stack == null) return _json(req, {'ok': false, 'error': 'no stack'});
     // The DEVICE-LINK spelling, not the contact one. Both devices of an
     // identity hand out the same contact invite by design, so the ceremony
-    // cannot open on it — see [DeviceLinkInvite].
-    final instance = instanceIdFrom(
-      await ref.read(storageProvider).getSetting(kSovereignIdentitySetting),
-    );
-    final link = DeviceLinkInvite(invite: stack.myInvite, instance: instance);
+    // cannot open on it — see [DeviceLinkInvite]. This one carries THIS
+    // device's own transport key, read from the config it actually booted on.
+    final own = await _ownDeviceInvite();
+    if (own == null) {
+      return _json(req, {'ok': false, 'error': 'no device config'});
+    }
+    final link = DeviceLinkInvite(device: own);
     return _json(req, {
       'ok': true,
       'invite': link.toUri(),
-      'nodeId': stack.myInvite.nodeId.hex,
-      'instance': _hexOf(instance),
+      'nodeId': link.nodeId.hex,
+      'identity': stack.myInvite.nodeId.hex,
       // The contact invite too, so a stand can assert the two differ.
       'contactInvite': stack.myInvite.toUri(),
     });
@@ -2076,15 +2097,17 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     NativeSovereignGroupSigner? sovereign;
     try {
       final link = DeviceLinkInvite.parse(invite);
-      final target = link.invite;
+      final target = link.device;
+      final mine = await _ownDeviceInvite();
       if (link.isSelf(
-        myInstance: instanceIdFrom(
-          await ref.read(storageProvider).getSetting(kSovereignIdentitySetting),
-        ),
-        myNodeId: svc.selfId,
+        myDeviceNodeId: mine?.nodeId ?? svc.selfId,
+        myIdentityId: svc.selfId,
       )) {
         return _json(req, {'ok': false, 'error': 'self device'});
       }
+      // The sibling's OWN invite, so it becomes a reachable, sealable peer —
+      // the device group entry below is its device id, and delivery to it is
+      // an ordinary send.
       await stack.addContact(target);
       sovereign = await svc.openLocalSovereign(phrase.trim());
       // No snapshot yet: the target must record its admission first, or it
@@ -2096,7 +2119,13 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       )) {
         return _json(req, {'ok': false, 'error': 'membership rejected'});
       }
-      final token = await svc.createDeviceLinkToken(stack.myInvite);
+      // Issued BY this device: `source` below is the identity, which the
+      // target shares, so without this it cannot tell a token it was handed
+      // from one it issued itself.
+      final token = await svc.createDeviceLinkToken(
+        stack.myInvite,
+        sourceDevice: mine?.nodeId,
+      );
       if (token == null) {
         return _json(req, {'ok': false, 'error': 'token unavailable'});
       }
@@ -2128,7 +2157,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       final stack = ref.read(realStackProvider);
       if (stack == null) return _json(req, {'ok': false, 'error': 'no stack'});
       await stack.addContact(token.sourceInvite);
-      if (!await svc.prepareDeviceAdoption(token)) {
+      if (!await svc.prepareDeviceAdoption(
+        token,
+        myDevice: (await _ownDeviceInvite())?.nodeId,
+      )) {
         return _json(req, {'ok': false, 'error': 'admission rejected'});
       }
       return _json(req, {'ok': true, 'group': token.groupId.hex});
