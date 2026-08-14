@@ -117,8 +117,14 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     // rather than awaited: this provider body is synchronous, and the mailbox
     // has always been built off a future it does not block on.
     RealVeilStack.sovereignReceiveAddress(storage)
-        .then(
-          (receiveAddress) => transport.buildMailboxService(
+        .then((receiveAddress) {
+          // The transport needs it too, and for the opposite direction: a
+          // send addressed HERE is a device sync, not a message to
+          // ourselves, and only the transport can tell the node so.
+          if (receiveAddress != null) {
+            transport.identityAddress = receiveAddress;
+          }
+          return transport.buildMailboxService(
             deliver: service.deliverInbound,
             relayKeyCache: relayKeyCache,
             receiveAddress: receiveAddress == null
@@ -132,8 +138,8 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
               getSetting: storage.getSetting,
               putSetting: storage.putSetting,
             ),
-          ),
-        )
+          );
+        })
         .then((m) {
           if (providerDisposed) {
             // This stack/transport is already gone — don't start a timer on it.
