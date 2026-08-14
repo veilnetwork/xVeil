@@ -770,7 +770,13 @@ class RealVeilStack {
     this.lanListen = false,
     this.listenScheme = 'tcp',
     this.ratchetState,
-  }) : _cli = veilCliPath,
+    EmbeddedNode? embeddedNode,
+    String? identityDir,
+    String? appliedConfig,
+  }) : _embeddedNode = embeddedNode,
+       _identityDir = identityDir,
+       _appliedConfig = appliedConfig,
+       _cli = veilCliPath,
        _config = configPath,
        _flutterTransport = nodeIpc;
 
@@ -797,6 +803,13 @@ class RealVeilStack {
   final NodeController controller;
   final VeilTransport transport;
   final BootstrapInvite myInvite;
+
+  /// The running node, the directory it reads its identity from, and the
+  /// config it was promoted with — the three things [refreshSovereignIdentity]
+  /// needs and nothing else does.
+  final EmbeddedNode? _embeddedNode;
+  final String? _identityDir;
+  final String? _appliedConfig;
 
   /// The port this instance's node listener is bound on, and whether that bind
   /// is LAN-wide (`0.0.0.0`, P2P policy allowed it) or loopback-only. The P2P
@@ -1064,6 +1077,38 @@ class RealVeilStack {
       devLog(() => 'xVeil[identity]: could not read the receive address: $e');
       return null;
     }
+  }
+
+  /// Hand a document merged AFTER the boot to the running node.
+  ///
+  /// The node reads `identity_document.bin` when a config is applied, and
+  /// publishes its instance registry from what it read. Merging a sibling's
+  /// document into storage therefore changes nothing anyone can see: the node
+  /// goes on publishing a registry naming one instance, sealing for "my other
+  /// devices" keeps finding none, and the snapshot that would carry the merge
+  /// onward is deposited for nobody. Measured on the stand, this was the whole
+  /// of the remaining gap -- the merge said `merged=true` and the registry
+  /// still said `instances=1`.
+  ///
+  /// So the material is laid back into the directory the node reads and the
+  /// same config is applied again. Same config deliberately: this is a re-read
+  /// of the identity, not a reconfiguration, and anything else changing here
+  /// would be a second effect nobody asked for.
+  Future<bool> refreshSovereignIdentity(Storage storage) async {
+    final node = _embeddedNode;
+    final dir = _identityDir;
+    final config = _appliedConfig;
+    if (node == null || dir == null || config == null) return false;
+    final raw = await storage.getSetting(kSovereignIdentitySetting);
+    if (raw == null) return false;
+    final files = decodeSovereignIdentity(raw);
+    if (files == null || missingSovereignIdentityFiles(files).isNotEmpty) {
+      return false;
+    }
+    await materialiseSovereignIdentity(dir, files);
+    node.applyConfig(config);
+    devLog(() => 'xVeil[identity]: document re-read by the running node');
+    return true;
   }
 
   /// Adopt an identity document received from ANOTHER device of this identity,
@@ -1386,6 +1431,10 @@ class RealVeilStack {
         ? '$listenScheme://0.0.0.0:$listenPort'
         : '$listenScheme://127.0.0.1:$listenPort';
 
+    // Filled by the starter below. Kept so a document merged AFTER the boot
+    // can be handed to the running node — see [refreshSovereignIdentity].
+    EmbeddedNode? embeddedNode;
+
     // This device's sovereign identity, laid out BEFORE the node starts: the
     // runtime reads `identity_document.bin` from its `veil_dir` exactly once,
     // at construction, and silently builds a degenerate document when the file
@@ -1528,7 +1577,7 @@ class RealVeilStack {
         // The node exists between these two calls and the controller does not
         // own it yet — a throw from applyConfig used to strand it running, with
         // its ports held and no handle left to stop it (audit XV-03).
-        final node = createThenPromote<EmbeddedNode>(
+        final node = embeddedNode = createThenPromote<EmbeddedNode>(
           create: () {
             final n = EmbeddedNode.startDeferred(
               adminEndpoint,
@@ -1671,6 +1720,9 @@ class RealVeilStack {
         listenScheme: listenScheme,
         ratchetState: ratchetState,
         masterConfig: await storage.getSetting(kMasterConfigSetting),
+        embeddedNode: embeddedNode,
+        identityDir: sovereign == null ? null : runtimeDir,
+        appliedConfig: fullConfig,
       );
     } catch (_) {
       // INDEPENDENT legs. Chained, a throw from `transport.dispose()` skipped
@@ -1703,6 +1755,12 @@ class RealVeilStack {
     // Where the master's key and nonce live on a device that boots on a key of
     // its own. Null on every identity that boots on the phrase's own key.
     required String? masterConfig,
+    // The three things a post-boot document merge needs to reach the running
+    // node — see [refreshSovereignIdentity]. Null on the paths that have no
+    // in-process node or no sovereign material.
+    required EmbeddedNode? embeddedNode,
+    required String? identityDir,
+    required String? appliedConfig,
   }) async {
     final seedsToRegister = runtimeBootstrapPeers ?? bootstrapPeers;
     final registeredSeeds = await registerRuntimeBootstrapPeers(
@@ -1762,6 +1820,9 @@ class RealVeilStack {
       lanListen: lanListen,
       listenScheme: listenScheme,
       ratchetState: ratchetState,
+      embeddedNode: embeddedNode,
+      identityDir: identityDir,
+      appliedConfig: appliedConfig,
     );
   }
 

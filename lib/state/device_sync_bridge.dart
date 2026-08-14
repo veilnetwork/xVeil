@@ -27,6 +27,7 @@ import '../domain/chat.dart'
 import '../domain/device_sync.dart';
 import 'call_log.dart';
 import 'device_settings_sync.dart';
+import 'providers.dart' show realStackProvider;
 import 'group_service_providers.dart';
 import 'locale_controller.dart';
 import 'messaging.dart';
@@ -381,7 +382,16 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
             // a document naming us both, receives ours, finds nothing new in
             // it, and the exchange stops — otherwise two devices would trade
             // identical documents for as long as they are both running.
-            if (changed) await announceIdentityDocument();
+            if (changed) {
+              // The running node re-reads it, then we answer. Without the
+              // re-read this device would announce a merge its own registry
+              // does not reflect.
+              final stack = ref.read(realStackProvider);
+              if (stack != null) {
+                await stack.refreshSovereignIdentity(svc.storage);
+              }
+              await announceIdentityDocument();
+            }
           };
         });
       case DeviceSyncKind.cloudCapability:

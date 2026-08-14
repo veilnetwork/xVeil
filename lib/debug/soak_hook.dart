@@ -2130,6 +2130,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           stagingBase: Directory.systemTemp.path,
         );
         devLog(() => 'xVeil[link]: sibling document merged=$merged');
+        // A merge nobody hands to the node changes nothing anyone can see: it
+        // keeps publishing a registry naming one instance.
+        if (merged) await stack.refreshSovereignIdentity(ref.read(storageProvider));
       }
       await stack.addContact(target);
       sovereign = await svc.openLocalSovereign(phrase.trim());
