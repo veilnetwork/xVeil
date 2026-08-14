@@ -133,9 +133,19 @@ def _debug_hook_define() -> list[str]:
     asserted that macOS already did. Passed through rather than always on: a
     debug build is still an ordinary build unless someone asks for a stand.
     """
-    if os.environ.get("XVEIL_DEBUG_HOOK", "").lower() in ("1", "true", "yes"):
-        return ["--dart-define=XVEIL_DEBUG_HOOK=true"]
-    return []
+    if os.environ.get("XVEIL_DEBUG_HOOK", "").lower() not in ("1", "true", "yes"):
+        return []
+    defines = ["--dart-define=XVEIL_DEBUG_HOOK=true"]
+    # The port is a COMPILE-TIME define (int.fromEnvironment), so a stand that
+    # needs two instances on ONE machine cannot separate them at launch — both
+    # bind the platform default and the second one silently loses. Passing it
+    # through here is what makes a second desktop build addressable at all.
+    port = os.environ.get("XVEIL_DEBUG_HOOK_PORT", "").strip()
+    if port:
+        if not port.isdigit():
+            raise SystemExit(f"XVEIL_DEBUG_HOOK_PORT must be a number, got {port!r}")
+        defines.append(f"--dart-define=XVEIL_DEBUG_HOOK_PORT={port}")
+    return defines
 
 
 def _pubspec_version() -> str:

@@ -18,8 +18,17 @@ import '../core/log.dart';
 import '../core/posix_file_facts.dart' show posixChmod;
 import '../data/runtime_dir_sweep.dart' show sweepStaleRuntimeDirs;
 import '../data/serve_source.dart';
-import '../data/veil_stack.dart' show claimRuntimeDirUnder;
-import '../data/storage/storage.dart' show OutboxFrame;
+import '../data/veil_stack.dart' show claimRuntimeDirUnder, RealVeilStack;
+import '../data/node/sovereign_identity_material.dart'
+    show
+        decodeSovereignIdentity,
+        kDeviceSigKeyIdxFile,
+        kIdentityDocumentFile,
+        kInstanceIdFile,
+        kMasterConfigSetting,
+        kSovereignIdentitySetting;
+import '../data/storage/storage.dart'
+    show OutboxFrame, kIdentityOriginSetting;
 import '../data/storage/storage_write_census.dart';
 import 'package:veil_media/veil_media.dart';
 
@@ -658,6 +667,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/sovereign_probe':
           await _sovereignProbeHook(req);
+          return;
+        case '/identity_probe':
+          await _identityProbeHook(req);
           return;
         case '/device_group_clear':
           await _deviceGroupClearHook(req);
@@ -1944,6 +1956,63 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       recovered?.close();
       signer?.close();
     }
+  }
+
+  static String? _hexOf(Uint8List? bytes) =>
+      bytes?.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+
+  /// The three identifiers this device answers to, each from its own source.
+  ///
+  /// They are easy to confuse and were, for a while, the same number — which is
+  /// exactly the defect: two devices restored from one phrase derived one
+  /// keypair, so they were not two devices but one node running twice. What
+  /// this reports:
+  ///
+  ///   transport — what the node IS on the wire. Asked of the RUNNING node, not
+  ///               recomputed from the config, so a probe cannot agree with
+  ///               itself while the node believes something else.
+  ///   invite    — what a contact writes down. On a restored device this is the
+  ///               MASTER's key, not this device's.
+  ///   receive   — where mail is collected, read out of the identity document
+  ///               through the FFI.
+  ///
+  /// On a second device `transport` must differ from the first device's while
+  /// `receive` matches it. Equal transport ids across two devices is the bug.
+  Future<void> _identityProbeHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final stack = ref.read(realStackProvider);
+    if (stack == null) return _json(req, {'ok': false, 'error': 'no stack'});
+    final storage = ref.read(storageProvider);
+
+    final transport = (await stack.transport.nodeId()).hex;
+    final invite = stack.myInvite.nodeId.hex;
+    final receiveBytes = await RealVeilStack.sovereignReceiveAddress(storage);
+    final receive = receiveBytes == null
+        ? null
+        : NodeId(receiveBytes).hex;
+
+    final raw = await storage.getSetting(kSovereignIdentitySetting);
+    final files = raw == null ? null : decodeSovereignIdentity(raw);
+    final doc = files?[kIdentityDocumentFile];
+    final instance = files?[kInstanceIdFile];
+    final sigIdx = files?[kDeviceSigKeyIdxFile];
+
+    return _json(req, {
+      'ok': true,
+      'transport': transport,
+      'invite': invite,
+      'receive': receive,
+      'origin': await storage.getSetting(kIdentityOriginSetting),
+      'instance': _hexOf(instance),
+      'sigKeyIdx': _hexOf(sigIdx),
+      'documentBytes': doc?.length ?? 0,
+      'hasMasterConfig':
+          (await storage.getSetting(kMasterConfigSetting)) != null,
+      // Spelled out so a stand run reads as a verdict rather than three hex
+      // strings to compare by eye.
+      'inviteIsReceive': receive != null && invite == receive,
+      'transportIsInvite': transport == invite,
+    });
   }
 
   /// Link ?peer= as one of MY devices (creates the device group on first use).
