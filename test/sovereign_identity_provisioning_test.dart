@@ -107,21 +107,23 @@ void main() {
   // A container entry that will not decode is NOT a licence to start over:
   // the published document is not recoverable from a fresh key, whereas the
   // material itself is recoverable from the phrase.
-  test('a corrupt entry boots without a document rather than re-minting',
-      () async {
-    final storage = FakeSettingStorage();
-    storage.settings[kSovereignIdentitySetting] = 'not json at all';
-    final rec = recorder();
-    final out = await RealVeilStack.ensureSovereignIdentity(
-      storage,
-      stagingBase: tmp.path,
-      identityPhrase: 'a master phrase',
-      provision: rec.fn,
-    );
-    expect(out, isNull);
-    expect(rec.dirs, isEmpty);
-    expect(storage.settings[kSovereignIdentitySetting], 'not json at all');
-  });
+  test(
+    'a corrupt entry boots without a document rather than re-minting',
+    () async {
+      final storage = FakeSettingStorage();
+      storage.settings[kSovereignIdentitySetting] = 'not json at all';
+      final rec = recorder();
+      final out = await RealVeilStack.ensureSovereignIdentity(
+        storage,
+        stagingBase: tmp.path,
+        identityPhrase: 'a master phrase',
+        provision: rec.fn,
+      );
+      expect(out, isNull);
+      expect(rec.dirs, isEmpty);
+      expect(storage.settings[kSovereignIdentitySetting], 'not json at all');
+    },
+  );
 
   test('material missing a required file is treated the same way', () async {
     final storage = FakeSettingStorage();
@@ -216,8 +218,7 @@ void main() {
 
   group('adoptSovereignDocument', () {
     Future<_ConfigStorage> provisioned({int keyByte = 7}) async {
-      final storage = _ConfigStorage()
-        ..config = 'unused by the fake delegate';
+      final storage = _ConfigStorage()..config = 'unused by the fake delegate';
       storage.settings[kSovereignIdentitySetting] = encodeSovereignIdentity(
         _material(keyByte: keyByte),
       );
@@ -231,14 +232,12 @@ void main() {
         storage,
         document: Uint8List.fromList([4, 5, 6, 7]),
         stagingBase: tmp.path,
-        delegate: (toml, dir) async {
+        merge: (toml, dir, doc) async {
           seen.add(dir);
           // What the native side does: rewrite the document in place.
           await materialiseSovereignIdentity(dir, {
             ..._material(),
-            kIdentityDocumentFile: Uint8List.fromList(
-              List.filled(200, 1),
-            ),
+            kIdentityDocumentFile: Uint8List.fromList(List.filled(200, 1)),
           });
         },
       );
@@ -261,7 +260,7 @@ void main() {
         storage,
         document: Uint8List.fromList([9, 9]),
         stagingBase: tmp.path,
-        delegate: (toml, dir) async =>
+        merge: (toml, dir, doc) async =>
             throw StateError('delegate_device: master does not match'),
       );
       expect(ok, isFalse);
@@ -275,7 +274,7 @@ void main() {
         storage,
         document: Uint8List.fromList([1]),
         stagingBase: tmp.path,
-        delegate: (toml, dir) async => dirs.add(dir),
+        merge: (toml, dir, doc) async => dirs.add(dir),
       );
       expect(await Directory(dirs.single).exists(), isFalse);
     });
@@ -289,7 +288,7 @@ void main() {
         storage,
         document: Uint8List.fromList([1, 2]),
         stagingBase: tmp.path,
-        delegate: (toml, dir) async => called = true,
+        merge: (toml, dir, doc) async => called = true,
       );
       expect(ok, isFalse);
       expect(called, isFalse);
@@ -305,7 +304,7 @@ void main() {
         storage,
         document: Uint8List.fromList([1, 2]),
         stagingBase: tmp.path,
-        delegate: (toml, dir) async => called = true,
+        merge: (toml, dir, doc) async => called = true,
       );
       expect(ok, isFalse);
       expect(called, isFalse);
@@ -314,23 +313,25 @@ void main() {
     // A delegation that returns without leaving usable material must not be
     // stored: half a set reads on the next boot as "already provisioned", and
     // the device would go on without a document it can sign with.
-    test('a merge that produced nothing usable keeps the old material',
-        () async {
-      final storage = await provisioned();
-      final before = storage.settings[kSovereignIdentitySetting];
-      final ok = await RealVeilStack.adoptSovereignDocument(
-        storage,
-        document: Uint8List.fromList([1, 2, 3, 4]),
-        stagingBase: tmp.path,
-        delegate: (toml, dir) async {
-          // Wipes the staging copy instead of rewriting the document.
-          await Directory(dir).delete(recursive: true);
-          await Directory(dir).create(recursive: true);
-        },
-      );
-      expect(ok, isFalse);
-      expect(storage.settings[kSovereignIdentitySetting], before);
-    });
+    test(
+      'a merge that produced nothing usable keeps the old material',
+      () async {
+        final storage = await provisioned();
+        final before = storage.settings[kSovereignIdentitySetting];
+        final ok = await RealVeilStack.adoptSovereignDocument(
+          storage,
+          document: Uint8List.fromList([1, 2, 3, 4]),
+          stagingBase: tmp.path,
+          merge: (toml, dir, doc) async {
+            // Wipes the staging copy instead of rewriting the document.
+            await Directory(dir).delete(recursive: true);
+            await Directory(dir).create(recursive: true);
+          },
+        );
+        expect(ok, isFalse);
+        expect(storage.settings[kSovereignIdentitySetting], before);
+      },
+    );
 
     test('an empty document is not a merge', () async {
       final storage = await provisioned();
@@ -339,7 +340,7 @@ void main() {
         storage,
         document: Uint8List(0),
         stagingBase: tmp.path,
-        delegate: (toml, dir) async => called = true,
+        merge: (toml, dir, doc) async => called = true,
       );
       expect(ok, isFalse);
       expect(called, isFalse);
