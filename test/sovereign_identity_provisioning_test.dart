@@ -333,6 +333,27 @@ void main() {
       },
     );
 
+    // THE LOOP-BREAKER. Two devices answer each other's announcements; the
+    // moment one receives a document it already holds, nothing changes and it
+    // must fall quiet. Reporting success here instead would have them trading
+    // identical documents for as long as both are running.
+    test('a merge that yields what we already hold reports no change',
+        () async {
+      final storage = await provisioned();
+      final before = storage.settings[kSovereignIdentitySetting];
+      final ok = await RealVeilStack.adoptSovereignDocument(
+        storage,
+        document: Uint8List.fromList([1, 2, 3]),
+        stagingBase: tmp.path,
+        // What the native side does when the incoming document already names
+        // this device and matches: writes back exactly what was there.
+        merge: (toml, dir, doc) async =>
+            materialiseSovereignIdentity(dir, _material()),
+      );
+      expect(ok, isFalse, reason: 'nothing changed, so nothing to announce');
+      expect(storage.settings[kSovereignIdentitySetting], before);
+    });
+
     test('an empty document is not a merge', () async {
       final storage = await provisioned();
       var called = false;

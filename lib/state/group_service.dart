@@ -410,6 +410,11 @@ class GroupService {
     SpaceObservability? observability,
   }) : _observability = observability ?? SpaceObservability();
   final Storage _storage;
+
+  /// The identity's own container. Exposed for the device-group bridge, which
+  /// has to reach the sovereign identity material stored beside the node config
+  /// when another device announces its document.
+  Storage get storage => _storage;
   final GroupSigner _signer;
   final GroupSnapshotSender? _send;
   final SpaceInviteSender? sendSpaceInvite;
