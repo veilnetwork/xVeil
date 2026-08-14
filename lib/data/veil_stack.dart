@@ -1201,6 +1201,11 @@ class RealVeilStack {
       obfs4PskFile: obfs4PskFile,
       proxy: proxy,
       useBundledSeeds: useBundledSeeds,
+      // Only when there IS material: naming a directory that holds no document
+      // changes nothing for the node, but it would move the ML-KEM key and the
+      // persisted name claims of every existing identity out of the place veil
+      // has always kept them.
+      identityDir: sovereign == null ? null : runtimeDir,
     );
     // Debug stands only: loopback Prometheus metrics for the embedded node,
     // the per-node twin of a relay's [metrics] endpoint. Never binds a
