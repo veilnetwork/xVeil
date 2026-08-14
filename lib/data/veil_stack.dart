@@ -2,6 +2,7 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:xveil/core/cleanup_legs.dart';
 import 'package:xveil/core/posix_file_facts.dart';
@@ -23,6 +24,7 @@ import 'node/ratchet_ffi.dart'
         dropRejectedRatchetStates,
         importRatchetStates,
         loadStoredRatchetStates;
+import 'node/sovereign_identity_material.dart';
 import 'node/veil_node.dart';
 import 'storage/storage.dart';
 import 'transport/bootstrap_invite.dart';
@@ -869,6 +871,104 @@ class RealVeilStack {
     return identityToml;
   }
 
+  /// Provision this device's sovereign identity ONCE, and hand back the
+  /// material to be laid out before every later boot.
+  ///
+  /// Only the phrase path can do this, and that is the whole point: a mined
+  /// identity has no master behind it, so the degenerate document the node
+  /// builds for itself is the truthful description of a single device. A
+  /// phrase, by contrast, IS a master — several devices can stand under it,
+  /// and until this material exists none of them can, because the node keeps
+  /// answering that master and device are the same key.
+  ///
+  /// Returns null when there is nothing to provision (no phrase) — the caller
+  /// boots exactly as before, which is what keeps this change additive for
+  /// every identity already in the field.
+  static Future<Map<String, Uint8List>?> ensureSovereignIdentity(
+    Storage storage, {
+    required String stagingBase,
+    String? identityPhrase,
+    DynamicLibrary? lib,
+    String instanceLabel = 'xveil',
+    // The native call, as an argument, so that "this never provisions twice"
+    // is checkable by counting rather than by hoping a dylib fails to load.
+    // The invariant is worth that: a second provisioning mints a second device
+    // key and orphans the document already published for this identity.
+    Future<void> Function(String phrase, String veilDir)? provision,
+  }) async {
+    final stored = await storage.getSetting(kSovereignIdentitySetting);
+    if (stored != null) {
+      final decoded = decodeSovereignIdentity(stored);
+      // A stored entry that will not decode is NOT a reason to provision a
+      // second time: minting a fresh device key would orphan the document
+      // already published under this identity. Boot degenerate and say so —
+      // the material is recoverable from the phrase, a stale published
+      // document is not.
+      if (decoded == null || missingSovereignIdentityFiles(decoded).isNotEmpty) {
+        devLog(
+          () =>
+              'xVeil[identity]: stored sovereign material is unusable '
+              '(${decoded == null ? 'undecodable' : missingSovereignIdentityFiles(decoded).join(', ')}) '
+              '— booting without it',
+        );
+        return null;
+      }
+      return decoded;
+    }
+    if (identityPhrase == null || identityPhrase.isEmpty) return null;
+
+    // Provisioning writes MASTER-DERIVED material to disk, so it happens in a
+    // directory this call creates and removes, under the app's own runtime
+    // base rather than a shared temp — and the bytes reach the container
+    // before the directory goes away.
+    final staging =
+        '$stagingBase/xveil-idprov-${Random.secure().nextInt(1 << 32)}';
+    try {
+      await Directory(staging).create(recursive: true);
+      if (provision != null) {
+        await provision(identityPhrase, staging);
+      } else {
+        EmbeddedNode.provisionSovereignIdentity(
+          identityPhrase,
+          veilDir: staging,
+          instanceLabel: instanceLabel,
+          lib: lib,
+        );
+      }
+      final files = await collectSovereignIdentity(staging);
+      final missing = missingSovereignIdentityFiles(files);
+      if (missing.isNotEmpty) {
+        devLog(
+          () =>
+              'xVeil[identity]: provisioning left no ${missing.join(', ')} '
+              '— booting without a sovereign document',
+        );
+        return null;
+      }
+      await storage.putSetting(
+        kSovereignIdentitySetting,
+        encodeSovereignIdentity(files),
+      );
+      devLog(
+        () =>
+            'xVeil[identity]: sovereign identity provisioned '
+            '(${files.length} files, this device has its own key)',
+      );
+      return files;
+    } on Object catch (e) {
+      // A device that cannot provision still has a working node — it is the
+      // one-device case, which is what it was before this existed.
+      devLog(() => 'xVeil[identity]: could not provision sovereign identity: $e');
+      return null;
+    } finally {
+      try {
+        await Directory(staging).delete(recursive: true);
+      } on FileSystemException {
+        // Nothing was created, or it is already gone.
+      }
+    }
+  }
+
   /// Production boot: identity comes from the unlocked [storage] (mined +
   /// stored on first run), the node boots in-process via deferred-init and has
   /// its real config applied in memory — no `config.toml` on disk.
@@ -965,6 +1065,17 @@ class RealVeilStack {
           '[+${lap()}ms config]',
     );
 
+    // The sovereign material rides alongside the config: provisioned once from
+    // the phrase, stored in the container, laid out into the runtime directory
+    // below. Null means "no master behind this identity" (a mined one) or "not
+    // provisioned" (everything already in the field) — both boot as before.
+    final sovereign = await ensureSovereignIdentity(
+      storage,
+      stagingBase: runtimeDirBase,
+      identityPhrase: identityPhrase,
+      lib: lib,
+    );
+
     // 2. Ephemeral, identity-free runtime endpoints, in a directory this boot
     // CREATES under the configured base and owns outright (audit C-02).
     // 2b. Read the stored ratchet sessions NOW, while the only thing that can
@@ -978,6 +1089,7 @@ class RealVeilStack {
       return await _startDeniableIn(
         lease,
         identityToml: identityToml,
+        sovereign: sovereign,
         storage: storage,
         storedRatchet: storedRatchet,
         lap: lap,
@@ -1017,6 +1129,7 @@ class RealVeilStack {
   static Future<RealVeilStack> _startDeniableIn(
     RuntimeDirLease lease, {
     required String identityToml,
+    required Map<String, Uint8List>? sovereign,
     required Storage storage,
     required List<RatchetStateEntry> storedRatchet,
     required int Function() lap,
@@ -1045,6 +1158,20 @@ class RealVeilStack {
     final listen = lanListen
         ? '$listenScheme://0.0.0.0:$listenPort'
         : '$listenScheme://127.0.0.1:$listenPort';
+
+    // This device's sovereign identity, laid out BEFORE the node starts: the
+    // runtime reads `identity_document.bin` from its `veil_dir` exactly once,
+    // at construction, and silently builds a degenerate document when the file
+    // is not there yet. Late is the same as absent.
+    if (sovereign != null) {
+      await materialiseSovereignIdentity(runtimeDir, sovereign);
+      devLog(
+        () =>
+            'xVeil[deniable]: sovereign identity laid out '
+            '(${sovereign.length} files) — node_id is the master, this device '
+            'has its own key',
+      );
+    }
 
     // Deployment-wide obfs4 PSK (networks that pin a shared anti-probe key):
     // drop it in the runtime dir and reference it from the config. Identity-free
