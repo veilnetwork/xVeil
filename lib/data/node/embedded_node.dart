@@ -112,6 +112,31 @@ typedef _StopTimeoutNative = Int32 Function(Pointer<Void>, Uint64);
 typedef _StopTimeoutDart = int Function(Pointer<Void>, int);
 typedef _FreeStrNative = Void Function(Pointer<Utf8>);
 typedef _FreeStrDart = void Function(Pointer<Utf8>);
+// int veil_restore_identity_from_phrase_zeroize(
+//     phrase*, phrase_len, veil_dir*, veil_dir_len,
+//     instance_label*, instance_label_len, err_out**):
+//   0 on success. The phrase buffer is WRITABLE — the native side wipes it in
+//   place before returning, on every path.
+typedef _RestoreIdentityNative =
+    Int32 Function(
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _RestoreIdentityDart =
+    int Function(
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Pointer<Utf8>>,
+    );
 typedef _ConfigInitNative =
     Pointer<Utf8> Function(Uint32, Pointer<Pointer<Utf8>>);
 typedef _ConfigInitDart = Pointer<Utf8> Function(int, Pointer<Pointer<Utf8>>);
@@ -309,6 +334,73 @@ class EmbeddedNode {
       // it here too rather than trusting the happy path (audit XV-22).
       wipeNativeSecret(phraseC.cast<Uint8>(), phraseC.length);
       calloc.free(phraseC);
+      calloc.free(errOut);
+    }
+  }
+
+  /// Provision THIS DEVICE's sovereign identity from the master phrase,
+  /// writing `identity_document.bin`, `device_identity_sk.bin` and
+  /// `instance_id` into [veilDir].
+  ///
+  /// Not the same thing as [configFromPhrase], and the two answer different
+  /// questions. [configFromPhrase] derives the node's ROUTING keypair — who
+  /// this process is on the wire. This derives the MASTER from the same phrase
+  /// and mints a SEPARATE per-device key under it, so that one identity can
+  /// have several devices: `node_id` stays BLAKE3(master_pk) — the value the
+  /// app already publishes — while each device holds its own key and its own
+  /// `instance_id`. Without a document on disk the node builds a DEGENERATE
+  /// one where master == device, which is why two devices restored from one
+  /// phrase currently collide into a single node.
+  ///
+  /// CALL THIS ONCE PER DEVICE AND KEEP WHAT IT WRITES. It is idempotent in
+  /// `instance_id` (that file is loaded when present) but NOT in the device
+  /// key: every call mints a fresh one, which would orphan the document
+  /// already published for this identity. Provision, persist, then materialise
+  /// the stored bytes on each boot — never re-provision.
+  static void provisionSovereignIdentity(
+    String phrase, {
+    required String veilDir,
+    required String instanceLabel,
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? _veilLib();
+    final restoreFn = dl
+        .lookupFunction<_RestoreIdentityNative, _RestoreIdentityDart>(
+          'veil_restore_identity_from_phrase_zeroize',
+        );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final phraseC = phrase.toNativeUtf8();
+    final dirC = veilDir.toNativeUtf8();
+    final labelC = instanceLabel.toNativeUtf8();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      final rc = restoreFn(
+        phraseC.cast<Uint8>(),
+        phraseC.length,
+        dirC.cast<Uint8>(),
+        dirC.length,
+        labelC.cast<Uint8>(),
+        labelC.length,
+        errOut,
+      );
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_restore_identity_from_phrase failed: $msg');
+      }
+    } finally {
+      // Same reasoning as [configFromPhrase]: the native side wipes the phrase
+      // in place, but only once it has got far enough to read it. An argument
+      // rejected before that (over-length, bad UTF-8) returns with the words
+      // still in the buffer (audit XV-22). The directory and the label are not
+      // secret.
+      wipeNativeSecret(phraseC.cast<Uint8>(), phraseC.length);
+      calloc.free(phraseC);
+      calloc.free(dirC);
+      calloc.free(labelC);
       calloc.free(errOut);
     }
   }
