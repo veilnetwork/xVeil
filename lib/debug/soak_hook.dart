@@ -19,9 +19,11 @@ import '../core/posix_file_facts.dart' show posixChmod;
 import '../data/runtime_dir_sweep.dart' show sweepStaleRuntimeDirs;
 import '../data/serve_source.dart';
 import '../data/veil_stack.dart' show claimRuntimeDirUnder, RealVeilStack;
+import '../data/transport/device_link_invite.dart';
 import '../data/node/sovereign_identity_material.dart'
     show
         decodeSovereignIdentity,
+        instanceIdFrom,
         kDeviceSigKeyIdxFile,
         kIdentityDocumentFile,
         kInstanceIdFile,
@@ -48,7 +50,6 @@ import '../domain/space_retention.dart';
 import '../domain/group_policy.dart';
 import '../domain/p2p_policy.dart';
 import '../state/group_crypto.dart';
-import '../data/transport/bootstrap_invite.dart';
 import '../domain/device_link.dart';
 import '../state/group_service_providers.dart';
 import '../state/group_call_service.dart';
@@ -376,6 +377,15 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       );
     } catch (e) {
       devLog(() => 'xVeil[debug-hook]: start failed: $e');
+      // ALSO to stderr, because devLog is only readable through /dev_log —
+      // which is served by the listener that just failed to start. A stand
+      // whose hook cannot bind sees a running app, a written soak.key, and no
+      // answer on the port, with nothing anywhere saying why. That is how a
+      // second desktop instance silently kept the platform default port and
+      // cost an hour of looking in the wrong place.
+      stderr.writeln(
+        'xVeil[debug-hook]: could not listen on 127.0.0.1:$_debugHookPort: $e',
+      );
     }
   }
 
@@ -2032,10 +2042,20 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (!_requireReady(req)) return;
     final stack = ref.read(realStackProvider);
     if (stack == null) return _json(req, {'ok': false, 'error': 'no stack'});
+    // The DEVICE-LINK spelling, not the contact one. Both devices of an
+    // identity hand out the same contact invite by design, so the ceremony
+    // cannot open on it — see [DeviceLinkInvite].
+    final instance = instanceIdFrom(
+      await ref.read(storageProvider).getSetting(kSovereignIdentitySetting),
+    );
+    final link = DeviceLinkInvite(invite: stack.myInvite, instance: instance);
     return _json(req, {
       'ok': true,
-      'invite': stack.myInvite.toUri(),
+      'invite': link.toUri(),
       'nodeId': stack.myInvite.nodeId.hex,
+      'instance': _hexOf(instance),
+      // The contact invite too, so a stand can assert the two differ.
+      'contactInvite': stack.myInvite.toUri(),
     });
   }
 
@@ -2055,8 +2075,14 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (stack == null) return _json(req, {'ok': false, 'error': 'no stack'});
     NativeSovereignGroupSigner? sovereign;
     try {
-      final target = BootstrapInvite.parse(invite);
-      if (target.nodeId == svc.selfId) {
+      final link = DeviceLinkInvite.parse(invite);
+      final target = link.invite;
+      if (link.isSelf(
+        myInstance: instanceIdFrom(
+          await ref.read(storageProvider).getSetting(kSovereignIdentitySetting),
+        ),
+        myNodeId: svc.selfId,
+      )) {
         return _json(req, {'ok': false, 'error': 'self device'});
       }
       await stack.addContact(target);
