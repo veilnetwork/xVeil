@@ -42,6 +42,21 @@ enum DeviceSyncKind {
   /// pseudonymous alias, never in the public DHT advertisement.
   cloudCapability,
 
+  /// One device's signed identity document, announced to the others.
+  ///
+  /// The event that makes several devices ONE identity rather than several
+  /// nodes wearing the same name. Devices set up from the same master phrase
+  /// each start with a document naming only themselves while all of them derive
+  /// the same node_id — it is BLAKE3 of that master key. Every one of them
+  /// publishes under that id, the last publisher displaces the rest, and the
+  /// displaced devices stay online believing they are reachable. Announcing the
+  /// document lets whoever receives it merge: append itself if it is not named,
+  /// adopt if it is.
+  ///
+  /// Keyed by the ANNOUNCING device, so each device owns its own row and two
+  /// announcements never overwrite one another.
+  identityDoc,
+
   /// A personal-cloud folder (upsert or tombstone). Folders are private
   /// organization of the owner's own index — they carry no content refs and
   /// never leave the sovereign device group. Devices from before this

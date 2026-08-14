@@ -993,10 +993,15 @@ class RealVeilStack {
   /// phrase: the phrase is consumed at setup and never kept, and this runs when
   /// devices are linked, which may be days later.
   ///
-  /// Returns false — without changing anything — when this device has no
-  /// sovereign material of its own, or no config to authorise with. Those are
-  /// the mined-identity and legacy cases, where there is no master and so
-  /// nothing to delegate under.
+  /// Returns whether the stored material CHANGED — not whether the merge
+  /// succeeded, and the difference is what stops an announcement echoing
+  /// forever. Two devices answer each other's documents; the moment one
+  /// receives a document it already holds, nothing changes and it falls quiet.
+  ///
+  /// False — without touching anything — when this device has no sovereign
+  /// material of its own, or no config to authorise with. Those are the
+  /// mined-identity and legacy cases, where there is no master and so nothing
+  /// to delegate under.
   static Future<bool> adoptSovereignDocument(
     Storage storage, {
     required Uint8List document,
@@ -1050,10 +1055,15 @@ class RealVeilStack {
       }
       final merged = await collectSovereignIdentity(staging);
       if (missingSovereignIdentityFiles(merged).isNotEmpty) return false;
-      await storage.putSetting(
-        kSovereignIdentitySetting,
-        encodeSovereignIdentity(merged),
-      );
+      final encoded = encodeSovereignIdentity(merged);
+      // Already what we hold: a device answering our announcement with the
+      // document we sent it. Saying "nothing changed" is what ends the
+      // exchange instead of trading identical documents forever.
+      if (encoded == storedRaw) return false;
+      // Already what we hold: a device answering our announcement with the
+      // document we sent it. Saying "nothing changed" is what ends the
+      // exchange instead of trading identical documents forever.
+      await storage.putSetting(kSovereignIdentitySetting, encoded);
       devLog(
         () =>
             'xVeil[identity]: adopted a document from another device of this '

@@ -14,7 +14,13 @@ import 'dart:ui' show Locale;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
 import '../core/ids.dart';
+import '../data/node/sovereign_identity_material.dart';
+import '../data/veil_stack.dart';
 import '../domain/call_log.dart';
 import '../domain/chat.dart'
     show ContactStatus, NotificationMuteMode, SignaturePolicy;
@@ -73,6 +79,36 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     lastEmitMs = now > lastEmitMs ? now : lastEmitMs + 1;
     return lastEmitMs;
   }
+
+  // ── The identity document ────────────────────────────────────────────────
+  //
+  // Announcing it is what turns several devices into ONE identity instead of
+  // several nodes wearing the same name. Devices set up from the same master
+  // phrase all derive the same node_id — it is BLAKE3 of that master key — and
+  // each starts holding a document that names only itself. All of them publish
+  // under that id, the last publisher displaces the rest, and the displaced
+  // devices stay online believing they are reachable.
+  //
+  // Announced on every bridge build rather than once at linking: a device that
+  // was off when another joined has no other moment to learn of it, and the
+  // exchange is idempotent — a document that changes nothing is not answered.
+  Future<void> announceIdentityDocument() async {
+    final raw = await svc.storage.getSetting(kSovereignIdentitySetting);
+    if (raw == null) return; // mined identity, or nothing provisioned
+    final files = decodeSovereignIdentity(raw);
+    final doc = files?[kIdentityDocumentFile];
+    if (doc == null || doc.isEmpty) return;
+    await svc.postDeviceEvent(
+      DeviceSyncEvent(
+        kind: DeviceSyncKind.identityDoc,
+        key: svc.selfId.hex,
+        tsMs: nextTs(),
+        payload: {'d': base64.encode(doc)},
+      ),
+    );
+  }
+
+  unawaited(announceIdentityDocument());
 
   // Contact records of my OWN devices never sync: each side keys the pair
   // relationship by the OTHER device's id, so the record is not portable (on
@@ -316,6 +352,38 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       case DeviceSyncKind.cloudReplica:
       case DeviceSyncKind.cloudFolder:
         break; // applied by CloudService
+      case DeviceSyncKind.identityDoc:
+        gate.offer(e, () {
+          // My own announcement, echoed back by the group log.
+          if (e.key == svc.selfId.hex) return null;
+          final raw = e.payload['d'];
+          if (raw is! String || raw.isEmpty) return null;
+          final Uint8List doc;
+          try {
+            doc = base64.decode(raw);
+          } on FormatException {
+            return null; // malformed from a newer or broken device
+          }
+          return () async {
+            // The merge is native and handles both directions: append this
+            // device when the incoming document does not name it, adopt when
+            // it does. It refuses a document of another identity outright.
+            final changed = await RealVeilStack.adoptSovereignDocument(
+              svc.storage,
+              document: doc,
+              // Brief, and removed by the call itself. The same material
+              // already passes through the node's own working directory, and
+              // veil stages the node config — which carries the master key —
+              // in the platform temp directory on every deferred boot.
+              stagingBase: Directory.systemTemp.path,
+            );
+            // Answer ONLY when something changed. The other device then holds
+            // a document naming us both, receives ours, finds nothing new in
+            // it, and the exchange stops — otherwise two devices would trade
+            // identical documents for as long as they are both running.
+            if (changed) await announceIdentityDocument();
+          };
+        });
       case DeviceSyncKind.cloudCapability:
         break; // applied by CloudCapabilityService (contains secret registry)
     }
