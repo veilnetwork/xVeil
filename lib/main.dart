@@ -518,6 +518,12 @@ Future<BootstrapResult> _bootstrapOverrides() async {
         (ref) => DeniableBootConfig(
           runtimeDir: runtimeDir,
           listenPort: port,
+          // Read here for the same reason XVEIL_LISTEN_PORT is: a stand that
+          // runs two instances on one machine has to move BOTH addresses, and
+          // the metrics one had no lever at all.
+          debugMetricsPort: int.tryParse(
+            Platform.environment['XVEIL_METRICS_PORT'] ?? '',
+          ),
           storePath: storePath,
           bootstrapPeers: resolveBootstrapPeers(
             operatorPeers: operatorPeers,

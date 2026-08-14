@@ -2276,6 +2276,9 @@ class AppController extends Notifier<AppState> {
         // Offset alternates after every teardown (see _teardownRealStack) so
         // a switch/relock never rebinds the just-freed port.
         listenPort: boot.listenPort + _oneActivePortOffset,
+        // No offset: unlike the listener this is not rebound after a teardown,
+        // and a stand sets it explicitly to keep two instances apart.
+        debugMetricsPort: boot.debugMetricsPort,
         lanListen: await _p2pLanListenAllowed(),
         anonymous: _activeAnonymous(),
         lazyMining: _singleLazyMining,
