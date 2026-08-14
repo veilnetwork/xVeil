@@ -197,6 +197,38 @@ typedef _DocNodeIdNative =
     );
 typedef _DocNodeIdDart =
     int Function(Pointer<Uint8>, int, Pointer<Uint8>, Pointer<Pointer<Utf8>>);
+// int veil_master_signing_key_from_phrase_zeroize(phrase*, len, out32*, err**)
+typedef _MasterKeyNative =
+    Int32 Function(
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _MasterKeyDart =
+    int Function(Pointer<Uint8>, int, Pointer<Uint8>, Pointer<Pointer<Utf8>>);
+// int veil_adopt_identity_document_from_master_zeroize(
+//     master_sk*, veil_dir*, len, document*, len, key_idx_out*, err**)
+typedef _AdoptFromMasterNative =
+    Int32 Function(
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint16>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _AdoptFromMasterDart =
+    int Function(
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint16>,
+      Pointer<Pointer<Utf8>>,
+    );
 typedef _ConfigInitNative =
     Pointer<Utf8> Function(Uint32, Pointer<Pointer<Utf8>>);
 typedef _ConfigInitDart = Pointer<Utf8> Function(int, Pointer<Pointer<Utf8>>);
@@ -714,6 +746,92 @@ class EmbeddedNode {
     } finally {
       calloc.free(docPtr);
       calloc.free(out);
+      calloc.free(errOut);
+    }
+  }
+
+  /// The master signing key behind a phrase — 32 bytes, no mining, no disk.
+  ///
+  /// What an app keeps once its node config stops being the master. Admitting a
+  /// further device needs the master, at a moment when the phrase is long gone;
+  /// this is the same 32 bytes the config used to carry, at the same exposure.
+  static Uint8List masterKeyFromPhrase(String phrase, {DynamicLibrary? lib}) {
+    final dl = lib ?? _veilLib();
+    final fn = dl.lookupFunction<_MasterKeyNative, _MasterKeyDart>(
+      'veil_master_signing_key_from_phrase_zeroize',
+    );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final phraseC = phrase.toNativeUtf8();
+    final out = calloc<Uint8>(32);
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      final rc = fn(phraseC.cast<Uint8>(), phraseC.length, out, errOut);
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_master_signing_key_from_phrase failed: $msg');
+      }
+      return Uint8List.fromList(out.asTypedList(32));
+    } finally {
+      wipeNativeSecret(phraseC.cast<Uint8>(), phraseC.length);
+      wipeNativeSecret(out, 32);
+      calloc.free(phraseC);
+      calloc.free(out);
+      calloc.free(errOut);
+    }
+  }
+
+  /// Merge a received document, authorising with the master key rather than
+  /// with a node config — the only form that still works once the config is a
+  /// per-device transport key instead of the master.
+  static int adoptIdentityDocumentWithMaster(
+    Uint8List masterKey, {
+    required String veilDir,
+    required Uint8List document,
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? _veilLib();
+    final fn = dl.lookupFunction<_AdoptFromMasterNative, _AdoptFromMasterDart>(
+      'veil_adopt_identity_document_from_master_zeroize',
+    );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final keyPtr = calloc<Uint8>(32);
+    final dirC = veilDir.toNativeUtf8();
+    final docPtr = calloc<Uint8>(document.isEmpty ? 1 : document.length);
+    final idxOut = calloc<Uint16>();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      keyPtr.asTypedList(32).setAll(0, masterKey);
+      if (document.isNotEmpty) {
+        docPtr.asTypedList(document.length).setAll(0, document);
+      }
+      final rc = fn(
+        keyPtr,
+        dirC.cast<Uint8>(),
+        dirC.length,
+        docPtr,
+        document.length,
+        idxOut,
+        errOut,
+      );
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_adopt_identity_document_from_master: $msg');
+      }
+      return idxOut.value;
+    } finally {
+      wipeNativeSecret(keyPtr, 32);
+      calloc.free(keyPtr);
+      calloc.free(dirC);
+      calloc.free(docPtr);
+      calloc.free(idxOut);
       calloc.free(errOut);
     }
   }
