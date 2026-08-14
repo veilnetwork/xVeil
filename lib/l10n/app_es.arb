@@ -2684,5 +2684,9 @@
   "seedsSwitchTitle": "Usar los nodos de entrada compartidos",
   "seedsSwitchOnSub": "Activado para esta identidad: la aplicación encuentra la red por su cuenta. Los nodos del proyecto se enteran de que existe un nodo tuyo y desde qué dirección se conecta.",
   "seedsSwitchOffSub": "Desactivado para esta identidad: solo los nodos que añadas tú. No habrá conexión hasta que añadas uno. Tus otras identidades no se ven afectadas.",
-  "seedsSwitchSaveFailed": "No se pudo guardar el cambio, así que no se ha aplicado."
+  "seedsSwitchSaveFailed": "No se pudo guardar el cambio, así que no se ha aplicado.",
+  "devicesResendSetup": "Enviar de nuevo la configuración cifrada",
+  "devicesResendHint": "Para un dispositivo ya vinculado que nunca la recibió",
+  "devicesSendUnreachable": "El otro dispositivo no respondió. Abre xVeil allí, espera a que se conecte e inténtalo de nuevo.",
+  "devicesSendNoTargets": "Todavía no hay ningún dispositivo vinculado al que enviar"
 }

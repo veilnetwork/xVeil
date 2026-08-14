@@ -6316,4 +6316,18 @@ class AppL10nEn extends AppL10n {
   @override
   String get seedsSwitchSaveFailed =>
       'That change could not be saved, so it was not applied.';
+
+  @override
+  String get devicesResendSetup => 'Send the encrypted setup again';
+
+  @override
+  String get devicesResendHint =>
+      'For a device that is already linked but never received it';
+
+  @override
+  String get devicesSendUnreachable =>
+      'The other device did not answer. Open xVeil there, wait for it to connect, then try again.';
+
+  @override
+  String get devicesSendNoTargets => 'No linked device to send to yet';
 }
