@@ -395,6 +395,57 @@ void main() {
     skip: skip,
   );
 
+  // The authority an app keeps once its config is a per-device transport key
+  // rather than the master. Same 32 bytes the config used to carry, obtained
+  // without mining and without touching disk.
+  test('the master key alone can merge two devices', () async {
+    final lib = DynamicLibrary.open(dylib!);
+    final phrase = minePhrase!;
+    final master = EmbeddedNode.masterKeyFromPhrase(phrase, lib: lib);
+    expect(master, hasLength(32));
+
+    final a = '${tmp.path}/ma';
+    final b = '${tmp.path}/mb';
+    EmbeddedNode.provisionSovereignIdentity(
+      phrase,
+      veilDir: a,
+      instanceLabel: 'desktop',
+      lib: lib,
+    );
+    EmbeddedNode.provisionSovereignIdentity(
+      phrase,
+      veilDir: b,
+      instanceLabel: 'phone',
+      lib: lib,
+    );
+
+    final aDoc = await File('$a/$kIdentityDocumentFile').readAsBytes();
+    final bIdx = EmbeddedNode.adoptIdentityDocumentWithMaster(
+      master,
+      veilDir: b,
+      document: aDoc,
+      lib: lib,
+    );
+    final merged = await File('$b/$kIdentityDocumentFile').readAsBytes();
+    final aIdx = EmbeddedNode.adoptIdentityDocumentWithMaster(
+      master,
+      veilDir: a,
+      document: merged,
+      lib: lib,
+    );
+
+    expect(bIdx, isNot(aIdx), reason: 'the two devices are different subkeys');
+    // Each recorded its own index — without that file a device signs with the
+    // other's key and comes up with no identity at all.
+    expect(await File('$a/$kDeviceSigKeyIdxFile').exists(), isTrue);
+    expect(await File('$b/$kDeviceSigKeyIdxFile').exists(), isTrue);
+    expect(
+      await File('$a/$kIdentityDocumentFile').readAsBytes(),
+      orderedEquals(merged),
+      reason: 'one document, held by both',
+    );
+  }, skip: skip);
+
   test('an unusable phrase provisions nothing and stores nothing', () async {
     // The failure has to stay quiet and empty: a half-written entry would be
     // read on the next boot as "already provisioned", and the device would

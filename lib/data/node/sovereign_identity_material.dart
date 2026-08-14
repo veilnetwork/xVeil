@@ -61,6 +61,16 @@ const kRequiredSovereignIdentityFiles = <String>[
   kInstanceIdFile,
 ];
 
+/// The master signing key, base64, kept apart from the node config.
+///
+/// Today the config carries it: a phrase-provisioned config key IS the master.
+/// That stops being true the moment a device gets a transport key of its own,
+/// and admitting a further device still needs the master — days later, from a
+/// Devices screen, with the phrase long gone. Storing it here changes no
+/// exposure: the same 32 bytes already live in the same container, inside the
+/// config, and the container is what protects them either way.
+const kMasterKeySetting = 'node.master_key.v1';
+
 /// Container key. Versioned: a later layout change must not be read as a
 /// corrupt copy of this one.
 const kSovereignIdentitySetting = 'node.sovereign_identity.v1';
