@@ -68,15 +68,45 @@ extension _MessagingInboundDispatch on MessagingService {
 
   Future<void> _dispatch(InboundMessage m) async {
     final env = WireEnvelope.decode(m.payload);
+    // What actually arrived. `recv: INBOUND` says a frame came and how big it
+    // was, and every gate below says why a frame went — but nothing said WHAT
+    // it was, so a snapshot that arrives and vanishes cannot be told from an
+    // ack that arrives and is meant to.
+    devLog(
+      () =>
+          'xVeil[recv]: ${env.kind.name} from ${m.src.short} '
+          'seq=${env.seq} fid=${env.frameId ?? '-'}',
+    );
     // ONE bound on a remote sequence number, ahead of every arm that could
     // store one (message, edit, void, clear, recommendation). Out of range the
     // whole frame goes, rather than being pulled into range — see
     // [isAcceptableWireSeq] for why a sequence may not be clamped the way a
     // send-time is. Placed before the durable ack/dedup gate so an unusable
     // frame never occupies a dedup slot either.
-    if (!isAcceptableWireSeq(env.seq)) return;
+    // The three silent returns below are where an inbound frame goes to die
+    // without a word, and finding that out cost most of a day: a device-group
+    // snapshot was watched ARRIVING six times (`recv: INBOUND`) and then simply
+    // ceasing to exist, with every later gate — including the ones that do log
+    // — never reached. A drop is a decision; a decision with no record is not
+    // reviewable by anyone, least of all the person whose two devices will not
+    // link.
+    if (!isAcceptableWireSeq(env.seq)) {
+      devLog(
+        () =>
+            'xVeil[recv]: ${env.kind.name} from ${m.src.short} DROPPED — '
+            'seq ${env.seq} is outside the acceptable window',
+      );
+      return;
+    }
     final existing = await _storage.getContact(m.src);
-    if (existing?.status == ContactStatus.blocked) return; // drop blocked
+    if (existing?.status == ContactStatus.blocked) {
+      devLog(
+        () =>
+            'xVeil[recv]: ${env.kind.name} from ${m.src.short} DROPPED — '
+            'the sender is blocked',
+      );
+      return; // drop blocked
+    }
     if (existing?.status == ContactStatus.accepted) {
       _realtimeControl.markAccepted(m.src);
     }
@@ -170,6 +200,18 @@ extension _MessagingInboundDispatch on MessagingService {
       } else {
         await _ackFrame(m, fid);
         if (!_outbox.remember(m.src.hex, fid)) {
+          // A re-drive of a frame this device already took. Ordinary — except
+          // when the first take DID NOT achieve what it was for, which is
+          // exactly the device-linking case: the snapshot is processed once,
+          // the adoption refuses somewhere downstream, and every retry after
+          // that is dropped here as a duplicate. Saying so is the difference
+          // between "it was already handled" and "it was handled once and did
+          // nothing, and it will never be handled again".
+          devLog(
+            () =>
+                'xVeil[recv]: ${env.kind.name} from ${m.src.short} DROPPED — '
+                'this exact frame was already processed (re-acked)',
+          );
           return; // already processed — re-acked above
         }
       }
