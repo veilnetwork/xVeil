@@ -1004,7 +1004,12 @@ class RealVeilStack {
     DynamicLibrary? lib,
     // The native call as an argument, so the merge policy is testable without
     // a dylib — same reason [ensureSovereignIdentity] takes its provisioner.
-    Future<void> Function(String identityToml, String veilDir)? delegate,
+    Future<void> Function(
+      String identityToml,
+      String veilDir,
+      Uint8List document,
+    )?
+    merge,
   }) async {
     if (document.isEmpty) return false;
     final storedRaw = await storage.getSetting(kSovereignIdentitySetting);
@@ -1029,15 +1034,17 @@ class RealVeilStack {
       // this device holding a document it cannot sign with, which would take it
       // off the network entirely.
       await materialiseSovereignIdentity(staging, stored);
-      await File(
-        '$staging/$kIdentityDocumentFile',
-      ).writeAsBytes(document, flush: true);
-      if (delegate != null) {
-        await delegate(identityToml, staging);
+      if (merge != null) {
+        await merge(identityToml, staging, document);
       } else {
-        EmbeddedNode.delegateDeviceFromConfig(
+        // ONE native call for both directions: append this device when the
+        // incoming document does not name it, adopt when it does, and record
+        // this device's own subkey index either way — the document's own
+        // sig_key_idx names whichever device signed it.
+        EmbeddedNode.adoptIdentityDocument(
           identityToml,
           veilDir: staging,
+          document: document,
           lib: lib,
         );
       }
