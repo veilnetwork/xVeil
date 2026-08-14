@@ -68,6 +68,13 @@ class VeilFlutterTransport
   final AppHandle _app;
   final AppHandle _mediaApp;
   final AppHandle _realtimeApp;
+  /// This identity's receive address, once the boot knows it.
+  ///
+  /// Set rather than constructed: the transport connects before the sovereign
+  /// material is read. Null on an identity with no document, where the node id
+  /// is the whole story and nothing below changes.
+  Uint8List? identityAddress;
+
   int _debugRealtimeRxCount = 0;
 
   bool get debugChatBindingMatches =>
@@ -576,12 +583,36 @@ class VeilFlutterTransport
         data: payload,
       );
     }
+    // ADDRESSED AT OUR OWN IDENTITY: this is a device sync, and it needs the
+    // native call that says so. Every device of an identity answers to this
+    // address, so an ordinary send there is short-circuited by the node into a
+    // local delivery that never leaves the machine — the outbox counts it
+    // delivered, acknowledges it, and the copy that would reach a sibling is
+    // never deposited. Measured on a two-device stand as a deposit that stayed
+    // deferred forever while the sibling polled its relays correctly.
+    final mine = identityAddress;
+    if (mine != null && _sameId(mine, dst.bytes)) {
+      return _app.sendToMyDevices(
+        myNodeId: dst.bytes,
+        dstAppId: chatAppIdFor(dst),
+        dstEndpointId: veilChatEndpointId,
+        data: payload,
+      );
+    }
     return _app.send(
       dstNodeId: dst.bytes,
       dstAppId: chatAppIdFor(dst),
       dstEndpointId: veilChatEndpointId,
       data: payload,
     );
+  }
+
+  static bool _sameId(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   @override

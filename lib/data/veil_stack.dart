@@ -770,13 +770,10 @@ class RealVeilStack {
     this.lanListen = false,
     this.listenScheme = 'tcp',
     this.ratchetState,
-    EmbeddedNode? embeddedNode,
-    String? identityDir,
-    String? appliedConfig,
-  }) : _embeddedNode = embeddedNode,
-       _identityDir = identityDir,
-       _appliedConfig = appliedConfig,
-       _cli = veilCliPath,
+    this.embeddedNode,
+    this.identityDir,
+    this.appliedConfig,
+  }) : _cli = veilCliPath,
        _config = configPath,
        _flutterTransport = nodeIpc;
 
@@ -806,10 +803,11 @@ class RealVeilStack {
 
   /// The running node, the directory it reads its identity from, and the
   /// config it was promoted with — the three things [refreshSovereignIdentity]
-  /// needs and nothing else does.
-  final EmbeddedNode? _embeddedNode;
-  final String? _identityDir;
-  final String? _appliedConfig;
+  /// needs and nothing else should touch. Public only because a private name
+  /// cannot be a named parameter; treat them as read-only.
+  final EmbeddedNode? embeddedNode;
+  final String? identityDir;
+  final String? appliedConfig;
 
   /// The port this instance's node listener is bound on, and whether that bind
   /// is LAN-wide (`0.0.0.0`, P2P policy allowed it) or loopback-only. The P2P
@@ -1095,9 +1093,9 @@ class RealVeilStack {
   /// of the identity, not a reconfiguration, and anything else changing here
   /// would be a second effect nobody asked for.
   Future<bool> refreshSovereignIdentity(Storage storage) async {
-    final node = _embeddedNode;
-    final dir = _identityDir;
-    final config = _appliedConfig;
+    final node = embeddedNode;
+    final dir = identityDir;
+    final config = appliedConfig;
     if (node == null || dir == null || config == null) return false;
     final raw = await storage.getSetting(kSovereignIdentitySetting);
     if (raw == null) return false;
