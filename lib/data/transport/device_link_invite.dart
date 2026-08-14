@@ -20,6 +20,7 @@ library;
 import 'dart:typed_data';
 
 import '../../core/ids.dart';
+import '../../domain/device_link.dart' show isSameDevice;
 import 'bootstrap_invite.dart';
 
 class DeviceLinkInvite {
@@ -76,24 +77,13 @@ class DeviceLinkInvite {
     return DeviceLinkInvite(invite: invite, instance: instance);
   }
 
-  /// THE DECISION, not a value to compare by hand: does this invite name the
-  /// device that is reading it?
-  ///
-  /// Instance ids decide when both sides have one. Otherwise it falls back to
-  /// comparing node ids, which is what the check did before instances existed
-  /// — right for a lone device, and wrong only in the case the fallback cannot
-  /// see: two devices of one identity, at least one of them on an old build.
-  /// That pair is refused rather than mislinked, and the refusal is the same
-  /// one they got before.
-  bool isSelf({required Uint8List? myInstance, required NodeId myNodeId}) {
-    final theirs = instance;
-    if (theirs != null && myInstance != null && myInstance.isNotEmpty) {
-      if (theirs.length != myInstance.length) return false;
-      for (var i = 0; i < theirs.length; i++) {
-        if (theirs[i] != myInstance[i]) return false;
-      }
-      return true;
-    }
-    return invite.nodeId == myNodeId;
-  }
+  /// Does this invite name the device reading it? See [isSameDevice] — the
+  /// answer lives there so the ceremony's three asking points cannot drift.
+  bool isSelf({required Uint8List? myInstance, required NodeId myNodeId}) =>
+      isSameDevice(
+        theirInstance: instance,
+        myInstance: myInstance,
+        theirNodeId: invite.nodeId,
+        myNodeId: myNodeId,
+      );
 }
