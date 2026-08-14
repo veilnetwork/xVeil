@@ -225,15 +225,18 @@ String describeBootFailure({
 
   final String reading;
   if (names.isEmpty) {
-    reading = 'the runtime directory is empty — not even the claim marker, so '
+    reading =
+        'the runtime directory is empty — not even the claim marker, so '
         'this app never finished claiming it';
   } else if (bound) {
-    reading = 'the node DID bind (port sidecars are present) and this app did '
+    reading =
+        'the node DID bind (port sidecars are present) and this app did '
         'not reach it';
   } else if (staged) {
     reading = 'this app staged its config and the node bound nothing';
   } else {
-    reading = 'nothing was written past the claim marker: the node bound '
+    reading =
+        'nothing was written past the claim marker: the node bound '
         'nothing and this app did not get as far as staging its config';
   }
 
@@ -357,7 +360,10 @@ Future<void> _writeRuntimeDirMarker(String dir, {String? secret}) async {
 /// marker written into a directory we did not create is the XV-09 hole.
 Future<void> markRuntimeDirOwned(String dir) async {
   if (!Directory(dir).existsSync()) {
-    throw RuntimeDirNotPrivate(dir, 'refusing to claim a directory we did not create');
+    throw RuntimeDirNotPrivate(
+      dir,
+      'refusing to claim a directory we did not create',
+    );
   }
   if (FileSystemEntity.typeSync(dir, followLinks: false) ==
       FileSystemEntityType.link) {
@@ -408,7 +414,6 @@ class RuntimeDirLease {
     required this._identity,
   });
 
-
   /// The directory this lease created and owns.
   final String path;
 
@@ -427,7 +432,8 @@ class RuntimeDirLease {
   static bool _forbiddenBase(String base) {
     final home =
         Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
-    final normalized = base.length > 1 && (base.endsWith('/') || base.endsWith(r'\'))
+    final normalized =
+        base.length > 1 && (base.endsWith('/') || base.endsWith(r'\'))
         ? base.substring(0, base.length - 1)
         : base;
     if (normalized.isEmpty || normalized == '/' || normalized == r'\') {
@@ -904,7 +910,8 @@ class RealVeilStack {
       // already published under this identity. Boot degenerate and say so —
       // the material is recoverable from the phrase, a stale published
       // document is not.
-      if (decoded == null || missingSovereignIdentityFiles(decoded).isNotEmpty) {
+      if (decoded == null ||
+          missingSovereignIdentityFiles(decoded).isNotEmpty) {
         devLog(
           () =>
               'xVeil[identity]: stored sovereign material is unusable '
@@ -958,13 +965,105 @@ class RealVeilStack {
     } on Object catch (e) {
       // A device that cannot provision still has a working node — it is the
       // one-device case, which is what it was before this existed.
-      devLog(() => 'xVeil[identity]: could not provision sovereign identity: $e');
+      devLog(
+        () => 'xVeil[identity]: could not provision sovereign identity: $e',
+      );
       return null;
     } finally {
       try {
         await Directory(staging).delete(recursive: true);
       } on FileSystemException {
         // Nothing was created, or it is already gone.
+      }
+    }
+  }
+
+  /// Adopt an identity document received from ANOTHER device of this identity,
+  /// adding this device to it.
+  ///
+  /// The half of multi-device that cannot be done alone. Two devices set up
+  /// from one master phrase each hold a document naming only themselves, and
+  /// both carry the same `node_id` — it is BLAKE3 of the master key they both
+  /// derived. Both publish under that id, the later publisher displaces the
+  /// earlier, and the displaced device stays online believing it is reachable.
+  /// One document has to end up naming both keys, and only a device that has
+  /// seen the other's document can produce it.
+  ///
+  /// The master authority comes from the stored node config, not from the
+  /// phrase: the phrase is consumed at setup and never kept, and this runs when
+  /// devices are linked, which may be days later.
+  ///
+  /// Returns false — without changing anything — when this device has no
+  /// sovereign material of its own, or no config to authorise with. Those are
+  /// the mined-identity and legacy cases, where there is no master and so
+  /// nothing to delegate under.
+  static Future<bool> adoptSovereignDocument(
+    Storage storage, {
+    required Uint8List document,
+    required String stagingBase,
+    DynamicLibrary? lib,
+    // The native call as an argument, so the merge policy is testable without
+    // a dylib — same reason [ensureSovereignIdentity] takes its provisioner.
+    Future<void> Function(String identityToml, String veilDir)? delegate,
+  }) async {
+    if (document.isEmpty) return false;
+    final storedRaw = await storage.getSetting(kSovereignIdentitySetting);
+    if (storedRaw == null) return false;
+    final stored = decodeSovereignIdentity(storedRaw);
+    if (stored == null || missingSovereignIdentityFiles(stored).isNotEmpty) {
+      devLog(
+        () =>
+            'xVeil[identity]: cannot adopt a document — this device has no '
+            'usable sovereign material',
+      );
+      return false;
+    }
+    final identityToml = await storage.loadNodeConfig();
+    if (identityToml == null) return false;
+
+    final staging =
+        '$stagingBase/xveil-idmerge-${Random.secure().nextInt(1 << 32)}';
+    try {
+      // The merge happens on a COPY. A delegation that fails half way — a
+      // document from another identity, a truncated transfer — must not leave
+      // this device holding a document it cannot sign with, which would take it
+      // off the network entirely.
+      await materialiseSovereignIdentity(staging, stored);
+      await File(
+        '$staging/$kIdentityDocumentFile',
+      ).writeAsBytes(document, flush: true);
+      if (delegate != null) {
+        await delegate(identityToml, staging);
+      } else {
+        EmbeddedNode.delegateDeviceFromConfig(
+          identityToml,
+          veilDir: staging,
+          lib: lib,
+        );
+      }
+      final merged = await collectSovereignIdentity(staging);
+      if (missingSovereignIdentityFiles(merged).isNotEmpty) return false;
+      await storage.putSetting(
+        kSovereignIdentitySetting,
+        encodeSovereignIdentity(merged),
+      );
+      devLog(
+        () =>
+            'xVeil[identity]: adopted a document from another device of this '
+            'identity and added this one to it',
+      );
+      return true;
+    } on Object catch (e) {
+      // A document from a DIFFERENT identity is refused natively, and that is
+      // the common case here: it means the sender is not who the ceremony took
+      // them for. Nothing has changed, so the device carries on as it was.
+      devLog(() => 'xVeil[identity]: could not adopt that document: $e');
+      return false;
+    } finally {
+      try {
+        await Directory(staging).delete(recursive: true);
+      } on FileSystemException {
+        // Never created, or already gone.
       }
     }
   }
@@ -1354,7 +1453,9 @@ class RealVeilStack {
         runtimeDirEntries: _runtimeDirEntries(runtimeDir),
         hadObfs4Psk: obfs4Psk != null && obfs4Psk.isNotEmpty,
       );
-      await runCleanupLegs('veil-stack-boot', [('controller', controller.stop)]);
+      await runCleanupLegs('veil-stack-boot', [
+        ('controller', controller.stop),
+      ]);
       throw StateError('deniable node did not connect: $why');
     }
 
@@ -1379,7 +1480,9 @@ class RealVeilStack {
     try {
       ratchetState = FfiRatchetStateHandle.connect(ipcSock, lib: lib);
     } catch (e) {
-      await runCleanupLegs('veil-stack-boot', [('controller', controller.stop)]);
+      await runCleanupLegs('veil-stack-boot', [
+        ('controller', controller.stop),
+      ]);
       rethrow;
     }
     try {
@@ -1401,7 +1504,9 @@ class RealVeilStack {
       // peer cannot restart its copy from anything on the wire.
       final aged = ratchetState?.expire() ?? 0;
       if (aged > 0) {
-        devLog(() => 'xVeil[ratchet]: aged out $aged unanswered conversation(s)');
+        devLog(
+          () => 'xVeil[ratchet]: aged out $aged unanswered conversation(s)',
+        );
       }
     } catch (_) {
       await runCleanupLegs('veil-stack-boot', [
