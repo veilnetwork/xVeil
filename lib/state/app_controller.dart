@@ -213,6 +213,17 @@ class AppController extends Notifier<AppState> {
     return phrase;
   }
 
+  /// Whether the pending phrase is a RESTORE. Travels beside the phrase and is
+  /// taken with it: the boot needs both together, and a flag that outlived its
+  /// phrase would mint a device key for an identity nobody is restoring.
+  bool _pendingRestoringIdentity = false;
+
+  bool takePendingRestoringIdentity() {
+    final restoring = _pendingRestoringIdentity;
+    _pendingRestoringIdentity = false;
+    return restoring;
+  }
+
   /// Finish first-launch setup.
   ///
   /// Takes what the person actually chose, not a fabricated identity. It used
@@ -227,12 +238,18 @@ class AppController extends Notifier<AppState> {
     // The REAL master phrase shown on the recovery step (null on the
     // loopback/test path where the native generator is unavailable).
     String? identityPhrase,
+    // The phrase names an identity that ALREADY EXISTS. The first device of an
+    // identity takes the phrase's own keypair as its node key; every later one
+    // must mint its own, or two devices restored from one phrase are literally
+    // one node — which is what made linking answer "self device".
+    bool restoringIdentity = false,
     // The user picked "link to a device you already use": this device only has
     // to reach the network so an existing one can approve it, and the session
     // this opens should land on the device-link screen instead of chats.
     bool joinExisting = false,
   }) async {
     _pendingIdentityPhrase = identityPhrase;
+    _pendingRestoringIdentity = restoringIdentity;
     // Set BEFORE the session opens: _enterSession flips the phase to ready, and
     // the router consumes the flag on that transition. Setting it afterwards
     // would race the redirect and drop the user on chats.
@@ -2231,6 +2248,7 @@ class AppController extends Notifier<AppState> {
     // one thing deniable separation cannot survive. It also kept the secret in
     // the Dart heap across a lock.
     final identityPhrase = takePendingIdentityPhrase();
+    final restoringIdentity = takePendingRestoringIdentity();
     // Taken before the boot — the longest await in the app (see [_lifecycle]).
     final gen = _lifecycle;
     // THIS identity's answer, out of the space this boot is about to run on —
@@ -2274,6 +2292,7 @@ class AppController extends Notifier<AppState> {
         obfs4Psk: boot.obfs4Psk,
         proxy: ref.read(effectiveProxyRoutingProvider),
         identityPhrase: identityPhrase,
+        restoringIdentity: restoringIdentity,
         useBundledSeeds: seeds.useBundledSeeds,
       );
     }

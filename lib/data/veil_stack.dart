@@ -17,6 +17,7 @@ import 'native_libs.dart' show openEnvLib, processLibFor;
 import 'node/bundled_seeds.dart'
     show bundledSeedsAllowedFromSpace, kBundledSeedsDefault;
 import 'node/embedded_node.dart';
+import 'node/identity_config_fields.dart';
 import 'node/node_controller.dart';
 import 'node/proxy_routing.dart';
 import 'node/ratchet_ffi.dart'
@@ -842,6 +843,14 @@ class RealVeilStack {
   static Future<String> ensureNodeConfig(
     Storage storage, {
     String? identityPhrase,
+    // The phrase names an identity that already exists elsewhere. The FIRST
+    // device of an identity takes the phrase's own keypair as its node key —
+    // that is what makes `node_id` recoverable from the words. Every LATER
+    // device must mint one of its own: two devices holding the same node key
+    // are one node, they cannot link ("self device"), and both would drive the
+    // same ratchets. What ties the new key to the identity is the sovereign
+    // document, not the key itself.
+    bool restoringIdentity = false,
     DynamicLibrary? lib,
   }) async {
     final existing = await storage.loadNodeConfig();
@@ -857,10 +866,29 @@ class RealVeilStack {
       // Phrase-derived identity (P2): the keypair is deterministic, only the
       // nonce search burns CPU — still off the UI isolate like the mine.
       final phrase = identityPhrase;
-      identityToml = lib == null
-          ? await Isolate.run(() => _configFromPhraseInIsolate(phrase))
-          : EmbeddedNode.configFromPhrase(phrase, lib: lib);
-      origin = 'phrase';
+      if (restoringIdentity) {
+        // BOTH at once. This device boots on a key of its own, and it still
+        // needs the master's key AND nonce to hand out an invite contacts can
+        // address the identity by. Sequentially that is two waits; in parallel
+        // it is about one on any machine with a spare core, which is what makes
+        // a second device cost what the first one did.
+        final mined = await Future.wait([
+          lib == null
+              ? Isolate.run(_mineConfigInIsolate)
+              : Future.value(EmbeddedNode.mineConfig(0, lib: lib)),
+          lib == null
+              ? Isolate.run(() => _configFromPhraseInIsolate(phrase))
+              : Future.value(EmbeddedNode.configFromPhrase(phrase, lib: lib)),
+        ]);
+        identityToml = mined[0];
+        await storage.putSetting(kMasterConfigSetting, mined[1]);
+        origin = 'restored-device';
+      } else {
+        identityToml = lib == null
+            ? await Isolate.run(() => _configFromPhraseInIsolate(phrase))
+            : EmbeddedNode.configFromPhrase(phrase, lib: lib);
+        origin = 'phrase';
+      }
     } else {
       devLog(() => 'xVeil[deniable]: mining node identity (first run)…');
       // Canonical-difficulty PoW is CPU-heavy. Run it on a separate isolate so
@@ -1200,6 +1228,10 @@ class RealVeilStack {
     // process. Give each one a distinct loopback-only metrics port; ordinary
     // app boots keep the established platform default.
     int? debugMetricsPort,
+    // A RESTORE: the phrase names an identity that already exists, so this
+    // device mints its own node key rather than taking the phrase's. See
+    // [ensureNodeConfig].
+    bool restoringIdentity = false,
     // First-run only (onboarding-phrase epic P2): when set and no node config
     // is stored yet, the identity is DERIVED from this master phrase instead
     // of mined at random — node_id becomes deterministic in the phrase, so
@@ -1251,6 +1283,7 @@ class RealVeilStack {
     final identityToml = await ensureNodeConfig(
       storage,
       identityPhrase: identityPhrase,
+      restoringIdentity: restoringIdentity,
       lib: lib,
     );
     devLog(
@@ -1637,6 +1670,7 @@ class RealVeilStack {
         lanListen: lanListen,
         listenScheme: listenScheme,
         ratchetState: ratchetState,
+        masterConfig: await storage.getSetting(kMasterConfigSetting),
       );
     } catch (_) {
       // INDEPENDENT legs. Chained, a throw from `transport.dispose()` skipped
@@ -1666,6 +1700,9 @@ class RealVeilStack {
     required bool lanListen,
     required String listenScheme,
     required RatchetStateHandle? ratchetState,
+    // Where the master's key and nonce live on a device that boots on a key of
+    // its own. Null on every identity that boots on the phrase's own key.
+    required String? masterConfig,
   }) async {
     final seedsToRegister = runtimeBootstrapPeers ?? bootstrapPeers;
     final registeredSeeds = await registerRuntimeBootstrapPeers(
@@ -1687,10 +1724,30 @@ class RealVeilStack {
     // separately over the E2E contact channel with mutual P2P consent — see
     // P2PEndpointService — never inside the shareable invite.
     final veilInvite = BootstrapInvite.parse(await transport.createInvite());
+    // A device running on a key of its OWN must not hand that key out. The
+    // address a contact writes down is the hash of the key in the invite, and
+    // this device collects mail under the IDENTITY's address — so its own key
+    // would have contacts addressing somewhere nobody listens. The master's key
+    // and nonce were mined and kept at restore for exactly this.
+    //
+    // Absent for every identity that boots on the phrase's own key, which is
+    // every one in the field: there the node's invite already names the
+    // identity, and this falls through to it unchanged.
+    final masterFields = masterConfig == null
+        ? null
+        : identityConfigFields(masterConfig);
+    if (masterConfig != null && masterFields == null) {
+      devLog(
+        () =>
+            'xVeil[identity]: the stored master config carries no usable '
+            '[identity] — handing out this device\'s own invite, which '
+            'contacts would address the DEVICE by',
+      );
+    }
     final invite = BootstrapInvite(
-      publicKey: veilInvite.publicKey,
-      nonce: veilInvite.nonce,
-      algo: veilInvite.algo,
+      publicKey: masterFields?.publicKey ?? veilInvite.publicKey,
+      nonce: masterFields?.nonce ?? veilInvite.nonce,
+      algo: masterFields?.algo ?? veilInvite.algo,
       transport: null,
     );
     devLog(() => 'xVeil[deniable]: connected + identity-only invite ready');

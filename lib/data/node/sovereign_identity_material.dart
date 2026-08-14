@@ -71,6 +71,19 @@ const kRequiredSovereignIdentityFiles = <String>[
 /// config, and the container is what protects them either way.
 const kMasterKeySetting = 'node.master_key.v1';
 
+/// The phrase-derived node config, kept by a device that does NOT boot on it.
+///
+/// A restored device runs on a key of its own, so its own config cannot say who
+/// the identity is. But an invite carries a public key AND its anti-sybil
+/// nonce, and the address a contact writes down is the hash of that key — so a
+/// device handing out its own key would have contacts addressing the DEVICE
+/// while it collects mail under the IDENTITY. Nothing would ever arrive.
+///
+/// This is where the master's key and nonce come from. Mined alongside the
+/// device's own config rather than after it: two minings in parallel cost about
+/// what one costs on any machine with a spare core.
+const kMasterConfigSetting = 'node.master_config.v1';
+
 /// Container key. Versioned: a later layout change must not be read as a
 /// corrupt copy of this one.
 const kSovereignIdentitySetting = 'node.sovereign_identity.v1';
