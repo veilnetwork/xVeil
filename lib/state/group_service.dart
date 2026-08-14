@@ -32,6 +32,8 @@ import '../domain/cloud.dart'
     show CloudItem, answerableCloudContentIds, unresolvedCloudNoteRevisions;
 import '../domain/device_sync.dart';
 import '../domain/device_link.dart';
+import '../data/node/sovereign_identity_material.dart'
+    show instanceIdFrom, kSovereignIdentitySetting;
 import '../domain/group.dart';
 import '../domain/group_call.dart';
 import '../domain/group_content.dart';
@@ -16393,7 +16395,21 @@ class GroupService {
   /// exact signed manifest; the subsequent snapshot still passes all normal
   /// signature, bundle-hash and self-membership checks.
   Future<bool> prepareDeviceAdoption(DeviceLinkToken token) async {
-    if (token.source == _signer.selfId || token.isExpired(_now())) return false;
+    // NOT `token.source == selfId`: that is the identity, and both devices of
+    // one identity share it, so a token from a sibling read as one this device
+    // issued and every genuine adoption was rejected.
+    final mine = instanceIdFrom(
+      await _storage.getSetting(kSovereignIdentitySetting),
+    );
+    if (isSameDevice(
+          theirInstance: token.sourceInstance,
+          myInstance: mine,
+          theirNodeId: token.source,
+          myNodeId: _signer.selfId,
+        ) ||
+        token.isExpired(_now())) {
+      return false;
+    }
     await _storage.putSetting(
       kPendingDeviceAdoptionSetting,
       jsonEncode(token.toJson()),
@@ -16420,6 +16436,12 @@ class GroupService {
       manifestHash: _manifestHash(bundle.manifest),
       sourceInvite: sourceInvite,
       expiresAtMs: _now() + const Duration(minutes: 30).inMilliseconds,
+      // WHICH device issued this. `source` is the identity, shared with every
+      // sibling, so without this the target cannot tell a token it was given
+      // from one it issued itself.
+      sourceInstance: instanceIdFrom(
+        await _storage.getSetting(kSovereignIdentitySetting),
+      ),
     );
   }
 
