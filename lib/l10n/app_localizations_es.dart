@@ -6394,4 +6394,19 @@ class AppL10nEs extends AppL10n {
   @override
   String get seedsSwitchSaveFailed =>
       'No se pudo guardar el cambio, así que no se ha aplicado.';
+
+  @override
+  String get devicesResendSetup => 'Enviar de nuevo la configuración cifrada';
+
+  @override
+  String get devicesResendHint =>
+      'Para un dispositivo ya vinculado que nunca la recibió';
+
+  @override
+  String get devicesSendUnreachable =>
+      'El otro dispositivo no respondió. Abre xVeil allí, espera a que se conecte e inténtalo de nuevo.';
+
+  @override
+  String get devicesSendNoTargets =>
+      'Todavía no hay ningún dispositivo vinculado al que enviar';
 }

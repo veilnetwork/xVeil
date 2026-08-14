@@ -2917,5 +2917,21 @@
   "seedsSwitchSaveFailed": "That change could not be saved, so it was not applied.",
   "@seedsSwitchSaveFailed": {
     "description": "Shown when the preference store refuses the write, and the switch therefore stays where it was."
+  },
+  "devicesResendSetup": "Send the encrypted setup again",
+  "@devicesResendSetup": {
+    "description": "Action on the devices screen: re-send the device-group snapshot to already-linked devices. Reachable after the linking sheet was closed, which used to strand the other device waiting forever."
+  },
+  "devicesResendHint": "For a device that is already linked but never received it",
+  "@devicesResendHint": {
+    "description": "Subtitle for devicesResendSetup."
+  },
+  "devicesSendUnreachable": "The other device did not answer. Open xVeil there, wait for it to connect, then try again.",
+  "@devicesSendUnreachable": {
+    "description": "Shown when sending the device-group snapshot ran out of time. Replaces an indefinite spinner."
+  },
+  "devicesSendNoTargets": "No linked device to send to yet",
+  "@devicesSendNoTargets": {
+    "description": "Shown when a snapshot send found no other member of the device group."
   }
 }
