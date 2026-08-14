@@ -4,52 +4,33 @@ import 'dart:typed_data';
 import '../core/ids.dart';
 import '../data/transport/bootstrap_invite.dart';
 
-/// Does an identifier pair name THIS device, or a sibling of it?
+/// Do two identifiers name THE SAME DEVICE?
 ///
-/// The one place this question is answered. It is asked at three points in the
-/// device-link ceremony -- the invite check, the token check, and the screen --
-/// and each used to answer it inline by comparing node ids. That comparison
-/// stopped meaning "same device" the moment an invite began naming the
-/// IDENTITY: every device of one identity shares that id, so a sibling read as
-/// self and linking was refused ("self device", then "admission rejected").
+/// Asked at both points of the device-link ceremony -- the invite check and the
+/// adoption guard -- and answered here so the two cannot drift.
 ///
-/// Instance ids decide when both sides have one. Otherwise it falls back to
-/// node ids, which is what the checks did before instances existed -- right for
-/// a lone device, and wrong only for two devices of one identity with at least
-/// one on an old build. That pair is refused rather than mislinked.
+/// The identifiers are DEVICE node ids: the hash of a device's own transport
+/// key, which differs between two devices of one identity where the identity
+/// address cannot. Comparing identity addresses is what made a sibling read as
+/// self, refusing linking first as "self device" and then as "admission
+/// rejected".
+///
+/// A null on either side means the other end is on a build that did not carry
+/// its device id. The fallback compares what is there, which for two devices of
+/// one identity means "self" and a refusal: conservative on purpose, since the
+/// alternative is admitting a device on an identifier that cannot tell it from
+/// this one.
 bool isSameDevice({
-  required Uint8List? theirInstance,
-  required Uint8List? myInstance,
-  required NodeId theirNodeId,
-  required NodeId myNodeId,
-}) {
-  if (theirInstance != null &&
-      theirInstance.isNotEmpty &&
-      myInstance != null &&
-      myInstance.isNotEmpty) {
-    if (theirInstance.length != myInstance.length) return false;
-    for (var i = 0; i < theirInstance.length; i++) {
-      if (theirInstance[i] != myInstance[i]) return false;
-    }
-    return true;
-  }
-  return theirNodeId == myNodeId;
-}
+  required NodeId? theirDevice,
+  required NodeId? myDevice,
+  required NodeId theirIdentity,
+  required NodeId myIdentity,
+}) => (theirDevice != null && myDevice != null)
+    ? theirDevice == myDevice
+    : theirIdentity == myIdentity;
 
-String? encodeInstanceId(Uint8List? id) => (id == null || id.isEmpty)
-    ? null
-    : id.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-
-Uint8List? decodeInstanceId(String? hex) {
-  if (hex == null || hex.isEmpty || hex.length.isOdd) return null;
-  final out = Uint8List(hex.length ~/ 2);
-  for (var i = 0; i < out.length; i++) {
-    final v = int.tryParse(hex.substring(i * 2, i * 2 + 2), radix: 16);
-    if (v == null) return null;
-    out[i] = v;
-  }
-  return out;
-}
+NodeId? _optionalNodeId(String? hex) =>
+    (hex == null || hex.isEmpty) ? null : NodeId.fromHex(hex);
 
 /// Short, public QR token that authorizes one explicit device-group adoption.
 /// The encrypted sovereign bundle itself is NOT in the QR: it travels in the
@@ -61,7 +42,7 @@ class DeviceLinkToken {
     required this.manifestHash,
     required this.sourceInvite,
     required this.expiresAtMs,
-    this.sourceInstance,
+    this.sourceDevice,
   });
 
   final NodeId groupId;
@@ -70,9 +51,10 @@ class DeviceLinkToken {
   final BootstrapInvite sourceInvite;
   final int expiresAtMs;
 
-  /// Which DEVICE of the source identity issued this. Null from a build that
-  /// predates the field; [isSameDevice] falls back to node ids then.
-  final Uint8List? sourceInstance;
+  /// Which DEVICE of the source identity issued this -- its own transport node
+  /// id. Null from a build that predates the field; [isSameDevice] falls back
+  /// to identity ids then.
+  final NodeId? sourceDevice;
 
   static const _scheme = 'veil';
   static const _path = 'xveil-device';
@@ -90,7 +72,7 @@ class DeviceLinkToken {
       'mh': base64Url.encode(manifestHash).replaceAll('=', ''),
       'exp': '$expiresAtMs',
       'invite': sourceInvite.toUri(),
-      'si': ?encodeInstanceId(sourceInstance),
+      'sd': ?sourceDevice?.hex,
     },
   ).toString();
 
@@ -101,7 +83,7 @@ class DeviceLinkToken {
     'mh': base64.encode(manifestHash),
     'exp': expiresAtMs,
     'invite': sourceInvite.toUri(),
-    'si': ?encodeInstanceId(sourceInstance),
+    'sd': ?sourceDevice?.hex,
   };
 
   static DeviceLinkToken? fromJson(Object? value) {
@@ -121,9 +103,9 @@ class DeviceLinkToken {
         manifestHash: Uint8List.fromList(base64.decode(value['mh'] as String)),
         sourceInvite: BootstrapInvite.parse(value['invite'] as String),
         expiresAtMs: value['exp'] as int,
-        sourceInstance: decodeInstanceId(
-          value['si'] is String ? value['si'] as String : null,
-        ),
+        sourceDevice: value['sd'] is String
+            ? NodeId.fromHex(value['sd'] as String)
+            : null,
       );
     } catch (_) {
       return null;
@@ -161,7 +143,7 @@ class DeviceLinkToken {
         manifestHash: Uint8List.fromList(base64Url.decode(padded)),
         sourceInvite: BootstrapInvite.parse(invite),
         expiresAtMs: exp,
-        sourceInstance: decodeInstanceId(uri.queryParameters['si']),
+        sourceDevice: _optionalNodeId(uri.queryParameters['sd']),
       );
     } catch (e) {
       if (e is FormatException) rethrow;
@@ -175,7 +157,7 @@ class DeviceLinkToken {
     required Uint8List manifestHash,
     required BootstrapInvite sourceInvite,
     required int expiresAtMs,
-    Uint8List? sourceInstance,
+    NodeId? sourceDevice,
   }) {
     if (manifestHash.length != 32 ||
         sourceInvite.nodeId != source ||
@@ -188,7 +170,7 @@ class DeviceLinkToken {
       manifestHash: manifestHash,
       sourceInvite: sourceInvite,
       expiresAtMs: expiresAtMs,
-      sourceInstance: sourceInstance,
+      sourceDevice: sourceDevice,
     );
   }
 }
