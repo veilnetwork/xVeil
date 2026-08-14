@@ -337,22 +337,24 @@ void main() {
     // moment one receives a document it already holds, nothing changes and it
     // must fall quiet. Reporting success here instead would have them trading
     // identical documents for as long as both are running.
-    test('a merge that yields what we already hold reports no change',
-        () async {
-      final storage = await provisioned();
-      final before = storage.settings[kSovereignIdentitySetting];
-      final ok = await RealVeilStack.adoptSovereignDocument(
-        storage,
-        document: Uint8List.fromList([1, 2, 3]),
-        stagingBase: tmp.path,
-        // What the native side does when the incoming document already names
-        // this device and matches: writes back exactly what was there.
-        merge: (toml, dir, doc) async =>
-            materialiseSovereignIdentity(dir, _material()),
-      );
-      expect(ok, isFalse, reason: 'nothing changed, so nothing to announce');
-      expect(storage.settings[kSovereignIdentitySetting], before);
-    });
+    test(
+      'a merge that yields what we already hold reports no change',
+      () async {
+        final storage = await provisioned();
+        final before = storage.settings[kSovereignIdentitySetting];
+        final ok = await RealVeilStack.adoptSovereignDocument(
+          storage,
+          document: Uint8List.fromList([1, 2, 3]),
+          stagingBase: tmp.path,
+          // What the native side does when the incoming document already names
+          // this device and matches: writes back exactly what was there.
+          merge: (toml, dir, doc) async =>
+              materialiseSovereignIdentity(dir, _material()),
+        );
+        expect(ok, isFalse, reason: 'nothing changed, so nothing to announce');
+        expect(storage.settings[kSovereignIdentitySetting], before);
+      },
+    );
 
     test('an empty document is not a merge', () async {
       final storage = await provisioned();
@@ -365,6 +367,59 @@ void main() {
       );
       expect(ok, isFalse);
       expect(called, isFalse);
+    });
+  });
+
+  // ── the address this identity receives under ─────────────────────────────
+  //
+  // The node speaks on the wire under its config key; a sender seals mail to
+  // the IDENTITY. Today those are the same 32 bytes for everyone, which is
+  // exactly why the distinction has to exist before the change that parts them:
+  // a device still receiving under its transport id would wait where nobody
+  // sends, looking reachable from every angle.
+  group('sovereignReceiveAddress', () {
+    test('is the address the document names', () async {
+      final storage = FakeSettingStorage();
+      storage.settings[kSovereignIdentitySetting] = encodeSovereignIdentity(
+        _material(),
+      );
+      final addr = await RealVeilStack.sovereignReceiveAddress(
+        storage,
+        readNodeId: (doc) => Uint8List.fromList(List.filled(32, 5)),
+      );
+      expect(addr, everyElement(5));
+      expect(addr, hasLength(32));
+    });
+
+    // A mined identity has no master: its node's degenerate document names only
+    // itself and the config id is the whole story. Null says so, rather than
+    // inventing an address.
+    test('a device with no document has no separate address', () async {
+      expect(
+        await RealVeilStack.sovereignReceiveAddress(FakeSettingStorage()),
+        isNull,
+      );
+    });
+
+    test('a corrupt entry falls back rather than guessing', () async {
+      final storage = FakeSettingStorage();
+      storage.settings[kSovereignIdentitySetting] = 'not json at all';
+      expect(await RealVeilStack.sovereignReceiveAddress(storage), isNull);
+    });
+
+    // A document that will not read must not take the identity off the air:
+    // the caller falls back to the config id, which is what every identity
+    // without a document uses anyway.
+    test('a document that cannot be read falls back', () async {
+      final storage = FakeSettingStorage();
+      storage.settings[kSovereignIdentitySetting] = encodeSovereignIdentity(
+        _material(),
+      );
+      final addr = await RealVeilStack.sovereignReceiveAddress(
+        storage,
+        readNodeId: (doc) => throw StateError('decode failed'),
+      );
+      expect(addr, isNull);
     });
   });
 }
