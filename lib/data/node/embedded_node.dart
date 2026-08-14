@@ -502,6 +502,75 @@ class EmbeddedNode {
     }
   }
 
+  /// Admit a device using the master secret this app already holds: the
+  /// `[identity]` keypair of its own stored node config.
+  ///
+  /// THIS is the call the live path makes, and [delegateDeviceFromPhrase] is
+  /// not. The phrase is consumed at setup and never stored, so by the time a
+  /// second device is linked — possibly days later — there is no phrase to work
+  /// from and nothing to prompt for. What the app does have is the node config,
+  /// and for a phrase-provisioned identity that config's private key IS the
+  /// master secret: the native side writes `derive_master_sk_ed25519(seed)`
+  /// into it. The same authority, in a shape the app kept.
+  ///
+  /// [identityToml] carries that key, so the native copy is wiped on every
+  /// path. [devicePubkey] null means THIS device's own key.
+  static void delegateDeviceFromConfig(
+    String identityToml, {
+    required String veilDir,
+    Uint8List? devicePubkey,
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? _veilLib();
+    final delegateFn = dl
+        .lookupFunction<_DelegateDeviceNative, _DelegateDeviceDart>(
+          'veil_delegate_device_from_config_zeroize',
+        );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final tomlBytes = utf8.encode(identityToml);
+    final tomlPtr = calloc<Uint8>(tomlBytes.length);
+    final dirC = veilDir.toNativeUtf8();
+    final pkPtr = devicePubkey == null
+        ? nullptr
+        : calloc<Uint8>(devicePubkey.length);
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      tomlPtr.asTypedList(tomlBytes.length).setAll(0, tomlBytes);
+      if (devicePubkey != null) {
+        pkPtr
+            .cast<Uint8>()
+            .asTypedList(devicePubkey.length)
+            .setAll(0, devicePubkey);
+      }
+      final rc = delegateFn(
+        tomlPtr,
+        tomlBytes.length,
+        dirC.cast<Uint8>(),
+        dirC.length,
+        pkPtr.cast<Uint8>(),
+        devicePubkey?.length ?? 0,
+        errOut,
+      );
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_delegate_device_from_config failed: $msg');
+      }
+    } finally {
+      // The config holds the master private key — both the native copy and the
+      // Dart bytes it was built from go down zeroed (audit XV-22).
+      wipeNativeSecret(tomlPtr, tomlBytes.length);
+      wipeSecretBytes(tomlBytes);
+      calloc.free(tomlPtr);
+      calloc.free(dirC);
+      if (pkPtr != nullptr) calloc.free(pkPtr);
+      calloc.free(errOut);
+    }
+  }
+
   /// Compose a full, bootable node config from a stored identity (from
   /// [mineConfig], loaded out of the deniable container) plus EPHEMERAL,
   /// per-launch runtime endpoints — a [listenTransport] (e.g.
