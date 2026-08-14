@@ -23,6 +23,24 @@ class _MessagingMailboxDelivery {
   static const _peerUnresolvedCap = Duration(minutes: 30);
   static const _suppressionLogEvery = Duration(minutes: 1);
 
+  /// What the recipient has confirmed storing — see [MailboxDepositGate].
+  final _gate = MailboxDepositGate();
+
+  /// How long a user send waits for that confirmation before paying for a
+  /// relay copy. Zero deposits at once.
+  ///
+  /// Off by default and switched on where the app wires the service up. The
+  /// wait changes the TIMING of the main send path, and a suite that asserts
+  /// deposits would otherwise be asserting this timer instead — every such test
+  /// sitting out a window for a confirmation no fake peer was ever going to
+  /// send. The decision it guards is tested on its own; see
+  /// `mailbox_deposit_gate.dart`.
+  Duration ackGrace = Duration.zero;
+
+  void noteAcknowledged(String id) => _gate.noteAcknowledged(id);
+
+  bool acknowledged(String id) => _gate.acknowledged(id);
+
   bool get paused => _paused;
 
   set paused(bool value) {
@@ -134,7 +152,16 @@ class _MessagingMailboxDelivery {
   /// The capacity gate is waived too: call control is a handful of small frames
   /// bounded by the number of live calls, and being dropped is worse for it
   /// than being queued behind a bulk seal.
-  void stashInBackground(NodeId peer, String id, Uint8List wire) {
+  void stashInBackground(
+    NodeId peer,
+    String id,
+    Uint8List wire, {
+    // True only where a live leg has just gone out and an ack may still be
+    // coming. The outbox flush passes false: it deposits BECAUSE the live leg
+    // failed, so there is nothing to wait for and waiting would only delay the
+    // one copy the recipient is going to get.
+    bool awaitAck = false,
+  }) {
     if (isCallSignalId(id)) {
       unawaited(maybeStash(peer, id, wire));
       return;
@@ -148,10 +175,15 @@ class _MessagingMailboxDelivery {
       );
       return;
     }
-    unawaited(maybeStash(peer, id, wire));
+    unawaited(maybeStash(peer, id, wire, awaitAck: awaitAck));
   }
 
-  Future<void> maybeStash(NodeId peer, String id, Uint8List wire) async {
+  Future<void> maybeStash(
+    NodeId peer,
+    String id,
+    Uint8List wire, {
+    bool awaitAck = false,
+  }) async {
     // The backoff belongs HERE, at the one place a deposit is attempted, not
     // at each call site. It was checked in the outbox flush loop only, so
     // every other route — a user send finishes with its own background stash,
@@ -160,6 +192,42 @@ class _MessagingMailboxDelivery {
     // stays durable regardless: the flush loop deposits it once the backoff
     // expires.
     if (suppressedByBackoff(peer.hex, DateTime.now(), 'maybeStash')) return;
+    // Deposit only what nobody has confirmed. A live send that reached ANY
+    // device of the recipient ends with that device acking after it stored the
+    // message, and the recipient's devices mirror it among themselves — so a
+    // relay copy would be a second delivery of something already safe.
+    //
+    // Call control is exempt: its whole value is inside the ring window, and
+    // waiting out the grace period is the one thing it cannot afford.
+    if (awaitAck && !isCallSignalId(id)) {
+      if (!shouldDeposit(
+        id: id,
+        acknowledged: acknowledged(id),
+        isCallSignal: false,
+      )) {
+        devLog(
+          () =>
+              'xVeil[send]: stash SKIP dst=${peer.short} id=$id — already '
+              'acknowledged (stored by the recipient)',
+        );
+        return;
+      }
+      if (ackGrace > Duration.zero) {
+        await Future<void>.delayed(ackGrace);
+        if (!shouldDeposit(
+          id: id,
+          acknowledged: acknowledged(id),
+          isCallSignal: false,
+        )) {
+          devLog(
+            () =>
+                'xVeil[send]: stash SKIP dst=${peer.short} id=$id — '
+                'acknowledged within ${ackGrace.inSeconds}s',
+          );
+          return;
+        }
+      }
+    }
     final mailbox = _mailbox;
     if (mailbox == null) {
       devLog(
