@@ -6392,4 +6392,11 @@ class AppL10nRu extends AppL10n {
   @override
   String get devicesSendNoTargets =>
       'Пока некому отправлять — привязанных устройств нет';
+
+  @override
+  String get networkBackgroundOfferBody =>
+      'Без этого Android останавливает xVeil, как только гаснет экран: узел выключается, сообщения перестают приходить, а приложение выглядит исправным. На некоторых телефонах (Xiaomi, Samsung) в настройках самого приложения есть ещё «Автозапуск» — его тоже нужно включить.\n\nВключить это можно и потом, в любой момент: Настройки → Оверлей-сеть → Работать в фоне.';
+
+  @override
+  String get networkBackgroundNeverAsk => 'Больше не спрашивать';
 }

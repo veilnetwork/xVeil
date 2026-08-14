@@ -12,6 +12,8 @@ import '../chat/chats_screen.dart';
 import '../chat/notification_binder.dart';
 import '../chat/signature_ask_host.dart';
 import '../groups/group_tile.dart' show showCreateGroupDialog;
+import '../network/background_permission_offer.dart'
+    show maybeOfferBackgroundPermission;
 import '../onboarding/bundled_seeds_choice.dart' show maybeOfferBundledSeeds;
 import '../spaces/space_feed_screen.dart';
 import '../spaces/space_list_screen.dart';
@@ -56,6 +58,13 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       // actually open, rather than left as a messenger that quietly never
       // connects. Silent for everyone else — see [maybeOfferBundledSeeds].
       unawaited(maybeOfferBundledSeeds(context, ref));
+      // The same argument, one layer down the stack. Without the battery
+      // exemption Android stops the node as soon as the screen goes off, and
+      // the app goes on reporting itself ready — so an install that never
+      // grants it is a messenger that silently receives nothing whenever it is
+      // not in front of you. Asked once, dismissible for good, and the body
+      // says where the switch lives afterwards.
+      unawaited(maybeOfferBackgroundPermission(context));
     });
   }
 

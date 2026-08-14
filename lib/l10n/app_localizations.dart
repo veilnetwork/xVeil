@@ -11161,6 +11161,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'No linked device to send to yet'**
   String get devicesSendNoTargets;
+
+  /// Body of the start-up offer to exempt the app from battery optimisation. Says what breaks without it and where to find the switch later, because the offer can be dismissed for good.
+  ///
+  /// In en, this message translates to:
+  /// **'Without this Android stops xVeil the moment its screen goes off: the node stops, messages stop arriving, and the app still looks fine. Some phones (Xiaomi, Samsung) also hide an “Autostart” switch in the app\'s own settings that has to be on as well.\n\nYou can turn this on later at any time: Settings → Overlay network → Run in the background.'**
+  String get networkBackgroundOfferBody;
+
+  /// Dismisses the start-up background-permission offer permanently. The setting itself stays reachable in Settings → Overlay network.
+  ///
+  /// In en, this message translates to:
+  /// **'Don\'t ask again'**
+  String get networkBackgroundNeverAsk;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
