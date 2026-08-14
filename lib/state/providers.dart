@@ -168,6 +168,7 @@ class DeniableBootConfig {
     this.bundledSeeds = const [],
     this.udpReflectors = const [],
     this.obfs4Psk,
+    this.debugMetricsPort,
   });
 
   /// Directory for the ephemeral, identity-free node sockets (admin + app IPC).
@@ -176,6 +177,16 @@ class DeniableBootConfig {
   /// This instance's listener port (give two instances on one host distinct
   /// ports so they don't collide).
   final int listenPort;
+
+  /// Loopback metrics port for stand builds. Null keeps the platform default.
+  ///
+  /// Separating two instances needs THIS as well as [listenPort]: the metrics
+  /// endpoint is the other address a boot binds, and it was a fixed number, so
+  /// a second instance died on it however its listener was moved. The failure
+  /// named no port -- the node answered "apply-config rejected: Address
+  /// already in use" and the app reported that verbatim -- which is a long way
+  /// from "another instance already has the metrics port".
+  final int? debugMetricsPort;
 
   /// Path to the deniable container file. Needed by the "all identities online"
   /// branch to open the container as one `HvMultiSpace` (host every identity at
