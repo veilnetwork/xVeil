@@ -1,89 +1,86 @@
 /// The invite a device shows when ANOTHER DEVICE OF THE SAME IDENTITY is about
 /// to be linked — as opposed to the one handed to a contact.
 ///
-/// The two used to be one string, and that stopped working the day an invite
-/// began naming the IDENTITY rather than the device that minted it. Naming the
-/// identity is right: a contact must address the identity, or mail sent to a
-/// device that is switched off waits where nobody collects it. But it leaves
-/// every device of an identity handing out a byte-identical invite, and the
-/// linking ceremony opens by asking "is this me?" — a question that string can
-/// no longer answer. Linking a genuine second device answered "self device".
+/// Two invites, because they answer two different questions.
 ///
-/// So linking gets its own payload: the same bootstrap invite plus the one
-/// thing the ceremony needs and a contact must never receive — this device's
-/// instance id. Kept OUT of the contact invite deliberately: that string goes
-/// to many people, and a stable per-device value in it is a correlator. Two
-/// contacts comparing invites would learn they are talking to the same device,
-/// and adding a device would show up as a change.
+/// A CONTACT invite names the IDENTITY: the address a contact writes down is
+/// the hash of the key inside it, and mail must go to the identity or it waits
+/// at a device that is switched off. Every device of one identity therefore
+/// hands out the same contact invite, byte for byte, and that is correct.
+///
+/// A DEVICE-LINK invite names THIS DEVICE: its own transport key and nonce, the
+/// pair that makes it routable and sealable on its own. The ceremony needs
+/// exactly that and a contact must never receive it — the same string goes to
+/// many people, and a stable per-device value in it is a correlator: two
+/// contacts comparing invites would learn they are talking to one device, and
+/// linking a new one would show up as a change.
+///
+/// This split is what makes the rest ordinary. With the sibling's own invite in
+/// hand the source can add it as a peer, seal to it and address the device
+/// group entry at it — the existing session and mailbox paths, unchanged. It is
+/// also why "is this me?" has an answer again: device node ids differ where
+/// identity ids cannot.
 library;
 
-import 'dart:typed_data';
-
 import '../../core/ids.dart';
-import '../../domain/device_link.dart' show isSameDevice;
 import 'bootstrap_invite.dart';
 
 class DeviceLinkInvite {
-  const DeviceLinkInvite({required this.invite, this.instance});
+  const DeviceLinkInvite({required this.device, this.namesTheDevice = true});
 
-  /// The ordinary bootstrap invite — the identity's key, nonce and algorithm.
-  final BootstrapInvite invite;
+  /// This device's OWN bootstrap invite — its transport key, nonce and
+  /// algorithm. What the ceremony routes and seals to.
+  final BootstrapInvite device;
 
-  /// Which device of that identity minted this. Null when it came from a build
-  /// that predates this format, which is why [isSelf] still has a fallback.
-  final Uint8List? instance;
+  /// False when this was parsed from a plain contact invite, which names an
+  /// identity rather than a device. Kept because an older build's QR is exactly
+  /// that, and the checks then have to fall back (see [isSelf]).
+  final bool namesTheDevice;
 
   static const scheme = 'veil:device?';
+
+  /// The device's node id: what the device group holds and what delivery
+  /// addresses. Meaningful only when [namesTheDevice].
+  NodeId get nodeId => device.nodeId;
 
   /// The parameters are NOT re-listed here. [BootstrapInvite.toUri] owns that
   /// format; this borrows its body and changes the prefix, so a field added
   /// there cannot go missing here.
-  String toUri() {
-    final body = invite.toUri().substring(BootstrapInvite.scheme.length);
-    final inst = instance;
-    if (inst == null || inst.isEmpty) return '$scheme$body';
-    final hex = inst.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-    return '$scheme$body&inst=$hex';
-  }
+  String toUri() =>
+      '$scheme${device.toUri().substring(BootstrapInvite.scheme.length)}';
 
-  /// Accepts BOTH spellings. A device-link URI carries the instance; a plain
-  /// bootstrap invite is taken as one with none, because that is exactly what
-  /// an older device's QR is — refusing it would break linking to the devices
-  /// most likely to need it.
+  /// Accepts BOTH spellings. A `veil:device?` URI names a device; a plain
+  /// bootstrap invite is taken as an identity-naming one, because that is
+  /// exactly what an older device's QR is — refusing it would break linking to
+  /// the devices most likely to need it.
   static DeviceLinkInvite parse(String uri) {
     final trimmed = uri.trim();
     if (!trimmed.startsWith(scheme)) {
-      return DeviceLinkInvite(invite: BootstrapInvite.parse(trimmed));
+      return DeviceLinkInvite(
+        device: BootstrapInvite.parse(trimmed),
+        namesTheDevice: false,
+      );
     }
-    final body = trimmed.substring(scheme.length);
-    // Re-prefixed and handed to the one parser that knows the fields. `inst`
-    // rides along and is ignored there, the way any unknown key is.
-    final invite = BootstrapInvite.parse('${BootstrapInvite.scheme}$body');
-    Uint8List? instance;
-    for (final part in body.split('&')) {
-      final i = part.indexOf('=');
-      if (i <= 0 || part.substring(0, i) != 'inst') continue;
-      final hex = part.substring(i + 1);
-      if (hex.isEmpty || hex.length.isOdd) break;
-      final out = Uint8List(hex.length ~/ 2);
-      for (var b = 0; b < out.length; b++) {
-        final v = int.tryParse(hex.substring(b * 2, b * 2 + 2), radix: 16);
-        if (v == null) return DeviceLinkInvite(invite: invite);
-        out[b] = v;
-      }
-      instance = out;
-      break;
-    }
-    return DeviceLinkInvite(invite: invite, instance: instance);
+    return DeviceLinkInvite(
+      device: BootstrapInvite.parse(
+        '${BootstrapInvite.scheme}${trimmed.substring(scheme.length)}',
+      ),
+    );
   }
 
-  /// Does this invite name the device reading it? See [isSameDevice] — the
-  /// answer lives there so the ceremony's three asking points cannot drift.
-  bool isSelf({required Uint8List? myInstance, required NodeId myNodeId}) =>
-      isSameDevice(
-        theirInstance: instance,
-        myInstance: myInstance,
-        theirNodeId: invite.nodeId,
-        myNodeId: myNodeId,
-      );
+  /// Does this invite name the device reading it?
+  ///
+  /// Device node ids decide when both sides have one — they differ where
+  /// identity ids cannot, which is the whole point of carrying the device's own
+  /// key here.
+  ///
+  /// [myDeviceNodeId] is this device's TRANSPORT id, not the identity address.
+  /// When either side does not name a device the answer falls back to comparing
+  /// what is there, which for two devices of one identity means "self" and a
+  /// refusal. That is the old behaviour and it is the conservative one: a pair
+  /// where at least one side is on an old build is refused rather than linked
+  /// on an identifier that cannot tell them apart.
+  bool isSelf({required NodeId myDeviceNodeId, required NodeId myIdentityId}) =>
+      namesTheDevice ? device.nodeId == myDeviceNodeId
+      : device.nodeId == myIdentityId;
 }

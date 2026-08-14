@@ -10,8 +10,8 @@ import '../../core/ids.dart';
 import '../../state/messaging_providers.dart';
 import '../../data/veil_stack.dart';
 import '../../data/transport/device_link_invite.dart';
-import '../../data/node/sovereign_identity_material.dart'
-    show instanceIdFrom, kSovereignIdentitySetting;
+import '../../data/node/identity_config_fields.dart';
+import '../../data/transport/bootstrap_invite.dart';
 import '../../domain/device_link.dart';
 import '../../domain/sovereign_recovery.dart';
 import '../../l10n/app_localizations.dart';
@@ -120,10 +120,13 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   bool _hasDeviceGroup = false;
   String? _credentialKind;
 
-  /// This device's instance id, read once with the rest of the screen's state.
-  /// It is what the linking ceremony uses to tell this device from its
-  /// siblings — their contact invites are identical, deliberately.
-  Uint8List? _myInstance;
+  /// This device's OWN bootstrap invite — its transport key and nonce — read
+  /// once with the rest of the screen's state.
+  ///
+  /// Not the stack's `myInvite`: that carries the IDENTITY's key, so every
+  /// device of an identity produces the same string. This is what tells this
+  /// device from its siblings and what makes one of them addressable.
+  BootstrapInvite? _myDevice;
 
   /// The auto-open has fired. Guards against re-opening the sheet on every
   /// rebuild, and against re-opening it after the user closes it.
@@ -173,9 +176,15 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     final credentialKind = await svc?.sovereignCredentialKind();
     final members = [...?state?.members.values.map((m) => m.nodeId)]
       ..sort((a, b) => a.hex.compareTo(b.hex));
-    final myInstance = instanceIdFrom(
-      await ref.read(storageProvider).getSetting(kSovereignIdentitySetting),
-    );
+    final toml = await ref.read(storageProvider).loadNodeConfig();
+    final fields = toml == null ? null : identityConfigFields(toml);
+    final myDevice = fields == null
+        ? null
+        : BootstrapInvite(
+            publicKey: fields.publicKey,
+            nonce: fields.nonce,
+            algo: fields.algo,
+          );
     final messaging = ref.read(messagingServiceProvider);
     final seen = <String, DateTime?>{};
     for (final m in members) {
@@ -188,7 +197,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       _hasSovereignBundle = hasBundle;
       _hasDeviceGroup = gidHex != null;
       _credentialKind = credentialKind;
-      _myInstance = myInstance;
+      _myDevice = myDevice;
       _loading = false;
     });
   }
@@ -205,7 +214,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
         service: svc,
         stack: stack,
         credentialKind: _credentialKind,
-        myInstance: _myInstance,
+        myDevice: _myDevice,
       ),
     );
     if (changed == true) await _reload();
@@ -245,7 +254,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) =>
-          _TargetLinkSheet(service: svc, stack: stack, myInstance: _myInstance),
+          _TargetLinkSheet(service: svc, stack: stack, myDevice: _myDevice),
     );
     if (changed == true) await _reload();
   }
@@ -855,17 +864,17 @@ class _SourceLinkSheet extends StatefulWidget {
     required this.service,
     required this.stack,
     required this.credentialKind,
-    required this.myInstance,
+    required this.myDevice,
   });
   final GroupService service;
   final RealVeilStack stack;
   final String? credentialKind;
 
-  /// This device's instance id. Both devices of an identity hand out the same
-  /// contact invite, so "is the scanned invite me?" can only be answered by
-  /// this. Null on an identity with no sovereign material — one device by
-  /// definition, and the check falls back to node ids.
-  final Uint8List? myInstance;
+  /// This device's own invite. Both devices of an identity hand out the same
+  /// CONTACT invite, so "is the scanned invite me?" can only be answered by
+  /// the device's own key. Null when the config cannot be read — the check
+  /// then falls back to identity ids and refuses a sibling, as before.
+  final BootstrapInvite? myDevice;
 
   @override
   State<_SourceLinkSheet> createState() => _SourceLinkSheetState();
@@ -902,10 +911,10 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
     NativeSovereignGroupSigner? signer;
     try {
       final link = DeviceLinkInvite.parse(_targetInvite.text);
-      final target = link.invite;
+      final target = link.device;
       if (link.isSelf(
-        myInstance: widget.myInstance,
-        myNodeId: widget.service.selfId,
+        myDeviceNodeId: widget.myDevice?.nodeId ?? widget.service.selfId,
+        myIdentityId: widget.service.selfId,
       )) {
         throw const FormatException('self device');
       }
@@ -920,6 +929,7 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
       );
       if (!linked) throw StateError('membership rejected');
       final token = await widget.service.createDeviceLinkToken(
+        sourceDevice: widget.myDevice?.nodeId,
         widget.stack.myInvite,
       );
       if (token == null) throw StateError('token unavailable');
@@ -1070,14 +1080,15 @@ class _TargetLinkSheet extends StatefulWidget {
   const _TargetLinkSheet({
     required this.service,
     required this.stack,
-    required this.myInstance,
+    required this.myDevice,
   });
   final GroupService service;
   final RealVeilStack stack;
 
-  /// Goes into the QR the source scans -- the one value that tells this device
-  /// apart from its siblings. Never in the contact invite.
-  final Uint8List? myInstance;
+  /// Goes into the QR the source scans — this device's own key, the thing that
+  /// tells it from its siblings and makes it addressable. Never in the contact
+  /// invite.
+  final BootstrapInvite? myDevice;
 
   @override
   State<_TargetLinkSheet> createState() => _TargetLinkSheetState();
@@ -1132,7 +1143,10 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
         throw const FormatException('expired');
       }
       await widget.stack.addContact(token.sourceInvite);
-      if (!await widget.service.prepareDeviceAdoption(token)) {
+      if (!await widget.service.prepareDeviceAdoption(
+        token,
+        myDevice: widget.myDevice?.nodeId,
+      )) {
         throw StateError('admission rejected');
       }
       _token.clear();
@@ -1175,10 +1189,11 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    final myInvite = DeviceLinkInvite(
-      invite: widget.stack.myInvite,
-      instance: widget.myInstance,
-    ).toUri();
+    // The device's own invite when it is readable; the identity one only as a
+    // last resort, which an older build's QR already is.
+    final myInvite = widget.myDevice == null
+        ? widget.stack.myInvite.toUri()
+        : DeviceLinkInvite(device: widget.myDevice!).toUri();
     return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
         24,
