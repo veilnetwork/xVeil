@@ -24,6 +24,7 @@ import 'ratchet_persistence.dart';
 import 'signature_policy_controller.dart';
 import 'thumbnail.dart';
 import 'video_thumb.dart';
+import '../data/veil_stack.dart';
 
 /// Constructed once and kept alive for the session; starts listening eagerly.
 final messagingServiceProvider = Provider<MessagingService>((ref) {
@@ -71,7 +72,10 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   // messages to — so an identity's chain keys can only ever land in that
   // identity's own container. Null on the loopback fake and on builds without
   // the embedded-node FFI, which have no ratchet to keep.
-  service.ratchet = ratchetPersistenceFor(ref.watch(realStackProvider), storage);
+  service.ratchet = ratchetPersistenceFor(
+    ref.watch(realStackProvider),
+    storage,
+  );
   // Author-side answer to incoming signature requests, read live from settings.
   service.signaturePolicyResolver = () => ref.read(signaturePolicyProvider);
   service.start();
@@ -102,16 +106,27 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     // restart can stay reachable through a transient resolve failure (the fresh
     // one-hop resolve is still preferred — see MailboxService._register).
     final relayKeyCache = StorageRelayKeyCache(storage);
-    transport
-        .buildMailboxService(
-          deliver: service.deliverInbound,
-          relayKeyCache: relayKeyCache,
-          // Durable quarantine for permanently-undecryptable deposits — without
-          // it one poisoned blob kept the drain at max cadence for its whole
-          // 7-day relay TTL (re-fetch + re-fail + backoff reset every tick).
-          poisonedBlobs: PoisonedBlobRegistry(
-            getSetting: storage.getSetting,
-            putSetting: storage.putSetting,
+    // Receive under the IDENTITY's address, not the node's. The same value for
+    // every identity that has no transport key of its own, and the difference
+    // between reachable and silently unreachable for one that has. Chained
+    // rather than awaited: this provider body is synchronous, and the mailbox
+    // has always been built off a future it does not block on.
+    RealVeilStack.sovereignReceiveAddress(storage)
+        .then(
+          (receiveAddress) => transport.buildMailboxService(
+            deliver: service.deliverInbound,
+            relayKeyCache: relayKeyCache,
+            receiveAddress: receiveAddress == null
+                ? null
+                : NodeId(receiveAddress),
+            // Durable quarantine for permanently-undecryptable deposits —
+            // without it one poisoned blob kept the drain at max cadence for
+            // its whole 7-day relay TTL (re-fetch + re-fail + backoff reset
+            // every tick).
+            poisonedBlobs: PoisonedBlobRegistry(
+              getSetting: storage.getSetting,
+              putSetting: storage.putSetting,
+            ),
           ),
         )
         .then((m) {
