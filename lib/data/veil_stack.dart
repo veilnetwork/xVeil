@@ -978,6 +978,48 @@ class RealVeilStack {
     }
   }
 
+  /// The address this identity RECEIVES under, or null when this device has no
+  /// sovereign document.
+  ///
+  /// Not the same question as "what is my node id". The node speaks on the wire
+  /// under its `[identity]` config key, and that is what a peer authenticates
+  /// against. But a sender seals mail to an IDENTITY — node_id → document →
+  /// registry → one envelope per device — and an identity with several devices
+  /// has ONE address for all of them.
+  ///
+  /// The two are the same 32 bytes for every identity in the field, because a
+  /// phrase-provisioned config key IS the master the document names. They part
+  /// company once a device is given a transport key of its own, and from that
+  /// moment a device that keeps publishing its rendezvous ad and polling its
+  /// mailbox under the transport id is waiting where nobody sends — while
+  /// looking reachable from every angle.
+  ///
+  /// Null is the honest answer for a mined identity: there is no master, the
+  /// node's degenerate document names only itself, and the config id is the
+  /// whole story.
+  static Future<Uint8List?> sovereignReceiveAddress(
+    Storage storage, {
+    DynamicLibrary? lib,
+    Uint8List Function(Uint8List document)? readNodeId,
+  }) async {
+    final raw = await storage.getSetting(kSovereignIdentitySetting);
+    if (raw == null) return null;
+    final files = decodeSovereignIdentity(raw);
+    final doc = files?[kIdentityDocumentFile];
+    if (doc == null || doc.isEmpty) return null;
+    try {
+      return readNodeId != null
+          ? readNodeId(doc)
+          : EmbeddedNode.identityDocumentNodeId(doc, lib: lib);
+    } on Object catch (e) {
+      // A document we cannot read is not a reason to receive nowhere: the
+      // caller falls back to the config id, which is the correct answer for
+      // every identity that has no document anyway.
+      devLog(() => 'xVeil[identity]: could not read the receive address: $e');
+      return null;
+    }
+  }
+
   /// Adopt an identity document received from ANOTHER device of this identity,
   /// adding this device to it.
   ///

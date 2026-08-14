@@ -186,6 +186,17 @@ typedef _AdoptDocDart =
       Pointer<Uint16>,
       Pointer<Pointer<Utf8>>,
     );
+// int veil_identity_document_node_id(document*, len, out_node_id*, err_out**):
+//   0 on success, writing 32 bytes to out_node_id.
+typedef _DocNodeIdNative =
+    Int32 Function(
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _DocNodeIdDart =
+    int Function(Pointer<Uint8>, int, Pointer<Uint8>, Pointer<Pointer<Utf8>>);
 typedef _ConfigInitNative =
     Pointer<Utf8> Function(Uint32, Pointer<Pointer<Utf8>>);
 typedef _ConfigInitDart = Pointer<Utf8> Function(int, Pointer<Pointer<Utf8>>);
@@ -660,6 +671,49 @@ class EmbeddedNode {
       calloc.free(dirC);
       calloc.free(docPtr);
       calloc.free(idxOut);
+      calloc.free(errOut);
+    }
+  }
+
+  /// The identity address a signed document names — BLAKE3 of the master key.
+  ///
+  /// The address this identity RECEIVES under, which is not always the address
+  /// its node speaks under. They are the same 32 bytes for every identity in
+  /// the field: a mined one is its own master, and a phrase-provisioned one
+  /// derives its config key from the same master the document names. They part
+  /// company once a device is given a transport key of its own — and a device
+  /// still listening under its transport id would then be waiting where nobody
+  /// sends, looking perfectly reachable from every angle.
+  static Uint8List identityDocumentNodeId(
+    Uint8List document, {
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? _veilLib();
+    final fn = dl.lookupFunction<_DocNodeIdNative, _DocNodeIdDart>(
+      'veil_identity_document_node_id',
+    );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    // from_raw_parts needs a non-null pointer even for length 0.
+    final docPtr = calloc<Uint8>(document.isEmpty ? 1 : document.length);
+    final out = calloc<Uint8>(32);
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      if (document.isNotEmpty) {
+        docPtr.asTypedList(document.length).setAll(0, document);
+      }
+      final rc = fn(docPtr, document.length, out, errOut);
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_identity_document_node_id failed: $msg');
+      }
+      return Uint8List.fromList(out.asTypedList(32));
+    } finally {
+      calloc.free(docPtr);
+      calloc.free(out);
       calloc.free(errOut);
     }
   }
