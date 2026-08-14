@@ -17172,19 +17172,36 @@ class GroupService {
     // send. Everything else stays content-keyed and silent when nothing moved.
     final transferTag = reseed ? _freshTransferTag() : null;
     try {
-      for (final m in state.members.values) {
-        if (m.nodeId == _signer.selfId ||
-            (b.manifest.isSovereignDevice && m.nodeId == b.manifest.owner)) {
-          continue;
-        }
-        final receipt = _beginSpaceReceipt(b, m.nodeId);
+      // WHO a snapshot goes to, which differs by the kind of group.
+      //
+      // A DEVICE group's members are device node ids, and nothing publishes
+      // those: the identity is the published unit, deliberately, so the network
+      // cannot be asked to enumerate somebody's devices. Addressing a member
+      // directly resolves nothing and the send dies unacknowledged. Delivery
+      // goes to the IDENTITY instead, once, and the runtime seals a copy for
+      // every device of it except the one sending -- which is why the members
+      // are still worth keeping: they are who may read it, not where it goes.
+      //
+      // An ordinary group is unchanged: its members are separate identities,
+      // each addressable, and this device is not one of them.
+      final recipients = b.manifest.isSovereignDevice
+          ? (state.members.length > 1
+                ? <NodeId>[_signer.selfId]
+                : const <NodeId>[])
+          : [
+              for (final m in state.members.values)
+                if (m.nodeId != _signer.selfId && m.nodeId != b.manifest.owner)
+                  m.nodeId,
+            ];
+      for (final recipient in recipients) {
+        final receipt = _beginSpaceReceipt(b, recipient);
         try {
           await send(
-            m.nodeId,
+            recipient,
             groupId,
             snapshotJson(
               b,
-              recipient: m.nodeId,
+              recipient: recipient,
               receipt: receipt,
               transferTag: transferTag,
             ),
