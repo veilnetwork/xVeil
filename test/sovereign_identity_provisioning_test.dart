@@ -19,6 +19,16 @@ import 'package:xveil/data/veil_stack.dart';
 
 import 'support/fake_setting_storage.dart';
 
+/// The shared fake answers settings and nothing else, on purpose. Adoption also
+/// reads the node config — the master authority it delegates with — so this one
+/// adds exactly that and no more.
+class _ConfigStorage extends FakeSettingStorage {
+  String? config;
+
+  @override
+  Future<String?> loadNodeConfig() async => config;
+}
+
 Map<String, Uint8List> _material({int keyByte = 7}) => {
   kIdentityDocumentFile: Uint8List.fromList([1, 2, 3]),
   kDeviceIdentitySkFile: Uint8List.fromList(List.filled(32, keyByte)),
@@ -194,5 +204,145 @@ void main() {
     );
     expect(await Directory(dirs.single).exists(), isFalse);
     expect(storage2.settings[kSovereignIdentitySetting], isNull);
+  });
+
+  // ── adopting another device's document ──────────────────────────────────
+  //
+  // The half of multi-device that cannot be done alone. Two devices set up from
+  // one phrase each hold a document naming only themselves and BOTH carry the
+  // same node_id, because node_id is BLAKE3 of the master key they both
+  // derived. Both publish under it, the later publisher displaces the earlier,
+  // and the displaced device stays online believing it is reachable.
+
+  group('adoptSovereignDocument', () {
+    Future<_ConfigStorage> provisioned({int keyByte = 7}) async {
+      final storage = _ConfigStorage()
+        ..config = 'unused by the fake delegate';
+      storage.settings[kSovereignIdentitySetting] = encodeSovereignIdentity(
+        _material(keyByte: keyByte),
+      );
+      return storage;
+    }
+
+    test('merges and keeps what the delegation produced', () async {
+      final storage = await provisioned();
+      final seen = <String>[];
+      final ok = await RealVeilStack.adoptSovereignDocument(
+        storage,
+        document: Uint8List.fromList([4, 5, 6, 7]),
+        stagingBase: tmp.path,
+        delegate: (toml, dir) async {
+          seen.add(dir);
+          // What the native side does: rewrite the document in place.
+          await materialiseSovereignIdentity(dir, {
+            ..._material(),
+            kIdentityDocumentFile: Uint8List.fromList(
+              List.filled(200, 1),
+            ),
+          });
+        },
+      );
+      expect(ok, isTrue);
+      expect(seen, hasLength(1));
+      final kept = decodeSovereignIdentity(
+        storage.settings[kSovereignIdentitySetting]!,
+      )!;
+      expect(kept[kIdentityDocumentFile], hasLength(200));
+    });
+
+    // THE SAFETY PROPERTY. A delegation that fails — a document from another
+    // identity, a truncated transfer — must leave this device exactly as it
+    // was. A device left holding a document it cannot sign with is off the
+    // network entirely.
+    test('a refused document changes nothing', () async {
+      final storage = await provisioned();
+      final before = storage.settings[kSovereignIdentitySetting];
+      final ok = await RealVeilStack.adoptSovereignDocument(
+        storage,
+        document: Uint8List.fromList([9, 9]),
+        stagingBase: tmp.path,
+        delegate: (toml, dir) async =>
+            throw StateError('delegate_device: master does not match'),
+      );
+      expect(ok, isFalse);
+      expect(storage.settings[kSovereignIdentitySetting], before);
+    });
+
+    test('the staging copy never outlives the call', () async {
+      final storage = await provisioned();
+      final dirs = <String>[];
+      await RealVeilStack.adoptSovereignDocument(
+        storage,
+        document: Uint8List.fromList([1]),
+        stagingBase: tmp.path,
+        delegate: (toml, dir) async => dirs.add(dir),
+      );
+      expect(await Directory(dirs.single).exists(), isFalse);
+    });
+
+    // A mined identity has no master behind it, so there is nothing to
+    // delegate under and no honest merge to make.
+    test('a device with no material of its own declines', () async {
+      final storage = _ConfigStorage()..config = 'a config';
+      var called = false;
+      final ok = await RealVeilStack.adoptSovereignDocument(
+        storage,
+        document: Uint8List.fromList([1, 2]),
+        stagingBase: tmp.path,
+        delegate: (toml, dir) async => called = true,
+      );
+      expect(ok, isFalse);
+      expect(called, isFalse);
+    });
+
+    test('no config means no authority, and nothing is attempted', () async {
+      final storage = _ConfigStorage();
+      storage.settings[kSovereignIdentitySetting] = encodeSovereignIdentity(
+        _material(),
+      );
+      var called = false;
+      final ok = await RealVeilStack.adoptSovereignDocument(
+        storage,
+        document: Uint8List.fromList([1, 2]),
+        stagingBase: tmp.path,
+        delegate: (toml, dir) async => called = true,
+      );
+      expect(ok, isFalse);
+      expect(called, isFalse);
+    });
+
+    // A delegation that returns without leaving usable material must not be
+    // stored: half a set reads on the next boot as "already provisioned", and
+    // the device would go on without a document it can sign with.
+    test('a merge that produced nothing usable keeps the old material',
+        () async {
+      final storage = await provisioned();
+      final before = storage.settings[kSovereignIdentitySetting];
+      final ok = await RealVeilStack.adoptSovereignDocument(
+        storage,
+        document: Uint8List.fromList([1, 2, 3, 4]),
+        stagingBase: tmp.path,
+        delegate: (toml, dir) async {
+          // Wipes the staging copy instead of rewriting the document.
+          await Directory(dir).delete(recursive: true);
+          await Directory(dir).create(recursive: true);
+        },
+      );
+      expect(ok, isFalse);
+      expect(storage.settings[kSovereignIdentitySetting], before);
+    });
+
+    test('an empty document is not a merge', () async {
+      final storage = await provisioned();
+      var called = false;
+      final ok = await RealVeilStack.adoptSovereignDocument(
+        storage,
+        document: Uint8List(0),
+        stagingBase: tmp.path,
+        delegate: (toml, dir) async => called = true,
+      );
+      expect(ok, isFalse);
+      expect(called, isFalse);
+    });
   });
 }
