@@ -6377,4 +6377,19 @@ class AppL10nRu extends AppL10n {
   @override
   String get seedsSwitchSaveFailed =>
       'Изменение не удалось сохранить, поэтому оно не применено.';
+
+  @override
+  String get devicesResendSetup => 'Отправить зашифрованную настройку ещё раз';
+
+  @override
+  String get devicesResendHint =>
+      'Для устройства, которое уже привязано, но настройку не получило';
+
+  @override
+  String get devicesSendUnreachable =>
+      'Другое устройство не ответило. Откройте на нём xVeil, дождитесь подключения к сети и повторите.';
+
+  @override
+  String get devicesSendNoTargets =>
+      'Пока некому отправлять — привязанных устройств нет';
 }
