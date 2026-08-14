@@ -37,6 +37,7 @@ import 'sticker_message.dart';
 import 'vnote_message.dart';
 import 'voice_message.dart';
 import 'package:xveil/core/log.dart';
+import 'mailbox_deposit_gate.dart';
 
 part 'messaging_support.dart';
 part 'messaging_local_chat.dart';
@@ -827,6 +828,16 @@ class MessagingService {
   /// screen, so anything parked at the mailbox relay should surface NOW, not on
   /// the idle back-off (which can be minutes deep after a long background
   /// stint). One debounced drain + a short burst window; a no-op when locked.
+  /// How long a user send waits for the recipient's "stored it" before paying
+  /// for a relay copy. Zero deposits at once.
+  ///
+  /// A seam for tests that exercise the deposit itself rather than the wait:
+  /// without it they would each have to sit out the grace window to observe a
+  /// deposit that was never in question.
+  set mailboxAckGrace(Duration value) => _mailboxDelivery.ackGrace = value;
+
+  Duration get mailboxAckGrace => _mailboxDelivery.ackGrace;
+
   void onAppResumed() => _mailboxDelivery.nudgeDrain();
 
   /// Route a message recovered from our mailbox through the normal inbound
@@ -1644,7 +1655,7 @@ class MessagingService {
     // seal+put is a slow onion round-trip, and blocking the send on it made every
     // message feel laggy even when the live path delivers instantly. If the peer
     // is offline the deposit (or the outbox retry) still gets there.
-    _stashInBackground(dst, id, wire);
+    _stashInBackground(dst, id, wire, awaitAck: true);
   }
 
   /// Send one recommendation card after the caller's explicit recipient
@@ -1684,7 +1695,7 @@ class MessagingService {
     ).encode();
     _mailboxDelivery.noteActivity();
     await _send(dst, wire, wantReply: true);
-    _stashInBackground(dst, stored.id, wire);
+    _stashInBackground(dst, stored.id, wire, awaitAck: true);
     return stored.id;
   }
 
@@ -1751,8 +1762,12 @@ class MessagingService {
   /// Best-effort offline deposit of [wire] (the message envelope) for [peer],
   /// keyed by a stable 32-byte content id derived from the message [id]. No-op
   /// when there is no mailbox side-channel or we already stashed this message.
-  void _stashInBackground(NodeId peer, String id, Uint8List wire) =>
-      _mailboxDelivery.stashInBackground(peer, id, wire);
+  void _stashInBackground(
+    NodeId peer,
+    String id,
+    Uint8List wire, {
+    bool awaitAck = false,
+  }) => _mailboxDelivery.stashInBackground(peer, id, wire, awaitAck: awaitAck);
 
   Future<void> _maybeStash(NodeId peer, String id, Uint8List wire) =>
       _mailboxDelivery.maybeStash(peer, id, wire);

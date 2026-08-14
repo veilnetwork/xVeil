@@ -105,6 +105,11 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     // Persist verified relay keys INSIDE the active deniable space so a cold
     // restart can stay reachable through a transient resolve failure (the fresh
     // one-hop resolve is still preferred — see MailboxService._register).
+    // Hold the relay copy back while the recipient may still confirm having
+    // STORED the message (the ack is sent after the write, not on receipt).
+    // Reaching one device of an identity is reaching the identity: its devices
+    // mirror what they receive among themselves, deduplicating by message id.
+    service.mailboxAckGrace = const Duration(seconds: 6);
     final relayKeyCache = StorageRelayKeyCache(storage);
     // Receive under the IDENTITY's address, not the node's. The same value for
     // every identity that has no transport key of its own, and the difference
