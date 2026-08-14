@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
@@ -5,6 +6,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:xveil/core/cleanup_legs.dart';
+import 'package:xveil/core/secret_wipe.dart' show wipeSecretBytes;
 import 'package:xveil/core/posix_file_facts.dart';
 
 import 'native_libs.dart' show openEnvLib, processLibFor;
@@ -956,6 +958,22 @@ class RealVeilStack {
         kSovereignIdentitySetting,
         encodeSovereignIdentity(files),
       );
+      // The master, kept apart from the node config. Admitting a further device
+      // needs it long after the phrase is gone, and the config only carries it
+      // while the config IS the master — which stops being true the moment a
+      // device gets a transport key of its own.
+      if (provision == null) {
+        try {
+          final master = EmbeddedNode.masterKeyFromPhrase(
+            identityPhrase,
+            lib: lib,
+          );
+          await storage.putSetting(kMasterKeySetting, base64.encode(master));
+          wipeSecretBytes(master);
+        } on Object catch (e) {
+          devLog(() => 'xVeil[identity]: could not keep the master key: $e');
+        }
+      }
       devLog(
         () =>
             'xVeil[identity]: sovereign identity provisioned '
@@ -1070,8 +1088,12 @@ class RealVeilStack {
       );
       return false;
     }
+    // The master authority, preferring the key kept for exactly this over the
+    // node config. The config answers only while it IS the master; the stored
+    // key answers either way.
+    final masterRaw = await storage.getSetting(kMasterKeySetting);
     final identityToml = await storage.loadNodeConfig();
-    if (identityToml == null) return false;
+    if (masterRaw == null && identityToml == null) return false;
 
     final staging =
         '$stagingBase/xveil-idmerge-${Random.secure().nextInt(1 << 32)}';
@@ -1082,18 +1104,32 @@ class RealVeilStack {
       // off the network entirely.
       await materialiseSovereignIdentity(staging, stored);
       if (merge != null) {
-        await merge(identityToml, staging, document);
+        await merge(identityToml ?? '', staging, document);
       } else {
         // ONE native call for both directions: append this device when the
         // incoming document does not name it, adopt when it does, and record
         // this device's own subkey index either way — the document's own
         // sig_key_idx names whichever device signed it.
-        EmbeddedNode.adoptIdentityDocument(
-          identityToml,
-          veilDir: staging,
-          document: document,
-          lib: lib,
-        );
+        if (masterRaw != null) {
+          final master = base64.decode(masterRaw);
+          try {
+            EmbeddedNode.adoptIdentityDocumentWithMaster(
+              master,
+              veilDir: staging,
+              document: document,
+              lib: lib,
+            );
+          } finally {
+            wipeSecretBytes(master);
+          }
+        } else {
+          EmbeddedNode.adoptIdentityDocument(
+            identityToml!,
+            veilDir: staging,
+            document: document,
+            lib: lib,
+          );
+        }
       }
       final merged = await collectSovereignIdentity(staging);
       if (missingSovereignIdentityFiles(merged).isNotEmpty) return false;
