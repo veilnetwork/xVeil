@@ -1,4 +1,4 @@
-@Timeout(Duration(minutes: 10))
+@Timeout(Duration(minutes: 20))
 library;
 
 import 'dart:ffi';
@@ -30,6 +30,9 @@ class _MemStorage implements Storage {
 
   @override
   Future<String?> loadNodeConfig() async => config;
+
+  @override
+  Future<void> saveNodeConfig(String toml) async => config = toml;
 
   @override
   Future<void> putSetting(String key, String value) async =>
@@ -444,6 +447,40 @@ void main() {
       orderedEquals(merged),
       reason: 'one document, held by both',
     );
+  }, skip: skip);
+
+  // THE SWITCH. One phrase, two devices: the first takes the phrase's own
+  // keypair as its node key — that is what makes node_id recoverable from the
+  // words — and the second mints one of its own. Holding the same key is what
+  // made two devices one node.
+  test('a restored device does not take the phrase\'s node key', () async {
+    final lib = DynamicLibrary.open(dylib!);
+    final phrase = minePhrase!;
+
+    final firstStorage = _MemStorage();
+    final first = await RealVeilStack.ensureNodeConfig(
+      firstStorage,
+      identityPhrase: phrase,
+      lib: lib,
+    );
+    final restoredStorage = _MemStorage();
+    final restored = await RealVeilStack.ensureNodeConfig(
+      restoredStorage,
+      identityPhrase: phrase,
+      restoringIdentity: true,
+      lib: lib,
+    );
+
+    expect(first, isNotEmpty);
+    expect(restored, isNotEmpty);
+    expect(
+      restored,
+      isNot(first),
+      reason: 'the restored device must not reuse the phrase-derived key',
+    );
+    // Determinism of the phrase path itself is `configFromPhrase`'s property
+    // and is not re-mined here: each mining is about a minute, and this file
+    // already pays for several.
   }, skip: skip);
 
   test('an unusable phrase provisions nothing and stores nothing', () async {

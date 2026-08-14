@@ -80,7 +80,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// words are shown and the identity is minted randomly, as before.
   bool _realPhrase = false;
 
+  /// The phrase came from the PERSON, not from us — this identity already
+  /// exists somewhere. It decides whether this device takes the phrase's own
+  /// keypair as its node key (the first device does) or mints one of its own
+  /// (every later device must, or two devices of one identity are one node).
+  bool _restoring = false;
+
   void _startCreate() {
+    _restoring = false;
     final real = veilGeneratePhrase();
     _realPhrase = real != null;
     _phrase = real?.split(' ') ?? _generatePhrase();
@@ -104,6 +111,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// SAME deterministic first-boot derivation as the create path, so the
   /// node identity it produces is the one the phrase was written down for.
   void _restoreWith(String phrase) {
+    _restoring = true;
     _phrase = phrase.split(' ');
     _realPhrase = true;
     _joinExisting = false;
@@ -152,6 +160,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             // The REAL phrase drives the deterministic identity derivation on
             // the first node boot; the placeholder never leaves this screen.
             identityPhrase: _realPhrase ? _phrase.join(' ') : null,
+            // A RESTORE, not a first mint: this device gets a node key of its
+            // own under the phrase's identity.
+            restoringIdentity: _restoring,
             joinExisting: _joinExisting,
           );
       // Router redirect takes over once phase flips to ready.
