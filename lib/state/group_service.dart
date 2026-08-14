@@ -14481,18 +14481,52 @@ class GroupService {
     try {
       final d = jsonDecode(bundleJson);
       manifest = SpaceManifest.fromJson(d is Map ? d['m'] : null);
-    } catch (_) {
+    } catch (caught) {
+      // EVERY refusal below says which one it was, and that is the whole point
+      // of this block. Linking is a two-device ceremony whose failure looks
+      // identical from both ends — the sender reports "sent", the joining
+      // device shows "waiting", and neither says why. On the stand the snapshot
+      // was seen ARRIVING (`recv: INBOUND from=… bytes=2874`, six frames) and
+      // then vanishing: four separate return paths here dropped it without a
+      // word, so even with both logs side by side the reason was invisible.
+      _devicesRefused('manifest did not parse: $caught');
       return false;
     }
-    if (manifest == null || manifest.groupId != pending.groupId) return null;
+    if (manifest == null || manifest.groupId != pending.groupId) {
+      // Not a refusal: a snapshot for some OTHER group from the same peer is
+      // ordinary traffic and falls through to the normal path.
+      return null;
+    }
     if (!_listEquals(_manifestHash(manifest), pending.manifestHash)) {
+      // The token bound the exact signed manifest. A different hash means the
+      // group changed between minting the token and sending this snapshot, so
+      // this bundle is not the one that was promised.
+      _devicesRefused(
+        'manifest hash differs from the one the adoption token was bound to '
+        '— the group changed after the token was minted (gid '
+        '${pending.groupId.short})',
+      );
       return false;
     }
-    if (!await ingestSnapshot(bundleJson)) return false;
-    if (!await adoptDeviceGroup(pending.groupId)) return false;
+    if (!await ingestSnapshot(bundleJson)) {
+      _devicesRefused('the bundle failed to fold in (gid ${pending.groupId.short})');
+      return false;
+    }
+    if (!await adoptDeviceGroup(pending.groupId)) {
+      _devicesRefused('adoptDeviceGroup refused (gid ${pending.groupId.short})');
+      return false;
+    }
     await cancelPendingDeviceAdoption();
+    devLog(
+      () => 'xVeil[devices]: adopted device group ${pending.groupId.short} '
+          'from ${peer.short}',
+    );
     return true;
   }
+
+  /// One place for "the pending device adoption did not go through, because".
+  void _devicesRefused(String why) =>
+      devLog(() => 'xVeil[devices]: pending adoption REFUSED — $why');
 
   /// Fetch [cid] of [groupId], preferring [holder] (normally the message
   /// author) but authorizing EVERY other current member as a candidate seeder.
