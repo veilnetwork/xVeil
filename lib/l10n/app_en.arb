@@ -2933,5 +2933,13 @@
   "devicesSendNoTargets": "No linked device to send to yet",
   "@devicesSendNoTargets": {
     "description": "Shown when a snapshot send found no other member of the device group."
+  },
+  "networkBackgroundOfferBody": "Without this Android stops xVeil the moment its screen goes off: the node stops, messages stop arriving, and the app still looks fine. Some phones (Xiaomi, Samsung) also hide an “Autostart” switch in the app's own settings that has to be on as well.\n\nYou can turn this on later at any time: Settings → Overlay network → Run in the background.",
+  "@networkBackgroundOfferBody": {
+    "description": "Body of the start-up offer to exempt the app from battery optimisation. Says what breaks without it and where to find the switch later, because the offer can be dismissed for good."
+  },
+  "networkBackgroundNeverAsk": "Don't ask again",
+  "@networkBackgroundNeverAsk": {
+    "description": "Dismisses the start-up background-permission offer permanently. The setting itself stays reachable in Settings → Overlay network."
   }
 }
