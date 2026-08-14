@@ -14427,6 +14427,33 @@ class GroupService {
   /// group AND the peer is a current member per OUR fold. The admission the
   /// wire layer asks before spending reassembly RAM on a stranger's chunks.
   Future<bool> allowStrangerGroupSync(NodeId peer, String gidHex) async {
+    // THE CEREMONY IS THE EXCEPTION, and leaving it out cost a linking flow.
+    //
+    // Every other caller asks this about a group we already hold. Device
+    // linking is the one case where we deliberately do not: the joining device
+    // is waiting to be GIVEN the group, so "is it in the index" is false by
+    // construction and stays false forever.
+    //
+    // For a snapshot that fits one frame this never showed, because that path
+    // consults the pending admission BEFORE reaching here. The CHUNKED path
+    // cannot — it must decide whether to spend reassembly RAM before it has a
+    // bundle to look at — so it asks this, gets a no, and drops every chunk
+    // without a word. A device group large enough to be split therefore could
+    // never be adopted: on the stand, six chunks of a 17 KB snapshot arrived
+    // and vanished, the sender reported "sent", and the joining device waited
+    // forever.
+    //
+    // This is not a new grant. The peer holds a sovereign-signed adoption token
+    // that names this exact group and this exact source, and this device stored
+    // it as a pending admission of its own accord. Allowing the transfer it
+    // already agreed to receive tells a stranger nothing: anyone who did not
+    // mint that token gets the same "no" as before.
+    final pending = await pendingDeviceAdoption();
+    if (pending != null &&
+        peer == pending.source &&
+        pending.groupId.hex == gidHex) {
+      return true;
+    }
     if (!(await _index()).contains(gidHex)) return false;
     final NodeId gid;
     try {
@@ -14476,7 +14503,28 @@ class GroupService {
     String bundleJson,
   ) async {
     final pending = await pendingDeviceAdoption();
-    if (pending == null || peer != pending.source) return null;
+    if (pending == null || peer != pending.source) {
+      // Left silent when the rest of this method was given reasons, on the
+      // grounds that "not our ceremony" is ordinary traffic. It is — except
+      // during a ceremony, where it is the difference between "the snapshot
+      // never arrived" and "it arrived and this device had forgotten it was
+      // expecting it". On the stand the snapshot was seen arriving six times
+      // and this branch swallowed every one of them without a word, which is
+      // most of a day of looking in the wrong place.
+      //
+      // So it speaks only when there is a ceremony to speak about: a pending
+      // admission that this frame does not match. No pending at all stays
+      // quiet, because then every group snapshot from anyone would say so.
+      if (pending != null) {
+        devLog(
+          () =>
+              'xVeil[devices]: snapshot from ${peer.short} is not the pending '
+              'ceremony — waiting on ${pending.source.short} for group '
+              '${pending.groupId.short}',
+        );
+      }
+      return null;
+    }
     SpaceManifest? manifest;
     try {
       final d = jsonDecode(bundleJson);
