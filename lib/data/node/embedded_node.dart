@@ -137,6 +137,30 @@ typedef _RestoreIdentityDart =
       int,
       Pointer<Pointer<Utf8>>,
     );
+// int veil_delegate_device_from_phrase_zeroize(
+//     phrase*, phrase_len, veil_dir*, veil_dir_len,
+//     device_pubkey* /* NULL = this device's own */, device_pubkey_len,
+//     err_out**): 0 on success. The phrase buffer is wiped in place.
+typedef _DelegateDeviceNative =
+    Int32 Function(
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _DelegateDeviceDart =
+    int Function(
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Pointer<Utf8>>,
+    );
 typedef _ConfigInitNative =
     Pointer<Utf8> Function(Uint32, Pointer<Pointer<Utf8>>);
 typedef _ConfigInitDart = Pointer<Utf8> Function(int, Pointer<Pointer<Utf8>>);
@@ -401,6 +425,79 @@ class EmbeddedNode {
       calloc.free(phraseC);
       calloc.free(dirC);
       calloc.free(labelC);
+      calloc.free(errOut);
+    }
+  }
+
+  /// Admit a device to this identity: append its key to the signed document
+  /// in [veilDir], under the master derived from [phrase].
+  ///
+  /// What makes one identity hold several devices, and the alternative is not
+  /// "a document each". `node_id` is BLAKE3 of the master key, so two devices
+  /// restored from one phrase publish two single-key documents under the SAME
+  /// id; the later publisher displaces the earlier and the displaced device
+  /// stays online believing it is reachable.
+  ///
+  /// [devicePubkey] null means THIS device's own key, read natively from
+  /// `device_identity_sk.bin` — the app never loads or carries key material.
+  /// That is the merge call: a device restored from the phrase receives the
+  /// other device's document, drops it into [veilDir], and adds itself. The
+  /// previous signer's secret is on the other machine, so the document is
+  /// re-signed by the newly delegated key; every subkey is master-signed, so a
+  /// verifier accepts either.
+  ///
+  /// Refuses, rather than guesses, when the phrase belongs to a different
+  /// identity than the document does.
+  static void delegateDeviceFromPhrase(
+    String phrase, {
+    required String veilDir,
+    Uint8List? devicePubkey,
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? _veilLib();
+    final delegateFn = dl
+        .lookupFunction<_DelegateDeviceNative, _DelegateDeviceDart>(
+          'veil_delegate_device_from_phrase_zeroize',
+        );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final phraseC = phrase.toNativeUtf8();
+    final dirC = veilDir.toNativeUtf8();
+    final pkPtr = devicePubkey == null
+        ? nullptr
+        : calloc<Uint8>(devicePubkey.length);
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      if (devicePubkey != null) {
+        pkPtr
+            .cast<Uint8>()
+            .asTypedList(devicePubkey.length)
+            .setAll(0, devicePubkey);
+      }
+      final rc = delegateFn(
+        phraseC.cast<Uint8>(),
+        phraseC.length,
+        dirC.cast<Uint8>(),
+        dirC.length,
+        pkPtr.cast<Uint8>(),
+        devicePubkey?.length ?? 0,
+        errOut,
+      );
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_delegate_device_from_phrase failed: $msg');
+      }
+    } finally {
+      // Same reasoning as the other phrase entry points: the native side wipes
+      // the buffer, but only once it has read it (audit XV-22). The public key
+      // and the directory are not secret.
+      wipeNativeSecret(phraseC.cast<Uint8>(), phraseC.length);
+      calloc.free(phraseC);
+      calloc.free(dirC);
+      if (pkPtr != nullptr) calloc.free(pkPtr);
       calloc.free(errOut);
     }
   }

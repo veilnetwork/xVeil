@@ -1,8 +1,10 @@
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/identity/veil_identity.dart';
+import 'package:xveil/data/node/embedded_node.dart';
 import 'package:xveil/data/node/sovereign_identity_material.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/veil_stack.dart';
@@ -108,6 +110,79 @@ void main() {
     expect(
       second[kIdentityDocumentFile],
       isNot(orderedEquals(first[kIdentityDocumentFile]!)),
+    );
+  }, skip: skip);
+
+  // THE MERGE. Two devices restored from one phrase each hold a document with
+  // one key and the SAME node_id — both published under that id, the later
+  // publisher displacing the earlier, the displaced device online and
+  // unreachable. One of them has to end up carrying both keys.
+  test('a restored device can add itself to the other one\'s document',
+      () async {
+    final lib = DynamicLibrary.open(dylib!);
+    final phrase = veilGeneratePhrase()!;
+    final a = '${tmp.path}/a';
+    final b = '${tmp.path}/b';
+    EmbeddedNode.provisionSovereignIdentity(
+      phrase,
+      veilDir: a,
+      instanceLabel: 'desktop',
+      lib: lib,
+    );
+    EmbeddedNode.provisionSovereignIdentity(
+      phrase,
+      veilDir: b,
+      instanceLabel: 'phone',
+      lib: lib,
+    );
+    final aDoc = await File('$a/$kIdentityDocumentFile').readAsBytes();
+    final bDocBefore = await File('$b/$kIdentityDocumentFile').readAsBytes();
+    expect(aDoc, isNot(orderedEquals(bDocBefore)), reason: 'two devices');
+
+    // B receives A's document over the linking channel and adopts it, then
+    // adds itself. It cannot sign with A's subkey — that secret is on A.
+    await File('$b/$kIdentityDocumentFile').writeAsBytes(aDoc, flush: true);
+    EmbeddedNode.delegateDeviceFromPhrase(phrase, veilDir: b, lib: lib);
+
+    final merged = await File('$b/$kIdentityDocumentFile').readAsBytes();
+    // A second delegated key is roughly a pubkey, a device id, two timestamps
+    // and a 64-byte signature. The document cannot have merely been rewritten.
+    expect(
+      merged.length,
+      greaterThan(aDoc.length + 100),
+      reason: 'the merged document carries a second key',
+    );
+    expect(merged, isNot(orderedEquals(aDoc)));
+  }, skip: skip);
+
+  // A wrong phrase must be refused here, not produce a document that verifies
+  // against a different identity and fails much later as peers refusing a node
+  // they cannot resolve.
+  test('a phrase from another identity is refused', () async {
+    final lib = DynamicLibrary.open(dylib!);
+    final mine = veilGeneratePhrase()!;
+    final stranger = veilGeneratePhrase()!;
+    final dir = '${tmp.path}/mine';
+    EmbeddedNode.provisionSovereignIdentity(
+      mine,
+      veilDir: dir,
+      instanceLabel: 'desktop',
+      lib: lib,
+    );
+    final before = await File('$dir/$kIdentityDocumentFile').readAsBytes();
+    expect(
+      () => EmbeddedNode.delegateDeviceFromPhrase(
+        stranger,
+        veilDir: dir,
+        devicePubkey: Uint8List.fromList(List.filled(32, 3)),
+        lib: lib,
+      ),
+      throwsA(isA<StateError>()),
+    );
+    // And it left the document alone.
+    expect(
+      await File('$dir/$kIdentityDocumentFile').readAsBytes(),
+      orderedEquals(before),
     );
   }, skip: skip);
 
