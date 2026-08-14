@@ -451,7 +451,8 @@ class VeilFlutterTransport
           );
         } catch (error) {
           devLog(
-            () => 'xVeil[capability]: extra provider slot $slot not '
+            () =>
+                'xVeil[capability]: extra provider slot $slot not '
                 'registered ($error) — the endpoint stays reachable via the '
                 'slots that did',
           );
@@ -513,6 +514,15 @@ class VeilFlutterTransport
     required void Function(InboundMessage) deliver,
     RelayKeyCache? relayKeyCache,
     PoisonedBlobRegistry? poisonedBlobs,
+    // The address this identity RECEIVES under, when it differs from the id the
+    // node speaks under. Everything this service does is receiving — the
+    // rendezvous ad, the cookie tying it to the relay registration, the relay
+    // choice by XOR distance — so all of it follows this one.
+    //
+    // Null means "the same as the node's", which is the truth for every
+    // identity in the field: a phrase-provisioned config key IS the master its
+    // document names. See RealVeilStack.sovereignReceiveAddress.
+    NodeId? receiveAddress,
   }) async {
     final src = await _mailboxClient.bind(
       namespace: veilChatNamespace,
@@ -538,7 +548,7 @@ class VeilFlutterTransport
       relayKeyCache: relayKeyCache,
     );
     final crypto = VeilFlutterMailboxCrypto(_mailboxClient.mailbox);
-    final me = NodeId(await _mailboxClient.nodeId());
+    final me = receiveAddress ?? NodeId(await _mailboxClient.nodeId());
     return MailboxService(
       client: _mailboxClient,
       me: me,
@@ -718,7 +728,9 @@ class VeilFlutterTransport
   /// [SenderProvenance.claimed] rather than as whatever the allocator left.
   @override
   Future<({ReliableStream stream, NodeId src, SenderProvenance provenance})?>
-  acceptP2PStream({Duration timeout = const Duration(milliseconds: 250)}) async {
+  acceptP2PStream({
+    Duration timeout = const Duration(milliseconds: 250),
+  }) async {
     final r = await _app.acceptStream(timeout: timeout);
     if (r == null) return null;
     return (

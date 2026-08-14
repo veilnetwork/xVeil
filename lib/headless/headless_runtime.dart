@@ -150,11 +150,7 @@ class HeadlessRuntime {
         await storage.saveProfile(const UserProfile());
       }
 
-      messaging = MessagingService(
-        stack.transport,
-        storage,
-        anonymous: config.anonymous,
-      )
+      messaging = MessagingService(stack.transport, storage, anonymous: config.anonymous)
         ..sourceOpener = veilSourceOpener
         // A daemon runs for weeks and restarts like anything else. Without this
         // its ratchet sessions would be rebuilt from scratch on every start,
@@ -261,9 +257,15 @@ class HeadlessRuntime {
       }
       if (stack.transport case final VeilFlutterTransport transport
           when relays.isNotEmpty) {
+        final receiveAddress = await RealVeilStack.sovereignReceiveAddress(
+          storage,
+        );
         mailbox = await transport.buildMailboxService(
           deliver: messaging.deliverInbound,
           relayKeyCache: StorageRelayKeyCache(storage),
+          receiveAddress: receiveAddress == null
+              ? null
+              : NodeId(receiveAddress),
           poisonedBlobs: PoisonedBlobRegistry(
             getSetting: storage.getSetting,
             putSetting: storage.putSetting,
