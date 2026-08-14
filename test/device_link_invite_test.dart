@@ -43,6 +43,38 @@ void main() {
     expect(back.nodeId, _invite(7).nodeId);
   });
 
+  group('the identity document rides along', () {
+    // Without it the two devices deadlock: delivery seals a copy per device
+    // and learns which devices exist from the published document, so until
+    // the documents merge each side publishes a registry naming only itself
+    // and the first message has nowhere to go.
+    final doc = Uint8List.fromList(List.generate(300, (i) => (i * 7) % 256));
+
+    test('a document survives the uri', () {
+      final src = DeviceLinkInvite(device: _invite(7), document: doc);
+      final back = DeviceLinkInvite.parse(src.toUri());
+      expect(back.document, doc);
+      expect(back.nodeId, _invite(7).nodeId, reason: 'the key still parses');
+    });
+
+    test('no document is not an empty one', () {
+      final u = DeviceLinkInvite(device: _invite(7)).toUri();
+      expect(u.contains('doc='), isFalse);
+      expect(DeviceLinkInvite.parse(u).document, isNull);
+    });
+
+    // The document is base64url with its padding stripped, because the invite
+    // is split on both '&' and '=' — standard base64 would be cut apart by
+    // its own padding.
+    test('a document carrying + and / and padding survives', () {
+      final awkward = Uint8List.fromList([251, 255, 254, 250, 0, 1]);
+      final back = DeviceLinkInvite.parse(
+        DeviceLinkInvite(device: _invite(7), document: awkward).toUri(),
+      );
+      expect(back.document, awkward);
+    });
+  });
+
   group('is this me', () {
     final identity = _invite(1).nodeId;
     final me = _invite(2).nodeId;

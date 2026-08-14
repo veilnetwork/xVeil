@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +12,11 @@ import '../../state/messaging_providers.dart';
 import '../../data/veil_stack.dart';
 import '../../data/transport/device_link_invite.dart';
 import '../../data/node/identity_config_fields.dart';
+import '../../data/node/sovereign_identity_material.dart'
+    show
+        decodeSovereignIdentity,
+        kIdentityDocumentFile,
+        kSovereignIdentitySetting;
 import '../../data/transport/bootstrap_invite.dart';
 import '../../domain/device_link.dart';
 import '../../domain/sovereign_recovery.dart';
@@ -128,6 +134,9 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   /// device from its siblings and what makes one of them addressable.
   BootstrapInvite? _myDevice;
 
+  /// This device's identity document, carried in the link QR beside its key.
+  Uint8List? _myDocument;
+
   /// The auto-open has fired. Guards against re-opening the sheet on every
   /// rebuild, and against re-opening it after the user closes it.
   bool _autoJoinFired = false;
@@ -176,6 +185,12 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     final credentialKind = await svc?.sovereignCredentialKind();
     final members = [...?state?.members.values.map((m) => m.nodeId)]
       ..sort((a, b) => a.hex.compareTo(b.hex));
+    final storedIdentity = await ref
+        .read(storageProvider)
+        .getSetting(kSovereignIdentitySetting);
+    final myDocument = storedIdentity == null
+        ? null
+        : decodeSovereignIdentity(storedIdentity)?[kIdentityDocumentFile];
     final toml = await ref.read(storageProvider).loadNodeConfig();
     final fields = toml == null ? null : identityConfigFields(toml);
     final myDevice = fields == null
@@ -198,6 +213,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       _hasDeviceGroup = gidHex != null;
       _credentialKind = credentialKind;
       _myDevice = myDevice;
+      _myDocument = myDocument;
       _loading = false;
     });
   }
@@ -253,8 +269,12 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) =>
-          _TargetLinkSheet(service: svc, stack: stack, myDevice: _myDevice),
+      builder: (_) => _TargetLinkSheet(
+        service: svc,
+        stack: stack,
+        myDevice: _myDevice,
+        myDocument: _myDocument,
+      ),
     );
     if (changed == true) await _reload();
   }
@@ -918,6 +938,17 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
       )) {
         throw const FormatException('self device');
       }
+      // MERGE FIRST. Until this device's document names the one being linked,
+      // the registry it publishes lists a single instance and everything sent
+      // afterwards is sealed for nobody.
+      final theirDoc = link.document;
+      if (theirDoc != null && theirDoc.isNotEmpty) {
+        await RealVeilStack.adoptSovereignDocument(
+          widget.service.storage,
+          document: theirDoc,
+          stagingBase: Directory.systemTemp.path,
+        );
+      }
       final words = _phrase.text.trim();
       _phrase.clear();
       await widget.stack.addContact(target);
@@ -1081,6 +1112,7 @@ class _TargetLinkSheet extends StatefulWidget {
     required this.service,
     required this.stack,
     required this.myDevice,
+    required this.myDocument,
   });
   final GroupService service;
   final RealVeilStack stack;
@@ -1089,6 +1121,10 @@ class _TargetLinkSheet extends StatefulWidget {
   /// tells it from its siblings and makes it addressable. Never in the contact
   /// invite.
   final BootstrapInvite? myDevice;
+
+  /// Travels with it: until the source's document names this device, nothing
+  /// it sends can be sealed for us. See [DeviceLinkInvite.document].
+  final Uint8List? myDocument;
 
   @override
   State<_TargetLinkSheet> createState() => _TargetLinkSheetState();
@@ -1193,7 +1229,10 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
     // last resort, which an older build's QR already is.
     final myInvite = widget.myDevice == null
         ? widget.stack.myInvite.toUri()
-        : DeviceLinkInvite(device: widget.myDevice!).toUri();
+        : DeviceLinkInvite(
+            device: widget.myDevice!,
+            document: widget.myDocument,
+          ).toUri();
     return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
         24,

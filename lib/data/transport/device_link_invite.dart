@@ -22,11 +22,18 @@
 /// identity ids cannot.
 library;
 
+import 'dart:convert';
+import 'dart:typed_data';
+
 import '../../core/ids.dart';
 import 'bootstrap_invite.dart';
 
 class DeviceLinkInvite {
-  const DeviceLinkInvite({required this.device, this.namesTheDevice = true});
+  const DeviceLinkInvite({
+    required this.device,
+    this.document,
+    this.namesTheDevice = true,
+  });
 
   /// This device's OWN bootstrap invite — its transport key, nonce and
   /// algorithm. What the ceremony routes and seals to.
@@ -37,6 +44,20 @@ class DeviceLinkInvite {
   /// that, and the checks then have to fall back (see [isSelf]).
   final bool namesTheDevice;
 
+  /// This device's signed identity document.
+  ///
+  /// Carried HERE because of a deadlock nothing else breaks. Delivery between
+  /// two devices of one identity seals a copy per device, and it learns which
+  /// devices exist from the identity document published in the network. Until
+  /// the two documents merge, each device publishes a registry naming only
+  /// itself — so the first message between them has nowhere to go, and the
+  /// merge that would fix it is itself a message.
+  ///
+  /// The ceremony is the way out: it is an out-of-band channel a person
+  /// carries by hand, at the one moment both devices are trusted. So it moves
+  /// the document too, not just the membership.
+  final Uint8List? document;
+
   static const scheme = 'veil:device?';
 
   /// The device's node id: what the device group holds and what delivery
@@ -46,8 +67,14 @@ class DeviceLinkInvite {
   /// The parameters are NOT re-listed here. [BootstrapInvite.toUri] owns that
   /// format; this borrows its body and changes the prefix, so a field added
   /// there cannot go missing here.
-  String toUri() =>
-      '$scheme${device.toUri().substring(BootstrapInvite.scheme.length)}';
+  String toUri() {
+    final body = device.toUri().substring(BootstrapInvite.scheme.length);
+    final doc = document;
+    if (doc == null || doc.isEmpty) return '$scheme$body';
+    // base64url: the invite is split on '&' and '=', so the standard alphabet
+    // would be cut apart by its own padding.
+    return '$scheme$body&doc=${base64Url.encode(doc).replaceAll('=', '')}';
+  }
 
   /// Accepts BOTH spellings. A `veil:device?` URI names a device; a plain
   /// bootstrap invite is taken as an identity-naming one, because that is
@@ -61,10 +88,22 @@ class DeviceLinkInvite {
         namesTheDevice: false,
       );
     }
+    final body = trimmed.substring(scheme.length);
+    Uint8List? document;
+    for (final part in body.split('&')) {
+      final i = part.indexOf('=');
+      if (i <= 0 || part.substring(0, i) != 'doc') continue;
+      final raw = part.substring(i + 1);
+      try {
+        document = base64Url.decode(raw.padRight((raw.length + 3) ~/ 4 * 4, '='));
+      } on FormatException {
+        document = null; // a document we cannot read is not a reason to refuse
+      }
+      break;
+    }
     return DeviceLinkInvite(
-      device: BootstrapInvite.parse(
-        '${BootstrapInvite.scheme}${trimmed.substring(scheme.length)}',
-      ),
+      device: BootstrapInvite.parse('${BootstrapInvite.scheme}$body'),
+      document: document,
     );
   }
 
