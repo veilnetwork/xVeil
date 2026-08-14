@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 10))
+library;
+
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
@@ -40,6 +43,24 @@ void main() {
   final skip = hasDylib ? false : 'set VEIL_FFI_DYLIB to libveilclient_ffi';
 
   late Directory tmp;
+  // Mined ONCE for the whole file. `configFromPhrase` runs the anti-sybil PoW,
+  // which is tens of seconds on a desktop — per test it blows the 30 s default
+  // and the timeout then lands as a pile of unrelated-looking failures from the
+  // teardown that has already removed the directory underneath.
+  String? minePhrase;
+  String? mineToml;
+  String? strangerToml;
+
+  setUpAll(() {
+    if (!hasDylib) return;
+    final lib = DynamicLibrary.open(dylib!);
+    minePhrase = veilGeneratePhrase()!;
+    mineToml = EmbeddedNode.configFromPhrase(minePhrase!, lib: lib);
+    strangerToml = EmbeddedNode.configFromPhrase(
+      veilGeneratePhrase()!,
+      lib: lib,
+    );
+  });
 
   setUp(() async {
     tmp = await Directory.systemTemp.createTemp('xveil-sovereign-live-');
@@ -180,6 +201,68 @@ void main() {
       throwsA(isA<StateError>()),
     );
     // And it left the document alone.
+    expect(
+      await File('$dir/$kIdentityDocumentFile').readAsBytes(),
+      orderedEquals(before),
+    );
+  }, skip: skip);
+
+  // THE CALL THE LIVE PATH MAKES. By the time a second device is linked the
+  // phrase is long gone — consumed at setup, never stored — so delegation has
+  // to work from what the app kept: its node config, whose private key IS the
+  // master secret for a phrase-provisioned identity.
+  test('the stored config carries enough authority to admit a device',
+      () async {
+    final lib = DynamicLibrary.open(dylib!);
+    final phrase = minePhrase!;
+    final toml = mineToml!;
+    final a = '${tmp.path}/ca';
+    final b = '${tmp.path}/cb';
+    EmbeddedNode.provisionSovereignIdentity(
+      phrase,
+      veilDir: a,
+      instanceLabel: 'desktop',
+      lib: lib,
+    );
+    EmbeddedNode.provisionSovereignIdentity(
+      phrase,
+      veilDir: b,
+      instanceLabel: 'phone',
+      lib: lib,
+    );
+
+    final aDoc = await File('$a/$kIdentityDocumentFile').readAsBytes();
+    await File('$b/$kIdentityDocumentFile').writeAsBytes(aDoc, flush: true);
+    EmbeddedNode.delegateDeviceFromConfig(toml, veilDir: b, lib: lib);
+
+    final merged = await File('$b/$kIdentityDocumentFile').readAsBytes();
+    expect(
+      merged.length,
+      greaterThan(aDoc.length + 100),
+      reason: 'the merged document carries a second key',
+    );
+  }, skip: skip);
+
+  test('a config from another identity is refused', () async {
+    final lib = DynamicLibrary.open(dylib!);
+    final mine = minePhrase!;
+    final dir = '${tmp.path}/cmine';
+    EmbeddedNode.provisionSovereignIdentity(
+      mine,
+      veilDir: dir,
+      instanceLabel: 'desktop',
+      lib: lib,
+    );
+    final before = await File('$dir/$kIdentityDocumentFile').readAsBytes();
+    expect(
+      () => EmbeddedNode.delegateDeviceFromConfig(
+        strangerToml!,
+        veilDir: dir,
+        devicePubkey: Uint8List.fromList(List.filled(32, 3)),
+        lib: lib,
+      ),
+      throwsA(isA<StateError>()),
+    );
     expect(
       await File('$dir/$kIdentityDocumentFile').readAsBytes(),
       orderedEquals(before),
