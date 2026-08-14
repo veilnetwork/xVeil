@@ -193,4 +193,44 @@ void main() {
       );
     });
   });
+
+  // The stand types into the app's own fields, and the fields it types into are
+  // overwhelmingly passwords: a container password at the lock screen, a
+  // password twice during onboarding. `/enter_text` answered with the value it
+  // had just typed, so the secret came straight back in the response and into
+  // whatever captured it — a terminal scrollback, a CI log, a transcript. The
+  // query string is already redacted for exactly this reason; answering with
+  // the secret undid that one line later.
+  //
+  // Structural, on the source, for the same reason as the /compact gate above:
+  // the handler lives inside a widget this test build compiles out.
+  group('/enter_text does not hand the text back', () {
+    final source = File('lib/debug/soak_hook.dart').readAsStringSync();
+
+    // Read inside each test, not in the group body: `expect` outside a test is
+    // an OutsideTestException, and the guard belongs where it can report.
+    String handlerBody() {
+      final from = source.indexOf('Future<void> _enterText(');
+      expect(from, greaterThan(-1), reason: '_enterText moved or was renamed');
+      return source.substring(from, source.indexOf('\n  Future<', from));
+    }
+
+    test('the success answer carries a length, not the value', () {
+      expect(
+        handlerBody(),
+        contains("'chars': text.length"),
+        reason: 'a length distinguishes typed from typed-nothing and confirms '
+            'the field took the whole value, without being the secret',
+      );
+    });
+
+    test('and never the text itself', () {
+      expect(
+        handlerBody(),
+        isNot(contains("'text': text")),
+        reason: 'this is the echo that put a password in the response',
+      );
+    });
+  });
+
 }

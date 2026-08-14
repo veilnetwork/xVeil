@@ -2095,10 +2095,22 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final svc = _groupSvc();
     if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
     final cleared = await svc.clearStaleDeviceGroupPointer();
+    final gid = await svc.deviceGroupIdHex();
     return _json(req, {
       'ok': cleared,
-      'deviceGroup': await svc.deviceGroupIdHex(),
+      'deviceGroup': gid,
       'credential': await svc.sovereignCredentialKind(),
+      // What "false" means here, because it is not a failure. This clears a
+      // pointer that nothing backs; a group this identity really holds is left
+      // alone on purpose. Without the sentence the answer reads as a broken
+      // endpoint, and on the stand it cost a detour: the same `{"ok":false}`
+      // arrived for "nothing to clear" and for "refused to clear a live one".
+      if (!cleared)
+        'note': gid == null
+            ? 'nothing to clear — this identity has no device group'
+            : 'the device group is live and backed by state, so the pointer '
+                  'was left alone; use device_revoke to remove a member, or '
+                  'start over on this identity to drop the group',
     });
   }
 
@@ -2127,15 +2139,26 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     }
     NativeSovereignGroupSigner? sovereign;
     var ok = false;
+    // Why it did not work, kept. `catch (_) { ok = false }` answered a bare
+    // `{"ok":false}` to a wrong phrase, a peer that is not a member, and a
+    // signer that would not open — three different things to do next, told
+    // apart by nothing. Hit on the stand: a revoke refused and there was no
+    // way to learn whether the phrase or the peer was the problem.
+    String? why;
     try {
       sovereign = await svc.openLocalSovereign(phrase);
       ok = await svc.revokeDevice(NodeId.fromHex(peer), sovereign: sovereign);
-    } catch (_) {
+      if (!ok) {
+        why = 'the group refused the revoke — the peer may not be a member, '
+            'or this identity may not own the device group';
+      }
+    } catch (caught) {
       ok = false;
+      why = '$caught';
     } finally {
       sovereign?.close();
     }
-    return _json(req, {'ok': ok});
+    return _json(req, {'ok': ok, 'error': ?why});
   }
 
   /// My device group's state: id + members + epoch (null id = not linked).
@@ -5146,6 +5169,25 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       }, status: 400);
     }
     var state = ref.read(appControllerProvider);
+    // Unlock OPENS a container; it does not create one. On a fresh install
+    // there is nothing to open, and the attempt comes back as
+    // `HvException.Io: No such file or directory` — true about a path, and
+    // useless about what to do. Creating the space is onboarding, which is a UI
+    // flow, so a stand has to drive it rather than ask for it here.
+    //
+    // Said before trying, not after failing: the failed attempt also moves the
+    // app from `onboarding` to `locked`, so the second call answers a wrong
+    // password for a container that was never made.
+    if (state.phase == AppPhase.onboarding) {
+      return _json(req, {
+        'ok': false,
+        'phase': state.phase.name,
+        'error':
+            'no container on this install yet — unlock opens one, it does not '
+            'create it. Run onboarding first: /ui_tree to see the screen, then '
+            '/tap and /enter_text.',
+      }, status: 409);
+    }
     if (state.phase != AppPhase.ready) {
       await ref.read(appControllerProvider.notifier).unlock(password);
     }
@@ -5851,7 +5893,17 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     }
     if (_driver.enterText(text)) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
-      return _json(req, {'ok': true, 'text': text});
+      // The LENGTH, never the text. This used to echo what was typed, and the
+      // fields a stand types into are overwhelmingly passwords: the value came
+      // straight back in the response, into whatever captured it — a terminal
+      // scrollback, a CI log, a transcript. The query string is already
+      // redacted for exactly this reason ([kSecretQueryParams]); answering
+      // with the secret undid that one line later.
+      //
+      // A length is what the caller actually needs — it distinguishes "typed"
+      // from "typed nothing" and confirms the field took the whole value —
+      // and it is not the secret.
+      return _json(req, {'ok': true, 'chars': text.length});
     }
     return _json(req, {
       'ok': false,
