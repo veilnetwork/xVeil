@@ -943,11 +943,16 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
       // afterwards is sealed for nobody.
       final theirDoc = link.document;
       if (theirDoc != null && theirDoc.isNotEmpty) {
-        await RealVeilStack.adoptSovereignDocument(
+        final merged = await RealVeilStack.adoptSovereignDocument(
           widget.service.storage,
           document: theirDoc,
           stagingBase: Directory.systemTemp.path,
         );
+        // Hand it to the running node, or the registry it publishes still
+        // names one instance and nothing can be sealed for the new device.
+        if (merged) {
+          await widget.stack.refreshSovereignIdentity(widget.service.storage);
+        }
       }
       final words = _phrase.text.trim();
       _phrase.clear();
