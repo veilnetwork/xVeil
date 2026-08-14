@@ -20036,4 +20036,107 @@ void main() {
       );
     });
   });
+
+  // A DEVICE GROUP TOO BIG FOR ONE FRAME COULD NEVER BE ADOPTED.
+  //
+  // The snapshot that carries a device group travels whole when it fits a
+  // frame and in `groupEntryChunk`s when it does not. Both paths must admit a
+  // sender who is not yet a contact, and they ask different questions:
+  //
+  //   whole   the pending adoption is consulted FIRST, and only then the
+  //           general "may this stranger sync this group to me"
+  //   chunked that general question ALONE — it has to decide whether to spend
+  //           reassembly memory before there is a bundle to look at
+  //
+  // And that question opens with "is this group already in my index", which
+  // for a device being linked is false by construction: the group is the thing
+  // being handed over. So every chunk was dropped in silence, reassembly never
+  // began, and a snapshot that had already arrived was never ingested.
+  //
+  // Measured on two devices on the production network before the fix: six
+  // chunks of a ~17 KB snapshot arrived and left no trace, the sender reported
+  // "sent", and four runs of the ceremony over about forty minutes never
+  // produced the group. After it: ten seconds.
+  //
+  // The tests below pin the exception and its width. It is asserted through
+  // `allowStrangerGroupSync` rather than by driving a chunked transfer,
+  // because that is the decision the chunk path actually makes — a test that
+  // reassembled chunks could pass while this answer stayed wrong.
+  group('a pending device adoption admits the group it is waiting for', () {
+    Future<GroupService> joining(NodeId self) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(self));
+      addTearDown(service.dispose);
+      return service;
+    }
+
+    // The source is taken FROM the invite, not chosen beside it: a node id is
+    // BLAKE3 of the public key, so a token whose `src` and whose invite
+    // disagree is one the reader throws away — as this test found out.
+    final sourceInvite = BootstrapInvite(
+      publicKey: Uint8List.fromList(List.filled(32, 12)),
+      nonce: Uint8List(8),
+    );
+    final otherInvite = BootstrapInvite(
+      publicKey: Uint8List.fromList(List.filled(32, 14)),
+      nonce: Uint8List(8),
+    );
+
+    DeviceLinkToken ticket(NodeId gid) => DeviceLinkToken(
+      groupId: gid,
+      source: sourceInvite.nodeId,
+      manifestHash: Uint8List.fromList(List.filled(32, 7)),
+      sourceInvite: sourceInvite,
+      // 2100-01-01: far enough that a slow machine cannot expire it mid-test.
+      expiresAtMs: 4102444800000,
+    );
+
+    final self = _id(11);
+    final source = sourceInvite.nodeId;
+    final gid = _id(13);
+
+    test('without a ceremony an unknown group is refused, as before', () async {
+      final svc = await joining(self);
+      expect(await svc.allowStrangerGroupSync(source, gid.hex), isFalse);
+    });
+
+    test('with the ceremony pending it is admitted', () async {
+      final svc = await joining(self);
+      expect(await svc.prepareDeviceAdoption(ticket(gid)), isTrue);
+      expect(
+        await svc.allowStrangerGroupSync(source, gid.hex),
+        isTrue,
+        reason: 'the chunked snapshot of the group being linked must be let '
+            'through, or reassembly never starts and linking cannot finish',
+      );
+    });
+
+    // The width of the exception is the whole of its safety: it is one group,
+    // from one device, for as long as this device is expecting it.
+    test('only from the device the token names', () async {
+      final svc = await joining(self);
+      await svc.prepareDeviceAdoption(ticket(gid));
+      expect(await svc.allowStrangerGroupSync(otherInvite.nodeId, gid.hex), isFalse);
+    });
+
+    test('only for the group the token names', () async {
+      final svc = await joining(self);
+      await svc.prepareDeviceAdoption(ticket(gid));
+      expect(await svc.allowStrangerGroupSync(source, _id(15).hex), isFalse);
+    });
+
+    test('and it ends when the ceremony does', () async {
+      final svc = await joining(self);
+      await svc.prepareDeviceAdoption(ticket(gid));
+      expect(await svc.allowStrangerGroupSync(source, gid.hex), isTrue);
+      await svc.cancelPendingDeviceAdoption();
+      expect(
+        await svc.allowStrangerGroupSync(source, gid.hex),
+        isFalse,
+        reason: 'a cancelled adoption must not leave a standing permission',
+      );
+    });
+  });
+
 }
