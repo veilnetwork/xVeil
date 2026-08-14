@@ -426,6 +426,10 @@ class EmbeddedNode {
     // [withBuiltinSeedPolicy] for why an empty [bootstrapPeers] does not
     // already mean that.
     bool useBundledSeeds = true,
+    // Where this device's sovereign identity material was laid out. Null on a
+    // node that has none — see [withIdentityDir] for why the node cannot find
+    // it otherwise.
+    String? identityDir,
   }) {
     return _composeConfigImpl(
       identityToml: identityToml,
@@ -440,6 +444,7 @@ class EmbeddedNode {
       obfs4PskFile: obfs4PskFile,
       proxy: proxy,
       useBundledSeeds: useBundledSeeds,
+      identityDir: identityDir,
     );
   }
 
@@ -494,6 +499,40 @@ class EmbeddedNode {
       r'^[ \t]*builtin_seed_policy[ \t]*=.*$',
       multiLine: true,
     );
+    if (rendered.hasMatch(toml)) return toml.replaceAll(rendered, line);
+    const marker = '[global]\n';
+    final idx = toml.indexOf(marker);
+    if (idx >= 0) {
+      final at = idx + marker.length;
+      return '${toml.substring(0, at)}$line\n${toml.substring(at)}';
+    }
+    return '$toml\n[global]\n$line\n';
+  }
+
+  /// Name the directory the node must read its identity material from.
+  ///
+  /// WITHOUT THIS THE MATERIAL IS UNREACHABLE, however correctly it was
+  /// provisioned. veil takes the identity directory to be the one holding the
+  /// node's config file — and under deferred init, which is how this app starts
+  /// its node, veil itself stages that config in a per-boot temp directory of
+  /// its own making: a random name, created after the app has handed over, and
+  /// scrubbed on shutdown. So there is no moment at which the app could put a
+  /// document there, and a node that finds none builds the degenerate
+  /// `master_pk == device_pk` document instead — the exact state in which two
+  /// devices restored from one phrase collapse into a single node.
+  ///
+  /// Measured, not reasoned: with the material laid out in the runtime
+  /// directory and this key absent, the node logged
+  /// `sovereign_identity.standalone_built` while all three files sat next to
+  /// its sockets.
+  ///
+  /// Pure helper (no FFI), so it is unit-testable — same shape as
+  /// [withBuiltinSeedPolicy], and the same duplicate-key hazard: a rendered
+  /// `[global]` may already carry the key.
+  static String withIdentityDir(String toml, String? dir) {
+    if (dir == null || dir.isEmpty) return toml;
+    final line = 'identity_dir = "$dir"';
+    final rendered = RegExp(r'^[ \t]*identity_dir[ \t]*=.*$', multiLine: true);
     if (rendered.hasMatch(toml)) return toml.replaceAll(rendered, line);
     const marker = '[global]\n';
     final idx = toml.indexOf(marker);
@@ -799,6 +838,7 @@ class EmbeddedNode {
     String? obfs4PskFile,
     ProxyRouting proxy = ProxyRouting.disabled,
     bool useBundledSeeds = true,
+    String? identityDir,
   }) {
     final dl = lib ?? _veilLib();
     final composeFn = dl.lookupFunction<_ComposeNative, _ComposeDart>(
@@ -845,27 +885,33 @@ class EmbeddedNode {
       }
       final toml = out.toDartString();
       freeStr(out);
-      return withBuiltinSeedPolicy(
-        withTransportRotation(
-          withSessionKeepalive(
-            withObfs4PskFile(
-              withUdpReflectors(
-                withProxy(
-                  withBootstrapPeers(
-                    withClientNodeRole(
-                      withLazyMining(withAnonymity(toml, anonymous), lazyMining),
+      return withIdentityDir(
+        withBuiltinSeedPolicy(
+          withTransportRotation(
+            withSessionKeepalive(
+              withObfs4PskFile(
+                withUdpReflectors(
+                  withProxy(
+                    withBootstrapPeers(
+                      withClientNodeRole(
+                        withLazyMining(
+                          withAnonymity(toml, anonymous),
+                          lazyMining,
+                        ),
+                      ),
+                      bootstrapPeers,
                     ),
-                    bootstrapPeers,
+                    proxy,
                   ),
-                  proxy,
+                  udpReflectors,
                 ),
-                udpReflectors,
+                obfs4PskFile,
               ),
-              obfs4PskFile,
             ),
           ),
+          useBundledSeeds,
         ),
-        useBundledSeeds,
+        identityDir,
       );
     } finally {
       // Only ptrs[0]/args[0] hold a secret; the rest are socket paths. Wiping
