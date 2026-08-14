@@ -583,20 +583,75 @@ Future<BootstrapResult> _bootstrapOverrides() async {
   return (overrides: overrides, secureStorageReady: secureStorageReady);
 }
 
+/// What to complain about when the bundled obfs4 key did not arrive, or null
+/// when its absence is the ordinary, expected kind.
+///
+/// TWO CAUSES WORE THE SAME ANSWER, and that is the defect this exists to end.
+/// `null` used to mean both "this is a clean clone and the gitignored asset was
+/// never bundled" — which is correct and must stay quiet — and "the asset IS
+/// bundled and could not be read", which is a shipped build that can never
+/// reach the production network. Without the key the transport refuses every
+/// obfs4 bootstrap peer before any handshake, so the app starts, looks healthy,
+/// and connects to nothing.
+///
+/// The one place that said anything went through `devLog`, which a release
+/// build compiles out — so on exactly the builds where this matters it was
+/// invisible. The complaint is therefore recorded where a shipped build can
+/// still show it: the error journal behind "copy error report".
+///
+/// Pure, so both arms are reachable from a test with no asset bundle.
+@visibleForTesting
+String? bundledObfs4PskComplaint({
+  required bool assetMissing,
+  required String? raw,
+}) {
+  if (assetMissing) return null; // clean clone — expected, say nothing
+  if (raw == null) {
+    return 'the bundled obfs4 key is present but could not be read; '
+        'without it every bootstrap peer is refused before any handshake';
+  }
+  if (raw.trim().isEmpty) {
+    return 'the bundled obfs4 key is present but empty; '
+        'without it every bootstrap peer is refused before any handshake';
+  }
+  return null;
+}
+
 /// Load the deployment-wide obfs4 PSK bundled at `assets/prod/obfs4_psk.b64`
 /// (gitignored — present in production builds, absent in clean clones). Returns
 /// null when the asset is missing/empty, so the node simply has no PSK (the
 /// graceful-degradation path) rather than blocking launch. This is the mobile
 /// equivalent of the desktop `XVEIL_OBFS4_PSK` env var.
+///
+/// Degrading gracefully is right; degrading SILENTLY was not — see
+/// [bundledObfs4PskComplaint].
 Future<String?> _loadBundledObfs4Psk() async {
+  String? raw;
+  var assetMissing = false;
   try {
-    final raw = (await rootBundle.loadString(
-      'assets/prod/obfs4_psk.b64',
-    )).trim();
-    return raw.isEmpty ? null : raw;
+    raw = (await rootBundle.loadString('assets/prod/obfs4_psk.b64')).trim();
+  } on FlutterError {
+    // The asset is not in the manifest at all: `loadString` answers a missing
+    // asset with a FlutterError, and that is the clean-clone case. Anything
+    // else — a platform read that failed, a decode that failed — is a bundled
+    // asset this build could not get at, and is worth saying out loud.
+    assetMissing = true;
   } catch (_) {
-    return null; // asset not bundled (clean clone) — degrade gracefully
+    raw = null;
   }
+  final complaint = bundledObfs4PskComplaint(
+    assetMissing: assetMissing,
+    raw: raw,
+  );
+  if (complaint != null) {
+    errorJournal.record(
+      kind: 'network',
+      error: complaint,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    devLog(() => 'xVeil[bootstrap]: $complaint');
+  }
+  return (raw == null || raw.isEmpty) ? null : raw;
 }
 
 /// Load bootstrap peers from the local JSON file named by `XVEIL_BOOTSTRAP_PEERS`
