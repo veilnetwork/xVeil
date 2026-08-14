@@ -28,6 +28,10 @@ import 'package:xveil/core/posix_file_facts.dart' show posixChmod;
 /// is correct for one device and fatal for two — restoring the same phrase on
 /// a second device produces the same node, not a second device of one
 /// identity, which is why linking answers "self device".
+///
+/// See also [instanceIdFrom], which pulls THIS device's instance id back out of
+/// the stored blob — the value that tells two devices of one identity apart
+/// once their invites stopped doing it.
 
 /// The document that names this identity and its device keys. Public.
 const kIdentityDocumentFile = 'identity_document.bin';
@@ -173,4 +177,21 @@ Future<void> materialiseSovereignIdentity(
       posixChmod(path, 0x180); // 0600
     }
   }
+}
+
+/// THIS device's instance id, out of the stored sovereign blob.
+///
+/// The value that tells two devices of one identity apart. Their invites no
+/// longer can: an invite names the identity, deliberately, so every device of
+/// it hands out the same string. Null when the blob is absent or carries no
+/// instance — an identity with no sovereign material has one device by
+/// definition, and the caller falls back to comparing node ids.
+///
+/// Takes the stored STRING rather than a Storage: the decoding is the whole
+/// job, and a pure function of it can be tested without a container.
+Uint8List? instanceIdFrom(String? encoded) {
+  if (encoded == null || encoded.isEmpty) return null;
+  final files = decodeSovereignIdentity(encoded);
+  final id = files?[kInstanceIdFile];
+  return (id == null || id.isEmpty) ? null : id;
 }
