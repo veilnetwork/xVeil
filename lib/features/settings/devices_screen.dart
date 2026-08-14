@@ -21,6 +21,59 @@ import '../contacts/qr_scan_screen.dart';
 import '../common/relative_time.dart';
 import '../../core/secure_screen.dart';
 
+/// How long a device-group snapshot send is allowed to take before the person
+/// is told something instead of nothing.
+///
+/// Generous on purpose. The same transfer measured 1.9–3.0 s for 200 KB and
+/// 2.7 s for 5 MB over the live overlay, so a minute is not a race — it is the
+/// point at which "still going" stops being a plausible reading of a spinner.
+const kDeviceSnapshotSendTimeout = Duration(seconds: 60);
+
+/// What a device-group snapshot send did.
+enum DeviceSnapshotSend {
+  /// Delivered to at least one other member.
+  sent,
+
+  /// The group has nobody else in it, so there was nothing to send.
+  noTargets,
+
+  /// Still unfinished when the clock ran out — almost always the other device
+  /// being offline.
+  timedOut,
+
+  /// It threw.
+  failed,
+}
+
+/// Send the device-group snapshot, bounded.
+///
+/// The linking sheet used to `await service.broadcastDeviceGroup()` with no
+/// limit of any kind, and that call awaits delivery to every member in turn. A
+/// device that is not reachable therefore produced a spinner that could not
+/// finish and said nothing while it did not — a person pressed send and was
+/// still watching it five minutes later.
+///
+/// The timeout stops the WAITING, not the sending: the broadcast keeps running
+/// and may still land. That is deliberate — the point is to stop lying to the
+/// person about what is happening, not to cancel a transfer that might yet
+/// succeed.
+///
+/// Takes the send itself rather than the service so all four outcomes are
+/// reachable from a test with no group, no transport and no second device.
+Future<DeviceSnapshotSend> sendDeviceSnapshotBounded(
+  Future<int> Function() broadcast, {
+  Duration timeout = kDeviceSnapshotSendTimeout,
+}) async {
+  try {
+    final count = await broadcast().timeout(timeout);
+    return count < 1 ? DeviceSnapshotSend.noTargets : DeviceSnapshotSend.sent;
+  } on TimeoutException {
+    return DeviceSnapshotSend.timedOut;
+  } catch (_) {
+    return DeviceSnapshotSend.failed;
+  }
+}
+
 /// Whether the onboarding hand-off should open the join sheet on THIS build.
 ///
 /// Extracted as a pure function for the same reason `redirectForPhase` was:
@@ -68,6 +121,10 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   /// The auto-open has fired. Guards against re-opening the sheet on every
   /// rebuild, and against re-opening it after the user closes it.
   bool _autoJoinFired = false;
+
+  /// A re-send is in flight. Separate from `_loading`, which is the initial
+  /// member read: a re-send must not blank the list it was started from.
+  bool _resending = false;
 
   @override
   void initState() {
@@ -178,6 +235,28 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       builder: (_) => _TargetLinkSheet(service: svc, stack: stack),
     );
     if (changed == true) await _reload();
+  }
+
+  /// Re-send the device-group snapshot to everyone already in the group.
+  ///
+  /// No phrase and no token: the membership is already signed, so this is only
+  /// the delivery half repeating itself. Bounded, and it says which of the
+  /// three things happened.
+  Future<void> _resendSnapshot() async {
+    final l = AppL10n.of(context);
+    final svc = ref.read(groupServiceProvider);
+    if (svc == null) return;
+    setState(() => _resending = true);
+    final outcome = await sendDeviceSnapshotBounded(svc.broadcastDeviceGroup);
+    if (!mounted) return;
+    setState(() => _resending = false);
+    final text = switch (outcome) {
+      DeviceSnapshotSend.sent => l.devicesSetupSent,
+      DeviceSnapshotSend.timedOut => l.devicesSendUnreachable,
+      DeviceSnapshotSend.noTargets => l.devicesSendNoTargets,
+      DeviceSnapshotSend.failed => l.devicesOperationFailed,
+    };
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   Future<void> _revoke(NodeId device) async {
@@ -297,6 +376,32 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                       ),
               ),
           const Divider(),
+          // THE WAY BACK TO "SEND", which did not exist.
+          //
+          // Linking signs the new device into the registry and THEN sends it
+          // the snapshot, and those are two separate steps in one sheet. The
+          // joining side persists its half — it restores the pending admission
+          // and shows "waiting" for as long as it takes. This side kept the
+          // whole thing in a field: close the sheet and the minted token is
+          // gone, the sheet reopens at "paste an invite", and the send step is
+          // unreachable.
+          //
+          // So the pair stranded. The other device sat waiting for a send that
+          // no screen could offer any more, and the membership it was waiting
+          // on had already been signed. Reported by a person in exactly that
+          // position, on a phone that could not join a desktop three metres
+          // away.
+          //
+          // Offered whenever the group has somebody else in it, because that
+          // is precisely when a re-send can do something.
+          if (_members.length > 1)
+            ListTile(
+              leading: const Icon(Icons.send_outlined),
+              title: Text(l.devicesResendSetup),
+              subtitle: Text(_resending ? l.devicesWaitHint : l.devicesResendHint),
+              enabled: !_resending,
+              onTap: _resending ? null : _resendSnapshot,
+            ),
           ListTile(
             leading: const Icon(Icons.add_link),
             title: Text(l.devicesLinkNew),
@@ -807,18 +912,25 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
   Future<void> _send() async {
     final l = AppL10n.of(context);
     setState(() => _busy = true);
-    try {
-      final count = await widget.service.broadcastDeviceGroup();
-      if (count < 1) throw StateError('no target');
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l.devicesSetupSent)));
-      Navigator.of(context).pop(true);
-    } catch (_) {
-      if (mounted) setState(() => _error = l.devicesOperationFailed);
-    } finally {
-      if (mounted) setState(() => _busy = false);
+    final outcome = await sendDeviceSnapshotBounded(
+      widget.service.broadcastDeviceGroup,
+    );
+    if (!mounted) return;
+    setState(() => _busy = false);
+    switch (outcome) {
+      case DeviceSnapshotSend.sent:
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.devicesSetupSent)));
+        Navigator.of(context).pop(true);
+      // Each of these used to be the same "could not complete device linking",
+      // and one of them used to be no message at all, forever.
+      case DeviceSnapshotSend.timedOut:
+        setState(() => _error = l.devicesSendUnreachable);
+      case DeviceSnapshotSend.noTargets:
+        setState(() => _error = l.devicesSendNoTargets);
+      case DeviceSnapshotSend.failed:
+        setState(() => _error = l.devicesOperationFailed);
     }
   }
 

@@ -11137,6 +11137,30 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'That change could not be saved, so it was not applied.'**
   String get seedsSwitchSaveFailed;
+
+  /// Action on the devices screen: re-send the device-group snapshot to already-linked devices. Reachable after the linking sheet was closed, which used to strand the other device waiting forever.
+  ///
+  /// In en, this message translates to:
+  /// **'Send the encrypted setup again'**
+  String get devicesResendSetup;
+
+  /// Subtitle for devicesResendSetup.
+  ///
+  /// In en, this message translates to:
+  /// **'For a device that is already linked but never received it'**
+  String get devicesResendHint;
+
+  /// Shown when sending the device-group snapshot ran out of time. Replaces an indefinite spinner.
+  ///
+  /// In en, this message translates to:
+  /// **'The other device did not answer. Open xVeil there, wait for it to connect, then try again.'**
+  String get devicesSendUnreachable;
+
+  /// Shown when a snapshot send found no other member of the device group.
+  ///
+  /// In en, this message translates to:
+  /// **'No linked device to send to yet'**
+  String get devicesSendNoTargets;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
