@@ -100,6 +100,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// for. The identity minted at the end is temporary — it carries this device
   /// onto the network so the existing device can approve it.
   void _startLink() {
+    // Reset like the create path does. Reaching this after backing out of the
+    // restore step would otherwise carry `_restoring` here, and a device that
+    // links has no phrase at all — the flag is inert today only because the
+    // derivation it steers sits behind a "phrase is not empty" guard.
+    _restoring = false;
     _realPhrase = false;
     _phrase = const [];
     _phraseConfirmed = false;
