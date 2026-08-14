@@ -10,13 +10,23 @@ import 'package:xveil/headless/secret_file.dart';
 
 Future<void> main(List<String> args) async {
   try {
-    if (args.isEmpty || args.first == 'help' || args.first == '--help') {
+    // `--help` ANYWHERE, not just first. `xveil init-config --help` used to
+    // take the flag as the output PATH and write a config file called
+    // `--help` into the working directory — the one thing a person typing
+    // --help is certainly not asking for.
+    if (args.isEmpty ||
+        args.any((a) => a == 'help' || a == '--help' || a == '-h')) {
       _usage();
       return;
     }
     switch (args.first) {
       case 'init-config':
         if (args.length != 2) throw const FormatException('need output path');
+        // A path that looks like a flag is a typo, not a destination. Writing
+        // to it leaves a file nobody asked for and named after the mistake.
+        if (args[1].startsWith('-')) {
+          throw FormatException('${args[1]} looks like an option, not a path');
+        }
         final file = File(args[1]);
         if (await file.exists()) {
           throw StateError('${file.path} already exists');
@@ -91,7 +101,9 @@ Future<void> _run(List<String> args) async {
     final fromEnv = Platform.environment['XVEIL_API_FILE_ROOTS'];
     if (fromEnv != null && fromEnv.isNotEmpty) {
       fileRoots.addAll(
-        fromEnv.split(Platform.isWindows ? ';' : ':').where((r) => r.isNotEmpty),
+        fromEnv
+            .split(Platform.isWindows ? ';' : ':')
+            .where((r) => r.isNotEmpty),
       );
     }
   }
