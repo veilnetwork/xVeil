@@ -375,6 +375,37 @@ String controlReceiptKey(ControlEntry entry) =>
 String groupMessageReceiptKey(GroupMessage message) =>
     '${message.author.hex}:${message.seq}:${message.createdAtMs}';
 
+/// Who a snapshot goes to.
+///
+/// Pure, because it is the one decision this whole area kept getting wrong and
+/// it should be answerable without a transport, a group or a second device.
+///
+/// A DEVICE group is addressed member by member, and "which member is me" is
+/// asked of [myDevice] — never of [identity]. Every device of an identity
+/// shares the identity, so filtering a device group by it drops the wrong one:
+/// on a device restored into an existing identity it removes the SIBLING and
+/// keeps this device, which is a send to nobody wearing the shape of a send to
+/// somebody. With no known device id the identity filter stands, which is right
+/// for every group whose members are separate identities.
+///
+/// An ordinary group also drops the [owner], who is not a delivery target.
+List<NodeId> snapshotRecipients({
+  required bool isDeviceGroup,
+  required List<NodeId> members,
+  required NodeId identity,
+  required NodeId? myDevice,
+  required NodeId owner,
+}) {
+  if (isDeviceGroup) {
+    final me = myDevice ?? identity;
+    return [for (final m in members) if (m != me) m];
+  }
+  return [
+    for (final m in members)
+      if (m != identity && m != owner) m,
+  ];
+}
+
 class GroupService {
   GroupService(
     this._storage,
@@ -407,6 +438,7 @@ class GroupService {
     this._spaceDiscoveryTransport,
     this.contentRequestFanoutTimeout = const Duration(seconds: 8),
     this.contentGrantDelay = const Duration(seconds: 4),
+    this.myDevice,
     SpaceObservability? observability,
   }) : _observability = observability ?? SpaceObservability();
   final Storage _storage;
@@ -416,6 +448,22 @@ class GroupService {
   /// when another device announces its document.
   Storage get storage => _storage;
   final GroupSigner _signer;
+
+  /// THIS DEVICE's transport id, when the host knows it.
+  ///
+  /// Not the same question as [GroupSigner.selfId], which is the IDENTITY —
+  /// shared by every device of it. A device group's members are devices, so
+  /// "which member is me?" can only be answered by the device id: on a device
+  /// restored into an existing identity the two differ, and on the device that
+  /// booted on the master key they coincide. Filtering a device group by the
+  /// identity therefore drops the wrong member — on the restored device it
+  /// removes its SIBLING and keeps itself, which is a send to nobody with the
+  /// shape of a send to somebody.
+  ///
+  /// Null on fakes and on hosts with no live transport; the fan-out falls back
+  /// to the identity, which is right for every group whose members are separate
+  /// identities.
+  final NodeId? myDevice;
   final GroupSnapshotSender? _send;
   final SpaceInviteSender? sendSpaceInvite;
   final SpaceInviteDecisionSender? sendSpaceInviteDecision;
@@ -17182,25 +17230,40 @@ class GroupService {
     try {
       // WHO a snapshot goes to, which differs by the kind of group.
       //
-      // A DEVICE group's members are device node ids, and nothing publishes
-      // those: the identity is the published unit, deliberately, so the network
-      // cannot be asked to enumerate somebody's devices. Addressing a member
-      // directly resolves nothing and the send dies unacknowledged. Delivery
-      // goes to the IDENTITY instead, once, and the runtime seals a copy for
-      // every device of it except the one sending -- which is why the members
-      // are still worth keeping: they are who may read it, not where it goes.
+      // A DEVICE group is addressed MEMBER BY MEMBER, like any other. This used
+      // to address the identity once and let the runtime seal a copy per
+      // device, on the belief that a device is not addressable — "nothing
+      // publishes device node ids". Both halves of that turned out to be wrong:
       //
-      // An ordinary group is unchanged: its members are separate identities,
-      // each addressable, and this device is not one of them.
-      final recipients = b.manifest.isSovereignDevice
-          ? (state.members.length > 1
-                ? <NodeId>[_signer.selfId]
-                : const <NodeId>[])
-          : [
-              for (final m in state.members.values)
-                if (m.nodeId != _signer.selfId && m.nodeId != b.manifest.owner)
-                  m.nodeId,
-            ];
+      //   * the instance registry publishes every device of an identity, so
+      //     they are enumerable to anyone who resolves it — the linking
+      //     ceremony's whole point is that the registry then names both;
+      //   * a device IS addressable. The ceremony hands over the sibling's own
+      //     invite and adds it as a peer, so a route to it exists before the
+      //     first snapshot is ever sent.
+      //
+      // Addressing the identity cost two things. Rendezvous resolves an
+      // identity to ONE device, and for the sender that device is itself:
+      // measured on a two-device stand as seven inbound frames arriving back at
+      // the source and nothing at the sibling. And sealing to an identity puts
+      // one ML-KEM envelope per device into ONE blob, which the mailbox refuses
+      // past a couple of devices because a FETCH reply cannot carry it back.
+      // Addressing a device sidesteps both: the route is exact and the envelope
+      // is one.
+      //
+      // WHICH member is me is asked of [myDevice], never of the identity. On a
+      // device restored into an existing identity those differ, and filtering
+      // by the identity there drops the SIBLING and keeps this device — a send
+      // to nobody wearing the shape of a send to somebody. Without a known
+      // device id the old identity filter stands, which is correct for every
+      // group whose members are separate identities.
+      final recipients = snapshotRecipients(
+        isDeviceGroup: b.manifest.isSovereignDevice,
+        members: [for (final m in state.members.values) m.nodeId],
+        identity: _signer.selfId,
+        myDevice: myDevice,
+        owner: b.manifest.owner,
+      );
       for (final recipient in recipients) {
         final receipt = _beginSpaceReceipt(b, recipient);
         try {

@@ -550,6 +550,16 @@ class VeilFlutterTransport
   @override
   Future<NodeId> nodeId() async => _nodeId;
 
+  /// THIS DEVICE's transport id, synchronously.
+  ///
+  /// The same value [nodeId] returns — it is cached at connect — but callers
+  /// that have to answer "is this member me?" cannot await, and the question is
+  /// asked per member. On a device restored into an existing identity this is
+  /// its OWN key and differs from the identity address; on a device that booted
+  /// on the master key the two coincide. Both are correct, and confusing them
+  /// is the mistake this whole area keeps making.
+  NodeId get deviceNodeId => _nodeId;
+
   /// Recipient-bound mailbox crypto for shared-document epoch envelopes. It
   /// uses the same live node identity as offline delivery without exposing the
   /// underlying IPC client.

@@ -138,6 +138,10 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     signer,
     epochService: GroupEpochService(epochCrypto),
     ourCertVersion: 1,
+    // THIS DEVICE, so a device group can tell which member is us. The identity
+    // cannot answer that — every device of it shares the identity — and on a
+    // restored device the two values genuinely differ.
+    myDevice: transport is VeilFlutterTransport ? transport.deviceNodeId : null,
     send: (peer, groupId, json) =>
         messaging.sendGroupSnapshot(peer, groupId.hex, json),
     sendSpaceInvite: messaging.sendSpaceInvite,
