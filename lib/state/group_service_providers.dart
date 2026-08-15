@@ -8,6 +8,7 @@ import '../data/node/embedded_node.dart';
 import '../data/node/identity_config_fields.dart';
 import '../data/node/space_discovery_transport.dart';
 import '../data/transport/bootstrap_invite.dart';
+import '../data/veil_stack.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_mailbox.dart';
 import '../domain/chat.dart' show MessageDirection;
@@ -19,6 +20,7 @@ import 'app_controller.dart';
 import 'cloud_capability_service.dart' show cloudProviderSlotFor;
 import 'cloud_document_providers.dart';
 import 'group_epoch_service.dart';
+import 'group_crypto.dart';
 import 'group_service.dart';
 import 'messaging_core.dart';
 import 'messaging_providers.dart';
@@ -352,6 +354,39 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // Assigned rather than constructed because reading it is asynchronous and
   // this provider is not. Until it lands a device group sends nothing, which is
   // the safe half of the trade — see `snapshotRecipients`.
+  // OUR OWN DOCUMENT, so a signature made by THIS DEVICE's subkey verifies.
+  //
+  // Verification binds a key to an author by hash, which is right when someone
+  // signs with their own key and wrong for an identity with several devices —
+  // the author is the identity, the key is the device's. Without the document a
+  // restored device fails to verify its OWN messages, and they end up stored,
+  // invisible and unsent at once.
+  //
+  // Held as a cached value because the lookup is synchronous and reading the
+  // container is not. Re-read whenever this provider rebuilds, which is what a
+  // linking or an identity switch already causes — so a document that gained a
+  // device is picked up without anything else being told.
+  //
+  // Only OUR identity is answered here. A peer's document travels with its
+  // snapshot and is a separate wiring; until it exists their device subkeys
+  // verify exactly as they did before, which is to say not at all — the safe
+  // direction, since the alternative would be accepting what we cannot justify.
+  Uint8List? ownDocument;
+  final ownIdentity = signer.selfId;
+  unawaited(
+    RealVeilStack.storedSovereignDocument(ref.read(storageProvider))
+        .then((doc) => ownDocument = doc)
+        .catchError((Object e) {
+          // A locked container is not an error worth surfacing: the lookup
+          // simply keeps answering null until something reads it again.
+          return null;
+        }),
+  );
+  setIdentityDocumentLookup(
+    (identity) => identity == ownIdentity ? ownDocument : null,
+  );
+  ref.onDispose(() => setIdentityDocumentLookup(null));
+
   // Given as a READER, not a value. The eager version ran before the store was
   // unlocked, threw "storage is locked", and left the id null for the rest of
   // the session — invisible on the master-key device, and on a restored one the
