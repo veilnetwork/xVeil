@@ -102,7 +102,7 @@ void _instanceTests() {
     nonce: Uint8List.fromList([seed, seed + 1, seed + 2, seed + 3]),
   );
 
-  DeviceLinkToken token({NodeId? device}) {
+  DeviceLinkToken token({NodeId? device, Uint8List? document}) {
     final src = invite(7);
     return DeviceLinkToken(
       groupId: invite(9).nodeId,
@@ -111,8 +111,41 @@ void _instanceTests() {
       sourceInvite: src,
       expiresAtMs: 123456789,
       sourceDevice: device,
+      document: document,
     );
   }
+
+  // The return leg of the document exchange the invite opens.
+  //
+  // The invite carries the TARGET's document to the source, so the source can
+  // merge before it seals anything. Nothing came back, so the target finished
+  // the ceremony holding a document that named only itself — publishing a
+  // registry of one, unable to seal to the device it had just been linked to.
+  // The link worked in one direction and looked finished.
+  group('the source document rides the token back', () {
+    final doc = Uint8List.fromList(List.generate(300, (i) => (i * 11) % 256));
+
+    test('a document survives both spellings', () {
+      final t = token(document: doc);
+      expect(DeviceLinkToken.parse(t.toUri()).document, doc);
+      expect(DeviceLinkToken.fromJson(t.toJson())!.document, doc);
+    });
+
+    test('no document is not an empty one', () {
+      final t = token();
+      expect(t.toUri().contains('doc='), isFalse);
+      expect(t.toJson().containsKey('doc'), isFalse);
+      expect(DeviceLinkToken.parse(t.toUri()).document, isNull);
+    });
+
+    // The token is a URI split on '&' and '=', so standard base64 would be cut
+    // apart by its own padding — same reason the invite strips it.
+    test('a document carrying + and / and padding survives', () {
+      final awkward = Uint8List.fromList([251, 255, 254, 250, 0, 1]);
+      final back = DeviceLinkToken.parse(token(document: awkward).toUri());
+      expect(back.document, awkward);
+    });
+  });
 
   test('the issuing device survives both spellings', () {
     final d = invite(3).nodeId;
