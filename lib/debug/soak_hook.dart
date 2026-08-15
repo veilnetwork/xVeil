@@ -2215,7 +2215,16 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final svc = _groupSvc();
     if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
     final count = await svc.broadcastDeviceGroup();
-    return _json(req, {'ok': count > 0, 'sent': count});
+    // Membership first, then everything the identity already holds. The device
+    // group says WHO the siblings are and nothing about what was ever said, so
+    // a device linked without this adopts the group correctly and shows an
+    // empty history — which looks like a working link right up until somebody
+    // opens a conversation.
+    var seeded = 0;
+    for (final device in await svc.otherDeviceIds()) {
+      seeded += await svc.seedDevice(device);
+    }
+    return _json(req, {'ok': count > 0, 'sent': count, 'seeded': seeded});
   }
 
   Future<void> _deviceLinkHook(HttpRequest req) async {
