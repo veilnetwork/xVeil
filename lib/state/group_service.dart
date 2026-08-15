@@ -140,9 +140,17 @@ List<NodeId> nearestGroupNodesByXor(
   int k = GroupService.kGroupSyncNeighbors,
 }) {
   if (k <= 0) return const [];
+  // No self-filter here, and its absence is deliberate. `self` is the SORT
+  // ORIGIN — the identity — and the master device's transport id IS that
+  // identity, so `member != self` silently removed the master from every
+  // sparse delta a sibling sent. The candidate lists are built self-free at
+  // every call site (the member scan drops the identity, `otherDeviceIds`
+  // drops this device), which is the layer that knows the difference between
+  // "me the identity" and "me the device". Measured on the stand: a sibling's
+  // post fanned out ONLY to a deleted third device, the master received
+  // nothing, and the sender logged a successful broadcast.
   final unique = <String, NodeId>{
-    for (final member in members)
-      if (member != self) member.hex: member,
+    for (final member in members) member.hex: member,
   }.values.toList();
   unique.sort((left, right) => _compareXorDistance(self, left, right));
   return unique.length <= k ? unique : unique.sublist(0, k);
